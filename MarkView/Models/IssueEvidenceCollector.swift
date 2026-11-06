@@ -45,6 +45,7 @@ enum IssueEvidenceCollector {
                 && (commit.paths.isEmpty || !commit.paths.allSatisfy(DocumentationPaths.isDocumentation))
         }
         var matches = matching(candidates, subject)
+        matches = mergeMatches(matches, discussionMatches(candidates, subject: subject, root: root), order: candidates)
         // The log is a window: when it ends after the work started, work in between cannot be seen.
         let reachedStart = start.map { start in history.count < logLimit || history.last.map { $0.date <= start } ?? true } ?? true
         if !reachedStart {
@@ -52,20 +53,24 @@ enum IssueEvidenceCollector {
         } else {
             sources.append(.available("git"))
         }
-        let required = ReleaseRequirement.isRequired(definitionOfDoneJSON: try? Data(contentsOf: root.appendingPathComponent(".dde/definition-of-done.json")))
+        let definition = try? Data(contentsOf: root.appendingPathComponent(".dde/definition-of-done.json"))
+        let required = ReleaseRequirement.isRequired(definitionOfDoneJSON: definition)
+        let guide = try? String(contentsOf: root.appendingPathComponent("CLAUDE.md"), encoding: .utf8)
+        let policy = ProjectDeliveryPolicy.read(definition: definition, guide: guide)
 
+        let needsGitHub = policy.checksRequired || policy.pullRequestRequired || required
         var client: GitHubClient?
         if githubEnabled {
             if GitHubClient.ghPath() == nil {
-                sources.append(.unavailable("GitHub", "the GitHub CLI (gh) is not installed"))
+                if needsGitHub { sources.append(.unavailable("GitHub", "the GitHub CLI (gh) is not installed")) }
             } else if let repo = await GitHubClient.detectRepos(root: root).first(where: { !$0.isUpstream }) {
                 client = GitHubClient(root: root, repo: repo)
                 sources.append(.available("GitHub"))
             } else {
-                sources.append(.unavailable("GitHub", "this project has no GitHub remote"))
+                if needsGitHub { sources.append(.unavailable("GitHub", "this project has no GitHub remote")) }
             }
-        } else {
-            sources.append(.unavailable("GitHub", "the GitHub integration is off, so checks and releases cannot be read"))
+        } else if needsGitHub {
+            sources.append(.unavailable("GitHub", "the GitHub integration is off, so required checks, pull requests or releases cannot be read"))
         }
 
         // Merge commits normally contain only the PR title, not its body or the messages of the commits merged.
@@ -77,7 +82,7 @@ enum IssueEvidenceCollector {
         if let client {
             let prBodies = await pullRequestMatches(candidates, subject: subject, client: client)
             matches = mergeMatches(matches, prBodies.matches, order: candidates)
-            if let reason = prBodies.error { sources.append(.unavailable("GitHub pull requests", reason)) }
+            if let reason = prBodies.error, needsGitHub { sources.append(.unavailable("GitHub pull requests", reason)) }
         }
         if matches.count > unitLimit {
             sources.append(.unavailable("git", "\(matches.count) commits name this item; only the newest \(unitLimit) can be read"))
@@ -85,7 +90,7 @@ enum IssueEvidenceCollector {
 
         var work: [WorkUnit] = []
         for match in matches.prefix(unitLimit) {
-            work.append(await unit(for: match, root: root, client: client))
+            work.append(await unit(for: match, root: root, client: client, checksRequired: policy.checksRequired))
         }
         var releases: [WorkRef: ReleaseState] = [:]
         if required {
@@ -95,7 +100,8 @@ enum IssueEvidenceCollector {
                 releases[item.ref] = await release(containing: item, among: all, client: client, root: root)
             }
         }
-        return DeliveryEvaluator.evaluate(DeliveryInput(sources: sources, work: work, releaseRequired: required, releases: releases, since: subject.since))
+        return DeliveryEvaluator.evaluate(DeliveryInput(sources: sources, work: work, releaseRequired: required, releases: releases, since: subject.since,
+                                                        pullRequestRequired: policy.pullRequestRequired, checksRequired: policy.checksRequired))
     }
 
     // MARK: Git
@@ -135,6 +141,31 @@ enum IssueEvidenceCollector {
                 Match(commit: commit, association: $0, pullRequest: pullRequest(in: commit.message))
             }
         }
+    }
+
+    /// A feature's own discussion may explicitly record the commit that landed on the default branch. Match only
+    /// unambiguous hashes against the already verified first-parent history; text never makes an unmerged commit count.
+    private static func discussionMatches(_ candidates: [GitWorkLog.Commit], subject: Subject, root: URL) -> [Match] {
+        guard subject.kind == .feature, !subject.issue.isEmpty,
+              subject.issue.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { return [] }
+        let url = root.appendingPathComponent("docs/features").appendingPathComponent(subject.issue).appendingPathComponent("discussion.md")
+        guard let text = try? String(contentsOf: url, encoding: .utf8), text.utf8.count <= 1_000_000,
+              let pattern = try? NSRegularExpression(pattern: #"(?i)(?<![0-9a-f])([0-9a-f]{7,40})(?![0-9a-f])"#) else { return [] }
+        var hashes = Set<String>()
+        for line in text.components(separatedBy: .newlines) {
+            let lower = line.lowercased()
+            guard ["commit", "коммит", "main", "merged", "слил", "push"].contains(where: lower.contains) else { continue }
+            for match in pattern.matches(in: line, range: NSRange(line.startIndex..., in: line)) {
+                if let range = Range(match.range(at: 1), in: line) { hashes.insert(String(line[range]).lowercased()) }
+            }
+        }
+        var found: [Match] = []
+        for hash in hashes {
+            let matching = candidates.filter { $0.sha.lowercased().hasPrefix(hash) }
+            guard matching.count == 1, let commit = matching.first else { continue }
+            found.append(Match(commit: commit, association: .explicit, pullRequest: pullRequest(in: commit.message)))
+        }
+        return found
     }
 
     /// Merge several independent links without double-counting the same landed change. An explicit link wins over a shared number.
@@ -227,7 +258,7 @@ enum IssueEvidenceCollector {
 
     // MARK: Checks
 
-    private static func unit(for match: Match, root: URL, client: GitHubClient?) async -> WorkUnit {
+    private static func unit(for match: Match, root: URL, client: GitHubClient?, checksRequired: Bool) async -> WorkUnit {
         let commit = match.commit
         guard let client else {
             return WorkUnit(ref: match.pullRequest.map(WorkRef.pullRequest) ?? .commit(commit.sha), headSHA: commit.sha, mergedAt: commit.date,
@@ -236,25 +267,27 @@ enum IssueEvidenceCollector {
         if let number = match.pullRequest {
             // A pull request: its own head is judged; a repository that runs its workflows on push has none there, so the
             // commit that landed on the default branch is judged instead.
-            let view = await GitHubClient.execute(["pr", "view", String(number), "-R", client.repo.slug, "--json", "headRefOid,mergeCommit"],
+            let view = await GitHubClient.execute(["pr", "view", String(number), "-R", client.repo.slug, "--json", "headRefOid,mergeCommit,mergedAt,state"],
                                                   in: root, timeout: 30)
             var head = commit.sha
             var landed = commit.sha
+            var verified = false
             if view.status == 0, let object = json(view.stdout) {
                 head = object["headRefOid"] as? String ?? commit.sha
                 landed = (object["mergeCommit"] as? [String: Any])?["oid"] as? String ?? commit.sha
+                verified = (object["state"] as? String)?.uppercased() == "MERGED" && object["mergedAt"] is String
             }
-            var state = await checks(of: head, client: client)
+            var state: CheckState = checksRequired ? await checks(of: head, client: client) : .noRuns(sha: head)
             var judged = head
-            if case .noRuns = state, landed != head {
+            if checksRequired, case .noRuns = state, landed != head {
                 state = await checks(of: landed, client: client)
                 judged = landed
             }
             return WorkUnit(ref: .pullRequest(number), headSHA: judged, mergedAt: commit.date, changedPaths: commit.paths, checks: state,
-                            association: match.association, landedSHA: landed)
+                            association: match.association, landedSHA: landed, pullRequestVerified: verified)
         }
         return WorkUnit(ref: .commit(commit.sha), headSHA: commit.sha, mergedAt: commit.date, changedPaths: commit.paths,
-                        checks: await checks(of: commit.sha, client: client), association: match.association)
+                        checks: checksRequired ? await checks(of: commit.sha, client: client) : .noRuns(sha: commit.sha), association: match.association)
     }
 
     private static func checks(of sha: String, client: GitHubClient) async -> CheckState {

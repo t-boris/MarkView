@@ -56,6 +56,8 @@ struct WorkUnit: Equatable, Sendable {
     var headSHA: String
     /// The commit on the default branch containing this work; it may differ from the PR head after a squash merge.
     var landedSHA: String?
+    /// False when GitHub could not confirm that a pull request was merged.
+    var pullRequestVerified: Bool?
     /// When it entered the default branch; nil while it has not.
     var mergedAt: Date?
     /// A pull request closed without merging counts for nothing.
@@ -66,10 +68,11 @@ struct WorkUnit: Equatable, Sendable {
     var association: WorkAssociation
 
     init(ref: WorkRef, headSHA: String, mergedAt: Date?, closedUnmerged: Bool = false, changedPaths: [String]?,
-         checks: CheckState, association: WorkAssociation = .explicit, landedSHA: String? = nil) {
+         checks: CheckState, association: WorkAssociation = .explicit, landedSHA: String? = nil, pullRequestVerified: Bool? = nil) {
         self.ref = ref
         self.headSHA = headSHA
         self.landedSHA = landedSHA
+        self.pullRequestVerified = pullRequestVerified
         self.mergedAt = mergedAt
         self.closedUnmerged = closedUnmerged
         self.changedPaths = changedPaths
@@ -92,6 +95,32 @@ enum DocumentationPaths {
     }
 }
 
+/// The project checklist is authoritative unless an explicit operator rule in the project guide overrides it.
+struct ProjectDeliveryPolicy {
+    var pullRequestRequired: Bool
+    var checksRequired: Bool
+
+    static func read(definition: Data?, guide: String?) -> ProjectDeliveryPolicy {
+        let object = definition.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let items = object?["items"] as? [[String: Any]] ?? []
+        func mode(_ id: String) -> String? { items.first { $0["id"] as? String == id }?["mode"] as? String }
+        var pr = mode("pr") != "skip"
+        var ci = mode("ci") != "skip"
+        // A project may explicitly override its checklist in its guide. Only recognize a declared operator rule,
+        // not a casual mention of direct commits or disabled CI.
+        if let guide {
+            let requiresPR = #"(?im)^[-*]?[ \t]*Never commit to main directly[^\n]*"#
+            if guide.range(of: requiresPR, options: .regularExpression) != nil,
+               guide.range(of: #"(?i)open a pull request"#, options: .regularExpression) != nil { pr = true }
+            let direct = #"(?ims)^##[ \t]+Commits? go straight to main[^\n]*\n(?:(?!^##[ \t]).)*commit directly to `?main`?"#
+            let disabled = #"(?ims)^##[ \t]+CI is switched off[^\n]*\n(?:(?!^##[ \t]).)*do not wait for CI"#
+            if guide.range(of: direct, options: .regularExpression) != nil { pr = false }
+            if guide.range(of: disabled, options: .regularExpression) != nil { ci = false }
+        }
+        return ProjectDeliveryPolicy(pullRequestRequired: pr, checksRequired: ci)
+    }
+}
+
 /// Whether the release a unit needs has been published.
 enum ReleaseState: Equatable, Sendable {
     case delivered(tag: String)
@@ -105,15 +134,21 @@ struct DeliveryInput: Sendable {
     var work: [WorkUnit]
     /// The project's definition of done requires the deploy item (DEC-012).
     var releaseRequired: Bool
+    /// Project policy can require a pull request or allow direct commits, and can disable CI.
+    var pullRequestRequired: Bool
+    var checksRequired: Bool
     var releases: [WorkRef: ReleaseState]
     /// When the issue was last started or reopened: implementation work for a started or reopened issue is work merged
     /// after that time, so that a reopened issue does not complete again on the work that was already there.
     var since: Date?
 
-    init(sources: [EvidenceSource], work: [WorkUnit], releaseRequired: Bool, releases: [WorkRef: ReleaseState] = [:], since: Date? = nil) {
+    init(sources: [EvidenceSource], work: [WorkUnit], releaseRequired: Bool, releases: [WorkRef: ReleaseState] = [:], since: Date? = nil,
+         pullRequestRequired: Bool = false, checksRequired: Bool = true) {
         self.sources = sources
         self.work = work
         self.releaseRequired = releaseRequired
+        self.pullRequestRequired = pullRequestRequired
+        self.checksRequired = checksRequired
         self.releases = releases
         self.since = since
     }
@@ -146,7 +181,15 @@ enum DeliveryEvaluator {
                 missing.append("\(unit.ref.label) is not merged into the default branch")
                 continue
             }
-            switch unit.checks {
+            if input.pullRequestRequired {
+                switch unit.ref {
+                case .commit: missing.append("\(unit.ref.label): this project requires a merged pull request")
+                case .pullRequest where unit.pullRequestVerified == false:
+                    unknown.append("\(unit.ref.label): GitHub could not confirm that the pull request was merged")
+                case .pullRequest: break
+                }
+            }
+            if input.checksRequired { switch unit.checks {
             case .passed(let sha):
                 if sha != unit.headSHA { missing.append("\(unit.ref.label): the checks that passed are for an older commit, not its head") }
             case .failed:
@@ -157,7 +200,7 @@ enum DeliveryEvaluator {
                 unknown.append("\(unit.ref.label) has no workflow run, so its checks are unknown")
             case .unknown(let reason):
                 unknown.append("\(unit.ref.label): checks could not be read (\(reason))")
-            }
+            } }
             if input.releaseRequired {
                 switch input.releases[unit.ref] ?? .unknown("release state was not collected") {
                 case .delivered: break
@@ -180,7 +223,7 @@ enum DeliveryEvaluator {
     }
 
     private static func summary(_ unit: WorkUnit, _ input: DeliveryInput) -> String {
-        var line = "\(unit.ref.label) merged, checks passed"
+        var line = "\(unit.ref.label) merged, " + (input.checksRequired ? "checks passed" : "CI not required")
         if input.releaseRequired, case .delivered(let tag)? = input.releases[unit.ref] { line += ", in release \(tag)" }
         return line
     }

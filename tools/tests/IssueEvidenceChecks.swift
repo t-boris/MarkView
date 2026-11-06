@@ -102,6 +102,27 @@ check("an anchor is not an issue number", !WorkAssociationRules.mentionsIssueNum
 let split = WorkAssociationRules.exclusiveNumbers([1, 2], claimedByOthers: [2, 3])
 check("a number another issue also links is shared", split.exclusive == [1] && split.shared == [2])
 
+// Explicit project requirements, including an operator's documented override of old checklist defaults.
+let policyData = Data(#"{"items":[{"id":"pr","mode":"require"},{"id":"ci","mode":"require"}]}"#.utf8)
+let requiredPolicy = ProjectDeliveryPolicy.read(definition: policyData, guide: nil)
+check("project policy requires the configured PR and CI", requiredPolicy.pullRequestRequired && requiredPolicy.checksRequired)
+check("missing policy uses the standard PR and CI requirements", ProjectDeliveryPolicy.read(definition: nil, guide: nil).pullRequestRequired && ProjectDeliveryPolicy.read(definition: nil, guide: nil).checksRequired)
+let askPolicy = Data(#"{"items":[{"id":"pr","mode":"ask"}]}"#.utf8)
+check("ask before PR does not silently skip the PR", ProjectDeliveryPolicy.read(definition: askPolicy, guide: nil).pullRequestRequired)
+let directGuide = "## Commits go straight to main (operator)\nUntil further notice, commit directly to `main` and push it.\n\n## CI is switched off (operator)\nUntil further notice, do not wait for CI."
+let directPolicy = ProjectDeliveryPolicy.read(definition: policyData, guide: directGuide)
+check("explicit operator rules override outdated PR and CI settings", !directPolicy.pullRequestRequired && !directPolicy.checksRequired)
+let skipPR = Data(#"{"items":[{"id":"pr","mode":"skip"}]}"#.utf8)
+let requiredGuide = "## Git Workflow\n- Never commit to main directly for anything else.\n- Open a pull request into main."
+check("an explicit project rule requiring PR overrides a skipped checklist item", ProjectDeliveryPolicy.read(definition: skipPR, guide: requiredGuide).pullRequestRequired)
+let unconfirmedPR = WorkUnit(ref: .pullRequest(41), headSHA: "sha", mergedAt: minutes(10), changedPaths: ["app.swift"],
+                             checks: .passed(sha: "sha"), pullRequestVerified: false)
+let unresolvedPR = DeliveryEvaluator.evaluate(DeliveryInput(sources: sources, work: [unconfirmedPR], releaseRequired: false, pullRequestRequired: true))
+check("a required PR must be confirmed by GitHub", !unresolvedPR.isComplete)
+let negativeGuide = "Never commit directly to main. CI may be switched off in other projects."
+let stillRequired = ProjectDeliveryPolicy.read(definition: policyData, guide: negativeGuide)
+check("a casual or negative mention does not override requirements", stillRequired.pullRequestRequired && stillRequired.checksRequired)
+
 // MARK: Reading git and GitHub output
 
 let log = "\u{1e}aaa111\u{1f}2026-11-05T10:00:00+00:00\u{1f}feat: x\n\ndocs/features/x\n\u{1f}\nMarkView/A.swift\ndocs/x.md\n\u{1e}bbb222\u{1f}2026-11-05T11:00:00+00:00\u{1f}docs: y\n\u{1f}\nREADME.md\n"

@@ -28,7 +28,7 @@ struct GitHubClient: Sendable {
             return Output(status: 0, stdout: String(decoding: data, as: UTF8.self), stderr: "")
         }
         if args.prefix(2) == ["pr", "view"] {
-            return Output(status: 0, stdout: #"{"headRefOid":"pr-head","mergeCommit":{"oid":"squash-commit"}}"#, stderr: "")
+            return Output(status: 0, stdout: #"{"headRefOid":"pr-head","mergeCommit":{"oid":"squash-commit"},"state":"MERGED","mergedAt":"2026-11-01T00:00:00Z"}"#, stderr: "")
         }
         if args.prefix(2) == ["run", "list"] {
             let failed = FileManager.default.fileExists(atPath: root.appendingPathComponent(".failed-check").path)
@@ -52,6 +52,12 @@ struct GitHubClient: Sendable {
         process.arguments = args; process.currentDirectoryURL = root
         process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
         try! process.run(); process.waitUntilExit(); precondition(process.terminationStatus == 0, "git \(args)")
+    }
+    static func gitOutput(_ args: [String], in root: URL) -> String {
+        let p = Process(), pipe = Pipe(); p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        p.arguments = args; p.currentDirectoryURL = root; p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
+        try! p.run(); let data = pipe.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
+        precondition(p.terminationStatus == 0); return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
     static func main() async {
         let fm = FileManager.default
@@ -98,6 +104,25 @@ struct GitHubClient: Sendable {
         try! #"{"items":[{"id":"deploy","mode":"require"}]}"#.write(to: root.appendingPathComponent(".dde/definition-of-done.json"), atomically: true, encoding: .utf8)
         let released = await IssueEvidenceCollector.collect(subject(.feature, "ci"), root: root, githubEnabled: true)
         check("a release contains the landed squash commit, not the PR branch head", released.isComplete && released.lines.contains { $0.contains("v1") })
+        try! fm.removeItem(at: root.appendingPathComponent(".dde"))
+        // An actual direct-to-main commit is identified by the feature discussion, without a commit trailer.
+        commit("direct.swift", "Implement work directly")
+        let sha = gitOutput(["rev-parse", "HEAD"], in: root)
+        let discussion = root.appendingPathComponent("docs/features/direct/discussion.md")
+        try! fm.createDirectory(at: discussion.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try! "Implementation was pushed directly to main at \(sha.prefix(7)). Local regression tests passed."
+            .write(to: discussion, atomically: true, encoding: .utf8)
+        try! fm.createDirectory(at: root.appendingPathComponent(".dde"), withIntermediateDirectories: true)
+        let settings = root.appendingPathComponent(".dde/definition-of-done.json")
+        try! #"{"items":[{"id":"ci","mode":"skip"},{"id":"pr","mode":"skip"}]}"#.write(to: settings, atomically: true, encoding: .utf8)
+        let direct = await IssueEvidenceCollector.collect(subject(.feature, "direct"), root: root, githubEnabled: false)
+        check("a documented direct main commit completes when PR and CI are not required", direct.isComplete && direct.lines.contains { $0.contains("CI not required") })
+        try! #"{"items":[{"id":"ci","mode":"skip"},{"id":"pr","mode":"require"}]}"#.write(to: settings, atomically: true, encoding: .utf8)
+        let requiredPR = await IssueEvidenceCollector.collect(subject(.feature, "direct"), root: root, githubEnabled: true)
+        check("a direct commit cannot replace a required PR", !requiredPR.isComplete && requiredPR.lines.contains { $0.contains("requires a merged pull request") })
+        try! #"{"items":[{"id":"ci","mode":"skip"},{"id":"pr","mode":"skip"},{"id":"deploy","mode":"require"}]}"#.write(to: settings, atomically: true, encoding: .utf8)
+        let needsRelease = await IssueEvidenceCollector.collect(subject(.feature, "direct"), root: root, githubEnabled: false)
+        check("a direct commit does not bypass required deployment", !needsRelease.isComplete)
         try! fm.removeItem(at: root.appendingPathComponent(".dde"))
         let unavailable = await IssueEvidenceCollector.collect(subject(.feature, "ci"), root: root, githubEnabled: false)
         check("a merged commit does not bypass unavailable checks", !unavailable.isComplete)
