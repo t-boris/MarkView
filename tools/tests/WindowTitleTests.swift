@@ -7,10 +7,10 @@ func check(_ name: String, _ got: String, _ want: String) {
     if got == want { print("ok  \(name)") } else { failures += 1; print("FAIL \(name): got \(got.debugDescription) want \(want.debugDescription)") }
 }
 
-check("folder open", WindowTitle.text(version: "1.4", folderName: "my-project"), "MarkView 1.4 — my-project")
+check("folder open", WindowTitle.text(version: "1.4", folderName: "my-project"), "my-project — MarkView 1.4")
 check("no folder", WindowTitle.text(version: "1.4", folderName: nil), "MarkView 1.4")
 check("empty folder name", WindowTitle.text(version: "1.4", folderName: ""), "MarkView 1.4")
-check("empty version, folder", WindowTitle.text(version: "", folderName: "foo"), "MarkView — foo")
+check("empty version, folder", WindowTitle.text(version: "", folderName: "foo"), "foo — MarkView")
 check("empty version, no folder", WindowTitle.text(version: "", folderName: nil), "MarkView")
 
 let dir = FileManager.default.temporaryDirectory.appendingPathComponent("wt-\(UUID().uuidString)/my-project", isDirectory: true)

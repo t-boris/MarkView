@@ -325,6 +325,7 @@ struct ContentView: View {
                 .padding(20)
             }
         }
+        .navigationTitle(WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName))
         .background(WindowAccessor(window: $hostWindow))
         .onChange(of: workspaceManager.rootNode?.url) { _ in updateWindowIdentity() }
         .task(id: workspaceManager.rootNode?.url) {
@@ -693,7 +694,6 @@ struct ContentView: View {
     private func updateWindowIdentity() {
         let root = workspaceManager.rootNode?.url
         workspaceFolderName = root.map(WindowTitle.folderName(of:))
-        hostWindow?.title = WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName)
         hostWindow?.titleVisibility = .hidden
         hostWindow?.titlebarAppearsTransparent = true
         hostWindow?.styleMask.insert(.fullSizeContentView)
