@@ -632,7 +632,7 @@ struct FeatureStatusDot: View {
 
     private var color: Color {
         switch object.status {
-        case "approved", "accepted", "answered", "resolved": return VSDark.green
+        case "approved", "implemented", "accepted", "answered", "resolved": return VSDark.green
         case "rejected", "dismissed", "superseded": return VSDark.textDim
         case "deferred", "accepted-risk": return VSDark.purple
         case "review", "discussing", "proposed": return VSDark.yellow
