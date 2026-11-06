@@ -276,6 +276,37 @@ enum WebAppPreview {
 
     // MARK: - Commands
 
+    /// A fresh checkout needs its packages before its development script can run. Prefer the nearest lockfile and
+    /// install at its directory so workspace dependencies are linked by the project's own package manager.
+    static func missingDependencies(for target: WebAppTarget, root: URL, retry: Bool = false, fileManager: FileManager = .default) -> (folder: URL, command: String)? {
+        let words = target.command.split(separator: " ")
+        guard let executable = words.first, ["npm", "pnpm", "yarn", "bun"].contains(String(executable))
+                || (executable == "node" && target.isElectron) else { return nil }
+        guard fileManager.fileExists(atPath: target.folder.appendingPathComponent("package.json").path) else { return nil }
+        let top = root.standardizedFileURL.path
+        var folder = target.folder.standardizedFileURL
+        guard folder.path == top || folder.path.hasPrefix(top + "/") else { return nil }
+        var lock: (URL, String)?
+        while true {
+            if !retry && ["node_modules", ".pnp.cjs", ".pnp.js"].contains(where: { fileManager.fileExists(atPath: folder.appendingPathComponent($0).path) }) { return nil }
+            if lock == nil {
+                let candidates = [("pnpm-lock.yaml", "pnpm install --frozen-lockfile"),
+                                  ("yarn.lock", "yarn install --frozen-lockfile"),
+                                  ("bun.lock", "bun install --frozen-lockfile"), ("bun.lockb", "bun install --frozen-lockfile"),
+                                  ("package-lock.json", "npm ci --no-audit --no-fund"),
+                                  ("npm-shrinkwrap.json", "npm ci --no-audit --no-fund")]
+                if let match = candidates.first(where: { fileManager.fileExists(atPath: folder.appendingPathComponent($0.0).path) }) {
+                    lock = (folder, match.1)
+                }
+            }
+            // A lockfile defines this installation boundary; an unrelated parent project's packages do not satisfy it.
+            if lock != nil { break }
+            if folder.path == top { break }
+            folder.deleteLastPathComponent()
+        }
+        return lock ?? (target.folder, "npm install --no-save --package-lock=false --no-audit --no-fund")
+    }
+
     /// The package manager of the app's folder, or of the closest folder above it (up to the project root) that has a
     /// lockfile: the packages of a workspace share the lockfile of the workspace root.
     private static func packageManager(_ folder: URL, root: URL, _ fileManager: FileManager) -> String {
@@ -286,6 +317,7 @@ enum WebAppPreview {
             if exists("pnpm-lock.yaml") { return "pnpm" }
             if exists("yarn.lock") { return "yarn" }
             if exists("bun.lockb") || exists("bun.lock") { return "bun" }
+            if exists("package-lock.json") || exists("npm-shrinkwrap.json") { return "npm" }
             guard current.path != top, current.path.hasPrefix(top + "/") else { return "npm" }
             current = current.deletingLastPathComponent()
         }

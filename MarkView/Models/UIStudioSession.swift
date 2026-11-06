@@ -171,6 +171,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     private var simulator: StudioSimulator
     private var server: StudioDevServer?
+    private var failedInstallFolder: URL?
     private var ruleListID: String?
     private var appOrigin: StudioBridge.Origin?
     /// Main-frame page loads committed so far: tells a replay step that loaded another page from one that failed.
@@ -356,6 +357,43 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     }
 
     private func startServer(_ target: WebAppTarget) async -> URL? {
+        let root = self.root, retry = failedInstallFolder == target.folder
+        let install = await Task.detached { WebAppPreview.missingDependencies(for: target, root: root, retry: retry) }.value
+        guard !closed, !Task.isCancelled else { return nil }
+        if let install {
+            failedInstallFolder = target.folder
+            set(.starting, "Installing the application's dependencies (`\(install.command)`)")
+            let environment = await StudioLaunchEnvironment.make()
+            guard !closed, !Task.isCancelled else { return nil }
+            let installer = StudioDevServer(command: install.command, folder: install.folder)
+            installer.onOutput = { [weak self] text in
+                Task { @MainActor in self?.refreshServerLog(); self?.logServerOutput(text) }
+            }
+            do { try installer.start(environment: environment.environment) }
+            catch { set(.failed, "Could not install dependencies: \(error.localizedDescription)"); return nil }
+            server = installer
+            ownsServer = true
+            StudioDevServer.track(installer)
+            let finished = await installer.waitForExit(timeout: 600)
+            guard !closed, !Task.isCancelled, server === installer else { return nil }
+            let output = await Task.detached { [redactor] in redactor.redact(text: String(installer.output.suffix(12_000))) }.value
+            guard !closed, !Task.isCancelled, server === installer else { return nil }
+            serverLog = output
+            if !finished {
+                await stopOwnedServer()
+                set(.failed, "Installing dependencies timed out. See the output below, then try again.")
+                return nil
+            }
+            let code = installer.exitStatus ?? -1
+            StudioDevServer.untrack(installer)
+            server = nil
+            guard code == 0 else {
+                set(.failed, "Could not install the application's dependencies (exit \(code)). See the output below, then try again.")
+                return nil
+            }
+            failedInstallFolder = nil
+            set(.starting, "Starting `\(target.command)` in \(target.label)")
+        }
         let overrides = await prepareServerConnections(target)
         let launch = await StudioLaunchEnvironment.make(overrides: overrides, nodePreload: Self.nodePreloadURL?.path)
         removedEnvironment = launch.removed
