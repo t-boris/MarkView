@@ -157,7 +157,7 @@ enum IssueEvidenceCollector {
         let output = await GitHubClient.execute(["log", ref, "-n", String(limit), "--no-merges", format], in: root, git: true, timeout: 30)
         guard output.status == 0 else { return ([], "the merged commit messages could not be read") }
         let commits = GitWorkLog.commits(from: output.stdout)
-        let firstParents = await GitHubClient.execute(["log", ref, "-n", String(limit), "--first-parent", "--format=%H"],
+        let firstParents = await GitHubClient.execute(["log", ref, "--first-parent", "--format=%H"],
                                                       in: root, git: true, timeout: 30)
         guard firstParents.status == 0 else { return ([], "the mainline commits could not be read") }
         let primary = Set(firstParents.stdout.split(whereSeparator: \.isNewline).map(String.init))
