@@ -199,7 +199,7 @@ final class IssueLifecycleCoordinator {
     func deliveryVerdict(_ kind: IssueKind, _ issue: String) async -> DeliveryVerdict {
         guard let root = store.root, let history = history(kind, issue) else { return .notCollected }
         let linked = numbers(kind, issue)
-        let since = history.changes.last { $0.phase != .baseline && ($0.transitionKind == .start || $0.transitionKind == .reopen) }?.at
+        let since = history.deliveryRoundStart
         let subject = IssueEvidenceCollector.Subject(kind: kind, issue: issue, exclusiveNumbers: linked.own.subtracting(linked.others),
                                                      sharedNumbers: linked.own.intersection(linked.others), since: since)
         return await IssueEvidenceCollector.collect(subject, root: root, githubEnabled: GitHubSettings.enabled)

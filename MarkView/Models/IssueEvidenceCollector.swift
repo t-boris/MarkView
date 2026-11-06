@@ -13,7 +13,7 @@ enum IssueEvidenceCollector {
         var exclusiveNumbers: Set<Int>
         /// GitHub issue numbers that another feature or bug also links: naming only these cannot tie work to this item.
         var sharedNumbers: Set<Int>
-        /// When the item was last started or reopened.
+        /// When the item was last reopened, if this is a new round of work.
         var since: Date?
     }
 
@@ -37,7 +37,7 @@ enum IssueEvidenceCollector {
         }
         let history = GitWorkLog.commits(from: log.stdout)
         // Documentation-only commits are no implementation work (DEC-012) and are left out before anything is counted, so a run
-        // of them cannot push the real work out of view. Work from before the item was last started or reopened is another round.
+        // of them cannot push the real work out of view. Work before a reopening belongs to an earlier round.
         // Git dates have whole seconds, so the start is compared to the second.
         let start = subject.since.map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.down)) }
         let candidates = history.filter { commit in
