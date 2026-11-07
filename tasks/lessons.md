@@ -1444,3 +1444,50 @@ handed to the assistant would stay `fixing` for ever. Every check was green beca
   when, from which thread) and make sure each one is exercised, or is named as unverified in the review.
 - A review by a reader who did not write the code, given the specification and the file list but not my conclusions, finds this kind of
   gap; ask for it before the final verification, not after.
+
+## 2026-11-07 — Replacing a blocked script: when the page can see it (BUG-103)
+
+Stripe.js was blocked by the connection policy and `loadStripe()` rejected, which broke payment pages. The stand-in design only worked
+after three facts were measured in a real WKWebView, not assumed:
+- A blocked parser-inserted `<script src>` fires `error` after `load` and after the next inline script may already have run, so defining
+  the global at `error` is too late for a static tag. Install the stand-in as soon as the tag enters the document (a MutationObserver
+  on `document`) and use the `error` event only for the callback and the `load` event.
+- A page loaded with `loadHTMLString` under a content rule list comes up blank. Serve test pages from a loopback HTTP port, as the real
+  session does, or the check proves nothing.
+- Addresses the person allowed must never be replaced: the page runtime needs the same regex list the rule list is built from
+  (`allowedFilters`), passed from Swift, with a check that both sides agree.
+- In `main.swift` test files, global `let` constants initialise in execution order: put page constants above `application.run()`, or
+  they are still empty when the checks read them.
+- A new check is only evidence if it fails without the fix: the 19 new web checks were run against the runtime from `origin/main`
+  and failed there (4 of 23 passed because they assert that unrelated addresses stay blocked).
+
+## 2026-11-07 — An all-or-nothing guard over a batched answer (BUG-104)
+
+"pull request descriptions could not be read" made every delivery unconfirmable for days. The collector asked GitHub for 40
+`pullRequest(number: N)` fields per GraphQL query and required `gh` to exit 0 with no `errors`. A direct commit titled `... (#293)`
+names an issue: GitHub answers NOT_FOUND for that one field, `gh api graphql` exits 1, and every other field still has its data.
+The code already knew ("a squash title can end in an issue number") but the guard that rejected the whole answer ran first.
+- Read the real answer before writing the parser: partial `data` plus `errors` with `path ["repository","pN"]` and exit status 1.
+- Tolerate exactly the expected error (type and path of a requested field) and fail for everything else, so a rate limit, a permission
+  error or a missing repository is never read as "no work found".
+- The fake `gh` of a test must answer like the real one for the awkward input (an issue number, status 1), or the test never meets the bug.
+- Read-only lookups that quietly return nothing on error hide for a long time; the visible symptom (a rejected request) was two layers
+  away from the cause. When a check says "could not be read", look at what it did with the part it could read.
+
+## 2026-11-07 — A render step whose cost depends on the size of the page (BUG-105)
+
+A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s. Parsing (55 ms), HTML (6 ms) and one diagram in an empty page
+(9 ms) were all fast; the same diagram cost 155 ms inside the document. What was measured, in real WebKit with the shipping page:
+- The cost is linear in the number of page elements (8.5 µs each) and paid once per diagram: a `<style>` element entering the document
+  makes WebKit recalculate the styles of every element. The scratch container, `mermaid.render` instead of `run` and `content-visibility`
+  did not change it; a shadow root removed it but broke diagrams that look elements up through `document`.
+- Elements that are not displayed are not styled: drawing in chunks while the document body is hidden (shown again in the same task, so no
+  frame is painted without it) took the document from 57 s to 5 s. The show after each chunk costs about a second, so very short chunks are
+  slower overall (100 ms chunks: 36 s) and very long ones freeze the page; 600 ms was the compromise.
+- Time a feature on the real file that was reported, not on a generated one, and keep a generated document (`editor-diagrams-tests.sh`) that
+  fails on the old code (13.8 s without an answer) for the regression check.
+- A timer-gap meter inside the page (`setTimeout` loop recording the longest gap) is the right measure of "frozen": total time says nothing
+  about whether the page answered meanwhile. Read it after a moment, because a stalled page answers its timer only after the stall.
+- Look at the other side of the bridge when a page is slow to open: `handleBlocksDelta` writes every block to SQLite one by one on the main
+  thread. Alone it takes 0.1-0.3 s; with another process holding the write lock it took 28.8 s for 1339 blocks. Measure the cost model before
+  deciding how to change a threading rule.

@@ -4547,3 +4547,102 @@ Review (before merge)
 - Not covered: the shell's header (a `<details>` "Menu" and a `.toolbar` without a rule, written by the assistant) still looks plain; the
   real preview window and the open-time migration were built but not clicked; Tailwind v3 (`tailwind.config.js`) is not covered; a site that
   stops importing Tailwind keeps its old `markview/tailwind*.js`.
+
+## BUG-103 — Stripe-dependent pages fail to open in UI Studio (built-in stand-ins for third-party SDKs)
+
+Reported by Boris (2026-11-07): some Viva Platform pages (payment) do not open in UI Studio because Stripe is unreachable; "make UI Studio more
+stable in such situations": simulate the service, or continue with a stand-in when it is not available.
+
+Root cause (reproduced the same day with the real page runtime and the real `StudioConnectionPolicy` rule list in a hidden WKWebView, page served
+from a loopback port; the probe lived in the scratchpad and is not committed):
+- The connection policy blocks every script that is not the dev server's own or explicitly allowed (REQ-006). Viva's `allowedRequests` is empty,
+  so `<script src="https://js.stripe.com/v3">` is blocked. The probe printed the two lines of Boris's log: `blocked: script https://js.stripe.com/v3`
+  and `Unhandled rejection: Error: Failed to load Stripe.js`, and `window.Stripe` stayed undefined.
+- `@stripe/stripe-js` `loadStripe()` rejects when the script errors, `<Elements stripe={promise}>` does not catch it, the framework overlay shows the
+  rejection, and the page is unusable. Nothing in UI Studio answers a script: the simulation covers fetch, XHR, sockets and external navigation only.
+- Fix data was right: no record caused this; it has nothing to repair.
+
+Decisions of Boris (2026-11-07, in BUG-103 Clarifications): stand-ins for Stripe.js, reCAPTCHA, Google Maps and analytics SDKs in one change; the
+payment stand-in is a labelled placeholder whose outcome follows the scenario (success; card decline in an `error` scenario); every stand-in is
+visible as simulated on the page and in the dependencies.
+
+Design (no change to the connection policy: nothing new leaves the Mac):
+- The page runtime keeps a registry "script address → stand-in". A script tag of a registered address gets its SDK's global as soon as the tag is
+  in the document (a MutationObserver runs before the inline script that follows a parsed tag; measured in WKWebView, the `error` event of a
+  blocked parser-inserted tag comes too late for that). The policy's `error` event is then swallowed, the callback the address names (`callback=`,
+  `onload=`) runs and the element gets its `load` event. An address the person allowed is never replaced: the runtime is given the same regular
+  expressions the rule list is built from (`allowedFilters`). An unregistered or look-alike address stays blocked and reported as today.
+- Without the connection policy (rule list failed to compile) no stand-in is installed: nothing is blocked, so the real SDK loads.
+- Bridge: a new event kind `standIn`; the session lists the dependency as `simulated` (never `unsupported`, so the session is not degraded).
+- Payment outcome comes from the scenario kind through the runtime configuration.
+
+Plan:
+- [x] 1. Worktree `../MarkView-bug103`, branch `fix/BUG-103-sdk-stand-ins` from `origin/main`.
+- [x] 2. Runtime (`markview-ui-studio.js`): registry, activation in the blocked-script handler, Stripe, reCAPTCHA, Google Maps, analytics stand-ins.
+- [x] 3. Swift: `standIn` event kind in `StudioBridge`, dependency in `UIStudioSession`, `payment` outcome in the runtime configuration.
+- [x] 4. Checks: web harness (page served from loopback under the real rule list: each stand-in activates, an allowed or unknown address does
+  not, outcome follows the scenario); bridge check for the new kind; the existing suites.
+- [x] 5. Live check: the real `@stripe/stripe-js` loader from vivaa's node_modules in the same hidden WKWebView (scratchpad).
+- [x] 6. Records through MarkView: DEC-012 (stand-ins), REQ-018; README line.
+- [x] 7. Version 5.39.0 (minor), Debug build, PR #307 merged (02e840c), signed and notarized DMG published as v5.39.0
+  (`build/MarkView-5.39.0.dmg`), worktrees removed. BUG-103 stays `fixing`: its delivery evidence could not be read until BUG-104 was fixed;
+  `fixed` is recorded once the app that reads the evidence runs 5.39.1 or later (Boris installs it).
+
+### Review (BUG-103, 5.39.0)
+
+Evidence:
+- Reproduction: the real runtime and the real `StudioConnectionPolicy` rule list in a hidden WKWebView, page from a loopback port. Old runtime: `blocked:
+  script https://js.stripe.com/v3` + `Unhandled rejection: Error: Failed to load Stripe.js`, Pay button disabled. New runtime with the real
+  `@stripe/stripe-js` 5.10 and `@stripe/react-stripe-js` 3.10 (React 19, bundled with esbuild from vivaa's node_modules, the pattern of
+  `stripe-payment.tsx`): Pay enabled, `ready`, `change card`, `paymentIntent succeeded`; in an error scenario `card_error card_declined`.
+- Web harness (hidden window): 128 ok, 0 FAIL, 29 of them BUG-103. Run against the runtime of `origin/main` the 23 checks that existed then gave
+  19 FAIL (the 4 that passed assert that unrelated addresses stay blocked).
+- Pure suite `ui-studio-tests.sh`: all pass (bridge accepts `standIn`, rejects an unregistered id, registry ids = bridge ids; Fix data never offers it).
+- Session harness, scoped to the new checks (real `StudioSession`, python dev server): Stripe page opens, `sdk:stripe` is a simulated dependency
+  (not unsupported), no `blocked`/`runtimeError`, an `error` scenario declines. The whole session suite cannot be run in a hidden window: select
+  mode needs a visible one (identical 12 ok / 12 FAIL / TIMEOUT on `origin/main`), so it is left to CI.
+- `ui-studio-node-tests.sh` passes; Debug `xcodebuild` succeeds.
+- An independent reviewer (given the diff and the requirements, not my conclusions) found 4 major and several minor defects; all were fixed and
+  each has a check: reCAPTCHA invisible widgets fired their callback on load, Link/Address Elements threw in `onChange`, classic
+  `OverlayView` subclasses threw, analytics completion callbacks (`event_callback`, `hitCallback`, Segment/Mixpanel `track(..., cb)`) never ran,
+  `return_url: javascript:` ran script, `nomodule` tags and a missing policy installed stand-ins, `ga` was defined for gtag-only pages. A test
+  for the split of `google-tag` and `google-analytics` found one more: a page with both only got the first.
+
+Not covered / limits (told to Boris):
+- Allowing an SDK address in a session (the stand-in dependency disappears, the real script loads) is not run: it would reach the real Stripe.
+- A stand-in is not the SDK: no card inputs, no tiles, no real geocoding; unregistered SDKs stay blocked.
+
+## BUG-104 — Delivery evidence cannot be read because of one issue number in a commit title
+
+Reported by Boris (2026-11-07), forwarded from an agent: "pull request descriptions could not be read", so no delivery can be confirmed and a request
+on BUG-085 was rejected.
+
+Root cause (reproduced against the live repository): `IssueEvidenceCollector.pullRequestMatches` asks for `pN: pullRequest(number: N) { body }` for
+every number in first-parent commit titles, 40 per GraphQL query. Direct commits titled `... (#293)` name an issue (the mind-map feature), not a pull
+request. GitHub answers NOT_FOUND for that field alone, `gh api graphql` exits 1, and every other field has its data. The collector required exit 0
+and no errors, so it dropped the whole batch.
+
+- [x] `pullRequestBodies(in:requested:)`: skips a NOT_FOUND whose path is exactly `["repository","pN"]` for a requested field; fails for no answer, no
+  repository, another error type or path, `errors` that is not a list, or a failed `gh` without errors.
+- [x] Checks: the fake `gh` answers like the real one for an issue number and the test history has a direct commit `(#4)`; the integration check
+  fails on the old collector; 10 pure checks of the refusals. All 801 lifecycle checks pass.
+- [x] PR #308 merged (20e7baa), v5.39.1 published (signed, notarized, `spctl` accepted; `build/MarkView-5.39.1.dmg`).
+- [ ] BUG-104 and BUG-103 to `fixed` once the running app has the fix (Boris installs 5.39.1+; not quit or reinstalled from here).
+
+## BUG-105 — Large Markdown files do not open or take very long
+
+Reported by Boris (2026-11-07): `vivaa-internals/docs/research/2026-11-06-strategic-plan.md` and `2026-11-07-business-plan.md`.
+
+Measured (hidden WKWebView with the shipping editor page; real files; Swift parse and SQLite cost models standalone):
+- Business plan (832 KB, 253 Mermaid diagrams, 2354 table rows, 18,000 elements): the page froze for 57 s. Cause: one `mermaid.run`; each diagram
+  puts a `<style>` into the page and WebKit restyles every element, 8.5 µs per element per diagram (9 ms in an empty page, 155 ms here).
+- Strategic plan (613 KB research map, no diagrams): page 0.13 s, Swift parse 76 ms: not explained. Not reproduced.
+- Main-thread SQLite writes in `handleBlocksDelta` (1339 / 3064 blocks): 0.1-0.3 s alone, 28.8 s for 1339 blocks while another process holds the write
+  lock (standalone, same schema and pragmas). Not changed: it changes the threading of `IncrementalCompiler` (`@MainActor`); needs approval.
+
+- [x] `drawMermaidDiagrams` (`markview-render.js`): chunks of 600 ms with the body hidden, shown in the same task, reading position and selection
+  restored, the page answers between chunks, failures go to `mermaid.run` as before, a re-render stops the old run.
+- [x] Business plan: 57 s -> 5.3 s, longest unresponsive gap 1.2 s. `tools/tests/editor-diagrams-tests.sh` (new, own workflow) fails on the 5.39.1
+  editor (13.8 s without an answer) and passes on the fix; routing and research map page tests pass; Debug build succeeds.
+- [ ] PR #309, checks, merge, signed DMG v5.39.2.
+- [ ] Decide with Boris: move block persistence off the main thread (one transaction, serial queue); find out why the strategic plan is slow in the app.

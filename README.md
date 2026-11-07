@@ -508,6 +508,13 @@ the folder or the window.
   that fails gives the page a clear error and never reaches a real service. **Reset** goes back to the
   scenario's data. GraphQL, WebSockets, server-sent events and anything a server renders are reported as
   not simulated.
+- **Third-party SDKs.** The connection policy blocks scripts from other servers, so a page that loads
+  Stripe.js, reCAPTCHA, Google Maps or an analytics SDK (Google Analytics and Tag Manager, Segment, Mixpanel,
+  PostHog, Plausible) would stop working. For these addresses a built-in stand-in runs in the page instead and
+  nothing leaves your Mac. A payment form is a placeholder labelled *Simulated payment — no card is charged*:
+  the payment succeeds, or is declined in the **error** scenario. Every stand-in is listed in the session's
+  dependencies as simulated. An address you allow is loaded for real; any other blocked SDK stays blocked
+  and is reported.
 - **Scenarios.** Populated, empty, loading and error come built in; save your own with the route, data,
   role, viewport, theme, locale, time zone, a fixed clock, a seed for random numbers and the clicks that
   lead to a detail or an editing state (**Record**). Scenarios live in `.markview/studio/` and can be
