@@ -237,19 +237,45 @@ enum IssueEvidenceCollector {
             let fields = batch.map { "p\($0.1): pullRequest(number: \($0.1)) { body }" }.joined(separator: " ")
             let query = "query { repository(owner: \"\(pieces[0])\", name: \"\(pieces[1])\") { \(fields) } }"
             let result = await GitHubClient.execute(["api", "graphql", "-f", "query=" + query], in: client.root, timeout: 30)
-            guard result.status == 0, let object = json(result.stdout), object["errors"] == nil,
-                  let data = object["data"] as? [String: Any], let repo = data["repository"] as? [String: Any] else {
+            guard let bodies = pullRequestBodies(in: result, requested: batch.map(\.1)) else {
                 return (found, "pull request descriptions could not be read")
             }
             for (commit, number) in batch {
-                // A squash title can end in an issue number rather than a pull request number.
-                guard let pr = repo["p\(number)"] as? [String: Any], let body = pr["body"] as? String else { continue }
+                // A squash title can end in an issue number rather than a pull request number: it has no description here.
+                guard let body = bodies[number] else { continue }
                 if let association = association(in: WorkAssociationRules.deliveryDescription(body), subject: subject) {
                     found.append(Match(commit: commit, association: association, pullRequest: number))
                 }
             }
         }
         return (found, nil)
+    }
+
+    /// The descriptions in the answer to a batch of `pN: pullRequest(number: N) { body }` fields, by number; nil when the
+    /// answer cannot be trusted. A number that names an issue (a squash title ends in the issue it closes) or a deleted pull
+    /// request makes GitHub answer NOT_FOUND for its field alone and `gh` exit with 1, although every other field has its
+    /// data (BUG-104): such a field has no description and is skipped. No answer, no repository object, an error that is
+    /// not NOT_FOUND on a requested field (authentication, rate limit, a malformed query), or a failed `gh` without errors
+    /// in the answer is a failed read, never a silent absence of work.
+    static func pullRequestBodies(in result: GitHubClient.Output, requested: [Int]) -> [Int: String]? {
+        guard let object = json(result.stdout), let data = object["data"] as? [String: Any],
+              let repo = data["repository"] as? [String: Any] else { return nil }
+        let fields = Set(requested.map { "p\($0)" })
+        var errors: [[String: Any]] = []
+        if let raw = object["errors"] {
+            guard let list = raw as? [[String: Any]] else { return nil }
+            errors = list
+        }
+        guard errors.isEmpty ? result.status == 0 : errors.allSatisfy({ error in
+            guard error["type"] as? String == "NOT_FOUND", let path = error["path"] as? [Any], path.count == 2,
+                  path[0] as? String == "repository", let field = path[1] as? String else { return false }
+            return fields.contains(field)
+        }) else { return nil }
+        var bodies: [Int: String] = [:]
+        for number in requested {
+            if let pr = repo["p\(number)"] as? [String: Any], let body = pr["body"] as? String { bodies[number] = body }
+        }
+        return bodies
     }
 
     /// "Merge pull request #12 from …" (merge commit) or "title (#12)" (squash).
