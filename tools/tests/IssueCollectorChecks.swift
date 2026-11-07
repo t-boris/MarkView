@@ -37,6 +37,12 @@ struct GitHubClient: Sendable {
             let data = try! JSONSerialization.data(withJSONObject: object)
             return Output(status: status, stdout: String(decoding: data, as: UTF8.self), stderr: status == 0 ? "" : "gh: Could not resolve to a PullRequest with the number of 4.")
         }
+        if args.first == "api", args.count > 2, args[1] == "--paginate", args[2].contains("/commits/") {
+            // BUG-106: the files of a commit as GitHub lists them; the marker file holds the answer, no marker is an unreachable GitHub.
+            let marker = root.appendingPathComponent(".gh-commit-files")
+            guard let files = try? String(contentsOf: marker, encoding: .utf8) else { return Output(status: 1, stdout: "", stderr: "gh: no route to host") }
+            return Output(status: 0, stdout: files, stderr: "")
+        }
         if args.prefix(2) == ["pr", "view"] {
             return Output(status: 0, stdout: #"{"headRefOid":"pr-head","mergeCommit":{"oid":"squash-commit"},"state":"MERGED","mergedAt":"2026-11-01T00:00:00Z"}"#, stderr: "")
         }
@@ -179,6 +185,57 @@ struct GitHubClient: Sendable {
         let malformed = IssueEvidenceCollector.pullRequestBodies(
             in: answer(1, ["data": ["repository": ["p1": ["body": "one"]]], "errors": "NOT_FOUND"]), requested: [1])
         check("errors that are not a list fail the read", malformed == nil)
+        // BUG-106: the oldest commit of a shallow clone has no parent for git, so `--name-only` lists its whole tree.
+        let source = fm.temporaryDirectory.appendingPathComponent("issue-collector-source-\(UUID().uuidString)")
+        let shallow = fm.temporaryDirectory.appendingPathComponent("issue-collector-shallow-\(UUID().uuidString)")
+        try! fm.createDirectory(at: source, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: source); try? fm.removeItem(at: shallow) }
+        git(["init", "-b", "main"], in: source)
+        git(["config", "user.name", "Test"], in: source)
+        git(["config", "user.email", "test@example.org"], in: source)
+        func sourceCommit(_ name: String, _ body: String) {
+            let url = source.appendingPathComponent(name)
+            try! fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try! body.write(to: url, atomically: true, encoding: .utf8)
+            git(["add", name], in: source)
+            git(["commit", "-m", body], in: source)
+        }
+        sourceCommit("app.swift", "initial code")
+        sourceCommit("docs/bugs/BUG-200.md", "Record BUG-200 in the project records")
+        git(["checkout", "-b", "fix-200"], in: source)
+        sourceCommit("fix.swift", "Fix BUG-200")
+        git(["checkout", "main"], in: source)
+        git(["merge", "--no-ff", "fix-200", "-m", "Merge pull request #1 from example/fix-200\n\nFix BUG-200"], in: source)
+        git(["clone", "-q", "--depth", "2", "--branch", "main", "file://\(source.path)", shallow.path], in: fm.temporaryDirectory)
+        let recordSHA = gitOutput(["rev-list", "--max-parents=0", "HEAD"], in: shallow)
+        let marker = shallow.appendingPathComponent(".gh-commit-files")
+        let boundary = IssueEvidenceCollector.Subject(kind: .bug, issue: "BUG-200", exclusiveNumbers: [], sharedNumbers: [], since: nil)
+
+        try! "docs/bugs/BUG-200.md\n".write(to: marker, atomically: true, encoding: .utf8)
+        let recorded = await IssueEvidenceCollector.collect(boundary, root: shallow, githubEnabled: true)
+        check("the documentation record at the end of a shallow clone is not code work", recorded.isComplete && recorded.lines.contains { $0.contains("PR #1") })
+        check("the record is not listed as a work unit", !recorded.lines.contains { $0.contains(String(recordSHA.prefix(7))) })
+
+        try! "app.swift\ndocs/bugs/BUG-200.md\n".write(to: marker, atomically: true, encoding: .utf8)
+        let code = await IssueEvidenceCollector.collect(boundary, root: shallow, githubEnabled: true)
+        check("a code commit at the end of a shallow clone is still code work", !code.isComplete && code.lines.contains { $0.contains(String(recordSHA.prefix(7))) })
+
+        try! fm.removeItem(at: marker)
+        let unreadable = await IssueEvidenceCollector.collect(boundary, root: shallow, githubEnabled: true)
+        var unknownOnly = false
+        if case .unknown(let reasons) = unreadable { unknownOnly = reasons.contains { $0.contains("changed files of commit") } }
+        check("files GitHub cannot list leave the end of a shallow clone unknown, not a definite gap", unknownOnly)
+        let off = await IssueEvidenceCollector.collect(boundary, root: shallow, githubEnabled: false)
+        var offUnknown = false
+        if case .unknown = off { offUnknown = true }
+        check("with GitHub off the end of a shallow clone is unknown, not missing a pull request", offUnknown && !off.lines.contains { $0.contains("requires a merged pull request") })
+
+        // A complete clone keeps the files git reports: a documentation-only first commit stays documentation.
+        let whole = fm.temporaryDirectory.appendingPathComponent("issue-collector-whole-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: whole) }
+        git(["clone", "-q", "file://\(source.path)", whole.path], in: fm.temporaryDirectory)
+        let complete = await IssueEvidenceCollector.collect(boundary, root: whole, githubEnabled: true)
+        check("a complete clone is judged by the files git reports", complete.isComplete && complete.lines.contains { $0.contains("PR #1") })
         finish("issue collector")
     }
 }

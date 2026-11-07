@@ -161,4 +161,17 @@ check("deploy ask-me is not a requirement", !ReleaseRequirement.isRequired(defin
 check("no file, no requirement", !ReleaseRequirement.isRequired(definitionOfDoneJSON: nil))
 check("damaged file, no requirement", !ReleaseRequirement.isRequired(definitionOfDoneJSON: Data("{".utf8)))
 
+// MARK: A unit whose files could not be read is no definite gap (BUG-106)
+
+let unreadable = unit(c1, head: "1234567890abcdef", paths: nil)
+func strict(_ work: [WorkUnit]) -> DeliveryVerdict {
+    DeliveryEvaluator.evaluate(DeliveryInput(sources: sources, work: work, releaseRequired: false, pullRequestRequired: true))
+}
+let beside = strict([unit(pr1), unreadable])
+check("a unit with unreadable files leaves the verdict unknown, not complete", isUnknown(beside))
+check("a unit with unreadable files is not reported as missing a pull request",
+      !beside.lines.contains { $0.contains("requires a merged pull request") } && beside.lines.contains { $0.contains("changed files of") })
+check("a unit with unreadable files does not hide a definite gap elsewhere",
+      isIncomplete(strict([unit(pr1, checks: .failed(sha: "aaa1111")), unreadable])))
+
 finish("evidence")
