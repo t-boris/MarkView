@@ -1491,3 +1491,16 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
 - Look at the other side of the bridge when a page is slow to open: `handleBlocksDelta` writes every block to SQLite one by one on the main
   thread. Alone it takes 0.1-0.3 s; with another process holding the write lock it took 28.8 s for 1339 blocks. Measure the cost model before
   deciding how to change a threading rule.
+
+## 2026-11-07 — BUG-106: a shallow clone has no parent for its oldest commit
+
+- `git log --name-only` shows a root commit's whole tree as added. A shallow clone has such a "root" at its boundary (`.git/shallow`) although
+  the commit is an ordinary one, so any rule that reads the changed paths of the oldest commit is wrong there: here a documentation record
+  became "code work" and blocked a delivered bug.
+- Do not trust an agent's or a user's diagnosis of a refusal, and do not trust the first plausible one of mine either: the report said "the old
+  commit is taken for the work", the cause was the shallow boundary, found only by running the real collector on the real repository and
+  then on a deeper clone of it (the verdict changed from `incomplete` to `complete`).
+- A file list that cannot be read is "unknown", never "everything" and never "nothing"; a unit that cannot be judged must not add a definite gap.
+- A checks file placed after a call that returns `Never` (`finish(...)`) is dead code: put new checks before it, and show them failing on the
+  old code first.
+

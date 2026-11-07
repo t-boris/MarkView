@@ -4648,3 +4648,21 @@ Measured (hidden WKWebView with the shipping editor page; real files; Swift pars
   published (signed, notarized, `spctl` accepted, the bundle contains the fix; `build/MarkView-5.39.2.dmg`), worktrees removed.
 - [ ] BUG-105 to `fixed` once the running app can read delivery evidence (Boris installs 5.39.2).
 - [ ] Decide with Boris: move block persistence off the main thread (one transaction, serial queue); find out why the strategic plan is slow in the app.
+
+## BUG-106 — A documentation record at the end of a shallow clone blocks `fixed`
+
+Reported through an agent (2026-11-07): BUG-091 in `vivaa-platform` was refused `fixed` with "commit f0209a9: this project requires a merged
+pull request" and "has no workflow run", although PR #772 (5b38dfa31) was merged, checked and released as v1.187.1.
+
+- [x] Reproduced with the real `IssueEvidenceCollector` on the real repository (git and gh really run): the clone is shallow (`.git/shallow` =
+  f0209a9), git lists the whole tree (5633 files) of that commit as added, so the documentation filter (by path) keeps the 8-file record as code.
+  A clone that shows the parent gives `complete`.
+- [x] Fix: boundary commits get their files from GitHub; unreadable files are unknown, and an unknown unit is never a definite gap.
+- [x] Checks: `git clone --depth 2` scenario in the collector checks + evaluator checks; fail on the old code, pass now; all lifecycle suites pass;
+  live run on the real clone `complete(... in release v1.187.1)`; Debug build succeeds.
+- [x] PR #310 merged (4e79ae8; lifecycle, pdf-book, pdf-reader green).
+- [x] v5.39.3 published (https://github.com/t-boris/MarkView/releases/tag/v5.39.3; signed, notarized, stapled, `spctl` accepted, app version 5.39.3;
+  `Build & Release` of 4e79ae8 green; `build/MarkView-5.39.3.dmg`).
+- [ ] Install 5.39.3 (Boris asked for the DMG and the reinstall on 2026-11-07): detached script, windows compared before and after.
+- [ ] Then request `fixed` for BUG-104, BUG-103, BUG-105 and BUG-106; BUG-091 is the agent's to request again.
+
