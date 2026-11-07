@@ -19,6 +19,61 @@
             });
         }
 
+        // Mermaid diagrams (BUG-105). Every diagram that is drawn puts a <style> element into the page, and WebKit then
+        // recalculates the styles of every element of the document: with 250 diagrams in a document of 18,000 elements,
+        // `mermaid.run` kept the page frozen for a minute. Elements that are not displayed are not styled, so the
+        // diagrams are drawn in time-boxed chunks while the document body is hidden. The body is shown again in the
+        // same task, so no frame is painted without it, and the page can paint and answer input between chunks.
+        let mermaidRunId = 0;
+        let mermaidSerial = 0;
+        const MERMAID_CHUNK_MS = 600;
+
+        async function drawMermaidDiagrams(runId) {
+            const body = DOM.rendered.querySelector('.markdown-body');
+            if (!body) return;
+            const pending = Array.from(body.querySelectorAll('.mermaid'));
+            const failed = [];
+            let next = 0;
+            while (next < pending.length) {
+                if (runId !== mermaidRunId) return; // the document was rendered again: these diagrams are gone
+                const chunkStart = performance.now();
+                const scrollTop = DOM.rendered.scrollTop;
+                const selection = window.getSelection();
+                const range = selection && selection.rangeCount && body.contains(selection.anchorNode)
+                    ? selection.getRangeAt(0).cloneRange() : null;
+                body.style.display = 'none';
+                try {
+                    while (next < pending.length && performance.now() - chunkStart < MERMAID_CHUNK_MS) {
+                        const node = pending[next++];
+                        if (!node.isConnected) continue;
+                        const id = 'mv-mermaid-' + (++mermaidSerial);
+                        try {
+                            const drawn = await mermaid.render(id, node.textContent);
+                            node.innerHTML = drawn.svg;
+                            node.setAttribute('data-processed', 'true');
+                            if (drawn.bindFunctions) drawn.bindFunctions(node);
+                        } catch (e) {
+                            // mermaid leaves its scratch element behind; the broken diagram is shown below by mermaid itself
+                            const scratch = document.getElementById('d' + id);
+                            if (scratch) scratch.remove();
+                            failed.push(node);
+                        }
+                    }
+                } finally {
+                    body.style.display = '';
+                    DOM.rendered.scrollTop = scrollTop;
+                    if (range) { selection.removeAllRanges(); selection.addRange(range); }
+                }
+                try { decorateMermaidDiagrams(); } catch (e) {}
+                if (next < pending.length) await new Promise(resolve => setTimeout(resolve, 0));
+            }
+            if (failed.length && runId === mermaidRunId) {
+                // One broken diagram rejects the promise while the rest still render: the same call as for a whole document
+                try { await mermaid.run({ nodes: failed }); } catch (e) {}
+                try { decorateMermaidDiagrams(); } catch (e) {}
+            }
+        }
+
         function renderMarkdown() {
             if (state.isRendering) return;
             state.isRendering = true;
@@ -135,28 +190,8 @@
 
                 // Render mermaid diagrams
                 if (typeof mermaid !== 'undefined') {
-                    setTimeout(() => {
-                        try {
-                            const nodes = DOM.rendered.querySelectorAll('.mermaid');
-                            if (nodes.length > 0) {
-                                const done = mermaid.run({ nodes: nodes });
-                                // Expand buttons go in after the SVGs exist —
-                                // mermaid.run replaces each div's content. One
-                                // broken diagram rejects the promise while the
-                                // rest still render, so decorate on both paths.
-                                const decorate = () => { try { decorateMermaidDiagrams(); } catch(e3) {} };
-                                if (done && typeof done.then === 'function') {
-                                    done.then(decorate, decorate);
-                                } else {
-                                    setTimeout(decorate, 300);
-                                }
-                            }
-                        } catch(e) {
-                            // Fallback for older mermaid API
-                            try { mermaid.contentLoaded(); } catch(e2) {}
-                            setTimeout(() => { try { decorateMermaidDiagrams(); } catch(e3) {} }, 300);
-                        }
-                    }, 0);
+                    const runId = ++mermaidRunId;
+                    setTimeout(() => { drawMermaidDiagrams(runId); }, 0);
                 }
 
                 // Formulas are rendered by markdown-it itself (markview-mdext.js), before
