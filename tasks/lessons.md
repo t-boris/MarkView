@@ -1504,3 +1504,32 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
 - A checks file placed after a call that returns `Never` (`finish(...)`) is dead code: put new checks before it, and show them failing on the
   old code first.
 
+
+## 2026-11-07 — Beautiful PDF export of a document (5.40.0)
+
+- Test on the real document the person names, not only on generated ones. Boris's 840 KB business plan (253 diagrams of seven types, 2354
+  table rows, Russian text) found three defects that the showcase fixture could not: a Sankey diagram drawn at a fixed size with no
+  `viewBox` (a box narrower than the drawing cut it, and the overflow guard refused the whole export), the timer throttle below, and the
+  Cyrillic text layer below.
+- "Both processes idle while the run is slow" means waiting, not computing. `/usr/bin/sample` on the harness and on its WebContent process
+  showed 0 % CPU in both: the layout loop yielded to the event loop with `setTimeout(0)` after every page, and a `WKWebView` that is not in a
+  window is a hidden page whose timers WebKit aligns to a second and then to longer intervals. 120 diagrams took 117 s; a `MessageChannel`
+  task instead of the timer took 8 s. Never pace work with timers in an off-screen web view.
+- Look at the text extracted from a PDF (`pdftotext`, `PDFPage.string`), not only at pixels, for every script the app prints. The macOS
+  system font (`-apple-system`, SF) writes U+0138 (ĸ) into the text layer instead of the Russian letter к: the page looks right but copying
+  and searching "рынок" find nothing. Helvetica Neue and Arial map it correctly. The check names the failing words and fails on the old font.
+- A sanitizer that strips attributes can silently break a library's own output: removing every inline `style` removed KaTeX's layout and
+  printed formulas as a jumble. Allow what the library writes by property name (sizes, offsets, spacing, colours), never by a pattern that
+  rejects bad values (`url(` is bypassed by `u\72l(`), and test with a real formula and with markup that only wears the class of one.
+- Detect the language from running prose only: front matter, table rows and diagram sources are English words in a Russian plan and made the
+  whole PDF get English labels ("Contents", "DOCUMENT") from a 4000-character prefix.
+- A bold line of its own (`**Table 1.2 — …**`) is a caption and keeps with the next block; a paragraph that ends with a colon too.
+- An independent review after "all checks pass" still found real defects (an `<img>` with an address that is not a URL aborted the whole
+  export, a leading `---` rule was taken for front matter and swallowed the text up to the next rule, a very long title made the cover
+  fail). Reproduce each with a check that fails on the old code, then fix.
+- Show every new check failing without its fix, in the same run as the fix: the old engine failed six checks, the old font two, the missing
+  caption rule ten stranded captions.
+- A check that passes locally can fail on the CI runner because its macOS version differs: wide letter spacing came back from the text
+  extraction as "D O C U M E N T" there (compare text without white space), and a timer assertion that expected "1:1x" read the page 6 s
+  late on a slow runner (give timing checks a window). The first CI run is part of the verification, not a formality.
+

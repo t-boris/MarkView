@@ -4666,3 +4666,49 @@ pull request" and "has no workflow run", although PR #772 (5b38dfa31) was merged
 - [ ] Install 5.39.3 (Boris asked for the DMG and the reinstall on 2026-11-07): detached script, windows compared before and after.
 - [ ] Then request `fixed` for BUG-104, BUG-103, BUG-105 and BUG-106; BUG-091 is the agent's to request again.
 
+
+# Beautiful PDF export of a document (goal session 2026-11-07, branch feat/pdf-export-beautiful)
+
+Request (Boris, /goal): check the PDF generation from Markdown. The PDF is shared with other people, so it must look beautiful:
+margins, pictures and diagrams not cut, everything fits the page, a background, a title and a big title page.
+
+## Baseline (measured with the shipping editor page and the old `PDFExporter`, fixture `Tests/Fixtures/pdf-export/showcase.md`)
+- One wide diagram made the print page 3640 pt wide instead of 595 pt: the whole document was shrunk into the left fifth of the page.
+- The front matter became a "Metadata" table; no title page, no running header or footer, no page numbers, no contents.
+- A single tall capture was sliced at fixed A4 heights: tables, pictures, diagrams and code blocks were cut at page boundaries.
+- Page background was always white; diagrams were drawn with the editor theme.
+
+## Design
+- No second paginator: the existing PDF-book engine (`book.html`, `markview-book.js`, `BookPDFRenderer`, PDFKit assembly) gets a `document`
+  mode for a single file: cover page from the title / subtitle / author / date, running header with the current section, footer with
+  page n / N, contents only when the document is long enough, native bookmarks and links, theme background (paper / white / midnight),
+  Prism code colours, diagrams at their natural size, a placeholder for a picture that cannot be read.
+- `PDFExporter` becomes the thin entry point (probe the page for the Markdown, ask paper and style in the save panel, run the renderer,
+  save atomically, reveal in Finder). The old slicing code and print template are deleted.
+- Pictures are read natively, only from the folders the document may use (project folder and the folder of the document), as the old
+  `markview-doc:` handler allowed.
+
+## Plan
+- [x] 1. Engine: `document` mode in `markview-book.js` / `markview-book.css` / `book.html`.
+- [x] 2. Swift: `BookPDFOptions.mode`, labels shared with the book, `PDFExporter` rewritten, research-map report exported from its Markdown.
+- [x] 3. Check: `tools/tests/pdf-export-tests.sh` (real WebKit, the fixture, page size / text / bookmarks / links / pictures / no overflow) and a visual review of the rasterised pages.
+- [x] 4. Existing harnesses (`book-pdf-tests.sh`), Debug build, version bump, PR, CI, release.
+
+## Review (2026-11-07, v5.40.0, PR #311)
+- Delivered: document mode of the PDF-book engine; `PDFExporter` is a thin entry point (save panel with style and paper, render, atomic save,
+  Finder); the research-map report is exported from its Markdown; the slicing code and print template are deleted.
+- Evidence: `tools/tests/pdf-export-tests.sh` (real WebKit) passes, each new check was shown failing on the old engine / old font;
+  `book-pdf-tests.sh`, research-map, document-files, editor-diagram and lifecycle harnesses pass; Debug build succeeds; visual review of
+  the showcase fixture and of Boris's real business plan (695 pages, 253 diagrams of seven types, Russian text, 26 s).
+- Found on the real plan and fixed: timer throttling in the off-screen web view (117 s -> 9 s for 120 diagrams), U+0138 for "к" in the text
+  layer with the system font, English labels from an English prefix of a Russian document, diagrams without a `viewBox` cut by the page,
+  captions stranded at the foot of a page. Independent review: invalid picture URLs, a leading `---` rule, style-filter bypass, very long titles.
+- Limits: the save panel and the style popups were not hand-checked in the running app; a very wide diagram is scaled down; no progress
+  indicator while a very large document is typeset; data / image / PDF tabs are not exported (a message says so); the date on the title page
+  is the date of the export when the document has none; the contents links inside Boris's translated plan point at English anchors that
+  do not exist in the translated headings (the PDF's own contents work).
+- Delivered: PR #311 merged (merge commit 23bdc55); first CI run failed on two fragile checks (letter-spaced text extraction on the runner's
+  macOS, a timer window in the research-map check), fixed in the same PR, second run green (pdf-book, pdf-reader, research-map). Release
+  v5.40.0 published as Latest (signed, notarized, stapled DMG, sha256 4ad8bb94...): https://github.com/t-boris/MarkView/releases/tag/v5.40.0.
+  Local copies: build/MarkView-5.40.0.dmg and build/release/MarkView.app. The installed app was not touched.
+
