@@ -1,0 +1,28 @@
+name: Editor Diagram Checks
+on:
+  pull_request:
+    paths:
+      - 'MarkView/Resources/Editor/index.html'
+      - 'MarkView/Resources/Editor/vendor/js/markview-render.js'
+      - 'MarkView/Resources/Editor/vendor/js/markview-diagram-viewer.js'
+      - 'MarkView/Resources/Editor/vendor/js/mermaid.min.js'
+      - 'tools/tests/EditorDiagrams*'
+      - 'tools/tests/editor-diagrams*'
+      - '.github/workflows/editor-diagrams.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'MarkView/Resources/Editor/vendor/js/markview-render.js'
+      - 'tools/tests/EditorDiagrams*'
+      - 'tools/tests/editor-diagrams*'
+      - '.github/workflows/editor-diagrams.yml'
+permissions:
+  contents: read
+jobs:
+  editor-diagrams:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify that a large document with many diagrams keeps the editor page responsive
+        run: bash tools/tests/editor-diagrams-tests.sh
