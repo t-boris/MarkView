@@ -314,11 +314,12 @@ _ = js("__t.select('n2'); return 'ok';")
 
 // ---- toolbar status ---------------------------------------------------------------------------------------------------------------
 check(!visible(".rm-status"), "a complete map shows no status chip")
+// 75 s ago; the page is read a few seconds later, and a slow runner needs up to about 30 s for it, so any 1:1x to 1:3x is right
 let started = Int(Date().timeIntervalSince1970) - 75
 deliver("{ status: 'researching', job: { kind: 'research', label: 'Researching the question', step: 'Reading Package.swift', startedAt: \(started) } }")
 check(visible(".rm-status") && eval("__t.q('.rm-status').textContent").contains("Reading Package.swift") && eval("__t.q('.rm-status').textContent").contains("Researching the question"),
       "researching: the chip shows the job and its current step", eval("__t.q('.rm-status').textContent"))
-check(eval("__t.q('.rm-elapsed').textContent").range(of: #"^1:1\d$"#, options: .regularExpression) != nil, "researching: the elapsed time counts from startedAt", eval("__t.q('.rm-elapsed').textContent"))
+check(eval("__t.q('.rm-elapsed').textContent").range(of: #"^1:[1-3]\d$"#, options: .regularExpression) != nil, "researching: the elapsed time counts from startedAt", eval("__t.q('.rm-elapsed').textContent"))
 check(bool("!!__t.q('.rm-status .rm-spin')"), "researching: a spinner")
 newMark()
 _ = js("__t.q('.rm-status [data-act=stop]').click(); return 'ok';")
@@ -938,15 +939,6 @@ deliver()
 _ = js("__t.q('[data-act=export]').click(); return 'ok';")
 _ = js("document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); return 'ok';")
 check(!visible(".rm-exportmenu"), "a click elsewhere closes the export menu")
-let reportHTML = eval("window.MVResearchMap.reportHTML('# Title\\n\\n<script>alert(1)</script>\\n\\n- one')")
-check(reportHTML.contains("<h1>Title</h1>") && reportHTML.contains("<li>one</li>") && !reportHTML.contains("<script"), "the report is rendered to HTML for the PDF, raw HTML in it is not passed through")
-let baseBefore = js("return String(state.documentBaseURL || '');")
-_ = js("state.documentBaseURL = 'file:///tmp/mvmap/'; return 'ok';")
-let drawnReport = js("return await window.MVResearchMap.reportHTMLDrawn('# T\\n\\n```mermaid\\nflowchart LR\\n  A --> B\\n```\\n\\n```mermaid\\nthis is not ( a diagram\\n```\\n\\n![x](images/a.png)');", [:], timeout: 40)
-_ = js("state.documentBaseURL = baseBefore || null; return 'ok';", ["baseBefore": baseBefore])
-check(drawnReport.contains("<figure class=\"mv-report-diagram\"") && drawnReport.contains("<svg"), "the report for the PDF has its Mermaid drawn", String(drawnReport.prefix(400)))
-check(drawnReport.contains("language-mermaid") && drawnReport.components(separatedBy: "<figure").count == 2, "…a block that cannot be drawn stays as source", String(drawnReport.suffix(400)))
-check(drawnReport.contains("src=\"markview-doc:///tmp/mvmap/images/a.png\""), "…and a picture is addressed for the document files", String(drawnReport.suffix(300)))
 
 newMark()
 _ = js("__t.menu('n3'); __t.act('arrange'); return 'ok';")

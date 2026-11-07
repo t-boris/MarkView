@@ -29,11 +29,14 @@ final class BookPDFRenderer: NSObject, WKNavigationDelegate {
         var html: [(id: String, text: String)]
     }
 
-    func prepare(_ chapters: [BookPDFChapter], options: BookPDFOptions) async throws -> Prepared {
+    /// `allowFile` limits which local files a picture may be read from (nil: any). A document that refers to a picture that cannot be
+    /// read is still printed, with a note in its place; a book stops, as its pictures were chosen by the person who exports it.
+    func prepare(_ chapters: [BookPDFChapter], options: BookPDFOptions, allowFile: (@Sendable (URL) -> Bool)? = nil) async throws -> Prepared {
         try await load()
         let values = chapters.map { ["id": $0.id, "url": $0.url.absoluteString, "path": $0.path,
                                      "title": $0.title, "format": $0.format, "text": $0.text] }
-        let settings: [String: Any] = ["title": options.title, "author": options.author, "paper": options.paper, "theme": options.theme]
+        let settings: [String: Any] = ["title": options.title, "author": options.author, "paper": options.paper, "theme": options.theme,
+                                       "mode": options.mode, "locale": options.locale]
         let result = try await call("return await BookPDF.prepare(chapters, options)", ["chapters": values, "options": settings]) as? [String: Any]
         let requests = result?["assets"] as? [[String: String]] ?? []
         var images: [String: String] = [:]
@@ -41,8 +44,13 @@ final class BookPDFRenderer: NSObject, WKNavigationDelegate {
         for request in requests {
             try Task.checkCancellation()
             guard let id = request["id"], let raw = request["url"], let url = URL(string: raw) else { throw BookPDFError.invalid("An illustration has an invalid URL.") }
-            let reading = Task.detached { try await Self.image(url) }
-            let value = try await withTaskCancellationHandler { try await reading.value } onCancel: { reading.cancel() }
+            let reading = Task.detached { try await Self.image(url, allowFile: allowFile) }
+            let value: String
+            do { value = try await withTaskCancellationHandler { try await reading.value } onCancel: { reading.cancel() } }
+            catch {
+                if options.mode == "document", !Task.isCancelled, !(error is CancellationError) { images[id] = ""; continue }
+                throw error
+            }
             bytes += value.utf8.count
             guard bytes <= 96 * 1024 * 1024 else { throw BookPDFError.invalid("Illustrations exceed the book's 96 MB image limit. Use smaller originals.") }
             images[id] = value
@@ -80,7 +88,8 @@ final class BookPDFRenderer: NSObject, WKNavigationDelegate {
     }
 
     func render(options: BookPDFOptions, labels: [String: String], progress: (Int, Int) -> Void) async throws -> Result {
-        _ = try await call("BookPDF.title(title); return true", ["title": options.title])
+        // A document takes its title from its own text while it is prepared.
+        if options.mode != "document" { _ = try await call("BookPDF.title(title); return true", ["title": options.title]) }
         guard let layout = try await call("return await BookPDF.layout(labels)", ["labels": labels]) as? [String: Any],
               let width = layout["width"] as? Double, let height = layout["height"] as? Double,
               let count = layout["count"] as? Int, (1...2000).contains(count) else {
@@ -127,10 +136,12 @@ final class BookPDFRenderer: NSObject, WKNavigationDelegate {
             let parent = stack.last?.1 ?? root; parent.insertChild(item, at: parent.numberOfChildren); stack.append((level, item))
         }
         pdf.outlineRoot = root
-        pdf.documentAttributes = [PDFDocumentAttribute.titleAttribute: options.title,
-                                  PDFDocumentAttribute.authorAttribute: options.author,
+        let title = layout["title"] as? String ?? options.title
+        let author = layout["author"] as? String ?? options.author
+        pdf.documentAttributes = [PDFDocumentAttribute.titleAttribute: title,
+                                  PDFDocumentAttribute.authorAttribute: author,
                                   PDFDocumentAttribute.creatorAttribute: "MarkView",
-                                  PDFDocumentAttribute.subjectAttribute: "Book · \(options.language)"]
+                                  PDFDocumentAttribute.subjectAttribute: options.mode == "document" ? "Document" : "Book · \(options.language)"]
         guard let data = pdf.dataRepresentation() else { throw BookPDFError.invalid("The PDF could not be assembled.") }
         return Result(data: data, pages: count, warnings: layout["warnings"] as? [String] ?? [])
     }
@@ -201,7 +212,7 @@ final class BookPDFRenderer: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { finishNavigation(.failure(error)) }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { finishNavigation(.failure(error)) }
 
-    nonisolated private static func image(_ url: URL) async throws -> String {
+    nonisolated private static func image(_ url: URL, allowFile: (@Sendable (URL) -> Bool)?) async throws -> String {
         let data: Data
         if url.scheme == "data" {
             guard url.absoluteString.hasPrefix("data:image/"), let comma = url.absoluteString.firstIndex(of: ",") else { throw BookPDFError.invalid("Only image data URLs can be embedded.") }
@@ -209,6 +220,7 @@ final class BookPDFRenderer: NSObject, WKNavigationDelegate {
             guard let decoded = Data(base64Encoded: payload), decoded.count <= 24 * 1024 * 1024 else { throw BookPDFError.invalid("An inline illustration is invalid or too large.") }
             data = decoded
         } else if url.isFileURL {
+            guard allowFile?(url) ?? true else { throw BookPDFError.invalid("Illustration \(url.lastPathComponent) is outside the folders this document may use.") }
             let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
             guard size <= 24 * 1024 * 1024 else { throw BookPDFError.invalid("Illustration \(url.lastPathComponent) exceeds 24 MB.") }
             data = try Data(contentsOf: url)

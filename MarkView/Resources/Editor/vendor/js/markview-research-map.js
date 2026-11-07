@@ -2834,53 +2834,7 @@
         };
     }
 
-    /** The report of a map as HTML for the PDF pipeline. A separate renderer that never passes raw HTML through: the text is AI-written. */
-    let reportRenderer = null;
-    function reportHTML(markdown) {
-        try {
-            if (!reportRenderer && window.markdownit) reportRenderer = window.markdownit({ html: false, breaks: true, linkify: true, typographer: true });
-            return reportRenderer ? reportRenderer.render(String(markdown == null ? '' : markdown)) : '';
-        } catch (e) { reportError('reportHTML', e); return ''; }
-    }
-
-    /**
-     * The report as HTML for the PDF, with every Mermaid block drawn (light theme, as printed) and the pictures of the report
-     * addressed the way the Markdown preview does. A diagram that cannot be drawn stays as its source.
-     */
-    async function reportHTMLDrawn(markdown) {
-        const html = reportHTML(markdown);
-        if (!html) return '';
-        const holder = document.createElement('div');
-        holder.innerHTML = html;
-        holder.querySelectorAll('img[src]').forEach(function (img) {
-            const url = imageURL(img.getAttribute('src'));
-            if (url) img.setAttribute('src', url);
-        });
-        const blocks = Array.prototype.slice.call(holder.querySelectorAll('pre > code.language-mermaid'));
-        for (let i = 0; i < blocks.length; i++) {
-            const source = blocks[i].textContent.trim();
-            const result = await drawDiagram('print\n' + source, source, 'default');
-            if (result.error) continue;
-            const figure = document.createElement('figure');
-            figure.className = 'mv-report-diagram';
-            figure.style.cssText = 'margin: 1em 0; text-align: center; page-break-inside: avoid;';
-            figure.innerHTML = result.svg;
-            const svg = figure.querySelector('svg');
-            if (svg) {
-                const k = Math.min(1, 640 / result.w);
-                svg.setAttribute('width', String(Math.round(result.w * k)));
-                svg.setAttribute('height', String(Math.round(result.h * k)));
-                svg.style.maxWidth = '100%';
-                svg.style.height = 'auto';
-            }
-            blocks[i].parentNode.replaceWith(figure);
-        }
-        return holder.innerHTML;
-    }
-
     window.MVResearchMap = {
-        reportHTML: reportHTML,
-        reportHTMLDrawn: reportHTMLDrawn,
         iconIDs: function () { return NODE_ICON_IDS.slice(); },
         shapeIDs: function () { return SHAPE_IDS.slice(); },
         sizeLimits: function () { return { width: LIMITS.width.slice(), height: LIMITS.height.slice() }; },

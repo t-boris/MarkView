@@ -5,6 +5,9 @@ on:
       - 'MarkView/**'
       - 'project.yml'
       - 'tools/tests/BookPDF*'
+      - 'tools/tests/PDFExport*'
+      - 'tools/tests/pdf-export-tests.sh'
+      - 'Tests/Fixtures/pdf-export/**'
       - 'tools/tests/book-pdf-tests.sh'
       - '.github/workflows/pdf-book.yml'
 permissions:
@@ -17,5 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify native PDF content, pagination, links and bookmarks
         run: bash tools/tests/book-pdf-tests.sh
+      - name: Verify the PDF of a single document (title page, pages, pictures, diagrams, formulas, styles)
+        run: bash tools/tests/pdf-export-tests.sh
       - name: Build application
         run: xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug -derivedDataPath /tmp/MarkViewBookCI CODE_SIGNING_ALLOWED=NO build

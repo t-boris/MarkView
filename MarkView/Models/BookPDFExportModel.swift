@@ -133,23 +133,10 @@ final class BookPDFExportModel: ObservableObject {
     func cancel() { if isBusy { status = "Stopping export…" }; task?.cancel(); renderer?.cancel() }
 
     private func bookLabels(options: BookPDFOptions, chapters: [BookPDFChapter]) async throws -> [String: String] {
-        let known: [String: [String]] = [
-            "en": ["Contents", "COLLECTED WRITINGS", "A reader’s edition"],
-            "ru": ["Оглавление", "СОБРАНИЕ ТЕКСТОВ", "Книжное издание"],
-            "uk": ["Зміст", "ЗІБРАННЯ ТЕКСТІВ", "Книжкове видання"],
-            "de": ["Inhalt", "GESAMMELTE TEXTE", "Eine Leseausgabe"],
-            "fr": ["Table des matières", "RECUEIL DE TEXTES", "Édition de lecture"],
-            "es": ["Contenido", "TEXTOS REUNIDOS", "Edición de lectura"],
-            "he": ["תוכן עניינים", "אסופת כתבים", "מהדורת קריאה"],
-            "zh-Hans": ["目录", "文集", "阅读版"]
-        ]
-        let names = ["English":"en", "Russian":"ru", "Ukrainian":"uk", "German":"de", "French":"fr", "Spanish":"es", "Hebrew":"he", "Chinese (Simplified)":"zh-Hans"]
-        let language: String
-        if options.language == "document" {
-            language = NLLanguageRecognizer.dominantLanguage(for: String(chapters.map(\.text).joined(separator: "\n").prefix(4000)))?.rawValue ?? "en"
-        } else { language = names[options.language] ?? options.language }
-        if let labels = known[language] { return ["contents":labels[0], "book":labels[1], "edition":labels[2]] }
-        if options.language == "document" { return ["contents":"Contents", "book":"COLLECTED WRITINGS", "edition":"A reader’s edition"] }
+        let language = options.language == "document" ? BookPDFLabels.detectedLanguage(of: chapters.map(\.text).joined(separator: "\n"))
+            : BookPDFLabels.languageCodes[options.language] ?? options.language
+        if let words = BookPDFLabels.known[language] { return BookPDFLabels.dictionary(words) }
+        if options.language == "document", let words = BookPDFLabels.known["en"] { return BookPDFLabels.dictionary(words) }
         let schema: [String: Any] = ["type":"object", "properties":["contents":["type":"string"], "book":["type":"string"], "edition":["type":"string"]], "required":["contents","book","edition"]]
         var request = CLICompletion.Request(project: project, prompt: "Translate these three book labels into \(options.language): contents = Contents; book = Collected writings; edition = A reader’s edition. Return JSON only.", jsonSchema: schema)
         request.label = "pdf-book:labels"; request.effort = "low"

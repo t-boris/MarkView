@@ -1,303 +1,208 @@
-import Foundation
+import AppKit
 import WebKit
-import SwiftUI
 import UniformTypeIdentifiers
-import CoreGraphics
 
-/// Handles PDF export by rendering in an off-screen A4-width WebView,
-/// capturing a single tall page, then splitting into A4 pages via Core Graphics.
-class PDFExporter {
+/// Exports the active document as a PDF that is ready to be shared: a title page, running header and footer with page numbers,
+/// contents when the document is long, bookmarks and working links, the colours of a chosen style as the page background, and
+/// pages that are typeset one by one, so a table, a picture, a diagram or a code block is never cut by a page boundary.
+///
+/// The typesetting is the PDF-book engine in its `document` mode (`book.html`, `BookPDFRenderer`): one engine makes every PDF of
+/// the app. This type only decides what is printed, asks where to save it and in which style, and saves the result.
+@MainActor
+enum PDFExporter {
+    /// The look of the PDF, chosen in the save panel and remembered.
+    struct Style: Equatable {
+        var theme = "paper"
+        var paper = "a4"
 
-    private static let a4Width: CGFloat = 595
-    private static let a4Height: CGFloat = 842
-    private static let margin: CGFloat = 40
+        static let themes: [(value: String, title: String)] = [("paper", "Paper"), ("white", "White"), ("midnight", "Midnight")]
+        static let papers: [(value: String, title: String)] = [("a4", "A4"), ("letter", "US Letter"), ("a4Landscape", "A4 Landscape")]
+        private static let themeKey = "pdfExport.theme", paperKey = "pdfExport.paper"
 
-    private static var pdfWebView: WKWebView?
-    private static var pdfDelegate: PDFNavigationDelegate?
+        static func remembered(_ defaults: UserDefaults = .standard) -> Style {
+            var style = Style()
+            if let theme = defaults.string(forKey: themeKey), themes.contains(where: { $0.value == theme }) { style.theme = theme }
+            if let paper = defaults.string(forKey: paperKey), papers.contains(where: { $0.value == paper }) { style.paper = paper }
+            return style
+        }
 
-    @MainActor
-    static func exportPDF(
-        from webView: WKWebView,
-        fileName: String = "document.pdf",
-        bridge: WebViewBridge,
-        documentFiles: DocumentFileSchemeHandler
-    ) {
-        // Probe in priority order:
-        //   1. Insight iframe (if user is currently viewing an insight tab) —
-        //      grab the live iframe content (chrome stripped to just the
-        //      sections, no footer/breadcrumbs).
-        //   2. Markdown preview pane (`.editor-rendered`) for .file tabs.
-        //   3. Source-mode textarea raw markdown (then mark for re-render).
-        // Picks the FIRST non-empty match — guarantees the active tab's content
-        // is exported regardless of mode/tab kind.
-        let probeJS = """
+        func remember(_ defaults: UserDefaults = .standard) {
+            defaults.set(theme, forKey: Style.themeKey)
+            defaults.set(paper, forKey: Style.paperKey)
+        }
+    }
+
+    // MARK: - Entry points
+
+    /// The active tab of the editor window. A file is printed from the text the tab holds (the unsaved text included), so the
+    /// PDF shows what the person sees; an insight page is printed from the page that shows it.
+    static func exportPDF(from webView: WKWebView, tab: OpenTab?, fileName: String, documentFiles: DocumentFileSchemeHandler) {
+        guard let tab else { return showError("There is no document to export.") }
+        let roots = documentFiles.allowedRoots()
+        switch tab.kind {
+        case .file:
+            let url = tab.url, text = tab.content
+            begin(fileName: fileName, roots: roots) {
+                try await Task.detached {
+                    guard let chapter = try BookPDFSource.collect([url], drafts: [url.path: text]).chapters.first else {
+                        throw BookPDFError.invalid("This file has nothing to print.")
+                    }
+                    return chapter
+                }.value
+            }
+        case .insight:
+            webView.evaluateJavaScript(insightProbe) { result, _ in
+                let html = (result as? String) ?? ""
+                MainActor.assumeIsolated {
+                    guard !html.isEmpty else {
+                        return showError("The insight is not shown yet. Wait a moment for it to render and try again.")
+                    }
+                    let title = tab.url.deletingPathExtension().lastPathComponent
+                    let chapter = BookPDFChapter(id: "c0", url: tab.url, path: tab.url.lastPathComponent, title: title, format: "html", text: html, original: html)
+                    begin(fileName: fileName, roots: roots) { chapter }
+                }
+            }
+        default:
+            showError("This tab has no document to export as a PDF.")
+        }
+    }
+
+    /// A document the page builds on request, such as the report of a research map: printed from its Markdown.
+    static func exportPDF(markdown: String, title: String, fileName: String, baseURL: URL?, documentFiles: DocumentFileSchemeHandler) {
+        let folder = baseURL ?? FileManager.default.temporaryDirectory
+        let chapter = BookPDFChapter(id: "c0", url: folder.appendingPathComponent((fileName as NSString).deletingPathExtension + ".md"),
+                                     path: fileName, title: title, format: "markdown", text: markdown, original: markdown)
+        begin(fileName: fileName, roots: documentFiles.allowedRoots()) { chapter }
+    }
+
+    // MARK: - Making the PDF
+
+    /// The PDF of one document. No panel and no file: the entry points above, and the checks (which pass the renderer page), use it.
+    static func render(_ chapter: BookPDFChapter, style: Style, entry: URL? = nil,
+                       allowFile: (@Sendable (URL) -> Bool)? = nil) async throws -> BookPDFRenderer.Result {
+        var options = BookPDFOptions()
+        options.mode = "document"
+        options.title = chapter.title
+        options.theme = style.theme
+        options.paper = style.paper
+        options.locale = BookPDFLabels.detectedLanguage(of: plainText(chapter))
+        let words = BookPDFLabels.known[options.locale] ?? BookPDFLabels.known["en"]!
+        let renderer = try BookPDFRenderer(entry: entry)
+        _ = try await renderer.prepare([chapter], options: options, allowFile: allowFile)
+        return try await renderer.render(options: options, labels: BookPDFLabels.dictionary(words)) { _, _ in }
+    }
+
+    /// Whether a picture file may be read for a document: it lies inside one of the folders the document may use (the project and the
+    /// folders of open documents). Links are followed first, so a link inside a folder cannot lead out of it.
+    nonisolated static func allows(_ file: URL, within roots: [URL]) -> Bool {
+        let path = file.resolvingSymlinksInPath().standardizedFileURL.path
+        return roots.contains { root in
+            let base = root.resolvingSymlinksInPath().standardizedFileURL.path
+            return path.hasPrefix(base.hasSuffix("/") ? base : base + "/")
+        }
+    }
+
+    private static func plainText(_ chapter: BookPDFChapter) -> String {
+        guard chapter.format == "html" else { return chapter.text }
+        return chapter.text.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+    }
+
+    private static func begin(fileName: String, roots: [URL], load: @escaping @Sendable () async throws -> BookPDFChapter) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = fileName
+        panel.canCreateDirectories = true
+        let accessory = StyleAccessory(style: .remembered())
+        panel.accessoryView = accessory
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            let style = accessory.style
+            style.remember()
+            Task { @MainActor in
+                do {
+                    let chapter = try await load()
+                    // A picture is read only from the folders the document may use (the project and the folders of open documents).
+                    let result = try await render(chapter, style: style) { allows($0, within: roots) }
+                    try await Task.detached { try result.data.write(to: url, options: .atomic) }.value
+                    NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "")
+                    let notes = Set(result.warnings.filter { $0.hasPrefix("A picture") || $0.hasPrefix("A diagram") })
+                    if !notes.isEmpty { showNotice("The PDF was saved, with notes in it:\n\n" + notes.sorted().prefix(6).joined(separator: "\n")) }
+                } catch {
+                    showError(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    /// The body of the insight page shown in the editor, without its footer and progress banner (nil text when it is not shown).
+    private static let insightProbe = """
         (function() {
             try {
-                var mode = (window.state && window.state.mode) ? String(window.state.mode) : '';
-                // Insight: read iframe body if iframe is loaded.
-                var ifr = document.getElementById('insight-iframe');
-                if (mode === 'insight' && ifr && ifr.contentDocument && ifr.contentDocument.body) {
-                    var clone = ifr.contentDocument.body.cloneNode(true);
-                    var footer = clone.querySelector('.iframe-footer'); if (footer) footer.remove();
-                    var banner = clone.querySelector('.insight-progress-banner'); if (banner) banner.remove();
-                    return JSON.stringify({ source: 'iframe', html: clone.innerHTML });
-                }
-                // Markdown preview.
-                var pv = document.querySelector('.editor-rendered');
-                if (pv && pv.innerHTML && pv.innerHTML.trim().length > 0) {
-                    return JSON.stringify({ source: 'preview', html: pv.innerHTML });
-                }
-                // Source mode — return raw markdown so the offscreen pipeline can
-                // render it (caller decides how to handle).
-                if (window.DOM && window.DOM.editor && window.DOM.editor.value) {
-                    return JSON.stringify({ source: 'source-raw', html: '<pre>' + String(window.DOM.editor.value).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>' });
-                }
-                return JSON.stringify({ source: 'empty', html: '' });
-            } catch (e) {
-                return JSON.stringify({ source: 'probe-error', html: '', err: String(e) });
-            }
+                var frame = document.getElementById('insight-iframe');
+                if (!(window.state && window.state.mode === 'insight' && frame && frame.contentDocument && frame.contentDocument.body)) return '';
+                var clone = frame.contentDocument.body.cloneNode(true);
+                clone.querySelectorAll('.iframe-footer, .insight-progress-banner').forEach(function(node) { node.remove(); });
+                return clone.innerHTML;
+            } catch (error) { return ''; }
         })()
         """
-        webView.evaluateJavaScript(probeJS) { result, _ in
-            var renderedHTML = ""
-            var sourceLabel = "(unknown)"
-            if let s = result as? String, let data = s.data(using: .utf8),
-               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                renderedHTML = (parsed["html"] as? String) ?? ""
-                sourceLabel = (parsed["source"] as? String) ?? "?"
-            }
-            NSLog("[PDFExport] using source=%@ length=%d", sourceLabel, renderedHTML.count)
-            guard !renderedHTML.isEmpty else {
-                showError("No rendered content for the active tab. If you just switched tabs, wait a moment for the preview to render and try again.")
-                return
-            }
-
-            exportPDF(html: renderedHTML, fileName: fileName, baseURL: webView.url, documentFiles: documentFiles)
-        }
-    }
-
-    /// Asks where to save and makes the PDF from rendered HTML (the body of the print document). Used for the
-    /// active tab above and for documents the page renders on request, such as the report of a research map.
-    @MainActor
-    static func exportPDF(html: String, fileName: String, baseURL: URL?, documentFiles: DocumentFileSchemeHandler) {
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.pdf]
-        savePanel.nameFieldStringValue = fileName
-        savePanel.canCreateDirectories = true
-
-        savePanel.begin { response in
-            guard response == .OK, let url = savePanel.url else { return }
-            generatePDF(html: html, to: url, baseURL: baseURL, documentFiles: documentFiles)
-        }
-    }
-
-    @MainActor
-    private static func generatePDF(html: String, to url: URL, baseURL: URL?, documentFiles: DocumentFileSchemeHandler) {
-        let fullHTML = buildPrintDocument(body: html)
-
-        let config = WKWebViewConfiguration()
-        // The document's pictures are addressed as markview-doc:, as on the editor page.
-        config.setURLSchemeHandler(documentFiles, forURLScheme: DocumentFileSchemeHandler.scheme)
-        let offscreen = WKWebView(
-            frame: CGRect(x: -9999, y: -9999, width: a4Width, height: a4Height),
-            configuration: config
-        )
-
-        let delegate = PDFNavigationDelegate { [weak offscreen] in
-            guard let offscreen = offscreen else { return }
-
-            // Get full content height, then expand WebView to show ALL content
-            offscreen.evaluateJavaScript("document.body.scrollHeight") { result, _ in
-                let contentHeight = max(
-                    (result as? CGFloat) ?? a4Height,
-                    (result as? Int).map({ CGFloat($0) }) ?? a4Height,
-                    a4Height
-                )
-
-                // Expand to full content height so everything is rendered
-                offscreen.frame = CGRect(x: -9999, y: -9999, width: a4Width, height: contentHeight + 100)
-
-                // Wait for layout at the expanded height
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    Task {
-                        do {
-                            // Capture the ENTIRE content as one tall page (rect = .zero)
-                            let tallConfig = WKPDFConfiguration()
-                            let tallData = try await offscreen.pdf(configuration: tallConfig)
-
-                            // Split the tall page into A4-sized pages
-                            let a4Data = splitIntoA4Pages(tallPDFData: tallData)
-                            try a4Data.write(to: url)
-                            NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "")
-                        } catch {
-                            showError(error.localizedDescription)
-                        }
-
-                        pdfWebView = nil
-                        pdfDelegate = nil
-                    }
-                }
-            }
-        }
-
-        pdfWebView = offscreen
-        pdfDelegate = delegate
-        offscreen.navigationDelegate = delegate
-        offscreen.loadHTMLString(fullHTML, baseURL: baseURL)
-    }
-
-    // MARK: - Split tall PDF into A4 pages
-
-    /// Takes a single-page tall PDF and splits it into multiple A4-sized pages
-    private static func splitIntoA4Pages(tallPDFData: Data) -> Data {
-        guard let provider = CGDataProvider(data: tallPDFData as CFData),
-              let document = CGPDFDocument(provider),
-              let tallPage = document.page(at: 1) else {
-            return tallPDFData
-        }
-
-        let mediaBox = tallPage.getBoxRect(.mediaBox)
-        let totalHeight = mediaBox.height
-        let totalWidth = mediaBox.width
-
-        // If content fits on one page, return as-is but with proper A4 dimensions
-        if totalHeight <= a4Height + 10 {
-            return tallPDFData
-        }
-
-        let pageCount = Int(ceil(totalHeight / a4Height))
-
-        let mutableData = NSMutableData()
-        guard let consumer = CGDataConsumer(data: mutableData as CFMutableData) else {
-            return tallPDFData
-        }
-
-        var firstPageRect = CGRect(x: 0, y: 0, width: totalWidth, height: a4Height)
-        guard let context = CGContext(consumer: consumer, mediaBox: &firstPageRect, nil) else {
-            return tallPDFData
-        }
-
-        for i in 0..<pageCount {
-            var pageRect = CGRect(x: 0, y: 0, width: totalWidth, height: a4Height)
-            context.beginPage(mediaBox: &pageRect)
-
-            // Clip to page bounds
-            context.clip(to: pageRect)
-
-            // Calculate translation:
-            // PDF origin is bottom-left. The "top" of the document is at y = totalHeight.
-            // For page i (0 = top of document), show content from:
-            //   y_bottom = totalHeight - (i+1)*a4Height
-            //   y_top    = totalHeight - i*a4Height
-            // We translate so context y=0 maps to y_bottom in the tall page.
-            let yTranslate = CGFloat(i + 1) * a4Height - totalHeight
-            context.translateBy(x: 0, y: yTranslate)
-
-            context.drawPDFPage(tallPage)
-            context.endPage()
-        }
-
-        context.closePDF()
-        return mutableData as Data
-    }
-
-    // MARK: - Print HTML template
-
-    private static func buildPrintDocument(body: String) -> String {
-        return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-        <meta charset="UTF-8">
-        <style>
-            * { box-sizing: border-box; }
-            html, body {
-                margin: 0; padding: 0;
-                width: \(Int(a4Width))px;
-                font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
-                font-size: 9px; line-height: 1.5; color: #1a1a1a; background: #fff;
-            }
-            body { padding: \(Int(margin))px; }
-
-            h1 { font-size: 1.8em; border-bottom: 2px solid #ddd; padding-bottom: 0.3em; margin-top: 1.5em; }
-            h2 { font-size: 1.5em; border-bottom: 1px solid #ddd; padding-bottom: 0.3em; margin-top: 1.5em; }
-            h3 { font-size: 1.3em; margin-top: 1.3em; }
-            h4 { font-size: 1.1em; margin-top: 1.2em; }
-
-            p { margin: 0.8em 0; }
-            a { color: #0066cc; text-decoration: none; }
-            strong { font-weight: 600; }
-            hr { border: none; border-top: 1px solid #ddd; margin: 1.5em 0; }
-
-            ul, ol { padding-left: 2em; margin: 0.8em 0; }
-            li { margin: 0.3em 0; }
-
-            code {
-                background: #f0f0f0; padding: 2px 5px; border-radius: 3px;
-                font-family: Menlo, Monaco, monospace; font-size: 0.9em;
-            }
-            pre {
-                background: #282c34; color: #abb2bf; border-radius: 6px;
-                padding: 14px; overflow: hidden;
-                white-space: pre-wrap; word-break: break-word;
-                font-size: 8px; line-height: 1.4;
-            }
-            pre code { background: transparent; color: inherit; padding: 0; }
-
-            table {
-                border-collapse: collapse; width: 100%; table-layout: fixed;
-                word-break: break-word; margin: 1em 0; font-size: 8px;
-            }
-            th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; }
-            th { background: #f5f5f5; font-weight: 600; }
-
-            blockquote {
-                margin: 1em 0; padding: 0.5em 1em;
-                border-left: 4px solid #0066cc; color: #555;
-            }
-
-            img { max-width: 100%; height: auto; }
-
-            .mermaid, .mermaid svg { max-width: 100%; overflow: visible; }
-
-            ul.task-list { list-style: none; padding-left: 1.5em; }
-            .task-list-item { display: flex; align-items: center; gap: 6px; }
-
-            .admonition {
-                margin: 1em 0; padding: 10px 14px;
-                border-left: 4px solid #0066cc; border-radius: 4px; background: #f8f8f8;
-            }
-            .admonition-title { font-weight: 600; margin-bottom: 6px; font-size: 0.85em; }
-        </style>
-        </head>
-        <body>
-        \(body)
-        </body>
-        </html>
-        """
-    }
 
     private static func showError(_ message: String) {
+        present(title: "PDF Export Failed", message: message, style: .warning)
+    }
+
+    private static func showNotice(_ message: String) {
+        present(title: "PDF Saved", message: message, style: .informational)
+    }
+
+    private static func present(title: String, message: String, style: NSAlert.Style) {
         DispatchQueue.main.async {
             let alert = NSAlert()
-            alert.messageText = "PDF Export Failed"
+            alert.messageText = title
             alert.informativeText = message
-            alert.alertStyle = .warning
+            alert.alertStyle = style
             alert.runModal()
         }
     }
 }
 
-// MARK: - Navigation delegate for the off-screen PDF WebView
+/// Paper size and page style, next to the name field of the save panel.
+private final class StyleAccessory: NSView {
+    private let theme = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let paper = NSPopUpButton(frame: .zero, pullsDown: false)
 
-private class PDFNavigationDelegate: NSObject, WKNavigationDelegate {
-    let onFinish: () -> Void
-
-    init(onFinish: @escaping () -> Void) {
-        self.onFinish = onFinish
+    init(style: PDFExporter.Style) {
+        super.init(frame: NSRect(x: 0, y: 0, width: 360, height: 70))
+        for item in PDFExporter.Style.themes { theme.addItem(withTitle: item.title) }
+        for item in PDFExporter.Style.papers { paper.addItem(withTitle: item.title) }
+        theme.selectItem(at: PDFExporter.Style.themes.firstIndex { $0.value == style.theme } ?? 0)
+        paper.selectItem(at: PDFExporter.Style.papers.firstIndex { $0.value == style.paper } ?? 0)
+        func row(_ title: String, _ button: NSPopUpButton) -> NSStackView {
+            let label = NSTextField(labelWithString: title)
+            label.alignment = .right
+            label.widthAnchor.constraint(equalToConstant: 50).isActive = true
+            button.widthAnchor.constraint(equalToConstant: 160).isActive = true
+            let stack = NSStackView(views: [label, button])
+            stack.orientation = .horizontal
+            stack.spacing = 8
+            return stack
+        }
+        let rows = NSStackView(views: [row("Style:", theme), row("Page:", paper)])
+        rows.orientation = .vertical
+        rows.alignment = .leading
+        rows.spacing = 8
+        rows.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(rows)
+        NSLayoutConstraint.activate([
+            rows.centerXAnchor.constraint(equalTo: centerXAnchor),
+            rows.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        onFinish()
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    var style: PDFExporter.Style {
+        PDFExporter.Style(theme: PDFExporter.Style.themes[max(0, theme.indexOfSelectedItem)].value,
+                          paper: PDFExporter.Style.papers[max(0, paper.indexOfSelectedItem)].value)
     }
 }

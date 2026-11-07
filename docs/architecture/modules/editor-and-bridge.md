@@ -32,7 +32,7 @@ The subsystem owns:
 - Markdown rendering (markdown-it + plugins, KaTeX, Mermaid, Prism), heading/TOC extraction,
   semantic block extraction and diffing, find-in-page, WYSIWYG formatting and Turndown
   HTML→Markdown conversion.
-- PDF export via an off-screen `WKWebView` (`PDFExporter.swift`).
+- PDF export of the active document: `PDFExporter.swift` asks for paper and style, then typesets the page by page with the PDF-book engine in its `document` mode (`book.html`, `markview-book.js`, `BookPDFRenderer.swift`).
 - The terminal page's JS (`terminal.html`) and its `terminal` message protocol (Swift owner is
   `TerminalSession.swift`, documented in
   [git-github-terminal-lifecycle-usage](git-github-terminal-lifecycle-usage.md)).
@@ -60,7 +60,7 @@ It does **not** own:
 |---|---|
 | `MarkView/Views/EditorView.swift` | `NSViewRepresentable` hosting the editor `WKWebView`; `Coordinator` = navigation delegate + `WebViewBridgeDelegate`; routes tabs by kind; image inlining; notification observers |
 | `MarkView/Bridge/WebViewBridge.swift` | `WKScriptMessageHandler` for `bridge`; payload parsing/validation; all typed Swift→JS commands; `/tmp` diag logger; `WebViewBridgeDelegate` protocol |
-| `MarkView/Bridge/PDFExporter.swift` | Probe active content, off-screen A4-width render, tall-page PDF capture, Core Graphics split into A4 pages |
+| `MarkView/Bridge/PDFExporter.swift` | Entry points (active tab, research-map report), save panel with paper and style, `render` through `BookPDFRenderer` in `document` mode, atomic save |
 | `MarkView/Bridge/PrototypeSchemeHandler.swift` | `mvproto://site/<path>`: serves a prototype's `site/` folder to the Prototype Studio preview so all files share one origin and a script error keeps its text and line (a `file://` page reports only "Script error."); paths are confined to the folder (`..`, encoded `..` and symlinks out of it → 403); no caching |
 | `MarkView/Resources/Editor/index.html` | Editor page: CSP, ~1270 lines of inline CSS (`index.html:33-1307`), DOM skeleton, ordered `<script>` tags |
 | `MarkView/Resources/Editor/terminal.html` | xterm.js page for embedded terminals; `terminal` message handler protocol |
@@ -148,9 +148,12 @@ It does **not** own:
 - **`WebViewBridgeDelegate`** (`:691-725`) — 26 callbacks; the only implementation is
   `EditorView.Coordinator` (`EditorView.swift:718-965`), which hops each to `@MainActor` and calls
   `WorkspaceManager`.
-- **`PDFExporter`** (`PDFExporter.swift:9`) — static `exportPDF(from:fileName:bridge:)` (`:19`),
-  `generatePDF` (`:87`), `splitIntoA4Pages` (`:142`), `buildPrintDocument` (`:196`); retains the
-  off-screen view/delegate in static vars (`:15-16`).
+- **`PDFExporter`** (`PDFExporter.swift`) — `exportPDF(from:tab:fileName:documentFiles:)` prints a file tab from the text the tab holds
+  (an insight tab from the page that shows it), `exportPDF(markdown:title:fileName:baseURL:documentFiles:)` prints a document the page builds
+  on request (the report of a research map), `render(_:style:entry:allowFile:)` makes the PDF without a panel. The engine paginates page by
+  page, so nothing is sliced: title page from the front matter, running head with the section, footer `n / N`, contents for a long document,
+  bookmarks, links, Prism colours, KaTeX, Mermaid at its natural size; a picture is read only from the folders the document may use and a
+  picture that cannot be read becomes a note. Checks: `tools/tests/pdf-export-tests.sh`.
 
 ### JavaScript globals (all classic scripts sharing one global scope)
 
@@ -305,8 +308,7 @@ htmlChunk}` (`markview-insight-handlers.js:182`, `:401`), `initSectionLib {secti
 | `window.scrollToText` / `window.scrollToHeadingText` `.apply(null, [text])` | JSON array | `EditorView.swift:698` | `markview-globals.js:22`, `markview-mdext.js:114` |
 | `window.showSelectionResult(title, markdown)` | JSON literals | `EditorView.swift:830-831` (translate error), `:861` (selection result) | `markview-find.js:131` |
 | Load probe IIFE (returns JSON) | — | `EditorView.swift:195-225` | inline |
-| PDF content probe IIFE | — | `PDFExporter.swift:32-60` | inline, reads `window.state`, `#insight-iframe`, `.editor-rendered`, `window.DOM.editor` |
-| `document.body.scrollHeight` | — (off-screen view) | `PDFExporter.swift:100` | — |
+| Insight page probe IIFE | — | `PDFExporter.swift` (`insightProbe`) | inline, reads `window.state.mode` and `#insight-iframe` |
 | `window.getHTML()` | — | `WebViewBridge.swift:648` (`requestHTML`) — **no caller** | `markview-globals.js:66` |
 | `window.preparePrintLayout()` / `window.restoreEditLayout()` | — | `WebViewBridge.swift:662`, `:668` — **no caller** | `markview-globals.js:74`, `:121` |
 

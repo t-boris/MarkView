@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 import UniformTypeIdentifiers
 
 /// An immutable snapshot: exporting never saves or rewrites a source document.
@@ -107,5 +108,52 @@ struct BookPDFOptions: Sendable {
     var reduction = 0
     var theme = "paper"
     var paper = "a4"
+    /// "book" prints chapters with a cover and contents; "document" prints one file as a document (title page from its front matter,
+    /// contents only when it is long, running head with the section).
+    var mode = "book"
+    /// BCP 47 language code the dates on a title page are written in; empty uses the system language.
+    var locale = ""
     var needsAI: Bool { reduction > 0 || language != "document" }
+}
+
+/// The fixed words of a printed book or document, by the language of its text. A language without a row asks the assistant (book) or uses English (document).
+enum BookPDFLabels {
+    struct Words { var contents, book, edition, document: String }
+    static let known: [String: Words] = [
+        "en": Words(contents: "Contents", book: "COLLECTED WRITINGS", edition: "A reader’s edition", document: "DOCUMENT"),
+        "ru": Words(contents: "Оглавление", book: "СОБРАНИЕ ТЕКСТОВ", edition: "Книжное издание", document: "ДОКУМЕНТ"),
+        "uk": Words(contents: "Зміст", book: "ЗІБРАННЯ ТЕКСТІВ", edition: "Книжкове видання", document: "ДОКУМЕНТ"),
+        "de": Words(contents: "Inhalt", book: "GESAMMELTE TEXTE", edition: "Eine Leseausgabe", document: "DOKUMENT"),
+        "fr": Words(contents: "Table des matières", book: "RECUEIL DE TEXTES", edition: "Édition de lecture", document: "DOCUMENT"),
+        "es": Words(contents: "Contenido", book: "TEXTOS REUNIDOS", edition: "Edición de lectura", document: "DOCUMENTO"),
+        "he": Words(contents: "תוכן עניינים", book: "אסופת כתבים", edition: "מהדורת קריאה", document: "מסמך"),
+        "zh-Hans": Words(contents: "目录", book: "文集", edition: "阅读版", document: "文档"),
+    ]
+    static let languageCodes = ["English": "en", "Russian": "ru", "Ukrainian": "uk", "German": "de", "French": "fr", "Spanish": "es",
+                                "Hebrew": "he", "Chinese (Simplified)": "zh-Hans"]
+
+    /// The dominant language of `text` as a language code ("en" when it cannot be told).
+    /// The language of the prose of `text`. Front matter, code blocks (diagram sources), table rows and short lines (labels, numbers,
+    /// names) say little about it and in a business plan are mostly English words, so only the running text is looked at.
+    static func detectedLanguage(of text: String) -> String {
+        var lines = text.split(separator: "\n", omittingEmptySubsequences: true)[...]
+        if lines.first?.trimmingCharacters(in: .whitespaces) == "---",
+           let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" }) {
+            lines = lines[(end + 1)...]
+        }
+        var sample = "", fenced = false
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { fenced.toggle(); continue }
+            if fenced || trimmed.hasPrefix("|") || trimmed.count < 25 { continue }
+            sample += trimmed + " "
+            if sample.count >= 20_000 { break }
+        }
+        if sample.isEmpty { sample = String(text.prefix(4000)) }
+        return NLLanguageRecognizer.dominantLanguage(for: sample)?.rawValue ?? "en"
+    }
+
+    static func dictionary(_ words: Words) -> [String: String] {
+        ["contents": words.contents, "book": words.book, "edition": words.edition, "document": words.document]
+    }
 }
