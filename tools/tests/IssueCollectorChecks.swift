@@ -24,8 +24,18 @@ struct GitHubClient: Sendable {
             for (number, body) in [(1, ""), (2, "Fix for BUG-123, related to #77"), (3, "Feature: other")] where query.contains("p\(number):") {
                 prs["p\(number)"] = ["body": body]
             }
-            let data = try! JSONSerialization.data(withJSONObject: ["data": ["repository": prs]])
-            return Output(status: 0, stdout: String(decoding: data, as: UTF8.self), stderr: "")
+            // #4 names an issue, as a squash title can: GitHub answers NOT_FOUND for that field alone and `gh` exits with 1.
+            var object: [String: Any] = ["data": ["repository": prs]]
+            var status: Int32 = 0
+            if query.contains("p4:") {
+                var repository = prs
+                repository["p4"] = NSNull()
+                object = ["data": ["repository": repository], "errors": [["type": "NOT_FOUND", "path": ["repository", "p4"],
+                                                                         "message": "Could not resolve to a PullRequest with the number of 4."]]]
+                status = 1
+            }
+            let data = try! JSONSerialization.data(withJSONObject: object)
+            return Output(status: status, stdout: String(decoding: data, as: UTF8.self), stderr: status == 0 ? "" : "gh: Could not resolve to a PullRequest with the number of 4.")
         }
         if args.prefix(2) == ["pr", "view"] {
             return Output(status: 0, stdout: #"{"headRefOid":"pr-head","mergeCommit":{"oid":"squash-commit"},"state":"MERGED","mergedAt":"2026-11-01T00:00:00Z"}"#, stderr: "")
@@ -89,6 +99,8 @@ struct GitHubClient: Sendable {
         commit("other.swift", "Another change")
         git(["checkout", "main"], in: root)
         git(["merge", "--no-ff", "unrelated", "-m", "Merge pull request #3 from example/unrelated\n\nAnother change"], in: root)
+        // A direct commit titled with an issue number, like "(#293)" on t-boris/MarkView: BUG-104.
+        commit("note.swift", "docs: a note about an issue (#4)")
         func subject(_ kind: IssueKind, _ key: String) -> IssueEvidenceCollector.Subject {
             .init(kind: kind, issue: key, exclusiveNumbers: [], sharedNumbers: [], since: nil)
         }
@@ -135,6 +147,38 @@ struct GitHubClient: Sendable {
         try! "".write(to: root.appendingPathComponent(".failed-check"), atomically: true, encoding: .utf8)
         let failed = await IssueEvidenceCollector.collect(subject(.feature, "ci"), root: root, githubEnabled: true)
         check("a merged associated feature does not wait for checks", failed.isComplete)
+        // BUG-104: which answers of a batched pullRequest query can be trusted.
+        func answer(_ status: Int32, _ object: [String: Any]) -> GitHubClient.Output {
+            GitHubClient.Output(status: status, stdout: String(decoding: try! JSONSerialization.data(withJSONObject: object), as: UTF8.self), stderr: "")
+        }
+        func notFound(_ field: String) -> [String: Any] { ["type": "NOT_FOUND", "path": ["repository", field], "message": "Could not resolve"] }
+        let two: [String: Any?] = ["p1": ["body": "one"], "p2": ["body": "two"]]
+        let clean = IssueEvidenceCollector.pullRequestBodies(in: answer(0, ["data": ["repository": two]]), requested: [1, 2])
+        check("every description of a clean answer is read", clean == [1: "one", 2: "two"])
+        let partial = IssueEvidenceCollector.pullRequestBodies(
+            in: answer(1, ["data": ["repository": ["p1": ["body": "one"], "p4": NSNull()]], "errors": [notFound("p4")]]), requested: [1, 4])
+        check("an issue number among the pull requests is skipped, the others are read", partial == [1: "one"])
+        let denied = IssueEvidenceCollector.pullRequestBodies(
+            in: answer(1, ["data": ["repository": ["p1": NSNull()]], "errors": [["type": "FORBIDDEN", "path": ["repository", "p1"], "message": "no access"]]]), requested: [1])
+        check("an error other than NOT_FOUND fails the read", denied == nil)
+        let rateLimited = IssueEvidenceCollector.pullRequestBodies(
+            in: answer(1, ["data": ["repository": ["p1": ["body": "one"]]], "errors": [["type": "RATE_LIMITED", "message": "limit"]]]), requested: [1])
+        check("an error without a path fails the read", rateLimited == nil)
+        let stranger = IssueEvidenceCollector.pullRequestBodies(
+            in: answer(1, ["data": ["repository": ["p1": ["body": "one"]]], "errors": [notFound("p9")]]), requested: [1])
+        check("NOT_FOUND on a field that was not requested fails the read", stranger == nil)
+        let deeper = IssueEvidenceCollector.pullRequestBodies(
+            in: answer(1, ["data": ["repository": ["p1": ["body": "one"]]], "errors": [["type": "NOT_FOUND", "path": ["repository", "p1", "body"], "message": "x"]]]), requested: [1])
+        check("NOT_FOUND below a field fails the read", deeper == nil)
+        let noRepository = IssueEvidenceCollector.pullRequestBodies(in: answer(1, ["data": NSNull(), "errors": [notFound("p1")]]), requested: [1])
+        check("an answer without the repository fails the read", noRepository == nil)
+        let failedProcess = IssueEvidenceCollector.pullRequestBodies(in: answer(1, ["data": ["repository": two]]), requested: [1, 2])
+        check("a failed gh whose answer has no errors fails the read", failedProcess == nil)
+        let offline = IssueEvidenceCollector.pullRequestBodies(in: GitHubClient.Output(status: 1, stdout: "", stderr: "dial tcp: no route to host"), requested: [1])
+        check("no answer at all fails the read", offline == nil)
+        let malformed = IssueEvidenceCollector.pullRequestBodies(
+            in: answer(1, ["data": ["repository": ["p1": ["body": "one"]]], "errors": "NOT_FOUND"]), requested: [1])
+        check("errors that are not a list fail the read", malformed == nil)
         finish("issue collector")
     }
 }
