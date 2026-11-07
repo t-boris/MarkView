@@ -87,7 +87,8 @@ enum PDFExportTests {
 
     static func text(_ pdf: PDFDocument, page index: Int) -> String { pdf.page(at: index)?.string ?? "" }
     static func fullText(_ pdf: PDFDocument) -> String { (0..<pdf.pageCount).map { text(pdf, page: $0) }.joined(separator: "\n") }
-    /// Text without any white space: a title or a long word wraps, and the extracted text then has a line break inside it.
+    /// Text without any white space: a title or a long word wraps, and the extracted text then has a line break inside it. A word set with
+    /// wide letter spacing (the kind of document on the title page) is extracted with spaces between its letters by some macOS versions.
     static func squashed(_ value: String) -> String { value.filter { !$0.isWhitespace } }
     static func has(_ haystack: String, _ needle: String) -> Bool { squashed(haystack).contains(squashed(needle)) }
 
@@ -131,7 +132,7 @@ enum PDFExportTests {
         check(sizes == ["595x842"], "every page is exactly A4, however wide a diagram or a table is", "\(sizes)")
 
         let cover = text(pdf, page: 0)
-        check(has(cover, "Quarterly Platform Review") && cover.contains("Boris Tsekinovsky") && cover.contains("DOCUMENT"),
+        check(has(cover, "Quarterly Platform Review") && cover.contains("Boris Tsekinovsky") && has(cover, "DOCUMENT"),
               "the title page has the title, the author and the kind of document from the front matter", cover)
         check(!cover.contains("Metadata") && !all.contains("title: Quarterly"), "the front matter is not printed as a table or as text", String(all.prefix(300)))
         check(text(pdf, page: 1).contains("Contents") && text(pdf, page: 1).contains("Summary"), "a long document has a contents page after the title page", text(pdf, page: 1))
@@ -294,7 +295,7 @@ enum PDFExportTests {
         let russian = "---\ntitle: Квартальный обзор\ndate: 2026-11-07\n---\n\n" + (1...6).map { "## Раздел \($0)\n\nТекст раздела.\n\n" + String(repeating: "Длинный абзац о надёжности. ", count: 90) + "\n\n### Подраздел \($0)\n\n" + String(repeating: "Ещё текст. ", count: 150) + "\n" }.joined(separator: "\n")
         let (ru, _) = try await make(chapter(russian, in: docs, name: "ru.md"), folder: docs, roots: [docs])
         try ru.dataRepresentation()?.write(to: output.appendingPathComponent("russian.pdf"))
-        check(text(ru, page: 0).contains("ДОКУМЕНТ") && text(ru, page: 0).contains("Квартальный обзор") && text(ru, page: 0).contains("2026"), "a Russian document has a Russian title page with its date", text(ru, page: 0))
+        check(has(text(ru, page: 0), "ДОКУМЕНТ") && text(ru, page: 0).contains("Квартальный обзор") && text(ru, page: 0).contains("2026"), "a Russian document has a Russian title page with its date", text(ru, page: 0))
         check(text(ru, page: 1).contains("Оглавление"), "…and a contents page in Russian", text(ru, page: 1))
         // The text layer of the PDF must hold the letters that were typed: the system sans-serif font of macOS makes the PDF text layer hold
         // U+0138 instead of the Russian letter "к" (copying or searching "рынок" then finds nothing).

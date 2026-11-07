@@ -314,11 +314,12 @@ _ = js("__t.select('n2'); return 'ok';")
 
 // ---- toolbar status ---------------------------------------------------------------------------------------------------------------
 check(!visible(".rm-status"), "a complete map shows no status chip")
+// 75 s ago; the page is read a few seconds later, and a slow runner needs up to about 30 s for it, so any 1:1x to 1:3x is right
 let started = Int(Date().timeIntervalSince1970) - 75
 deliver("{ status: 'researching', job: { kind: 'research', label: 'Researching the question', step: 'Reading Package.swift', startedAt: \(started) } }")
 check(visible(".rm-status") && eval("__t.q('.rm-status').textContent").contains("Reading Package.swift") && eval("__t.q('.rm-status').textContent").contains("Researching the question"),
       "researching: the chip shows the job and its current step", eval("__t.q('.rm-status').textContent"))
-check(eval("__t.q('.rm-elapsed').textContent").range(of: #"^1:1\d$"#, options: .regularExpression) != nil, "researching: the elapsed time counts from startedAt", eval("__t.q('.rm-elapsed').textContent"))
+check(eval("__t.q('.rm-elapsed').textContent").range(of: #"^1:[1-3]\d$"#, options: .regularExpression) != nil, "researching: the elapsed time counts from startedAt", eval("__t.q('.rm-elapsed').textContent"))
 check(bool("!!__t.q('.rm-status .rm-spin')"), "researching: a spinner")
 newMark()
 _ = js("__t.q('.rm-status [data-act=stop]').click(); return 'ok';")
