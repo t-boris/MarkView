@@ -4644,5 +4644,7 @@ Measured (hidden WKWebView with the shipping editor page; real files; Swift pars
   restored, the page answers between chunks, failures go to `mermaid.run` as before, a re-render stops the old run.
 - [x] Business plan: 57 s -> 5.3 s, longest unresponsive gap 1.2 s. `tools/tests/editor-diagrams-tests.sh` (new, own workflow) fails on the 5.39.1
   editor (13.8 s without an answer) and passes on the fix; routing and research map page tests pass; Debug build succeeds.
-- [ ] PR #309, checks, merge, signed DMG v5.39.2.
+- [x] PR #309 merged (c9a28d3; checks editor-diagrams, pdf-book, pdf-reader green; `Build & Release` of the merge commit green), v5.39.2
+  published (signed, notarized, `spctl` accepted, the bundle contains the fix; `build/MarkView-5.39.2.dmg`), worktrees removed.
+- [ ] BUG-105 to `fixed` once the running app can read delivery evidence (Boris installs 5.39.2).
 - [ ] Decide with Boris: move block persistence off the main thread (one transaction, serial queue); find out why the strategic plan is slow in the app.
