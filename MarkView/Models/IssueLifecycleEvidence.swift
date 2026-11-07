@@ -179,7 +179,11 @@ enum DeliveryEvaluator {
         let code = units.filter { !$0.isDocumentationOnly && !ambiguous.contains($0.ref) }
 
         for unit in code {
-            if unit.changedPaths == nil { unknown.append("the changed files of \(unit.ref.label) could not be read") }
+            // Without its files the unit may be documentation: it is no definite gap, only something that cannot be judged (BUG-106).
+            if unit.changedPaths == nil {
+                unknown.append("the changed files of \(unit.ref.label) could not be read")
+                continue
+            }
             guard unit.mergedAt != nil else {
                 missing.append("\(unit.ref.label) is not merged into the default branch")
                 continue
@@ -296,6 +300,14 @@ enum GitWorkLog {
         var date: Date
         var message: String
         var paths: [String]
+        /// True for the commit that ends a shallow clone when GitHub could not say which files it changed: git sees no parent
+        /// for it, so `paths` would be its whole tree (BUG-106).
+        var pathsUnknown = false
+
+        /// Changes documentation only (DEC-012). Unknown files are not documentation; neither is a commit without files.
+        var isDocumentationOnly: Bool {
+            !pathsUnknown && !paths.isEmpty && paths.allSatisfy(DocumentationPaths.isDocumentation)
+        }
     }
 
     static let separator = "\u{1e}"

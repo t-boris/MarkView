@@ -35,24 +35,7 @@ enum IssueEvidenceCollector {
         guard log.status == 0 else {
             return DeliveryEvaluator.evaluate(DeliveryInput(sources: [.unavailable("git", "git log failed")], work: [], releaseRequired: false))
         }
-        let history = GitWorkLog.commits(from: log.stdout)
-        // Documentation-only commits are no implementation work (DEC-012) and are left out before anything is counted, so a run
-        // of them cannot push the real work out of view. Work before a reopening belongs to an earlier round.
-        // Git dates have whole seconds, so the start is compared to the second.
-        let start = subject.since.map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.down)) }
-        let candidates = history.filter { commit in
-            (start.map { commit.date >= $0 } ?? true)
-                && (commit.paths.isEmpty || !commit.paths.allSatisfy(DocumentationPaths.isDocumentation))
-        }
-        var matches = matching(candidates, subject)
-        matches = mergeMatches(matches, discussionMatches(candidates, subject: subject, root: root), order: candidates)
-        // The log is a window: when it ends after the work started, work in between cannot be seen.
-        let reachedStart = start.map { start in history.count < logLimit || history.last.map { $0.date <= start } ?? true } ?? true
-        if !reachedStart {
-            sources.append(.unavailable("git", "the last \(logLimit) commits of \(ref) do not reach back to when the work started"))
-        } else {
-            sources.append(.available("git"))
-        }
+        var history = GitWorkLog.commits(from: log.stdout)
         let definition = try? Data(contentsOf: root.appendingPathComponent(".dde/definition-of-done.json"))
         let required = subject.kind == .bug && ReleaseRequirement.isRequired(definitionOfDoneJSON: definition)
         let guides = ["AGENTS.md", "CLAUDE.md"].compactMap { name -> String? in
@@ -81,6 +64,32 @@ enum IssueEvidenceCollector {
             sources.append(.unavailable("GitHub", "the GitHub integration is off, so required checks, pull requests or releases cannot be read"))
         }
 
+        // The oldest commit of a shallow clone has no parent as far as git can see, so its file list is its whole tree. Ask GitHub
+        // which files it really changed; without an answer its files are unknown, not "everything" (BUG-106).
+        let shallow = await shallowBoundary(root: root)
+        for index in history.indices where shallow.contains(history[index].sha.lowercased()) {
+            if let client, let paths = await changedPaths(of: history[index].sha, client: client) {
+                history[index].paths = paths
+            } else {
+                history[index].pathsUnknown = true
+            }
+        }
+        // Documentation-only commits are no implementation work (DEC-012) and are left out before anything is counted, so a run
+        // of them cannot push the real work out of view. Work before a reopening belongs to an earlier round.
+        // Git dates have whole seconds, so the start is compared to the second.
+        let start = subject.since.map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.down)) }
+        let candidates = history.filter { commit in
+            (start.map { commit.date >= $0 } ?? true) && !commit.isDocumentationOnly
+        }
+        var matches = matching(candidates, subject)
+        matches = mergeMatches(matches, discussionMatches(candidates, subject: subject, root: root), order: candidates)
+        // The log is a window: when it ends after the work started, work in between cannot be seen.
+        let reachedStart = start.map { start in history.count < logLimit || history.last.map { $0.date <= start } ?? true } ?? true
+        if !reachedStart {
+            sources.insert(.unavailable("git", "the last \(logLimit) commits of \(ref) do not reach back to when the work started"), at: 0)
+        } else {
+            sources.insert(.available("git"), at: 0)
+        }
         // Merge commits normally contain only the PR title, not its body or the messages of the commits merged.
         // Read both sources before deciding that no implementation exists. Associate the evidence with the first-parent
         // commit, which is the work that actually landed, rather than treating an unmerged branch as delivered.
@@ -113,6 +122,29 @@ enum IssueEvidenceCollector {
     }
 
     // MARK: Git
+
+    /// The commits git has no parent for because the clone is shallow (`.git/shallow`). Their `git log --name-only` lists the
+    /// whole tree as added; a real root commit is not listed there and keeps its files.
+    private static func shallowBoundary(root: URL) async -> Set<String> {
+        let probe = await GitHubClient.execute(["rev-parse", "--git-path", "shallow"], in: root, git: true, timeout: 10)
+        let path = probe.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard probe.status == 0, !path.isEmpty,
+              let text = try? String(contentsOf: path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path), encoding: .utf8),
+              text.utf8.count <= 1_000_000 else { return [] }
+        return Set(text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty })
+    }
+
+    /// The files a commit changed, as GitHub lists them (against its first parent for a merge); nil when they cannot be read.
+    /// GitHub lists at most 3000 files of a commit: a longer list may hide code behind documentation, so it counts as unreadable.
+    private static func changedPaths(of sha: String, client: GitHubClient) async -> [String]? {
+        guard sha.range(of: #"^[0-9a-fA-F]{40}$"#, options: .regularExpression) != nil,
+              client.repo.slug.range(of: #"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil else { return nil }
+        let answer = await GitHubClient.execute(["api", "--paginate", "repos/\(client.repo.slug)/commits/\(sha)", "--jq", ".files[].filename"],
+                                                in: client.root, timeout: 30)
+        guard answer.status == 0 else { return nil }
+        let paths = answer.stdout.split(whereSeparator: \.isNewline).map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        return paths.count < 3000 ? paths : nil
+    }
 
     private static func defaultBranch(root: URL) async -> String? {
         for candidate in ["origin/main", "main", "origin/master", "master"] {
@@ -294,9 +326,10 @@ enum IssueEvidenceCollector {
 
     private static func unit(for match: Match, root: URL, client: GitHubClient?, checksRequired: Bool) async -> WorkUnit {
         let commit = match.commit
+        let paths: [String]? = commit.pathsUnknown ? nil : commit.paths
         guard let client else {
             return WorkUnit(ref: match.pullRequest.map(WorkRef.pullRequest) ?? .commit(commit.sha), headSHA: commit.sha, mergedAt: commit.date,
-                            changedPaths: commit.paths, checks: .unknown("GitHub is not available"), association: match.association)
+                            changedPaths: paths, checks: .unknown("GitHub is not available"), association: match.association)
         }
         if let number = match.pullRequest {
             // A pull request: its own head is judged; a repository that runs its workflows on push has none there, so the
@@ -317,10 +350,10 @@ enum IssueEvidenceCollector {
                 state = await checks(of: landed, client: client)
                 judged = landed
             }
-            return WorkUnit(ref: .pullRequest(number), headSHA: judged, mergedAt: commit.date, changedPaths: commit.paths, checks: state,
+            return WorkUnit(ref: .pullRequest(number), headSHA: judged, mergedAt: commit.date, changedPaths: paths, checks: state,
                             association: match.association, landedSHA: landed, pullRequestVerified: verified)
         }
-        return WorkUnit(ref: .commit(commit.sha), headSHA: commit.sha, mergedAt: commit.date, changedPaths: commit.paths,
+        return WorkUnit(ref: .commit(commit.sha), headSHA: commit.sha, mergedAt: commit.date, changedPaths: paths,
                         checks: checksRequired ? await checks(of: commit.sha, client: client) : .noRuns(sha: commit.sha), association: match.association)
     }
 
