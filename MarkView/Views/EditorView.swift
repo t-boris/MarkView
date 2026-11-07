@@ -776,7 +776,7 @@ struct EditorView: NSViewRepresentable {
 
         func exportPDF(fileName: String) {
             guard let webView = webView else { return }
-            PDFExporter.exportPDF(from: webView, fileName: fileName, bridge: bridge, documentFiles: documentFiles)
+            PDFExporter.exportPDF(from: webView, tab: pendingTab, fileName: fileName, documentFiles: documentFiles)
         }
 
         private static func resolveEditorResourceBaseURL() -> URL {
@@ -847,23 +847,13 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         }
     }
 
-    /// The page renders the report with its own Markdown renderer and draws its Mermaid blocks; the PDF pipeline of the
-    /// editor makes the file. Returns false when there is no editor page to render with.
+    /// The report of a research map is printed from its Markdown by the PDF pipeline of the editor.
+    /// Returns false when there is no editor page to take the request.
     @MainActor
     func exportResearchMapPDF(_ markdown: String, fileName: String) -> Bool {
-        guard let webView = self.webView else { return false }
-        let documentFiles = self.documentFiles
-        webView.callAsyncJavaScript("return window.MVResearchMap ? await window.MVResearchMap.reportHTMLDrawn(markdown) : ''",
-                                    arguments: ["markdown": markdown], in: nil, in: .page) { outcome in
-            let html = (try? outcome.get()) as? String ?? ""
-            guard !html.isEmpty else {
-                webView.evaluateJavaScript("window.MVResearchMap && window.MVResearchMap.notice('The report could not be drawn for the PDF.')", completionHandler: nil)
-                return
-            }
-            Task { @MainActor in
-                PDFExporter.exportPDF(html: html, fileName: fileName, baseURL: webView.url, documentFiles: documentFiles)
-            }
-        }
+        guard self.webView != nil else { return false }
+        let title = (fileName as NSString).deletingPathExtension
+        PDFExporter.exportPDF(markdown: markdown, title: title, fileName: fileName, baseURL: currentDocumentBaseURL, documentFiles: documentFiles)
         return true
     }
 

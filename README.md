@@ -736,7 +736,11 @@ flowchart LR
   Works without any key through macOS's built-in recognition on your Mac (pick its language in
   Settings → Voice input); with an OpenAI key it uses `whisper-1`, `gpt-4o-transcribe` or
   `gpt-4o-mini-transcribe` instead.
-- **PDF export** (**⌘E**).
+- **PDF export** (**⌘E**) makes a PDF you can share: a title page (from the front matter, or the first heading), a running head with the
+  section and a footer with `page / pages`, linked contents for a long document, bookmarks, working links, colours for code, formulas
+  and diagrams, and pages typeset one by one, so a table, picture, diagram or code block is never cut by a page boundary. The save panel
+  asks for the style (**Paper**, **White** or **Midnight** background) and the page (**A4**, **US Letter**, **A4 Landscape**) and remembers
+  them. A picture that cannot be read is replaced by a note. Pictures are read only from the project and the open documents' folders.
 
 **Browser and app preview** (🌐)
 - **Preview Web App (⌘6)** finds the project's web app (Vite, Next, Angular, Astro,
