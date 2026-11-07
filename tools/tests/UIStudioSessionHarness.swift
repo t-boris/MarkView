@@ -851,6 +851,7 @@ func run() async {
     contextTrackingChecks(session, store: store)
     await requestImageChecks(session, root: root, assistant: assistant, idle: idle)
     await browserChecks(session, web: web, root: root, text: text, idle: idle, clickElement: clickElement)
+    await standInChecks(session, web: web, text: text, idle: idle)
     finish(session, port: port)
 }
 
@@ -1449,6 +1450,67 @@ func browserChecks(_ session: StudioSession, web: URL, root: URL, text: (String)
     check("REQ-008 forgetting everything removes the kept data", session.spec.keptBrowserData == nil && removed
           && StudioStore.loadEnvironment(root)?.keptBrowserData == nil)
 }
+
+/// BUG-103 in a real session: a page that loads Stripe.js opens, the SDK is listed as a simulated dependency (not an unsupported
+/// one, so the session is not degraded), nothing is reported as a failure, and the scenario decides whether the card is declined.
+@MainActor
+func standInChecks(_ session: StudioSession, web: URL, text: (String) async -> String?, idle: () async -> Bool) async {
+    watchdog.reached("BUG-103 stand-ins in a session")
+    try? sdkHTML.write(to: web.appendingPathComponent("sdk.html"), atomically: true, encoding: .utf8)
+    var pay = session.scenario
+    pay.id = "sdk"
+    pay.name = "SDK"
+    pay.kind = .populated
+    pay.route = "/sdk.html"
+    pay.steps = []
+    session.activate(pay)
+    _ = await idle()
+    _ = await waitUntil(5) { session.dependencies.contains { $0.id == "sdk:stripe" } }
+    let paid = await text("""
+        const stripe = await window.stripeReady;
+        const elements = stripe.elements({ clientSecret: 'pi_41_secret_x' });
+        elements.create('payment').mount('#pay');
+        const r = await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: location.origin + '/done' } });
+        return (r.paymentIntent ? r.paymentIntent.status : r.error.code) + ' ' + (document.querySelector('[data-markview-standin]') ? 'shown' : 'missing');
+        """)
+    check("BUG-103 a page that loads Stripe.js opens in a session and its payment succeeds", paid == "succeeded shown", paid ?? "nil")
+    check("BUG-103 the SDK is a simulated dependency, never an unsupported one",
+          session.dependencies.contains { $0.id == "sdk:stripe" && $0.mode == .simulated && $0.note.contains("no card is charged") }
+          && !session.dependencies.contains { $0.mode == .unsupported && $0.id.contains("stripe") },
+          session.dependencies.map { "\($0.id)=\($0.mode.rawValue)" }.joined(separator: ", "))
+    check("BUG-103 no blocked script and no error is logged for it, so Fix data has nothing to be asked about",
+          !session.events.contains { ($0.kind == .blocked || $0.kind == .runtimeError) && $0.detail.contains("Stripe") }
+          && session.events.contains { $0.kind == .standIn && $0.detail.hasPrefix("stripe:") },
+          session.events.map { "\($0.kind.rawValue): \($0.detail.prefix(80))" }.joined(separator: " | "))
+
+    var failing = pay
+    failing.id = "sdk-error"
+    failing.name = "SDK error"
+    failing.kind = .error
+    session.activate(failing)
+    _ = await idle()
+    let declined = await text("""
+        const stripe = await window.stripeReady;
+        const elements = stripe.elements({ clientSecret: 'pi_42_secret_x' });
+        elements.create('payment').mount('#pay');
+        const r = await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: location.origin + '/done' } });
+        return r.paymentIntent ? r.paymentIntent.status : r.error.code;
+        """)
+    check("BUG-103 an error scenario declines the card", declined == "card_declined", declined ?? "nil")
+}
+
+/// The loader of @stripe/stripe-js as it is written there, on a page of the project's own folder.
+let sdkHTML = """
+<!doctype html><html><head><meta charset="utf-8"><title>Pay</title></head><body><div id="pay"></div>
+<script>
+window.stripeReady = new Promise(function (resolve, reject) {
+  var s = document.createElement('script'); s.src = 'https://js.stripe.com/v3';
+  s.addEventListener('load', function () { window.Stripe ? resolve(window.Stripe('pk_test_markview')) : reject(new Error('Stripe.js not available')); });
+  s.addEventListener('error', function () { reject(new Error('Failed to load Stripe.js')); });
+  document.head.appendChild(s);
+});
+</script></body></html>
+"""
 
 let keepSessionID = "4f9a1c2e8b7d6a5f3e2d1c0b9a8f7e6d"
 /// REQ-008: a consent banner shown until the answer is stored; accepting also stores a session cookie and a token, which

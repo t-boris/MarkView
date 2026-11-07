@@ -113,6 +113,10 @@ enum StudioBridge {
             /// The page used a browser feature the scenario answers (REQ-008): `geolocation: place "Chicago"`,
             /// `clipboard: write (12 chars)`. Clipboard contents are never part of it.
             case browser
+            /// The connection policy blocked the script of a third-party SDK the runtime has a stand-in for (Stripe.js, reCAPTCHA,
+            /// Google Maps, analytics), and the stand-in took its place (BUG-103): `stripe: Stripe.js — payments are simulated…`.
+            /// The text before the colon is the stand-in's id.
+            case standIn
         }
         var kind: Kind
         var detail: String
@@ -232,6 +236,7 @@ enum StudioBridge {
         let url = object["url"] as? String
         if let url, url.utf8.count > maxURL { return .failure(.malformed("event url")) }
         if kind == .browser, browserFeature(of: detail) == nil { return .failure(.malformed("browser feature")) }
+        if kind == .standIn, standIn(of: detail) == nil { return .failure(.malformed("stand-in")) }
         return .success(Event(kind: kind, detail: detail, url: url))
     }
 
@@ -243,6 +248,18 @@ enum StudioBridge {
         guard let colon = detail.firstIndex(of: ":"), detail.index(after: colon) < detail.endIndex else { return nil }
         let feature = String(detail[..<colon])
         return browserFeatures.contains(feature) ? feature : nil
+    }
+
+    /// The SDKs the page runtime has a stand-in for (BUG-103); one per `sdkRegister` call in the runtime.
+    static let standInIDs: Set<String> = ["stripe", "recaptcha", "google-maps", "google-tag", "google-analytics", "segment", "mixpanel", "posthog", "plausible"]
+
+    /// The stand-in a `standIn` event's detail names (`stripe: Stripe.js — …` → stripe) and what it says it stands for, or nil
+    /// when it names none of the registered ones.
+    static func standIn(of detail: String) -> (id: String, what: String)? {
+        guard let colon = detail.firstIndex(of: ":") else { return nil }
+        let id = String(detail[..<colon])
+        guard standInIDs.contains(id) else { return nil }
+        return (id, String(detail[detail.index(after: colon)...]).trimmingCharacters(in: .whitespaces))
     }
 
     /// The answer the page runtime turns into a Response / an XMLHttpRequest result.

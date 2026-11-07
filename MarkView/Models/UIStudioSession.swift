@@ -173,6 +173,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private var server: StudioDevServer?
     private var failedInstallFolder: URL?
     private var ruleListID: String?
+    /// Whether the connection policy is in force: without it nothing is blocked and no SDK needs a stand-in.
+    private var policyInstalled = false
     private var appOrigin: StudioBridge.Origin?
     /// Main-frame page loads committed so far: tells a replay step that loaded another page from one that failed.
     private var pageCommits = 0
@@ -680,11 +682,19 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let identifier = "markview-ui-studio-" + StudioHash.sha256(json).prefix(16)
         let controller = webView.configuration.userContentController
         controller.removeAllContentRuleLists()
+        // The page reloads under the new policy and reports the SDKs it still needs a stand-in for; one the person has just
+        // allowed loads for real and must not stay listed as simulated.
+        if observed.keys.contains(where: { $0.hasPrefix("sdk:") }) {
+            observed = observed.filter { !$0.key.hasPrefix("sdk:") }
+            rebuildDependencies()
+        }
         if let list = await StudioConnectionPolicy.compile(identifier: identifier, json: json) {
             controller.add(list)
             if let old = ruleListID, old != identifier { StudioConnectionPolicy.remove(identifier: old) }
             ruleListID = identifier
+            policyInstalled = true
         } else {
+            policyInstalled = false
             notice = "The connection policy could not be installed; requests are still answered only by the simulation."
         }
     }
@@ -696,6 +706,11 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             "testTime": scenario.testTime.timeIntervalSince1970 * 1000, "locale": scenario.locale,
             "timeZone": scenario.timeZone ?? NSNull(), "electron": target?.isElectron ?? false, "electronGlobals": electronGlobals,
             "recording": mode == .record, "browser": scenario.browserProfile.runtimeConfig,
+            // What a simulated payment does (BUG-103): an error scenario declines the card, every other one succeeds.
+            "standIns": ["payment": scenario.kind == .error ? "decline" : "succeed", "enabled": policyInstalled],
+            // The addresses the policy lets through, as the regular expressions its rules use: a script the person allowed is never
+            // replaced by a stand-in.
+            "allowedFilters": spec.allowedRequests.compactMap(StudioConnectionPolicy.filter(forAllowed:)),
             "keptStorage": spec.keptBrowserData?.runtimeStorage ?? [], "clockAnchor": clockAnchor.timeIntervalSince1970 * 1000,
             // The arguments of a preload bridge call are redacted in the page before they cross the bridge (REQ-016).
             "redaction": ["fields": spec.confidentialFields, "patterns": StudioRedactor.secretPatterns],
@@ -1744,6 +1759,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             let feature = StudioBridge.browserFeature(of: detail) ?? "browser"
             noteDependency(StudioDependency(id: "browser:" + feature, mode: .simulated,
                                             note: "Answered by the scenario's browser settings. Last use: " + String(detail.prefix(300))))
+        case .standIn:
+            // A simulated SDK is a dependency like a simulated request: listed with what it stands for, never a problem.
+            if let standIn = StudioBridge.standIn(of: detail) {
+                noteDependency(StudioDependency(id: "sdk:" + standIn.id, mode: .simulated,
+                                                note: "The connection policy blocks its script, so a built-in stand-in answers in the page: " + standIn.what))
+            }
         case .runtimeError, .logged:
             break
         }
@@ -1770,7 +1791,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let problem: Bool
         switch kind {
         case .runtimeError, .logged, .buildError, .blocked, .unsupported, .electron: problem = true
-        case .browser, .route, .idle, .recorded: problem = false
+        case .browser, .standIn, .route, .idle, .recorded: problem = false
         }
         sessionLog.add(.page, problem: problem, errorKey: StudioDataFix.isFixable(kind: kind, detail: detail) ? StudioDataFix.key(of: detail) : nil,
                        "\(kind.rawValue): \(detail)")

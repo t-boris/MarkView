@@ -402,6 +402,25 @@ var hugeBody = good; hugeBody["body"] = String(repeating: "x", count: StudioBrid
 if case .failure(.malformed) = StudioBridge.validate(hugeBody, isMainFrame: true, origin: origin, expecting: expectation) { check("an oversized body is malformed", true) } else { check("oversized body", false) }
 let event: [String: Any] = ["kind": "event", "session": "s-1", "generation": 3, "type": "electron", "detail": "window.api.load()"]
 if case .success(.event(let parsed)) = StudioBridge.validate(event, isMainFrame: true, origin: origin, expecting: expectation) { check("an event is accepted", parsed.kind == .electron) } else { check("event accepted", false) }
+let standIn: [String: Any] = ["kind": "event", "session": "s-1", "generation": 3, "type": "standIn", "detail": "stripe: Stripe.js \u{2014} payments are simulated, no card is charged"]
+if case .success(.event(let parsed)) = StudioBridge.validate(standIn, isMainFrame: true, origin: origin, expecting: expectation) {
+    check("BUG-103 a stand-in event is accepted", parsed.kind == .standIn && parsed.detail.hasPrefix("stripe: "))
+} else { check("BUG-103 a stand-in event is accepted", false) }
+var forgedStandIn = standIn; forgedStandIn["detail"] = "not-an-sdk: anything"
+if case .failure(.malformed) = StudioBridge.validate(forgedStandIn, isMainFrame: true, origin: origin, expecting: expectation) {
+    check("BUG-103 a stand-in event naming no registered SDK is malformed, so it cannot add dependency rows", true)
+} else { check("BUG-103 a stand-in event naming no registered SDK is malformed", false) }
+// The page runtime registers the stand-ins; the bridge accepts exactly those ids.
+if let runtime = try? String(contentsOfFile: "MarkView/Resources/Editor/vendor/js/markview-ui-studio.js", encoding: .utf8) {
+    var registered = Set<String>()
+    var rest = Substring(runtime)
+    while let found = rest.range(of: "sdkRegister('") {
+        rest = rest[found.upperBound...]
+        if let end = rest.firstIndex(of: "'") { registered.insert(String(rest[..<end])) }
+    }
+    check("BUG-103 the SDKs the runtime registers are exactly the ones the bridge accepts", registered == StudioBridge.standInIDs,
+          "\(registered.sorted()) vs \(StudioBridge.standInIDs.sorted())")
+} else { check("BUG-103 the runtime source is readable for the registry check", false) }
 
 // MARK: - Change manager (EDIT-05…EDIT-07, AC-12…AC-14)
 
@@ -2863,8 +2882,8 @@ func dataFixChecks() {
     check("REQ-017 an uncaught error is offered", StudioDataFix.isFixable(kind: .runtimeError, detail: thrown))
     check("REQ-017 an Error the application logged is offered", StudioDataFix.isFixable(kind: .logged, detail: logged))
     check("REQ-017 a build error is not data, so it is not offered", !StudioDataFix.isFixable(kind: .buildError, detail: "Failed to compile"))
-    check("REQ-017 routes, idle, blocked resources and browser notes are not offered",
-          [StudioBridge.Event.Kind.route, .idle, .blocked, .browser, .unsupported, .electron, .recorded].allSatisfy { !StudioDataFix.isFixable(kind: $0, detail: "x") })
+    check("REQ-017 routes, idle, blocked resources, browser notes and stand-ins are not offered",
+          [StudioBridge.Event.Kind.route, .idle, .blocked, .browser, .standIn, .unsupported, .electron, .recorded].allSatisfy { !StudioDataFix.isFixable(kind: $0, detail: "x") })
     check("REQ-017 an empty error is not offered", !StudioDataFix.isFixable(kind: .runtimeError, detail: "  \n"))
     let hidden = "Script error. WebKit hides the message and stack of this error: it was thrown by a script of another origin or one without an address."
     check("REQ-017 a crash WebKit hid with nothing logged beside it is not offered",
