@@ -3,6 +3,7 @@
 // maps clicks correctly, replayed steps, and the build error overlay report.
 // Compiled with the UI Studio models by tools/tests/ui-studio-web-tests.sh; it runs a windowed WebKit page.
 import AppKit
+import Network
 import WebKit
 
 // CI runners give no clue when a windowed WebKit test hangs: print every line at once and stop with the last step reached.
@@ -33,10 +34,71 @@ func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> Strin
     }
 }
 
+/// Resumes a continuation the first time it is asked to, however often the listener's state changes.
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Int?, Never>?
+    init(_ continuation: CheckedContinuation<Int?, Never>) { self.continuation = continuation }
+    func resume(_ value: Int?) {
+        let pending = lock.withLock { () -> CheckedContinuation<Int?, Never>? in defer { continuation = nil }; return continuation }
+        pending?.resume(returning: value)
+    }
+}
+
+/// A minimal HTTP server on the loopback interface that answers every request with one HTML page. The port is chosen by the
+/// system, so a check never collides with a development server running on the Mac.
+final class LoopbackServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "ui-studio-harness-loopback")
+    private let lock = NSLock()
+    private var page = ""
+    var html: String {
+        get { lock.withLock { page } }
+        set { lock.withLock { page = newValue } }
+    }
+
+    init() throws {
+        let parameters = NWParameters.tcp
+        parameters.requiredInterfaceType = .loopback
+        listener = try NWListener(using: parameters)
+    }
+
+    /// Starts listening and returns the port.
+    func start() async -> Int? {
+        listener.newConnectionHandler = { [weak self] connection in self?.serve(connection) }
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Int?, Never>) in
+            let gate = ResumeOnce(continuation)
+            listener.stateUpdateHandler = { [weak self] state in
+                switch state {
+                case .ready: gate.resume(self?.listener.port.map { Int($0.rawValue) })
+                case .failed, .cancelled: gate.resume(nil)
+                default: break
+                }
+            }
+            listener.start(queue: queue)
+        }
+    }
+
+    func stop() { listener.cancel() }
+
+    private func serve(_ connection: NWConnection) {
+        connection.start(queue: queue)
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] _, _, _, _ in
+            guard let self else { return connection.cancel() }
+            let body = Data(self.html.utf8)
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+            connection.send(content: Data(head.utf8) + body, completion: .contentProcessed { _ in connection.cancel() })
+        }
+    }
+}
+
 @MainActor
 final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDelegate {
     let token = "harness-session"
-    let origin = StudioBridge.Origin(scheme: "http", host: "localhost", port: 5173)
+    let origin: StudioBridge.Origin
+    /// When set, the page is served from this loopback server instead of being loaded as a string: only a served page loads under
+    /// the connection policy's content rule list, as the application's own page does.
+    var server: LoopbackServer?
     var simulator: StudioSimulator
     var events: [StudioBridge.Event] = []
     var rejected: [String] = []
@@ -53,8 +115,9 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
     let webView: WKWebView
     let source: String
 
-    init(source: String) {
+    init(source: String, port: Int = 5173, visible: Bool = true) {
         self.source = source
+        origin = StudioBridge.Origin(scheme: "http", host: "localhost", port: port)
         var spec = StudioEnvironmentSpec()
         spec.entities = [StudioEntity(name: "items", fields: [StudioField(name: "name", type: "string", required: true)])]
         spec.seed = ["items": [.object(["id": .number(1), "name": .string("Alpha")]), .object(["id": .number(2), "name": .string("Beta")])]]
@@ -76,11 +139,12 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
         window.contentView!.addSubview(host)
         host.viewport = CGSize(width: 800, height: 600)
         host.zoom = 0.5
-        window.orderFrontRegardless()
+        if visible { window.orderFrontRegardless() }
     }
 
     func load(_ html: String, seed: Int = 7, browser: StudioBrowserProfile = StudioBrowserProfile(),
-              keptStorage: [[String: String]] = [], clockAnchor: Double? = nil, electronGlobals: [String]? = nil) async {
+              keptStorage: [[String: String]] = [], clockAnchor: Double? = nil, electronGlobals: [String]? = nil,
+              standIns: [String: Any]? = nil, allowedFilters: [String]? = nil) async {
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
         // Stands in for the network under the runtime's own fetch, for requests the runtime passes through (BUG-070).
@@ -107,12 +171,19 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
                                        "electronGlobals": electronGlobals ?? [], "browser": browser.runtimeConfig, "keptStorage": keptStorage,
                                        "redaction": ["fields": StudioRedactor.defaultConfidentialFields, "patterns": StudioRedactor.secretPatterns]]
         if let clockAnchor { settings["clockAnchor"] = clockAnchor }
+        if let standIns { settings["standIns"] = standIns }
+        if let allowedFilters { settings["allowedFilters"] = allowedFilters }
         let config = String(decoding: try! JSONSerialization.data(withJSONObject: settings), as: UTF8.self)
         controller.addUserScript(WKUserScript(source: source.replacingOccurrences(of: "__MARKVIEW_STUDIO_CONFIG__", with: config),
                                               injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             loaded = continuation
-            webView.loadHTMLString(html, baseURL: URL(string: "http://localhost:5173/"))
+            if let server {
+                server.html = html
+                webView.load(URLRequest(url: URL(string: "http://localhost:\(origin.port)/")!))
+            } else {
+                webView.loadHTMLString(html, baseURL: URL(string: "http://localhost:5173/"))
+            }
         }
     }
 
@@ -504,6 +575,8 @@ func run() async {
         StudioConnectionPolicy.remove(identifier: "markview-ui-studio-harness")
     }
 
+    await standInChecks(source: source)
+
     print(failures == 0 ? "All UI Studio page checks passed." : "\(failures) UI Studio page check(s) failed.")
     exit(failures == 0 ? 0 : 1)
 }
@@ -668,6 +741,422 @@ func browserChecks(_ harness: Harness) async {
     check("REQ-008 a new generation writes the kept entry again", nextGeneration == "yes", nextGeneration)
     check("REQ-008 browser events pass the bridge's validation", harness.rejected.isEmpty && harness.events.contains { $0.kind == .browser },
           harness.rejected.joined(separator: "; "))
+}
+
+// MARK: - Stand-ins for blocked SDK scripts (BUG-103)
+
+/// The loader of @stripe/stripe-js, as it is written there: inject https://js.stripe.com/v3, resolve on load when `window.Stripe`
+/// exists, reject on error. Nobody catches the promise, as in react-stripe-js's <Elements stripe={promise}>.
+let stripePage = #"""
+<!doctype html><html><head><meta charset="utf-8"><title>Pay</title></head><body><div id="pay"></div>
+<script>
+window.flags = { load: 0, error: 0 };
+window.changes = [];
+window.stripeReady = new Promise(function (resolve, reject) {
+  var s = document.createElement('script'); s.src = 'https://js.stripe.com/v3';
+  s.addEventListener('load', function () { flags.load++; window.Stripe ? resolve(window.Stripe('pk_test_markview')) : reject(new Error('Stripe.js not available')); });
+  s.addEventListener('error', function () { flags.error++; reject(new Error('Failed to load Stripe.js')); });
+  document.head.appendChild(s);
+});
+</script></body></html>
+"""#
+
+/// A tag in the document. WebKit raises its `error` event only after the page's `load`, so the global has to be there when the tag
+/// is inserted: the inline script that follows it, DOMContentLoaded and load all see it.
+let staticStripePage = #"""
+<!doctype html><html><head><meta charset="utf-8"><title>Static</title>
+<script src="https://js.stripe.com/v3"></script>
+<script>window.seenAtOnce = typeof Stripe; document.addEventListener('DOMContentLoaded', function () { window.seenLater = typeof Stripe; });
+window.addEventListener('load', function () { window.seenOnLoad = typeof Stripe; });</script>
+</head><body></body></html>
+"""#
+
+/// Google's inline bootstrap loader for the Maps JavaScript API (the official snippet), then the dynamic import of a library.
+let mapsPage = #"""
+<!doctype html><html><head><meta charset="utf-8"><title>Map</title></head><body><div id="map" style="height:240px"></div>
+<script>
+(g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await (a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})({key:"AIzaTEST",v:"weekly"});
+</script></body></html>
+"""#
+
+/// The older form: a script tag with `callback=initMap`.
+let mapsCallbackPage = #"""
+<!doctype html><html><head><meta charset="utf-8"><title>Map</title></head><body><div id="map" style="height:200px"></div>
+<script>
+window.initMap = function () { window.initialised = typeof google.maps.places.Autocomplete + ' ' + typeof google.maps.Map; };
+var s = document.createElement('script'); s.src = 'https://maps.googleapis.com/maps/api/js?key=k&callback=initMap&libraries=places'; s.async = true;
+document.head.appendChild(s);
+</script></body></html>
+"""#
+
+let recaptchaPage = #"""
+<!doctype html><html><head><meta charset="utf-8"><title>Captcha</title></head><body><div id="box"></div>
+<script>
+window.onRecaptcha = function () { grecaptcha.render('box', { sitekey: 'k', callback: function (token) { window.solved = token; } }); };
+var v2 = document.createElement('script'); v2.src = 'https://www.google.com/recaptcha/api.js?onload=onRecaptcha&render=explicit';
+document.head.appendChild(v2);
+</script></body></html>
+"""#
+
+let analyticsPage = #"""
+<!doctype html><html><head><meta charset="utf-8"><title>Analytics</title></head><body>
+<script>
+window.dataLayer = window.dataLayer || []; function gtag() { dataLayer.push(arguments); } gtag('js', new Date());
+window.analytics = [];
+window.loaded = [];
+['https://www.googletagmanager.com/gtag/js?id=G-TEST', 'https://cdn.segment.com/analytics.js/v1/KEY/analytics.min.js',
+ 'https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js', 'https://us-assets.i.posthog.com/static/array.js', 'https://plausible.io/js/script.js'].forEach(function (src) {
+  var s = document.createElement('script'); s.src = src;
+  s.addEventListener('load', function () { loaded.push('load'); });
+  s.addEventListener('error', function () { loaded.push('error'); });
+  document.head.appendChild(s);
+});
+</script></body></html>
+"""#
+
+/// An invisible reCAPTCHA button (Google's own snippet) beside a checkbox widget.
+let recaptchaInvisiblePage = #"""
+<!doctype html><html><head><meta charset="utf-8"><title>Captcha</title></head><body>
+<form id="f"><button id="go" class="g-recaptcha" data-sitekey="k" data-callback="onSubmit" data-size="invisible">Send</button></form>
+<div id="checkbox" class="g-recaptcha" data-sitekey="k" data-callback="onChecked"></div>
+<script>
+window.log = []; window.submitted = 0;
+document.getElementById('f').addEventListener('submit', function () { window.submitted++; });
+function onSubmit(token) { log.push('submit'); }
+function onChecked(token) { log.push('checked'); }
+</script>
+<script src="https://www.google.com/recaptcha/api.js" async defer></script>
+</body></html>
+"""#
+
+/// The "track, then navigate" pattern of every analytics SDK: the page waits for the completion callback.
+let analyticsCallbackPage = #"""
+<!doctype html><html><head><meta charset="utf-8"><title>Analytics</title></head><body>
+<script>
+window.dataLayer = window.dataLayer || []; function gtag() { dataLayer.push(arguments); }
+window.done = [];
+['https://www.googletagmanager.com/gtag/js?id=G-TEST', 'https://www.google-analytics.com/analytics.js',
+ 'https://cdn.segment.com/analytics.js/v1/KEY/analytics.min.js', 'https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js'].forEach(function (src) {
+  var s = document.createElement('script'); s.src = src; document.head.appendChild(s);
+});
+</script></body></html>
+"""#
+
+/// A tag a modern browser skips never runs, so nothing stands in for it.
+let nomodulePage = #"""
+<!doctype html><html><head><meta charset="utf-8"><title>Legacy</title></head><body>
+<script nomodule src="https://js.stripe.com/v3"></script>
+<script>window.seen = typeof Stripe;</script></body></html>
+"""#
+
+/// Scripts the runtime has no stand-in for, and look-alikes of an address it has one for.
+let unregisteredPage = #"""
+<!doctype html><html><head><meta charset="utf-8"><title>Other</title></head><body>
+<script>
+window.outcome = [];
+['https://cdn.example.org/widget.js', 'https://js.stripe.com.evil.test/v3', 'https://evil.test/js.stripe.com/v3'].forEach(function (src) {
+  var s = document.createElement('script'); s.src = src;
+  s.addEventListener('error', function () { outcome.push('error'); });
+  s.addEventListener('load', function () { outcome.push('LOAD ' + src); });
+  document.head.appendChild(s);
+});
+</script></body></html>
+"""#
+
+/// BUG-103 in a real WebKit page: the page is served over HTTP and the application connection policy is installed as a content
+/// rule list, so a script of an SDK is blocked exactly as in a session; the runtime then stands in for the registered SDKs.
+@MainActor
+func standInChecks(source: String) async {
+    watchdog.reached("BUG-103 stand-ins for blocked SDK scripts")
+    guard let server = try? LoopbackServer(), let port = await server.start() else {
+        check("BUG-103 a loopback server starts", false)
+        return
+    }
+    defer { server.stop() }
+    let studio = Harness(source: source, port: port, visible: false)
+    studio.server = server
+    let identifier = "markview-ui-studio-standins-harness"
+    let json = StudioConnectionPolicy.ruleListJSON(appOrigin: studio.origin, allowed: [])
+    guard let list = await StudioConnectionPolicy.compile(identifier: identifier, json: json) else {
+        check("BUG-103 the connection policy compiles", false, json)
+        return
+    }
+    defer { StudioConnectionPolicy.remove(identifier: identifier) }
+    studio.webView.configuration.userContentController.add(list)
+    func events(_ kind: StudioBridge.Event.Kind, since mark: Int) -> [String] { studio.events.dropFirst(mark).filter { $0.kind == kind }.map(\.detail) }
+    func text(_ script: String) async -> String { (await studio.js(script) as? String) ?? "nil" }
+    let paymentLabel = "Simulated payment \u{2014} no card is charged"
+
+    // Stripe.js: the policy's block ends in a stand-in; the loader gets `load`, not `error`; nothing is reported as a failure.
+    var mark = studio.events.count
+    await studio.load(stripePage)
+    await studio.settle(0.8)
+    let ready = await text("""
+        const stripe = await window.stripeReady;
+        const duck = ['elements', 'createToken', 'createPaymentMethod', 'confirmCardPayment'].every(name => typeof stripe[name] === 'function');
+        return [duck, Stripe.version, JSON.stringify(window.flags)].join(' ');
+        """)
+    check("BUG-103 Stripe.js: the loader of @stripe/stripe-js gets the global and a load event, not the error", ready == #"true 3 {"load":1,"error":0}"#, ready)
+    check("BUG-103 Stripe.js: reported as a stand-in, not as a blocked script or an unhandled rejection",
+          events(.standIn, since: mark).first?.hasPrefix("stripe: Stripe.js") == true && events(.blocked, since: mark).isEmpty
+          && events(.runtimeError, since: mark).isEmpty, "\(studio.events.dropFirst(mark).map { "\($0.kind.rawValue): \($0.detail)" })")
+    check("BUG-103 the stand-in event passes the bridge's validation", studio.rejected.isEmpty && !events(.standIn, since: mark).isEmpty,
+          studio.rejected.joined(separator: "; "))
+
+    let shown = await text(#"""
+        const stripe = await window.stripeReady;
+        window.elements = stripe.elements({ clientSecret: 'pi_77_secret_abc' });
+        const element = window.elements.create('payment');
+        element.on('change', e => window.changes.push(e.elementType + ':' + (e.value && e.value.type) + ':' + e.complete));
+        element.mount('#pay');
+        await new Promise(resolve => element.on('ready', resolve));
+        const root = document.querySelector('[data-markview-standin="stripe-payment"]').shadowRoot;
+        return root.textContent.includes('Simulated payment — no card is charged') + ' ' + [...root.querySelectorAll('input')].map(i => i.value).join(',');
+        """#)
+    check("BUG-103 the Payment Element is a labelled placeholder offering the payment methods", shown == "true card,blik,p24,ideal,sepa_debit,paypal", shown)
+    _ = paymentLabel
+    let card = await text("""
+        const stripe = await window.stripeReady;
+        const r = await stripe.confirmPayment({ elements: window.elements, redirect: 'if_required', confirmParams: { return_url: location.origin + '/done' } });
+        return r.paymentIntent.status + ' ' + r.paymentIntent.id + ' ' + (r.error ? 'error' : 'no-error');
+        """)
+    check("BUG-103 confirmPayment with a card succeeds, stays on the page and names the intent of the client secret", card == "succeeded pi_77 no-error", card)
+    let changes = await text(#"""
+        document.querySelector('[data-markview-standin="stripe-payment"]').shadowRoot.querySelector('input[value=p24]').click();
+        return window.changes.join(' ');
+        """#)
+    check("BUG-103 the page hears the chosen method as the Payment Element's change event", changes == "payment:card:true payment:p24:true", changes)
+    _ = await text("""
+        const stripe = await window.stripeReady;
+        stripe.confirmPayment({ elements: window.elements, redirect: 'if_required', confirmParams: { return_url: location.origin + '/done' } });
+        return 'sent';
+        """)
+    await studio.settle(1.0)
+    let returned = await text("return location.pathname + location.search;")
+    check("BUG-103 a method that leaves the page returns to return_url with the query Stripe adds",
+          returned == "/done?payment_intent=pi_77&payment_intent_client_secret=pi_77_secret_abc&redirect_status=succeeded", returned)
+    let retrieved = await text("""
+        const stripe = await window.stripeReady;
+        const done = await stripe.retrievePaymentIntent('pi_77_secret_abc');
+        const other = await stripe.retrievePaymentIntent('pi_99_secret_zzz');
+        return done.paymentIntent.status + ' ' + other.paymentIntent.status;
+        """)
+    check("BUG-103 the page the customer returned to reads the outcome of its intent; another intent is not paid", retrieved == "succeeded requires_payment_method", retrieved)
+    let others = await text("""
+        const stripe = await window.stripeReady;
+        const elements = stripe.elements({ clientSecret: 'seti_5_secret_q' });
+        const setup = await stripe.confirmSetup({ elements, redirect: 'if_required', confirmParams: { return_url: location.origin + '/done' } });
+        const old = await stripe.confirmCardPayment('pi_88_secret_k', { payment_method: { card: {} } });
+        const method = await stripe.createPaymentMethod({ type: 'card', card: {} });
+        const token = await stripe.createToken('card');
+        return [setup.setupIntent.status, old.paymentIntent.status, method.paymentMethod.id, token.token.id].join(' ');
+        """)
+    check("BUG-103 confirmSetup, confirmCardPayment, createPaymentMethod and createToken answer", others == "succeeded succeeded pm_markview_simulated tok_markview_simulated", others)
+    let unsupported = await text("""
+        const stripe = await window.stripeReady;
+        const r = await stripe.collectBankAccountForPayment({ clientSecret: 'x' });
+        return r.error.code;
+        """)
+    check("BUG-103 a Stripe method that is not simulated answers an error instead of throwing", unsupported == "markview_not_simulated", unsupported)
+    mark = studio.events.count
+    let moreElements = await text(#"""
+        const stripe = await window.stripeReady;
+        const elements = stripe.elements({ clientSecret: 'pi_11_secret_a' });
+        const seen = [];
+        const link = elements.create('linkAuthentication');
+        link.on('change', e => seen.push('link:' + e.value.email));
+        link.mount('#pay');
+        const address = elements.create('address', { mode: 'billing' });
+        address.on('change', e => seen.push('address:' + e.value.address.country));
+        address.mount('#pay');
+        await new Promise(resolve => setTimeout(resolve, 250));
+        const value = await address.getValue();
+        return seen.join(' ') + ' ' + value.complete + ' ' + value.value.name;
+        """#)
+    check("BUG-103 the Link authentication and Address Elements raise change with the value the real ones carry; Address has getValue",
+          moreElements == "link:test@example.com address:US true Test Customer" && events(.runtimeError, since: mark).isEmpty,
+          "\(moreElements) \(events(.runtimeError, since: mark))")
+    let unsafeReturn = await text(#"""
+        const stripe = await window.stripeReady;
+        const elements = stripe.elements({ clientSecret: 'pi_12_secret_b' });
+        elements.create('payment').mount('#pay');
+        window.ranScript = false;
+        const r = await stripe.confirmPayment({ elements, confirmParams: { return_url: 'javascript:window.ranScript=true//' } });
+        await new Promise(resolve => setTimeout(resolve, 400));
+        return (r.error ? r.error.code : 'no-error') + ' ' + window.ranScript;
+        """#)
+    check("BUG-103 a return_url that is not a web address is refused, never run as script", unsafeReturn == "parameter_invalid_empty false", unsafeReturn)
+
+    // An error scenario declines the card.
+    mark = studio.events.count
+    await studio.load(stripePage, standIns: ["payment": "decline"])
+    await studio.settle(0.8)
+    let declined = await text("""
+        const stripe = await window.stripeReady;
+        const elements = stripe.elements({ clientSecret: 'pi_66_secret_abc' });
+        elements.create('payment').mount('#pay');
+        const r = await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: location.origin + '/done' } });
+        return r.error.type + ' ' + r.error.code + ' ' + r.error.payment_intent.status + ' ' + (r.paymentIntent ? 'intent' : 'no-intent');
+        """)
+    check("BUG-103 in an error scenario a card payment is declined as Stripe reports it", declined == "card_error card_declined requires_payment_method no-intent", declined)
+    await studio.load(stripePage, standIns: ["payment": "decline"])
+    await studio.settle(0.8)
+    _ = await text("""
+        const stripe = await window.stripeReady;
+        const elements = stripe.elements({ clientSecret: 'pi_66_secret_abc' });
+        elements.create('payment').mount('#pay');
+        await new Promise(resolve => setTimeout(resolve, 150));
+        document.querySelector('[data-markview-standin="stripe-payment"]').shadowRoot.querySelector('input[value=p24]').click();
+        stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: location.origin + '/done' } });
+        return 'sent';
+        """)
+    await studio.settle(1.0)
+    let failedReturn = await text("return location.search;")
+    check("BUG-103 in an error scenario a bank method comes back with redirect_status=failed",
+          failedReturn == "?payment_intent=pi_66&payment_intent_client_secret=pi_66_secret_abc&redirect_status=failed", failedReturn)
+
+    // A tag in the document: the global is there for the script that follows it, at DOMContentLoaded and at load.
+    mark = studio.events.count
+    await studio.load(staticStripePage)
+    await studio.settle(0.5)
+    let staticSeen = await text("return [window.seenAtOnce, window.seenLater, window.seenOnLoad].join(' ');")
+    check("BUG-103 a <script src> tag of Stripe.js in the document has its global for the inline script that follows it",
+          staticSeen == "function function function" && events(.standIn, since: mark).first?.hasPrefix("stripe:") == true
+          && events(.blocked, since: mark).isEmpty, "\(staticSeen) \(studio.events.dropFirst(mark).map { "\($0.kind.rawValue): \($0.detail)" })")
+
+    // An address the person allowed is never replaced: the runtime is told the policy's own filters (the network is still cut here,
+    // so the script fails and the page sees the failure itself).
+    let allowedFilter = StudioConnectionPolicy.filter(forAllowed: "https://js.stripe.com/*") ?? ""
+    mark = studio.events.count
+    await studio.load(stripePage, allowedFilters: [allowedFilter])
+    await studio.settle(0.8)
+    let allowedRun = await text("""
+        const outcome = await window.stripeReady.then(() => 'resolved', error => error.message);
+        return outcome + ' ' + JSON.stringify(window.flags) + ' ' + typeof Stripe;
+        """)
+    check("BUG-103 an address the person allowed is not replaced: the page gets the script's own failure",
+          allowedRun == #"Failed to load Stripe.js {"load":0,"error":1} undefined"# && events(.standIn, since: mark).isEmpty
+          && events(.blocked, since: mark).first == "script https://js.stripe.com/v3",
+          "\(allowedRun) \(studio.events.dropFirst(mark).map { "\($0.kind.rawValue): \($0.detail)" })")
+    let sameRegex = await studio.js("""
+        const re = new RegExp(filter, 'i');
+        return [re.test('https://js.stripe.com/v3'), re.test('https://js.stripe.com.evil.test/v3'), re.test('http://js.stripe.com/v3')].join(' ');
+        """, ["filter": allowedFilter]) as? String
+    check("BUG-103 the policy's filter means the same in the page: its host and scheme, nothing look-alike", sameRegex == "true false false", sameRegex ?? "nil")
+
+    // Google Maps: Google's inline bootstrap loader and the callback form.
+    mark = studio.events.count
+    await studio.load(mapsPage)
+    await studio.settle(0.5)
+    let map = await text("""
+        const { Map } = await google.maps.importLibrary('maps');
+        const { Autocomplete } = await google.maps.importLibrary('places');
+        const map = new Map(document.getElementById('map'), { center: { lat: 41.9, lng: -87.6 }, zoom: 10 });
+        await new Promise(resolve => google.maps.event.addListenerOnce(map, 'idle', resolve));
+        const root = document.querySelector('[data-markview-standin="google-maps"]').shadowRoot;
+        const geo = await new google.maps.Geocoder().geocode({ address: 'Chicago' });
+        return [root.textContent, typeof Autocomplete, geo.results[0].formatted_address].join(' | ');
+        """)
+    check("BUG-103 Google Maps: the inline loader's importLibrary gives a labelled placeholder map and the events pages wait for",
+          map.contains("Simulated map") && map.contains("41.9000, -87.6000 \u{00b7} zoom 10") && map.contains("| function | Chicago"), map)
+    check("BUG-103 Google Maps: reported as a stand-in", events(.standIn, since: mark).first?.hasPrefix("google-maps:") == true
+          && events(.blocked, since: mark).isEmpty && events(.runtimeError, since: mark).isEmpty,
+          "\(studio.events.dropFirst(mark).map { "\($0.kind.rawValue): \($0.detail)" })")
+    let classic = await text(#"""
+        await google.maps.importLibrary('maps');
+        function Overlay(map) { this.setMap(map); }
+        Overlay.prototype = new google.maps.OverlayView();
+        Overlay.prototype.onAdd = function () {};
+        const map = new google.maps.Map(document.getElementById('map'), { center: { lat: 1, lng: 2 }, zoom: 3 });
+        const overlay = new Overlay(map);
+        const marker = new google.maps.Marker({ position: { lat: 5, lng: 6 } });
+        marker.setPosition({ lat: 7, lng: 8 });
+        const geo = await new google.maps.Geocoder().geocode({ address: 'x' });
+        const country = geo.results[0].address_components.find(c => c.types.includes('country')).short_name;
+        return [overlay.getMap() === map, marker.getPosition().lat(), marker.getPosition().lng(),
+                google.maps.MapTypeControlStyle.DROPDOWN_MENU, google.maps.DirectionsStatus.OK, country].join(' ');
+        """#)
+    check("BUG-103 Google Maps: a classic OverlayView subclass, a {lat, lng} position, the control and status enums and geocoded components work",
+          classic == "true 7 8 2 OK US", classic)
+    await studio.load(mapsCallbackPage)
+    await studio.settle(0.5)
+    let initialised = await text("return String(window.initialised);")
+    check("BUG-103 Google Maps: the callback parameter of the script's address is called", initialised == "function function", initialised)
+
+    // reCAPTCHA.
+    mark = studio.events.count
+    await studio.load(recaptchaPage)
+    await studio.settle(0.6)
+    let captcha = await text("""
+        const root = document.querySelector('[data-markview-standin="recaptcha"]').shadowRoot;
+        const token = await grecaptcha.execute('k', { action: 'login' });
+        return [window.solved, token, root.textContent.includes('Simulated reCAPTCHA')].join(' ');
+        """)
+    check("BUG-103 reCAPTCHA: onload and render run, the widget is labelled and solved, execute answers a token",
+          captcha == "markview-simulated-recaptcha-token markview-simulated-recaptcha-token true", captcha)
+    check("BUG-103 reCAPTCHA: reported as a stand-in", events(.standIn, since: mark).first?.hasPrefix("recaptcha:") == true && events(.blocked, since: mark).isEmpty)
+
+    await studio.load(recaptchaInvisiblePage)
+    await studio.settle(0.6)
+    let atLoad = await text("return window.log.join(',') + ' ' + document.querySelector('#go [data-markview-standin]') + ' ' + document.querySelectorAll('[data-markview-standin=\"recaptcha\"]').length;")
+    _ = await text("document.getElementById('go').click(); return 'clicked';")
+    await studio.settle(0.3)
+    let afterClick = await text("return window.log.join(',') + ' ' + window.submitted;")
+    _ = await text("grecaptcha.execute(); return 'executed';")
+    await studio.settle(0.3)
+    let afterExecute = await text("return window.log.join(',');")
+    check("BUG-103 reCAPTCHA: a checkbox widget is solved when drawn, an invisible one calls its callback only when asked (click or execute)",
+          atLoad == "checked null 1" && afterClick == "checked,submit 0" && afterExecute == "checked,submit,submit", "\(atLoad) | \(afterClick) | \(afterExecute)")
+
+    // Analytics.
+    mark = studio.events.count
+    await studio.load(analyticsPage)
+    await studio.settle(0.6)
+    let analytics = await text("""
+        const answers = await new Promise(resolve => analytics.ready(() => resolve('ready')));
+        return [window.loaded.join(','), typeof gtag, Array.isArray(dataLayer), analytics.track('x') instanceof Promise, answers,
+                posthog.isFeatureEnabled('flag'), typeof mixpanel.track, typeof plausible].join(' ');
+        """)
+    check("BUG-103 analytics: Google, Segment, Mixpanel, PostHog and Plausible load as no-ops and their callbacks run",
+          analytics == "load,load,load,load,load function true true ready false function function", analytics)
+    let standIns = events(.standIn, since: mark).map { String($0.prefix(while: { $0 != ":" })) }.sorted()
+    check("BUG-103 analytics: each SDK is reported once as a stand-in",
+          standIns == ["google-tag", "mixpanel", "plausible", "posthog", "segment"] && events(.blocked, since: mark).isEmpty, standIns.joined(separator: ","))
+
+    await studio.load(analyticsCallbackPage)
+    await studio.settle(0.6)
+    let finished = await text(#"""
+        analytics.track('Click', {}, {}, () => done.push('segment'));
+        const promised = analytics.track('x') instanceof Promise;
+        mixpanel.track('Click', {}, () => done.push('mixpanel'));
+        gtag('event', 'purchase', { event_callback: () => done.push('gtag') });
+        dataLayer.push({ event: 'signup', eventCallback: () => done.push('gtm') });
+        ga('send', 'event', 'x', 'y', { hitCallback: () => done.push('ga') });
+        analytics.on('track', () => done.push('listener'));
+        await new Promise(resolve => setTimeout(resolve, 250));
+        return done.sort().join(',') + ' ' + promised;
+        """#)
+    check("BUG-103 analytics: the completion callbacks of a report run (track then navigate), a listener is not called", finished == "ga,gtag,gtm,mixpanel,segment true", finished)
+
+    mark = studio.events.count
+    await studio.load(nomodulePage)
+    await studio.settle(0.4)
+    let legacy = await text("return window.seen;")
+    check("BUG-103 a tag with nomodule never runs, so nothing stands in for it", legacy == "undefined" && events(.standIn, since: mark).isEmpty, legacy)
+    mark = studio.events.count
+    await studio.load(stripePage, standIns: ["enabled": false])
+    await studio.settle(0.8)
+    let unprotected = await text("return await window.stripeReady.then(() => 'resolved', error => error.message);")
+    check("BUG-103 without the connection policy in force no stand-in is installed", unprotected == "Failed to load Stripe.js" && events(.standIn, since: mark).isEmpty, unprotected)
+
+    // What is not registered stays blocked; a look-alike address is not an SDK.
+    mark = studio.events.count
+    await studio.load(unregisteredPage)
+    await studio.settle(0.6)
+    let other = await text("return window.outcome.join(',') + ' ' + typeof Stripe;")
+    check("BUG-103 an unregistered script and look-alikes of Stripe's address stay blocked: the page's own error handlers run",
+          other == "error,error,error undefined" && events(.standIn, since: mark).isEmpty && events(.blocked, since: mark).count == 3,
+          "\(other) \(studio.events.dropFirst(mark).map { "\($0.kind.rawValue): \($0.detail)" })")
 }
 
 let application = NSApplication.shared
