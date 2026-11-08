@@ -167,6 +167,8 @@ struct ContentView: View {
     @StateObject private var workspaceManager = WorkspaceManager()
     @StateObject private var changeReview = ProjectChangeReview()
     @State private var showFolderPicker = false
+    /// Project Cycle Time summary, opened from the top bar (DEC-002, DEC-006).
+    @State private var showCycleTime = false
     /// NSWindow hosting this view — lets open-URL notifications target only the
     /// active window instead of racing across all ContentView instances.
     @State private var hostWindow: NSWindow?
@@ -436,6 +438,8 @@ struct ContentView: View {
                 .cornerRadius(7)
                 Spacer(minLength: 4)
                 AgentActivityChip(monitor: workspaceManager.agentActivity, workspaceManager: workspaceManager, compact: compact)
+                // Claude Code and Codex quota, whatever the workspace shows and whether or not Agents is open (AC-6, AC-7).
+                AgentUsageBar()
                 if workspaceManager.layout.workspaceArea == .files && hasDocumentContents {
                     headerButton("list.bullet.indent", help: "Contents of this tab (⌘2): headings, structure, page, entries, facts", width: controlWidth,
                                  selected: workspaceManager.terminalVisible && workspaceManager.layout.navigatorTab == .contents) {
@@ -450,6 +454,13 @@ struct ContentView: View {
                     headerButton("bubble.left.and.text.bubble.right", help: "Discussions (⌃⌘I): think an idea through before it is a feature", width: controlWidth,
                                  selected: { if case .discussions? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openDiscussions()
+                    }
+                    // In a narrow window it moves to the "…" menu so the bar keeps its room for the usage chips.
+                    if !compact {
+                        headerButton("timer", help: "Project Cycle Time: how long features take from idea to release", width: controlWidth,
+                                     selected: showCycleTime) {
+                            showCycleTime = true
+                        }
                     }
                     // REQ-011: UI Studio one click away, not only in the AI tools menu.
                     headerButton("macwindow.and.cursorarrow", help: "UI Studio (⌘7): the project's real interface with simulated data — select, ask, change", width: controlWidth,
@@ -472,6 +483,8 @@ struct ContentView: View {
                 if compact {
                     Menu {
                         Button("Open X-Ray") { workspaceManager.openArchitecture() }
+                            .disabled(workspaceManager.rootNode == nil)
+                        Button("Project Cycle Time…") { showCycleTime = true }
                             .disabled(workspaceManager.rootNode == nil)
                         AIToolsMenu(workspaceManager: workspaceManager)
                         Button("Theme…") { workspaceManager.theme.showsPicker = true }
@@ -499,6 +512,9 @@ struct ContentView: View {
         .frame(height: min(70, 44 * max(1, appFontScale)))
         .background(palette.bgSidebar)
         .overlay(alignment: .bottom) { Divider() }
+        .sheet(isPresented: $showCycleTime) {
+            CycleTimeSummarySheet(store: workspaceManager.features) { showCycleTime = false }
+        }
     }
 
     private var headerDivider: some View {

@@ -1,3 +1,59 @@
+# Flexible Files views and visible agent usage (feature flexible-files-views-and-visible-agent-usage, GitHub #320) — goal session 2026-11-08
+
+Request (Boris, /goal): implement `docs/features/flexible-files-views-and-visible-agent-usage` (AC-1…AC-8, REQ-001, plan I-1…I-6,
+DEC-001…009), verify against the specification, keep records and #320 current, test, build, commit, PR, merge, bump the version,
+release and confirm the deployed version. Not part of the goal: browser-tab check, manual checklist. Branch + PR (the goal says
+never commit to main).
+
+Answers recorded (Boris, 2026-11-08): "openable" = has a viewer (DEC-004); unsupported files are selected by a click and opened
+with the default app on request (DEC-005); Cycle Time is a compact top-bar button (DEC-006); do not wait for CI (overrides goal
+item 7; discussion.md). Mid-turn: filters also hide Git-ignored items (REQ-001). Proposed by me: DEC-007 (category narrows files
+only), DEC-008 (what persists, Reveal vs filters), DEC-009 (browser opens in the project root, Workspace level above it).
+
+Finding in the code: `FileType.isOpenable` is true for every regular file, so F-001's premise (the list hides unopenable files) was
+wrong; `FileType.hasViewer` is the new classification.
+
+## Design
+- `Models/FileBrowserModel.swift` (Foundation only, standalone-testable): view mode, category, filter (hidden, Git-ignored, name),
+  entry listing with sort (folders first, ties by name), Workspace level, tree rows (expanded set), recursive search that keeps
+  ancestors (off the main thread, cancellable, capped), persistence keys.
+- `Models/DocumentState.swift`: `FileType.hasViewer(_:)`.
+- `Views/FileBrowserViews.swift`: the controls (view picker, filter menu, sort menu); the Icon cell lives in `FileTreeView.swift` with the other rows.
+- `Views/FileTreeView.swift`: keeps state, actions, menus and drag and drop; renders Icon, List and Tree from the model.
+- `Views/ContentView.swift` header: `AgentUsageBar` (moved from `ModuleExplorerView`) and a Cycle Time button; the Features panel
+  menu item goes.
+
+## Plan
+- [x] 1. Spec records: DEC-004…010, REQ-001, discussion notes (done through MarkView tools).
+- [x] 2. `FileBrowserModel` + `FileType.hasViewer` + standalone harness `tools/tests/file-browser-tests.sh` (temp directory).
+- [x] 3. FileTreeView: Workspace level, Icon/List/Tree, filters, explicit sort, creation target, reveal, unsupported files.
+- [x] 4. Top bar: usage indicators moved and labelled; Cycle Time button; narrow-width behaviour.
+- [x] 5. Verify each AC against the code; harnesses (`file-browser`, `agent-usage`, `lifecycle`) and Debug build green.
+- [ ] 6. Version bump, commits, push once, PR, merge, release `./release.sh --publish`, confirm the deployed version.
+- [ ] 7. Spec statuses (criteria ticked, decisions), #320 comment and close after the merge.
+
+## Review (2026-11-08, version 5.44.0)
+
+Evidence: Debug build succeeds; all 125 harnesses in `tools/tests/` pass (`project-operation-discovery` needs its zsh shebang, run
+it directly, not with `bash`); `file-browser-tests.sh` has ~100 checks on a temp directory tree; an independent code review found 5
+major and 6 minor defects, all fixed except one parity item (see the discussion note of the feature).
+
+| Criterion | How it was checked |
+| --- | --- |
+| AC-1 Icon/List/Tree, selected view visible | View picker is a segmented control with the selected segment and an accessibility value; Tree expand/collapse and Icon/List navigation by code; model rows tested |
+| AC-2 virtual Workspace level | `workspaceEntries`, `parent`, `crumbs` tested; project folder and linked folders are sibling rows, no filesystem change |
+| AC-3 hidden, name, category filters; Tree keeps ancestors | model tests for each filter and for `searchRows` ancestors; hidden off by default |
+| AC-4 explicit sort | model tests: name/date, both directions, folders first, ties by name; menu shows the active field and direction |
+| AC-5 persistence, existing behaviour kept | `FileBrowserPreferences` round trip tested; sort order persists in the existing store; rows, menus, drag and drop, reveal, creation destination kept (diff reviewed against the old view) |
+| AC-6 usage indicators in the top bar with a "used" label | `AgentUsageBar` in `workspaceHeader`, removed from the Agents header; "NN% used" label; popover and limit form unchanged |
+| AC-7 narrow widths | `ViewThatFits`: chips with reset, with percent, minimal, one gauge button; layout mechanic checked with a mock header at nine widths (no overlap, gap kept); VoiceOver labels give the quota state; unavailable is worded as unavailable, never zero (`AgentUsageChip.summary`) |
+| AC-8 other agents | DEC-010: none has a reliable source; Claude Code and Codex unchanged |
+| REQ-001 | model tests for the Git-ignore filter; ignore data only for the project repository; criteria ticked |
+
+Not checked by hand in the running app (not part of this goal): the real header at common window widths, the Files panel with a
+large repository, the Git-ignored toggle against a real repository, popover behaviour. The Tree expansion state resets when the
+navigator switches between Files and Issues (the browsed folder did before this change too).
+
 # Issue lifecycle management (feature issue-lifecycle-management, GitHub #294) — goal session 2026-11-05
 
 Request (Boris, /goal): implement what `docs/features/issue-lifecycle-management` specifies (REQ-001…006, plan I-1…I-8, DEC-007…015,

@@ -328,7 +328,7 @@ plain Markdown.
   questions and accepted decisions are treated as requirements, not reopened. The handoff carries the
   project's [definition of done](#workspace).
 - **Lifecycle analytics** record 11 stages of a feature — from idea created to merged and verified — and
-  *Project Cycle Time…* shows the median and mean per step, per AI model, and where CI time goes. The
+  the **Cycle Time** button in the window's top bar shows the median and mean per step, per AI model, and where CI time goes. The
   log is a per-Mac file, not part of the repository. Events from GitHub (pull request, review, CI)
   follow a feature once its implementation has started, and need the GitHub integration.
 - **Sync** closes a GitHub issue once every feature and bug linked to it is done. It follows explicit
@@ -578,8 +578,9 @@ flowchart LR
   **Open Terminal Here** opens a shell as an editor tab.
 - **Agent activity at a glance.** A status dot per terminal tab, a banner with the current step and the
   agent's task list with progress, a toolbar chip when other agents work, and quota chips for Claude
-  Code and Codex. The **cpu** menu in the Agents header switches the model: for Claude Code it types
-  `/model` into the live session and the conversation continues; the project remembers its last model.
+  Code and Codex in the window's top bar (see below). The **cpu** menu in the Agents header switches the
+  model: for Claude Code it types `/model` into the live session and the conversation continues; the
+  project remembers its last model.
 - **One-click prompts:** *GitHub → MarkView…*, *Review PR…*, *Review changes*, *Docs ↔ code*, *Explain file*,
   *Find bugs*, *Write tests*, *Run tests*, *Security review*, *Update docs*,
   *Commit message*. ⌥-click types a prompt without sending it.
@@ -635,7 +636,7 @@ flowchart LR
   VPN or SSH. Connections go through an encrypted relay that you deploy yourself (`tools/remote-relay`)
   and are saved in the Keychain. Set it up under *DDE Settings → Remote Assistants → Connections…* or
   **+ → Connect to Home…** in the Agents panel.
-- **Usage at a glance:** quota chips for Claude Code and Codex in the terminal header.
+- **Usage at a glance:** quota chips for Claude Code and Codex in the window's top bar, also when the Agents panel is closed; in a narrow window they shrink to a single gauge button.
 - **Live reload:** files an agent changes on disk refresh in their tabs.
 - **AI Tools** (✨): architecture, data-flow, pipeline, deployment, sequence and ER
   diagrams; Constructive Critic, New Research, Codebase Audit, Code Structure Map; Prototype;
@@ -764,7 +765,12 @@ flowchart LR
 | <img src="docs/images/file-tree.png" alt="File tree with the git branch, filter, file sizes and ages" width="230"> | <img src="docs/images/github-actions.png" alt="GitHub Actions runs of the project inside the Git panel" width="420"> |
 | **File tree**: branch, filter, sizes and ages at a glance. | **Git panel**: changes, pull requests, issues and Actions runs (GitHub is opt-in). |
 
-- **File tree** with breadcrumbs, filter, sort and git status. Select several items
+- **Files** in three views: **Icons**, **List** and **Tree**. A Workspace level above the project folder shows the
+  project and its linked folders as siblings. **Filter** hides hidden items (on by default), files that Git ignores,
+  or everything but folders or the files MarkView has a viewer for; the name box searches the folder (the whole
+  workspace in Tree). **Sort** by name or date, either direction, folders first. The choices persist. Files
+  MarkView cannot open are listed, dimmed: a click selects them and *Open with Default App* is in their menu.
+  Breadcrumbs, git status and the actions below work in every view. Select several items
   (click, ⌘-click, ⇧-click) to **move, trash, stage, discard or copy paths** at once;
   **Rename…** any file or folder — open tabs follow. **Compress to .zip** and **Extract Here** work on
   archives.
@@ -859,7 +865,7 @@ paths, the dictation language (built-in recognition) and the cloud model; the X-
   agent terminals run with the agents' full-access flags — they act on your project as
   they would in any terminal.
 - Network calls MarkView makes itself: the **usage chips** read your agents' stored sign-in and ask
-  Anthropic's and ChatGPT's usage endpoints every five minutes while a chip is visible (turn them off
+  Anthropic's and ChatGPT's usage endpoints every five minutes while MarkView is the active app (turn them off
   under *Agent usage* in Settings); GitHub, only when you turn the integration on; OpenAI, only for
   dictation with a key; **remote images** in a PDF book are downloaded when you export it; HTTP checks
   you define in Deployments run from this Mac; and Remote Assistants use the relay you deploy. The

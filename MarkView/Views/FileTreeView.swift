@@ -1,10 +1,29 @@
 import SwiftUI
 
+/// Files: the project folder and its linked folders in three views (Icons, List, Tree), with filters and an
+/// explicit sort. The rules are in `FileBrowserModel.swift`; this view draws them and keeps the actions
+/// (open, create, rename, move, trash, drag and drop, Git, archives).
 struct FileTreeView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    /// The view and the filter choices; they persist across restarts (AC-5, DEC-008). The sort order persists in
+    /// the file tree store.
+    @State private var preferences = FileBrowserPreferences.load()
+    /// The name query: the entries of the browsed folder in Icon and List views, the whole workspace in Tree.
     @State private var searchText = ""
+    /// The folder browsed in Icon and List views; nil is the project folder.
     @State private var currentDirectory: URL?
+    /// Icon and List views are on the Workspace level, above the project folder and its linked folders (DEC-009).
+    @State private var atWorkspace = false
+    /// Tree view: the open folders (`FileBrowser.key`); the project folder starts open.
+    @State private var expanded = Set<String>()
+    /// The project folder the tree was last opened for, so that it is opened once and a collapse sticks.
+    @State private var seededRoot: String?
+    /// Tree view: the folder New File, dropping on empty space and Move to… start from (the folder last clicked).
+    @State private var treeAnchor: URL?
+    /// Tree view with a query: what the walk of the disk found, and whether a walk is running.
+    @State private var searchResult: FileBrowserSearchResult?
+    @State private var isSearching = false
     /// Bumped after this view creates something, so the list (read from disk) redraws.
     @State private var listVersion = 0
     /// Folder a drag is currently over (highlighted as the drop target).
@@ -17,309 +36,182 @@ struct FileTreeView: View {
     @FocusState private var listFocused: Bool
 
     private var git: GitClient { workspaceManager.gitClient }
+    private var mode: FileBrowserViewMode { preferences.mode }
+    private var projectRootURL: URL? { workspaceManager.rootNode?.url }
 
-    /// The directory we're currently browsing (defaults to workspace root)
-    private var browseURL: URL? {
-        currentDirectory ?? workspaceManager.rootNode?.url
+    // MARK: Model glue
+
+    /// The project folder and the linked folders: the places of the Workspace level.
+    private var roots: [FileBrowserRoot] {
+        guard let project = projectRootURL else { return [] }
+        return [FileBrowserRoot(url: project, name: project.lastPathComponent, linkedID: nil)]
+            + workspaceManager.linkedFolders.map { FileBrowserRoot(url: $0.url, name: $0.name, linkedID: $0.id) }
     }
 
-    /// A row of the list: a file or folder, or a folder linked to the project (Task 59), shown
-    /// after the project's own folders at the root.
-    private struct Entry {
-        let url: URL
-        let isDir: Bool
-        let modDate: Date?
-        var size: Int? = nil
-        var linked: LinkedFolder? = nil
+    private var filter: FileBrowserFilter {
+        FileBrowserFilter(query: searchText, showHidden: preferences.showHidden,
+                          hideIgnored: preferences.hideIgnored && git.isGitRepo, category: preferences.category)
     }
 
-    /// The project root, or the linked folder's root, that the browsed directory belongs to.
-    private var browseRoot: URL? { browseURL.flatMap { workspaceManager.containerRoot(for: $0) } }
+    private var source: FileBrowserSource {
+        FileBrowserSource(roots: roots, filter: filter, sort: workspaceManager.fileTreeSortOrder,
+                          hasViewer: { FileType.hasViewer($0) }, isIgnored: ignoredLookup)
+    }
 
-    /// List files and folders in the current directory
-    private var directoryContents: [Entry] {
+    /// Git's ignore list for the project (REQ-001). Linked folders have no data of the project's repository.
+    private var ignoredLookup: @Sendable (URL, Bool) -> Bool {
+        guard git.isGitRepo, let root = git.workingDirectory else { return { _, _ in false } }
+        let status = git.repoStatus
+        let prefix = root.standardizedFileURL.path + "/"
+        let linkedPaths = workspaceManager.linkedFolders.map { $0.url.standardizedFileURL.path }
+        return { url, isDirectory in
+            let path = url.standardizedFileURL.path
+            guard path.hasPrefix(prefix), !linkedPaths.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) else { return false }
+            return status.decoration(of: String(path.dropFirst(prefix.count)), isDirectory: isDirectory).state == .ignored
+        }
+    }
+
+    private var sortBinding: Binding<FileTreeSortOrder> {
+        Binding(get: { workspaceManager.fileTreeSortOrder }, set: { workspaceManager.fileTreeSortOrder = $0 })
+    }
+
+    /// Where Icon and List views are.
+    private var location: FileBrowserLocation {
+        guard let project = projectRootURL, !atWorkspace else { return .workspace }
+        return .folder(currentDirectory ?? project)
+    }
+
+    private func go(_ target: FileBrowserLocation) {
+        switch target {
+        case .workspace:
+            atWorkspace = true
+            currentDirectory = nil
+        case .folder(let url):
+            atWorkspace = false
+            let isProject = projectRootURL.map { FileBrowser.key($0) == FileBrowser.key(url) } ?? false
+            currentDirectory = isProject ? nil : url
+        }
+    }
+
+    /// The folder that New File here, dropping on empty space and Move to… start from: the folder being
+    /// browsed; in Tree view the folder last clicked (the folder of the file last clicked), else the project
+    /// folder. nil on the Workspace level, where nothing can be created (DEC-009).
+    private var destination: URL? {
+        switch mode {
+        case .tree:
+            // The folder last clicked, unless it was renamed, moved or trashed since.
+            if let anchor = treeAnchor, FileManager.default.fileExists(atPath: anchor.path) { return anchor }
+            return projectRootURL
+        case .icon, .list:
+            if case .folder(let url) = location { return url }
+            return nil
+        }
+    }
+
+    /// Entries of the browsed folder (Icon and List views), or of the Workspace level.
+    private var directoryEntries: [FileBrowserEntry] {
         _ = listVersion
-        guard let dir = browseURL else { return [] }
-        let fm = FileManager.default
-        let sort = workspaceManager.fileTreeSortOrder
-        // Dates are shown on every row, so always read them.
-        let keys: [URLResourceKey] = [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey]
-
-        guard let contents = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys) else { return [] }
-
-        let items: [Entry] = contents.compactMap { itemURL in
-            let vals = try? itemURL.resourceValues(forKeys: Set(keys))
-            let isDir = vals?.isDirectory ?? false
-            guard isDir || FileType.isOpenable(itemURL) else { return nil }
-            return Entry(url: itemURL, isDir: isDir, modDate: vals?.contentModificationDate,
-                         size: isDir ? nil : vals?.fileSize)
+        switch location {
+        case .workspace: return FileBrowser.workspaceEntries(source: source, applyQuery: true)
+        case .folder(let url): return FileBrowser.listing(of: url, source: source, applyQuery: true)
         }
+    }
 
-        let asc = sort.ascending
-        var sorted = items.sorted { a, b in
-            if a.isDir && !b.isDir { return true }
-            if !a.isDir && b.isDir { return false }
-            switch sort.field {
-            case .name:
-                let cmp = a.url.lastPathComponent.lowercased() < b.url.lastPathComponent.lowercased()
-                return asc ? cmp : !cmp
-            case .dateModified:
-                let da = a.modDate ?? .distantPast
-                let db = b.modDate ?? .distantPast
-                let cmp = da < db
-                return asc ? cmp : !cmp
-            }
+    private var isTreeSearch: Bool {
+        mode == .tree && !searchText.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    private var treeRows: [FileBrowserRow] {
+        _ = listVersion
+        if isTreeSearch { return searchResult.map { FileBrowser.searchRows($0, source: source) } ?? [] }
+        return FileBrowser.treeRows(source: source, expanded: expanded)
+    }
+
+    /// What a click, a range selection and the actions on a selection see, in display order.
+    private var selectableEntries: [FileBrowserEntry] { mode == .tree ? treeRows.map(\.entry) : directoryEntries }
+    private var selectableURLs: [URL] { selectableEntries.map(\.url) }
+
+    private func linkedFolder(of entry: FileBrowserEntry) -> LinkedFolder? {
+        guard let id = entry.root?.linkedID else { return nil }
+        return workspaceManager.linkedFolders.first { $0.id == id }
+    }
+
+    /// The path shown in the breadcrumb strip: where Icon and List views are; in Tree view the folder that
+    /// new items go to.
+    private var crumbLocation: FileBrowserLocation {
+        mode == .tree ? (destination.map { .folder($0) } ?? .workspace) : location
+    }
+    private var breadcrumbs: [FileBrowserCrumb] { FileBrowser.crumbs(for: crumbLocation, roots: roots) }
+
+    private func open(_ crumb: FileBrowserCrumb) {
+        if mode == .tree {
+            if case .folder(let url) = crumb.location { treeAnchor = url } else { treeAnchor = nil }
+        } else {
+            go(crumb.location)
         }
-        // At the project root, its linked folders follow the project's own folders.
-        if dir.standardizedFileURL.path == workspaceManager.rootNode?.url.standardizedFileURL.path {
-            let linked = workspaceManager.linkedFolders.map { folder -> Entry in
-                let date = try? folder.url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-                return Entry(url: folder.url, isDir: true, modDate: date, linked: folder)
-            }
-            let firstFile = sorted.firstIndex { !$0.isDir } ?? sorted.count
-            sorted.insert(contentsOf: linked, at: firstFile)
+    }
+
+    /// Everything that restarts the walk of the disk behind a Tree search.
+    private var searchKey: String {
+        [String(isTreeSearch), searchText, String(preferences.showHidden), String(preferences.hideIgnored),
+         preferences.category.rawValue, workspaceManager.searchRootsKey, String(listVersion),
+         String(git.repoStatus.entries.count)].joined(separator: "|")
+    }
+
+    /// The first time a project is shown, its folder is open in Tree view.
+    private func seedTree() {
+        guard let project = projectRootURL else { return }
+        let key = FileBrowser.key(project)
+        guard seededRoot != key else { return }
+        seededRoot = key
+        expanded.insert(key)
+    }
+
+    /// Debounced, cancelled by the next keystroke, and run off the main actor (DEC-001).
+    private func runTreeSearch() async {
+        guard isTreeSearch else {
+            searchResult = nil
+            isSearching = false
+            return
         }
-        return sorted
+        isSearching = true
+        do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
+        let result = await FileBrowser.searchInBackground(source: source)
+        guard !Task.isCancelled else { return }
+        searchResult = result
+        isSearching = false
     }
 
-    /// Filtered contents based on search
-    private var filteredContents: [Entry] {
-        if searchText.isEmpty { return directoryContents }
-        let q = searchText.lowercased()
-        return directoryContents.filter { $0.url.lastPathComponent.lowercased().contains(q) }
-    }
-
-    /// Breadcrumb path components from the root to the current directory. Inside a linked
-    /// folder the project root comes first, then the linked folder's own path.
-    private var breadcrumbs: [URL] {
-        guard let projectRoot = workspaceManager.rootNode?.url,
-              let root = browseRoot, let current = browseURL else { return [] }
-        var crumbs: [URL] = []
-        var url = current
-        while url.path.hasPrefix(root.path) {
-            crumbs.insert(url, at: 0)
-            if url.path == root.path { break }
-            url = url.deletingLastPathComponent()
+    private var searchNote: String? {
+        guard isTreeSearch else { return nil }
+        guard let result = searchResult else { return "Searching the workspace…" }
+        var parts = [result.matches.isEmpty ? "No matches in the workspace"
+                     : "\(result.matches.count) match\(result.matches.count == 1 ? "" : "es")"]
+        if result.truncated { parts.append("more exist — refine the search") }
+        if result.unreadableFolders > 0 {
+            parts.append("\(result.unreadableFolders) folder\(result.unreadableFolders == 1 ? "" : "s") could not be read")
         }
-        if root.standardizedFileURL.path != projectRoot.standardizedFileURL.path { crumbs.insert(projectRoot, at: 0) }
-        return crumbs
+        return parts.joined(separator: " · ")
     }
 
-    /// The folder ".." goes to: the parent, or the project root from a linked folder's root.
-    private func parent(of current: URL) -> URL? {
-        guard let projectRoot = workspaceManager.rootNode?.url else { return nil }
-        if current.standardizedFileURL.path == projectRoot.standardizedFileURL.path { return nil }
-        if workspaceManager.linkedFolders.contains(where: { $0.path == LinkedFolders.key(current) }) { return projectRoot }
-        return current.deletingLastPathComponent()
-    }
-
-    /// Browse `url`; the project root is browsed as "no current directory".
-    private func browse(_ url: URL) {
-        if let projectRoot = workspaceManager.rootNode?.url,
-           url.standardizedFileURL.path == projectRoot.standardizedFileURL.path { currentDirectory = nil } else { currentDirectory = url }
-    }
+    // MARK: Body
 
     var body: some View {
         ScrollViewReader { proxy in
         VStack(spacing: 0) {
-            // Git bar
-            if git.isGitRepo {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.triangle.branch").uiFont(size: 9).foregroundColor(palette.blue)
-                    GitBranchMenu(git: git, workspaceManager: workspaceManager, fontSize: 10)
-                    Spacer()
-                    if let activity = git.activity {
-                        ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12)
-                        Text(activity).uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1)
-                    } else if git.isOperating { ProgressView().scaleEffect(0.3) }
-                    Button(action: { Task { await git.pull() } }) {
-                        Image(systemName: "arrow.down").uiFont(size: 9).foregroundColor(palette.textDim)
-                    }.buttonStyle(.plain).help("Pull")
-                    Button(action: { Task { await git.push() } }) {
-                        Image(systemName: "arrow.up").uiFont(size: 9).foregroundColor(palette.textDim)
-                    }.buttonStyle(.plain).help("Push")
-                    Button(action: { Task { await git.refresh() } }) {
-                        Image(systemName: "arrow.clockwise").uiFont(size: 9).foregroundColor(palette.textDim)
-                    }.buttonStyle(.plain).help("Refresh")
-                }
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(palette.bgActive)
+            gitBar
+            if projectRootURL != nil { breadcrumbBar }
+            toolbar
+            if projectRootURL != nil {
+                FileBrowserControls(preferences: $preferences, sort: sortBinding, canHideIgnored: git.isGitRepo)
+                    .padding(.horizontal, 8).padding(.bottom, 6)
+                    .background(palette.bgSidebar)
             }
-
-            // Breadcrumb navigation
-            if browseURL != nil {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 2) {
-                        ForEach(breadcrumbs, id: \.path) { crumb in
-                            if crumb != breadcrumbs.first {
-                                Image(systemName: "chevron.right")
-                                    .uiFont(size: 7, weight: .semibold)
-                                    .foregroundColor(palette.textDim)
-                            }
-                            Button(action: { browse(crumb) }) {
-                                Text(crumb.lastPathComponent)
-                                    .uiFont(size: 10, weight: crumb == browseURL ? .semibold : .regular)
-                                    .foregroundColor(crumb == browseURL ? palette.text : palette.blue)
-                                    .lineLimit(1)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                }
-                .padding(.vertical, 4)
-                .overlay(alignment: .trailing) {
-                    HStack(spacing: 0) {
-                    Button(action: { workspaceManager.openArchitecture() }) {
-                        Image(systemName: "viewfinder")
-                            .uiFont(size: 9, weight: .semibold)
-                            .foregroundColor(palette.textDim)
-                            .padding(.horizontal, 6).padding(.vertical, 4)
-                            .background(palette.bgActive)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Open X-Ray (⌘4)")
-                    Button(action: { workspaceManager.closeFolder() }) {
-                        Image(systemName: "xmark")
-                            .uiFont(size: 9, weight: .semibold)
-                            .foregroundColor(palette.textDim)
-                            .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(palette.bgActive)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Close Folder")
-                    }
-                }
-                .background(palette.bgActive)
-            }
-
-            // Toolbar: search + actions
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .uiFont(size: 11)
-                    .foregroundColor(palette.textDim)
-                TextField("Filter...", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .uiFont(size: 11)
-                    .foregroundColor(palette.text)
-                if !searchText.isEmpty {
-                    Button(action: { searchText = "" }) {
-                        Image(systemName: "xmark.circle.fill").foregroundColor(palette.textDim)
-                    }.buttonStyle(.plain)
-                }
-                if let here = browseURL {
-                    // Create in the folder being browsed.
-                    Button { createNewFile(in: here) } label: {
-                        Image(systemName: "doc.badge.plus").uiFont(size: 11).foregroundColor(palette.textDim)
-                    }
-                    .buttonStyle(.plain)
-                    .help("New file here")
-                    Button { createNewFolder(in: here) } label: {
-                        Image(systemName: "folder.badge.plus").uiFont(size: 11).foregroundColor(palette.textDim)
-                    }
-                    .buttonStyle(.plain)
-                    .help("New folder here")
-                    Button { workspaceManager.presentGraphCreator(in: here) } label: {
-                        Image(systemName: "point.3.connected.trianglepath.dotted").uiFont(size: 11).foregroundColor(palette.textDim)
-                    }
-                    .buttonStyle(.plain)
-                    .help("New graph diagram here (AI)")
-                }
-                if browseURL != nil {
-                    // Sort toggle button
-                    Button {
-                        var s = workspaceManager.fileTreeSortOrder
-                        if s.field == .name && s.ascending { s.ascending = false }
-                        else if s.field == .name && !s.ascending { s.field = .dateModified; s.ascending = false }
-                        else if s.field == .dateModified && !s.ascending { s.ascending = true }
-                        else { s.field = .name; s.ascending = true }
-                        workspaceManager.fileTreeSortOrder = s
-                    } label: {
-                        HStack(spacing: 1) {
-                            Image(systemName: workspaceManager.fileTreeSortOrder.ascending ? "chevron.up" : "chevron.down")
-                                .uiFont(size: 7, weight: .bold)
-                            Text(workspaceManager.fileTreeSortOrder.field == .name ? "Az" : "Dt")
-                                .uiFont(size: 9, weight: .semibold, design: .monospaced)
-                        }
-                        .foregroundColor(palette.textDim)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Sort: \(workspaceManager.fileTreeSortOrder.field.rawValue)")
-                }
-            }
-            .padding(8)
-            .background(palette.bgSidebar)
 
             Divider().background(palette.border)
 
-            // File list
-            if browseURL != nil {
-                // Back button (if not at root)
-                if let current = browseURL, let up = parent(of: current) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.left")
-                            .uiFont(size: 10, weight: .semibold)
-                            .foregroundColor(palette.blue)
-                        Text("..")
-                            .uiFont(size: 12, weight: .medium)
-                            .foregroundColor(palette.blue)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .contentShape(Rectangle())
-                    .onTapGesture { browse(up) }
-                    .background(dropTarget == up ? palette.blue.opacity(0.25) : palette.bgSidebar)
-                    .onDrop(of: [.fileURL], isTargeted: dropBinding(up)) { providers in
-                        drop(providers, into: up)
-                    }
-                    Divider().background(palette.border).opacity(0.5)
-                }
-
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(filteredContents, id: \.url) { item in
-                            if item.isDir {
-                                folderRow(item.url, date: item.modDate, linked: item.linked)
-                            } else {
-                                fileRow(item.url, date: item.modDate, size: item.size)
-                            }
-                        }
-                    }
-                }
-                .focusable()
-                .focused($listFocused)
-                .onDeleteCommand { trash(selectedItems) }
-                .onChange(of: currentDirectory) { _ in selection.clear() }
-                .onChange(of: searchText) { _ in selection.keep(only: filteredContents.map(\.url)) }
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-                    guard let here = browseURL else { return false }
-                    return drop(providers, into: here)
-                }
-                // Right-click on empty space: create in the folder being browsed.
-                .contextMenu {
-                    if let here = browseURL {
-                        Button("New File...") { createNewFile(in: here) }
-                        if git.isGitRepo { Button("New File (Ignored by Git)...") { createNewFile(in: here, ignored: true) } }
-                        Button("New Folder...") { createNewFolder(in: here) }
-                        Button("New Graph Diagram...") { workspaceManager.presentGraphCreator(in: here) }
-                        Divider()
-                        Button("Link Folder…") { workspaceManager.chooseFoldersToLink() }
-                        Button { workspaceManager.presentPDFBook([here]) } label: { Label("Export This Folder as PDF Book…", systemImage: "book.closed") }
-                    }
-                }
-                .background(palette.bgSidebar)
-                if selection.count > 1 { selectionBar }
-                if let archiveBusy {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12)
-                        Text(archiveBusy).uiFont(size: 10).foregroundColor(palette.text)
-                        Spacer()
-                    }.padding(.horizontal, 10).padding(.vertical, 4).background(palette.bgActive)
-                }
+            if projectRootURL != nil {
+                browserArea
             } else if workspaceManager.indexingProgress != nil {
                 VStack(spacing: 12) {
                     Spacer()
@@ -362,25 +254,297 @@ struct FileTreeView: View {
         .onChange(of: workspaceManager.rootNode?.url) { _ in
             // Browsing state belongs to the previous folder.
             currentDirectory = nil
+            atWorkspace = false
+            expanded = []
+            seededRoot = nil
+            seedTree()
+            treeAnchor = nil
             searchText = ""
             revealedURL = nil
         }
         .onChange(of: workspaceManager.linkedFolders) { _ in
-            // An unlinked folder cannot stay browsed.
+            // An unlinked folder cannot stay browsed or open.
             if let current = currentDirectory, workspaceManager.containerRoot(for: current) == nil { currentDirectory = nil }
+            if let anchor = treeAnchor, workspaceManager.containerRoot(for: anchor) == nil { treeAnchor = nil }
+            expanded = expanded.filter { key in roots.contains { key == $0.key || key.hasPrefix($0.key + "/") } }
         }
+        .onChange(of: preferences) { value in
+            value.save()
+            selection.keep(only: selectableURLs)
+        }
+        .onChange(of: expanded) { _ in selection.keep(only: selectableURLs) }
+        .onChange(of: mode) { _ in selection.keep(only: selectableURLs) }
+        .task(id: searchKey) { await runTreeSearch() }
         // The tree may have been hidden when the reveal was asked for.
-        .onAppear { reveal(with: proxy) }
+        .onAppear {
+            seedTree()
+            reveal(with: proxy)
+        }
         .onChange(of: workspaceManager.fileTreeRevealRequest) { _ in reveal(with: proxy) }
         }
     }
 
-    /// "Reveal in File Tree": browse the item's folder, clear the filter, scroll to the
-    /// item and highlight it. An item not on disk (a terminal or X-Ray tab) shows its
-    /// nearest existing folder.
+    @ViewBuilder private var gitBar: some View {
+        if git.isGitRepo {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.triangle.branch").uiFont(size: 9).foregroundColor(palette.blue)
+                GitBranchMenu(git: git, workspaceManager: workspaceManager, fontSize: 10)
+                Spacer()
+                if let activity = git.activity {
+                    ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12)
+                    Text(activity).uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1)
+                } else if git.isOperating { ProgressView().scaleEffect(0.3) }
+                Button(action: { Task { await git.pull() } }) {
+                    Image(systemName: "arrow.down").uiFont(size: 9).foregroundColor(palette.textDim)
+                }.buttonStyle(.plain).help("Pull")
+                Button(action: { Task { await git.push() } }) {
+                    Image(systemName: "arrow.up").uiFont(size: 9).foregroundColor(palette.textDim)
+                }.buttonStyle(.plain).help("Push")
+                Button(action: { Task { await git.refresh() } }) {
+                    Image(systemName: "arrow.clockwise").uiFont(size: 9).foregroundColor(palette.textDim)
+                }.buttonStyle(.plain).help("Refresh")
+            }
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(palette.bgActive)
+        }
+    }
+
+    /// Breadcrumb navigation: Workspace › place › folders. In Tree view it names the folder that new items go to.
+    private var breadcrumbBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(Array(breadcrumbs.enumerated()), id: \.offset) { index, crumb in
+                    if index > 0 {
+                        Image(systemName: "chevron.right")
+                            .uiFont(size: 7, weight: .semibold)
+                            .foregroundColor(palette.textDim)
+                    }
+                    let isCurrent = crumb.location == crumbLocation
+                    Button(action: { open(crumb) }) {
+                        Text(crumb.title)
+                            .uiFont(size: 10, weight: isCurrent ? .semibold : .regular)
+                            .foregroundColor(isCurrent ? palette.text : palette.blue)
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                    .help(mode == .tree ? "New items are created in the last folder you clicked" : "Go to \(crumb.title)")
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.trailing, 56)
+        }
+        .padding(.vertical, 4)
+        .overlay(alignment: .trailing) {
+            HStack(spacing: 0) {
+            Button(action: { workspaceManager.openArchitecture() }) {
+                Image(systemName: "viewfinder")
+                    .uiFont(size: 9, weight: .semibold)
+                    .foregroundColor(palette.textDim)
+                    .padding(.horizontal, 6).padding(.vertical, 4)
+                    .background(palette.bgActive)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open X-Ray (⌘4)")
+            Button(action: { workspaceManager.closeFolder() }) {
+                Image(systemName: "xmark")
+                    .uiFont(size: 9, weight: .semibold)
+                    .foregroundColor(palette.textDim)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(palette.bgActive)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Close Folder")
+            }
+        }
+        .background(palette.bgActive)
+    }
+
+    /// Search field and the create actions.
+    private var toolbar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .uiFont(size: 11)
+                .foregroundColor(palette.textDim)
+            TextField(mode == .tree ? "Search the workspace..." : "Filter...", text: $searchText)
+                .textFieldStyle(.plain)
+                .uiFont(size: 11)
+                .foregroundColor(palette.text)
+            if !searchText.isEmpty {
+                Button(action: { searchText = "" }) {
+                    Image(systemName: "xmark.circle.fill").foregroundColor(palette.textDim)
+                }.buttonStyle(.plain)
+            }
+            if let here = destination {
+                // Create in the folder being browsed (Tree: the folder last clicked).
+                Button { createNewFile(in: here) } label: {
+                    Image(systemName: "doc.badge.plus").uiFont(size: 11).foregroundColor(palette.textDim)
+                }
+                .buttonStyle(.plain)
+                .help("New file in \(here.lastPathComponent)")
+                Button { createNewFolder(in: here) } label: {
+                    Image(systemName: "folder.badge.plus").uiFont(size: 11).foregroundColor(palette.textDim)
+                }
+                .buttonStyle(.plain)
+                .help("New folder in \(here.lastPathComponent)")
+                Button { workspaceManager.presentGraphCreator(in: here) } label: {
+                    Image(systemName: "point.3.connected.trianglepath.dotted").uiFont(size: 11).foregroundColor(palette.textDim)
+                }
+                .buttonStyle(.plain)
+                .help("New graph diagram in \(here.lastPathComponent) (AI)")
+            } else if projectRootURL != nil {
+                // The Workspace level has no folder to create in: it is where folders are linked (DEC-009).
+                Button { workspaceManager.chooseFoldersToLink() } label: {
+                    Image(systemName: "link.badge.plus").uiFont(size: 11).foregroundColor(palette.textDim)
+                }
+                .buttonStyle(.plain)
+                .help("Link a folder to this project")
+            }
+        }
+        .padding(8)
+        .background(palette.bgSidebar)
+    }
+
+    // MARK: Browser area
+
+    private var browserArea: some View {
+        VStack(spacing: 0) {
+            // Back button (if not at the top)
+            if mode != .tree, let up = FileBrowser.parent(of: location, roots: roots) { backRow(up) }
+            if let note = searchNote { noteBar(note) }
+
+            ScrollView {
+                content
+            }
+            .focusable()
+            .focused($listFocused)
+            .onDeleteCommand { trash(selectedItems) }
+            .onChange(of: currentDirectory) { _ in selection.clear() }
+            .onChange(of: atWorkspace) { _ in selection.clear() }
+            .onChange(of: searchText) { _ in selection.keep(only: selectableURLs) }
+            .onChange(of: searchResult) { _ in selection.keep(only: selectableURLs) }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                guard let here = destination else { return false }
+                return drop(providers, into: here)
+            }
+            // Right-click on empty space: create in the folder being browsed.
+            .contextMenu {
+                if let here = destination {
+                    Button("New File...") { createNewFile(in: here) }
+                    if git.isGitRepo { Button("New File (Ignored by Git)...") { createNewFile(in: here, ignored: true) } }
+                    Button("New Folder...") { createNewFolder(in: here) }
+                    Button("New Graph Diagram...") { workspaceManager.presentGraphCreator(in: here) }
+                    Divider()
+                }
+                Button("Link Folder…") { workspaceManager.chooseFoldersToLink() }
+                if let here = destination {
+                    Button { workspaceManager.presentPDFBook([here]) } label: { Label("Export This Folder as PDF Book…", systemImage: "book.closed") }
+                }
+            }
+            .background(palette.bgSidebar)
+            if selection.count > 1 { selectionBar }
+            if let archiveBusy {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12)
+                    Text(archiveBusy).uiFont(size: 10).foregroundColor(palette.text)
+                    Spacer()
+                }.padding(.horizontal, 10).padding(.vertical, 4).background(palette.bgActive)
+            }
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        switch mode {
+        case .list:
+            let entries = directoryEntries
+            if entries.isEmpty {
+                emptyNote
+            } else {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(entries) { entry in
+                        if entry.isDirectory { folderRow(entry) } else { fileRow(entry) }
+                    }
+                }
+            }
+        case .icon:
+            let entries = directoryEntries
+            if entries.isEmpty {
+                emptyNote
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 74, maximum: 120), spacing: 4, alignment: .top)], spacing: 6) {
+                    ForEach(entries) { entry in iconCell(entry) }
+                }
+                .padding(8)
+            }
+        case .tree:
+            let rows = treeRows
+            if rows.isEmpty && !isSearching {
+                emptyNote
+            } else {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(rows) { row in
+                        if row.entry.isDirectory { folderRow(row.entry, tree: row) } else { fileRow(row.entry, tree: row) }
+                    }
+                }
+            }
+        }
+    }
+
+    private var emptyNote: some View {
+        Text(filter.isActive ? "Nothing matches the filters" : "This folder is empty")
+            .uiFont(size: 11)
+            .foregroundColor(palette.textDim)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 24)
+    }
+
+    private func noteBar(_ text: String) -> some View {
+        HStack(spacing: 6) {
+            if isSearching { ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12) }
+            Text(text).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(2)
+            Spacer()
+        }
+        .padding(.horizontal, 10).padding(.vertical, 4)
+        .background(palette.bgSidebar)
+    }
+
+    /// ".." row: the parent folder, or the Workspace level from the root of a place.
+    private func backRow(_ up: FileBrowserLocation) -> some View {
+        var upFolder: URL?
+        if case .folder(let url) = up { upFolder = url }
+        return VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.left")
+                    .uiFont(size: 10, weight: .semibold)
+                    .foregroundColor(palette.blue)
+                Text(upFolder == nil ? "Workspace" : "..")
+                    .uiFont(size: 12, weight: .medium)
+                    .foregroundColor(palette.blue)
+                Spacer()
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .contentShape(Rectangle())
+            .onTapGesture { go(up) }
+            .background(upFolder.map { dropTarget == $0 } == true ? palette.blue.opacity(0.25) : palette.bgSidebar)
+            .onDrop(of: upFolder == nil ? [] : [.fileURL], isTargeted: upFolder.map(dropBinding)) { providers in
+                guard let upFolder else { return false }
+                return drop(providers, into: upFolder)
+            }
+            .accessibilityLabel(upFolder == nil ? "Up to the Workspace level" : "Up to the parent folder")
+            .accessibilityAddTraits(.isButton)
+            Divider().background(palette.border).opacity(0.5)
+        }
+    }
+
+    /// "Reveal in File Tree": show the item's folder (Tree: open its ancestors), clear the name query, switch
+    /// off only the filter choices that would hide it (DEC-008), scroll to the item and highlight it. An item
+    /// not on disk (a terminal or X-Ray tab) shows its nearest existing folder.
     private func reveal(with proxy: ScrollViewProxy) {
         guard let request = workspaceManager.fileTreeRevealRequest,
-              let projectRoot = workspaceManager.rootNode?.url.standardizedFileURL else { return }
+              let projectRoot = projectRootURL?.standardizedFileURL else { return }
         workspaceManager.fileTreeRevealRequest = nil
         var target = request.standardizedFileURL
         // The project, or the linked folder, the item is in (Task 59).
@@ -388,19 +552,32 @@ struct FileTreeView: View {
         while target.path != root.path, !FileManager.default.fileExists(atPath: target.path) {
             target = target.deletingLastPathComponent()
         }
-        guard target.path != projectRoot.path else {
-            currentDirectory = nil
-            revealedURL = nil
-            return
-        }
-        // A linked folder's root is a row of the project root.
-        let folder = target.path == root.path ? projectRoot : target.deletingLastPathComponent()
-        currentDirectory = folder.path == projectRoot.path ? nil : folder
+        let relaxed = FileBrowser.relaxing(filter, toShow: target, source: source)
+        preferences.showHidden = relaxed.showHidden
+        preferences.hideIgnored = relaxed.hideIgnored
+        preferences.category = relaxed.category
         searchText = ""
-        revealedURL = target
+        let isPlace = roots.contains { $0.key == FileBrowser.key(target) }
+        revealedURL = target.path == projectRoot.path ? nil : target
+        switch mode {
+        case .tree:
+            expanded.formUnion(FileBrowser.ancestors(of: target, roots: roots).map(FileBrowser.key))
+            treeAnchor = isPlace ? target : target.deletingLastPathComponent()
+        case .icon, .list:
+            if target.path == projectRoot.path {
+                go(.folder(projectRoot))
+            } else if isPlace {
+                // A linked folder's root is a row of the Workspace level.
+                go(.workspace)
+            } else {
+                go(.folder(target.deletingLastPathComponent()))
+            }
+        }
+        guard target.path != projectRoot.path else { return }
         // After the list of the new folder is laid out.
+        let id = FileBrowser.key(target)
         DispatchQueue.main.async {
-            withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .center) }
+            withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) }
         }
     }
 
@@ -417,7 +594,7 @@ struct FileTreeView: View {
         }
     }
 
-    // MARK: - Row Views
+    // MARK: - Formatting
 
     /// "now", "5m", "3h", "2d", "4w", "2025-03-01".
     private func shortDate(_ date: Date?) -> String {
@@ -451,16 +628,40 @@ struct FileTreeView: View {
             .help(date.map { DateFormatter.localizedString(from: $0, dateStyle: .medium, timeStyle: .short) } ?? "")
     }
 
+
+    // MARK: - Row Views
+
+    /// Background of a row or cell: drop target, selection, or the item "Reveal in File Tree" showed.
+    private func rowBackground(_ url: URL, isFolder: Bool) -> Color {
+        if isFolder && dropTarget == url { return palette.blue.opacity(0.25) }
+        if selection.contains(url) { return selectedBackground }
+        if revealedURL == url { return palette.blue.opacity(0.18) }
+        return Color.clear
+    }
+
+    /// The arrow in front of a Tree folder.
+    private func disclosure(_ row: FileBrowserRow) -> some View {
+        Image(systemName: row.isExpanded ? "chevron.down" : "chevron.right")
+            .uiFont(size: 8, weight: .semibold)
+            .foregroundColor(palette.textDim)
+            .frame(width: 10)
+            .opacity(row.isExpandable ? 1 : 0)
+    }
+
     /// A folder row; `linked` marks a folder linked to the project (Task 59): shown with its
     /// location, unlinked from its menu, outside the project's own X-Ray, git and exclusions.
-    private func folderRow(_ url: URL, date: Date?, linked: LinkedFolder? = nil) -> some View {
+    /// `tree` is set in Tree view: the row is indented and has a disclosure arrow instead of the date.
+    private func folderRow(_ entry: FileBrowserEntry, tree: FileBrowserRow? = nil) -> some View {
+        let url = entry.url
+        let linked = linkedFolder(of: entry)
         let inProject = linked == nil && workspaceManager.linkedFolder(containing: url) == nil
         let deco = inProject ? gitDecoration(url, isDirectory: true) : GitDecoration()
         return HStack(spacing: 6) {
+            if let tree { disclosure(tree) }
             Image(systemName: linked == nil ? "folder.fill" : "folder.fill.badge.gearshape")
                 .uiFont(size: 11)
-                .foregroundColor(url.lastPathComponent.hasPrefix(".") ? palette.textDim : palette.yellow)
-            Text(linked?.name ?? url.lastPathComponent)
+                .foregroundColor(entry.isHidden ? palette.textDim : (entry.root?.isProject == true ? palette.blue : palette.yellow))
+            Text(entry.name)
                 .uiFont(size: 11)
                 .foregroundColor(palette.text)
                 .lineLimit(1)
@@ -470,7 +671,7 @@ struct FileTreeView: View {
                     .uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1).truncationMode(.head)
             }
             Spacer()
-            dateLabel(date)
+            if tree == nil { dateLabel(entry.modified) }
             if deco.inside > 0, let state = deco.state {
                 HStack(spacing: 2) {
                     Circle().fill(gitColor(state)).frame(width: 6, height: 6)
@@ -478,46 +679,134 @@ struct FileTreeView: View {
                 }
                 .help(deco.detail)
             }
-            Image(systemName: "chevron.right")
-                .uiFont(size: 9)
-                .foregroundColor(palette.textDim)
+            if tree == nil {
+                Image(systemName: "chevron.right")
+                    .uiFont(size: 9)
+                    .foregroundColor(palette.textDim)
+            }
         }
+        .padding(.leading, CGFloat(tree?.depth ?? 0) * 14)
         .padding(.horizontal, 8).padding(.vertical, 3)
         .contentShape(Rectangle())
         .help(linked.map { "Linked folder: \($0.path)" } ?? "")
-        .onTapGesture { click(url, isDirectory: true) }
-        .onDrag { dragItem(url) }
-        .background(dropTarget == url ? palette.blue.opacity(0.25)
-                    : selection.contains(url) ? selectedBackground
-                    : revealedURL == url ? palette.blue.opacity(0.18) : Color.clear)
+        .onTapGesture { click(entry) }
+        .modifier(PlaceAwareDrag(isPlace: entry.root != nil, item: { dragItem(url) }))
+        .background(rowBackground(url, isFolder: true))
         .onDrop(of: [.fileURL], isTargeted: dropBinding(url)) { providers in drop(providers, into: url) }
-        .opacity(workspaceManager.isExcluded(url) ? 0.4 : deco.state == .ignored ? 0.5 : 1.0)
+        .opacity(workspaceManager.isExcluded(url) ? 0.4 : deco.state == .ignored ? 0.5 : (tree?.isMatch == false ? 0.6 : 1.0))
+        .contextMenu { folderMenu(entry) }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Folder \(entry.name)")
+        .accessibilityValue(tree.map { $0.isExpanded ? "expanded" : "collapsed" } ?? "")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private func fileRow(_ entry: FileBrowserEntry, tree: FileBrowserRow? = nil) -> some View {
+        let url = entry.url
+        let inProject = workspaceManager.linkedFolder(containing: url) == nil
+        let gitStatus = inProject ? fileGitStatus(url) : nil
+        let deco = inProject ? gitDecoration(url, isDirectory: false) : GitDecoration()
+        let (icon, color) = fileIcon(for: entry)
+        return HStack(spacing: 4) {
+            if tree != nil { Color.clear.frame(width: 10 + 6, height: 1) }
+            Image(systemName: icon).uiFont(size: 11).foregroundColor(color).frame(width: 16)
+            Text(url.lastPathComponent).uiFont(size: 11).foregroundColor(deco.state.map(gitColor) ?? palette.text).lineLimit(1)
+            Spacer()
+            if tree == nil {
+                if let size = entry.size { sizeLabel(size) }
+                dateLabel(entry.modified)
+            }
+            if let state = deco.state, state != .ignored {
+                Text(state.letter)
+                    .uiFont(size: 9, weight: deco.staged ? .heavy : .bold, design: .monospaced)
+                    .foregroundColor(gitColor(state))
+                    .frame(width: 12)
+                    .help(deco.detail)
+            }
+        }
+        .opacity(deco.state == .ignored ? 0.5 : entry.isUnsupported ? 0.7 : (tree?.isMatch == false ? 0.6 : 1))
+        .padding(.leading, CGFloat(tree?.depth ?? 0) * 14)
+        .padding(.horizontal, 8).padding(.vertical, 2)
+        .background(rowBackground(url, isFolder: false))
+        .contentShape(Rectangle())
+        .onTapGesture { click(entry) }
+        .onDrag { dragItem(url) }
+        .contextMenu { fileMenu(entry, gitStatus: gitStatus, inProject: inProject) }
+        .help(entry.isUnsupported ? "MarkView has no viewer for this file. Right-click for Open with Default App." : "")
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(entry.isUnsupported ? "File \(entry.name), no viewer" : "File \(entry.name)")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    /// One cell of the Icons view.
+    private func iconCell(_ entry: FileBrowserEntry) -> some View {
+        let url = entry.url
+        let linked = linkedFolder(of: entry)
+        let inProject = linked == nil && workspaceManager.linkedFolder(containing: url) == nil
+        let deco = inProject ? gitDecoration(url, isDirectory: entry.isDirectory) : GitDecoration()
+        let (icon, color): (String, Color) = entry.isDirectory
+            ? (linked == nil ? "folder.fill" : "folder.fill.badge.gearshape",
+               entry.isHidden ? palette.textDim : (entry.root?.isProject == true ? palette.blue : palette.yellow))
+            : fileIcon(for: entry)
+        return VStack(spacing: 3) {
+            Image(systemName: icon).uiFont(size: 26).foregroundColor(color).frame(height: 32)
+            Text(entry.name)
+                .uiFont(size: 10)
+                .foregroundColor(deco.state.map(gitColor) ?? palette.text)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+        }
+        .padding(.vertical, 6).padding(.horizontal, 3)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 6).fill(rowBackground(url, isFolder: entry.isDirectory)))
+        .contentShape(Rectangle())
+        .opacity(workspaceManager.isExcluded(url) ? 0.4 : deco.state == .ignored ? 0.5 : entry.isUnsupported ? 0.7 : 1)
+        .help(linked.map { "Linked folder: \($0.path)" } ?? (entry.isUnsupported ? "\(entry.name) — no viewer in MarkView" : entry.name))
+        .onTapGesture { click(entry) }
+        .modifier(PlaceAwareDrag(isPlace: entry.root != nil, item: { dragItem(url) }))
+        .onDrop(of: entry.isDirectory ? [.fileURL] : [], isTargeted: dropBinding(url)) { providers in drop(providers, into: url) }
         .contextMenu {
-            if isPartOfSelection(url) {
-                selectionMenu
-            } else {
+            if entry.isDirectory { folderMenu(entry) }
+            else { fileMenu(entry, gitStatus: inProject ? fileGitStatus(url) : nil, inProject: inProject) }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(entry.isDirectory ? "Folder \(entry.name)" : "File \(entry.name)")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    // MARK: Context menus
+
+    @ViewBuilder private func folderMenu(_ entry: FileBrowserEntry) -> some View {
+        let url = entry.url
+        let linked = linkedFolder(of: entry)
+        let inProject = linked == nil && workspaceManager.linkedFolder(containing: url) == nil
+        // The project folder and the linked folders are places: they are not renamed, moved or excluded from here.
+        let isPlace = entry.root != nil
+        if isPartOfSelection(url) {
+            selectionMenu
+        } else {
             if let linked {
                 Button("Unlink Folder") { workspaceManager.unlinkFolder(linked.id) }
                 Divider()
             } else if inProject {
-                if workspaceManager.isExcluded(url) {
-                    Button("Include Folder") {
-                        if let root = workspaceManager.rootNode?.url {
-                            let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
-                            workspaceManager.includeFolder(rel)
+                if !isPlace {
+                    if workspaceManager.isExcluded(url) {
+                        Button("Include Folder") {
+                            if let root = workspaceManager.rootNode?.url {
+                                let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
+                                workspaceManager.includeFolder(rel)
+                            }
                         }
+                    } else {
+                        Button("Exclude Folder") { workspaceManager.excludeFolder(url) }
                     }
-                } else {
-                    Button("Exclude Folder") { workspaceManager.excludeFolder(url) }
+                    Divider()
                 }
-                Divider()
                 Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
                 Button { workspaceManager.startRecursiveInsight(at: url) } label: { Label("Recursive Insight", systemImage: "sparkles") }
                 Button { workspaceManager.openDiscussion(about: url) } label: { Label("Discuss…", systemImage: "bubble.left.and.text.bubble.right") }
                 Button { workspaceManager.startResearch(fromFolder: url) } label: { Label("New Research from This Folder…", systemImage: "books.vertical") }
-                Divider()
-            } else if linked != nil {
-                Button { workspaceManager.startRecursiveInsight(at: url) } label: { Label("Recursive Insight", systemImage: "sparkles") }
                 Divider()
             }
             Button("New File...") { createNewFile(in: url) }
@@ -525,7 +814,7 @@ struct FileTreeView: View {
             if git.isGitRepo { Button("New File (Ignored by Git)...") { createNewFile(in: url, ignored: true) } }
             Button("New Folder...") { createNewFolder(in: url) }
             Button("New Graph Diagram...") { workspaceManager.presentGraphCreator(in: url) }
-            if git.isGitRepo && inProject {
+            if git.isGitRepo && inProject && !isPlace {
                 Divider()
                 Button("Stage All in Folder") { stageAllInFolder(url) }
                 Button("Add to .gitignore") { addToGitignore(url, isDirectory: true) }
@@ -537,47 +826,23 @@ struct FileTreeView: View {
             Button("Show in Finder") { NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "") }
             Button("Open in Terminal.app") { openTerminal(at: url) }
             Button("Copy Path") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.path, forType: .string) }
-            if linked == nil {
+            if linked == nil && !isPlace {
                 Divider()
                 Button("Rename…") { rename(url) }
                 Button("Move to…") { moveAsking([url]) }
                 Button("Move to Trash", role: .destructive) { trash([url]) }
             }
-            }
         }
     }
 
-    private func fileRow(_ url: URL, date: Date?, size: Int?) -> some View {
-        let inProject = workspaceManager.linkedFolder(containing: url) == nil
-        let gitStatus = inProject ? fileGitStatus(url) : nil
-        let deco = inProject ? gitDecoration(url, isDirectory: false) : GitDecoration()
-        let (icon, color) = fileIcon(for: url)
-        return HStack(spacing: 4) {
-            Image(systemName: icon).uiFont(size: 11).foregroundColor(color).frame(width: 16)
-            Text(url.lastPathComponent).uiFont(size: 11).foregroundColor(deco.state.map(gitColor) ?? palette.text).lineLimit(1)
-            Spacer()
-            if let size { sizeLabel(size) }
-            dateLabel(date)
-            if let state = deco.state, state != .ignored {
-                Text(state.letter)
-                    .uiFont(size: 9, weight: deco.staged ? .heavy : .bold, design: .monospaced)
-                    .foregroundColor(gitColor(state))
-                    .frame(width: 12)
-                    .help(deco.detail)
-            }
-        }
-        .opacity(deco.state == .ignored ? 0.5 : 1)
-        .padding(.horizontal, 8).padding(.vertical, 2)
-        .background(selection.contains(url) ? selectedBackground
-                    : revealedURL == url ? palette.blue.opacity(0.18) : Color.clear)
-        .contentShape(Rectangle())
-        .onTapGesture { click(url, isDirectory: false) }
-        .onDrag { dragItem(url) }
-        .contextMenu {
-            if isPartOfSelection(url) {
-                selectionMenu
-            } else {
-            if let gs = gitStatus {
+    /// A file without a viewer (DEC-005) gets Open with Default App and the actions that fit any file; the
+    /// ones that read the file as a document (X-Ray, Discuss, Implement, PDF book) are left out.
+    @ViewBuilder private func fileMenu(_ entry: FileBrowserEntry, gitStatus gs: GitClient.GitFileStatus?, inProject: Bool) -> some View {
+        let url = entry.url
+        if isPartOfSelection(url) {
+            selectionMenu
+        } else {
+            if let gs {
                 if gs.isStaged {
                     Button("Unstage") { workspaceManager.gitClient.unstageFile(gs.file) }
                 } else {
@@ -587,21 +852,25 @@ struct FileTreeView: View {
                 Divider()
             }
             if git.isGitRepo && inProject { Button("Add to .gitignore") { addToGitignore(url, isDirectory: false) } }
-            if inProject { Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") } }
-            if FileType.isHTML(url) {
-                Button { workspaceManager.openHTMLInBrowser(url) } label: { Label("Open in Browser", systemImage: "safari") }
-            }
-            Button { workspaceManager.openDiscussion(about: url) } label: { Label("Discuss This File…", systemImage: "bubble.left.and.text.bubble.right") }
-            if FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {
-                Button { workspaceManager.startRecursiveInsight(at: url) } label: { Label("Recursive Insight on This File", systemImage: "sparkles") }
-            }
-            Menu("New from This Document") {
-                ForEach(IntakeKind.allCases) { kind in
-                    Button(kind.title + "…") { workspaceManager.startIntake(kind, fromDocument: url) }
+            if entry.isUnsupported {
+                Button { NSWorkspace.shared.open(url) } label: { Label("Open with Default App", systemImage: "arrow.up.forward.app") }
+            } else {
+                if inProject { Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") } }
+                if FileType.isHTML(url) {
+                    Button { workspaceManager.openHTMLInBrowser(url) } label: { Label("Open in Browser", systemImage: "safari") }
                 }
+                Button { workspaceManager.openDiscussion(about: url) } label: { Label("Discuss This File…", systemImage: "bubble.left.and.text.bubble.right") }
+                if FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {
+                    Button { workspaceManager.startRecursiveInsight(at: url) } label: { Label("Recursive Insight on This File", systemImage: "sparkles") }
+                }
+                Menu("New from This Document") {
+                    ForEach(IntakeKind.allCases) { kind in
+                        Button(kind.title + "…") { workspaceManager.startIntake(kind, fromDocument: url) }
+                    }
+                }
+                Button { workspaceManager.implementWithAI(url) } label: { Label("Implement with AI", systemImage: "hammer") }
+                Button { workspaceManager.presentPDFBook([url]) } label: { Label("Export PDF Book…", systemImage: "book.closed") }
             }
-            Button { workspaceManager.implementWithAI(url) } label: { Label("Implement with AI", systemImage: "hammer") }
-            Button { workspaceManager.presentPDFBook([url]) } label: { Label("Export PDF Book…", systemImage: "book.closed") }
             Divider()
             if Archive.isArchive(url) {
                 Button("Extract Here") { extractArchive(url, askFolder: false) }
@@ -619,7 +888,6 @@ struct FileTreeView: View {
             Button("Rename…") { rename(url) }
             Button("Move to…") { moveAsking([url]) }
             Button("Move to Trash", role: .destructive) { trash([url]) }
-            }
         }
     }
 
@@ -629,25 +897,51 @@ struct FileTreeView: View {
 
     private var selectedBackground: Color { palette.accent.opacity(0.3) }
 
-    /// The selected rows in list order; linked folders are never moved or trashed from here.
+    /// The selected rows in list order; the project folder and the linked folders are never moved or trashed from here.
     private var selectedItems: [URL] {
-        let linked = Set(filteredContents.filter { $0.linked != nil }.map(\.url))
-        return selection.ordered(filteredContents.map(\.url)).filter { !linked.contains($0) }
+        let entries = selectableEntries
+        let places = Set(entries.filter { $0.root != nil }.map(\.url))
+        return withoutNested(selection.ordered(entries.map(\.url)).filter { !places.contains($0) })
+    }
+
+    /// In Tree view a folder and rows under it can both be selected; trashing, moving or zipping both would act on
+    /// the descendants twice (and fail on paths that no longer exist), so only the outermost items stay.
+    private func withoutNested(_ urls: [URL]) -> [URL] {
+        let keys = urls.map(FileBrowser.key)
+        return zip(urls, keys).filter { _, key in !keys.contains { $0 != key && key.hasPrefix($0 + "/") } }.map(\.0)
     }
 
     /// A right-click on a row of a multiple selection acts on the whole selection.
     private func isPartOfSelection(_ url: URL) -> Bool { selection.count > 1 && selection.contains(url) }
 
-    /// Click: select it and open the file or enter the folder. ⌘-click adds or removes it, ⇧-click
-    /// selects the range from the last click; neither opens anything.
-    private func click(_ url: URL, isDirectory: Bool) {
+    /// Click: select it, then act: a folder is entered (Icons, List) or opened/closed (Tree), a file with a viewer
+    /// opens, a file without one only stays selected (DEC-005). ⌘-click adds or removes the row, ⇧-click selects
+    /// the range from the last click; neither opens anything.
+    private func click(_ entry: FileBrowserEntry) {
         // The modifiers of the click itself.
         let flags = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
         let kind: ListSelection<URL>.Click = flags.contains(.command) ? .toggle : flags.contains(.shift) ? .range : .plain
-        selection.click(url, kind, in: filteredContents.map(\.url))
+        selection.click(entry.url, kind, in: selectableURLs)
         listFocused = true
         guard kind == .plain else { return }
-        if isDirectory { currentDirectory = url } else { workspaceManager.openFile(url) }
+        switch mode {
+        case .icon, .list:
+            if entry.isDirectory { go(.folder(entry.url)) } else { openFile(entry) }
+        case .tree:
+            if entry.isDirectory {
+                treeAnchor = entry.url
+                // The folders of a search result stay open: the search shows the way to the matches.
+                guard !isTreeSearch else { return }
+                if expanded.contains(entry.key) { expanded.remove(entry.key) } else { expanded.insert(entry.key) }
+            } else {
+                treeAnchor = entry.url.deletingLastPathComponent()
+                openFile(entry)
+            }
+        }
+    }
+
+    private func openFile(_ entry: FileBrowserEntry) {
+        if entry.hasViewer { workspaceManager.openFile(entry.url) }
     }
 
     /// Bottom bar while several rows are selected.
@@ -655,12 +949,12 @@ struct FileTreeView: View {
         HStack(spacing: 8) {
             Text("\(selection.count) selected").uiFont(size: 10, weight: .semibold).foregroundColor(palette.text)
             Spacer()
-            Button { workspaceManager.presentPDFBook(selection.ordered(filteredContents.map(\.url))) } label: { Image(systemName: "book.closed").uiFont(size: 11) }
+            Button { workspaceManager.presentPDFBook(withoutNested(selection.ordered(selectableURLs))) } label: { Image(systemName: "book.closed").uiFont(size: 11) }
                 .buttonStyle(.plain).foregroundColor(palette.textDim).help("Export selected files and folders as a PDF book")
             Button { moveAsking(selectedItems) } label: { Image(systemName: "folder").uiFont(size: 11) }
-                .buttonStyle(.plain).foregroundColor(palette.textDim).help("Move to…")
+                .buttonStyle(.plain).foregroundColor(palette.textDim).help("Move to…").disabled(selectedItems.isEmpty)
             Button { trash(selectedItems) } label: { Image(systemName: "trash").uiFont(size: 11) }
-                .buttonStyle(.plain).foregroundColor(palette.red).help("Move to Trash (⌫)")
+                .buttonStyle(.plain).foregroundColor(palette.red).help("Move to Trash (⌫)").disabled(selectedItems.isEmpty)
             Menu { selectionMenu } label: { Image(systemName: "ellipsis.circle").uiFont(size: 11) }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("More actions")
             Button { selection.clear() } label: { Image(systemName: "xmark").uiFont(size: 9, weight: .semibold) }
@@ -674,8 +968,8 @@ struct FileTreeView: View {
     @ViewBuilder private var selectionMenu: some View {
         let items = selectedItems
         let changed = items.compactMap { fileGitStatus($0) }
-        Button { workspaceManager.presentPDFBook(selection.ordered(filteredContents.map(\.url))) } label: { Label("Export PDF Book…", systemImage: "book.closed") }
-        Button("Move \(items.count) Items to…") { moveAsking(items) }
+        Button { workspaceManager.presentPDFBook(withoutNested(selection.ordered(selectableURLs))) } label: { Label("Export PDF Book…", systemImage: "book.closed") }
+        if !items.isEmpty { Button("Move \(items.count) Items to…") { moveAsking(items) } }
         if !changed.isEmpty {
             Divider()
             if changed.contains(where: { !$0.isStaged }) {
@@ -686,15 +980,17 @@ struct FileTreeView: View {
             }
             Button("Discard Changes in \(changed.count)…") { discard(changed) }
         }
-        Divider()
-        Button("Compress \(items.count) Items to .zip") { compress(items) }
-        Divider()
-        Button("Copy \(items.count) Paths") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(items.map(\.path).joined(separator: "\n"), forType: .string)
+        if !items.isEmpty {
+            Divider()
+            Button("Compress \(items.count) Items to .zip") { compress(items) }
+            Divider()
+            Button("Copy \(items.count) Paths") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(items.map(\.path).joined(separator: "\n"), forType: .string)
+            }
+            Divider()
+            Button("Move \(items.count) Items to Trash", role: .destructive) { trash(items) }
         }
-        Divider()
-        Button("Move \(items.count) Items to Trash", role: .destructive) { trash(items) }
     }
 
     /// Move files and folders to the macOS Trash after one confirmation; their open tabs close
@@ -739,7 +1035,7 @@ struct FileTreeView: View {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.directoryURL = browseURL
+        panel.directoryURL = destination ?? projectRootURL
         panel.prompt = "Move Here"
         panel.message = urls.count == 1 ? "Move “\(urls[0].lastPathComponent)” to:" : "Move \(urls.count) items to:"
         guard panel.runModal() == .OK, let folder = panel.url else { return }
@@ -775,7 +1071,10 @@ struct FileTreeView: View {
         files.forEach { git.discardChanges($0.file) }
     }
 
-    private func fileIcon(for url: URL) -> (String, Color) {
+    private func fileIcon(for entry: FileBrowserEntry) -> (String, Color) {
+        let url = entry.url
+        // No viewer (DEC-005): a plain document, not one of the typed icons.
+        if entry.isUnsupported { return ("doc", palette.textDim) }
         if Archive.isArchive(url) { return ("archivebox", palette.yellow) }
         switch FileType.from(url: url) {
         case .json: return ("curlybraces", palette.green)
@@ -875,6 +1174,7 @@ struct FileTreeView: View {
                 return showError("Couldn't create “\(name)”: \(error.localizedDescription)")
             }
             if ignored { addToGitignore(fileURL, isDirectory: false) }
+            if mode == .tree { expanded.insert(FileBrowser.key(folderURL)) }
             listVersion += 1
             workspaceManager.refreshFileTree()
             workspaceManager.openFile(fileURL)
@@ -1007,6 +1307,7 @@ struct FileTreeView: View {
             } catch {
                 return showError("Couldn't create “\(name)”: \(error.localizedDescription)")
             }
+            if mode == .tree { expanded.insert(FileBrowser.key(parentURL)) }
             listVersion += 1
             workspaceManager.refreshFileTree()
         }
@@ -1015,4 +1316,16 @@ struct FileTreeView: View {
 
 #Preview {
     FileTreeView().environmentObject(WorkspaceManager())
+}
+
+
+/// `onDrag` for everything except the places of the Workspace level: dragging the project folder or a linked folder
+/// onto another place would copy the whole folder tree.
+private struct PlaceAwareDrag: ViewModifier {
+    let isPlace: Bool
+    let item: () -> NSItemProvider
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if isPlace { content } else { content.onDrag(item) }
+    }
 }
