@@ -4,6 +4,7 @@ import AppKit
 /// Microphone toggle for a text field: record, then stop and insert the transcript. It works
 /// without an OpenAI key (macOS's built-in recognition), so callers always show it.
 struct DictationButton: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var dictation: DictationController
     var prominent = false
     /// The transcript and the window the mic was clicked in (the field's window).
@@ -20,11 +21,11 @@ struct DictationButton: View {
                 if prominent { Text(title).uiFont(size: 12, weight: .medium) }
             }
             .uiFont(size: 13)
-            .foregroundColor(dictation.isRecording || dictation.phase == .starting ? VSDark.red : prominent ? .primary : .secondary)
+            .foregroundColor(dictation.isRecording || dictation.phase == .starting ? palette.red : prominent ? .primary : .secondary)
             .frame(width: prominent ? nil : 24, height: 24)
             .padding(.horizontal, prominent ? 10 : 0)
             .padding(.vertical, prominent ? 3 : 0)
-            .background(RoundedRectangle(cornerRadius: prominent ? 6 : 12).fill(Color(nsColor: .textBackgroundColor)))
+            .background(RoundedRectangle(cornerRadius: prominent ? 6 : 12).fill(palette.bgInput))
             .overlay(RoundedRectangle(cornerRadius: prominent ? 6 : 12).stroke(Color.secondary.opacity(prominent ? 0.4 : 0), lineWidth: 1))
             .contentShape(Rectangle())
         }
@@ -61,6 +62,7 @@ struct DictationButton: View {
 /// or the last failure (with a way to the microphone or Speech Recognition settings when access
 /// was denied, and to DDE Settings when the API key, model or language is the problem).
 struct DictationStatusView: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var dictation: DictationController
     /// Opens DDE Settings; without it the settings button is not shown.
     var openSettings: (() -> Void)? = nil
@@ -70,8 +72,8 @@ struct DictationStatusView: View {
         case .idle:
             if let message = dictation.message {
                 HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle").foregroundColor(VSDark.orange)
-                    Text(message).foregroundColor(.secondary).textSelection(.enabled)
+                    Image(systemName: "exclamationmark.triangle").foregroundColor(palette.orange)
+                    Text(message).foregroundColor(palette.textDim).textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                     if dictation.microphoneDenied {
                         Button("Open Microphone Settings") { Self.openPrivacySettings("Privacy_Microphone") }
@@ -81,22 +83,22 @@ struct DictationStatusView: View {
                         Button("Open DDE Settings", action: openSettings)
                     }
                     Button(action: dictation.dismissMessage) { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.plain).foregroundColor(.secondary)
+                        .buttonStyle(.plain).foregroundColor(palette.textDim)
                     Spacer(minLength: 0)
                 }
                 .uiFont(.caption)
             }
         case .starting:
-            label(dot: VSDark.red, "Starting the microphone…")
+            label(dot: palette.red, "Starting the microphone…")
         case .recording:
             let left = max(0, dictation.maxDuration - dictation.elapsed)
-            label(dot: VSDark.red, "Recording\(dictation.language.map { " in \($0)" } ?? "") \(Self.clock(dictation.elapsed)) — click the mic to insert the text, Esc to cancel"
+            label(dot: palette.red, "Recording\(dictation.language.map { " in \($0)" } ?? "") \(Self.clock(dictation.elapsed)) — click the mic to insert the text, Esc to cancel"
                   + (dictation.nearLimit ? " · stops in \(Self.clock(left))" : ""),
                   warning: dictation.nearLimit)
         case .transcribing:
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small).scaleEffect(0.6)
-                Text("Transcribing… you can keep typing; the text goes to the cursor.").foregroundColor(.secondary)
+                Text("Transcribing… you can keep typing; the text goes to the cursor.").foregroundColor(palette.textDim)
                 Spacer(minLength: 0)
             }
             .uiFont(.caption)
@@ -106,7 +108,7 @@ struct DictationStatusView: View {
     private func label(dot: Color, _ text: String, warning: Bool = false) -> some View {
         HStack(spacing: 6) {
             Circle().fill(dot).frame(width: 7, height: 7)
-            Text(text).foregroundColor(warning ? VSDark.orange : .secondary)
+            Text(text).foregroundColor(warning ? palette.orange : .secondary)
             Spacer(minLength: 0)
         }
         .uiFont(.caption)

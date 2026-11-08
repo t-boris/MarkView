@@ -3,12 +3,13 @@ import SwiftUI
 /// Status dot of an assistant: green and pulsing while it works, red when its last step failed,
 /// grey when it waits for the person.
 struct AgentStatusDot: View {
+    @Environment(\.palette) private var palette
     let state: AgentActivity.State
     @State private var pulse = false
 
     var body: some View {
         Circle()
-            .fill(state == .working ? VSDark.green : state == .failing ? Color.red : VSDark.textDim)
+            .fill(state == .working ? palette.green : state == .failing ? Color.red : palette.textDim)
             .frame(width: 7, height: 7)
             .opacity(state != .idle && pulse ? 0.35 : 1)
             .onAppear { withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true } }
@@ -42,6 +43,7 @@ struct AgentTabDot: View {
 /// Under the tab bar: what the shown terminal's assistant was asked, what it is doing now, and its
 /// own task list with progress (click to open the list).
 struct AgentActivityBanner: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var monitor: AgentActivityMonitor
     let terminalID: UUID?
     @State private var expanded = false
@@ -54,10 +56,10 @@ struct AgentActivityBanner: View {
                     AgentStatusDot(state: activity.state).padding(.top, 4)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(activity.text).uiFont(size: 11, weight: .medium)
-                            .foregroundColor(activity.state == .idle ? VSDark.textDim : VSDark.text)
+                            .foregroundColor(activity.state == .idle ? palette.textDim : palette.text)
                             .lineLimit(2)
                         if let task = activity.task {
-                            Text("Task: " + task).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1)
+                            Text("Task: " + task).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1)
                         }
                     }
                     Spacer(minLength: 0)
@@ -67,7 +69,7 @@ struct AgentActivityBanner: View {
                                 Text("\(activity.planDone)/\(activity.plan.count)").uiFont(size: 10, weight: .semibold, design: .monospaced)
                                 Image(systemName: expanded ? "chevron.up" : "chevron.down").uiFont(size: 8, weight: .bold)
                             }
-                            .foregroundColor(VSDark.textDim)
+                            .foregroundColor(palette.textDim)
                         }
                         .buttonStyle(.plain)
                         .help("The agent's task list: \(activity.planDone) of \(activity.plan.count) done")
@@ -75,7 +77,7 @@ struct AgentActivityBanner: View {
                 }
                 if !activity.plan.isEmpty {
                     ProgressView(value: Double(activity.planDone), total: Double(activity.plan.count))
-                        .progressViewStyle(.linear).tint(VSDark.green).scaleEffect(y: 0.6)
+                        .progressViewStyle(.linear).tint(palette.green).scaleEffect(y: 0.6)
                     if expanded {
                         VStack(alignment: .leading, spacing: 3) {
                             ForEach(Array(activity.plan.enumerated()), id: \.offset) { _, item in
@@ -83,9 +85,9 @@ struct AgentActivityBanner: View {
                                     Image(systemName: item.status == .done ? "checkmark.circle.fill"
                                           : item.status == .active ? "circle.inset.filled" : "circle")
                                         .uiFont(size: 10)
-                                        .foregroundColor(item.status == .done ? VSDark.green : item.status == .active ? VSDark.blue : VSDark.textDim)
+                                        .foregroundColor(item.status == .done ? palette.green : item.status == .active ? palette.blue : palette.textDim)
                                     Text(item.title).uiFont(size: 10, weight: item.status == .active ? .semibold : .regular)
-                                        .foregroundColor(item.status == .done ? VSDark.textDim : VSDark.text)
+                                        .foregroundColor(item.status == .done ? palette.textDim : palette.text)
                                         .strikethrough(item.status == .done)
                                         .lineLimit(2)
                                 }
@@ -97,7 +99,7 @@ struct AgentActivityBanner: View {
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(VSDark.bgSidebar)
+            .background(palette.bgSidebar)
             .help(activity.summary)
         }
     }
@@ -106,6 +108,7 @@ struct AgentActivityBanner: View {
 /// The toolbar chip: the headline assistant of the window ("Running xcodebuild"); the panel shows
 /// each terminal's own status. Click shows its terminal.
 struct AgentActivityChip: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var monitor: AgentActivityMonitor
     @ObservedObject var workspaceManager: WorkspaceManager
     var compact: Bool
@@ -122,7 +125,7 @@ struct AgentActivityChip: View {
                     if !compact {
                         Text(entry.activity.text + (others > 0 ? "  +\(others)" : ""))
                             .uiFont(size: 11, weight: .medium)
-                            .foregroundColor(entry.activity.state == .idle ? VSDark.textDim : VSDark.text)
+                            .foregroundColor(entry.activity.state == .idle ? palette.textDim : palette.text)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
@@ -131,7 +134,7 @@ struct AgentActivityChip: View {
                 .frame(height: 26)
                 .frame(maxWidth: compact ? nil : 190, alignment: .leading)
                 .fixedSize(horizontal: true, vertical: false)
-                .background(VSDark.bgActive)
+                .background(palette.bgActive)
                 .cornerRadius(6)
             }
             .buttonStyle(.plain)

@@ -270,15 +270,15 @@ check(eval("__t.q('.rm-ev-row .rm-ev-text').textContent") == "Package.swift list
 check(number("document.querySelectorAll('.rm-ev-source').length") == 2, "only findings with a source show a source link")
 let chipColours = json("return JSON.stringify({ colours: __t.qa('.rm-ev-chip').map(function (c) { return getComputedStyle(c).backgroundColor; }) });")
 check(Set((chipColours["colours"] as? [String]) ?? []).count == 4, "the four labels have four different chip colours", "\(chipColours)")
-// Light theme (prototype v9) switches on html[data-theme="light"].
-_ = js("document.documentElement.setAttribute('data-theme', 'light'); return 'ok';")
+// Light theme (prototype v9): the window theme Classic Light sets html[data-theme="light"] and the light tokens.
+_ = js("window.setTheme('classic-light', null); return 'ok';")
 let light = json("""
 const root = getComputedStyle(__t.btn('n1')), node = getComputedStyle(__t.btn('n3')), view = getComputedStyle(__t.q('.rm-viewport')), panel = getComputedStyle(__t.q('.rm-panel'));
 return JSON.stringify({ rootBg: root.backgroundColor, nodeBg: node.backgroundColor, nodeInk: node.color, nodeAccent: node.borderLeftColor, viewBg: view.backgroundColor, panelBg: panel.backgroundColor });
 """)
 check((light["rootBg"] as? String) == "rgb(232, 232, 232)" && (light["viewBg"] as? String) == "rgb(255, 255, 255)" && (light["panelBg"] as? String) == "rgb(243, 243, 243)", "light theme: root, canvas and panel use the application's light tokens", "\(light)")
 check((light["nodeBg"] as? String) == "rgb(243, 243, 243)" && (light["nodeAccent"] as? String) == "rgb(34, 134, 58)", "light theme: a branch node keeps the card fill and takes the darker branch accent", "\(light)")
-_ = js("document.documentElement.removeAttribute('data-theme'); return 'ok';")
+_ = js("window.setTheme('classic-dark', null); return 'ok';")
 let evidenceBelow = bool("__t.q('.rm-desc').getBoundingClientRect().bottom <= __t.q('.rm-ev-row').getBoundingClientRect().top + 1")
 check(evidenceBelow, "the evidence list sits under the description")
 // BUG-096: the resize grip of the description field sets an inline height; the field has to follow it.
@@ -456,9 +456,9 @@ check(eval("__t.btn('n3').querySelector('.rm-glyph svg path').getAttribute('d')"
 let badgeLook = json("const b = getComputedStyle(__t.btn('n3').querySelector('.rm-badge')), g = getComputedStyle(__t.btn('n3').querySelector('.rm-glyph')), c = getComputedStyle(__t.btn('n2').querySelector('.rm-badge')); return JSON.stringify({ bg: b.backgroundColor, ink: b.color, glyph: g.color, customBg: c.backgroundColor, customInk: c.color });")
 check((badgeLook["bg"] as? String) == "rgb(78, 201, 176)" && (badgeLook["ink"] as? String) == "rgb(30, 30, 30)" && (badgeLook["glyph"] as? String) == "rgb(78, 201, 176)", "the badge and the icon take the branch colour; the badge text is dark on it (dark theme)", "\(badgeLook)")
 check((badgeLook["customBg"] as? String) == "rgb(255, 238, 136)" && (badgeLook["customInk"] as? String) == "rgb(30, 30, 30)", "on a node with its own light colour the badge is that colour with dark text", "\(badgeLook)")
-_ = js("document.documentElement.setAttribute('data-theme', 'light'); return 'ok';")
+_ = js("window.setTheme('classic-light', null); return 'ok';")
 check(eval("getComputedStyle(__t.btn('n3').querySelector('.rm-badge')).color") == "rgb(255, 255, 255)", "light theme: white text on the darker branch colour")
-_ = js("document.documentElement.removeAttribute('data-theme'); return 'ok';")
+_ = js("window.setTheme('classic-dark', null); return 'ok';")
 check(bool("(function () { const b = __t.btn('n3'), l = b.querySelector('.rm-lead').getBoundingClientRect(), r = b.getBoundingClientRect(); return l.left >= r.left && l.right <= r.right && l.top >= r.top && l.bottom <= r.bottom; })()"), "the badge and icon sit inside the node card")
 check(bool("(function () { const b = __t.btn('n3'), t = b.querySelector('.rm-label').getBoundingClientRect(), l = b.querySelector('.rm-lead').getBoundingClientRect(); return l.right <= t.left + 1; })()"), "they come before the title, not over it")
 
@@ -722,9 +722,9 @@ check(bool("(function () { const s = window.MVResearchMap.viewState().scale, h =
 _ = js("__t.q('[data-act=centre]').click(); return 'ok';")
 // Light theme: the diamond follows the theme.
 deliver("{ nodes: __t.look({ n2: { shape: 'diamond' } }).nodes }")
-_ = js("document.documentElement.setAttribute('data-theme', 'light'); return 'ok';")
+_ = js("window.setTheme('classic-light', null); return 'ok';")
 check(eval("getComputedStyle(__t.btn('n2').querySelector('polygon')).fill") != "rgb(37, 37, 38)", "light theme: the diamond is not drawn in the dark card colour", eval("getComputedStyle(__t.btn('n2').querySelector('polygon')).fill"))
-_ = js("document.documentElement.removeAttribute('data-theme'); return 'ok';")
+_ = js("window.setTheme('classic-dark', null); return 'ok';")
 // A node can go back to the plain look.
 deliver()
 check(bool("!__t.btn('n2').querySelector('.rm-shape') && __t.qa('.rm-node-wrap').every(function (w) { return w.className.indexOf('shape-') < 0 && !w.style.width; }) && __t.qa('.rm-node').every(function (b) { return !b.style.minHeight; })"), "a snapshot without shapes and sizes restores the plain cards")
@@ -805,7 +805,7 @@ let imageSVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='60'>
 let imageData = "data:image/svg+xml;base64," + Data(imageSVG.utf8).base64EncodedString()
 let flowText = "```mermaid\n\(flowSource)\n```\n\nNote"
 _ = js("window.__v = { flow: flow, bad: bad, img: img }; return 'ok';", ["flow": flowText, "bad": "```mermaid\nthis is not a diagram at all (\n```", "img": "![Cache layer](\(imageData))"])
-let theme0 = js("return document.documentElement.getAttribute('data-theme') || '';")
+let theme0 = js("return document.documentElement.getAttribute('data-preset') || 'classic-dark';")
 _ = js("window.mvResearchMapSet(window.mvDocumentId, window.__t.look({ n3: { visual: 'diagram', description: __v.flow }, n4: { visual: 'diagram', description: __v.bad }, n5: { visual: 'image', description: __v.img }, n12: { visual: 'diagram', description: 'no fence here' } })); return 'ok';")
 let card3 = ".rm-node-wrap[data-id=\"n3\"] .rm-vis"
 check(until("!!__t.q('\(card3) svg')"), "a diagram node draws its Mermaid on the card")
@@ -863,11 +863,13 @@ check(helperOut == "[\"```mermaid\\ngraph TD\\n  A-->B\\n```\\n\\ntext only\",\"
 
 // The theme: a diagram is drawn again in the colours of the new theme.
 let drawnDark = eval("__t.q('\(card3)')._vk")
-_ = js("document.documentElement.setAttribute('data-theme', 'light'); return 'ok';")
-check(until("(__t.q('\(card3)')._vk || '').endsWith('\\nl') && !!__t.q('\(card3) svg')"), "a theme change draws the diagram again", drawnDark)
-_ = js("document.documentElement.setAttribute('data-theme', 'dark'); return 'ok';")
-check(until("(__t.q('\(card3)')._vk || '').endsWith('\\nd') && !!__t.q('\(card3) svg')"), "…and back")
-_ = js(theme0.isEmpty ? "document.documentElement.removeAttribute('data-theme'); return 'ok';" : "document.documentElement.setAttribute('data-theme', '\(theme0)'); return 'ok';")
+_ = js("window.setTheme('classic-light', null); return 'ok';")
+check(until("(__t.q('\(card3)')._vk || '').endsWith('\\nclassic-light|') && !!__t.q('\(card3) svg')"), "a theme change draws the diagram again", drawnDark)
+_ = js("window.setTheme('midnight', null); return 'ok';")
+check(until("(__t.q('\(card3)')._vk || '').endsWith('\\nmidnight|') && !!__t.q('\(card3) svg')"), "…a change between two dark themes too")
+_ = js("window.setTheme('classic-dark', null); return 'ok';")
+check(until("(__t.q('\(card3)')._vk || '').endsWith('\\nclassic-dark|') && !!__t.q('\(card3) svg')"), "…and back")
+_ = js("window.setTheme(id, null); return 'ok';", ["id": theme0])
 
 // Draw: in the node menu and in the panel.
 _ = js("__t.select('n3'); __t.menu('n3'); return 'ok';")

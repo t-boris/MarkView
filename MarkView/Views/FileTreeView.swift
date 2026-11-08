@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct FileTreeView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var searchText = ""
     @State private var currentDirectory: URL?
@@ -15,7 +16,6 @@ struct FileTreeView: View {
     /// The list has keyboard focus: ⌫ moves the selection to the Trash.
     @FocusState private var listFocused: Bool
 
-    private var _theme: Int { workspaceManager.themeVersion }
     private var git: GitClient { workspaceManager.gitClient }
 
     /// The directory we're currently browsing (defaults to workspace root)
@@ -120,31 +120,30 @@ struct FileTreeView: View {
     }
 
     var body: some View {
-        let _ = _theme
         ScrollViewReader { proxy in
         VStack(spacing: 0) {
             // Git bar
             if git.isGitRepo {
                 HStack(spacing: 6) {
-                    Image(systemName: "arrow.triangle.branch").uiFont(size: 9).foregroundColor(VSDark.blue)
+                    Image(systemName: "arrow.triangle.branch").uiFont(size: 9).foregroundColor(palette.blue)
                     GitBranchMenu(git: git, workspaceManager: workspaceManager, fontSize: 10)
                     Spacer()
                     if let activity = git.activity {
                         ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12)
-                        Text(activity).uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1)
+                        Text(activity).uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1)
                     } else if git.isOperating { ProgressView().scaleEffect(0.3) }
                     Button(action: { Task { await git.pull() } }) {
-                        Image(systemName: "arrow.down").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                        Image(systemName: "arrow.down").uiFont(size: 9).foregroundColor(palette.textDim)
                     }.buttonStyle(.plain).help("Pull")
                     Button(action: { Task { await git.push() } }) {
-                        Image(systemName: "arrow.up").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                        Image(systemName: "arrow.up").uiFont(size: 9).foregroundColor(palette.textDim)
                     }.buttonStyle(.plain).help("Push")
                     Button(action: { Task { await git.refresh() } }) {
-                        Image(systemName: "arrow.clockwise").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                        Image(systemName: "arrow.clockwise").uiFont(size: 9).foregroundColor(palette.textDim)
                     }.buttonStyle(.plain).help("Refresh")
                 }
                 .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(VSDark.bgActive)
+                .background(palette.bgActive)
             }
 
             // Breadcrumb navigation
@@ -155,12 +154,12 @@ struct FileTreeView: View {
                             if crumb != breadcrumbs.first {
                                 Image(systemName: "chevron.right")
                                     .uiFont(size: 7, weight: .semibold)
-                                    .foregroundColor(VSDark.textDim)
+                                    .foregroundColor(palette.textDim)
                             }
                             Button(action: { browse(crumb) }) {
                                 Text(crumb.lastPathComponent)
                                     .uiFont(size: 10, weight: crumb == browseURL ? .semibold : .regular)
-                                    .foregroundColor(crumb == browseURL ? VSDark.text : VSDark.blue)
+                                    .foregroundColor(crumb == browseURL ? palette.text : palette.blue)
                                     .lineLimit(1)
                             }
                             .buttonStyle(.plain)
@@ -174,9 +173,9 @@ struct FileTreeView: View {
                     Button(action: { workspaceManager.openArchitecture() }) {
                         Image(systemName: "viewfinder")
                             .uiFont(size: 9, weight: .semibold)
-                            .foregroundColor(VSDark.textDim)
+                            .foregroundColor(palette.textDim)
                             .padding(.horizontal, 6).padding(.vertical, 4)
-                            .background(VSDark.bgActive)
+                            .background(palette.bgActive)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -184,46 +183,46 @@ struct FileTreeView: View {
                     Button(action: { workspaceManager.closeFolder() }) {
                         Image(systemName: "xmark")
                             .uiFont(size: 9, weight: .semibold)
-                            .foregroundColor(VSDark.textDim)
+                            .foregroundColor(palette.textDim)
                             .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(VSDark.bgActive)
+                            .background(palette.bgActive)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .help("Close Folder")
                     }
                 }
-                .background(VSDark.bgActive)
+                .background(palette.bgActive)
             }
 
             // Toolbar: search + actions
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .uiFont(size: 11)
-                    .foregroundColor(VSDark.textDim)
+                    .foregroundColor(palette.textDim)
                 TextField("Filter...", text: $searchText)
                     .textFieldStyle(.plain)
                     .uiFont(size: 11)
-                    .foregroundColor(VSDark.text)
+                    .foregroundColor(palette.text)
                 if !searchText.isEmpty {
                     Button(action: { searchText = "" }) {
-                        Image(systemName: "xmark.circle.fill").foregroundColor(VSDark.textDim)
+                        Image(systemName: "xmark.circle.fill").foregroundColor(palette.textDim)
                     }.buttonStyle(.plain)
                 }
                 if let here = browseURL {
                     // Create in the folder being browsed.
                     Button { createNewFile(in: here) } label: {
-                        Image(systemName: "doc.badge.plus").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                        Image(systemName: "doc.badge.plus").uiFont(size: 11).foregroundColor(palette.textDim)
                     }
                     .buttonStyle(.plain)
                     .help("New file here")
                     Button { createNewFolder(in: here) } label: {
-                        Image(systemName: "folder.badge.plus").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                        Image(systemName: "folder.badge.plus").uiFont(size: 11).foregroundColor(palette.textDim)
                     }
                     .buttonStyle(.plain)
                     .help("New folder here")
                     Button { workspaceManager.presentGraphCreator(in: here) } label: {
-                        Image(systemName: "point.3.connected.trianglepath.dotted").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                        Image(systemName: "point.3.connected.trianglepath.dotted").uiFont(size: 11).foregroundColor(palette.textDim)
                     }
                     .buttonStyle(.plain)
                     .help("New graph diagram here (AI)")
@@ -244,16 +243,16 @@ struct FileTreeView: View {
                             Text(workspaceManager.fileTreeSortOrder.field == .name ? "Az" : "Dt")
                                 .uiFont(size: 9, weight: .semibold, design: .monospaced)
                         }
-                        .foregroundColor(VSDark.textDim)
+                        .foregroundColor(palette.textDim)
                     }
                     .buttonStyle(.plain)
                     .help("Sort: \(workspaceManager.fileTreeSortOrder.field.rawValue)")
                 }
             }
             .padding(8)
-            .background(VSDark.bgSidebar)
+            .background(palette.bgSidebar)
 
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
 
             // File list
             if browseURL != nil {
@@ -262,20 +261,20 @@ struct FileTreeView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.left")
                             .uiFont(size: 10, weight: .semibold)
-                            .foregroundColor(VSDark.blue)
+                            .foregroundColor(palette.blue)
                         Text("..")
                             .uiFont(size: 12, weight: .medium)
-                            .foregroundColor(VSDark.blue)
+                            .foregroundColor(palette.blue)
                         Spacer()
                     }
                     .padding(.horizontal, 10).padding(.vertical, 5)
                     .contentShape(Rectangle())
                     .onTapGesture { browse(up) }
-                    .background(dropTarget == up ? VSDark.blue.opacity(0.25) : VSDark.bgSidebar)
+                    .background(dropTarget == up ? palette.blue.opacity(0.25) : palette.bgSidebar)
                     .onDrop(of: [.fileURL], isTargeted: dropBinding(up)) { providers in
                         drop(providers, into: up)
                     }
-                    Divider().background(VSDark.border).opacity(0.5)
+                    Divider().background(palette.border).opacity(0.5)
                 }
 
                 ScrollView {
@@ -312,54 +311,54 @@ struct FileTreeView: View {
                         Button { workspaceManager.presentPDFBook([here]) } label: { Label("Export This Folder as PDF Book…", systemImage: "book.closed") }
                     }
                 }
-                .background(VSDark.bgSidebar)
+                .background(palette.bgSidebar)
                 if selection.count > 1 { selectionBar }
                 if let archiveBusy {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12)
-                        Text(archiveBusy).uiFont(size: 10).foregroundColor(VSDark.text)
+                        Text(archiveBusy).uiFont(size: 10).foregroundColor(palette.text)
                         Spacer()
-                    }.padding(.horizontal, 10).padding(.vertical, 4).background(VSDark.bgActive)
+                    }.padding(.horizontal, 10).padding(.vertical, 4).background(palette.bgActive)
                 }
             } else if workspaceManager.indexingProgress != nil {
                 VStack(spacing: 12) {
                     Spacer()
                     ProgressView().scaleEffect(0.8)
                     Text(workspaceManager.indexingProgress ?? "")
-                        .uiFont(size: 11).foregroundColor(VSDark.blue)
+                        .uiFont(size: 11).foregroundColor(palette.blue)
                         .lineLimit(2).multilineTextAlignment(.center)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(VSDark.bgSidebar)
+                .background(palette.bgSidebar)
             } else {
                 VStack(spacing: 8) {
                     Spacer()
                     Image(systemName: "folder.badge.plus")
-                        .uiFont(size: 28).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 28).foregroundColor(palette.textDim)
                     Text("No Folder Open")
-                        .uiFont(size: 12, weight: .medium).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 12, weight: .medium).foregroundColor(palette.textDim)
                     Button("Open Folder...", action: chooseFolder)
                     .uiFont(size: 11)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(VSDark.bgSidebar)
+                .background(palette.bgSidebar)
             }
 
             // Progress bar
             if let progress = workspaceManager.indexingProgress {
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
                 HStack(spacing: 6) {
                     ProgressView().scaleEffect(0.4).frame(width: 12, height: 12)
-                    Text(progress).uiFont(size: 10).foregroundColor(VSDark.blue).lineLimit(1)
+                    Text(progress).uiFont(size: 10).foregroundColor(palette.blue).lineLimit(1)
                     Spacer()
                 }
                 .padding(.horizontal, 8).padding(.vertical, 5)
-                .background(VSDark.bgActive)
+                .background(palette.bgActive)
             }
         }
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
         .onChange(of: workspaceManager.rootNode?.url) { _ in
             // Browsing state belongs to the previous folder.
             currentDirectory = nil
@@ -440,7 +439,7 @@ struct FileTreeView: View {
     private func sizeLabel(_ bytes: Int) -> some View {
         Text(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
             .uiFont(size: 9, design: .monospaced)
-            .foregroundColor(VSDark.textDim)
+            .foregroundColor(palette.textDim)
             .lineLimit(1)
             .help("\(bytes.formatted()) bytes")
     }
@@ -448,7 +447,7 @@ struct FileTreeView: View {
     private func dateLabel(_ date: Date?) -> some View {
         Text(shortDate(date))
             .uiFont(size: 9, design: .monospaced)
-            .foregroundColor(VSDark.textDim)
+            .foregroundColor(palette.textDim)
             .help(date.map { DateFormatter.localizedString(from: $0, dateStyle: .medium, timeStyle: .short) } ?? "")
     }
 
@@ -460,15 +459,15 @@ struct FileTreeView: View {
         return HStack(spacing: 6) {
             Image(systemName: linked == nil ? "folder.fill" : "folder.fill.badge.gearshape")
                 .uiFont(size: 11)
-                .foregroundColor(url.lastPathComponent.hasPrefix(".") ? VSDark.textDim : VSDark.yellow)
+                .foregroundColor(url.lastPathComponent.hasPrefix(".") ? palette.textDim : palette.yellow)
             Text(linked?.name ?? url.lastPathComponent)
                 .uiFont(size: 11)
-                .foregroundColor(VSDark.text)
+                .foregroundColor(palette.text)
                 .lineLimit(1)
             if let linked {
-                Image(systemName: "link").uiFont(size: 8).foregroundColor(VSDark.cyan)
+                Image(systemName: "link").uiFont(size: 8).foregroundColor(palette.cyan)
                 Text(linked.url.deletingLastPathComponent().path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                    .uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1).truncationMode(.head)
+                    .uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1).truncationMode(.head)
             }
             Spacer()
             dateLabel(date)
@@ -481,16 +480,16 @@ struct FileTreeView: View {
             }
             Image(systemName: "chevron.right")
                 .uiFont(size: 9)
-                .foregroundColor(VSDark.textDim)
+                .foregroundColor(palette.textDim)
         }
         .padding(.horizontal, 8).padding(.vertical, 3)
         .contentShape(Rectangle())
         .help(linked.map { "Linked folder: \($0.path)" } ?? "")
         .onTapGesture { click(url, isDirectory: true) }
         .onDrag { dragItem(url) }
-        .background(dropTarget == url ? VSDark.blue.opacity(0.25)
-                    : selection.contains(url) ? Self.selectedBackground
-                    : revealedURL == url ? VSDark.blue.opacity(0.18) : Color.clear)
+        .background(dropTarget == url ? palette.blue.opacity(0.25)
+                    : selection.contains(url) ? selectedBackground
+                    : revealedURL == url ? palette.blue.opacity(0.18) : Color.clear)
         .onDrop(of: [.fileURL], isTargeted: dropBinding(url)) { providers in drop(providers, into: url) }
         .opacity(workspaceManager.isExcluded(url) ? 0.4 : deco.state == .ignored ? 0.5 : 1.0)
         .contextMenu {
@@ -555,7 +554,7 @@ struct FileTreeView: View {
         let (icon, color) = fileIcon(for: url)
         return HStack(spacing: 4) {
             Image(systemName: icon).uiFont(size: 11).foregroundColor(color).frame(width: 16)
-            Text(url.lastPathComponent).uiFont(size: 11).foregroundColor(deco.state.map(gitColor) ?? VSDark.text).lineLimit(1)
+            Text(url.lastPathComponent).uiFont(size: 11).foregroundColor(deco.state.map(gitColor) ?? palette.text).lineLimit(1)
             Spacer()
             if let size { sizeLabel(size) }
             dateLabel(date)
@@ -569,8 +568,8 @@ struct FileTreeView: View {
         }
         .opacity(deco.state == .ignored ? 0.5 : 1)
         .padding(.horizontal, 8).padding(.vertical, 2)
-        .background(selection.contains(url) ? Self.selectedBackground
-                    : revealedURL == url ? VSDark.blue.opacity(0.18) : Color.clear)
+        .background(selection.contains(url) ? selectedBackground
+                    : revealedURL == url ? palette.blue.opacity(0.18) : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture { click(url, isDirectory: false) }
         .onDrag { dragItem(url) }
@@ -628,7 +627,7 @@ struct FileTreeView: View {
 
     // MARK: - Selection (several rows at once)
 
-    private static let selectedBackground = VSDark.blue.opacity(0.3)
+    private var selectedBackground: Color { palette.accent.opacity(0.3) }
 
     /// The selected rows in list order; linked folders are never moved or trashed from here.
     private var selectedItems: [URL] {
@@ -654,21 +653,21 @@ struct FileTreeView: View {
     /// Bottom bar while several rows are selected.
     private var selectionBar: some View {
         HStack(spacing: 8) {
-            Text("\(selection.count) selected").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
+            Text("\(selection.count) selected").uiFont(size: 10, weight: .semibold).foregroundColor(palette.text)
             Spacer()
             Button { workspaceManager.presentPDFBook(selection.ordered(filteredContents.map(\.url))) } label: { Image(systemName: "book.closed").uiFont(size: 11) }
-                .buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Export selected files and folders as a PDF book")
+                .buttonStyle(.plain).foregroundColor(palette.textDim).help("Export selected files and folders as a PDF book")
             Button { moveAsking(selectedItems) } label: { Image(systemName: "folder").uiFont(size: 11) }
-                .buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Move to…")
+                .buttonStyle(.plain).foregroundColor(palette.textDim).help("Move to…")
             Button { trash(selectedItems) } label: { Image(systemName: "trash").uiFont(size: 11) }
-                .buttonStyle(.plain).foregroundColor(VSDark.red).help("Move to Trash (⌫)")
+                .buttonStyle(.plain).foregroundColor(palette.red).help("Move to Trash (⌫)")
             Menu { selectionMenu } label: { Image(systemName: "ellipsis.circle").uiFont(size: 11) }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("More actions")
             Button { selection.clear() } label: { Image(systemName: "xmark").uiFont(size: 9, weight: .semibold) }
-                .buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Clear the selection")
+                .buttonStyle(.plain).foregroundColor(palette.textDim).help("Clear the selection")
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(VSDark.bgActive)
+        .background(palette.bgActive)
     }
 
     /// Actions on the whole selection (context menu of a selected row, the bar's menu).
@@ -777,19 +776,19 @@ struct FileTreeView: View {
     }
 
     private func fileIcon(for url: URL) -> (String, Color) {
-        if Archive.isArchive(url) { return ("archivebox", VSDark.yellow) }
+        if Archive.isArchive(url) { return ("archivebox", palette.yellow) }
         switch FileType.from(url: url) {
-        case .json: return ("curlybraces", VSDark.green)
-        case .xml:  return ("chevron.left.forwardslash.chevron.right", VSDark.orange)
-        case .yaml: return ("list.bullet.indent", VSDark.purple)
-        case .canvas: return ("rectangle.3.group", VSDark.yellow)
-        case .pdf: return ("doc.richtext", VSDark.orange)
-        case .markdown: return ("doc.text", VSDark.blue)
-        case .code: return ("curlybraces.square", VSDark.cyan)
-        case .table: return ("tablecells", VSDark.green)
-        case .parquet: return ("square.stack.3d.up", VSDark.purple)
-        case .sqlite: return ("cylinder", VSDark.yellow)
-        case .log: return ("list.bullet.rectangle", VSDark.textDim)
+        case .json: return ("curlybraces", palette.green)
+        case .xml:  return ("chevron.left.forwardslash.chevron.right", palette.orange)
+        case .yaml: return ("list.bullet.indent", palette.purple)
+        case .canvas: return ("rectangle.3.group", palette.yellow)
+        case .pdf: return ("doc.richtext", palette.orange)
+        case .markdown: return ("doc.text", palette.blue)
+        case .code: return ("curlybraces.square", palette.cyan)
+        case .table: return ("tablecells", palette.green)
+        case .parquet: return ("square.stack.3d.up", palette.purple)
+        case .sqlite: return ("cylinder", palette.yellow)
+        case .log: return ("list.bullet.rectangle", palette.textDim)
         }
     }
 
@@ -804,11 +803,11 @@ struct FileTreeView: View {
 
     private func gitColor(_ state: GitFileState) -> Color {
         switch state {
-        case .modified, .typeChanged: return VSDark.orange
-        case .added, .copied, .untracked: return VSDark.green
-        case .deleted, .conflicted: return VSDark.red
-        case .renamed: return VSDark.blue
-        case .ignored, .tracked: return VSDark.textDim
+        case .modified, .typeChanged: return palette.orange
+        case .added, .copied, .untracked: return palette.green
+        case .deleted, .conflicted: return palette.red
+        case .renamed: return palette.blue
+        case .ignored, .tracked: return palette.textDim
         }
     }
 

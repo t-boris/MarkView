@@ -3,6 +3,7 @@ import SwiftUI
 /// The definition of done: what the assistant must have done before an Implement with AI goal counts as
 /// finished. Opened before a run (Start hands the goal over) and from Settings (just edit and save).
 struct DefinitionOfDoneSheet: View {
+    @Environment(\.palette) private var palette
     let root: URL?
     /// The feature about to be implemented; nil when opened from Settings.
     var feature: URL?
@@ -20,12 +21,12 @@ struct DefinitionOfDoneSheet: View {
             Text(feature == nil
                  ? "What the assistant has to do before an implementation goal counts as finished. Applies to this project."
                  : "What “done” means for \(feature?.lastPathComponent ?? "this feature"). The assistant gets this with the goal and has to show evidence for each required item.")
-                .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach($done.items) { $item in row($item) }
                     Button { addItem() } label: { Label("Add your own item", systemImage: "plus") }
-                        .buttonStyle(.plain).foregroundColor(VSDark.blue).uiFont(size: 11)
+                        .buttonStyle(.plain).foregroundColor(palette.blue).uiFont(size: 11)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.trailing, 6)
@@ -33,11 +34,11 @@ struct DefinitionOfDoneSheet: View {
             .frame(height: 380)
             HStack(spacing: 14) {
                 Text("Require: must be true and shown. Ask me: asked first. Skip: not part of this goal.")
-                    .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 10).foregroundColor(palette.textDim)
                 Spacer()
                 Button("Reset to Standard") { done = .standard }.controlSize(.small)
             }
-            if let error { Text(error).uiFont(size: 11).foregroundColor(VSDark.red) }
+            if let error { Text(error).uiFont(size: 11).foregroundColor(palette.red) }
             HStack {
                 if feature != nil {
                     Toggle("Save as this project's default", isOn: $saveAsDefault).toggleStyle(.checkbox).uiFont(size: 11)
@@ -79,12 +80,12 @@ struct DefinitionOfDoneSheet: View {
                 TextField("What the assistant should do", text: item.instruction, axis: .vertical)
                     .textFieldStyle(.roundedBorder).uiFont(size: 11).lineLimit(1...3)
             } else {
-                Text(item.wrappedValue.instruction).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Text(item.wrappedValue.instruction).uiFont(size: 10).foregroundColor(palette.textDim)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(8)
-        .background(RoundedRectangle(cornerRadius: 6).fill(VSDark.bg))
+        .background(RoundedRectangle(cornerRadius: 6).fill(palette.bg))
         .opacity(item.wrappedValue.mode == .skip ? 0.6 : 1)
     }
 

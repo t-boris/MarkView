@@ -3,6 +3,7 @@ import SwiftUI
 /// Where a UI Studio change is recorded (REQ-012): "Tracked as REQ-003 of ui-studio-…" or "Tracked as BUG-079, linked to
 /// …", which opens the record, and the switch between requirement and bug. Shown on a change's turn and in History.
 struct UIStudioTrackingLine: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
     let operation: StudioOperation
     @EnvironmentObject var workspaceManager: WorkspaceManager
@@ -10,14 +11,14 @@ struct UIStudioTrackingLine: View {
     var body: some View {
         if let tracking = operation.tracking, tracking.isRecorded {
             HStack(spacing: 6) {
-                Image(systemName: tracking.isBug ? "ladybug" : "checklist").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Image(systemName: tracking.isBug ? "ladybug" : "checklist").uiFont(size: 10).foregroundColor(palette.textDim)
                 Button {
                     if let url = StudioChanges.validatedURL(tracking.file, root: session.root) { workspaceManager.openFile(url) }
                 } label: {
                     Text(StudioTrackingText.label(tracking, reverted: operation.status == .undone))
                         .uiFont(size: 10).lineLimit(1).truncationMode(.middle)
                 }
-                .buttonStyle(.plain).foregroundColor(VSDark.blue)
+                .buttonStyle(.plain).foregroundColor(palette.blue)
                 .help(help(tracking))
                 Spacer(minLength: 4)
                 if operation.kind == .edit, [.applied, .kept].contains(operation.status) {

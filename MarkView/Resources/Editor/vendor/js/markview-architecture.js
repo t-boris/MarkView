@@ -99,13 +99,10 @@
 
             const isDark = function() { return document.documentElement.getAttribute('data-theme') === 'dark'; };
             function palette() {
-                return isDark()
-                    ? { bg: '#17191c', node: '#23272c', box: '#7d97ff', boxAlpha: 0.07, boxLine: '#353b44', line: '#3a4049',
-                        text: '#e3e6e9', mute: '#8d949e', accent: '#7d97ff', ok: '#4cc38a', warn: '#e2ab4a', bad: '#f07a73',
-                        info: '#6cb6ff', dim: 0.28 }
-                    : { bg: '#fbfbfa', node: '#ffffff', box: '#2b54d9', boxAlpha: 0.045, boxLine: '#d4d8de', line: '#c3c8cf',
-                        text: '#1b1e23', mute: '#6b717b', accent: '#2b54d9', ok: '#23845a', warn: '#b77a12', bad: '#c2413b',
-                        info: '#2f7fd1', dim: 0.3 };
+                const t = MarkViewThemes.token, dark = isDark();
+                return { bg: t('--arch-bg'), node: t('--arch-node'), box: t('--arch-box'), boxAlpha: dark ? 0.07 : 0.045, boxLine: t('--arch-box-line'),
+                         line: t('--arch-line'), text: t('--arch-text'), mute: t('--arch-mute'), accent: t('--arch-accent'), ok: t('--arch-ok'),
+                         warn: t('--arch-warn'), bad: t('--arch-bad'), info: t('--arch-info'), dim: dark ? 0.28 : 0.3 };
             }
             // With no overlay, boxes are coloured by the role the AI gave them (legend below).
             const roleNames = { presentation: 'Presentation', application: 'Application', infrastructure: 'Infrastructure', platform: 'Shared platform', other: 'Unclassified', ui: 'UI', api: 'API', domain: 'Domain logic', data: 'Data', infra: 'Infrastructure',
@@ -3365,8 +3362,8 @@
                 };
             });
             const origSetTheme = window.setTheme;
-            window.setTheme = function(theme) {
-                origSetTheme(theme);
+            window.setTheme = function(id, accent) {
+                origSetTheme(id, accent);
                 if (cy) { cy.style(stylesheet()); restyle(); }
             };
         })();

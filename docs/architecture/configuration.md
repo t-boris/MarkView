@@ -22,7 +22,8 @@ Changing or renaming any of these keys is a **major** version change (CLAUDE.md)
 | `features.issues.sort.<12-char hash of root>` | String, `date:desc` | Issues list order per project, `date\|priority:asc\|desc`; unknown values fall back to the default | features |
 | `fileTree.sortField`, `fileTree.sortAscending` | enum/Bool | File tree sort | app shell |
 | `excludedFolders.<folderName>` | [String] | Excluded folders. Keyed by folder name only | app shell |
-| `theme` | light/dark/system | Theme | `ThemeManager` |
+| `theme` | light/dark/system | Legacy theme: read once to start a window in Classic Light or Classic Dark; never written | `ThemeSettingsStore` |
+| `theme.lastChanged.v1` | JSON | Theme and per-theme accents last chosen in any window; the start of a new window | `ThemeSettingsStore` |
 | `settings.ai.backend` | `CLITool` raw value | Selected assistant | AI |
 | `settings.cli.<tool>Model`, `settings.xray.<tool>Model` | String | Model per tool; X-Ray has its own (defaults `sonnet` / `gpt-5.6-luna`) | AI |
 | `settings.cli.<tool>Path`, `settings.cli.extraPATH` | String | CLI path override, extra PATH entries for subprocesses | AI |

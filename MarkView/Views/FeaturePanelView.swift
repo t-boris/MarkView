@@ -16,6 +16,7 @@ enum FeatureStage: String, CaseIterable {
 
 /// Right panel "Feature" tab: stages, readiness, the AI around the open document.
 struct FeaturePanelView: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var store: FeatureStore
     @ObservedObject var assistant: FeatureAssistant
     @EnvironmentObject var workspaceManager: WorkspaceManager
@@ -54,7 +55,7 @@ struct FeaturePanelView: View {
                 BugDiscussionInput(bug: bug)
             } else if let feature = store.active {
                 header(feature)
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
                 ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
@@ -86,7 +87,7 @@ struct FeaturePanelView: View {
                 panelEmpty("Create a feature with +, or choose one from navigation.")
             }
         }
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
         // Every card watches the AI engine itself, so "working…" shows the moment a step starts.
         .environmentObject(assistant)
     }
@@ -101,7 +102,7 @@ struct FeaturePanelView: View {
                 HStack(spacing: 6) {
                     Image(systemName: action.phase == .running ? "sparkle" :
                           action.phase == .completed ? "checkmark.circle" : "exclamationmark.circle")
-                        .foregroundColor(action.phase == .failed ? VSDark.red : VSDark.blue)
+                        .foregroundColor(action.phase == .failed ? palette.red : palette.blue)
                     Text(action.title)
                         .uiFont(size: 11, weight: .semibold)
                     Spacer()
@@ -117,23 +118,23 @@ struct FeaturePanelView: View {
                     }
                 }
                 Text("\(action.scope) · \(action.assistant) → \(action.output)")
-                    .uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(2)
+                    .uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(2)
                 Text(action.stage).uiFont(size: 10)
-                    .foregroundColor(action.phase == .failed ? VSDark.red : VSDark.textDim)
+                    .foregroundColor(action.phase == .failed ? palette.red : palette.textDim)
                 if action.phase == .running { ProgressView().controlSize(.mini) }
                 if action.phase == .stopped || action.phase == .failed, !action.partial.isEmpty {
                     Text(action.partial.prefix(600)).uiFont(size: 10)
                         .lineLimit(6).textSelection(.enabled)
-                    Text("Incomplete output").uiFont(size: 9).foregroundColor(VSDark.orange)
+                    Text("Incomplete output").uiFont(size: 9).foregroundColor(palette.orange)
                 }
                 if action.phase == .stopped || action.phase == .failed {
                     Text("Run this action again from its original control to retry.")
-                        .uiFont(size: 9).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 9).foregroundColor(palette.textDim)
                 }
             }
             .padding(9)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(VSDark.bgActive)
+            .background(palette.bgActive)
             .cornerRadius(6)
         }
     }
@@ -148,8 +149,8 @@ struct FeaturePanelView: View {
         let removed = feature.front.strings("removed_since_explore")
         if !removed.isEmpty {
             VStack(alignment: .leading, spacing: 5) {
-                Text("Removed from the specification").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.orange)
-                Text(removed.joined(separator: "\n")).uiFont(size: 10).foregroundColor(VSDark.text)
+                Text("Removed from the specification").uiFont(size: 10, weight: .semibold).foregroundColor(palette.orange)
+                Text(removed.joined(separator: "\n")).uiFont(size: 10).foregroundColor(palette.text)
                     .fixedSize(horizontal: false, vertical: true)
                 if assistant.isRunning("explore:" + feature.slug) {
                     Working(text: "Asking about what they settled…")
@@ -166,14 +167,14 @@ struct FeaturePanelView: View {
                     }
                 }
             }
-            .padding(8).background(VSDark.orange.opacity(0.08)).cornerRadius(5)
+            .padding(8).background(palette.orange.opacity(0.08)).cornerRadius(5)
         }
     }
 
     private func header(_ feature: Feature) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Text(feature.title).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textBright).lineLimit(1)
+                Text(feature.title).uiFont(size: 11, weight: .semibold).foregroundColor(palette.textBright).lineLimit(1)
                 Spacer()
                 SmallButton(title: "Clean up", icon: "trash") { cleanup = Set(FeatureCleanup.allCases) }
                     .help("Delete outdated requirements, answered questions, closed findings and cancelled decisions")
@@ -227,48 +228,48 @@ struct FeaturePanelView: View {
                         Text(item.rawValue.uppercased())
                             .uiFont(size: 9, weight: stage == item ? .bold : .regular, design: .monospaced)
                             .frame(maxWidth: .infinity).padding(.vertical, 3)
-                            .foregroundColor(stage == item ? VSDark.textBright : VSDark.textDim)
-                            .background(stage == item ? VSDark.bgActive : Color.clear).cornerRadius(3)
+                            .foregroundColor(stage == item ? palette.textBright : palette.textDim)
+                            .background(stage == item ? palette.bgActive : Color.clear).cornerRadius(3)
                     }.buttonStyle(.plain)
-                    if item != .build { Text("→").uiFont(size: 8).foregroundColor(VSDark.textDim) }
+                    if item != .build { Text("→").uiFont(size: 8).foregroundColor(palette.textDim) }
                 }
             }
             Button(action: { showConditions.toggle() }) {
                 HStack(spacing: 6) {
-                    Text("Readiness").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    Text("Readiness").uiFont(size: 10).foregroundColor(palette.textDim)
                     ReadinessBar(value: feature.readiness)
-                    Text("\(feature.readiness)%").uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text)
+                    Text("\(feature.readiness)%").uiFont(size: 10, design: .monospaced).foregroundColor(palette.text)
                 }
             }.buttonStyle(.plain).help("Calculated from explicit conditions — click for details")
             if showConditions {
                 ForEach(feature.readinessConditions) { c in
                     HStack(spacing: 4) {
                         Image(systemName: c.met ? "checkmark.circle.fill" : "circle").uiFont(size: 9)
-                            .foregroundColor(c.met ? VSDark.green : VSDark.textDim)
-                        Text(c.name).uiFont(size: 10).foregroundColor(VSDark.text)
+                            .foregroundColor(c.met ? palette.green : palette.textDim)
+                        Text(c.name).uiFont(size: 10).foregroundColor(palette.text)
                         Spacer()
-                        Text("\(c.done)/\(c.total)").uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
+                        Text("\(c.done)/\(c.total)").uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
                     }
                 }
             }
             LifecycleSection(store: store, feature: feature)
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(VSDark.bg)
+        .background(palette.bg)
     }
 
     @ViewBuilder
     private var errors: some View {
         if let error = store.lastError ?? assistant.error {
             HStack(alignment: .top, spacing: 4) {
-                Image(systemName: "exclamationmark.triangle").uiFont(size: 9).foregroundColor(VSDark.red)
-                Text(error).uiFont(size: 10).foregroundColor(VSDark.red).textSelection(.enabled)
+                Image(systemName: "exclamationmark.triangle").uiFont(size: 9).foregroundColor(palette.red)
+                Text(error).uiFont(size: 10).foregroundColor(palette.red).textSelection(.enabled)
                 Spacer()
                 Button(action: { store.lastError = nil; assistant.error = nil }) {
-                    Image(systemName: "xmark").uiFont(size: 8).foregroundColor(VSDark.textDim)
+                    Image(systemName: "xmark").uiFont(size: 8).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain)
             }
-            .padding(6).background(VSDark.red.opacity(0.1)).cornerRadius(4)
+            .padding(6).background(palette.red.opacity(0.1)).cornerRadius(4)
         }
     }
 
@@ -281,8 +282,8 @@ struct FeaturePanelView: View {
     private func panelEmpty(_ text: String) -> some View {
         VStack(spacing: 8) {
             Spacer()
-            Image(systemName: "square.stack.3d.up").uiFont(size: 22).foregroundColor(VSDark.textDim)
-            Text(text).uiFont(size: 11).foregroundColor(VSDark.textDim).multilineTextAlignment(.center).padding(.horizontal, 16)
+            Image(systemName: "square.stack.3d.up").uiFont(size: 22).foregroundColor(palette.textDim)
+            Text(text).uiFont(size: 11).foregroundColor(palette.textDim).multilineTextAlignment(.center).padding(.horizontal, 16)
             Spacer()
         }.frame(maxWidth: .infinity)
     }
@@ -291,6 +292,7 @@ struct FeaturePanelView: View {
 // MARK: - Shared pieces
 
 struct PanelSection<Content: View>: View {
+    @Environment(\.palette) private var palette
     let title: String
     var trailing: AnyView? = nil
     @ViewBuilder let content: () -> Content
@@ -298,7 +300,7 @@ struct PanelSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Text(title.uppercased()).uiFont(size: 9, weight: .bold).foregroundColor(VSDark.textDim)
+                Text(title.uppercased()).uiFont(size: 9, weight: .bold).foregroundColor(palette.textDim)
                 Spacer()
                 if let trailing { trailing }
             }
@@ -308,6 +310,7 @@ struct PanelSection<Content: View>: View {
 }
 
 struct SmallButton: View {
+    @Environment(\.palette) private var palette
     let title: String
     var icon: String? = nil
     var prominent = false
@@ -320,8 +323,8 @@ struct SmallButton: View {
                 Text(title).uiFont(size: 10, weight: prominent ? .semibold : .regular)
             }
             .padding(.horizontal, 6).padding(.vertical, 3)
-            .foregroundColor(prominent ? .white : VSDark.text)
-            .background(prominent ? VSDark.badge : VSDark.bgInput)
+            .foregroundColor(prominent ? .white : palette.text)
+            .background(prominent ? palette.badge : palette.bgInput)
             .cornerRadius(3)
         }
         .buttonStyle(.plain)
@@ -329,22 +332,28 @@ struct SmallButton: View {
 }
 
 struct Working: View {
+    @Environment(\.palette) private var palette
     let text: String
     var body: some View {
         HStack(spacing: 5) {
             ProgressView().scaleEffect(0.45).frame(width: 12, height: 12)
-            Text(text).uiFont(size: 10).foregroundColor(VSDark.textDim)
+            Text(text).uiFont(size: 10).foregroundColor(palette.textDim)
         }
     }
 }
 
-private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-    VStack(alignment: .leading, spacing: 5, content: content)
-        .padding(8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(VSDark.bg)
-        .overlay(RoundedRectangle(cornerRadius: 5).stroke(VSDark.border))
-        .cornerRadius(5)
+private struct FeatureCard<Content: View>: View {
+    @Environment(\.palette) private var palette
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5, content: content)
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(palette.bg)
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(palette.border))
+            .cornerRadius(5)
+    }
 }
 
 private func markdown(_ text: String) -> AttributedString {
@@ -353,6 +362,7 @@ private func markdown(_ text: String) -> AttributedString {
 
 /// An answer of a contextual action or of the discussion.
 struct ResultCard: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let result: FeatureResult
@@ -360,18 +370,18 @@ struct ResultCard: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
 
     var body: some View {
-        card {
+        FeatureCard {
             HStack {
-                Image(systemName: "sparkles").uiFont(size: 9).foregroundColor(VSDark.blue)
-                Text(result.title).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.textBright)
+                Image(systemName: "sparkles").uiFont(size: 9).foregroundColor(palette.blue)
+                Text(result.title).uiFont(size: 10, weight: .semibold).foregroundColor(palette.textBright)
                 Spacer()
                 if result.pending { ProgressView().scaleEffect(0.4).frame(width: 10, height: 10) }
                 Button(action: { assistant.dismissResult(result.id) }) {
-                    Image(systemName: "xmark").uiFont(size: 8).foregroundColor(VSDark.textDim)
+                    Image(systemName: "xmark").uiFont(size: 8).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain)
             }
             Text(markdown(result.text.isEmpty ? "…" : result.text))
-                .uiFont(size: 11).foregroundColor(VSDark.text).textSelection(.enabled)
+                .uiFont(size: 11).foregroundColor(palette.text).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
             if let diagram = result.diagram {
                 SmallButton(title: "Save diagram to feature", icon: "square.and.arrow.down") {
@@ -380,8 +390,8 @@ struct ResultCard: View {
             }
             if let decision = result.decision {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("This discussion appears to contain a decision:").uiFont(size: 10).foregroundColor(VSDark.yellow)
-                    Text(decision.title).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textBright)
+                    Text("This discussion appears to contain a decision:").uiFont(size: 10).foregroundColor(palette.yellow)
+                    Text(decision.title).uiFont(size: 11, weight: .semibold).foregroundColor(palette.textBright)
                     HStack {
                         SmallButton(title: "Create Decision", icon: "signpost.right", prominent: true) {
                             assistant.saveDecision(decision, in: feature.slug, from: result.id)
@@ -396,6 +406,7 @@ struct ResultCard: View {
 
 /// Free-form discussion with the facilitator (spec §32), always at the bottom of the tab.
 struct DiscussionInput: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @EnvironmentObject private var workspaceManager: WorkspaceManager
     @ObservedObject var store: FeatureStore
@@ -406,7 +417,7 @@ struct DiscussionInput: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             HStack(alignment: .bottom, spacing: 6) {
                 TextField("Discuss this feature…", text: $text, axis: .vertical)
                     .textFieldStyle(.plain).uiFont(size: 11).lineLimit(1...5)
@@ -418,12 +429,12 @@ struct DiscussionInput: View {
                 if assistant.isRunning("chat:" + feature.slug) {
                     ProgressView().scaleEffect(0.45).frame(width: 14, height: 14)
                 } else {
-                    Button(action: send) { Image(systemName: "arrow.up.circle.fill").uiFont(size: 15).foregroundColor(VSDark.blue) }
+                    Button(action: send) { Image(systemName: "arrow.up.circle.fill").uiFont(size: 15).foregroundColor(palette.blue) }
                         .buttonStyle(.plain).disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
             .padding(8)
-            .background(VSDark.bgInput)
+            .background(palette.bgInput)
             DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
                 .padding(.horizontal, 8)
         }
@@ -469,6 +480,7 @@ enum PendingAnswer: Equatable {
 }
 
 struct ExploreStageView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
@@ -484,10 +496,10 @@ struct ExploreStageView: View {
                     Text(open.isEmpty ? (feature.isUnderstood ? "Discovery done" : "No open question")
                          : "\(open.count) open question\(open.count == 1 ? "" : "s")")
                         .uiFont(size: 10, weight: .semibold)
-                        .foregroundColor(feature.isUnderstood ? VSDark.green : VSDark.text)
+                        .foregroundColor(feature.isUnderstood ? palette.green : palette.text)
                     Text("· \(feature.discoveryAnswered) answered · \(feature.activeRequirements.count) requirements"
                          + expectation)
-                        .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 10).foregroundColor(palette.textDim)
                     Spacer()
                     Button {
                         showUnderstandingDetails.toggle()
@@ -500,16 +512,16 @@ struct ExploreStageView: View {
                 }
                 if showUnderstandingDetails {
                     Text("The AI's assessment of what the specification covers; it does not decide the questions.")
-                        .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     if !feature.openDimensions.isEmpty {
                         Text("Rated partial or unknown: " + feature.openDimensions.joined(separator: ", "))
-                            .uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+                            .uiFont(size: 10).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
                     }
                     HStack(spacing: 8) {
                         ForEach(FeatureVocabulary.understandingStates, id: \.self) { state in
                             HStack(spacing: 2) {
                                 Text(symbol(state)).uiFont(size: 9, weight: .bold, design: .monospaced).foregroundColor(color(state))
-                                Text(state).uiFont(size: 9).foregroundColor(VSDark.textDim)
+                                Text(state).uiFont(size: 9).foregroundColor(palette.textDim)
                             }
                         }
                     }
@@ -527,11 +539,11 @@ struct ExploreStageView: View {
                             .help("\(item.dimension): \(item.state) — click to change")
                             VStack(alignment: .leading, spacing: 1) {
                                 HStack(spacing: 4) {
-                                    Text(item.dimension).uiFont(size: 10, weight: .medium).foregroundColor(VSDark.text)
+                                    Text(item.dimension).uiFont(size: 10, weight: .medium).foregroundColor(palette.text)
                                     Text(item.state).uiFont(size: 9).foregroundColor(color(item.state))
                                 }
                                 if !note.isEmpty {
-                                    Text(note).uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                                    Text(note).uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                                 }
                             }
                             Spacer(minLength: 0)
@@ -542,11 +554,11 @@ struct ExploreStageView: View {
             if feature.isUnderstood && open.isEmpty {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 5) {
-                        Image(systemName: "checkmark.seal.fill").foregroundColor(VSDark.green)
-                        Text("Feature understood").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textBright)
+                        Image(systemName: "checkmark.seal.fill").foregroundColor(palette.green)
+                        Text("Feature understood").uiFont(size: 11, weight: .semibold).foregroundColor(palette.textBright)
                     }
                     Text("Every question is settled and the AI expects no further one, so discovery is done. Leaving Explore approves the requirements. Next: review the specification.")
-                        .uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
                     FlowButtons {
                         SmallButton(title: "Go to Review", icon: "arrow.right", prominent: true) {
                             store.finishExplore(feature.slug)
@@ -557,7 +569,7 @@ struct ExploreStageView: View {
                         }
                     }
                 }
-                .padding(8).background(VSDark.green.opacity(0.08)).cornerRadius(5)
+                .padding(8).background(palette.green.opacity(0.08)).cornerRadius(5)
             } else if assistant.isRunning("decide:" + feature.slug) {
                 Working(text: "AI is deciding the remaining questions and finishing discovery…")
             } else if assistant.isRunning("explore:" + feature.slug) {
@@ -567,7 +579,7 @@ struct ExploreStageView: View {
             } else {
                 HStack {
                     Text(feature.list(.question).isEmpty ? "Start guided discovery." : "No open question.")
-                        .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 10).foregroundColor(palette.textDim)
                     Spacer()
                     SmallButton(title: "Ask more questions", icon: "sparkles", prominent: true) {
                         Task { await assistant.exploreNext(feature.slug) }
@@ -577,7 +589,7 @@ struct ExploreStageView: View {
             if !feature.isUnderstood && !assistant.isRunning("decide:" + feature.slug) {
                 HStack(alignment: .top, spacing: 6) {
                     Text("AI decides unresolved questions for review.")
-                        .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     SmallButton(title: "Decide the rest and finish", icon: "flag.checkered") {
                         Task { await assistant.decideRest(feature.slug) }
@@ -600,13 +612,14 @@ struct ExploreStageView: View {
     }
 
     private func color(_ state: String) -> Color {
-        switch state { case "known": return VSDark.green; case "partial": return VSDark.yellow; case "n/a": return VSDark.textDim; default: return VSDark.orange }
+        switch state { case "known": return palette.green; case "partial": return palette.yellow; case "n/a": return palette.textDim; default: return palette.orange }
     }
 }
 
 /// The open questions of a round on one screen: each card with the recommended answer
 /// preselected, and one button that applies every answer in a single AI call (spec §7).
 struct QuestionRound: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
@@ -639,7 +652,7 @@ struct QuestionRound: View {
                 HStack(alignment: .top, spacing: 6) {
                     Text(questions.count == 1 ? "The recommended answer is preselected; change it or answer in your own words."
                          : "Recommended answers are preselected; change any of them, then apply the round.")
-                        .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     SmallButton(title: answers.count == 1 ? "Apply answer" : "Apply \(answers.count) answers",
                                 icon: "checkmark", prominent: true) {
@@ -658,6 +671,7 @@ struct QuestionRound: View {
 /// A question with its options, the AI's recommendation and the discovery actions (spec §7, §15).
 /// The answer is chosen here and applied by the round.
 struct QuestionCard: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
@@ -675,32 +689,32 @@ struct QuestionCard: View {
     }
 
     var body: some View {
-        card {
+        FeatureCard {
             HStack(spacing: 4) {
-                Text(question.id).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
-                if question.isBlocking { Text("BLOCKING").uiFont(size: 8, weight: .bold).foregroundColor(VSDark.red) }
-                Text(question.front.string("q_type").uppercased()).uiFont(size: 8).foregroundColor(VSDark.textDim)
+                Text(question.id).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
+                if question.isBlocking { Text("BLOCKING").uiFont(size: 8, weight: .bold).foregroundColor(palette.red) }
+                Text(question.front.string("q_type").uppercased()).uiFont(size: 8).foregroundColor(palette.textDim)
                 if !question.front.string("dimension").isEmpty {
-                    Text("clarifies " + question.front.string("dimension")).uiFont(size: 8, weight: .semibold).foregroundColor(VSDark.cyan)
+                    Text("clarifies " + question.front.string("dimension")).uiFont(size: 8, weight: .semibold).foregroundColor(palette.cyan)
                 }
                 Spacer()
                 Button(action: { workspaceManager.openFile(question.url) }) {
-                    Image(systemName: "doc.text").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    Image(systemName: "doc.text").uiFont(size: 9).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain).help("Open \(question.id)")
             }
             Text(question.section("Question").isEmpty ? question.title : question.section("Question"))
-                .uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textBright).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 11, weight: .semibold).foregroundColor(palette.textBright).fixedSize(horizontal: false, vertical: true)
             let why = question.section("Why it matters")
             if !why.isEmpty {
-                Text(why).uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                Text(why).uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             }
             let recommended = question.front.string("recommended")
             let recommendedWhy = question.front.string("recommended_why")
             if !recommended.isEmpty {
                 HStack(alignment: .top, spacing: 4) {
-                    Image(systemName: "wand.and.stars").uiFont(size: 9).foregroundColor(VSDark.cyan)
+                    Image(systemName: "wand.and.stars").uiFont(size: 9).foregroundColor(palette.cyan)
                     Text("AI recommends \(recommended)" + (recommendedWhy.isEmpty ? "" : " — \(recommendedWhy)"))
-                        .uiFont(size: 10).foregroundColor(VSDark.cyan).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 10).foregroundColor(palette.cyan).fixedSize(horizontal: false, vertical: true)
                 }
             }
             let options = question.front["options"]?.list ?? []
@@ -713,15 +727,15 @@ struct QuestionCard: View {
                         selection = value
                         own = ""
                     } label: {
-                        Text(label).uiFont(size: 10, weight: .bold, design: .monospaced).foregroundColor(VSDark.blue)
-                        Text(text).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                        Text(label).uiFont(size: 10, weight: .bold, design: .monospaced).foregroundColor(palette.blue)
+                        Text(text).uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
                         if label.caseInsensitiveCompare(recommended) == .orderedSame {
-                            Text("recommended").uiFont(size: 8, weight: .semibold).foregroundColor(VSDark.cyan)
+                            Text("recommended").uiFont(size: 8, weight: .semibold).foregroundColor(palette.cyan)
                         }
                     }
                     if showDetails {
-                        ForEach(option["pros"]?.strings ?? [], id: \.self) { Text("+ " + $0).uiFont(size: 9).foregroundColor(VSDark.green).padding(.leading, 18) }
-                        ForEach(option["cons"]?.strings ?? [], id: \.self) { Text("− " + $0).uiFont(size: 9).foregroundColor(VSDark.orange).padding(.leading, 18) }
+                        ForEach(option["pros"]?.strings ?? [], id: \.self) { Text("+ " + $0).uiFont(size: 9).foregroundColor(palette.green).padding(.leading, 18) }
+                        ForEach(option["cons"]?.strings ?? [], id: \.self) { Text("− " + $0).uiFont(size: 9).foregroundColor(palette.orange).padding(.leading, 18) }
                     }
                 }
             }
@@ -730,7 +744,7 @@ struct QuestionCard: View {
             } label: {
                 TextField(options.isEmpty ? "Your answer…" : "Or answer in your own words…", text: $own)
                     .textFieldStyle(.plain).uiFont(size: 10)
-                    .padding(4).background(VSDark.bgInput).cornerRadius(3)
+                    .padding(4).background(palette.bgInput).cornerRadius(3)
                     .disabled(working)
                     .onChange(of: own) { text in
                         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -741,10 +755,10 @@ struct QuestionCard: View {
                 selection = .ai
                 own = ""
             } label: {
-                Text("Let the AI decide").uiFont(size: 10).foregroundColor(VSDark.text)
+                Text("Let the AI decide").uiFont(size: 10).foregroundColor(palette.text)
                 Text(recommended.isEmpty ? "— its decision is recorded as proposed, to check in Review"
                      : "— takes the recommendation as a proposed decision, to check in Review")
-                    .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    .uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             }
             if working && !busy {
                 Working(text: "Working on \(question.id)…")
@@ -783,7 +797,7 @@ struct QuestionCard: View {
         HStack(alignment: .top, spacing: 5) {
             Button(action: action) {
                 Image(systemName: selected ? "largecircle.fill.circle" : "circle")
-                    .uiFont(size: 11).foregroundColor(selected ? VSDark.blue : VSDark.textDim)
+                    .uiFont(size: 11).foregroundColor(selected ? palette.blue : palette.textDim)
             }
             .buttonStyle(.plain).disabled(!enabled)
             if tappable {
@@ -801,6 +815,7 @@ struct QuestionCard: View {
 
 /// A bug report's investigation: the questions still open, what was answered, and the fix.
 struct BugPanelView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @ObservedObject var store: FeatureStore
@@ -815,10 +830,10 @@ struct BugPanelView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 5) {
                     Image(systemName: "ladybug").uiFont(size: 10)
-                        .foregroundColor(["critical", "high"].contains(bug.severity) ? VSDark.red : VSDark.orange)
-                    Text(bug.key).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
+                        .foregroundColor(["critical", "high"].contains(bug.severity) ? palette.red : palette.orange)
+                    Text(bug.key).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
                     if !bug.severity.isEmpty {
-                        Text(bug.severity.uppercased()).uiFont(size: 8, weight: .bold).foregroundColor(VSDark.textDim)
+                        Text(bug.severity.uppercased()).uiFont(size: 8, weight: .bold).foregroundColor(palette.textDim)
                     }
                     IssueLinks(numbers: bug.issueNumbers)
                     Spacer()
@@ -834,7 +849,7 @@ struct BugPanelView: View {
                     .menuStyle(.borderlessButton).fixedSize()
                     .help("Bug status")
                 }
-                Text(bug.title).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textBright)
+                Text(bug.title).uiFont(size: 11, weight: .semibold).foregroundColor(palette.textBright)
                     .fixedSize(horizontal: false, vertical: true)
             }
             IssueLifecycleSection(store: store, kind: .bug, issue: bug.key, status: bug.status)
@@ -851,7 +866,7 @@ struct BugPanelView: View {
                     Text(bug.answeredQuestions.isEmpty
                          ? "No questions yet. Investigate: the AI checks the code and asks what is missing to reproduce the bug."
                          : "Nothing more to ask — the report is ready to fix.")
-                        .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 }
                 FlowButtons {
                     if bug.readyToFix && bug.status == "open" {
@@ -870,14 +885,14 @@ struct BugPanelView: View {
             if !bug.validity.isEmpty {
                 PanelSection(title: "Validity check") {
                     Text(markdown(bug.validity)).uiFont(size: 10)
-                        .foregroundColor(VSDark.text).textSelection(.enabled)
+                        .foregroundColor(palette.text).textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if !bug.discussion.isEmpty {
                 PanelSection(title: "Discussion") {
                     Text(markdown(bug.discussion)).uiFont(size: 10)
-                        .foregroundColor(VSDark.text).textSelection(.enabled)
+                        .foregroundColor(palette.text).textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -886,14 +901,14 @@ struct BugPanelView: View {
                     HStack(spacing: 4) {
                         Image(systemName: showAnswered ? "chevron.down" : "chevron.right").uiFont(size: 8)
                         Text("ANSWERED (\(bug.answeredQuestions.count))").uiFont(size: 9, weight: .bold)
-                    }.foregroundColor(VSDark.textDim)
+                    }.foregroundColor(palette.textDim)
                 }.buttonStyle(.plain)
                 if showAnswered {
                     ForEach(bug.answeredQuestions) { question in
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("\(question.id)  \(question.text)").uiFont(size: 10).foregroundColor(VSDark.text)
+                            Text("\(question.id)  \(question.text)").uiFont(size: 10).foregroundColor(palette.text)
                             Text("→ " + question.answer).uiFont(size: 10)
-                                .foregroundColor(question.status == "skipped" ? VSDark.textDim : VSDark.green)
+                                .foregroundColor(question.status == "skipped" ? palette.textDim : palette.green)
                         }.fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -903,6 +918,7 @@ struct BugPanelView: View {
 }
 
 struct BugDiscussionInput: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     let bug: BugReport
     @State private var text = ""
@@ -917,19 +933,19 @@ struct BugDiscussionInput: View {
             BugAttachmentControls(attachments: $attachments, failed: $failed)
             HStack {
                 Text("Discuss this bug; paste a screenshot with ⌘V")
-                    .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 10).foregroundColor(palette.textDim)
                 Spacer()
                 if assistant.isRunning("discuss:bug:" + bug.key) || assistant.isRunning("validity:bug:" + bug.key) {
                     ProgressView().scaleEffect(0.45).frame(width: 14, height: 14)
                 } else {
-                    Button(action: send) { Image(systemName: "arrow.up.circle.fill").uiFont(size: 15).foregroundColor(VSDark.blue) }
+                    Button(action: send) { Image(systemName: "arrow.up.circle.fill").uiFont(size: 15).foregroundColor(palette.blue) }
                         .buttonStyle(.plain)
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty)
                 }
             }
             if let failed { Text(failed).uiFont(size: 10).foregroundColor(.red) }
         }
-        .padding(8).background(VSDark.bgInput)
+        .padding(8).background(palette.bgInput)
         .onChange(of: bug.url) { _ in text = ""; attachments = []; failed = nil }
     }
 
@@ -981,6 +997,7 @@ struct BugAttachmentControls: View {
 
 /// An open question about a bug: choose an option, answer in your own words, or "I don't know".
 struct BugQuestionCard: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     let bug: BugReport
     let question: BugQuestion
@@ -991,17 +1008,17 @@ struct BugQuestionCard: View {
     @State private var failed: String?
 
     var body: some View {
-        card {
-            Text(question.id).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
-            Text(question.text).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textBright)
+        FeatureCard {
+            Text(question.id).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
+            Text(question.text).uiFont(size: 11, weight: .semibold).foregroundColor(palette.textBright)
                 .fixedSize(horizontal: false, vertical: true)
             if !question.why.isEmpty {
-                Text(question.why).uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                Text(question.why).uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             }
             ForEach(question.options, id: \.self) { option in
                 HStack(alignment: .top, spacing: 5) {
-                    Text(option.label).uiFont(size: 10, weight: .bold, design: .monospaced).foregroundColor(VSDark.blue)
-                    Text(option.text).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                    Text(option.label).uiFont(size: 10, weight: .bold, design: .monospaced).foregroundColor(palette.blue)
+                    Text(option.text).uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
                 }
             }
             if !busy {
@@ -1075,6 +1092,7 @@ struct FlowLayout: Layout {
 
 /// Source material and the facts extracted from it (spec §9–10).
 struct SourcesSection: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
@@ -1099,12 +1117,12 @@ struct SourcesSection: View {
             }
             if feature.list(.source).isEmpty {
                 Text("Drop files here (docs, PDFs, screenshots, audio) or add a URL, a GitHub issue, notes or a voice note. The AI proposes facts; you accept them.")
-                    .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    .uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             }
             ForEach(feature.list(.source).reversed()) { source in SourceCard(store: store, feature: feature, source: source) }
         }
         .padding(4)
-        .background(dropping ? VSDark.selection.opacity(0.25) : Color.clear)
+        .background(dropping ? palette.selection.opacity(0.25) : Color.clear)
         .cornerRadius(4)
         .onDrop(of: [UTType.fileURL], isTargeted: $dropping) { providers in
             for provider in providers {
@@ -1152,7 +1170,7 @@ struct SourcesSection: View {
             }
         } label: {
             HStack(spacing: 2) {
-                if whisper.isRecording { Circle().fill(VSDark.red).frame(width: 6, height: 6) }
+                if whisper.isRecording { Circle().fill(palette.red).frame(width: 6, height: 6) }
                 Image(systemName: "plus").uiFont(size: 9)
             }
         }
@@ -1170,6 +1188,7 @@ struct SourcesSection: View {
 }
 
 struct SourceInputSheet: View {
+    @Environment(\.palette) private var palette
     let kind: SourcesSection.SourcePrompt
     let onDone: (String, String) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -1182,7 +1201,7 @@ struct SourceInputSheet: View {
             if kind == .text {
                 TextField("Title (e.g. Call with support, 12 Sep)", text: $title).textFieldStyle(.roundedBorder)
                 TextEditor(text: $value).uiFont(size: 12).frame(minWidth: 420, minHeight: 180)
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(VSDark.border))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(palette.border))
             } else {
                 TextField(kind == .url ? "https://…" : "Issue number or link", text: $value).textFieldStyle(.roundedBorder).frame(minWidth: 380)
             }
@@ -1199,6 +1218,7 @@ struct SourceInputSheet: View {
 
 /// A source with its role and candidate facts: Accept / Reject / Edit / Discuss.
 struct SourceCard: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
@@ -1208,22 +1228,22 @@ struct SourceCard: View {
     @State private var draft = ""
 
     var body: some View {
-        card {
+        FeatureCard {
             HStack(spacing: 4) {
-                Image(systemName: "paperclip").uiFont(size: 9).foregroundColor(VSDark.textDim)
-                Text(source.title).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.textBright).lineLimit(1)
+                Image(systemName: "paperclip").uiFont(size: 9).foregroundColor(palette.textDim)
+                Text(source.title).uiFont(size: 10, weight: .semibold).foregroundColor(palette.textBright).lineLimit(1)
                 Spacer()
                 let role = source.front.string("role")
-                if !role.isEmpty { Text(FeatureVocabulary.label(role)).uiFont(size: 8).foregroundColor(VSDark.cyan) }
+                if !role.isEmpty { Text(FeatureVocabulary.label(role)).uiFont(size: 8).foregroundColor(palette.cyan) }
                 Button(action: { workspaceManager.openFile(source.url) }) {
-                    Image(systemName: "doc.text").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    Image(systemName: "doc.text").uiFont(size: 9).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain)
             }
             let facts = source.front["facts"]?.list ?? []
             let pending = facts.filter { $0["status"]?.string == "pending" }.count
             if !facts.isEmpty {
                 Text("\(facts.count) facts extracted\(pending > 0 ? " · \(pending) to confirm" : "")")
-                    .uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 9).foregroundColor(palette.textDim)
             }
             ForEach(Array(facts.enumerated()), id: \.offset) { index, fact in
                 let status = fact["status"]?.string ?? "pending"
@@ -1232,7 +1252,7 @@ struct SourceCard: View {
                     HStack(alignment: .top, spacing: 4) {
                         Text(status == "accepted" ? "✓" : status == "rejected" ? "✗" : "?")
                             .uiFont(size: 10, weight: .bold, design: .monospaced)
-                            .foregroundColor(status == "accepted" ? VSDark.green : status == "rejected" ? VSDark.textDim : VSDark.yellow)
+                            .foregroundColor(status == "accepted" ? palette.green : status == "rejected" ? palette.textDim : palette.yellow)
                         if editing == index {
                             TextField("", text: $draft).textFieldStyle(.plain).uiFont(size: 10)
                                 .onSubmit {
@@ -1240,7 +1260,7 @@ struct SourceCard: View {
                                     editing = nil
                                 }
                         } else {
-                            Text(text).uiFont(size: 10).foregroundColor(status == "rejected" ? VSDark.textDim : VSDark.text)
+                            Text(text).uiFont(size: 10).foregroundColor(status == "rejected" ? palette.textDim : palette.text)
                                 .strikethrough(status == "rejected").fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -1264,6 +1284,7 @@ struct SourceCard: View {
 // MARK: - Review (spec §12–14)
 
 struct ReviewStageView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
@@ -1271,7 +1292,7 @@ struct ReviewStageView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Is the specification complete, consistent and ready?").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Text("Is the specification complete, consistent and ready?").uiFont(size: 10).foregroundColor(palette.textDim)
                 Spacer()
                 if assistant.isRunning("review:" + feature.slug) {
                     Working(text: "Reviewing the specification from every perspective — about a minute…")
@@ -1285,7 +1306,7 @@ struct ReviewStageView: View {
             if feature.activeRequirements.count > 30 {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(feature.activeRequirements.count) requirements — too many to review or build well.")
-                        .uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.orange)
+                        .uiFont(size: 10, weight: .semibold).foregroundColor(palette.orange)
                     if assistant.isRunning("consolidate:" + feature.slug) {
                         Working(text: "Merging overlapping requirements into a compact set — a few minutes for large specs…")
                     } else {
@@ -1295,7 +1316,7 @@ struct ReviewStageView: View {
                         .help("Merge duplicates and refinements; merged files stay with status superseded")
                     }
                 }
-                .padding(8).background(VSDark.orange.opacity(0.08)).cornerRadius(5)
+                .padding(8).background(palette.orange.opacity(0.08)).cornerRadius(5)
             }
             let open = feature.list(.finding).filter { !$0.isClosed }
             if assistant.isRunning("decideall:" + feature.slug) {
@@ -1304,7 +1325,7 @@ struct ReviewStageView: View {
             } else if !open.isEmpty {
                 HStack(alignment: .top, spacing: 6) {
                     Text("Too many to go through? AI resolves every open finding itself; its decisions are proposed, to accept or change.")
-                        .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     SmallButton(title: "Decide all for me (\(open.count))", icon: "wand.and.stars", prominent: true) {
                         Task { await assistant.decideAllFindings(feature.slug) }
@@ -1316,13 +1337,13 @@ struct ReviewStageView: View {
                 ForEach(FeatureVocabulary.findingCategories, id: \.self) { category in
                     if let items = counts[category] {
                         HStack {
-                            Text(FeatureVocabulary.label(category)).uiFont(size: 10).foregroundColor(VSDark.text)
+                            Text(FeatureVocabulary.label(category)).uiFont(size: 10).foregroundColor(palette.text)
                             Spacer()
-                            Text("\(items.count)").uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim)
+                            Text("\(items.count)").uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim)
                         }
                     }
                 }
-                if open.isEmpty { Text(feature.list(.finding).isEmpty ? "No review yet." : "All findings are closed.").uiFont(size: 10).foregroundColor(VSDark.textDim) }
+                if open.isEmpty { Text(feature.list(.finding).isEmpty ? "No review yet." : "All findings are closed.").uiFont(size: 10).foregroundColor(palette.textDim) }
             }
             ForEach(FeatureVocabulary.severities, id: \.self) { severity in
                 ForEach(open.filter { $0.front.string("severity") == severity }) { finding in
@@ -1336,6 +1357,7 @@ struct ReviewStageView: View {
 
 /// A finding with its lifecycle actions (spec §14).
 struct FindingCard: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
@@ -1347,26 +1369,26 @@ struct FindingCard: View {
 
 
     var body: some View {
-        card {
+        FeatureCard {
             HStack(spacing: 4) {
                 Text(finding.front.string("severity").uppercased()).uiFont(size: 8, weight: .bold)
-                    .foregroundColor(["blocker", "high"].contains(finding.front.string("severity")) ? VSDark.red : VSDark.orange)
-                Text(FeatureVocabulary.label(finding.front.string("category")).uppercased()).uiFont(size: 8).foregroundColor(VSDark.textDim)
+                    .foregroundColor(["blocker", "high"].contains(finding.front.string("severity")) ? palette.red : palette.orange)
+                Text(FeatureVocabulary.label(finding.front.string("category")).uppercased()).uiFont(size: 8).foregroundColor(palette.textDim)
                 Spacer()
-                Text(finding.id).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
+                Text(finding.id).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
             }
-            Text(finding.title).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textBright).fixedSize(horizontal: false, vertical: true)
+            Text(finding.title).uiFont(size: 11, weight: .semibold).foregroundColor(palette.textBright).fixedSize(horizontal: false, vertical: true)
             let quote = finding.front.string("quote")
             if !quote.isEmpty {
-                Text("“\(quote)”").uiFont(size: 10, italic: true).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                Text("“\(quote)”").uiFont(size: 10, italic: true).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             }
             let detail = finding.section("Finding")
-            if !detail.isEmpty { Text(detail).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true) }
+            if !detail.isEmpty { Text(detail).uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true) }
             let interpretations = finding.front.strings("interpretations")
             if !interpretations.isEmpty {
-                ForEach(interpretations, id: \.self) { Text("• " + $0).uiFont(size: 10).foregroundColor(VSDark.text) }
+                ForEach(interpretations, id: \.self) { Text("• " + $0).uiFont(size: 10).foregroundColor(palette.text) }
             }
-            Text(finding.front.strings("perspectives").joined(separator: " · ")).uiFont(size: 9).foregroundColor(VSDark.cyan)
+            Text(finding.front.strings("perspectives").joined(separator: " · ")).uiFont(size: 9).foregroundColor(palette.cyan)
             ResolutionOptions(store: store, feature: feature, finding: finding)
             if let started, assistant.isRunning("chat:" + feature.slug) {
                 Working(text: started)
@@ -1411,6 +1433,7 @@ struct FindingCard: View {
 
 /// The ways to resolve a finding (AI-proposed), as buttons, plus the user's own answer.
 struct ResolutionOptions: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
@@ -1425,8 +1448,8 @@ struct ResolutionOptions: View {
             VStack(alignment: .leading, spacing: 3) {
                 if let chosen {
                     HStack(alignment: .top, spacing: 4) {
-                        Image(systemName: "checkmark.circle.fill").uiFont(size: 10).foregroundColor(VSDark.green)
-                        Text(chosen).uiFont(size: 10, weight: .medium).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                        Image(systemName: "checkmark.circle.fill").uiFont(size: 10).foregroundColor(palette.green)
+                        Text(chosen).uiFont(size: 10, weight: .medium).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Working(text: chosen == nil ? "AI is choosing how to resolve \(finding.id)…" : "Recording the decision and closing \(finding.id)…")
@@ -1436,7 +1459,7 @@ struct ResolutionOptions: View {
         } else if !options.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 let question = finding.front.string("resolution_question")
-                if !question.isEmpty { Text(question).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.yellow) }
+                if !question.isEmpty { Text(question).uiFont(size: 10, weight: .semibold).foregroundColor(palette.yellow) }
                 ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                     let text = option["text"]?.string ?? ""
                     VStack(alignment: .leading, spacing: 1) {
@@ -1444,14 +1467,14 @@ struct ResolutionOptions: View {
                             chosen = (option["label"]?.string ?? "") + " — " + text
                             Task { await assistant.resolve(feature.slug, finding: finding.id, with: text) }
                         }
-                        Text(text).uiFont(size: 9).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                        Text(text).uiFont(size: 9).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
                         let consequence = option["consequence"]?.string ?? ""
-                        if !consequence.isEmpty { Text("→ " + consequence).uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true) }
+                        if !consequence.isEmpty { Text("→ " + consequence).uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true) }
                     }
                 }
                 HStack(spacing: 4) {
                     TextField("Another way…", text: $own).textFieldStyle(.plain).uiFont(size: 10)
-                        .padding(4).background(VSDark.bgInput).cornerRadius(3)
+                        .padding(4).background(palette.bgInput).cornerRadius(3)
                     SmallButton(title: "Use") {
                         let text = own.trimmingCharacters(in: .whitespaces)
                         guard !text.isEmpty else { return }
@@ -1470,6 +1493,7 @@ struct ResolutionOptions: View {
 /// What is left to settle besides the findings above: blocking and open questions, the AI's
 /// proposed decisions to confirm, open assumptions and research gaps. Hidden when nothing is left.
 struct BeforeBuildSection: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
@@ -1486,21 +1510,21 @@ struct BeforeBuildSection: View {
         if !(blocking.isEmpty && otherQuestions.isEmpty && proposed.isEmpty && assumptions.isEmpty && gaps.isEmpty) {
             VStack(alignment: .leading, spacing: 10) {
                 PanelSection(title: "Before Build") {
-                    summary("Blocking questions", blocking.count, VSDark.red)
-                    summary("Open questions", otherQuestions.count, VSDark.yellow)
-                    summary("Decisions to confirm", proposed.count, VSDark.yellow)
-                    summary("Open assumptions", assumptions.count, VSDark.yellow)
-                    summary("Research gaps", gaps.count, VSDark.textDim)
+                    summary("Blocking questions", blocking.count, palette.red)
+                    summary("Open questions", otherQuestions.count, palette.yellow)
+                    summary("Decisions to confirm", proposed.count, palette.yellow)
+                    summary("Open assumptions", assumptions.count, palette.yellow)
+                    summary("Research gaps", gaps.count, palette.textDim)
                 }
                 if !blocking.isEmpty { QuestionRound(store: store, feature: feature, questions: blocking) }
                 ForEach(proposed) { decision in
-                    card {
+                    FeatureCard {
                         HStack {
-                            Text(decision.id).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
-                            Text("PROPOSED").uiFont(size: 8, weight: .bold).foregroundColor(VSDark.yellow)
+                            Text(decision.id).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
+                            Text("PROPOSED").uiFont(size: 8, weight: .bold).foregroundColor(palette.yellow)
                         }
-                        Text(decision.title).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textBright)
-                        Text(decision.section("Decision")).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                        Text(decision.title).uiFont(size: 11, weight: .semibold).foregroundColor(palette.textBright)
+                        Text(decision.section("Decision")).uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
                         HStack {
                             SmallButton(title: "Accept", prominent: true) { store.setStatus(decision.id, in: feature.slug, to: "accepted") }
                             SmallButton(title: "Reject") { store.rejectDecision(decision.id, in: feature.slug) }
@@ -1511,7 +1535,7 @@ struct BeforeBuildSection: View {
                     PanelSection(title: "Open assumptions") {
                         ForEach(assumptions, id: \.1) { item in
                             HStack(alignment: .top) {
-                                Text("• \(item.1)").uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                                Text("• \(item.1)").uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
                                 Spacer()
                                 SmallButton(title: "Ask") {
                                     store.create(.question, in: feature.slug, title: "Is it true that: \(item.1)",
@@ -1528,7 +1552,7 @@ struct BeforeBuildSection: View {
                     PanelSection(title: "Research gaps") {
                         ForEach(gaps, id: \.dimension) { gap in
                             HStack {
-                                Text(gap.dimension).uiFont(size: 10).foregroundColor(VSDark.text)
+                                Text(gap.dimension).uiFont(size: 10).foregroundColor(palette.text)
                                 Spacer()
                                 SmallButton(title: "Research", icon: "globe") {
                                     Task { await assistant.research(feature.slug, topic: "\(gap.dimension) for \(feature.title)") }
@@ -1544,9 +1568,9 @@ struct BeforeBuildSection: View {
 
     private func summary(_ title: String, _ count: Int, _ color: Color) -> some View {
         HStack {
-            Text(title).uiFont(size: 10).foregroundColor(VSDark.text)
+            Text(title).uiFont(size: 10).foregroundColor(palette.text)
             Spacer()
-            Text("\(count)").uiFont(size: 10, weight: .semibold, design: .monospaced).foregroundColor(count > 0 ? color : VSDark.textDim)
+            Text("\(count)").uiFont(size: 10, weight: .semibold, design: .monospaced).foregroundColor(count > 0 ? color : palette.textDim)
         }
     }
 }
@@ -1554,6 +1578,7 @@ struct BeforeBuildSection: View {
 // MARK: - Build (spec §24–26)
 
 struct BuildStageView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
@@ -1568,7 +1593,7 @@ struct BuildStageView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("\(approved.count) approved of \(feature.list(.requirement).filter { $0.status != "rejected" }.count) requirements")
-                    .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 10).foregroundColor(palette.textDim)
                 Spacer()
                 if assistant.isRunning("decompose:" + feature.slug) {
                     Working(text: "Planning…")
@@ -1579,7 +1604,7 @@ struct BuildStageView: View {
                 }
             }
             HStack {
-                Text("Hand the specification to the AI terminal to implement.").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Text("Hand the specification to the AI terminal to implement.").uiFont(size: 10).foregroundColor(palette.textDim)
                 Spacer()
                 SmallButton(title: "Implement with AI", icon: "hammer") { workspaceManager.implementWithAI(feature.folder) }
             }
@@ -1587,7 +1612,7 @@ struct BuildStageView: View {
             if !unapproved.isEmpty {
                 HStack(alignment: .top, spacing: 6) {
                     Text("\(unapproved.count) requirement\(unapproved.count == 1 ? "" : "s") not approved yet. The plan uses approved ones; without any it uses all non-rejected.")
-                        .uiFont(size: 9).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 9).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     SmallButton(title: "Approve all", icon: "checkmark.seal") { store.approveRequirements(feature.slug) }
                 }
@@ -1595,9 +1620,9 @@ struct BuildStageView: View {
             if !issues.isEmpty {
                 PanelSection(title: "Implementation coverage") {
                     Text("\(approved.count - missing.count) / \(approved.count) requirements covered")
-                        .uiFont(size: 10, weight: .semibold).foregroundColor(missing.isEmpty ? VSDark.green : VSDark.orange)
+                        .uiFont(size: 10, weight: .semibold).foregroundColor(missing.isEmpty ? palette.green : palette.orange)
                     if !missing.isEmpty {
-                        Text("Missing: " + missing.map(\.id).joined(separator: ", ")).uiFont(size: 10).foregroundColor(VSDark.orange)
+                        Text("Missing: " + missing.map(\.id).joined(separator: ", ")).uiFont(size: 10).foregroundColor(palette.orange)
                         FlowButtons {
                             ForEach(missing) { RequirementChip(id: $0.id, title: $0.title, from: nil) }
                         }
@@ -1627,6 +1652,7 @@ struct BuildStageView: View {
 
 /// A requirement that can be dragged between planned issues.
 struct RequirementChip: View {
+    @Environment(\.palette) private var palette
     let id: String
     let title: String
     /// The issue it is dragged from (nil = not in the plan).
@@ -1635,14 +1661,15 @@ struct RequirementChip: View {
     var body: some View {
         Text(id).uiFont(size: 9, weight: .semibold, design: .monospaced)
             .padding(.horizontal, 4).padding(.vertical, 2)
-            .background(VSDark.selection.opacity(0.5)).cornerRadius(3)
-            .foregroundColor(VSDark.textBright)
+            .background(palette.selection.opacity(0.5)).cornerRadius(3)
+            .foregroundColor(palette.textBright)
             .help(title)
             .onDrag { NSItemProvider(object: "\(from ?? "")|\(id)" as NSString) }
     }
 }
 
 struct IssuePlanCard: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
@@ -1651,23 +1678,23 @@ struct IssuePlanCard: View {
     @State private var pulls: [(number: Int, title: String, url: String)] = []
 
     var body: some View {
-        card {
+        FeatureCard {
             HStack(spacing: 4) {
-                Text(issue.id).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
-                Text(issue.title).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textBright).lineLimit(2)
+                Text(issue.id).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
+                Text(issue.title).uiFont(size: 11, weight: .semibold).foregroundColor(palette.textBright).lineLimit(2)
                 Spacer()
                 if let number = issue.github {
                     Button("#\(number)") { openIssue(number) }.buttonStyle(.link).uiFont(size: 10)
                 }
             }
-            Text(issue.summary).uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(4).fixedSize(horizontal: false, vertical: true)
+            Text(issue.summary).uiFont(size: 10).foregroundColor(palette.text).lineLimit(4).fixedSize(horizontal: false, vertical: true)
             FlowButtons {
                 ForEach(issue.requirements, id: \.self) { id in
                     RequirementChip(id: id, title: feature.object(id)?.title ?? id, from: issue.id)
                         .contextMenu { Button("Remove from \(issue.id)") { move(id, from: issue.id, to: nil) } }
                 }
                 ForEach(issue.decisions, id: \.self) { id in
-                    Text(id).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.purple)
+                    Text(id).uiFont(size: 9, design: .monospaced).foregroundColor(palette.purple)
                 }
             }
             if let number = issue.github {
@@ -1681,7 +1708,7 @@ struct IssuePlanCard: View {
                 }
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: 5).stroke(targeted ? VSDark.blue : Color.clear, lineWidth: 2))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(targeted ? palette.blue : Color.clear, lineWidth: 2))
         .onDrop(of: [UTType.plainText], isTargeted: $targeted) { providers in
             guard let provider = providers.first else { return false }
             _ = provider.loadObject(ofClass: NSString.self) { value, _ in
@@ -1716,6 +1743,7 @@ struct IssuePlanCard: View {
 // MARK: - The object open in the editor: trace, impact, history (spec §21, §27, §30)
 
 struct ObjectContextView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
@@ -1728,24 +1756,24 @@ struct ObjectContextView: View {
 
 
     var body: some View {
-        card {
+        FeatureCard {
             HStack(spacing: 5) {
-                Image(systemName: object.kind.icon).uiFont(size: 10).foregroundColor(VSDark.blue)
-                Text(object.id).uiFont(size: 11, weight: .bold, design: .monospaced).foregroundColor(VSDark.textBright)
+                Image(systemName: object.kind.icon).uiFont(size: 10).foregroundColor(palette.blue)
+                Text(object.id).uiFont(size: 11, weight: .bold, design: .monospaced).foregroundColor(palette.textBright)
                 Spacer()
                 statusMenu
             }
             let provenance = object.front.string("provenance")
             if !provenance.isEmpty {
                 Text(provenance + (object.front.string("created").isEmpty ? "" : " · \(object.front.string("created"))"))
-                    .uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 9).foregroundColor(palette.textDim)
             }
             actions
             trace
             if object.kind == .decision || object.kind == .requirement { impact }
             if !history.isEmpty {
-                Text("HISTORY").uiFont(size: 8, weight: .bold).foregroundColor(VSDark.textDim).padding(.top, 2)
-                ForEach(history.prefix(6), id: \.self) { Text($0).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1) }
+                Text("HISTORY").uiFont(size: 8, weight: .bold).foregroundColor(palette.textDim).padding(.top, 2)
+                ForEach(history.prefix(6), id: \.self) { Text($0).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1) }
             }
         }
         .task(id: object.id + object.front.string("updated")) { await load() }
@@ -1808,12 +1836,12 @@ struct ObjectContextView: View {
         let downstream = feature.incoming(object.id)
         let issues = object.front.strings("issues")
         if !upstream.isEmpty || !downstream.isEmpty || !issues.isEmpty {
-            Text("TRACE").uiFont(size: 8, weight: .bold).foregroundColor(VSDark.textDim).padding(.top, 2)
+            Text("TRACE").uiFont(size: 8, weight: .bold).foregroundColor(palette.textDim).padding(.top, 2)
             ForEach(Array(upstream.enumerated()), id: \.offset) { _, link in traceRow("↑ " + relation(link.relation), link.to) }
             ForEach(Array(downstream.enumerated()), id: \.offset) { _, link in traceRow("↓ " + relation(link.relation, incoming: true), link.from) }
             ForEach(issues, id: \.self) { issue in
                 HStack(spacing: 4) {
-                    Text("↓ implemented by").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    Text("↓ implemented by").uiFont(size: 9).foregroundColor(palette.textDim)
                     Button(issue) {
                         if let number = Int(issue.filter(\.isNumber)), let slug = assistant.gitHubClient()?.repo.slug,
                            let url = URL(string: "https://github.com/\(slug)/issues/\(number)") { NSWorkspace.shared.open(url) }
@@ -1826,9 +1854,9 @@ struct ObjectContextView: View {
     private func traceRow(_ label: String, _ target: FeatureObject) -> some View {
         Button(action: { workspaceManager.openFile(target.url) }) {
             HStack(spacing: 4) {
-                Text(label).uiFont(size: 9).foregroundColor(VSDark.textDim)
-                Text(target.id).uiFont(size: 9, weight: .semibold, design: .monospaced).foregroundColor(VSDark.blue)
-                Text(target.title).uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(1)
+                Text(label).uiFont(size: 9).foregroundColor(palette.textDim)
+                Text(target.id).uiFont(size: 9, weight: .semibold, design: .monospaced).foregroundColor(palette.blue)
+                Text(target.title).uiFont(size: 10).foregroundColor(palette.text).lineLimit(1)
                 Spacer(minLength: 0)
             }
         }.buttonStyle(.plain)
@@ -1849,18 +1877,18 @@ struct ObjectContextView: View {
     private var impact: some View {
         let (requirements, issues) = feature.impact(of: object.id)
         if !requirements.isEmpty || !issues.isEmpty || !mentions.isEmpty || !code.isEmpty {
-            Text("CHANGE IMPACT").uiFont(size: 8, weight: .bold).foregroundColor(VSDark.textDim).padding(.top, 2)
+            Text("CHANGE IMPACT").uiFont(size: 8, weight: .bold).foregroundColor(palette.textDim).padding(.top, 2)
             ForEach(requirements) { traceRow("req", $0) }
             ForEach(issues) { issue in
-                Text("issue \(issue.github.map { "#\($0)" } ?? issue.id) \(issue.title)").uiFont(size: 9).foregroundColor(VSDark.text).lineLimit(1)
+                Text("issue \(issue.github.map { "#\($0)" } ?? issue.id) \(issue.title)").uiFont(size: 9).foregroundColor(palette.text).lineLimit(1)
             }
             ForEach(mentions, id: \.self) { path in
                 Button(path) { if let root = store.root { workspaceManager.openFile(root.appendingPathComponent(path)) } }
                     .buttonStyle(.link).uiFont(size: 9)
             }
             if !code.isEmpty {
-                Text("Potentially affected code").uiFont(size: 9).foregroundColor(VSDark.textDim)
-                ForEach(code.prefix(12), id: \.self) { Text($0).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.text).lineLimit(1) }
+                Text("Potentially affected code").uiFont(size: 9).foregroundColor(palette.textDim)
+                ForEach(code.prefix(12), id: \.self) { Text($0).uiFont(size: 9, design: .monospaced).foregroundColor(palette.text).lineLimit(1) }
             }
         }
     }
@@ -1887,6 +1915,7 @@ struct ObjectContextView: View {
 
 /// "N outdated requirements — Clean up…": opens the cleanup sheet with the requirements chosen.
 struct OutdatedRequirementsBanner: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var store: FeatureStore
     let feature: Feature
     @State private var showing = false
@@ -1896,14 +1925,14 @@ struct OutdatedRequirementsBanner: View {
         let superseded = outdated.filter { $0.status == "superseded" }.count
         HStack(alignment: .top, spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(outdated.count) outdated requirements").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
+                Text("\(outdated.count) outdated requirements").uiFont(size: 10, weight: .semibold).foregroundColor(palette.text)
                 Text("\(superseded) merged in a consolidation, \(outdated.count - superseded) rejected")
-                    .uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 9).foregroundColor(palette.textDim)
             }
             Spacer()
             SmallButton(title: "Clean up…", icon: "trash") { showing = true }
         }
-        .padding(8).background(VSDark.bgInput.opacity(0.5)).cornerRadius(5)
+        .padding(8).background(palette.bgInput.opacity(0.5)).cornerRadius(5)
         .sheet(isPresented: $showing) {
             FeatureCleanupSheet(store: store, slug: feature.slug, selected: [.requirements]) { showing = false }
         }
@@ -1913,6 +1942,7 @@ struct OutdatedRequirementsBanner: View {
 /// Preview of what a cleanup removes, by category; the chosen objects go to the Trash and the
 /// links to them move to their replacements or are removed.
 struct FeatureCleanupSheet: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var store: FeatureStore
     @ObservedObject var assistant: FeatureAssistant
     let slug: String
@@ -1938,17 +1968,17 @@ struct FeatureCleanupSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Clean up \(feature?.title ?? slug)").uiFont(size: 13, weight: .semibold)
             Text("Chosen files go to the Trash (restorable). Links to them in the remaining objects and the plan move to the object that replaced them, or are removed.")
-                .uiFont(size: 11).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Decisions and findings written against older requirements").uiFont(size: 11, weight: .medium)
                     Text(marked ?? "AI compares them with the current requirements and marks the ones that no longer apply (decisions superseded, findings dismissed); they then appear below.")
-                        .uiFont(size: 10).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
                 if assistant.isRunning("outdated:" + slug) {
                     ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
-                    Text("Checking… a few minutes").uiFont(size: 10).foregroundColor(.secondary)
+                    Text("Checking… a few minutes").uiFont(size: 10).foregroundColor(palette.textDim)
                 } else {
                     Button("Find outdated (AI)") {
                         marked = nil
@@ -1977,10 +2007,10 @@ struct FeatureCleanupSheet: View {
             .frame(minHeight: 180, maxHeight: 380)
             HStack {
                 if let removed {
-                    Text("\(removed) files moved to the Trash.").uiFont(size: 11).foregroundColor(.secondary)
+                    Text("\(removed) files moved to the Trash.").uiFont(size: 11).foregroundColor(palette.textDim)
                 } else if working {
                     ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
-                    Text("Deleting…").uiFont(size: 11).foregroundColor(.secondary)
+                    Text("Deleting…").uiFont(size: 11).foregroundColor(palette.textDim)
                 }
                 Spacer()
                 Button(removed == nil ? "Cancel" : "Done", action: close).keyboardShortcut(.cancelAction)
@@ -2008,7 +2038,7 @@ struct FeatureCleanupSheet: View {
                                      set: { if $0 { selected.insert(category) } else { selected.remove(category) } })) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("\(category.title) (\(objects.count))").uiFont(size: 12, weight: .medium)
-                        Text(category.detail).uiFont(size: 10).foregroundColor(.secondary)
+                        Text(category.detail).uiFont(size: 10).foregroundColor(palette.textDim)
                     }
                 }
                 .disabled(objects.isEmpty || working || removed != nil)
@@ -2024,14 +2054,14 @@ struct FeatureCleanupSheet: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(objects, id: \.id) { object in
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text(object.id).uiFont(size: 10, design: .monospaced).foregroundColor(.secondary)
+                            Text(object.id).uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim)
                             Text(object.title).uiFont(size: 10).lineLimit(1)
                             Spacer()
-                            Text(object.status).uiFont(size: 9).foregroundColor(.secondary)
+                            Text(object.status).uiFont(size: 9).foregroundColor(palette.textDim)
                         }
                         let reason = object.front.string("outdated_reason") + object.front.string("dismissed_reason")
                         if !reason.isEmpty {
-                            Text(reason).uiFont(size: 9).foregroundColor(.secondary).lineLimit(2).padding(.leading, 12)
+                            Text(reason).uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(2).padding(.leading, 12)
                         }
                     }
                 }

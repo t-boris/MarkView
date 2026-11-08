@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Git tab — status, stage, commit, push/pull, history
 struct GitView: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var git: GitClient
     let workspaceManager: WorkspaceManager
     @State private var commitMessage = ""
@@ -34,7 +35,7 @@ struct GitView: View {
 
                 if gitHub.isAvailable {
                     GitHubSectionPicker(gitHub: gitHub, section: $layout.gitSection)
-                    Divider().background(VSDark.border)
+                    Divider().background(palette.border)
                     switch layout.gitSection {
                     case .changes: localChanges
                     case .pullRequests: GitHubPullRequestsView(gitHub: gitHub, workspaceManager: workspaceManager)
@@ -46,7 +47,7 @@ struct GitView: View {
                 }
             }
         }
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
         .onAppear { Task { await git.refresh() } }
     }
 
@@ -61,12 +62,12 @@ struct GitView: View {
                     diffView
                 }
 
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
 
                 // Commit bar
                 commitBar
 
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
 
                 // History
                 historyView
@@ -90,13 +91,13 @@ struct GitView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 14, height: 14)
-                    Text(text).uiFont(size: 10).foregroundColor(VSDark.text)
+                    Text(text).uiFont(size: 10).foregroundColor(palette.text)
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 10).padding(.vertical, 4)
-                ProgressView().progressViewStyle(.linear).controlSize(.mini).tint(VSDark.blue)
+                ProgressView().progressViewStyle(.linear).controlSize(.mini).tint(palette.blue)
             }
-            .background(VSDark.bgInput)
+            .background(palette.bgInput)
         }
     }
 
@@ -105,12 +106,12 @@ struct GitView: View {
     private var noRepoView: some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "arrow.triangle.branch").uiFont(size: 24).foregroundColor(VSDark.textDim)
-            Text("Not a Git repository").uiFont(size: 12).foregroundColor(VSDark.textDim)
+            Image(systemName: "arrow.triangle.branch").uiFont(size: 24).foregroundColor(palette.textDim)
+            Text("Not a Git repository").uiFont(size: 12).foregroundColor(palette.textDim)
             Button("Initialize Git Repo") {
                 Task { await git.initRepo() }
             }
-            .buttonStyle(.borderedProminent).tint(VSDark.blue)
+            .buttonStyle(.borderedProminent).tint(palette.blue)
             Spacer()
         }.frame(maxWidth: .infinity)
     }
@@ -119,7 +120,7 @@ struct GitView: View {
 
     private var branchHeader: some View {
         HStack(spacing: 6) {
-            Image(systemName: "arrow.triangle.branch").uiFont(size: 10).foregroundColor(VSDark.blue)
+            Image(systemName: "arrow.triangle.branch").uiFont(size: 10).foregroundColor(palette.blue)
             GitBranchMenu(git: git, workspaceManager: workspaceManager)
             if gitHub.isAvailable {
                 GitHubBranchStatus(gitHub: gitHub) {
@@ -132,24 +133,24 @@ struct GitView: View {
                 // Not connected (no GitHub remote, or the integration is off): create or connect
                 // a repository and publish (REQ-003).
                 Button(action: { workspaceManager.gitHubPublishRequested = true }) {
-                    Image(systemName: "icloud.and.arrow.up").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    Image(systemName: "icloud.and.arrow.up").uiFont(size: 10).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain).help("Publish to GitHub…")
             }
             if git.isOperating {
                 ProgressView().scaleEffect(0.4)
             }
             Button(action: { Task { await git.refresh() } }) {
-                Image(systemName: "arrow.clockwise").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Image(systemName: "arrow.clockwise").uiFont(size: 10).foregroundColor(palette.textDim)
             }.buttonStyle(.plain)
             Button(action: { Task { await git.pull() } }) {
-                Image(systemName: "arrow.down.circle").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Image(systemName: "arrow.down.circle").uiFont(size: 10).foregroundColor(palette.textDim)
             }.buttonStyle(.plain).help("Pull")
             Button(action: { Task { await git.push() } }) {
-                Image(systemName: "arrow.up.circle").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Image(systemName: "arrow.up.circle").uiFont(size: 10).foregroundColor(palette.textDim)
             }.buttonStyle(.plain).help("Push")
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(VSDark.bgActive)
+        .background(palette.bgActive)
     }
 
     // MARK: - Repository status
@@ -178,8 +179,8 @@ struct GitView: View {
             let clean = git.repoStatus.entries.allSatisfy { $0.special == .ignored }
             if clean && !git.showIgnored && !git.showTracked {
                 HStack {
-                    Image(systemName: "checkmark.circle").uiFont(size: 10).foregroundColor(VSDark.green)
-                    Text("Working tree clean").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    Image(systemName: "checkmark.circle").uiFont(size: 10).foregroundColor(palette.green)
+                    Text("Working tree clean").uiFont(size: 10).foregroundColor(palette.textDim)
                     Spacer()
                 }.padding(.horizontal, 10).padding(.vertical, 6)
             } else {
@@ -198,14 +199,14 @@ struct GitView: View {
 
             if let error = git.lastError {
                 HStack(alignment: .top, spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle").uiFont(size: 9).foregroundColor(VSDark.red)
-                    Text(error).uiFont(size: 9).foregroundColor(VSDark.red).lineLimit(6)
+                    Image(systemName: "exclamationmark.triangle").uiFont(size: 9).foregroundColor(palette.red)
+                    Text(error).uiFont(size: 9).foregroundColor(palette.red).lineLimit(6)
                         .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     Button(action: { git.lastError = nil }) {
-                        Image(systemName: "xmark").uiFont(size: 8).foregroundColor(VSDark.textDim)
+                        Image(systemName: "xmark").uiFont(size: 8).foregroundColor(palette.textDim)
                     }.buttonStyle(.plain)
-                }.padding(.horizontal, 10).padding(.vertical, 4).background(VSDark.red.opacity(0.1))
+                }.padding(.horizontal, 10).padding(.vertical, 4).background(palette.red.opacity(0.1))
             }
         }
     }
@@ -219,20 +220,20 @@ struct GitView: View {
                     let count = status.count(group)
                     if count > 0 || group != .conflicts {
                         Text("\(count) \(group.rawValue.lowercased())").uiFont(size: 9, weight: .medium)
-                            .foregroundColor(count == 0 ? VSDark.textDim : color(for: group))
+                            .foregroundColor(count == 0 ? palette.textDim : color(for: group))
                     }
                 }
                 Spacer(minLength: 0)
                 if status.upstream != nil {
                     Text("↑\(status.ahead) ↓\(status.behind)").uiFont(size: 9, weight: .medium, design: .monospaced)
-                        .foregroundColor(status.behind > 0 ? VSDark.orange : VSDark.textDim)
+                        .foregroundColor(status.behind > 0 ? palette.orange : palette.textDim)
                         .help(status.behind > 0 ? "\(status.behind) commit(s) on \(status.upstream ?? "") not here yet: pull before pushing"
                               : "Ahead of \(status.upstream ?? "") by \(status.ahead) commit(s)")
                 } else if !status.head.isEmpty {
-                    Text("no upstream").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    Text("no upstream").uiFont(size: 9).foregroundColor(palette.textDim)
                 }
                 if git.stashCount > 0 {
-                    Text("\(git.stashCount) stash").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    Text("\(git.stashCount) stash").uiFont(size: 9).foregroundColor(palette.textDim)
                 }
             }
             HStack(spacing: 8) {
@@ -242,12 +243,12 @@ struct GitView: View {
                     .help("List the files Git tracks that have no change")
                 Spacer(minLength: 0)
                 if status.count(.changes) + status.count(.untracked) > 0 {
-                    Button("Stage All") { git.stageAll() }.uiFont(size: 9).buttonStyle(.plain).foregroundColor(VSDark.blue)
+                    Button("Stage All") { git.stageAll() }.uiFont(size: 9).buttonStyle(.plain).foregroundColor(palette.blue)
                 }
             }
             .uiFont(size: 9)
             TextField("Filter paths", text: $filter).textFieldStyle(.plain).uiFont(size: 10)
-                .padding(.horizontal, 6).padding(.vertical, 3).background(VSDark.bgInput).cornerRadius(4)
+                .padding(.horizontal, 6).padding(.vertical, 3).background(palette.bgInput).cornerRadius(4)
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
     }
@@ -271,9 +272,9 @@ struct GitView: View {
                     Button(action: { workspaceManager.resolveConflictsWithAI() }) {
                         Label("Resolve with AI", systemImage: "sparkles").uiFont(size: 10, weight: .medium)
                     }
-                    .buttonStyle(.borderedProminent).tint(VSDark.blue).controlSize(.small)
+                    .buttonStyle(.borderedProminent).tint(palette.blue).controlSize(.small)
                     .help("Hand the conflicted files to the assistant: it resolves and stages them, you review and commit")
-                    Text(git.operationInProgress.map { "\($0) in progress" } ?? "").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    Text(git.operationInProgress.map { "\($0) in progress" } ?? "").uiFont(size: 9).foregroundColor(palette.textDim)
                     Spacer(minLength: 0)
                 }.padding(.horizontal, 10).padding(.vertical, 2)
             }
@@ -312,22 +313,22 @@ struct GitView: View {
 
     private func color(for group: GitStatusGroup) -> Color {
         switch group {
-        case .conflicts: return VSDark.red
-        case .staged: return VSDark.green
-        case .changes: return VSDark.orange
-        case .untracked: return VSDark.blue
-        case .ignored, .tracked: return VSDark.textDim
+        case .conflicts: return palette.red
+        case .staged: return palette.green
+        case .changes: return palette.orange
+        case .untracked: return palette.blue
+        case .ignored, .tracked: return palette.textDim
         }
     }
 
     private func color(for state: GitFileState) -> Color {
         switch state {
-        case .modified, .typeChanged: return VSDark.orange
-        case .added, .copied: return VSDark.green
-        case .deleted, .conflicted: return VSDark.red
-        case .renamed: return VSDark.blue
-        case .untracked: return VSDark.blue
-        case .ignored, .tracked: return VSDark.textDim
+        case .modified, .typeChanged: return palette.orange
+        case .added, .copied: return palette.green
+        case .deleted, .conflicted: return palette.red
+        case .renamed: return palette.blue
+        case .untracked: return palette.blue
+        case .ignored, .tracked: return palette.textDim
         }
     }
 
@@ -339,11 +340,11 @@ struct GitView: View {
             switch group {
             case .staged:
                 Button(action: { git.unstageFile(entry.path) }) {
-                    Image(systemName: "checkmark.square.fill").uiFont(size: 10).foregroundColor(VSDark.green)
+                    Image(systemName: "checkmark.square.fill").uiFont(size: 10).foregroundColor(palette.green)
                 }.buttonStyle(.plain).help("Unstage")
             case .changes, .untracked, .conflicts:
                 Button(action: { git.stageFile(entry.path) }) {
-                    Image(systemName: "square").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    Image(systemName: "square").uiFont(size: 10).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain).help(group == .conflicts ? "Mark as resolved (stage)" : "Stage")
             case .ignored, .tracked:
                 Color.clear.frame(width: 10, height: 10)
@@ -362,7 +363,7 @@ struct GitView: View {
                 }
             }) {
                 Text(entry.origin.map { "\($0) → \(entry.path)" } ?? entry.path)
-                    .uiFont(size: 10).foregroundColor(dim ? VSDark.textDim : VSDark.text)
+                    .uiFont(size: 10).foregroundColor(dim ? palette.textDim : palette.text)
                     .italic(group == .ignored).lineLimit(1).truncationMode(.middle)
             }.buttonStyle(.plain)
 
@@ -370,17 +371,17 @@ struct GitView: View {
 
             if !entry.isDirectory && entry.state(in: group) != .deleted && group != .conflicts || group == .conflicts {
                 Button(action: { openFile(entry.path) }) {
-                    Image(systemName: "doc.text").uiFont(size: 8).foregroundColor(VSDark.blue)
+                    Image(systemName: "doc.text").uiFont(size: 8).foregroundColor(palette.blue)
                 }.buttonStyle(.plain).help("Open")
             }
             if group == .changes {
                 Button(action: { git.discardChanges(entry.path) }) {
-                    Image(systemName: "arrow.uturn.backward").uiFont(size: 8).foregroundColor(VSDark.red)
+                    Image(systemName: "arrow.uturn.backward").uiFont(size: 8).foregroundColor(palette.red)
                 }.buttonStyle(.plain).help("Discard changes in the work tree")
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 3)
-        .background(selectedFile == selection ? VSDark.bgActive : Color.clear)
+        .background(selectedFile == selection ? palette.bgActive : Color.clear)
         .contentShape(Rectangle())
         .contextMenu { rowMenu(entry, group: group) }
     }
@@ -473,22 +474,22 @@ struct GitView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(selectedFile.map { String($0.drop(while: { $0 != ":" }).dropFirst()) } ?? "")
-                    .uiFont(size: 9, weight: .bold).foregroundColor(VSDark.blue)
+                    .uiFont(size: 9, weight: .bold).foregroundColor(palette.blue)
                 Spacer()
                 Button(action: { diffText = ""; selectedFile = nil }) {
-                    Image(systemName: "xmark").uiFont(size: 8).foregroundColor(VSDark.textDim)
+                    Image(systemName: "xmark").uiFont(size: 8).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain)
             }.padding(.horizontal, 10).padding(.vertical, 3)
 
             ScrollView {
                 Text(diffText)
                     .uiFont(size: 10, design: .monospaced)
-                    .foregroundColor(VSDark.text)
+                    .foregroundColor(palette.text)
                     .textSelection(.enabled)
                     .padding(.horizontal, 10)
             }
             .frame(maxHeight: 200)
-            .background(VSDark.bg)
+            .background(palette.bg)
         }
     }
 
@@ -499,7 +500,7 @@ struct GitView: View {
             TextField("Commit message...", text: $commitMessage)
                 .textFieldStyle(.plain)
                 .uiFont(size: 11)
-                .foregroundColor(VSDark.text)
+                .foregroundColor(palette.text)
                 .padding(.horizontal, 10).padding(.top, 6)
 
             let staged = git.changedFiles.filter { $0.isStaged }.count
@@ -512,7 +513,7 @@ struct GitView: View {
                     HStack(spacing: 3) {
                         Image(systemName: "checkmark.circle").uiFont(size: 10)
                         Text("Commit (\(staged))").uiFont(size: 10)
-                    }.foregroundColor(commitMessage.isEmpty || staged == 0 ? VSDark.textDim : VSDark.green)
+                    }.foregroundColor(commitMessage.isEmpty || staged == 0 ? palette.textDim : palette.green)
                 }
                 .buttonStyle(.plain)
                 .disabled(commitMessage.isEmpty || staged == 0)
@@ -528,7 +529,7 @@ struct GitView: View {
                     HStack(spacing: 3) {
                         Image(systemName: "arrow.up.circle").uiFont(size: 10)
                         Text("Commit & Push").uiFont(size: 10)
-                    }.foregroundColor(commitMessage.isEmpty || staged == 0 ? VSDark.textDim : VSDark.blue)
+                    }.foregroundColor(commitMessage.isEmpty || staged == 0 ? palette.textDim : palette.blue)
                 }
                 .buttonStyle(.plain)
                 .disabled(commitMessage.isEmpty || staged == 0)
@@ -537,14 +538,14 @@ struct GitView: View {
             }
             .padding(.horizontal, 10).padding(.bottom, 6)
         }
-        .background(VSDark.bgInput)
+        .background(palette.bgInput)
     }
 
     // MARK: - History
 
     private var historyView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("History").uiFont(size: 10, weight: .bold).foregroundColor(VSDark.textDim)
+            Text("History").uiFont(size: 10, weight: .bold).foregroundColor(palette.textDim)
                 .padding(.horizontal, 10).padding(.vertical, 4)
 
             ScrollView {
@@ -553,15 +554,15 @@ struct GitView: View {
                         HStack(spacing: 6) {
                             Text(commit.hash)
                                 .uiFont(size: 9, design: .monospaced)
-                                .foregroundColor(VSDark.blue)
+                                .foregroundColor(palette.blue)
                             Text(commit.message)
                                 .uiFont(size: 10)
-                                .foregroundColor(VSDark.text)
+                                .foregroundColor(palette.text)
                                 .lineLimit(1)
                             Spacer()
                             Text(commit.date)
                                 .uiFont(size: 8)
-                                .foregroundColor(VSDark.textDim)
+                                .foregroundColor(palette.textDim)
                         }
                         .padding(.horizontal, 10).padding(.vertical, 2)
                     }
@@ -583,6 +584,7 @@ struct GitView: View {
 
 /// The current branch as a menu: switch to a local or remote branch, or create a new one.
 struct GitBranchMenu: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var git: GitClient
     let workspaceManager: WorkspaceManager
     var fontSize: CGFloat = 11
@@ -593,7 +595,7 @@ struct GitBranchMenu: View {
         HStack(spacing: 5) {
             menu
             if git.worktrees.count > 1 {
-                Text("+\(git.worktrees.count - 1) copies").uiFont(size: fontSize - 2).foregroundColor(VSDark.textDim)
+                Text("+\(git.worktrees.count - 1) copies").uiFont(size: fontSize - 2).foregroundColor(palette.textDim)
                     .help("Other working copies of this repository (worktrees), each on its own branch: open the branch menu to see them.")
             }
         }
@@ -691,6 +693,7 @@ struct GitBranchMenu: View {
 
 /// Name and starting point of a new branch; the branch is checked out once created.
 private struct GitNewBranchForm: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var git: GitClient
     let create: (_ name: String, _ base: String?) -> Void
     @State private var name = ""
@@ -708,9 +711,9 @@ private struct GitNewBranchForm: View {
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { if canCreate { submit() } }
             if exists {
-                Text("A branch with this name already exists.").uiFont(.caption).foregroundColor(.secondary)
+                Text("A branch with this name already exists.").uiFont(.caption).foregroundColor(palette.textDim)
             } else if !trimmed.isEmpty && !canCreate {
-                Text("Not a valid branch name.").uiFont(.caption).foregroundColor(.secondary)
+                Text("Not a valid branch name.").uiFont(.caption).foregroundColor(palette.textDim)
             }
             Picker("From", selection: $base) {
                 Text("Current (\(git.branch))").tag("")

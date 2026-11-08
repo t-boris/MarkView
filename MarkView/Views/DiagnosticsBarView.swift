@@ -2,6 +2,7 @@ import SwiftUI
 
 /// VS Code-style status bar at the bottom of the editor
 struct DiagnosticsBarView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
 
     var body: some View {
@@ -12,10 +13,10 @@ struct DiagnosticsBarView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "square.text.square")
                         .uiFont(size: 9)
-                        .foregroundColor(VSDark.blue)
+                        .foregroundColor(palette.blue)
                     Text("\(block.type.rawValue) L\(block.lineStart)")
                         .uiFont(size: 10)
-                        .foregroundColor(VSDark.text)
+                        .foregroundColor(palette.text)
                 }
                 .padding(.horizontal, 10)
             }
@@ -28,7 +29,7 @@ struct DiagnosticsBarView: View {
                         .scaleEffect(0.7)
                     Text(progress)
                         .uiFont(size: 10)
-                        .foregroundColor(VSDark.textDim)
+                        .foregroundColor(palette.textDim)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -40,8 +41,8 @@ struct DiagnosticsBarView: View {
             Spacer()
         }
         .frame(height: 20)
-        .background(VSDark.bgBanner)
-        .overlay(Rectangle().frame(height: 1).foregroundColor(VSDark.border), alignment: .top)
+        .background(palette.bgBanner)
+        .overlay(Rectangle().frame(height: 1).foregroundColor(palette.border), alignment: .top)
     }
 
     private var activeTab: OpenTab? {

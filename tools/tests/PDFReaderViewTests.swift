@@ -1,13 +1,7 @@
 import SwiftUI
 import PDFKit
 
-// Styling is incidental to the standalone native view integration check.
-enum VSDark {
-    static let bg = Color.black
-    static let bgSidebar = Color.gray
-    static let text = Color.white
-    static let textDim = Color.gray
-}
+// Styling is incidental to the standalone native view integration check: the view draws with the default palette.
 
 extension View {
     func uiFont(size: CGFloat, design: Font.Design = .default) -> some View {

@@ -727,7 +727,7 @@ flowchart LR
   and filters, JSON log lines and stack traces understood, search with regex and *only
   matches*, **Next error**, wrap, and **Follow** to watch a growing log.
 - **Search the whole project** (**⌘⇧K**): file names, the text of any UTF-8 file (up to 2 MB each),
-  archive entry names, linked folders and **commands** (Git Pull, Show Deployments, New Feature, Toggle
+  archive entry names, linked folders and **commands** (Git Pull, Show Deployments, New Feature,
   Theme…) in one palette. The index lives in memory and is rebuilt when you open the project. A meaning
   search over your Markdown documents (SQLite FTS5, kept in `.dde/state.db`) is the **Search → Documents**
   mode of the right panel. Find in file (**⌘F**) has case and regex.
@@ -786,7 +786,11 @@ flowchart LR
   deploy command after you confirm the exact command, with live output, Cancel and a notification when
   done; the other kinds start from **Run** in the Deployment details panel. The list is shared in
   `.markview/operations.json`.
-- Light, dark and system themes; interface text from 80% to 200%.
+- A theme for each window: System (follows macOS) and four presets, Darcula-inspired, Midnight, Graphite and Paper, each with an
+  accent colour of your own. The choice applies to the whole window (interface, editor, preview, discussion, terminal), is
+  remembered per window across restarts and does not touch other windows; a new window starts from the last theme and accents
+  you chose. Installations that used the old light or dark setting keep that look as Classic Light or Classic Dark until you
+  pick another theme. Interface text from 80% to 200%.
 
 ---
 
@@ -808,7 +812,7 @@ flowchart LR
 | ⌘⇧P | WYSIWYG ↔ source |
 | ⌘F | Find in file |
 | ⌘E · ⌘⇧E | Export PDF · Export PDF Book… |
-| ⌘⇧T | Toggle theme |
+| ⌘⇧T | Theme… (theme and accent of the window) |
 | ⌘⇧, | DDE Settings… |
 
 ---

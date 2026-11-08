@@ -4,6 +4,7 @@ import SwiftUI
 /// with its progress while a run is under way (DEC-009). Not shown while the GitHub integration
 /// is off, which never runs `gh`.
 struct IssueSyncButton: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var sync: IssueSyncRun
     let start: () -> Void
     @AppStorage(GitHubSettings.enabledKey) private var gitHubEnabled = false
@@ -20,7 +21,7 @@ struct IssueSyncButton: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Sync to GitHub")
-            .foregroundColor(VSDark.textDim)
+            .foregroundColor(palette.textDim)
             .padding(2)
             .help("Sync to GitHub — close the linked issues of implemented features and fixed bugs")
         }
@@ -30,6 +31,7 @@ struct IssueSyncButton: View {
 /// Progress of the active run, then the report of the last one (REQ-004): the summary counts
 /// unique issues; the rows show each item–issue pair with its outcome and reason.
 struct IssueSyncReportView: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var sync: IssueSyncRun
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var expanded = true
@@ -42,8 +44,8 @@ struct IssueSyncReportView: View {
     var body: some View {
         if let phase = sync.phase {
             HStack(spacing: 5) {
-                Image(systemName: "arrow.triangle.2.circlepath").uiFont(size: 9).foregroundColor(VSDark.blue)
-                Text("Sync: \(phase)").uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(1)
+                Image(systemName: "arrow.triangle.2.circlepath").uiFont(size: 9).foregroundColor(palette.blue)
+                Text("Sync: \(phase)").uiFont(size: 10).foregroundColor(palette.text).lineLimit(1)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 8).padding(.bottom, 4)
@@ -51,11 +53,11 @@ struct IssueSyncReportView: View {
             VStack(alignment: .leading, spacing: 2) {
                 header(report)
                 if let error = report.error {
-                    Text(error).uiFont(size: 10).foregroundColor(VSDark.text)
+                    Text(error).uiFont(size: 10).foregroundColor(palette.text)
                         .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 } else if expanded, !report.rows.isEmpty {
                     Text("Sync closes a GitHub issue once every feature (implemented) and bug (fixed) linked to it is done with verified completion (merge, checks and release). It reopens an issue only when a linked item was reopened after it was closed.")
-                        .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     ScrollView {
                         VStack(alignment: .leading, spacing: 1) {
                             ForEach(report.linkedRows) { row($0, report: report) }
@@ -80,16 +82,16 @@ struct IssueSyncReportView: View {
                 HStack(spacing: 4) {
                     Image(systemName: report.error != nil ? "exclamationmark.triangle.fill"
                           : (expanded ? "chevron.down" : "chevron.right"))
-                        .uiFont(size: 8).foregroundColor(report.error != nil ? VSDark.orange : VSDark.textDim).frame(width: 10)
+                        .uiFont(size: 8).foregroundColor(report.error != nil ? palette.orange : palette.textDim).frame(width: 10)
                     Text(report.error != nil ? "Sync stopped, nothing changed" : "Sync: \(report.summary)")
-                        .uiFont(size: 10, weight: .medium).foregroundColor(VSDark.text).lineLimit(1).truncationMode(.tail)
+                        .uiFont(size: 10, weight: .medium).foregroundColor(palette.text).lineLimit(1).truncationMode(.tail)
                 }
             }
             .buttonStyle(.plain)
             .help(report.error ?? "\(report.summary) — \(report.origin), \(report.finished.formatted(date: .omitted, time: .shortened))")
             Spacer(minLength: 2)
             Button(action: { sync.report = nil }) {
-                Image(systemName: "xmark.circle.fill").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Image(systemName: "xmark.circle.fill").uiFont(size: 10).foregroundColor(palette.textDim)
             }
             .buttonStyle(.plain).help("Hide the sync report")
         }
@@ -104,15 +106,15 @@ struct IssueSyncReportView: View {
                 Button(target.label(origin: report.origin)) { open(target, inProject: inProject) }
                     .buttonStyle(.plain)
                     .uiFont(size: 9, weight: .medium, design: .monospaced)
-                    .foregroundColor(VSDark.blue)
+                    .foregroundColor(palette.blue)
                     .fixedSize()
                     .help("Open \(target.repo)#\(target.number) on GitHub")
                 Button(row.item.kind == .bug ? row.item.id : row.item.title) { openItem(row.item) }
                     .buttonStyle(.plain)
-                    .uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(1).truncationMode(.tail)
+                    .uiFont(size: 10).foregroundColor(palette.text).lineLimit(1).truncationMode(.tail)
                     .help("Open \(row.item.id) · \(row.item.status.isEmpty ? "no status" : row.item.status)")
             }
-            Text(row.outcome.detail).uiFont(size: 9).foregroundColor(VSDark.textDim)
+            Text(row.outcome.detail).uiFont(size: 9).foregroundColor(palette.textDim)
                 .lineLimit(2).padding(.leading, 16)
                 .help(row.outcome.detail)
             if row.outcome.kind == .skipped, !row.item.isDone {
@@ -131,7 +133,7 @@ struct IssueSyncReportView: View {
                     Image(systemName: showUnlinked ? "chevron.down" : "chevron.right").uiFont(size: 8).frame(width: 12)
                     Text("\(rows.count) without an explicit issue link").uiFont(size: 9)
                 }
-                .foregroundColor(VSDark.textDim)
+                .foregroundColor(palette.textDim)
             }
             .buttonStyle(.plain)
             .padding(.top, 2)
@@ -140,7 +142,7 @@ struct IssueSyncReportView: View {
                 ForEach(rows) { row in
                     VStack(alignment: .leading, spacing: 0) {
                         Button(row.item.kind == .bug ? "\(row.item.id) \(row.item.title)" : row.item.title) { openItem(row.item) }
-                            .buttonStyle(.plain).uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1)
+                            .buttonStyle(.plain).uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1)
                         actionLine(row.item, button: "Link issue…", help: "Write the GitHub issue's number into this item") { linkIssue(row.item) }
                     }.padding(.leading, 16)
                 }
@@ -151,10 +153,10 @@ struct IssueSyncReportView: View {
     /// A small button under a row, or the note that the item was changed.
     @ViewBuilder private func actionLine(_ item: IssueSyncItem, button: String, help: String, action: @escaping () -> Void) -> some View {
         if changed.contains(item.id) {
-            Text("Changed. Run Sync again.").uiFont(size: 9).foregroundColor(VSDark.green).padding(.leading, 16)
+            Text("Changed. Run Sync again.").uiFont(size: 9).foregroundColor(palette.green).padding(.leading, 16)
         } else {
             Button(button, action: action)
-                .buttonStyle(.plain).uiFont(size: 9, weight: .medium).foregroundColor(VSDark.blue)
+                .buttonStyle(.plain).uiFont(size: 9, weight: .medium).foregroundColor(palette.blue)
                 .padding(.leading, 16).help(help)
         }
     }
@@ -232,10 +234,10 @@ struct IssueSyncReportView: View {
 
     private func color(_ kind: IssueSyncOutcome.Kind) -> Color {
         switch kind {
-        case .updated: return VSDark.green
-        case .unchanged: return VSDark.textDim
-        case .skipped: return VSDark.yellow
-        case .failed: return VSDark.red
+        case .updated: return palette.green
+        case .unchanged: return palette.textDim
+        case .skipped: return palette.yellow
+        case .failed: return palette.red
         }
     }
 }

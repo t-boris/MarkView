@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 
 struct RemoteConnectionsView: View {
+    @Environment(\.palette) private var palette
     private enum ConnectionMode: Hashable { case work, home }
     @EnvironmentObject var workspace: WorkspaceManager
     @Environment(\.dismiss) private var dismiss
@@ -86,11 +87,11 @@ struct RemoteConnectionsView: View {
                             }
                         }.disabled(entry.revoking)
                     }
-                    Text(state.detail).uiFont(.caption).foregroundColor(.secondary).textSelection(.enabled)
+                    Text(state.detail).uiFont(.caption).foregroundColor(palette.textDim).textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                     if let root = entry.rootPath { Text(root).uiFont(.caption).lineLimit(1).truncationMode(.middle) }
                     if let seen = state.lastSeen {
-                        HStack(spacing: 4) { Text("Last response:"); Text(seen, style: .relative) }.uiFont(.caption).foregroundColor(.secondary)
+                        HStack(spacing: 4) { Text("Last response:"); Text(seen, style: .relative) }.uiFont(.caption).foregroundColor(palette.textDim)
                     }
                 }
                 .padding(10).background(Color.secondary.opacity(0.08)).cornerRadius(8)
@@ -103,7 +104,7 @@ struct RemoteConnectionsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Use your home assistant in the folder open on this Mac.").uiFont(.headline)
             Text("On the home computer, open Allow This Mac and copy its connection code. The connection is saved on this Mac and reconnects automatically when this project opens.")
-                .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             TextField("Connection name (for example, Home Mac)", text: $connectionName).textFieldStyle(.roundedBorder)
             SecureField("Connection code", text: $connectionCode).textFieldStyle(.roundedBorder)
             HStack {
@@ -114,7 +115,7 @@ struct RemoteConnectionsView: View {
             }
             Toggle("Continue the last home conversation for this folder", isOn: $resume)
             Text("Files, Git, builds and commands run on this Mac as your user. The assistant receives file contents through your home computer and uses its existing login.")
-                .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Text(workspace.aiWorkspaceRoot?.path ?? workspace.rootNode?.url.path ?? "Open a folder first")
                     .uiFont(.caption).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
@@ -141,7 +142,7 @@ struct RemoteConnectionsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Let your work computer use this Mac’s assistant.").uiFont(.headline)
             Text("Claude Code or Codex must already be installed and signed in on this Mac. Enter the HTTPS address of your MarkView relay.")
-                .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             TextField("https://relay.example.com", text: $relaySettings.relayURL).textFieldStyle(.roundedBorder)
             SecureField("Relay access key", text: Binding(get: { relaySettings.accessKey }, set: { relaySettings.setAccessKey($0) }))
                 .textFieldStyle(.roundedBorder)
@@ -149,7 +150,7 @@ struct RemoteConnectionsView: View {
             if let message = relaySettings.storageError {
                 Text(message).uiFont(.caption).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
             } else if let status = relaySettings.storageStatus {
-                Text(status).uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(status).uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             }
             TextField("Connection name (for example, Work Mac)", text: $connectionName).textFieldStyle(.roundedBorder)
             Button(connecting ? "Saving…" : "Add Connection") {
@@ -164,7 +165,7 @@ struct RemoteConnectionsView: View {
             }
             .disabled(connections.isLoading || connecting || relaySettings.isLoading)
             Text("Each named connection has its own code. Copy it once to your other Mac. Saved access stays available until Disconnect Access is confirmed by the relay; sleep, network interruptions and app restarts do not require another code. Both Macs need MarkView running to use an assistant.")
-                .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
     }

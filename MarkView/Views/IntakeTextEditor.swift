@@ -9,6 +9,7 @@ struct IntakeTextEditor: NSViewRepresentable {
     var attach: ([URL]) -> Void
     var failed: (String) -> Void
     @Environment(\.appFontScale) private var fontScale
+    @Environment(\.palette) private var palette
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -20,8 +21,9 @@ struct IntakeTextEditor: NSViewRepresentable {
         view.isRichText = false
         view.allowsUndo = true
         view.font = .systemFont(ofSize: 13 * fontScale)
-        view.textColor = .labelColor
-        view.backgroundColor = .textBackgroundColor
+        view.textColor = palette.nsText
+        view.backgroundColor = NSColor(palette.model.bgInput)
+        view.insertionPointColor = palette.nsAccent
         view.textContainerInset = NSSize(width: 5, height: 6)
         view.isVerticallyResizable = true
         view.isHorizontallyResizable = false
@@ -42,6 +44,9 @@ struct IntakeTextEditor: NSViewRepresentable {
         guard let view = scroll.documentView as? NSTextView else { return }
         let fontSize = 13 * fontScale
         if view.font?.pointSize != fontSize { view.font = .systemFont(ofSize: fontSize) }
+        view.textColor = palette.nsText
+        view.backgroundColor = NSColor(palette.model.bgInput)
+        view.insertionPointColor = palette.nsAccent
         if view.string != text {
             let selection = view.selectedRange()
             view.string = text
@@ -106,12 +111,13 @@ enum IntakeClipboard {
 }
 
 struct IntakeAttachmentThumbnail: View {
+    @Environment(\.palette) private var palette
     let url: URL
     @State private var image: NSImage?
     var body: some View {
         Group {
             if let image { Image(nsImage: image).resizable().scaledToFit() }
-            else { Image(systemName: "paperclip").foregroundColor(.secondary) }
+            else { Image(systemName: "paperclip").foregroundColor(palette.textDim) }
         }
         .frame(width: 32, height: 24)
         .task(id: url) {

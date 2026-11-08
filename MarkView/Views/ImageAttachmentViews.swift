@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 /// The images of a request box, as Prototype Studio and UI Studio show them (REQ-005): a row of thumbnails, each with a
 /// button that removes it, and the line saying which images were not added and why.
 struct ImageAttachmentStrip: View {
+    @Environment(\.palette) private var palette
     @Binding var attachments: ImageAttachmentList
 
     var body: some View {
@@ -28,7 +29,7 @@ struct ImageAttachmentStrip: View {
                 }
             }
             if let notice = attachments.notice {
-                Text(notice).uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+                Text(notice).uiFont(size: 10).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -36,6 +37,7 @@ struct ImageAttachmentStrip: View {
 
 /// The paperclip beside a request box: choose image files, or take the image on the clipboard.
 struct ImageAttachmentMenu: View {
+    @Environment(\.palette) private var palette
     @Binding var attachments: ImageAttachmentList
 
     var body: some View {
@@ -43,7 +45,7 @@ struct ImageAttachmentMenu: View {
             Button("Choose image…") { chooseImages() }
             Button("Paste image from clipboard") { attachments.addFromPasteboard() }
         } label: {
-            Image(systemName: "paperclip").uiFont(size: 13).foregroundColor(VSDark.textDim)
+            Image(systemName: "paperclip").uiFont(size: 13).foregroundColor(palette.textDim)
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         .help("Send an image with your request: paste it (⌘V), drop it here, or choose a file")

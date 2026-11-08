@@ -48,11 +48,6 @@
                 e.preventDefault();
                 toggleMode();
             }
-            // Cmd/Ctrl+Shift+T to toggle theme
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'KeyT') {
-                e.preventDefault();
-                toggleTheme();
-            }
         });
 
         // ============================================================================
@@ -65,9 +60,6 @@
             if (!state.documentBaseURL && document.baseURI && document.baseURI.startsWith('file://')) {
                 state.documentBaseURL = document.baseURI;
             }
-
-            // Set initial theme
-            applyTheme(state.theme);
 
             // Focus editor
             DOM.editor.focus();

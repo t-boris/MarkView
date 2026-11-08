@@ -3,6 +3,7 @@ import SwiftUI
 /// Discussions: ideas thought through before they are features. A question is answered as an Insight page; the
 /// decisions and open questions it brings are kept beside the conversation and can be edited.
 struct DiscussionsView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @ObservedObject var store: DiscussionStore
     @State private var creating = false
@@ -10,7 +11,6 @@ struct DiscussionsView: View {
     @State private var question = ""
     @FocusState private var questionFocused: Bool
     @StateObject private var dictation = DictationController()
-    @Environment(\.colorScheme) private var colorScheme
     @State private var newItem = ""
     @State private var newKind: DiscussionItem.Kind = .question
     @State private var confirmDelete: Discussion?
@@ -18,7 +18,7 @@ struct DiscussionsView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar.frame(width: 214)
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             Group {
                 if let discussion = store.selected {
                     detail(discussion).id(discussion.slug)
@@ -28,7 +28,7 @@ struct DiscussionsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(VSDark.bg)
+        .background(palette.bg)
         .alert("Delete this discussion?", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } })) {
             Button("Delete", role: .destructive) { if let d = confirmDelete { store.delete(d.slug) }; confirmDelete = nil }
             Button("Cancel", role: .cancel) { confirmDelete = nil }
@@ -42,11 +42,11 @@ struct DiscussionsView: View {
     private var sidebar: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Text("DISCUSSIONS").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.textDim)
+                Text("DISCUSSIONS").uiFont(size: 10, weight: .semibold).foregroundColor(palette.textDim)
                 Spacer()
                 Button { creating.toggle() } label: { Image(systemName: "plus") }.help("Start a discussion")
             }
-            .buttonStyle(.plain).foregroundColor(VSDark.textDim).padding(.horizontal, 10).padding(.vertical, 8)
+            .buttonStyle(.plain).foregroundColor(palette.textDim).padding(.horizontal, 10).padding(.vertical, 8)
             if creating {
                 HStack(spacing: 6) {
                     TextField("What do you want to think through?", text: $newTitle)
@@ -55,19 +55,19 @@ struct DiscussionsView: View {
                     Button("Start", action: create).controlSize(.small).disabled(newTitle.trimmingCharacters(in: .whitespaces).isEmpty)
                 }.padding(.horizontal, 10).padding(.bottom, 8)
             }
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(store.discussions) { discussion in
                         Button { store.selectedSlug = discussion.slug } label: {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(discussion.title).uiFont(size: 12, weight: .medium).foregroundColor(VSDark.text).lineLimit(2)
+                                Text(discussion.title).uiFont(size: 12, weight: .medium).foregroundColor(palette.text).lineLimit(2)
                                 Text("\(discussion.turns.count) questions · \(discussion.items(.question).count) open")
-                                    .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                                    .uiFont(size: 10).foregroundColor(palette.textDim)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 10).padding(.vertical, 7)
-                            .background(store.selectedSlug == discussion.slug ? VSDark.bgActive : Color.clear)
+                            .background(store.selectedSlug == discussion.slug ? palette.bgActive : Color.clear)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -76,7 +76,7 @@ struct DiscussionsView: View {
                 }
             }
         }
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private func create() {
@@ -85,10 +85,10 @@ struct DiscussionsView: View {
 
     private var emptyState: some View {
         VStack(spacing: 10) {
-            Image(systemName: "bubble.left.and.text.bubble.right").font(.system(size: 34)).foregroundColor(VSDark.textDim)
-            Text("Think an idea through before it is a feature").uiFont(size: 15, weight: .semibold).foregroundColor(VSDark.text)
+            Image(systemName: "bubble.left.and.text.bubble.right").font(.system(size: 34)).foregroundColor(palette.textDim)
+            Text("Think an idea through before it is a feature").uiFont(size: 15, weight: .semibold).foregroundColor(palette.text)
             Text("Talk to the assistant about the whole project, a folder or a file, by typing or by voice. It answers in the form the question needs (text, a table, a diagram) and keeps the decisions and open questions, so the idea can later become a feature or a list of tasks.")
-                .uiFont(size: 12).foregroundColor(VSDark.textDim).multilineTextAlignment(.center).frame(maxWidth: 420)
+                .uiFont(size: 12).foregroundColor(palette.textDim).multilineTextAlignment(.center).frame(maxWidth: 420)
             Button("Start a discussion") { creating = true }.buttonStyle(.borderedProminent)
         }.padding(30)
     }
@@ -99,18 +99,18 @@ struct DiscussionsView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
-                    Text(discussion.title).uiFont(size: 15, weight: .semibold).foregroundColor(VSDark.text).lineLimit(1)
+                    Text(discussion.title).uiFont(size: 15, weight: .semibold).foregroundColor(palette.text).lineLimit(1)
                     Spacer()
                     scopeMenu(discussion)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 8)
-                Divider().background(VSDark.border)
-                DiscussionThreadView(turns: discussion.turns, live: store.asking == discussion.slug ? store.live : nil, dark: colorScheme == .dark)
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
+                DiscussionThreadView(turns: discussion.turns, live: store.asking == discussion.slug ? store.live : nil)
+                Divider().background(palette.border)
                 composer(discussion)
             }
             .frame(maxWidth: .infinity)
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             itemsPane(discussion).frame(width: 270)
         }
     }
@@ -158,15 +158,15 @@ struct DiscussionsView: View {
                     DictationInsertion.insert(transcript, window: window, fieldFocused: questionFocused, text: &question)
                 }
                 if store.asking == discussion.slug {
-                    Button { workspaceManager.stopDiscussion() } label: { Image(systemName: "stop.circle.fill").uiFont(size: 18).foregroundColor(VSDark.orange) }
+                    Button { workspaceManager.stopDiscussion() } label: { Image(systemName: "stop.circle.fill").uiFont(size: 18).foregroundColor(palette.orange) }
                         .buttonStyle(.plain).help("Stop the answer")
                 } else {
-                    Button { send(discussion) } label: { Image(systemName: "arrow.up.circle.fill").uiFont(size: 18).foregroundColor(VSDark.blue) }
+                    Button { send(discussion) } label: { Image(systemName: "arrow.up.circle.fill").uiFont(size: 18).foregroundColor(palette.blue) }
                         .buttonStyle(.plain).disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.asking != nil)
                         .help("Send (↩)")
                 }
             }
-            .padding(8).background(VSDark.bgInput).cornerRadius(8)
+            .padding(8).background(palette.bgInput).cornerRadius(8)
             DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
         }
         .padding(12)
@@ -185,22 +185,22 @@ struct DiscussionsView: View {
 
     private func itemsPane(_ discussion: Discussion) -> some View {
         VStack(spacing: 0) {
-            Text("WHERE THIS STANDS").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.textDim)
+            Text("WHERE THIS STANDS").uiFont(size: 10, weight: .semibold).foregroundColor(palette.textDim)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 10)
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach([DiscussionItem.Kind.decision, .question, .rejected], id: \.self) { kind in
                         let items = discussion.items(kind)
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("\(kind.title.uppercased()) (\(items.count))").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
-                            if items.isEmpty { Text("Nothing yet").uiFont(size: 11).foregroundColor(VSDark.textDim) }
+                            Text("\(kind.title.uppercased()) (\(items.count))").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
+                            if items.isEmpty { Text("Nothing yet").uiFont(size: 11).foregroundColor(palette.textDim) }
                             ForEach(items) { item in itemRow(discussion, item) }
                         }
                     }
                 }.padding(12)
             }
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             HStack(spacing: 6) {
                 Picker("", selection: $newKind) {
                     ForEach(DiscussionItem.Kind.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -208,15 +208,15 @@ struct DiscussionsView: View {
                 TextField("Add by hand", text: $newItem).textFieldStyle(.roundedBorder).uiFont(size: 11).onSubmit { addItem(discussion) }
             }.padding(10)
         }
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private func itemRow(_ discussion: Discussion, _ item: DiscussionItem) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: item.kind == .decision ? "checkmark.circle.fill" : item.kind == .question ? "questionmark.circle" : "xmark.circle")
-                .foregroundColor(item.kind == .decision ? VSDark.green : item.kind == .question ? VSDark.yellow : VSDark.textDim)
+                .foregroundColor(item.kind == .decision ? palette.green : item.kind == .question ? palette.yellow : palette.textDim)
                 .font(.system(size: 12))
-            Text(item.text).uiFont(size: 11).foregroundColor(VSDark.text).textSelection(.enabled)
+            Text(item.text).uiFont(size: 11).foregroundColor(palette.text).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Menu {
                 ForEach(DiscussionItem.Kind.allCases.filter { $0 != item.kind }, id: \.self) { kind in

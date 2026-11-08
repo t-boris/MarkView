@@ -4,8 +4,9 @@
             state.documentBaseURL = baseURL;
         };
 
-        window.setTheme = function(theme) {
-            applyTheme(theme);
+        // Swift: window.setTheme('midnight', '#79B8FF') (accent '' = the appearance's own).
+        window.setTheme = function(id, accent) {
+            applyTheme(id, accent);
         };
 
         window.toggleSourceMode = function() {

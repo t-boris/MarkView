@@ -3,11 +3,11 @@ import SwiftUI
 /// Shared assistant terminal surface. The type keeps its historical name from
 /// the removed Modules tab.
 struct ModuleExplorerView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @Environment(\.appFontScale) private var fontScale
 
     var body: some View {
-        let _ = workspaceManager.themeVersion // force re-render on theme change
         VStack(spacing: 0) {
             GeometryReader { geometry in
                 // Only the AI cost and the indexing progress give way when the panel is narrow. The usage
@@ -15,7 +15,7 @@ struct ModuleExplorerView: View {
                 // drives the polling (DEC-010), so gating it by width would also stop the updates.
                 let showStats = geometry.size.width >= 460 * max(1, fontScale)
                 HStack(spacing: 6) {
-                    Text("Agents").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+                    Text("Agents").uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
                         .lineLimit(1)
                     Spacer(minLength: 6)
                     AgentUsageBar()
@@ -24,12 +24,12 @@ struct ModuleExplorerView: View {
                             let stats = db.getUsageStats()
                             if stats.totalJobs > 0 {
                                 Text("$\(String(format: "%.2f", stats.totalCostDollars))")
-                                    .uiFont(size: 9, weight: .bold).foregroundColor(VSDark.textDim)
+                                    .uiFont(size: 9, weight: .bold).foregroundColor(palette.textDim)
                             }
                         }
                         if let progress = workspaceManager.indexingProgress {
                             ProgressView().scaleEffect(0.4)
-                            Text(progress).uiFont(size: 8).foregroundColor(VSDark.blue).lineLimit(1)
+                            Text(progress).uiFont(size: 8).foregroundColor(palette.blue).lineLimit(1)
                         }
                     }
                 }
@@ -37,8 +37,8 @@ struct ModuleExplorerView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(height: 26 * min(1.5, max(1, fontScale)))
-            .background(VSDark.bg)
-            Divider().background(VSDark.border)
+            .background(palette.bg)
+            Divider().background(palette.border)
 
             AITerminalPanel().environmentObject(workspaceManager)
         }

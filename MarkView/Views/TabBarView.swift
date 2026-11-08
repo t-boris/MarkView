@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 /// Open tabs: they scroll sideways (trackpad, or the plain mouse wheel), the active one is kept
 /// in view, the ▾ menu on the right lists every tab, and tabs are reordered by dragging.
 struct TabBarView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     /// The tab a drag is over (a blue line marks where the dragged tab lands).
     @State private var dropTarget: UUID?
@@ -37,8 +38,8 @@ struct TabBarView: View {
             tabsMenu
         }
         .frame(height: 24)
-        .background(VSDark.bg)
-        .overlay(Rectangle().frame(height: 1).foregroundColor(VSDark.border), alignment: .bottom)
+        .background(palette.bg)
+        .overlay(Rectangle().frame(height: 1).foregroundColor(palette.border), alignment: .bottom)
     }
 
     /// Every open tab, also those scrolled out of sight.
@@ -60,7 +61,7 @@ struct TabBarView: View {
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         .padding(.horizontal, 8)
         .frame(height: 24)
-        .overlay(Rectangle().frame(width: 1).foregroundColor(VSDark.border), alignment: .leading)
+        .overlay(Rectangle().frame(width: 1).foregroundColor(palette.border), alignment: .leading)
         .help("All open tabs (\(workspaceManager.openTabs.count))")
     }
 
@@ -97,11 +98,11 @@ struct TabBarView: View {
         return HStack(spacing: 5) {
             Image(systemName: icon(for: tab))
                 .uiFont(size: 10)
-                .foregroundColor(isActive ? VSDark.blue : VSDark.textDim)
+                .foregroundColor(isActive ? palette.blue : palette.textDim)
 
             if tab.isModified {
                 Circle()
-                    .fill(VSDark.orange)
+                    .fill(palette.orange)
                     .frame(width: 6, height: 6)
             }
 
@@ -110,13 +111,13 @@ struct TabBarView: View {
                 else { Text(tab.displayName) }
             }
                 .uiFont(size: 11)
-                .foregroundColor(isActive ? VSDark.textBright : VSDark.textDim)
+                .foregroundColor(isActive ? palette.textBright : palette.textDim)
                 .lineLimit(1)
 
             Button(action: { workspaceManager.closeTab(at: index) }) {
                 Image(systemName: "xmark")
                     .uiFont(size: 8)
-                    .foregroundColor(VSDark.textDim)
+                    .foregroundColor(palette.textDim)
             }
             .buttonStyle(.plain)
             .opacity(isActive ? 1 : 0.5)
@@ -124,14 +125,14 @@ struct TabBarView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 2)
         .frame(height: 24)
-        .background(isActive ? VSDark.bgSidebar : VSDark.bg)
+        .background(isActive ? palette.bgSidebar : palette.bg)
         .overlay(
             Rectangle().frame(height: 2)
-                .foregroundColor(isActive ? VSDark.blue : Color.clear),
+                .foregroundColor(isActive ? palette.blue : Color.clear),
             alignment: .top
         )
-        .overlay(Rectangle().frame(width: 1).foregroundColor(VSDark.border), alignment: .trailing)
-        .overlay(Rectangle().frame(width: 2).foregroundColor(dropTarget == tab.id ? VSDark.blue : Color.clear), alignment: .leading)
+        .overlay(Rectangle().frame(width: 1).foregroundColor(palette.border), alignment: .trailing)
+        .overlay(Rectangle().frame(width: 2).foregroundColor(dropTarget == tab.id ? palette.blue : Color.clear), alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture { workspaceManager.activeTabIndex = index }
         .onDrag {

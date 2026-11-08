@@ -7,6 +7,7 @@ import SwiftUI
 /// and the sheet refuses to start when no web interface is detected in the chosen scope (DEC-003).
 /// Earlier prototypes of the project are listed to reopen.
 struct PrototypeCreatorSheet: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var workspaceManager: WorkspaceManager
     @Binding var isPresented: Bool
     var mode: PrototypeFiles.Mode = .requirements
@@ -30,27 +31,27 @@ struct PrototypeCreatorSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Image(systemName: "rectangle.on.rectangle.angled").uiFont(size: 16).foregroundColor(VSDark.blue)
-                Text(isCode ? "New Prototype from Code" : "New Prototype").uiFont(.title3, weight: .bold).foregroundColor(VSDark.text)
+                Image(systemName: "rectangle.on.rectangle.angled").uiFont(size: 16).foregroundColor(palette.blue)
+                Text(isCode ? "New Prototype from Code" : "New Prototype").uiFont(.title3, weight: .bold).foregroundColor(palette.text)
                 Spacer()
             }
-            Text(intro).uiFont(size: 11).foregroundColor(VSDark.textDim)
+            Text(intro).uiFont(size: 11).foregroundColor(palette.textDim)
 
             GroupBox(isCode ? "Existing code" : "Requirements") {
                 VStack(alignment: .leading, spacing: 6) {
                     if isCode {
                         Text("The agent reproduces the interface found in these files; nothing selected means the whole project.")
-                            .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                            .uiFont(size: 11).foregroundColor(palette.textDim)
                     } else if sources.isEmpty {
-                        Text("Nothing chosen: the agent reads the whole project.").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                        Text("Nothing chosen: the agent reads the whole project.").uiFont(size: 11).foregroundColor(palette.textDim)
                     }
                     ForEach(sources, id: \.self) { path in
                         HStack {
-                            Image(systemName: "doc.text").foregroundColor(VSDark.textDim)
+                            Image(systemName: "doc.text").foregroundColor(palette.textDim)
                             Text(path).uiFont(size: 11).lineLimit(1)
                             Spacer()
                             Button { sources.removeAll { $0 == path } } label: { Image(systemName: "xmark.circle.fill") }
-                                .buttonStyle(.plain).foregroundColor(VSDark.textDim)
+                                .buttonStyle(.plain).foregroundColor(palette.textDim)
                         }
                     }
                     HStack {
@@ -72,7 +73,7 @@ struct PrototypeCreatorSheet: View {
             }
             Text(isCode ? "Optional: the screens or flows that matter most, what to leave out."
                         : "Optional: the audience, the flows that matter most, what to leave out.")
-                .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                .uiFont(size: 10).foregroundColor(palette.textDim)
 
             TextField("Name (optional)", text: $title).textFieldStyle(.roundedBorder)
 
@@ -132,20 +133,20 @@ struct PrototypeCreatorSheet: View {
             if !detected.isEmpty {
                 ForEach(detected, id: \.path) { app in
                     Label("Detected: \(app.label)\(app.isElectron ? " (Electron renderer)" : "")", systemImage: "checkmark.circle")
-                        .uiFont(size: 11).foregroundColor(VSDark.green)
+                        .uiFont(size: 11).foregroundColor(palette.green)
                 }
             } else if !inventory.isEmpty {
                 Label("Detected: web interface files (\(inventory.entries.count + inventory.omitted))", systemImage: "checkmark.circle")
-                    .uiFont(size: 11).foregroundColor(VSDark.green)
+                    .uiFont(size: 11).foregroundColor(palette.green)
             } else {
                 Label("No web interface detected in the selected files. Select a folder that contains a web application or an Electron renderer.",
                       systemImage: "exclamationmark.triangle")
-                    .uiFont(size: 11).foregroundColor(VSDark.yellow)
+                    .uiFont(size: 11).foregroundColor(palette.yellow)
             }
         } else {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
-                Text("Looking for web interfaces…").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                Text("Looking for web interfaces…").uiFont(size: 11).foregroundColor(palette.textDim)
             }
         }
     }

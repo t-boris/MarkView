@@ -19,6 +19,7 @@ private func durationText(_ duration: LifecycleDuration) -> String {
 /// "Lifecycle · 5 events · total 3d 4h 2m ▸  Mark stage ▾" — expands into the events and the
 /// step durations.
 struct LifecycleSection: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var store: FeatureStore
     @ObservedObject private var log = LifecycleLog.shared
     let feature: Feature
@@ -32,10 +33,10 @@ struct LifecycleSection: View {
             HStack(spacing: 6) {
                 Button(action: { expanded.toggle() }) {
                     HStack(spacing: 4) {
-                        Image(systemName: expanded ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(VSDark.textDim)
-                        Text("Lifecycle").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(palette.textDim)
+                        Text("Lifecycle").uiFont(size: 10).foregroundColor(palette.textDim)
                         Text("· \(events.count) \(events.count == 1 ? "event" : "events")" + (total.seconds.map { " · total \(LifecycleAnalytics.format($0))" } ?? ""))
-                            .uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).lineLimit(1)
+                            .uiFont(size: 10, design: .monospaced).foregroundColor(palette.text).lineLimit(1)
                     }
                     .contentShape(Rectangle())
                 }.buttonStyle(.plain).help("Timestamped lifecycle events of this feature and the time between stages")
@@ -49,7 +50,7 @@ struct LifecycleSection: View {
                 .help("Record that a stage happened now (idea created, questions resolved and spec ready are recorded automatically)")
             }
             if let error = log.lastError {
-                Text(error).uiFont(size: 9).foregroundColor(VSDark.red).onTapGesture { log.clearError() }
+                Text(error).uiFont(size: 9).foregroundColor(palette.red).onTapGesture { log.clearError() }
             }
             if expanded { details(events, total: total) }
         }
@@ -62,37 +63,37 @@ struct LifecycleSection: View {
     private func details(_ events: [LifecycleEvent], total: LifecycleDuration) -> some View {
         if events.isEmpty {
             Text("No events yet. Idea created, questions resolved and spec ready are recorded automatically from now on; mark the other stages when they happen.")
-                .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
         } else {
             ForEach(events) { event in
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 5) {
                         Text(event.timestamp.formatted(date: .abbreviated, time: .shortened))
-                            .uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
-                        Text(event.stage.title).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.textBright)
+                            .uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
+                        Text(event.stage.title).uiFont(size: 10, weight: .semibold).foregroundColor(palette.textBright)
                         Spacer(minLength: 0)
                     }
                     Text([event.actor, event.model, event.source == .automatic ? "auto" : "manual"].compactMap { $0 }.joined(separator: " · "))
-                        .uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1)
+                        .uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1)
                     if let note = event.note {
-                        Text(note).uiFont(size: 9).foregroundColor(VSDark.text).textSelection(.enabled)
+                        Text(note).uiFont(size: 9).foregroundColor(palette.text).textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .padding(.leading, 12)
             }
-            Text("STEPS").uiFont(size: 8, weight: .bold).foregroundColor(VSDark.textDim).padding(.top, 2)
+            Text("STEPS").uiFont(size: 8, weight: .bold).foregroundColor(palette.textDim).padding(.top, 2)
             ForEach(LifecycleAnalytics.steps(events), id: \.step) { item in
                 durationRow(item.step.title, item.duration)
             }
             durationRow("Idea created → verified (total)", total)
             if events.contains(where: { $0.stage.isCIDetail }) {
-                Text("CI").uiFont(size: 8, weight: .bold).foregroundColor(VSDark.textDim).padding(.top, 2)
+                Text("CI").uiFont(size: 8, weight: .bold).foregroundColor(palette.textDim).padding(.top, 2)
                 durationRow("Waiting for a runner", LifecycleCI.queue(events))
                 durationRow("CI time until green", LifecycleCI.work(events))
                 let reruns = LifecycleCI.reruns(events)
                 durationRow("Re-runs", .missing).overlay(alignment: .trailing) {
-                    Text("\(reruns)").uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textBright)
+                    Text("\(reruns)").uiFont(size: 9, design: .monospaced).foregroundColor(palette.textBright)
                 }
             }
         }
@@ -100,10 +101,10 @@ struct LifecycleSection: View {
 
     private func durationRow(_ title: String, _ duration: LifecycleDuration) -> some View {
         HStack(spacing: 4) {
-            Text(title).uiFont(size: 9).foregroundColor(duration == .missing ? VSDark.textDim : VSDark.text).lineLimit(1)
+            Text(title).uiFont(size: 9).foregroundColor(duration == .missing ? palette.textDim : palette.text).lineLimit(1)
             Spacer(minLength: 4)
             Text(durationText(duration)).uiFont(size: 9, design: .monospaced)
-                .foregroundColor(duration == .inconsistent ? VSDark.orange : duration == .missing ? VSDark.textDim : VSDark.textBright)
+                .foregroundColor(duration == .inconsistent ? palette.orange : duration == .missing ? palette.textDim : palette.textBright)
         }
         .padding(.leading, 12)
         .help(duration == .inconsistent ? "The end stage was recorded before the start stage — left out of the project averages" : "")
@@ -112,6 +113,7 @@ struct LifecycleSection: View {
 
 /// Confirmation of a manual mark (DEC-010): stamped now, cannot be changed afterwards.
 struct MarkStageSheet: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var store: FeatureStore
     let feature: Feature
     let stage: LifecycleStage
@@ -178,7 +180,7 @@ struct MarkStageSheet: View {
             if !later.isEmpty {
                 warning("Later stages are already recorded: \(later.map(\.title).joined(separator: ", ")).")
             }
-            Text("Recorded events cannot be edited or deleted.").uiFont(size: 10).foregroundColor(.secondary)
+            Text("Recorded events cannot be edited or deleted.").uiFont(size: 10).foregroundColor(palette.textDim)
             HStack {
                 Spacer()
                 Button("Cancel", action: close).keyboardShortcut(.cancelAction)
@@ -196,7 +198,7 @@ struct MarkStageSheet: View {
 
     private func row(_ label: String, _ value: String) -> some View {
         GridRow {
-            Text(label).uiFont(size: 11).foregroundColor(.secondary)
+            Text(label).uiFont(size: 11).foregroundColor(palette.textDim)
             Text(value).uiFont(size: 11).lineLimit(2)
         }
     }
@@ -212,6 +214,7 @@ struct MarkStageSheet: View {
 /// Median, mean and feature count per step over the current project's features (DEC-004,
 /// DEC-014); the implementation step also per AI model.
 struct CycleTimeSummarySheet: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var store: FeatureStore
     @ObservedObject private var log = LifecycleLog.shared
     let close: () -> Void
@@ -226,7 +229,7 @@ struct CycleTimeSummarySheet: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Cycle time — \(store.root?.lastPathComponent ?? "project")").uiFont(size: 13, weight: .semibold)
             Text("Calendar time between adjacent stages over this project's features (\(grouped.count) with events). Only features with both boundary events count; inconsistent steps are left out.")
-                .uiFont(size: 11).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             if grouped.isEmpty {
                 Text("No lifecycle events recorded in this project yet.").uiFont(size: 11).padding(.vertical, 12)
             } else {
@@ -253,8 +256,8 @@ struct CycleTimeSummarySheet: View {
                                 Text("Re-runs").uiFont(size: 11).lineLimit(1)
                                 Text("\(ci.reruns)").uiFont(size: 11, design: .monospaced)
                                 Text(ci.features == 0 ? "" : String(format: "%.1f per feature", Double(ci.reruns) / Double(ci.features)))
-                                    .uiFont(size: 11, design: .monospaced).foregroundColor(.secondary)
-                                Text("\(ci.rerunFeatures) of \(ci.features)").uiFont(size: 11, design: .monospaced).foregroundColor(.secondary)
+                                    .uiFont(size: 11, design: .monospaced).foregroundColor(palette.textDim)
+                                Text("\(ci.rerunFeatures) of \(ci.features)").uiFont(size: 11, design: .monospaced).foregroundColor(palette.textDim)
                                     .gridColumnAlignment(.trailing)
                             }
                         }
@@ -272,15 +275,15 @@ struct CycleTimeSummarySheet: View {
     }
 
     private func header(_ text: String) -> some View {
-        Text(text).uiFont(size: 10, weight: .bold).foregroundColor(.secondary)
+        Text(text).uiFont(size: 10, weight: .bold).foregroundColor(palette.textDim)
     }
 
     private func statRow(_ title: String, _ statistic: LifecycleAnalytics.Statistic?, bold: Bool) -> some View {
         GridRow {
             Text(title).uiFont(size: 11, weight: bold ? .medium : .regular).lineLimit(1)
             Text(statistic.map { LifecycleAnalytics.format($0.median) } ?? "—").uiFont(size: 11, design: .monospaced)
-            Text(statistic.map { LifecycleAnalytics.format($0.mean) } ?? "—").uiFont(size: 11, design: .monospaced).foregroundColor(.secondary)
-            Text(statistic.map { "\($0.count)" } ?? "0").uiFont(size: 11, design: .monospaced).foregroundColor(.secondary)
+            Text(statistic.map { LifecycleAnalytics.format($0.mean) } ?? "—").uiFont(size: 11, design: .monospaced).foregroundColor(palette.textDim)
+            Text(statistic.map { "\($0.count)" } ?? "0").uiFont(size: 11, design: .monospaced).foregroundColor(palette.textDim)
                 .gridColumnAlignment(.trailing)
         }
     }

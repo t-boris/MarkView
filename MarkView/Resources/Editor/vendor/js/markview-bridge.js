@@ -1,27 +1,19 @@
         // THEME SWITCHING
         // ============================================================================
 
-        function applyTheme(theme) {
-            if (state.theme === theme) return;
-            state.theme = theme;
-            document.documentElement.setAttribute('data-theme', theme);
-            localStorage.setItem('markview-theme', theme);
-            // An open Recursive Insight page (same-origin iframe) follows the theme too.
+        // The window theme (markview-themes.js): `id` is one of MarkViewThemes.ids, `accent` a '#RRGGBB' or ''.
+        function applyTheme(id, accent) {
+            const theme = MarkViewThemes.apply(id, accent);
+            state.theme = theme.mode;
+            // An open Recursive Insight page (same-origin iframe) follows the mode too.
             try {
                 const insight = document.getElementById('insight-iframe');
-                if (insight && insight.contentDocument) insight.contentDocument.documentElement.setAttribute('data-theme', theme);
+                if (insight && insight.contentDocument) insight.contentDocument.documentElement.setAttribute('data-theme', theme.mode);
             } catch (e) {}
 
-            const isDark = theme === 'dark';
-
             if (typeof mermaid !== 'undefined') {
-                try { mermaid.initialize({ theme: isDark ? 'dark' : 'default' }); } catch(e) {}
+                try { mermaid.initialize(MarkViewThemes.mermaid()); } catch(e) {}
             }
-        }
-
-        function toggleTheme() {
-            const newTheme = state.theme === 'light' ? 'dark' : 'light';
-            applyTheme(newTheme);
         }
 
         // ============================================================================

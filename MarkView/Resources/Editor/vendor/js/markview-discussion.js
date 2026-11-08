@@ -1,7 +1,8 @@
 (function () {
     'use strict';
     const thread = document.getElementById('thread');
-    let dark = true, turns = [], live = null, pending = null;
+    let turns = [], live = null, pending = null;
+    const T = window.MarkViewThemes;
 
     function post(message) {
         try { window.webkit.messageHandlers.discussion.postMessage(message); } catch (e) { console.log('[discussion]', e); }
@@ -74,11 +75,11 @@
     // ---- Hydration of diagrams and charts ----
     const mermaidCache = new Map();
     let counter = 0;
-    function themeMermaid() { try { mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default' }); } catch (e) {} }
+    function themeMermaid() { try { mermaid.initialize(Object.assign({ startOnLoad: false, securityLevel: 'strict' }, T.mermaid())); } catch (e) {} }
     function hydrate(root) {
         root.querySelectorAll('figure[data-kind="mermaid"]').forEach((fig) => {
             const src = decodeURIComponent(fig.dataset.src), body = fig.querySelector('.body');
-            const key = (dark ? 'd:' : 'l:') + src;
+            const key = T.signature() + ':' + src;
             if (mermaidCache.has(key)) { body.innerHTML = mermaidCache.get(key); return; }
             body.innerHTML = '<span class="drawing">Drawing…</span>';
             mermaid.render('mmd' + (++counter), src).then((r) => { mermaidCache.set(key, r.svg); body.innerHTML = r.svg; })
@@ -88,14 +89,14 @@
             try {
                 const config = JSON.parse(decodeURIComponent(fig.dataset.src));
                 config.options = Object.assign({ animation: false, responsive: true, maintainAspectRatio: true }, config.options || {});
-                const palette = ['#569cd6', '#4ec9b0', '#ce9178', '#dcdcaa', '#c586c0', '#9cdcfe', '#d7ba7d', '#6a9955'];
+                const current = T.current(), palette = T.chartPalette(current.id, current.override);
                 const pie = ['pie', 'doughnut', 'polarArea'].includes(config.type);
                 ((config.data || {}).datasets || []).forEach((ds, i) => {
                     if (!ds.backgroundColor) ds.backgroundColor = pie ? palette : palette[i % palette.length];
                     if (!ds.borderColor && !pie && ['line', 'radar'].includes(config.type)) ds.borderColor = palette[i % palette.length];
                 });
-                Chart.defaults.color = dark ? '#d4d4d4' : '#1f2328';
-                Chart.defaults.borderColor = dark ? '#3c3c3c' : '#d0d7de';
+                Chart.defaults.color = T.token('--chart-text');
+                Chart.defaults.borderColor = T.token('--chart-grid');
                 new Chart(fig.querySelector('canvas'), config);
             } catch (e) {
                 fig.innerHTML = '<p class="drawing error">This chart could not be drawn.</p>';
@@ -218,9 +219,9 @@
         timer = setTimeout(() => { timer = null; render(); }, 180);
     }
 
-    window.mvSetTheme = function (isDark) {
-        dark = !!isDark;
-        document.documentElement.classList.toggle('light', !dark);
+    // Swift: mvSetTheme('midnight', '#79B8FF') (accent '' = the appearance's own).
+    window.mvSetTheme = function (id, accent) {
+        T.apply(id, accent);
         themeMermaid();
         render();
     };

@@ -683,9 +683,9 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     }
 
     /// Set the theme for the editor
-    func setTheme(_ theme: Theme, in webView: WKWebView) {
-        let themeValue = theme == .dark ? "dark" : "light"
-        let js = "window.setTheme('\(themeValue)')"
+    /// `arguments` come from `WindowTheme.webArguments`: the appearance id and the accent or null.
+    func setTheme(_ arguments: String, in webView: WKWebView) {
+        let js = "window.setTheme(\(arguments))"
 
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {

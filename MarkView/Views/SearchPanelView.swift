@@ -3,6 +3,7 @@ import SwiftUI
 /// The Search tab of the right panel: the whole project (file names and the text of any file, plus the
 /// names inside archives), or the meaning search of the Markdown documents.
 struct WorkspaceSearchView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @AppStorage("search.panelMode") private var mode = Mode.project.rawValue
 
@@ -20,43 +21,44 @@ struct WorkspaceSearchView: View {
             .pickerStyle(.segmented).labelsHidden().controlSize(.small)
             .padding(.horizontal, 8).padding(.vertical, 6)
             .help("Project: file names and text of any file. Documents: meaning search of Markdown.")
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             if mode == Mode.documents.rawValue {
                 DocumentSearchView().environmentObject(workspaceManager)
             } else {
                 ProjectSearchPanel().environmentObject(workspaceManager)
             }
         }
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 }
 
 /// File names and contents of the project, found as you type (the index is the one ⌘⇧K uses).
 struct ProjectSearchPanel: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @StateObject private var model = SharedSearchModel()
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                Image(systemName: "magnifyingglass").uiFont(size: 11).foregroundColor(palette.textDim)
                 TextField("Search files and text…", text: $model.query)
-                    .textFieldStyle(.plain).uiFont(size: 11).foregroundColor(VSDark.text)
+                    .textFieldStyle(.plain).uiFont(size: 11).foregroundColor(palette.text)
                     .onChange(of: model.query) { _ in Task { await model.search() } }
                 if model.indexing { ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12) }
                 if !model.query.isEmpty {
                     Button { model.query = ""; Task { await model.search() } } label: {
-                        Image(systemName: "xmark.circle.fill").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                        Image(systemName: "xmark.circle.fill").uiFont(size: 10).foregroundColor(palette.textDim)
                     }.buttonStyle(.plain)
                 }
                 Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders) } } label: {
-                    Image(systemName: "arrow.clockwise").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    Image(systemName: "arrow.clockwise").uiFont(size: 10).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain).help("Refresh the search index")
             }
-            .padding(8).background(VSDark.bgInput)
+            .padding(8).background(palette.bgInput)
             status
             if let error = model.error {
-                Text(error).uiFont(size: 10).foregroundColor(VSDark.orange).padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                Text(error).uiFont(size: 10).foregroundColor(palette.orange).padding(8).frame(maxWidth: .infinity, alignment: .leading)
             }
             results
         }
@@ -76,7 +78,7 @@ struct ProjectSearchPanel: View {
             }
             Spacer()
         }
-        .uiFont(size: 9).foregroundColor(VSDark.textDim).padding(.horizontal, 8).padding(.vertical, 3)
+        .uiFont(size: 9).foregroundColor(palette.textDim).padding(.horizontal, 8).padding(.vertical, 3)
     }
 
     @ViewBuilder private var results: some View {
@@ -103,12 +105,12 @@ struct ProjectSearchPanel: View {
     }
 
     private func placeholder(_ text: String) -> some View {
-        VStack { Spacer(); Text(text).uiFont(size: 11).foregroundColor(VSDark.textDim).multilineTextAlignment(.center).padding(16); Spacer() }
+        VStack { Spacer(); Text(text).uiFont(size: 11).foregroundColor(palette.textDim).multilineTextAlignment(.center).padding(16); Spacer() }
             .frame(maxWidth: .infinity)
     }
 
     private func header(_ title: String) -> some View {
-        Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+        Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
             .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 2)
     }
 
@@ -118,14 +120,14 @@ struct ProjectSearchPanel: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
                     Image(systemName: inArchive ? "archivebox" : result.scope == .file ? "doc" : "text.magnifyingglass")
-                        .uiFont(size: 9).foregroundColor(VSDark.blue)
-                    Text(result.title).uiFont(size: 11, weight: .medium).foregroundColor(VSDark.blue).lineLimit(1)
-                    if let line = result.line { Text(":\(line)").uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim) }
+                        .uiFont(size: 9).foregroundColor(palette.blue)
+                    Text(result.title).uiFont(size: 11, weight: .medium).foregroundColor(palette.blue).lineLimit(1)
+                    if let line = result.line { Text(":\(line)").uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim) }
                 }
                 if let snippet = result.snippet {
-                    Text(snippet).uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(2)
+                    Text(snippet).uiFont(size: 10).foregroundColor(palette.text).lineLimit(2)
                 }
-                Text(result.path ?? "").uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1).truncationMode(.head)
+                Text(result.path ?? "").uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1).truncationMode(.head)
             }
             .padding(.horizontal, 10).padding(.vertical, 3)
             .frame(maxWidth: .infinity, alignment: .leading)

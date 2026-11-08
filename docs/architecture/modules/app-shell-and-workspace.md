@@ -49,8 +49,11 @@ What it does **not** own. It calls into these, but the logic lives in sibling mo
 | `MarkView/Views/DiagnosticsBarView.swift` | Status bar: active block and structural-index progress |
 | `MarkView/Views/ImageViewerView.swift` | Image tab: `ImageCanvasController`, `ImageCanvasView` (pan/zoom/drop) |
 | `MarkView/Views/DDESettingsView.swift` | DDE Settings window: OpenAI key, assistant/model, CLI paths, extra PATH, usage chips, Whisper test, GitHub section, metadata maintenance |
-| `MarkView/Views/MatrixTheme.swift` | `VSDark` adaptive palette (alias `Matrix`), `Color(hex:)`, `VSDarkHeader`, `VSDarkTabButton`, `VSDarkRow` |
-| `MarkView/Models/ThemeManager.swift` | `Theme`, `ThemeManager` (light/dark/system; posts `.themeDidChange`) |
+| `MarkView/Models/AppTheme.swift` | Foundation-only theme model: `ThemeColor` (contrast maths), `AppTheme` (System, Classic Dark/Light, Darcula, Midnight, Graphite, Paper), `ThemePalette` (native tokens), `WindowThemeSettings` (theme + accent per theme), `ThemeSettingsStore` (legacy `theme` migration, last change for new windows). Checked by `tools/tests/theme-model-tests.sh` |
+| `MarkView/Models/WindowTheme.swift` | `WindowTheme`: one per window (owned by `WorkspaceManager`); sets `NSWindow.appearance`, publishes the palette, builds the web payload; `SystemAppearance` follows macOS |
+| `MarkView/Views/AppPalette.swift` | `AppPalette` (SwiftUI colours of a `ThemePalette`), the `\.palette` environment value, `.windowThemed(_:)`, `WindowThemeHost` |
+| `MarkView/Views/ThemePickerView.swift` | The picker popover (themes, accent swatches, colour well) and `.themePicker(_:)` |
+| `MarkView/Views/PanelTabButton.swift` | `Color(hex:)`, `PanelTabButton` |
 | `MarkView/Models/FrontMatter.swift` | `YAMLValue`, `FrontMatter` (order-preserving YAML subset parser/writer with a `isLossless` flag) |
 | `MarkView/Models/FileTransfer.swift` | Non-overwriting move/copy with "name 2" naming |
 | `MarkView/Models/FilterSearch.swift` | AI filter: criterion to search terms (one cached CLI call) plus local scoring |
@@ -65,11 +68,11 @@ What it does **not** own. It calls into these, but the logic lives in sibling mo
 |---|---|---|
 | `DDEAppEntry` (`@main` enum) | none | If `--dde-index <path>` is in `CommandLine.arguments`, runs `DDEIndexerRunner.run` (never returns). Otherwise calls `MarkViewApp.main()` (`:126-135`). |
 | `DDEIndexerRunner` | spawns a `Task { @MainActor }` | Opens `SemanticDatabase`, calls `ensureProject`, runs `StructuralIndexer.indexAll()`, writes `[mvindexer] …` lines to stderr, then `exit(0/1)`. `dispatchMain()` keeps the main queue running for `MainActor` hops (`:141-167`). |
-| `MarkViewApp: App` | SwiftUI (main) | `@StateObject ThemeManager`, `@FocusedValue(\.workspaceManager)`, `@FocusedValue(\.workspaceHasFolder)`. Builds the `WindowGroup` and all menu commands (`:169-298`). Statics: `version`, `pendingFolderURL`, `lastFolderRestored`, `pendingOpenURLs`, `enqueueOpen(_:)` (`:178,371-386`). |
+| `MarkViewApp: App` | SwiftUI (main) | `@FocusedValue(\.workspaceManager)`, `@FocusedValue(\.workspaceHasFolder)`. Builds the `WindowGroup` and all menu commands (`:169-298`). Statics: `version`, `pendingFolderURL`, `lastFolderRestored`, `pendingOpenURLs`, `enqueueOpen(_:)` (`:178,371-386`). |
 | `MarkViewAppDelegate` | main | `application(_:open:)` enqueues URLs (`:111-117`). `ensureWindowExists()` creates a window 0.3 s after launch or activation when none is visible (`:96-109`). Secure restorable state is on (`:71-73`). |
 | `MarkViewApplication: NSApplication` | main | Registers a `kAEOpenDocuments` handler into `launchURLs`. **Dead code**: `Info.plist:27-28` sets `NSPrincipalClass` to `NSApplication`, and nothing reads `launchURLs`. |
 | `MarkdownDocument: FileDocument` | none | Not used by any scene (`:447-464`). |
-| `Notification.Name` extension | none | `exportPDFRequested`, `themeDidChange`, `openInActiveWindow`, `showFolderPicker`, `performPDFExport`, `scrollToHeading`, `scrollToText`, `revealCodeLine` (userInfo `url`/`line`/`endLine`) (`:434-444`). |
+| `Notification.Name` extension | none | `exportPDFRequested`, `openInActiveWindow`, `showFolderPicker`, `performPDFExport`, `scrollToHeading`, `scrollToText`, `revealCodeLine` (userInfo `url`/`line`/`endLine`) (`:434-444`). |
 
 Menu commands (`:215-297`):
 
@@ -81,7 +84,7 @@ Menu commands (`:215-297`):
 | Recreate / Remove Metadata… | — | `removeMetadata(recreate:)` |
 | Save | ⌘S | `saveActiveFile()` |
 | Export PDF... | ⌘E | posts `.exportPDFRequested` |
-| Toggle Theme | ⇧⌘T | `themeManager.toggleTheme()` |
+| Theme… | ⇧⌘T | opens the picker of the focused window (`WindowTheme.showsPicker`) |
 | Toggle File Tree / TOC | ⌘1 / ⌘2 | `showFileTree` / `showTOC` |
 | Terminal | ⌘3 | `showAIConsole()` |
 | X-Ray | ⌘4 | `openArchitecture()` |
@@ -119,7 +122,8 @@ Important `WorkspaceManager` state:
 | `aiWorkspaceRoot`, `aiTerminals`, `activeAITerminalID`, `terminalTabs` | AI panel terminals and editor-tab terminals (`:335-341`) |
 | `indexingProgress` | Drives the file-tree spinner **and** gates auto-refresh (`:354`, `:418-420`) |
 | `structuralIndexProgress` | Footer-only progress of the child indexer (`:359`) |
-| `themeVersion`, `semanticRefreshVersion` | Counters that force re-render (`:364-365`) |
+| `theme` | `WindowTheme` of this window (theme, accents, palette); saved in `WorkspaceWindowState.theme` |
+| `semanticRefreshVersion` | Counter that forces a re-render (`:364`) |
 | `pendingGraphCreatorType`, `graphCreatorFolder`, `intake`, `fileTreeRevealRequest` | Sheet and reveal requests (`:366,2825,3224,1635`) |
 | `folderXRays` | `[scope: ArchitectureStore]` for folder X-Rays (`:1006`) |
 | `releaseInsightBlobsHook` | Closure set by `EditorView.Coordinator` (`:379`, `MarkView/Views/EditorView.swift:465`) |
@@ -147,8 +151,8 @@ Public operations, grouped:
 | Type | Isolation | Notes |
 |---|---|---|
 | `FileNode` (`FileNode.swift:17`) | none (not `@MainActor`, not `Sendable`) | `ObservableObject` with `@Published children/isExpanded`. `buildTree` loads only the root's direct children and skips dot entries and files that `FileType.isOpenable` rejects (`:44-97`). Also has `expandedDirectoryPaths` / `restoreExpansionState`. |
-| `ThemeManager` (`ThemeManager.swift:22`) | `@MainActor ObservableObject` | `@AppStorage("theme")`, `effectiveTheme`, KVO on `NSApp.effectiveAppearance`. `applyTheme()` sets `NSApp.appearance` and posts `.themeDidChange`. |
-| `VSDark` (`MatrixTheme.swift:4`) | none | Every call reads `NSApp.effectiveAppearance`. Views re-render through `themeVersion`. |
+| `WindowTheme` (`WindowTheme.swift`) | `@MainActor ObservableObject` | One per window. `select(_:)` / `setAccent(_:)` change the window, set its `NSWindow.appearance` (nil for System, dark/light Aqua otherwise) and remember the change as the start of windows opened later (`theme.lastChanged.v1`); `restore(_:)` applies a saved window without remembering it. |
+| `AppPalette` (`AppPalette.swift`) | value type | Read with `@Environment(\.palette)`; the root of each window and of each hosted view publishes its window's palette (`.windowThemed`). There is no static palette: two windows draw side by side with two themes. |
 | `FrontMatter`, `YAMLValue` (`FrontMatter.swift`) | `Sendable` structs | `split(_:)` returns `(FrontMatter, body)`. `join(body:)`. `isLossless` is false when comments or unmodeled lines were dropped, and callers must then refuse to write back (`:52-54,94`). |
 | `FileTransfer` (`FileTransfer.swift`) | none | `perform(_:into:copy:)` returns `Result{moved, errors}`. It refuses to move or copy a folder into itself and never overwrites (`:13-47`). |
 | `FilterSearch` (`FilterSearch.swift`) | none | `terms(for:cache:)` runs one `CLICompletion` with a JSON schema, cached at `terms-<sha24>.json`. `scoreFiles` reads up to 256 KB per file with `DispatchQueue.concurrentPerform`. `levels` splits hits into strong (top 10%), moderate (next 25%) and weak. |
@@ -190,7 +194,6 @@ Coupling through `NotificationCenter` (every window observes, not only the activ
 | `.showFolderPicker` | ⇧⌘O menu | **every** `ContentView` (`ContentView.swift:159-161`) |
 | `.exportPDFRequested` → `.performPDFExport` | ⌘E menu → **every** `ContentView.exportPDF` | editor (bridge) |
 | `.openInActiveWindow` | `enqueueOpen` | every `ContentView`; the active window's filter picks one |
-| `.themeDidChange` | `ThemeManager` | every `ContentView` bumps `themeVersion` |
 | `.scrollToHeading`, `.scrollToText`, `.revealCodeLine` | `TOCView`, `WorkspaceManager` | editor |
 | `UserDefaults.didChangeNotification` | any defaults write | `setUpGitHub` observer (`:3341-3347`) |
 
@@ -343,7 +346,8 @@ flowchart TD
 These four are per-window state: `WorkspaceManager.layout` (`Models/PanelLayout.swift`) reads them once when the
 window opens and writes each change back only to seed the next window and relaunch. Views observe the window's
 `PanelLayout`, never the keys. `@AppStorage` would switch every window at once (BUG-004).
-| `theme` | `light`/`dark`/`system` | `ThemeManager.swift:23` |
+| `theme` | legacy `light`/`dark`/`system`; read once to choose Classic Light or Classic Dark for a window that has no saved theme (DEC-004), never written | `AppTheme.swift` (`ThemeSettingsStore.legacyKey`) |
+| `theme.lastChanged.v1` | JSON `WindowThemeSettings`: the theme and every per-theme accent last chosen in any window; the start of a new window (DEC-005) | `AppTheme.swift` (`ThemeSettingsStore`) |
 | `settings.ai.backend` | `CLITool` raw | `AIAssistants.swift:88`; `ContentView.swift:388` |
 | `settings.cli.<tool>Model`, `settings.xray.<tool>Model` | String | `AIAssistants.swift:90,107`; `ContentView.swift:389-396` |
 | `settings.cli.<tool>Path` | String override | `AIAssistants.swift:37`; via `CLIToolLocator.setOverride` `DDESettingsView.swift:229,286` |
@@ -376,7 +380,7 @@ Caches in memory: `OpenTab.content`, `headings` and `blocks` per tab; `openFileD
 
 ## 7. Concurrency and threading
 
-- `WorkspaceManager`, both stores, `ThemeManager` and `ImageCanvasController` are `@MainActor`. `FileNode` is not isolated. It is built and mutated (`restoreExpansionState`) inside `Task.detached`, then published to the main actor (`WorkspaceManager.swift:179-189`). That works only because the new tree is not shared until it is published. `FileNode` is not `Sendable`.
+- `WorkspaceManager`, both stores, `WindowTheme` and `ImageCanvasController` are `@MainActor`. `FileNode` is not isolated. It is built and mutated (`restoreExpansionState`) inside `Task.detached`, then published to the main actor (`WorkspaceManager.swift:179-189`). That works only because the new tree is not shared until it is published. `FileNode` is not `Sendable`.
 - Work moved **off main**: `buildTree` (`:468,180`), `looksLikeCodeProject` (`:486`), the wikilink search (`:1306`), the `navOpen` suffix search (`:971`), image file read (`ImageViewerView.swift:99`), model option load (`ContentView.swift:444`), the structural index (a separate **process**).
 - **Synchronous work on main** (possible beachball on large trees or slow disks):
   - `hasMarkdownFiles` is a full recursive enumeration when the folder has no `.md`. It is evaluated during `AIToolsMenu` rendering (`WorkspaceManager.swift:605-628`, `ContentView.swift:481`).
@@ -443,7 +447,7 @@ Caches in memory: `OpenTab.content`, `headings` and `blocks` per tab; `openFileD
 | 7 | Dead code: `MarkViewApp.openFolder()` / `newWindow()` are never called. Because of that, `pendingFolderURL` is never set, and the `ContentView.onAppear` consumer is dead too. `MarkdownDocument` is unused. `recentFiles` is persisted but has no UI. | `MarkViewApp.swift:370-426,447-464`; `ContentView.swift:190-194`; `WorkspaceManager.swift:318` |
 | 8 | Every window's `onAppear` schedules a new, never-invalidated 1 s `Timer` that polls a **world-writable** `/tmp` path. Any local process can make the app open an arbitrary path. | `MarkViewApp.swift:208-212,342` |
 | 9 | ⇧⌘O (`.showFolderPicker`) and ⌘E (`.exportPDFRequested`) are observed by **every** window, so several windows show a picker or export at once. `FileTreeView.chooseFolder` avoids this for its own button. | `ContentView.swift:144-146,159-161`; `FileTreeView.swift:348-359` |
-| 10 | `onAppear` forces `NSApp.appearance = .darkAqua` for all windows on each window appear, which overrides the persisted `theme`. `ThemeManager.theme` is `@AppStorage` inside an `ObservableObject`, which does not publish. | `MarkViewApp.swift:192-199`; `ThemeManager.swift:23` |
+| 10 | Fixed by per-window themes (5.41.0): `onAppear` no longer forces `NSApp.appearance`; each window's `WindowTheme` sets its own `NSWindow.appearance` (the global `ThemeManager` and the static `VSDark` palette are gone). | `WindowTheme.swift` |
 | 11 | `DDESettings` window is created once with the focused workspace (or a throwaway `new WorkspaceManager()`) and then reused. Its Maintenance section and embedding client stay bound to that first window's manager. | `MarkViewApp.swift:300-324` |
 | 12 | OpenAI API key is stored as plaintext in UserDefaults, not the Keychain. Presence and length are logged, not the value. | `EmbeddingClient.swift:125-127`; `DDESettingsView.swift:198` |
 | 13 | "Open in Terminal.app" builds AppleScript `do script "cd <path>"` escaping only `"`. The shell sees an unquoted path, so spaces break it, and `;`, `$()` or backticks in folder names run as commands. | `FileTreeView.swift:520-526` |

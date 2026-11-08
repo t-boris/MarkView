@@ -1,15 +1,15 @@
 <!DOCTYPE html>
-<html>
+<html lang="en" data-preset="classic-dark" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <!-- An embedded terminal (TerminalSession.swift): xterm.js drawing a PTY that Swift owns.
-     Swift → JS: mvWrite(base64 output), mvSetTheme(dark), mvFocus(), mvReset(), mvExited(code).
+     Swift → JS: mvWrite(base64 output), mvSetTheme(id, accent), mvFocus(), mvReset(), mvExited(code).
      JS → Swift (message handler "terminal"): {type: ready|input|resize|link|resolveLinks|pasteFiles, …}. -->
 <link rel="stylesheet" href="vendor/css/xterm.css">
+<script src="vendor/js/markview-themes.js"></script>
+<script>MarkViewThemes.applyFromDocument();</script>
 <style>
-    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
-    :root { --bg: #1e1e1e; }
-    :root.light { --bg: #ffffff; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg-primary); }
     #term { position: absolute; inset: 6px 4px 4px 8px; }
     #truncated { position: absolute; z-index: 2; top: 0; left: 0; right: 0; padding: 3px 8px;
         background: #67431b; color: #fff; font: 11px system-ui; }
@@ -29,16 +29,6 @@
     function post(message) {
         try { window.webkit.messageHandlers.terminal.postMessage(message); } catch (e) { console.log('[terminal]', e); }
     }
-    const themes = {
-        dark: { background: '#1e1e1e', foreground: '#d4d4d4', cursor: '#aeafad', selectionBackground: '#264f78',
-                black: '#000000', red: '#cd3131', green: '#0dbc79', yellow: '#e5e510', blue: '#2472c8', magenta: '#bc3fbc',
-                cyan: '#11a8cd', white: '#e5e5e5', brightBlack: '#666666', brightRed: '#f14c4c', brightGreen: '#23d18b',
-                brightYellow: '#f5f543', brightBlue: '#3b8eea', brightMagenta: '#d670d6', brightCyan: '#29b8db', brightWhite: '#e5e5e5' },
-        light: { background: '#ffffff', foreground: '#1f2328', cursor: '#1f2328', selectionBackground: '#add6ff',
-                 black: '#000000', red: '#cd3131', green: '#00bc00', yellow: '#949800', blue: '#0451a5', magenta: '#bc05bc',
-                 cyan: '#0598bc', white: '#555555', brightBlack: '#666666', brightRed: '#cd3131', brightGreen: '#14ce14',
-                 brightYellow: '#b5ba00', brightBlue: '#0451a5', brightMagenta: '#bc05bc', brightCyan: '#0598bc', brightWhite: '#a5a5a5' },
-    };
     function activateLink(event, uri) {
         if (event.button !== 0 || (term.modes.mouseTrackingMode !== 'none' && !event.metaKey)) return;
         event.preventDefault();
@@ -50,9 +40,9 @@
     const BASE_FONT_SIZE = 12;
     const initialScale = Number(window.mvFontScale) > 0 ? Number(window.mvFontScale) : 1;
     const term = new MVTerm.Terminal({
-        fontFamily: '"SF Mono", Menlo, Monaco, monospace', fontSize: BASE_FONT_SIZE * initialScale, lineHeight: 1.15,
+        fontFamily: '"SF Mono", ui-monospace, Menlo, Monaco, monospace', fontSize: BASE_FONT_SIZE * initialScale, lineHeight: 1.15,
         cursorBlink: true, scrollback: 10000, allowTransparency: true, macOptionIsMeta: true,
-        theme: themes.dark,
+        theme: MarkViewThemes.terminalTheme(MarkViewThemes.current().id, MarkViewThemes.current().override),
         // OSC 8 uses a separate provider from WebLinksAddon. WKWebView has no browser
         // confirm/window.open UI; every target must cross the native bridge instead.
         linkHandler: { activate: activateLink, hover: hoverLink, leave: leaveLink, allowNonHttpProtocols: true },
@@ -208,9 +198,10 @@
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         term.write(bytes);
     };
-    window.mvSetTheme = function(dark) {
-        document.documentElement.classList.toggle('light', !dark);
-        term.options.theme = dark ? themes.dark : themes.light;
+    // Swift: mvSetTheme('midnight', '#79B8FF') (accent '' = the appearance's own).
+    window.mvSetTheme = function(id, accent) {
+        const applied = MarkViewThemes.apply(id, accent);
+        term.options.theme = MarkViewThemes.terminalTheme(applied.id, applied.override);
     };
     window.mvFocus = function() { term.focus(); };
     /** New interface text scale: resize glyphs, refit the grid and report cols/rows to the PTY. */

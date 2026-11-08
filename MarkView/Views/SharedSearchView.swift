@@ -89,8 +89,8 @@ final class SharedSearchModel: ObservableObject {
 }
 
 struct SharedSearchView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model = SharedSearchModel()
     @FocusState private var searchFocused: Bool
@@ -99,7 +99,7 @@ struct SharedSearchView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundColor(VSDark.textDim)
+                    .foregroundColor(palette.textDim)
                 TextField("Find files, text, or commands", text: $model.query)
                     .textFieldStyle(.plain)
                     .uiFont(size: 16)
@@ -127,10 +127,10 @@ struct SharedSearchView: View {
                 Text("File · Content · Command")
             }
             .uiFont(size: 10)
-            .foregroundColor(VSDark.textDim)
+            .foregroundColor(palette.textDim)
             .padding(.horizontal, 14).padding(.vertical, 6)
             if let error = model.error {
-                Text(error).uiFont(size: 11).foregroundColor(VSDark.orange).padding(8)
+                Text(error).uiFont(size: 11).foregroundColor(palette.orange).padding(8)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -161,11 +161,11 @@ struct SharedSearchView: View {
                     }
                     if !model.query.isEmpty && matchingCommands.isEmpty && model.results.isEmpty && !model.indexing {
                         Text("No matches in supported project files or available commands.")
-                            .foregroundColor(VSDark.textDim).padding(16)
+                            .foregroundColor(palette.textDim).padding(16)
                     }
                 }
             }
-            .background(VSDark.bg)
+            .background(palette.bg)
         }
         .frame(minWidth: 620, minHeight: 420)
         .task(id: workspaceManager.searchRootsKey) {
@@ -177,7 +177,7 @@ struct SharedSearchView: View {
     private func sectionTitle(_ title: String) -> some View {
         Text(title.uppercased())
             .uiFont(size: 10, weight: .semibold)
-            .foregroundColor(VSDark.textDim)
+            .foregroundColor(palette.textDim)
             .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 4)
     }
 
@@ -193,14 +193,14 @@ struct SharedSearchView: View {
 
     private func resultRow(symbol: String, scope: String, title: String, detail: String) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: symbol).frame(width: 18).foregroundColor(VSDark.blue)
+            Image(systemName: symbol).frame(width: 18).foregroundColor(palette.blue)
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(title).uiFont(size: 12, weight: .medium)
                     Spacer()
-                    Text(scope).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    Text(scope).uiFont(size: 10).foregroundColor(palette.textDim)
                 }
-                Text(detail).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(2)
+                Text(detail).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(2)
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 7)
@@ -231,8 +231,8 @@ struct SharedSearchView: View {
             SearchCommand(id: "new-project", title: "New Project…", symbol: "plus.square", detail: "File menu", run: {
                 manager.newProject = NewProjectRequest()
             }),
-            SearchCommand(id: "theme", title: "Toggle Theme", symbol: "circle.lefthalf.filled", detail: "⌘⇧T", run: {
-                themeManager.toggleTheme()
+            SearchCommand(id: "theme", title: "Theme…", symbol: "paintpalette", detail: "⌘⇧T", run: {
+                manager.theme.showsPicker = true
             }),
             SearchCommand(id: "settings", title: "DDE Settings…", symbol: "gearshape", detail: "⌘⇧,", run: {
                 DDESettingsWindow.show(workspace: manager)

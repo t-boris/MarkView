@@ -323,6 +323,8 @@ class WorkspaceManager: ObservableObject {
         UserDefaults.standard.stringArray(forKey: WorkspaceManager.recentProjectsKey) ?? []
     /// Which tab each panel of this window shows; never shared with other windows (BUG-004).
     let layout = PanelLayout()
+    /// The theme of this window; a change here leaves every other window alone.
+    let theme = WindowTheme()
     /// AI tool runs working in a headless agent (diagrams, code map, review, audit).
     let aiJobs = AIToolJobs()
     /// The left panel. A change the user makes is also the default for windows opened later; see `showDocumentOnly()`.
@@ -505,7 +507,6 @@ class WorkspaceManager: ObservableObject {
     @Published var totalFilesInWorkspace: Int = 0
     @Published var analyzedFiles: Int = 0
     @Published var semanticRefreshVersion: Int = 0
-    @Published var themeVersion: Int = 0
     @Published var pendingGraphCreatorType: String?
     private let fileTreeStore = WorkspaceFileTreeStore()
     private let tabsStore = WorkspaceTabsStore()
@@ -1111,6 +1112,7 @@ class WorkspaceManager: ObservableObject {
 
     func windowState(id: UUID) -> WorkspaceWindowState {
         var state = WorkspaceWindowState(id: id, folder: rootNode?.url)
+        state.theme = theme.settings
         for (index, tab) in openTabs.enumerated() {
             let saved: WorkspaceTabState
             switch tab.kind {

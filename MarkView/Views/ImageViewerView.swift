@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 /// dragging pans, double-click toggles fit / 100 %. Images dropped on it open in tabs;
 /// the handle in the header drags the file out to Finder or another app.
 struct ImageViewerView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     let url: URL
     @StateObject private var canvas = ImageCanvasController()
@@ -23,7 +24,7 @@ struct ImageViewerView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             if let image = canvas.image {
                 ImageCanvasRepresentable(image: image, controller: canvas, openFiles: { urls in
                     urls.forEach { workspaceManager.openFile($0) }
@@ -33,15 +34,15 @@ struct ImageViewerView: View {
             } else {
                 VStack(spacing: 8) {
                     Spacer()
-                    Image(systemName: "photo").uiFont(size: 28).foregroundColor(VSDark.textDim)
+                    Image(systemName: "photo").uiFont(size: 28).foregroundColor(palette.textDim)
                     Text(canvas.loaded ? "This image format can't be displayed." : "Loading…")
-                        .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 11).foregroundColor(palette.textDim)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
             }
         }
-        .background(VSDark.bg)
+        .background(palette.bg)
         .task(id: url) {
             let directory = url.deletingLastPathComponent()
             siblings = await Task.detached { ImageSiblings.list(in: directory, isImage: FileType.isImage) }.value
@@ -84,12 +85,12 @@ struct ImageViewerView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "photo").uiFont(size: 10).foregroundColor(VSDark.textDim)
-            Text(url.lastPathComponent).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text).lineLimit(1)
-            Text(canvas.info).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1)
+            Image(systemName: "photo").uiFont(size: 10).foregroundColor(palette.textDim)
+            Text(url.lastPathComponent).uiFont(size: 10, weight: .semibold).foregroundColor(palette.text).lineLimit(1)
+            Text(canvas.info).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1)
             Spacer()
             if let position = ImageSiblings.position(of: url, in: siblings) {
-                Text(position).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1).fixedSize()
+                Text(position).uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1).fixedSize()
                 iconButton("chevron.left", "Previous image (←)") { go(-1, wrap: false) }.opacity(previous == nil ? 0.3 : 1)
                 iconButton("chevron.right", "Next image (→)") { go(1, wrap: false) }.opacity(next == nil ? 0.3 : 1)
                 iconButton(playing ? "pause.fill" : "play.fill", playing ? "Stop the slideshow (Space)" : "Play the folder as a slideshow (Space)") {
@@ -110,7 +111,7 @@ struct ImageViewerView: View {
             if canvas.image != nil {
                 iconButton("minus.magnifyingglass", "Zoom out") { canvas.zoom(by: 1 / 1.25) }
                 Text("\(Int((canvas.zoom * 100).rounded())) %")
-                    .uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text)
+                    .uiFont(size: 10, design: .monospaced).foregroundColor(palette.text)
                     .frame(minWidth: 44)
                 iconButton("plus.magnifyingglass", "Zoom in") { canvas.zoom(by: 1.25) }
                 textButton("Fit", "Fit the image in the window") { canvas.fit() }
@@ -120,7 +121,7 @@ struct ImageViewerView: View {
                 textButton("Source", "Open the SVG as XML text") { workspaceManager.openImageAsText(url) }
             }
             Image(systemName: "hand.draw")
-                .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                .uiFont(size: 11).foregroundColor(palette.textDim)
                 .padding(3)
                 .contentShape(Rectangle())
                 .onDrag { NSItemProvider(contentsOf: url) ?? NSItemProvider() }
@@ -128,12 +129,12 @@ struct ImageViewerView: View {
             iconButton("folder", "Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
         }
         .padding(.horizontal, 10).padding(.vertical, 4)
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private func iconButton(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).uiFont(size: 11).foregroundColor(VSDark.textDim)
+            Image(systemName: symbol).uiFont(size: 11).foregroundColor(palette.textDim)
         }
         .buttonStyle(.plain)
         .help(help)
@@ -141,9 +142,9 @@ struct ImageViewerView: View {
 
     private func textButton(_ title: String, _ help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).uiFont(size: 10, weight: .medium).foregroundColor(VSDark.text).lineLimit(1).fixedSize()
+            Text(title).uiFont(size: 10, weight: .medium).foregroundColor(palette.text).lineLimit(1).fixedSize()
                 .padding(.horizontal, 6).padding(.vertical, 1)
-                .background(RoundedRectangle(cornerRadius: 3).fill(VSDark.border.opacity(0.6)))
+                .background(RoundedRectangle(cornerRadius: 3).fill(palette.border.opacity(0.6)))
         }
         .buttonStyle(.plain)
         .help(help)

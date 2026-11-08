@@ -5,6 +5,7 @@ import AppKit
 /// to see a change in a page. Four views of the same pair (side by side, the pixel difference, and each capture alone,
 /// so that flipping between "Before" and "After" shows what moved) and a zoom from "fit to the room" to 400 %.
 struct StudioComparisonView: View {
+    @Environment(\.palette) private var palette
     /// Where a capture's picture is stored.
     let url: (StudioCapture) -> URL
     let comparison: StudioSession.Comparison
@@ -33,18 +34,18 @@ struct StudioComparisonView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             if !comparison.reasons.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(comparison.reasons, id: \.self) { reason in
-                        Label(reason, systemImage: "exclamationmark.triangle").uiFont(size: 11).foregroundColor(VSDark.orange)
+                        Label(reason, systemImage: "exclamationmark.triangle").uiFont(size: 11).foregroundColor(palette.orange)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 6).background(VSDark.bgBanner)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 6).background(palette.bgBanner)
             }
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(VSDark.bg)
+        .background(palette.bg)
         .overlay(
             // Esc closes the view, wherever the focus is.
             Button("", action: close).keyboardShortcut(.cancelAction).opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
@@ -55,13 +56,13 @@ struct StudioComparisonView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Text("Comparison").uiFont(size: 13, weight: .semibold).foregroundColor(VSDark.text)
+            Text("Comparison").uiFont(size: 13, weight: .semibold).foregroundColor(palette.text)
             Picker("", selection: $mode) {
                 ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize()
             if let ratio = comparison.changedRatio {
-                Text(String(format: "%.2f %% of the pixels changed", ratio * 100)).uiFont(size: 11).foregroundColor(VSDark.textDim)
+                Text(String(format: "%.2f %% of the pixels changed", ratio * 100)).uiFont(size: 11).foregroundColor(palette.textDim)
             }
             Spacer()
             zoomControls
@@ -69,7 +70,7 @@ struct StudioComparisonView: View {
                 .controlSize(.small).help("Close the large comparison (Esc); the Evidence panel keeps it")
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private var zoomControls: some View {
@@ -77,7 +78,7 @@ struct StudioComparisonView: View {
             Button { step(-1) } label: { Image(systemName: "minus") }
                 .help("Zoom out").disabled(zoom != nil && zoom! <= Self.steps.first!)
             Text(zoom.map { "\(Int(($0 * 100).rounded())) %" } ?? "Fit")
-                .uiFont(size: 11).foregroundColor(VSDark.textDim).frame(minWidth: 38)
+                .uiFont(size: 11).foregroundColor(palette.textDim).frame(minWidth: 38)
             Button { step(1) } label: { Image(systemName: "plus") }
                 .help("Zoom in").disabled(zoom != nil && zoom! >= Self.steps.last!)
             if zoom != nil { Button("Fit") { zoom = nil }.help("Fit the pictures into the room") }
@@ -114,7 +115,7 @@ struct StudioComparisonView: View {
             if let diff = comparison.diffFile {
                 picture(title: "Difference", url: diff, zoom: zoom)
             } else {
-                Text("These captures have different sizes, so there is no pixel difference.").uiFont(size: 12).foregroundColor(VSDark.textDim)
+                Text("These captures have different sizes, so there is no pixel difference.").uiFont(size: 12).foregroundColor(palette.textDim)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         case .before:
@@ -126,7 +127,7 @@ struct StudioComparisonView: View {
 
     private func picture(title: String, url: URL, zoom: Double?) -> some View {
         VStack(spacing: 4) {
-            Text(title).uiFont(size: 11).foregroundColor(VSDark.textDim).lineLimit(1)
+            Text(title).uiFont(size: 11).foregroundColor(palette.textDim).lineLimit(1)
             StudioZoomImage(url: url, zoom: zoom)
         }
     }
@@ -134,6 +135,7 @@ struct StudioComparisonView: View {
 
 /// A capture at "fit to the room" or at a fraction of its pixel size, read off the main thread.
 private struct StudioZoomImage: View {
+    @Environment(\.palette) private var palette
     let url: URL
     let zoom: Double?
     @State private var image: NSImage?
@@ -148,10 +150,10 @@ private struct StudioZoomImage: View {
                     Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
                 }
             } else {
-                Rectangle().fill(VSDark.bg).overlay(ProgressView().controlSize(.small)).frame(minWidth: 120, minHeight: 80)
+                Rectangle().fill(palette.bg).overlay(ProgressView().controlSize(.small)).frame(minWidth: 120, minHeight: 80)
             }
         }
-        .overlay(Rectangle().stroke(VSDark.border, lineWidth: 1))
+        .overlay(Rectangle().stroke(palette.border, lineWidth: 1))
         .task(id: url) {
             let file = url
             let loaded = await Task.detached { StudioImageDiff.load(file) }.value

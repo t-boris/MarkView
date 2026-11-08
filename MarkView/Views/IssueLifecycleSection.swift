@@ -5,6 +5,7 @@ import SwiftUI
 /// from the observed work, and how the GitHub writes ended. A person can accept or reopen from here and ask MarkView to check the
 /// delivery evidence; the status menus of the panels cover the other changes.
 struct IssueLifecycleSection: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var store: FeatureStore
     let kind: IssueKind
     let issue: String
@@ -46,12 +47,12 @@ struct IssueLifecycleSection: View {
     private var header: some View {
         Button(action: { expanded.toggle() }) {
             HStack(spacing: 5) {
-                Image(systemName: expanded ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(VSDark.textDim).frame(width: 10)
-                Text("LIFECYCLE").uiFont(size: 9, weight: .bold).foregroundColor(VSDark.textDim)
+                Image(systemName: expanded ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(palette.textDim).frame(width: 10)
+                Text("LIFECYCLE").uiFont(size: 9, weight: .bold).foregroundColor(palette.textDim)
                 if let model {
-                    Text(model.completion).uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1)
+                    Text(model.completion).uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1)
                     if !model.discrepancies.isEmpty {
-                        Text("· \(model.discrepancies.count) to reconcile").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.orange)
+                        Text("· \(model.discrepancies.count) to reconcile").uiFont(size: 9, weight: .semibold).foregroundColor(palette.orange)
                     }
                 }
                 Spacer(minLength: 0)
@@ -104,13 +105,13 @@ struct IssueLifecycleSection: View {
     private func deliveryBlock(_ verdict: DeliveryVerdict) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Delivery evidence: \(verdict.label)").uiFont(size: 10, weight: .semibold)
-                .foregroundColor(verdict.isComplete ? VSDark.green : VSDark.orange)
-            if let checkNote { Text(checkNote).uiFont(size: 10).foregroundColor(VSDark.green) }
+                .foregroundColor(verdict.isComplete ? palette.green : palette.orange)
+            if let checkNote { Text(checkNote).uiFont(size: 10).foregroundColor(palette.green) }
             ForEach(Array(verdict.lines.enumerated()), id: \.offset) { _, line in
-                Text("• " + line).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                Text("• " + line).uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
             }
             if case .unknown = verdict {
-                Text("Unknown is never completion: MarkView does not record it as done.").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                Text("Unknown is never completion: MarkView does not record it as done.").uiFont(size: 9).foregroundColor(palette.textDim)
             }
         }
         .textSelection(.enabled)
@@ -118,22 +119,22 @@ struct IssueLifecycleSection: View {
 
     private func discrepancyBlock(_ notes: [String]) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("To reconcile").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.orange)
+            Text("To reconcile").uiFont(size: 10, weight: .semibold).foregroundColor(palette.orange)
             ForEach(Array(notes.enumerated()), id: \.offset) { _, note in
-                Text("• " + note).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                Text("• " + note).uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(6).frame(maxWidth: .infinity, alignment: .leading)
-        .background(VSDark.orange.opacity(0.08)).cornerRadius(5)
+        .background(palette.orange.opacity(0.08)).cornerRadius(5)
         .textSelection(.enabled)
     }
 
     @ViewBuilder
     private func rows(_ title: String, _ rows: [LifecycleRow], empty: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.textDim)
+            Text(title).uiFont(size: 10, weight: .semibold).foregroundColor(palette.textDim)
             if rows.isEmpty {
-                Text(empty).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Text(empty).uiFont(size: 10).foregroundColor(palette.textDim)
             }
             ForEach(rows) { row in LifecycleRowView(row: row) }
         }
@@ -142,23 +143,24 @@ struct IssueLifecycleSection: View {
 
 /// One history, blocked or GitHub row: the headline, who and when, then the reason, evidence and bypassed conditions.
 private struct LifecycleRowView: View {
+    @Environment(\.palette) private var palette
     let row: LifecycleRow
 
     private var color: Color {
         switch row.tone {
-        case .normal: return VSDark.textBright
-        case .success: return VSDark.green
-        case .override, .external, .unconfirmed: return VSDark.orange
-        case .blocked, .failure: return VSDark.red
+        case .normal: return palette.textBright
+        case .success: return palette.green
+        case .override, .external, .unconfirmed: return palette.orange
+        case .blocked, .failure: return palette.red
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(row.headline).uiFont(size: 10, weight: .semibold).foregroundColor(color)
-            Text("\(IssueLifecycleDisplay.stamp(row.time)) · \(row.actor)").uiFont(size: 9).foregroundColor(VSDark.textDim)
+            Text("\(IssueLifecycleDisplay.stamp(row.time)) · \(row.actor)").uiFont(size: 9).foregroundColor(palette.textDim)
             ForEach(Array(row.notes.enumerated()), id: \.offset) { _, note in
-                Text(note).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                Text(note).uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.leading, 8)

@@ -1,0 +1,41 @@
+name: Theme Checks
+on:
+  pull_request:
+    paths:
+      - 'MarkView/**'
+      - 'project.yml'
+      - 'Tests/Fixtures/themes/**'
+      - 'tools/tests/Theme*'
+      - 'tools/tests/theme-*'
+      - 'tools/tests/WindowTheme*'
+      - 'tools/tests/window-theme-tests.sh'
+      - 'tools/tests/WindowSessionTests.swift'
+      - '.github/workflows/themes.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'MarkView/Models/AppTheme.swift'
+      - 'MarkView/Models/WindowTheme.swift'
+      - 'MarkView/Views/AppPalette.swift'
+      - 'MarkView/Resources/Editor/**'
+      - 'tools/tests/Theme*'
+      - 'tools/tests/theme-*'
+      - '.github/workflows/themes.yml'
+permissions:
+  contents: read
+jobs:
+  themes:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the palettes (contrast, accents), migration, tolerant decoding and what a new window inherits
+        run: bash tools/tests/theme-model-tests.sh
+      - name: Verify two windows with two themes at once, window appearance, the web payload and the picker (off-screen)
+        run: bash tools/tests/window-theme-tests.sh
+      - name: Verify the theme survives a relaunch and an old session opens without one
+        run: bash tools/tests/window-session-tests.sh
+      - name: Verify the web pages (editor, discussion, terminal) in every appearance (hidden WebKit)
+        run: bash tools/tests/theme-web-tests.sh
+      - name: Build application
+        run: xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug -derivedDataPath /tmp/MarkViewThemesCI CODE_SIGNING_ALLOWED=NO build

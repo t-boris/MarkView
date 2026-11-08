@@ -5,6 +5,7 @@ import SwiftUI
 /// remembered model follow once the session's log confirms it. Other assistants start again with the
 /// model, as a pick in the toolbar does.
 struct AgentModelMenu: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: TerminalSession
     @ObservedObject var monitor: AgentActivityMonitor
     let pick: (String) -> Void
@@ -30,7 +31,7 @@ struct AgentModelMenu: View {
             }
             .pickerStyle(.inline)
         } label: {
-            Image(systemName: "cpu").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textDim)
+            Image(systemName: "cpu").uiFont(size: 11, weight: .semibold).foregroundColor(palette.textDim)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SelectionActionBar: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
 
     var body: some View {
@@ -11,13 +12,13 @@ struct SelectionActionBar: View {
                     HStack(spacing: 6) {
                         Image(systemName: action.phase == .running ? "sparkle" :
                               action.phase == .completed ? "checkmark.circle" : "exclamationmark.circle")
-                            .foregroundColor(action.phase == .failed ? VSDark.red : VSDark.blue)
+                            .foregroundColor(action.phase == .failed ? palette.red : palette.blue)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(action.title).uiFont(size: 10, weight: .semibold)
                             Text("\(action.scope) · \(action.assistant) → Editor popup")
-                                .uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1)
+                                .uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1)
                             Text(action.stage).uiFont(size: 9)
-                                .foregroundColor(action.phase == .failed ? VSDark.red : VSDark.textDim)
+                                .foregroundColor(action.phase == .failed ? palette.red : palette.textDim)
                                 .lineLimit(1)
                         }
                         if action.phase == .running {
@@ -40,19 +41,19 @@ struct SelectionActionBar: View {
                                 .uiFont(size: 9)
                                 .lineLimit(2)
                                 .textSelection(.enabled)
-                            Text("Incomplete output").uiFont(size: 9).foregroundColor(VSDark.orange)
+                            Text("Incomplete output").uiFont(size: 9).foregroundColor(palette.orange)
                         }
                         Text("Run the selection action again to retry.")
-                            .uiFont(size: 9).foregroundColor(VSDark.textDim)
+                            .uiFont(size: 9).foregroundColor(palette.textDim)
                     }
                     }
                     .padding(6)
-                    .background(VSDark.bgActive)
+                    .background(palette.bgActive)
                     .cornerRadius(5)
                 }
             }
             .padding(.horizontal, 8).padding(.vertical, 4)
         }
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 }

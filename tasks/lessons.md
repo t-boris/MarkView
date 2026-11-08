@@ -1,5 +1,29 @@
 # Lessons
 
+## A palette that reads global state cannot differ per window; a mechanical migration needs the compiler as its oracle (per-window themes, 5.41.0)
+
+- `VSDark` read `NSApp.effectiveAppearance` on every call, so no two windows could ever look different, and `ThemeManager` forced
+  `darkAqua` on every window. A per-window setting needs the value in the view environment (`@Environment(\.palette)`, published by the
+  window's root) and `NSWindow.appearance` per window; look for the *source* of the value (a static, a global observer) before adding
+  a picker. Nothing static may remain: a leftover `VSDark.x` or `.primary`/`.secondary` quietly follows the macOS appearance instead of
+  the window's theme.
+- Moving ~1500 references was done with a script that masks strings and comments, rewrites `VSDark.x` to `palette.x`, adds the
+  environment property where a type needs it, and reports every use outside a view body (free functions, `static let`, extensions, view
+  builders in models). The build lists exactly those; each became a view struct or a parameter. Run the script as a dry run first and
+  read its report; do not hand-edit 50 files.
+- A standalone harness that compiles view files (`pdf-reader-tests.sh`, `intake-clipboard-tests.sh`) breaks the moment a file depends on
+  a new type. Add the real model files to its compile line rather than stubbing the palette in the test: a stub drifts from the app.
+  Keep helpers that need app-only types (here `DiagnosticSeverity`) next to their users, not in the shared palette file.
+- `"${1:-}"` passes an *empty string*, not nothing: a test that treats "argument present" as "write pictures here" wrote five PNGs into
+  the repository root. Treat an empty argument as absent, and `git status` after running a new harness.
+- `ImageRenderer` needs `@MainActor` helpers; read its pixels through an sRGB `CGContext` (the image's own colour space shifts
+  values by a few units). That gives a window-isolation check with no window on screen.
+- Do not prove "the page did not reload" with `performance.timeOrigin`: on the CI image WebKit reported it with a jitter, so the check
+  failed while the marker on `window` was intact. Use a marker on `window` plus the identity of a DOM node (`r === window.__node`);
+  the same check fails when the node is replaced, which was verified with a deliberate mutation.
+- `prototype-runtime-tests.sh` fails two checks on pristine origin/main as well. Before chasing a red harness, run it from a
+  `git worktree add --detach <dir> origin/main`; remove the worktree after.
+
 ## Cleanup that compares with the state it just cleared, hidden-page geometry, and a picture is checked by its bytes (REQ-015…REQ-017, 5.34.0)
 
 - A drag helper reset `target = ''` and then called the cleanup, whose `mark('')` returns early when the id equals the current target:

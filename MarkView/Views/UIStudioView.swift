@@ -6,6 +6,7 @@ import WebKit
 /// server with simulated dependencies; the inspector on the right holds the selected element with questions and changes,
 /// the history of changes, the scenarios, the environment and its policies, and the captures and feature export.
 struct UIStudioView: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @AppStorage("uiStudioInspectorWidth") private var inspectorWidth = 380.0
@@ -39,13 +40,13 @@ struct UIStudioView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             banners
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
                     preview.frame(maxWidth: .infinity, maxHeight: .infinity)
                     if showingLog {
-                        Divider().background(VSDark.border)
+                        Divider().background(palette.border)
                         UIStudioLogDrawer(log: session.sessionLog, fixable: Set(session.fixableErrors.map(\.key)), busy: session.busy != nil,
                                           fix: { session.fixData($0) }) { showingLog = false }
                     }
@@ -54,7 +55,7 @@ struct UIStudioView: View {
                 inspector.frame(width: inspectorWidth)
             }
         }
-        .background(VSDark.bg)
+        .background(palette.bg)
         .overlay {
             // The comparison of two captures at the size of the whole tab (BUG-094).
             if session.comparisonEnlarged, let comparison = session.comparison {
@@ -65,7 +66,7 @@ struct UIStudioView: View {
     }
 
     private var resizeHandle: some View {
-        Rectangle().fill(VSDark.border).frame(width: 1)
+        Rectangle().fill(palette.border).frame(width: 1)
             .padding(.horizontal, 3)
             .contentShape(Rectangle())
             .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
@@ -83,8 +84,8 @@ struct UIStudioView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "macwindow.and.cursorarrow").uiFont(size: 11).foregroundColor(VSDark.blue)
-            Text("UI Studio").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+            Image(systemName: "macwindow.and.cursorarrow").uiFont(size: 11).foregroundColor(palette.blue)
+            Text("UI Studio").uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
             if session.targets.count > 1 {
                 Menu(session.target?.label ?? "Choose application") {
                     ForEach(session.targets, id: \.folder) { target in
@@ -94,11 +95,11 @@ struct UIStudioView: View {
                 .controlSize(.small).fixedSize()
                 .help("The web application of this project the session runs")
             } else if let target = session.target {
-                Text(target.label).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1)
+                Text(target.label).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1)
             }
             stateBadge
             if session.appURL != nil {
-                Text(session.route).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1)
+                Text(session.route).uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1)
                     .truncationMode(.middle).frame(maxWidth: 180, alignment: .leading)
                     .help("The page's route")
             }
@@ -114,10 +115,10 @@ struct UIStudioView: View {
             if session.mode == .record {
                 // What recording has written so far, so it is visible without opening the Scenarios panel (BUG-071).
                 HStack(spacing: 4) {
-                    Circle().fill(VSDark.red).frame(width: 6, height: 6)
+                    Circle().fill(palette.red).frame(width: 6, height: 6)
                     Text("\(session.recordedSteps.count) step\(session.recordedSteps.count == 1 ? "" : "s")")
                     if let last = session.recordedSteps.last {
-                        Text("· \(last.action.rawValue) \(last.selector ?? "")").foregroundColor(VSDark.textDim)
+                        Text("· \(last.action.rawValue) \(last.selector ?? "")").foregroundColor(palette.textDim)
                             .lineLimit(1).truncationMode(.middle).frame(maxWidth: 160, alignment: .leading)
                     }
                 }
@@ -130,22 +131,22 @@ struct UIStudioView: View {
             Button { session.setTheme(session.scenario.theme == .dark ? .light : .dark) } label: {
                 Image(systemName: session.scenario.theme == .dark ? "moon.fill" : "sun.max")
             }
-            .buttonStyle(.plain).foregroundColor(VSDark.textDim)
+            .buttonStyle(.plain).foregroundColor(palette.textDim)
             .help("Color scheme of the page: \(session.scenario.theme.rawValue)")
             Button { session.reset() } label: { Label("Reset", systemImage: "arrow.counterclockwise") }
                 .controlSize(.small).fixedSize().disabled(session.appURL == nil || session.busy != nil)
                 .help("Back to the scenario's baseline: its data, an empty browser storage, a fresh page and its restoration steps")
             UIStudioLogButton(log: session.sessionLog, shown: $showingLog)
             Button { session.captureNow() } label: { Image(systemName: "camera") }
-                .buttonStyle(.plain).foregroundColor(VSDark.textDim).disabled(session.appURL == nil || session.busy != nil)
+                .buttonStyle(.plain).foregroundColor(palette.textDim).disabled(session.appURL == nil || session.busy != nil)
                 .help("Capture the preview, linked to the code revision, the scenario and the rendering conditions")
             Button { showingTrust.toggle() } label: { Image(systemName: "shield.lefthalf.filled") }
-                .buttonStyle(.plain).foregroundColor(VSDark.orange)
+                .buttonStyle(.plain).foregroundColor(palette.orange)
                 .popover(isPresented: $showingTrust, arrowEdge: .bottom) { trustPanel.frame(width: 420).padding(14) }
                 .help("What runs, with which permissions, and where the application and the assistant may connect")
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private var stateBadge: some View {
@@ -160,11 +161,11 @@ struct UIStudioView: View {
 
     private var stateColor: Color {
         switch session.state {
-        case .ready: return VSDark.green
-        case .degraded: return VSDark.orange
-        case .failed: return VSDark.red
-        case .stopped: return VSDark.textDim
-        case .analyzing, .preparing, .starting: return VSDark.blue
+        case .ready: return palette.green
+        case .degraded: return palette.orange
+        case .failed: return palette.red
+        case .stopped: return palette.textDim
+        case .analyzing, .preparing, .starting: return palette.blue
         }
     }
 
@@ -222,10 +223,10 @@ struct UIStudioView: View {
 
     @ViewBuilder private var banners: some View {
         if let notice = session.notice {
-            banner(notice, symbol: "info.circle", color: VSDark.blue) { session.notice = nil }
+            banner(notice, symbol: "info.circle", color: palette.blue) { session.notice = nil }
         }
         if session.state == .degraded, !session.limitations.isEmpty {
-            banner("Degraded: " + session.limitations.joined(separator: " · "), symbol: "exclamationmark.triangle", color: VSDark.orange) {
+            banner("Degraded: " + session.limitations.joined(separator: " · "), symbol: "exclamationmark.triangle", color: palette.orange) {
                 panel = .environment
             }
         }
@@ -233,48 +234,48 @@ struct UIStudioView: View {
             // REQ-017: nothing happens until the person clicks.
             let others = session.fixableErrors.count - 1
             HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "wrench.and.screwdriver").uiFont(size: 10).foregroundColor(VSDark.orange)
+                Image(systemName: "wrench.and.screwdriver").uiFont(size: 10).foregroundColor(palette.orange)
                 Text("The page reported an error: " + String(error.key.prefix(160)) + (others > 0 ? " (and \(others) more)" : ""))
-                    .uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    .uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 Spacer()
                 Button("Fix data") { session.fixData(error.key) }.controlSize(.small)
                     .help("The assistant reads the error and the code and corrects the simulated records that caused it, or says the error is not caused by data. Nothing changes until you click.")
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(VSDark.bgBanner)
+            .background(palette.bgBanner)
         }
         if session.state == .preparing, session.busy == nil {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text(session.stateDetail).uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(1)
+                Text(session.stateDetail).uiFont(size: 10).foregroundColor(palette.text).lineLimit(1)
                 Spacer()
                 Button("Cancel") { session.cancelWork() }.controlSize(.small)
                     .help("Stop preparing; requests without a rule then end in a controlled error")
             }
             .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(VSDark.bgBanner)
+            .background(palette.bgBanner)
         }
         if session.rulesArrivedLate {
             HStack(spacing: 8) {
-                Image(systemName: "arrow.clockwise.circle").uiFont(size: 10).foregroundColor(VSDark.blue)
+                Image(systemName: "arrow.clockwise.circle").uiFont(size: 10).foregroundColor(palette.blue)
                 Text("New simulation rules are ready for requests this page made before they existed. Reload to render it with them.")
-                    .uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                    .uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 Button("Reload") { session.reloadPage() }.controlSize(.small)
                     .help("Load this address again: the scenario's data stays, text typed on this page is lost")
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(VSDark.bgBanner)
+            .background(palette.bgBanner)
         }
         if let busy = session.busy {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text(busy + (session.busyDetail.isEmpty ? "" : " — " + session.busyDetail)).uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(1)
+                Text(busy + (session.busyDetail.isEmpty ? "" : " — " + session.busyDetail)).uiFont(size: 10).foregroundColor(palette.text).lineLimit(1)
                 Spacer()
                 Button("Cancel") { session.cancelWork() }.controlSize(.small)
             }
             .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(VSDark.bgBanner)
+            .background(palette.bgBanner)
         }
         UIStudioMapBanner(mapper: session.mapping) { session.cancelMapping() }
     }
@@ -282,12 +283,12 @@ struct UIStudioView: View {
     private func banner(_ text: String, symbol: String, color: Color, action: @escaping () -> Void) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: symbol).uiFont(size: 10).foregroundColor(color)
-            Text(text).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+            Text(text).uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
             Spacer()
-            Button(action: action) { Image(systemName: "xmark").uiFont(size: 9) }.buttonStyle(.plain).foregroundColor(VSDark.textDim)
+            Button(action: action) { Image(systemName: "xmark").uiFont(size: 9) }.buttonStyle(.plain).foregroundColor(palette.textDim)
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(VSDark.bgBanner)
+        .background(palette.bgBanner)
     }
 
     // MARK: Preview
@@ -309,26 +310,26 @@ struct UIStudioView: View {
     private func stalePreview(_ capture: StudioCapture, error: String) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.octagon.fill").foregroundColor(VSDark.red)
+                Image(systemName: "exclamationmark.octagon.fill").foregroundColor(palette.red)
                 Text("Stale preview: the application does not build after the change. This is the last working capture.")
-                    .uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+                    .uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
                 Spacer()
                 Button("Show the error page") { showLivePage = true }.controlSize(.small)
             }
-            .padding(8).background(VSDark.bgBanner)
-            Text(error).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.red).lineLimit(6)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(8).background(VSDark.bgSidebar).textSelection(.enabled)
+            .padding(8).background(palette.bgBanner)
+            Text(error).uiFont(size: 10, design: .monospaced).foregroundColor(palette.red).lineLimit(6)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(8).background(palette.bgSidebar).textSelection(.enabled)
             StudioCaptureImage(url: session.url(of: capture)).opacity(0.55).frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(VSDark.bg)
+        .background(palette.bg)
         .onDisappear { showLivePage = false }
     }
 
     private var startingPlaceholder: some View {
         VStack(spacing: 12) {
             if [.analyzing, .starting, .preparing].contains(session.state) { ProgressView() }
-            Text(session.state.title).uiFont(size: 14, weight: .semibold).foregroundColor(VSDark.text)
-            Text(session.stateDetail).uiFont(size: 11).foregroundColor(VSDark.textDim).multilineTextAlignment(.center)
+            Text(session.state.title).uiFont(size: 14, weight: .semibold).foregroundColor(palette.text)
+            Text(session.stateDetail).uiFont(size: 11).foregroundColor(palette.textDim).multilineTextAlignment(.center)
                 .frame(maxWidth: 520)
             if session.target == nil, session.targets.count > 1 {
                 VStack(alignment: .leading, spacing: 6) {
@@ -336,7 +337,7 @@ struct UIStudioView: View {
                         Button { session.start(target) } label: {
                             Label("\(target.label) — \(target.command)", systemImage: target.isElectron ? "macwindow" : "globe")
                         }
-                        .buttonStyle(.plain).foregroundColor(VSDark.blue)
+                        .buttonStyle(.plain).foregroundColor(palette.blue)
                     }
                 }
             }
@@ -345,12 +346,12 @@ struct UIStudioView: View {
             }
             if !session.serverLog.isEmpty {
                 ScrollView {
-                    Text(session.serverLog).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim)
+                    Text(session.serverLog).uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim)
                         .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                 }
-                .frame(maxWidth: 700, maxHeight: 240).padding(8).background(VSDark.bgSidebar)
+                .frame(maxWidth: 700, maxHeight: 240).padding(8).background(palette.bgSidebar)
             }
-            Text("Project processes run with your permissions.").uiFont(size: 10).foregroundColor(VSDark.orange)
+            Text("Project processes run with your permissions.").uiFont(size: 10).foregroundColor(palette.orange)
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -365,17 +366,17 @@ struct UIStudioView: View {
                     Button { panel = item } label: {
                         Image(systemName: item.symbol).uiFont(size: 11)
                             .frame(maxWidth: .infinity).padding(.vertical, 5)
-                            .background(panel == item ? VSDark.bgActive : Color.clear)
+                            .background(panel == item ? palette.bgActive : Color.clear)
                             .cornerRadius(4)
                     }
-                    .buttonStyle(.plain).foregroundColor(panel == item ? VSDark.text : VSDark.textDim)
+                    .buttonStyle(.plain).foregroundColor(panel == item ? palette.text : palette.textDim)
                     .help(item.rawValue)
                 }
             }
             .padding(6)
-            Text(panel.rawValue.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+            Text(panel.rawValue.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10)
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             switch panel {
             case .element: elementPanel
             case .history: UIStudioHistoryPanel(session: session) { panel = .evidence }
@@ -384,7 +385,7 @@ struct UIStudioView: View {
             case .evidence: UIStudioEvidencePanel(session: session)
             }
         }
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     // MARK: Element
@@ -394,9 +395,9 @@ struct UIStudioView: View {
     private var elementPanel: some View {
         VStack(spacing: 0) {
             selectionHeader
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             thread
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             composer
         }
     }
@@ -409,8 +410,8 @@ struct UIStudioView: View {
                     Button { selectionExpanded.toggle() } label: {
                         HStack(spacing: 5) {
                             Image(systemName: selectionExpanded ? "chevron.down" : "chevron.right").uiFont(size: 9)
-                                .foregroundColor(VSDark.textDim).frame(width: 10)
-                            Text(selection.tag).uiFont(size: 12, weight: .semibold, design: .monospaced).foregroundColor(VSDark.text)
+                                .foregroundColor(palette.textDim).frame(width: 10)
+                            Text(selection.tag).uiFont(size: 12, weight: .semibold, design: .monospaced).foregroundColor(palette.text)
                                 .lineLimit(selectionExpanded ? 2 : 1).truncationMode(.middle)
                             Spacer(minLength: 0)
                         }
@@ -423,7 +424,7 @@ struct UIStudioView: View {
                         Button { session.selectChild() } label: { Image(systemName: "arrow.down.right") }.help("Select a child element")
                         Button { session.clearSelection() } label: { Image(systemName: "xmark.circle") }.help("Clear the selection")
                     }
-                    .buttonStyle(.plain).foregroundColor(VSDark.textDim).uiFont(size: 11).disabled(session.busy != nil)
+                    .buttonStyle(.plain).foregroundColor(palette.textDim).uiFont(size: 11).disabled(session.busy != nil)
                 }
                 if selectionExpanded { selectionDetails(selection) }
             }
@@ -432,7 +433,7 @@ struct UIStudioView: View {
             Text(session.mode == .select
                  ? "Click an element in the preview. In Select mode a click selects; it does not run the element's action. Escape ends selecting."
                  : "Nothing is selected: a request is about the whole page. To point at one element, choose Select in the toolbar and click it.")
-                .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(10)
         }
     }
@@ -450,7 +451,7 @@ struct UIStudioView: View {
                              + "\"show the error\"), or ask for a change to the interface: the assistant answers, makes a new scenario, or "
                              + "edits the code, and says which. It remembers the last turns, so a follow-up can refer to them. Earlier "
                              + "changes are in History, where they can be undone.")
-                            .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                            .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     }
                     ForEach(session.conversation) { operation in
                         turn(operation)
@@ -491,7 +492,7 @@ struct UIStudioView: View {
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(VSDark.bg).cornerRadius(6)
+        .background(palette.bg).cornerRadius(6)
     }
 
     /// The request the assistant is working on: what was asked, about which element, what the assistant is doing, Stop.
@@ -499,13 +500,13 @@ struct UIStudioView: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "paperplane").uiFont(size: 10)
-                    .foregroundColor(VSDark.blue)
-                Text(turn.request).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+                    .foregroundColor(palette.blue)
+                Text(turn.request).uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
                     .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 Spacer(minLength: 0)
             }
             if !turn.element.isEmpty {
-                Text(turn.element).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1).truncationMode(.middle)
+                Text(turn.element).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1).truncationMode(.middle)
             }
             StudioAttachmentThumbnails(root: session.root, paths: turn.attachments)
             HStack(spacing: 6) {
@@ -514,7 +515,7 @@ struct UIStudioView: View {
                     let seconds = max(0, Int(context.date.timeIntervalSince(turn.started)))
                     Text((session.busyDetail.isEmpty ? (session.busy ?? "Working") : session.busyDetail)
                          + String(format: " · %d:%02d", seconds / 60, seconds % 60))
-                        .uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1).truncationMode(.middle)
+                        .uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: 4)
                 Button("Stop") { session.cancelWork() }.controlSize(.small).help("Stop the assistant")
@@ -522,8 +523,8 @@ struct UIStudioView: View {
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(VSDark.bg).cornerRadius(6)
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(VSDark.blue.opacity(0.4)))
+        .background(palette.bg).cornerRadius(6)
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(palette.blue.opacity(0.4)))
     }
 
     private func selectionDetails(_ selection: StudioSelectionContext) -> some View {
@@ -538,18 +539,18 @@ struct UIStudioView: View {
                 } label: {
                     Label("Open \(path)\(selection.line.map { ":\($0)" } ?? "")", systemImage: "doc.text")
                 }
-                .buttonStyle(.plain).foregroundColor(VSDark.blue).uiFont(size: 10)
+                .buttonStyle(.plain).foregroundColor(palette.blue).uiFont(size: 10)
             }
             if let boundary = selection.boundary {
-                Text(boundary).uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+                Text(boundary).uiFont(size: 10).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
             }
             if let snippet = selection.snippet {
                 DisclosureGroup("Source around the element") {
                     ScrollView(.horizontal) {
-                        Text(snippet).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).textSelection(.enabled)
+                        Text(snippet).uiFont(size: 10, design: .monospaced).foregroundColor(palette.text).textSelection(.enabled)
                     }
                 }
-                .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                .uiFont(size: 10).foregroundColor(palette.textDim)
             }
         }
     }
@@ -569,15 +570,15 @@ struct UIStudioView: View {
     private func clarification(_ operation: StudioOperation) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Label("The assistant asks before changing anything", systemImage: "questionmark.bubble").uiFont(size: 10, weight: .semibold)
-                .foregroundColor(VSDark.yellow)
-            Text(operation.question ?? "").uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                .foregroundColor(palette.yellow)
+            Text(operation.question ?? "").uiFont(size: 11).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
             ForEach(operation.options, id: \.self) { option in
                 Button(option) { session.answerClarification(operation, choice: option) }
                     .controlSize(.small).disabled(session.busy != nil)
             }
             if session.conversation.last?.id == operation.id {
-                Text("Or type the answer below and press Send.").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Text("Or type the answer below and press Send.").uiFont(size: 10).foregroundColor(palette.textDim)
             }
         }
     }
@@ -587,7 +588,7 @@ struct UIStudioView: View {
             ImageAttachmentStrip(attachments: $session.attachments)
             TextEditor(text: $draft)
                 .uiFont(size: 12).frame(height: 70)
-                .scrollContentBackground(.hidden).background(VSDark.bgInput).cornerRadius(4)
+                .scrollContentBackground(.hidden).background(palette.bgInput).cornerRadius(4)
                 .focused($draftFocused)
                 .takesImageAttachments($session.attachments, text: $draft)
             DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
@@ -596,7 +597,7 @@ struct UIStudioView: View {
                     .disabled(session.conversation.isEmpty || session.busy != nil)
                     .help("Start a new conversation: the thread empties and the assistant forgets it. Every change stays in History, where it can be undone")
                 Text(session.selection == nil ? "About the whole page." : "About the selected element.")
-                    .uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 9).foregroundColor(palette.textDim)
                     .help("The assistant answers a question, makes a new scenario for a request about data or state, or edits the code, "
                           + "and the turn says which. A new scenario and a code change can both be undone.")
                 Spacer()
@@ -638,22 +639,22 @@ struct UIStudioView: View {
 
     private var trustPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Trusted local projects only").uiFont(size: 13, weight: .semibold).foregroundColor(VSDark.text)
+            Text("Trusted local projects only").uiFont(size: 13, weight: .semibold).foregroundColor(palette.text)
             Text("Project processes run with your permissions. The development server, its build and the application's code are the "
                  + "project's own and are not isolated from your Mac. Open only projects you trust.")
-                .uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 11).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
             Text("Requests are intercepted inside the page so that they reach the simulation. This keeps the application away from "
                  + "real services; it is not operating-system isolation and does not make a malicious project safe.")
-                .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             Divider()
-            Text("Application connections").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+            Text("Application connections").uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
             Text("The page reaches its development server (\(session.appURL?.absoluteString ?? "not running")), local data: and blob: "
                  + "resources and the addresses you allow in Environment. Everything else is blocked; an unknown request is answered by "
                  + "the simulation or ends in a controlled error.")
-                .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
-            Text("Model connections").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
-            Text(StudioModelPolicy.description).uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
-            Text("The simulated user is a test account with test credentials.").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+            Text("Model connections").uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
+            Text(StudioModelPolicy.description).uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+            Text("The simulated user is a test account with test credentials.").uiFont(size: 11).foregroundColor(palette.textDim)
         }
     }
 }
@@ -686,6 +687,7 @@ struct UIStudioWebHost: NSViewRepresentable {
 
 /// A capture or selection picture, read off the main thread.
 struct StudioCaptureImage: View {
+    @Environment(\.palette) private var palette
     let url: URL
     @State private var image: NSImage?
 
@@ -694,7 +696,7 @@ struct StudioCaptureImage: View {
             if let image {
                 Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
             } else {
-                Rectangle().fill(VSDark.bg).overlay(ProgressView().controlSize(.small))
+                Rectangle().fill(palette.bg).overlay(ProgressView().controlSize(.small))
             }
         }
         .task(id: url) {
@@ -707,6 +709,7 @@ struct StudioCaptureImage: View {
 
 /// The images attached to a request (REQ-005), as a row of small thumbnails; nothing when there are none.
 struct StudioAttachmentThumbnails: View {
+    @Environment(\.palette) private var palette
     let root: URL
     let paths: [String]
 
@@ -718,7 +721,7 @@ struct StudioAttachmentThumbnails: View {
                     ForEach(shown, id: \.self) { path in
                         StudioCaptureImage(url: root.appendingPathComponent(path))
                             .frame(width: 44, height: 44)
-                            .background(VSDark.bgInput).clipShape(RoundedRectangle(cornerRadius: 3))
+                            .background(palette.bgInput).clipShape(RoundedRectangle(cornerRadius: 3))
                             .help("Attached image " + (path as NSString).lastPathComponent)
                     }
                 }
@@ -731,6 +734,7 @@ struct StudioAttachmentThumbnails: View {
 // MARK: - History
 
 struct UIStudioHistoryPanel: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
     var showEvidence: () -> Void
 
@@ -740,11 +744,11 @@ struct UIStudioHistoryPanel: View {
                 if session.history.isEmpty {
                     Text("Answers, new scenarios and code changes appear here with their verification. Each change can be undone on its "
                          + "own: a code change is removed from the sources, a new scenario gives way to the one it was made from.")
-                        .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 }
                 ForEach(session.history.reversed()) { operation in
                     UIStudioOperationRow(session: session, operation: operation, compact: false, showEvidence: showEvidence)
-                    Divider().background(VSDark.border)
+                    Divider().background(palette.border)
                 }
             }
             .padding(10)
@@ -753,6 +757,7 @@ struct UIStudioHistoryPanel: View {
 }
 
 struct UIStudioOperationRow: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
     let operation: StudioOperation
     /// The form of a turn in the element panel's conversation: the whole request and answer, and checks that all passed
@@ -766,8 +771,8 @@ struct UIStudioOperationRow: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Image(systemName: kindIcon).uiFont(size: 10)
-                    .foregroundColor(VSDark.blue).help(kindTitle)
-                Text(operation.request).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text).lineLimit(compact ? nil : 4)
+                    .foregroundColor(palette.blue).help(kindTitle)
+                Text(operation.request).uiFont(size: 11, weight: .semibold).foregroundColor(palette.text).lineLimit(compact ? nil : 4)
                     .fixedSize(horizontal: false, vertical: compact)
                 Spacer()
                 Text(operation.status.rawValue).uiFont(size: 9, weight: .semibold).foregroundColor(statusColor)
@@ -775,20 +780,20 @@ struct UIStudioOperationRow: View {
                     .overlay(RoundedRectangle(cornerRadius: 3).stroke(statusColor.opacity(0.6)))
             }
             if !operation.selection.isEmpty {
-                Text(operation.selection).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1)
+                Text(operation.selection).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1)
             }
             StudioAttachmentThumbnails(root: session.root, paths: operation.attachedImages)
             Text(kindTitle + (operation.kind == .edit && operation.scope != .unknown
                               ? " · Scope: \(operation.scope.title)" + (operation.scopeNote.isEmpty ? "" : " — \(operation.scopeNote)") : ""))
-                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             if let change = operation.context { contextDetails(change) }
             let text = operation.answer.isEmpty ? operation.summary : operation.answer
             if !text.isEmpty {
-                Text(text).uiFont(size: 11).foregroundColor(VSDark.text)
+                Text(text).uiFont(size: 11).foregroundColor(palette.text)
                     .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
             }
             if let conflict = operation.conflict {
-                Text(conflict).uiFont(size: 10).foregroundColor(VSDark.red).fixedSize(horizontal: false, vertical: true)
+                Text(conflict).uiFont(size: 10).foregroundColor(palette.red).fixedSize(horizontal: false, vertical: true)
                 if session.undoConflicts[operation.id] != nil {
                     Button("Write the conflict markers into the files") { session.resolveUndoConflictInEditor(operation.id) }
                         .controlSize(.small)
@@ -797,18 +802,18 @@ struct UIStudioOperationRow: View {
             }
             if compact, !operation.checks.isEmpty, operation.checks.allSatisfy(\.passed) {
                 HStack(alignment: .top, spacing: 4) {
-                    Image(systemName: "checkmark.circle.fill").foregroundColor(VSDark.green).uiFont(size: 10)
+                    Image(systemName: "checkmark.circle.fill").foregroundColor(palette.green).uiFont(size: 10)
                     Text(operation.checks.count == 1 ? operation.checks[0].name : "\(operation.checks.count) checks passed")
-                        .uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1)
+                        .uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1)
                 }
                 .help(operation.checks.map(\.name).joined(separator: "\n"))
             } else if !operation.checks.isEmpty {
                 ForEach(operation.checks, id: \.name) { check in
                     HStack(alignment: .top, spacing: 4) {
                         Image(systemName: check.passed ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .foregroundColor(check.passed ? VSDark.green : VSDark.red).uiFont(size: 10)
+                            .foregroundColor(check.passed ? palette.green : palette.red).uiFont(size: 10)
                         Text(check.name + (check.detail.isEmpty ? "" : ": " + check.detail)).uiFont(size: 10)
-                            .foregroundColor(VSDark.textDim).lineLimit(3)
+                            .foregroundColor(palette.textDim).lineLimit(3)
                     }
                 }
             }
@@ -817,7 +822,7 @@ struct UIStudioOperationRow: View {
                     Button { workspaceManager.openFile(session.root.appendingPathComponent(file.path)) } label: {
                         Label(file.path, systemImage: file.before == nil ? "doc.badge.plus" : "doc.text").uiFont(size: 10)
                     }
-                    .buttonStyle(.plain).foregroundColor(VSDark.blue)
+                    .buttonStyle(.plain).foregroundColor(palette.blue)
                 }
             }
             if operation.kind != .question {
@@ -883,22 +888,22 @@ struct UIStudioOperationRow: View {
     @ViewBuilder private func contextDetails(_ change: StudioContextChange) -> some View {
         if !change.scenarioId.isEmpty {
             Text("New scenario \u{201C}\(change.scenarioName)\u{201D}, made from \u{201C}\(change.previousScenarioName)\u{201D}; the source code is not changed")
-                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
         }
         ForEach(change.lines, id: \.self) { line in
-            Text(line).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+            Text(line).uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
         }
         ForEach(change.unsupported, id: \.self) { note in
-            Text("Not done: " + note).uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+            Text("Not done: " + note).uiFont(size: 10).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var statusColor: Color {
         switch operation.status {
-        case .applied, .kept, .answered: return VSDark.green
-        case .undone: return VSDark.textDim
-        case .conflict, .failed: return VSDark.red
-        case .clarification: return VSDark.yellow
+        case .applied, .kept, .answered: return palette.green
+        case .undone: return palette.textDim
+        case .conflict, .failed: return palette.red
+        case .clarification: return palette.yellow
         }
     }
 }
@@ -906,6 +911,7 @@ struct UIStudioOperationRow: View {
 // MARK: - Scenarios
 
 struct UIStudioScenariosPanel: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
     @State private var name = ""
     @State private var kind: StudioScenario.Kind = .custom
@@ -933,7 +939,7 @@ struct UIStudioScenariosPanel: View {
                 section("Record restoration steps")
                 Text("Recording starts from the scenario's baseline. Use the application; clicks, typing and Enter become steps that "
                      + "rebuild this state after every Reset. Typed passwords are replaced by a test value.")
-                    .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 HStack {
                     if session.mode == .record {
                         Button("Stop recording") { session.setMode(.interact) }
@@ -946,7 +952,7 @@ struct UIStudioScenariosPanel: View {
                 .controlSize(.small)
                 ForEach(Array(session.recordedSteps.enumerated()), id: \.offset) { _, step in
                     Text("\(step.action.rawValue) \(step.selector ?? "") \(step.text ?? "")").uiFont(size: 9, design: .monospaced)
-                        .foregroundColor(VSDark.textDim).lineLimit(1)
+                        .foregroundColor(palette.textDim).lineLimit(1)
                 }
 
                 section("Save the current scenario")
@@ -978,30 +984,30 @@ struct UIStudioScenariosPanel: View {
     }
 
     private func section(_ title: String) -> some View {
-        Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim).padding(.top, 4)
+        Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim).padding(.top, 4)
     }
 
     private func scenarioRow(_ scenario: StudioScenario, problems: [String]) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Image(systemName: scenario.id == session.scenario.id ? "largecircle.fill.circle" : "circle").uiFont(size: 10)
-                    .foregroundColor(VSDark.blue)
-                Text(scenario.name).uiFont(size: 11).foregroundColor(VSDark.text)
-                Text(scenario.kind.title).uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    .foregroundColor(palette.blue)
+                Text(scenario.name).uiFont(size: 11).foregroundColor(palette.text)
+                Text(scenario.kind.title).uiFont(size: 9).foregroundColor(palette.textDim)
                 Spacer()
                 Button("Open") { session.activate(scenario) }.controlSize(.small).disabled(session.busy != nil)
                 if !scenario.id.hasPrefix("builtin-") {
                     Button { session.deleteScenario(scenario.id) } label: { Image(systemName: "trash") }.buttonStyle(.plain)
-                        .foregroundColor(VSDark.textDim).help("Delete the saved scenario")
+                        .foregroundColor(palette.textDim).help("Delete the saved scenario")
                 }
             }
             if let description = scenario.description, !description.isEmpty {
-                Text(description).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(2)
+                Text(description).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(2)
                     .help(description)
             }
             if !problems.isEmpty {
                 ForEach(problems, id: \.self) { problem in
-                    Text(problem).uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+                    Text(problem).uiFont(size: 10).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
                 }
                 Button("Update to the current contracts") { session.updateScenario(scenario) }.controlSize(.small)
                     .help("Writes a new revision of the scenario that fits the current entities; what changed is reported")
@@ -1015,6 +1021,7 @@ struct UIStudioScenariosPanel: View {
 /// The scenario's answers for location, the clipboard, camera and microphone, and notifications, and the cookies and
 /// storage kept across restores.
 struct UIStudioBrowserSettings: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
     @State private var placeLabel = ""
     @State private var latitude = ""
@@ -1032,7 +1039,7 @@ struct UIStudioBrowserSettings: View {
             section("Browser")
             Text("Location, the clipboard, camera and microphone, and notifications answer from these settings; the Mac's own "
                  + "are never used. A change resets the page.")
-                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             Picker("Location", selection: locationChoice) {
                 Text("Denied").tag(LocationChoice.denied)
                 Text("Unavailable").tag(LocationChoice.unavailable)
@@ -1059,9 +1066,9 @@ struct UIStudioBrowserSettings: View {
             .uiFont(size: 11).disabled(!idle)
             let uses = session.events.filter { $0.kind == .browser }.suffix(8).reversed()
             if !uses.isEmpty {
-                Text("Used by the page").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
+                Text("Used by the page").uiFont(size: 10, weight: .semibold).foregroundColor(palette.text)
                 ForEach(Array(uses)) { event in
-                    Text(event.detail).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(2)
+                    Text(event.detail).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim).lineLimit(2)
                 }
             }
 
@@ -1069,11 +1076,11 @@ struct UIStudioBrowserSettings: View {
             Text("Every restore empties cookies and storage, so the application asks again (cookie consent, onboarding). Kept "
                  + "cookies and localStorage entries are set again before the page loads. Entries that look like sessions or "
                  + "credentials are not kept; the rest is saved in .markview/studio/environment.json.")
-                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             Button("Keep this page's cookies and storage") { session.keepBrowserData() }
                 .controlSize(.small).disabled(session.appURL == nil || !idle)
             ForEach(session.keptSkipped, id: \.self) { skipped in
-                Text("Not kept: " + skipped).uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+                Text("Not kept: " + skipped).uiFont(size: 10).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
             }
             if let kept = session.spec.keptBrowserData {
                 ForEach(kept.cookies) { cookie in
@@ -1111,7 +1118,7 @@ struct UIStudioBrowserSettings: View {
                 .disabled(!idle || formPlace == nil)
             }
             if formPlace == nil {
-                Text("Latitude −90…90, longitude −180…180 and an accuracy above 0 meters.").uiFont(size: 9).foregroundColor(VSDark.orange)
+                Text("Latitude −90…90, longitude −180…180 and an accuracy above 0 meters.").uiFont(size: 9).foregroundColor(palette.orange)
             }
         }
         .uiFont(size: 11).controlSize(.small).padding(.leading, 8)
@@ -1169,25 +1176,26 @@ struct UIStudioBrowserSettings: View {
 
     private func keptRow(_ kind: String, _ name: String, _ value: String, note: String, forget: @escaping () -> Void) -> some View {
         HStack(spacing: 4) {
-            Text(kind).uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim).frame(width: 70, alignment: .leading)
-            Text(name).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).lineLimit(1)
+            Text(kind).uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim).frame(width: 70, alignment: .leading)
+            Text(name).uiFont(size: 10, design: .monospaced).foregroundColor(palette.text).lineLimit(1)
             Text(value.count > 40 ? String(value.prefix(40)) + "…" : value).uiFont(size: 9, design: .monospaced)
-                .foregroundColor(VSDark.textDim).lineLimit(1).truncationMode(.tail)
-            if !note.isEmpty { Text(note).uiFont(size: 9).foregroundColor(VSDark.textDim) }
+                .foregroundColor(palette.textDim).lineLimit(1).truncationMode(.tail)
+            if !note.isEmpty { Text(note).uiFont(size: 9).foregroundColor(palette.textDim) }
             Spacer()
-            Button(action: forget) { Image(systemName: "minus.circle") }.buttonStyle(.plain).foregroundColor(VSDark.textDim)
+            Button(action: forget) { Image(systemName: "minus.circle") }.buttonStyle(.plain).foregroundColor(palette.textDim)
                 .help("Forget this entry: it is no longer set again after a restore")
         }
     }
 
     private func section(_ title: String) -> some View {
-        Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim).padding(.top, 4)
+        Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim).padding(.top, 4)
     }
 }
 
 // MARK: - Environment
 
 struct UIStudioEnvironmentPanel: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
     @ObservedObject var queue: StudioPreparationQueue
     @State private var allowed = ""
@@ -1201,20 +1209,20 @@ struct UIStudioEnvironmentPanel: View {
         if !session.ownsServer, session.appURL != nil {
             Text("This development server was started outside MarkView: its requests to other services are real and its clock is the "
                  + "real clock. Stop it and open UI Studio again to let MarkView start it with simulated connections and the scenario's clock.")
-                .uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 10).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
         } else {
             Text("The server's requests to these addresses are answered by the simulation, like the page's. Requests to addresses "
                  + "written in the code itself, databases and other protocols stay real.")
-                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
         }
         if session.serverConnections.isEmpty {
-            Text("No service addresses found in the env files or the code.").uiFont(size: 10).foregroundColor(VSDark.textDim)
+            Text("No service addresses found in the env files or the code.").uiFont(size: 10).foregroundColor(palette.textDim)
         }
         ForEach(session.serverConnections) { connection in
             HStack(spacing: 6) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(connection.variable).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text)
-                    Text(connection.origin + connection.basePath + "  ·  " + connection.foundIn).uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    Text(connection.variable).uiFont(size: 10, design: .monospaced).foregroundColor(palette.text)
+                    Text(connection.origin + connection.basePath + "  ·  " + connection.foundIn).uiFont(size: 9).foregroundColor(palette.textDim)
                         .lineLimit(1).truncationMode(.middle)
                 }
                 Spacer()
@@ -1228,7 +1236,7 @@ struct UIStudioEnvironmentPanel: View {
         }
         if !session.serverSecrets.isEmpty {
             Text("Secrets get test values; the real ones never reach the server while it is simulated.")
-                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             ForEach(session.serverSecrets, id: \.self) { name in
                 Toggle(isOn: Binding(get: { (session.spec.keptSecrets ?? []).contains(name) },
                                      set: { session.setSecretKeptReal(name, $0) })) {
@@ -1238,33 +1246,33 @@ struct UIStudioEnvironmentPanel: View {
             }
         }
         ForEach(session.serverNotes, id: \.self) { note in
-            Text(note).uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+            Text(note).uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
         }
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Project processes run with your permissions.").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.orange)
+                Text("Project processes run with your permissions.").uiFont(size: 11, weight: .semibold).foregroundColor(palette.orange)
                 FactRows(rows: serverRows)
                 ForEach(session.disclosures, id: \.self) { note in
-                    Label(note, systemImage: "info.circle").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    Label(note, systemImage: "info.circle").uiFont(size: 10).foregroundColor(palette.textDim)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if !session.removedEnvironment.isEmpty {
                     Text("Not passed to the server: " + session.removedEnvironment.sorted().joined(separator: ", "))
-                        .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 }
 
                 section("Application connections")
                 Text("Allowed: the development server, data: and blob: resources, and these addresses. Everything else is blocked.")
-                    .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 ForEach(session.spec.allowedRequests, id: \.self) { pattern in
                     HStack {
-                        Text(pattern).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text)
+                        Text(pattern).uiFont(size: 10, design: .monospaced).foregroundColor(palette.text)
                         Spacer()
                         Button { session.disallow(pattern) } label: { Image(systemName: "minus.circle") }.buttonStyle(.plain)
-                            .foregroundColor(VSDark.textDim).disabled(session.busy != nil)
+                            .foregroundColor(palette.textDim).disabled(session.busy != nil)
                     }
                 }
                 HStack {
@@ -1282,25 +1290,25 @@ struct UIStudioEnvironmentPanel: View {
                 UIStudioMapSection(session: session, mapper: session.mapping)
 
                 section("Model connections")
-                Text(StudioModelPolicy.description).uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                Text(StudioModelPolicy.description).uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
 
                 section("Dependencies")
                 if session.dependencies.isEmpty {
-                    Text("None seen yet.").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    Text("None seen yet.").uiFont(size: 10).foregroundColor(palette.textDim)
                 }
                 ForEach(session.dependencies) { dependency in
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 4) {
                             Text(dependency.mode.rawValue).uiFont(size: 9, weight: .semibold).foregroundColor(color(dependency.mode))
                                 .frame(width: 70, alignment: .leading)
-                            Text(dependency.id).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).lineLimit(2)
+                            Text(dependency.id).uiFont(size: 10, design: .monospaced).foregroundColor(palette.text).lineLimit(2)
                         }
                         if !dependency.note.isEmpty {
-                            Text(dependency.note).uiFont(size: 9).foregroundColor(VSDark.textDim).padding(.leading, 74)
+                            Text(dependency.note).uiFont(size: 9).foregroundColor(palette.textDim).padding(.leading, 74)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         ForEach(dependency.evidence, id: \.self) { evidence in
-                            Text("\(evidence.kind.rawValue): \(evidence.detail)").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                            Text("\(evidence.kind.rawValue): \(evidence.detail)").uiFont(size: 9).foregroundColor(palette.textDim)
                                 .padding(.leading, 74).lineLimit(2)
                         }
                     }
@@ -1308,21 +1316,21 @@ struct UIStudioEnvironmentPanel: View {
 
                 section("Unknown requests")
                 if queue.ordered.isEmpty {
-                    Text("Every request so far had a rule.").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    Text("Every request so far had a rule.").uiFont(size: 10).foregroundColor(palette.textDim)
                 }
                 ForEach(queue.ordered) { record in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
-                            Text(record.contract).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).lineLimit(1)
+                            Text(record.contract).uiFont(size: 10, design: .monospaced).foregroundColor(palette.text).lineLimit(1)
                             Spacer()
-                            Text(record.status.rawValue).uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+                            Text(record.status.rawValue).uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
                             if [.failed, .timedOut, .cancelled, .limit, .stale].contains(record.status) {
                                 Button("Retry") { session.retryPreparation(record.contract) }.controlSize(.small)
                                     .disabled(session.busy != nil)
                             }
                         }
                         if !record.message.isEmpty {
-                            Text(record.message).uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(3)
+                            Text(record.message).uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(3)
                         }
                     }
                 }
@@ -1331,11 +1339,11 @@ struct UIStudioEnvironmentPanel: View {
                 ForEach(session.requests.suffix(80).reversed()) { request in
                     HStack(spacing: 4) {
                         Text(request.status.map(String.init) ?? "…").uiFont(size: 9, design: .monospaced).frame(width: 28, alignment: .leading)
-                        Text(request.outcome).uiFont(size: 9).foregroundColor(VSDark.textDim).frame(width: 62, alignment: .leading)
-                        Text(request.transport).uiFont(size: 9).foregroundColor(request.transport == "server" ? VSDark.orange : VSDark.textDim)
+                        Text(request.outcome).uiFont(size: 9).foregroundColor(palette.textDim).frame(width: 62, alignment: .leading)
+                        Text(request.transport).uiFont(size: 9).foregroundColor(request.transport == "server" ? palette.orange : palette.textDim)
                             .frame(width: 38, alignment: .leading)
                             .help(request.transport == "server" ? "Made by the development server through a simulated connection" : "Made by the page")
-                        Text("\(request.method) \(request.url)").uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.text)
+                        Text("\(request.method) \(request.url)").uiFont(size: 9, design: .monospaced).foregroundColor(palette.text)
                             .lineLimit(1).truncationMode(.middle)
                     }
                 }
@@ -1343,7 +1351,7 @@ struct UIStudioEnvironmentPanel: View {
                 section("Page events")
                 if session.rejectedMessages > 0 {
                     Text("\(session.rejectedMessages) message(s) from the page were rejected (wrong frame, origin, session or generation).")
-                        .uiFont(size: 10).foregroundColor(VSDark.orange)
+                        .uiFont(size: 10).foregroundColor(palette.orange)
                 }
                 ForEach(StudioEventGrouping.group(session.events.map { (kind: $0.kind, detail: $0.detail) }).prefix(60)) { group in
                     eventRow(group)
@@ -1351,7 +1359,7 @@ struct UIStudioEnvironmentPanel: View {
 
                 if !session.serverLog.isEmpty {
                     section("Server output")
-                    Text(session.serverLog).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim).textSelection(.enabled)
+                    Text(session.serverLog).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim).textSelection(.enabled)
                         .lineLimit(60)
                 }
             }
@@ -1375,14 +1383,14 @@ struct UIStudioEnvironmentPanel: View {
     }
 
     private func section(_ title: String) -> some View {
-        Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim).padding(.top, 4)
+        Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim).padding(.top, 4)
     }
 
     /// One page event with its repeats counted; a long one (a React hydration diff) opens to its whole text.
     private func eventRow(_ group: StudioEventGrouping.Group) -> some View {
         let expanded = expandedEvents.contains(group.id)
         let long = group.detail.count > 200 || group.detail.contains("\n")
-        let color = group.kind == .runtimeError || group.kind == .logged || group.kind == .buildError ? VSDark.red : VSDark.textDim
+        let color = group.kind == .runtimeError || group.kind == .logged || group.kind == .buildError ? palette.red : palette.textDim
         return HStack(alignment: .top, spacing: 4) {
             if long {
                 Button {
@@ -1390,7 +1398,7 @@ struct UIStudioEnvironmentPanel: View {
                 } label: {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right").uiFont(size: 8).frame(width: 10, height: 12)
                 }
-                .buttonStyle(.plain).foregroundColor(VSDark.textDim)
+                .buttonStyle(.plain).foregroundColor(palette.textDim)
                 .help(expanded ? "Show less" : "Show the whole text")
             } else {
                 Color.clear.frame(width: 10, height: 1)
@@ -1409,10 +1417,10 @@ struct UIStudioEnvironmentPanel: View {
 
     private func color(_ mode: StudioDependency.Mode) -> Color {
         switch mode {
-        case .simulated: return VSDark.green
-        case .allowed: return VSDark.blue
-        case .unsupported: return VSDark.orange
-        case .unresolved: return VSDark.red
+        case .simulated: return palette.green
+        case .allowed: return palette.blue
+        case .unsupported: return palette.orange
+        case .unresolved: return palette.red
         }
     }
 }
@@ -1421,6 +1429,7 @@ struct UIStudioEnvironmentPanel: View {
 
 /// The progress of the application's map while it is made, with Cancel; nothing otherwise.
 struct UIStudioMapBanner: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var mapper: StudioEnvironmentMapper
     let cancel: () -> Void
 
@@ -1433,13 +1442,13 @@ struct UIStudioMapBanner: View {
                 } else {
                     ProgressView().controlSize(.small)
                 }
-                Text(mapper.progressText).uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(1)
+                Text(mapper.progressText).uiFont(size: 10).foregroundColor(palette.text).lineLimit(1)
                 Spacer()
                 Button("Cancel") { cancel() }.controlSize(.small)
                     .help("Stop mapping: what is prepared stays, the other groups wait for Resume in the Environment panel")
             }
             .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(VSDark.bgBanner)
+            .background(palette.bgBanner)
         }
     }
 }
@@ -1447,6 +1456,7 @@ struct UIStudioMapBanner: View {
 /// The application's map in the Environment panel: its services and groups and how far they got, the data check, and the
 /// actions Map Again, Refill Data and Resume.
 struct UIStudioMapSection: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
     @ObservedObject var mapper: StudioEnvironmentMapper
     @State private var confirmMapAgain = false
@@ -1457,21 +1467,21 @@ struct UIStudioMapSection: View {
     }
 
     @ViewBuilder private var content: some View {
-        Text("APPLICATION MAP").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim).padding(.top, 4)
+        Text("APPLICATION MAP").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim).padding(.top, 4)
         Text("UI Studio lists the API the application's code calls, from the page and from the server, and prepares the simulation "
              + "for it in the background, group by group, with data that fits together. Requests are prepared one by one until their group is ready.")
-            .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+            .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
         if let map = mapper.map {
             FactRows(rows: rows(map))
             if !map.message.isEmpty {
-                Text(map.message).uiFont(size: 10).foregroundColor(map.status == .failed ? VSDark.red : VSDark.textDim)
+                Text(map.message).uiFont(size: 10).foregroundColor(map.status == .failed ? palette.red : palette.textDim)
                     .fixedSize(horizontal: false, vertical: true)
             }
             ForEach(map.services, id: \.name) { service in
                 HStack(spacing: 4) {
-                    Text(service.name).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).frame(width: 130, alignment: .leading)
+                    Text(service.name).uiFont(size: 10, design: .monospaced).foregroundColor(palette.text).frame(width: 130, alignment: .leading)
                         .lineLimit(1)
-                    Text(address(service)).uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1).truncationMode(.middle)
+                    Text(address(service)).uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1).truncationMode(.middle)
                 }
             }
             ForEach(map.groups) { group in
@@ -1479,30 +1489,30 @@ struct UIStudioMapSection: View {
                     HStack(spacing: 4) {
                         Text(group.status.rawValue).uiFont(size: 9, weight: .semibold).foregroundColor(color(group.status))
                             .frame(width: 70, alignment: .leading)
-                        Text(group.id).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).lineLimit(1)
+                        Text(group.id).uiFont(size: 10, design: .monospaced).foregroundColor(palette.text).lineLimit(1)
                         Spacer()
                         Text("\(group.endpoints.count) endpoint\(group.endpoints.count == 1 ? "" : "s")"
                              + (group.rules.isEmpty ? "" : " · \(group.rules.count) rule\(group.rules.count == 1 ? "" : "s")"))
-                            .uiFont(size: 9).foregroundColor(VSDark.textDim)
+                            .uiFont(size: 9).foregroundColor(palette.textDim)
                     }
                     .help(group.endpoints.map { "\($0.method) \($0.path)" + ($0.callSite.isEmpty ? "" : " — \($0.callSite)") }.joined(separator: "\n"))
                     if !group.message.isEmpty, group.status != .done {
-                        Text(group.message).uiFont(size: 9).foregroundColor(VSDark.textDim).padding(.leading, 74).lineLimit(3)
+                        Text(group.message).uiFont(size: 9).foregroundColor(palette.textDim).padding(.leading, 74).lineLimit(3)
                     }
                 }
             }
             ForEach(map.notes, id: \.self) { note in
-                Text(note).uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                Text(note).uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             }
             if !map.gaps.isEmpty {
-                Text("Data gaps").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.orange)
+                Text("Data gaps").uiFont(size: 10, weight: .semibold).foregroundColor(palette.orange)
                 ForEach(map.gaps, id: \.self) { gap in
-                    Text(gap).uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    Text(gap).uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 }
             }
         } else {
             Text(mapper.isRunning ? "Listing the API…" : "Not mapped yet: mapping starts when the application opens.")
-                .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                .uiFont(size: 10).foregroundColor(palette.textDim)
         }
         HStack(spacing: 6) {
             if mapper.canResume {
@@ -1550,11 +1560,11 @@ struct UIStudioMapSection: View {
 
     private func color(_ status: StudioMapGroup.Status) -> Color {
         switch status {
-        case .done: return VSDark.green
-        case .preparing: return VSDark.blue
-        case .pending: return VSDark.textDim
-        case .failed: return VSDark.red
-        case .unsupported: return VSDark.orange
+        case .done: return palette.green
+        case .preparing: return palette.blue
+        case .pending: return palette.textDim
+        case .failed: return palette.red
+        case .unsupported: return palette.orange
         }
     }
 }
@@ -1562,6 +1572,7 @@ struct UIStudioMapSection: View {
 // MARK: - Evidence
 
 struct UIStudioEvidencePanel: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var chosen: [String] = []
@@ -1576,7 +1587,7 @@ struct UIStudioEvidencePanel: View {
                 if let comparison = session.comparison { comparisonView(comparison) }
 
                 section("Captures")
-                Text("Choose two captures to compare them.").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Text("Choose two captures to compare them.").uiFont(size: 10).foregroundColor(palette.textDim)
                 ForEach(session.captures.reversed()) { capture in
                     HStack(spacing: 6) {
                         Toggle("", isOn: Binding(get: { chosen.contains(capture.id) }, set: { on in
@@ -1587,9 +1598,9 @@ struct UIStudioEvidencePanel: View {
                         .labelsHidden().toggleStyle(.checkbox)
                         StudioCaptureImage(url: session.url(of: capture)).frame(width: 64, height: 40)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(capture.label).uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(1)
+                            Text(capture.label).uiFont(size: 10).foregroundColor(palette.text).lineLimit(1)
                             Text("\(capture.revision.label) · \(capture.rendering.viewport.width)×\(capture.rendering.viewport.height) · \(capture.rendering.colorScheme)")
-                                .uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1)
+                                .uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1)
                         }
                     }
                 }
@@ -1604,7 +1615,7 @@ struct UIStudioEvidencePanel: View {
                 section("Export as a feature")
                 if session.exportableOperations.isEmpty {
                     Text("Applied or kept changes can be exported with their code changes, revisions, scenario, captures and checks.")
-                        .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 } else {
                     TextField("Feature title", text: $title).textFieldStyle(.roundedBorder).uiFont(size: 11)
                     TextField("What the change does", text: $summary, axis: .vertical).textFieldStyle(.roundedBorder).uiFont(size: 11)
@@ -1630,18 +1641,18 @@ struct UIStudioEvidencePanel: View {
                     ForEach(session.packages) { package in
                         VStack(alignment: .leading, spacing: 2) {
                             HStack {
-                                Text(package.title).uiFont(size: 11).foregroundColor(VSDark.text)
+                                Text(package.title).uiFont(size: 11).foregroundColor(palette.text)
                                 Spacer()
                                 Text(package.status == .current ? "current" : "needs revalidation").uiFont(size: 9, weight: .semibold)
-                                    .foregroundColor(package.status == .current ? VSDark.green : VSDark.orange)
+                                    .foregroundColor(package.status == .current ? palette.green : palette.orange)
                             }
                             if !package.changedSince.isEmpty {
                                 Text("Changed since export: " + package.changedSince.joined(separator: ", ")).uiFont(size: 9)
-                                    .foregroundColor(VSDark.orange).lineLimit(3)
+                                    .foregroundColor(palette.orange).lineLimit(3)
                             }
                             if !package.featureSlug.isEmpty {
                                 Button("Show feature \(package.featureSlug)") { workspaceManager.showFeatureContext(package.featureSlug) }
-                                    .buttonStyle(.plain).foregroundColor(VSDark.blue).uiFont(size: 10)
+                                    .buttonStyle(.plain).foregroundColor(palette.blue).uiFont(size: 10)
                             }
                         }
                     }
@@ -1655,7 +1666,7 @@ struct UIStudioEvidencePanel: View {
     private func comparisonView(_ comparison: StudioSession.Comparison) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Comparison").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+                Text("Comparison").uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
                 Spacer()
                 Picker("", selection: $showDifference) {
                     Text("Side by side").tag(false)
@@ -1668,37 +1679,37 @@ struct UIStudioEvidencePanel: View {
             }
             if !comparison.reasons.isEmpty {
                 ForEach(comparison.reasons, id: \.self) { reason in
-                    Label(reason, systemImage: "exclamationmark.triangle").uiFont(size: 10).foregroundColor(VSDark.orange)
+                    Label(reason, systemImage: "exclamationmark.triangle").uiFont(size: 10).foregroundColor(palette.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if let ratio = comparison.changedRatio {
-                Text(String(format: "%.2f %% of the pixels changed", ratio * 100)).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Text(String(format: "%.2f %% of the pixels changed", ratio * 100)).uiFont(size: 10).foregroundColor(palette.textDim)
             }
             if showDifference {
                 if let diff = comparison.diffFile {
                     StudioCaptureImage(url: diff)
                 } else {
-                    Text("These captures have different sizes, so there is no pixel difference.").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    Text("These captures have different sizes, so there is no pixel difference.").uiFont(size: 10).foregroundColor(palette.textDim)
                 }
             } else {
                 HStack(alignment: .top, spacing: 4) {
                     VStack(spacing: 2) {
-                        Text("Before").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                        Text("Before").uiFont(size: 9).foregroundColor(palette.textDim)
                         StudioCaptureImage(url: session.url(of: comparison.before))
                     }
                     VStack(spacing: 2) {
-                        Text("After").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                        Text("After").uiFont(size: 9).foregroundColor(palette.textDim)
                         StudioCaptureImage(url: session.url(of: comparison.after))
                     }
                 }
             }
         }
-        .padding(8).background(VSDark.bg).cornerRadius(6)
+        .padding(8).background(palette.bg).cornerRadius(6)
     }
 
     private func section(_ title: String) -> some View {
-        Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim).padding(.top, 4)
+        Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim).padding(.top, 4)
     }
 }
 
@@ -1738,6 +1749,7 @@ struct UIStudioLogButton: View {
 
 /// The log drawer under the preview (REQ-011): the session's entries, newest first, filtered, redacted, selectable.
 struct UIStudioLogDrawer: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var log: StudioLog
     /// The page errors Fix data may be offered for now (REQ-017), whether the session is busy, and what the action does.
     var fixable: Set<String> = []
@@ -1771,7 +1783,7 @@ struct UIStudioLogDrawer: View {
         let shown = log.entries.filter(filter.includes)
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Text("LOG").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+                Text("LOG").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
                     .help("Every entry is also written to .dde/studio/session.log")
                 Picker("", selection: $filter) {
                     ForEach(Filter.allCases) { item in
@@ -1780,7 +1792,7 @@ struct UIStudioLogDrawer: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize().controlSize(.small)
                 .help("Requests include rule preparations; Problems are errors, failures and requests nothing could answer")
-                Text("\(shown.count) of \(log.entries.count)").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                Text("\(shown.count) of \(log.entries.count)").uiFont(size: 9).foregroundColor(palette.textDim)
                 Spacer()
                 Button("Copy") {
                     NSPasteboard.general.clearContents()
@@ -1792,15 +1804,15 @@ struct UIStudioLogDrawer: View {
                     .controlSize(.small).disabled(log.entries.isEmpty)
                     .help("Empty this view; .dde/studio/session.log keeps every line")
                 Button(action: close) { Image(systemName: "xmark").uiFont(size: 9) }
-                    .buttonStyle(.plain).foregroundColor(VSDark.textDim)
+                    .buttonStyle(.plain).foregroundColor(palette.textDim)
                     .help("Hide the log")
             }
             .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(VSDark.bgSidebar)
-            Divider().background(VSDark.border)
+            .background(palette.bgSidebar)
+            Divider().background(palette.border)
             if shown.isEmpty {
                 Text(log.entries.isEmpty ? "Nothing logged yet." : "No entries match this filter.")
-                    .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 10).foregroundColor(palette.textDim)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
@@ -1813,15 +1825,15 @@ struct UIStudioLogDrawer: View {
             }
         }
         .frame(height: 220)
-        .background(VSDark.bg)
+        .background(palette.bg)
     }
 
     /// `offersFix`: the page still reports this error, and this is its latest row (REQ-017).
     private func row(_ entry: StudioLogEntry, offersFix: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(Self.time.string(from: entry.date)).foregroundColor(VSDark.textDim)
+            Text(Self.time.string(from: entry.date)).foregroundColor(palette.textDim)
             Text(entry.kind.rawValue).foregroundColor(color(entry.kind)).frame(width: 72, alignment: .leading)
-            Text(entry.text).foregroundColor(entry.problem ? VSDark.red : VSDark.text)
+            Text(entry.text).foregroundColor(entry.problem ? palette.red : palette.text)
                 .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             if offersFix, let key = entry.errorKey {
                 Button("Fix data") { fix(key) }.controlSize(.mini).disabled(busy)
@@ -1834,12 +1846,12 @@ struct UIStudioLogDrawer: View {
 
     private func color(_ kind: StudioLogEntry.Kind) -> Color {
         switch kind {
-        case .navigation: return VSDark.blue
-        case .request: return VSDark.green
-        case .preparation: return VSDark.purple
-        case .page: return VSDark.yellow
-        case .server: return VSDark.orange
-        case .notice: return VSDark.cyan
+        case .navigation: return palette.blue
+        case .request: return palette.green
+        case .preparation: return palette.purple
+        case .page: return palette.yellow
+        case .server: return palette.orange
+        case .notice: return palette.cyan
         }
     }
 }

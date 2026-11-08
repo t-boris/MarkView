@@ -4,11 +4,11 @@ import SwiftUI
 // details in a popover, and the fallback-limit form (DEC-014). No notifications (DEC-004).
 
 extension UsageLevel {
-    var color: Color {
+    func color(_ palette: AppPalette) -> Color {
         switch self {
-        case .normal: return VSDark.green
-        case .warning: return .orange
-        case .critical: return VSDark.red
+        case .normal: return palette.green
+        case .warning: return palette.orange
+        case .critical: return palette.red
         }
     }
 }
@@ -35,6 +35,7 @@ struct AgentUsageBar: View {
 }
 
 private struct AgentUsageChip: View {
+    @Environment(\.palette) private var palette
     let agent: UsageAgent
     @ObservedObject var tracker: AgentUsageTracker
     @State private var showingDetails = false
@@ -48,7 +49,7 @@ private struct AgentUsageChip: View {
                 content(snapshot, detail: .minimal)
             }
             .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 4).fill(VSDark.border.opacity(0.45)))
+            .background(RoundedRectangle(cornerRadius: 4).fill(palette.border.opacity(0.45)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -69,26 +70,26 @@ private struct AgentUsageChip: View {
                 case .official, .userLimit:
                     if let window = snapshot.state.headline {
                         let stale = snapshot.isStale(now: tracker.now)
-                        UsageMeter(percent: window.percentUsed, color: window.level.color).frame(width: 22, height: 4)
-                        Text(name).foregroundColor(VSDark.textDim)
+                        UsageMeter(percent: window.percentUsed, color: window.level.color(palette)).frame(width: 22, height: 4)
+                        Text(name).foregroundColor(palette.textDim)
                         Text((window.source == .estimated ? "~" : "") + UsageFormat.percent(window.percentUsed))
-                            .fontWeight(.semibold).foregroundColor(window.level.color)
+                            .fontWeight(.semibold).foregroundColor(window.level.color(palette))
                         if detail == .full {
-                            Text(resetText(window)).foregroundColor(VSDark.textDim)
+                            Text(resetText(window)).foregroundColor(palette.textDim)
                         }
-                        if stale { Image(systemName: "clock").foregroundColor(VSDark.textDim) }
+                        if stale { Image(systemName: "clock").foregroundColor(palette.textDim) }
                     }
                 case .noLimit(let today):
-                    Text(name).foregroundColor(VSDark.textDim)
-                    Text(UsageFormat.tokens(today.tokens)).foregroundColor(VSDark.text)
-                    if detail == .full { Text("today · set a limit").foregroundColor(VSDark.textDim) }
+                    Text(name).foregroundColor(palette.textDim)
+                    Text(UsageFormat.tokens(today.tokens)).foregroundColor(palette.text)
+                    if detail == .full { Text("today · set a limit").foregroundColor(palette.textDim) }
                 case .unavailable:
-                    Image(systemName: "exclamationmark.triangle").foregroundColor(VSDark.textDim)
-                    Text(name).foregroundColor(VSDark.textDim)
-                    if detail != .minimal { Text("usage unavailable").foregroundColor(VSDark.textDim) }
+                    Image(systemName: "exclamationmark.triangle").foregroundColor(palette.textDim)
+                    Text(name).foregroundColor(palette.textDim)
+                    if detail != .minimal { Text("usage unavailable").foregroundColor(palette.textDim) }
                 }
             } else {
-                Text(name).foregroundColor(VSDark.textDim)
+                Text(name).foregroundColor(palette.textDim)
                 ProgressView().scaleEffect(0.35).frame(width: 10, height: 10)
             }
         }
@@ -116,13 +117,14 @@ private struct AgentUsageChip: View {
 
 /// A thin progress bar; over 100% it stays full.
 private struct UsageMeter: View {
+    @Environment(\.palette) private var palette
     let percent: Double
     let color: Color
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                Capsule().fill(VSDark.border)
+                Capsule().fill(palette.border)
                 Capsule().fill(color).frame(width: geometry.size.width * min(1, max(0, percent / 100)))
             }
         }
@@ -132,6 +134,7 @@ private struct UsageMeter: View {
 // MARK: - Popover
 
 private struct AgentUsagePopover: View {
+    @Environment(\.palette) private var palette
     let agent: UsageAgent
     @ObservedObject var tracker: AgentUsageTracker
     @State private var editingLimit = false
@@ -149,7 +152,7 @@ private struct AgentUsagePopover: View {
             } else {
                 HStack(spacing: 6) {
                     ProgressView().scaleEffect(0.6)
-                    Text("Reading usage…").uiFont(size: 11).foregroundColor(.secondary)
+                    Text("Reading usage…").uiFont(size: 11).foregroundColor(palette.textDim)
                 }
             }
         }
@@ -171,7 +174,7 @@ private struct AgentUsagePopover: View {
                             Label("stale", systemImage: "clock").foregroundColor(.orange)
                         }
                     }
-                    .uiFont(size: 10).foregroundColor(.secondary)
+                    .uiFont(size: 10).foregroundColor(palette.textDim)
                 }
             }
             Spacer()
@@ -217,14 +220,14 @@ private struct AgentUsagePopover: View {
             windowRow(window, local: nil)
         case .noLimit:
             Text("No limit is set, so there is no percentage or reset time. Set the limit and window of your plan to see an estimate.")
-                .uiFont(size: 10).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
         case .unavailable(let reason):
             Text("Usage unavailable: \(reason).").uiFont(size: 11).fixedSize(horizontal: false, vertical: true)
         }
         if let today = snapshot.today {
             Divider()
             HStack {
-                Text("Today (local logs)").foregroundColor(.secondary)
+                Text("Today (local logs)").foregroundColor(palette.textDim)
                 Spacer()
                 Text(amountText(today))
             }
@@ -241,18 +244,18 @@ private struct AgentUsagePopover: View {
                 Spacer()
                 Text(window.source == .official ? "Official" : "Estimated")
                     .uiFont(size: 9, weight: .semibold)
-                    .foregroundColor(window.source == .official ? VSDark.green : .orange)
+                    .foregroundColor(window.source == .official ? palette.green : .orange)
                     .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Capsule().stroke(window.source == .official ? VSDark.green : .orange, lineWidth: 0.5))
+                    .background(Capsule().stroke(window.source == .official ? palette.green : .orange, lineWidth: 0.5))
             }
-            UsageMeter(percent: window.percentUsed, color: window.level.color).frame(height: 5)
+            UsageMeter(percent: window.percentUsed, color: window.level.color(palette)).frame(height: 5)
             Text(usedText(window)).uiFont(size: 10)
             if let resetsAt = window.resetsAt {
-                Text(resetText(window, resetsAt: resetsAt)).uiFont(size: 10).foregroundColor(.secondary)
+                Text(resetText(window, resetsAt: resetsAt)).uiFont(size: 10).foregroundColor(palette.textDim)
             }
             if let local {
                 Text("From local logs: \(amountText(local)) in this window")
-                    .uiFont(size: 9).foregroundColor(.secondary)
+                    .uiFont(size: 9).foregroundColor(palette.textDim)
             }
         }
     }
@@ -294,9 +297,9 @@ private struct AgentUsagePopover: View {
         HStack(alignment: .firstTextBaseline) {
             if let limit {
                 Text("Your limit: \(UsageFormat.amount(limit.value, unit: limit.unit)) per \(limit.period.title)")
-                    .uiFont(size: 10).foregroundColor(.secondary)
+                    .uiFont(size: 10).foregroundColor(palette.textDim)
             } else {
-                Text("No limit set").uiFont(size: 10).foregroundColor(.secondary)
+                Text("No limit set").uiFont(size: 10).foregroundColor(palette.textDim)
             }
             Spacer()
             Button(limit == nil ? "Set a limit…" : "Edit limit…") { editingLimit = true }
@@ -304,7 +307,7 @@ private struct AgentUsagePopover: View {
         }
         if limit != nil, case .official = tracker.snapshots[agent]?.state {
             Text("Used only when official limit data is unavailable.")
-                .uiFont(size: 9).foregroundColor(.secondary)
+                .uiFont(size: 9).foregroundColor(palette.textDim)
         }
     }
 }
@@ -312,6 +315,7 @@ private struct AgentUsagePopover: View {
 // MARK: - Fallback limit form (DEC-014)
 
 private struct FallbackLimitForm: View {
+    @Environment(\.palette) private var palette
     let agent: UsageAgent
     @ObservedObject var tracker: AgentUsageTracker
     let recordsCost: Bool
@@ -339,7 +343,7 @@ private struct FallbackLimitForm: View {
             }
             if !recordsCost {
                 Text("\(agent.displayName)'s logs record no cost, so the limit is in tokens.")
-                    .uiFont(size: 9).foregroundColor(.secondary)
+                    .uiFont(size: 9).foregroundColor(palette.textDim)
             }
             DatePicker("Window starts", selection: $anchor, displayedComponents: [.date, .hourAndMinute])
                 .uiFont(size: 10)
@@ -366,7 +370,7 @@ private struct FallbackLimitForm: View {
             if let limit {
                 let window = limit.window(containing: Date())
                 Text("Current window: \(Self.windowFormatter.string(from: window.start)) – \(Self.windowFormatter.string(from: window.end))")
-                    .uiFont(size: 9).foregroundColor(.secondary)
+                    .uiFont(size: 9).foregroundColor(palette.textDim)
             }
             HStack {
                 if AgentUsageTracker.limit(for: agent) != nil {

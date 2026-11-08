@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct BookPDFExportView: View {
+    @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: BookPDFExportModel
     private let initial: [URL]
@@ -16,7 +17,7 @@ struct BookPDFExportView: View {
                 Image(systemName: "book.closed").uiFont(.title)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Export PDF Book").uiFont(.title2, weight: .semibold)
-                    Text("A cover, linked contents, chapters, page numbers and PDF bookmarks.").uiFont(.caption).foregroundColor(.secondary)
+                    Text("A cover, linked contents, chapters, page numbers and PDF bookmarks.").uiFont(.caption).foregroundColor(palette.textDim)
                 }
                 Spacer()
             }
@@ -30,10 +31,10 @@ struct BookPDFExportView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(model.chapters.enumerated()), id: \.element.id) { index, chapter in
                         HStack(spacing: 9) {
-                            Text(String(index + 1)).monospacedDigit().foregroundColor(.secondary).frame(width: 25)
+                            Text(String(index + 1)).monospacedDigit().foregroundColor(palette.textDim).frame(width: 25)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(chapter.title).lineLimit(1)
-                                Text(chapter.path).uiFont(.caption).foregroundColor(.secondary).lineLimit(1).truncationMode(.middle)
+                                Text(chapter.path).uiFont(.caption).foregroundColor(palette.textDim).lineLimit(1).truncationMode(.middle)
                             }
                             Spacer()
                             Button { model.move(chapter.id, by: -1) } label: { Image(systemName: "arrow.up") }.help("Move chapter up").disabled(model.isBusy || index == 0)
@@ -42,11 +43,11 @@ struct BookPDFExportView: View {
                         }.padding(.vertical, 7)
                         Divider()
                     }
-                    if model.chapters.isEmpty { Text("Add documents, images or folders. Folders are expanded recursively; overlapping selections appear once.").foregroundColor(.secondary).padding(20) }
+                    if model.chapters.isEmpty { Text("Add documents, images or folders. Folders are expanded recursively; overlapping selections appear once.").foregroundColor(palette.textDim).padding(20) }
                 }
             }.frame(minHeight: 130, maxHeight: .infinity).padding(.horizontal, 8).background(.quaternary.opacity(0.3)).cornerRadius(6)
             if model.isBusy { ProgressView(value: model.progress).progressViewStyle(.linear) }
-            Text(model.status).uiFont(.caption).foregroundColor(.secondary).textSelection(.enabled)
+            Text(model.status).uiFont(.caption).foregroundColor(palette.textDim).textSelection(.enabled)
             if let error = model.error { Text(error).uiFont(.caption).foregroundColor(.red).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
             if !model.warnings.isEmpty {
                 DisclosureGroup("\(model.warnings.count) source or link notices") {
@@ -101,9 +102,9 @@ struct BookPDFExportView: View {
             Text(model.options.reduction == 0
                  ? "0% keeps the complete text. Choosing another language translates it without shortening."
                  : "Target: keep about \(100 - model.options.reduction)% of the prose. Tables, code, images and references stay complete. Page count and PDF file size depend on the layout.")
-                .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             Text(model.options.needsAI ? "Translation and shortening use this project's assistant and model. Source files stay unchanged." : "Original text · no assistant required · includes unsaved editor text.")
-                .uiFont(.caption).foregroundColor(.secondary)
+                .uiFont(.caption).foregroundColor(palette.textDim)
         }
         .disabled(model.isBusy)
     }
