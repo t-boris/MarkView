@@ -2,7 +2,7 @@
 type: feature
 id: feature-3
 title: Процессы разработки для каждого проекта
-status: implementing
+status: implemented
 owner: Boris Tsekinovsky
 created: 2026-11-08
 provenance: Created from the feature intake

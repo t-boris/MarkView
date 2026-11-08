@@ -4880,7 +4880,7 @@ automatic GitHub action. Branch + PR + merge + signed release (not main directly
 - [x] 5. I-5 completion/reconciler/sync/listing/context/handoff/MCP on roles.
 - [x] 6. I-6 UI: editor, pickers, start note, delivery confirmation, DoD copy.
 - [x] 7. Verify: all lifecycle suites + new suite, Debug build, spec criteria one by one, independent review.
-- [ ] 8. Version bump (minor), commits, push, PR, CI green, merge, signed release, install check, issue #319 closed.
+- [x] 8. Version 5.43.0, three commits, PR #321 (6 checks green), merged as 6e2bf91, signed + notarized DMG published as release v5.43.0 (SHA-256 acf0fe2c…edf7 equals the local copy in `build/`), issue #319 closed by the merge. Not installed on this Mac (Boris installs it himself).
 
 ## Review (feature-3, filled in before the pull request)
 - The standard workflow reproduces the old tables: the policy, completion, GitHub, listing, sync, basket and agent-tool suites passed against it unchanged. New checks: `tools/tests/ProjectWorkflowChecks.swift` (model, validation, adoption, storage, pending files), the workflow records in the log suite, a renamed-status workflow in the completion suite, variants in the context and display suites, role-based filters and sync.
