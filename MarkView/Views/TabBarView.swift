@@ -75,6 +75,7 @@ struct TabBarView: View {
         case .archive: return "archivebox"
         case .deployments: return "server.rack"
         case .discussions: return "bubble.left.and.text.bubble.right"
+        case .workflow: return "arrow.triangle.branch"
         case .browser: return "globe"
         case .prototype: return "rectangle.on.rectangle.angled"
         case .uiStudio: return "macwindow.and.cursorarrow"

@@ -180,7 +180,7 @@ struct IssueSyncReportView: View {
         let store = workspaceManager.features
         let kind: IssueKind = item.kind == .feature ? .feature : .bug
         // Where finished work goes from the item's status in this project's workflow (REQ-002).
-        guard let target = store.lifecycle.workflow.lifecycle(kind).finishTarget(from: store.lifecycle.storedStatus(kind, item.id) ?? item.status) else {
+        guard let target = store.lifecycle.lifecycle(kind, of: item.id).finishTarget(from: store.lifecycle.storedStatus(kind, item.id) ?? item.status) else {
             store.lastError = "\(item.id) has no completion step from its status in this project's workflow."
             return
         }

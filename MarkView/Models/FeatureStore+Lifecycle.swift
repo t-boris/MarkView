@@ -94,6 +94,14 @@ final class IssueLifecycleCoordinator {
         return wrote || previous == variantID
     }
 
+    /// A feature made by the Quick Feature intake follows the project's Quick feature process when the project has one (BUG-108). The
+    /// intake is a person's choice, so the assignment is made in their name; without such a process the feature keeps the default.
+    func assignQuickFeatureProcess(_ slug: String) {
+        guard workflow.variant(ProcessTemplate.quickFeatureID)?.kind == .feature else { return }
+        assignVariant(.feature, slug, to: ProcessTemplate.quickFeatureID, by: .human(store.lifecycleActor),
+                      reason: "Created from the Quick Feature intake.")
+    }
+
     /// Gives every item without a variant the standard one of its type, once, when the workflow was adopted (DEC-024). The default
     /// of a type may change later; the items that existed keep how they were treated before. The marker file survives a quit: the
     /// pass is repeated at each start until every item has its variant, and only after the project's items were read at least once.
@@ -106,10 +114,16 @@ final class IssueLifecycleCoordinator {
         if complete { parts.workflowStore.clearAssignmentPending() }
     }
 
+    /// The statuses of a type with the transitions of the process an item follows: its assigned variant's own, else the type's. With
+    /// no item (`issue` nil) the default process of the type answers.
+    func lifecycle(_ kind: IssueKind, of issue: String?) -> IssueLifecycleDefinition {
+        workflow.lifecycle(kind, variant: issue.flatMap { history(kind, $0)?.assignedVariant })
+    }
+
     /// The status a start moves an item to from `status`, as the workflow has it; nil when it has no start from there.
-    func startTarget(_ kind: IssueKind, from status: String) -> String? {
+    func startTarget(_ kind: IssueKind, from status: String, issue: String? = nil) -> String? {
         let normalized = LifecycleVocabulary.normalize(status)
-        return workflow.lifecycle(kind).rules.first { $0.kind == .start && $0.from.contains(normalized) }?.to
+        return lifecycle(kind, of: issue).rules.first { $0.kind == .start && $0.from.contains(normalized) }?.to
     }
 
     /// The status the workflow lets `actor` end an item in from its status through a step of one of `kinds`: a cancellation
@@ -117,7 +131,7 @@ final class IssueLifecycleCoordinator {
     func endingTarget(_ kind: IssueKind, _ issue: String, actor: LifecycleActorKind, via kinds: Set<TransitionKind>) -> String? {
         guard let stored = storedStatus(kind, issue) else { return nil }
         let normalized = LifecycleVocabulary.normalize(stored)
-        return workflow.lifecycle(kind).rules.first { kinds.contains($0.kind) && $0.from.contains(normalized) && $0.needs[actor] != nil }?.to
+        return lifecycle(kind, of: issue).rules.first { kinds.contains($0.kind) && $0.from.contains(normalized) && $0.needs[actor] != nil }?.to
     }
 
     func cancellationTarget(_ kind: IssueKind, _ issue: String, actor: LifecycleActorKind) -> String? {
@@ -125,9 +139,9 @@ final class IssueLifecycleCoordinator {
     }
 
     /// The status a reopening by MarkView (a regression report) moves a completed item to.
-    private func regressionTarget(_ kind: IssueKind, from status: String) -> String? {
+    private func regressionTarget(_ kind: IssueKind, _ issue: String, from status: String) -> String? {
         let normalized = LifecycleVocabulary.normalize(status)
-        return workflow.lifecycle(kind).rules.first { $0.kind == .reopen && $0.from.contains(normalized) && $0.needs[.system] != nil }?.to
+        return lifecycle(kind, of: issue).rules.first { $0.kind == .reopen && $0.from.contains(normalized) && $0.needs[.system] != nil }?.to
     }
 
     private func workflowItems() -> [WorkflowItem] {
@@ -335,7 +349,7 @@ final class IssueLifecycleCoordinator {
                                          acceptance: acceptanceEvidence(kind, issue, text: acceptance),
                                          regression: regressionEvidence(kind, issue),
                                          cancellation: cancellation)
-        let completes = workflow.lifecycle(kind).rules.contains { $0.kind == .completion && $0.to == target && $0.from.contains(LifecycleVocabulary.normalize(stored)) }
+        let completes = lifecycle(kind, of: issue).rules.contains { $0.kind == .completion && $0.to == target && $0.from.contains(LifecycleVocabulary.normalize(stored)) }
         if completes, LifecycleVocabulary.normalize(stored) != target {
             evidence.delivery = await deliveryVerdict(kind, issue)
         }
@@ -348,7 +362,7 @@ final class IssueLifecycleCoordinator {
     @discardableResult
     func startByHandoff(_ kind: IssueKind, _ issue: String, tool: String, actor: LifecycleActor, surface: Bool = true) -> ApplyResult {
         guard let parts else { return finish(.failed("This window has no project folder open."), surface: surface) }
-        guard let stored = storedStatus(kind, issue), let target = startTarget(kind, from: stored) else {
+        guard let stored = storedStatus(kind, issue), let target = startTarget(kind, from: stored, issue: issue) else {
             return finish(.failed("\(issue) cannot be started from its status in this project's workflow."), surface: surface)
         }
         let now = Date()
@@ -368,7 +382,7 @@ final class IssueLifecycleCoordinator {
         guard variant(kind, issue)?.start == .agentOrNote else {
             return finish(.failed("The rule variant of \(issue) starts only with an agent session. Choose another variant to start by a note."), surface: surface)
         }
-        guard let target = startTarget(kind, from: stored) else {
+        guard let target = startTarget(kind, from: stored, issue: issue) else {
             return finish(.failed("\(issue) cannot be started from its status in this project's workflow."), surface: surface)
         }
         guard parts.service.recordHumanEvidence(kind, issue, evidence: .start, text: note, actor: actor, variant: variant(kind, issue)?.id,
@@ -400,7 +414,7 @@ final class IssueLifecycleCoordinator {
     /// Whether the lifecycle lets a hand-off start the item now (asked before a prompt is sent, so the prompt names only items
     /// that can really be marked).
     func canStartByHandoff(_ kind: IssueKind, _ issue: String) -> Bool {
-        guard let stored = storedStatus(kind, issue), let target = startTarget(kind, from: stored) else { return false }
+        guard let stored = storedStatus(kind, issue), let target = startTarget(kind, from: stored, issue: issue) else { return false }
         let probe = TransitionRequest(kind: kind, issue: issue, from: stored, to: target,
                                       actor: .human("person"), evidence: LifecycleEvidence(start: .handoff(tool: "probe", at: Date())),
                                       workflow: workflow, variantID: assignedVariantID(kind, issue))
@@ -518,7 +532,7 @@ final class IssueLifecycleCoordinator {
         case .confirm(let status, let evidence):
             parts.service.recordConfirmation(item.kind, item.issue, status: status, evidence: evidence)
         case .reopen(let bug, _):
-            guard let destination = regressionTarget(item.kind, from: item.status) else { return }
+            guard let destination = regressionTarget(item.kind, item.issue, from: item.status) else { return }
             transition(item.kind, item.issue, to: destination, actor: .system("regression report \(bug)"), reason: "Regression reported in \(bug).",
                        evidence: LifecycleEvidence(regression: .bug(id: bug)), command: "regression:\(item.issue):\(bug)", surface: false)
         }
@@ -536,7 +550,8 @@ final class IssueLifecycleCoordinator {
         var completed: [String] = []
         for target in candidates {
             guard let status = storedStatus(target.kind, target.issue),
-                  let destination = IssueReconciler.completionTarget(kind: target.kind, status: status, workflow: workflow) else { continue }
+                  let destination = IssueReconciler.completionTarget(kind: target.kind, status: status, workflow: workflow,
+                                                                     variantID: assignedVariantID(target.kind, target.issue)) else { continue }
             let key = "\(target.kind.rawValue):\(target.issue)"
             if let last = lastProgressCheck[key], Date().timeIntervalSince(last) < minimumInterval { continue }
             lastProgressCheck[key] = Date()
@@ -556,7 +571,8 @@ final class IssueLifecycleCoordinator {
     /// integration on (without it no check can be read, so nothing could complete).
     private func scheduleProgressCheck() {
         guard progressTask == nil, GitHubSettings.enabled,
-              items().contains(where: { IssueReconciler.completionTarget(kind: $0.kind, status: $0.status, workflow: workflow) != nil }) else { return }
+              items().contains(where: { IssueReconciler.completionTarget(kind: $0.kind, status: $0.status, workflow: workflow,
+                                                                   variantID: assignedVariantID($0.kind, $0.issue)) != nil }) else { return }
         progressTask = Task { [weak self] in
             guard let self else { return }
             await self.completeFinishedWork(minimumInterval: Self.progressInterval)

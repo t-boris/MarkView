@@ -91,12 +91,12 @@ struct IssueLifecycleDisplay: Equatable, Sendable {
             blocked: history.rejections.suffix(blockedLimit).reversed().map(blockedRow),
             github: history.githubOutcomes.suffix(githubLimit).reversed().map(githubRow),
             discrepancies: notes,
-            acceptTarget: acceptStatus(kind: kind, status: current, workflow: workflow),
-            reopenTarget: reopenStatus(kind: kind, status: current, workflow: workflow),
+            acceptTarget: acceptStatus(kind: kind, status: current, workflow: workflow, variantID: variantID),
+            reopenTarget: reopenStatus(kind: kind, status: current, workflow: workflow, variantID: variantID),
             canCheckEvidence: LifecycleVocabulary.isCompletedStatus(kind, current, in: workflow),
             variantID: variant?.id ?? "", variantName: variant?.name ?? "", variantSummary: variant?.description ?? "",
             canStartWithNote: role == .notStarted && variant?.start == .agentOrNote
-                && workflow.lifecycle(kind).rules.contains { $0.kind == .start && $0.from.contains(current) && $0.needs[.human] != nil },
+                && workflow.lifecycle(kind, variant: variantID).rules.contains { $0.kind == .start && $0.from.contains(current) && $0.needs[.human] != nil },
             eventToConfirm: (role == .active || role == .completed) ? variant?.deliveryRules.confirmedEventName : nil,
             eventConfirmed: variant?.deliveryRules.confirmedEventName.map { history.deliveryConfirmation(event: $0) != nil } ?? false)
     }
@@ -105,13 +105,13 @@ struct IssueLifecycleDisplay: Equatable, Sendable {
 
     /// Feature implemented → verified; bug fixed → closed. The person accepts without further evidence (Q-001); the history
     /// keeps who and when.
-    static func acceptStatus(kind: IssueKind, status: String, workflow: ProjectWorkflow = .standard) -> String? {
-        workflow.lifecycle(kind).rules.first { $0.kind == .acceptance && $0.from.contains(status) && $0.needs[.human] != nil }?.to
+    static func acceptStatus(kind: IssueKind, status: String, workflow: ProjectWorkflow = .standard, variantID: String? = nil) -> String? {
+        workflow.lifecycle(kind, variant: variantID).rules.first { $0.kind == .acceptance && $0.from.contains(status) && $0.needs[.human] != nil }?.to
     }
 
     /// A completed status goes back to the unfinished stage of its work: implementing for a feature, open for a bug (REQ-002).
-    static func reopenStatus(kind: IssueKind, status: String, workflow: ProjectWorkflow = .standard) -> String? {
-        let definition = workflow.lifecycle(kind)
+    static func reopenStatus(kind: IssueKind, status: String, workflow: ProjectWorkflow = .standard, variantID: String? = nil) -> String? {
+        let definition = workflow.lifecycle(kind, variant: variantID)
         guard definition.role(of: status) == .completed else { return nil }
         let targets = definition.rules.filter { $0.kind == .reopen && $0.from.contains(status) && $0.needs[.human] != nil }
             .map(\.to).filter { definition.role(of: $0) != .completed }

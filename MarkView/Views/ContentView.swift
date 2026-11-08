@@ -234,7 +234,7 @@ struct ContentView: View {
             guard workspaceManager.openTabs.indices.contains(index) else { return }
             let tab = workspaceManager.openTabs[index]
             switch tab.kind {
-            case .file, .image, .pdf, .archive, .deployments, .discussions, .terminal, .browser, .data, .prototype, .uiStudio:
+            case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .terminal, .browser, .data, .prototype, .uiStudio:
                 lastFilesTab = tab.id
                 workspaceManager.layout.workspaceArea = .files
                 if case .file = tab.kind,
@@ -451,6 +451,13 @@ struct ContentView: View {
                                  selected: { if case .deployments? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openDeployments()
                     }
+                    // In a narrow window it moves to the "…" menu (Operations → Workflow…), like Cycle Time below.
+                    if !compact {
+                        headerButton("arrow.triangle.branch", help: "Workflow: this project's statuses, transitions and processes for features and bugs", width: controlWidth,
+                                     selected: { if case .workflow? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                            workspaceManager.openWorkflow()
+                        }
+                    }
                     headerButton("bubble.left.and.text.bubble.right", help: "Discussions (⌃⌘I): think an idea through before it is a feature", width: controlWidth,
                                  selected: { if case .discussions? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openDiscussions()
@@ -645,6 +652,9 @@ struct ContentView: View {
                         DiscussionsView(store: workspaceManager.discussions)
                             .environmentObject(workspaceManager)
                             .id(activeTab.id)
+                    } else if case .workflow = activeTab.kind {
+                        WorkflowTabView(store: workspaceManager.features, editor: workspaceManager.workflowEditor)
+                            .id(activeTab.id)
                     } else if case .deployments = activeTab.kind {
                         DeploymentsView(store: workspaceManager.deployments)
                             .environmentObject(workspaceManager)
@@ -692,7 +702,7 @@ struct ContentView: View {
                 workspaceManager.activeTabIndex = index
             } else if let index = workspaceManager.openTabs.firstIndex(where: { tab in
                 switch tab.kind {
-                case .file, .image, .pdf, .archive, .deployments, .discussions, .terminal, .browser, .prototype, .uiStudio: return true
+                case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .terminal, .browser, .prototype, .uiStudio: return true
                 default: return false
                 }
             }) {
@@ -1139,6 +1149,8 @@ struct AIToolsMenu: View {
             Section("Operations") {
                 Button("Deployments…") { workspaceManager.openDeployments() }
                 Button("Discussions…") { workspaceManager.openDiscussions() }
+                    .disabled(workspaceManager.rootNode == nil)
+                Button("Workflow…") { workspaceManager.openWorkflow() }
                     .disabled(workspaceManager.rootNode == nil)
             }
             Section("Analysis") {

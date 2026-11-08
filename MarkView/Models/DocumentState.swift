@@ -258,6 +258,9 @@ enum TabKind {
     case deployments
     /// The project's Discussions: questions answered as pages, with the decisions and open questions (`DiscussionsView`).
     case discussions
+    /// The project's Workflow: statuses, transitions and processes of features and bugs, edited graphically or as JSON
+    /// (`WorkflowTabView`).
+    case workflow
     /// A GitHub Actions run or an issue, shown by `GitHubRunView` / `GitHubIssueView`.
     case github(GitHubItem)
     /// A web page (a local development server or any site), shown by `BrowserTabView`.
@@ -329,6 +332,7 @@ struct OpenTab: Identifiable {
         if case .terminal = kind { return "Terminal: " + url.deletingLastPathComponent().lastPathComponent }
         if case .deployments = kind { return "Build & Deployment" }
         if case .discussions = kind { return "Discussions" }
+        if case .workflow = kind { return "Workflow" }
         if case .github(let item) = kind { return item.title }
         // The page title lives on the main actor; the tab bar shows it with `BrowserTabTitle`.
         if case .browser = kind { return "Browser" }

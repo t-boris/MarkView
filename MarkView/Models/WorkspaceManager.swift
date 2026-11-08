@@ -444,6 +444,8 @@ class WorkspaceManager: ObservableObject {
     @Published var gitClient = GitClient()
     /// Where the project runs and how each place is doing (the Deployments tab).
     let deployments = DeploymentStore()
+    /// The state of the Workflow tab: the draft being edited survives a switch to another tab.
+    let workflowEditor = WorkflowEditorModel()
     /// Questions asked before there is a feature, answered as pages (the Discussions tab).
     let discussions = DiscussionStore()
     private var discussionTask: Task<Void, Never>?
@@ -1124,6 +1126,7 @@ class WorkspaceManager: ObservableObject {
             case .archive: saved = .archive(tab.url)
             case .deployments: saved = .deployments
             case .discussions: saved = .discussions
+            case .workflow: saved = .workflow
             case .data: saved = .data(tab.url)
             case .github(let item): saved = .github(item)
             case .architecture(let scope): saved = .architecture(scope)
@@ -1185,6 +1188,7 @@ class WorkspaceManager: ObservableObject {
                 }
             case .deployments: openDeployments()
             case .discussions: openDiscussions()
+            case .workflow: openWorkflow()
             case .image(let url), .pdf(let url), .data(let url), .archive(let url):
                 if url.isFileURL, fm.fileExists(atPath: url.path) { openFile(url) }
             case .github(let item): openGitHubTab(item)
@@ -4965,6 +4969,22 @@ class WorkspaceManager: ObservableObject {
         }
         var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-deployments"), content: "", originalContent: "")
         tab.kind = .deployments
+        layout.workspaceArea = .files
+        showCenter = true
+        tabsStore.appendTab(tab, activate: true)
+    }
+
+    /// The Workflow tab: the statuses, transitions and processes of features and bugs in this project, edited graphically or as the
+    /// JSON of `.dde/workflow/workflow.json` (BUG-108). It is the project's own configuration, so it lives in the project window;
+    /// Settings only holds the templates.
+    func openWorkflow() {
+        guard let root = rootNode?.url else { return }
+        hostWindow?.makeKeyAndOrderFront(nil)
+        for index in openTabs.indices {
+            if case .workflow = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
+        }
+        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-workflow"), content: "", originalContent: "")
+        tab.kind = .workflow
         layout.workspaceArea = .files
         showCenter = true
         tabsStore.appendTab(tab, activate: true)

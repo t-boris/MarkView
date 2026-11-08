@@ -734,7 +734,7 @@ final class FeatureStore: ObservableObject {
     /// implementation becomes `implementing`, with the hand-off as the start evidence (DEC-011). Call it only after the
     /// hand-off succeeded; a failed one leaves the status alone (REQ-003).
     func markImplementing(_ slug: String, handoff tool: String) {
-        guard let status = feature(slug)?.status, lifecycle.startTarget(.feature, from: status) != nil else { return }
+        guard let status = feature(slug)?.status, lifecycle.startTarget(.feature, from: status, issue: slug) != nil else { return }
         lifecycle.startByHandoff(.feature, slug, tool: tool, actor: .human(lifecycleActor))
     }
 

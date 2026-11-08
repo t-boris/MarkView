@@ -12,7 +12,8 @@ import Foundation
 // cannot be read, and a file written by a newer app. The last two are never overwritten or replaced by defaults without notice.
 
 /// What reading `workflow.json` found.
-enum WorkflowLoad: Equatable, Sendable {
+// An `Error` so that `parse` can return it as the failure of a `Result`; it is never thrown.
+enum WorkflowLoad: Error, Equatable, Sendable {
     /// No file: the project has not adopted a workflow yet.
     case missing
     case loaded(ProjectWorkflow)
@@ -90,18 +91,43 @@ final class ProjectWorkflowStore: @unchecked Sendable {
         guard FileManager.default.fileExists(atPath: url.path) else { return .missing }
         let data: Data
         do { data = try Data(contentsOf: url) } catch { return .damaged("the file cannot be read: \(error.localizedDescription)") }
-        // The schema is read on its own first: a file from a newer app may have a shape this app cannot decode at all.
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .damaged("the file is not a JSON object") }
-        guard let schema = object["schema"] as? Int else { return .damaged("the file has no schema version") }
-        if schema > ProjectWorkflow.currentSchema { return .unsupported(schema: schema) }
-        guard schema == ProjectWorkflow.currentSchema else { return .damaged("schema \(schema) is not a known version") }
-        let workflow: ProjectWorkflow
-        do { workflow = try JSONDecoder().decode(ProjectWorkflow.self, from: data) } catch {
-            return .damaged("the content does not match the workflow format: \(Self.describe(error))")
+        return Self.load(from: data)
+    }
+
+    /// What a workflow document holds. The file is read through here, and so is the text of the editor's source view, so both
+    /// accept exactly the same documents.
+    static func load(from data: Data) -> WorkflowLoad {
+        switch parse(data) {
+        case .failure(let outcome): return outcome
+        case .success(let workflow):
+            let problems = workflow.validate()
+            guard problems.isEmpty else { return .damaged(problems.map(\.message).joined(separator: " ")) }
+            return .loaded(workflow)
         }
-        let problems = workflow.validate()
-        guard problems.isEmpty else { return .damaged(problems.map(\.message).joined(separator: " ")) }
-        return .loaded(workflow)
+    }
+
+    /// Reads a document without judging it: the workflow it describes, or why it cannot be one. A workflow that decodes but breaks a
+    /// rule is returned as it is; `ProjectWorkflow.validate` says what is wrong with it.
+    static func parse(_ data: Data) -> Result<ProjectWorkflow, WorkflowLoad> {
+        // The schema is read on its own first: a file from a newer app may have a shape this app cannot decode at all.
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .failure(.damaged("the file is not a JSON object")) }
+        guard let schema = object["schema"] as? Int else { return .failure(.damaged("the file has no schema version")) }
+        if schema > ProjectWorkflow.currentSchema { return .failure(.unsupported(schema: schema)) }
+        guard schema == ProjectWorkflow.currentSchema else { return .failure(.damaged("schema \(schema) is not a known version")) }
+        do { return .success(try JSONDecoder().decode(ProjectWorkflow.self, from: data)) } catch {
+            return .failure(.damaged("the content does not match the workflow format: \(Self.describe(error))"))
+        }
+    }
+
+    /// The document as it is written to the file and shown in the source view: sorted keys, indented, one trailing newline.
+    static func text(of workflow: ProjectWorkflow) -> String {
+        (try? String(decoding: encode(workflow), as: UTF8.self)) ?? ""
+    }
+
+    private static func encode(_ workflow: ProjectWorkflow) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return try encoder.encode(workflow) + Data("\n".utf8)
     }
 
     private static func describe(_ error: Error) -> String {
@@ -229,9 +255,7 @@ final class ProjectWorkflowStore: @unchecked Sendable {
     // MARK: File
 
     private func write(_ workflow: ProjectWorkflow) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(workflow) + Data("\n".utf8)
+        let data = try Self.encode(workflow)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: url, options: .atomic)
     }

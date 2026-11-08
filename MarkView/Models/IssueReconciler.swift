@@ -49,8 +49,8 @@ enum IssueReconciler {
     /// The completed status that work under way can reach on its own, when the delivery evidence is complete: a feature being
     /// implemented becomes implemented, a bug being fixed becomes fixed (REQ-002 criterion 2, DEC-007). Nothing else completes
     /// by itself: a start needs a hand-off, verified and closed need acceptance, and an issue that was never started has no work.
-    static func completionTarget(kind: IssueKind, status: String, workflow: ProjectWorkflow = .standard) -> String? {
-        workflow.lifecycle(kind).completionTarget(from: status)
+    static func completionTarget(kind: IssueKind, status: String, workflow: ProjectWorkflow = .standard, variantID: String? = nil) -> String? {
+        workflow.lifecycle(kind, variant: variantID).completionTarget(from: status)
     }
 
     /// What to do about the issue now. Only `recoverPending` is returned while an operation is pending, only `baseline`
