@@ -1,5 +1,16 @@
 # Lessons
 
+## Every push starts a round of CI: batch pushes and add no workflow without asking (Boris, 2026-11-08, PR #313)
+
+Boris: "Почему так много CI запущено? ... Я же заплачу за каждый билд."
+- A push to a PR starts nine workflows (eight macOS, one ubuntu, about 38 runner minutes); a push to `main` (even docs) starts Build &
+  Release on two architectures plus the path-filtered ones. I pushed twice (the second only to fix one flaky new check) and added a tenth
+  workflow whose build step duplicated the others. The repository is public, so hosted runners should not be billed, but the volume is
+  still mine to keep small.
+- Before the first push: run a new web/WebKit check the way CI does (clean checkout, nothing cached) and avoid clock-derived assertions.
+  Push once. Batch docs commits into one push to `main`. Do not add a workflow or a build step without asking; propose
+  `concurrency: cancel-in-progress` and path filters instead (proposed in `tasks/todo.md`, not approved).
+
 ## A palette that reads global state cannot differ per window; a mechanical migration needs the compiler as its oracle (per-window themes, 5.41.0)
 
 - `VSDark` read `NSApp.effectiveAppearance` on every call, so no two windows could ever look different, and `ThemeManager` forced
