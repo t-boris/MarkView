@@ -1613,7 +1613,8 @@ class WorkspaceManager: ObservableObject {
         openXRayTab(scope: TabKind.pullRequestScope)
         if let source, !source.isEmpty {
             architecture.refreshPRSources(root: root)
-            architecture.analyzeWhenLoaded = true
+            // A comparison with an earlier commit can span months of work: it is shown, and analysed when asked.
+            architecture.analyzeWhenLoaded = HistoricalBaseline.commitHash(fromSourceId: source) == nil
             architecture.showPR(source, root: root, db: semanticDatabase)
         } else {
             // Nothing chosen yet: everything on this branch vs main, uncommitted included.
@@ -1786,6 +1787,11 @@ class WorkspaceManager: ObservableObject {
             if !number.isEmpty { openPRXRay(source: "gh:" + number) }
         case "analyzePR":
             architecture.analyzePR(root: root, db: semanticDatabase, fresh: payload["again"] as? Bool == true)
+        case "historyCommits":
+            // Comparison by date: the commits of the calendar day chosen in the PR X-Ray ("YYYY-MM-DD").
+            architecture.listHistory(day: payload["day"] as? String ?? "", root: root)
+        case "compareWithCommit":
+            architecture.compareWithCommit(sha: payload["sha"] as? String ?? "", root: root, db: semanticDatabase)
         case "prFileDiff":
             architecture.showFileDiff(path: payload["path"] as? String ?? "")
         case "explainPRFile":

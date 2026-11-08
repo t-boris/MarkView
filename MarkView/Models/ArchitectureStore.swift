@@ -123,7 +123,7 @@ final class ArchitectureStore: ObservableObject {
     private var rating: Set<String> = []
 
     struct PRSource: Codable, Hashable {
-        /// working | branch | gh:<number>
+        /// local | cmp:<ref> | rev:<ref> | at:<commit> (`HistoricalBaseline`) | gh:<number>
         let id: String
         let title: String
     }
@@ -254,6 +254,29 @@ final class ArchitectureStore: ObservableObject {
         var pending: Bool
     }
 
+    /// The date-first baseline picker of the PR X-Ray: the commits of the calendar day the person chose
+    /// (`HistoricalBaseline`). The page asks for a day and draws what is here; nil while no day is asked for.
+    struct HistoryPicker: Codable, Equatable {
+        struct Entry: Codable, Equatable {
+            var sha: String
+            var short: String
+            var subject: String
+            var author: String
+            /// The committer timestamp, in seconds: the page writes the time in the user's own zone.
+            var time: Double
+        }
+        /// The day as the page sent it, `YYYY-MM-DD`.
+        var day: String
+        /// loading | ready (maybe no commit that day) | unavailable (the history could not be read)
+        var state: String
+        var commits: [Entry]
+    }
+
+    private(set) var historyPicker: HistoryPicker?
+    /// Answers only the latest question: a day asked for while an earlier one is still being read wins.
+    private var historyRequest = 0
+    private var prLoadToken = 0
+
     /// Per-file diffs of the loaded change (kept here, sent only for the selected file).
     private var prFileDiffs: [String: String] = [:]
     private var prDiffText = ""
@@ -289,6 +312,10 @@ final class ArchitectureStore: ObservableObject {
         runToken += 1
         busy = false
         progress = nil
+        // Neither a commit list nor a change that is still being read may land in the next workspace.
+        historyRequest += 1
+        historyPicker = nil
+        prLoadToken += 1
         answerByCall = [:]
         scheduler = AutoAnalysisScheduler()
         automaticContext = nil
@@ -2610,8 +2637,11 @@ final class ArchitectureStore: ObservableObject {
             // is read here, on the main actor, once per refresh.
             let gitHub = GitHubSettings.enabled
             let sources = await Task.detached { Self.listPRSources(root: root, repo: repo, gitHub: gitHub) }.value
-            // Comparisons the person asked for (a branch against this one) are not in the list git builds.
-            let comparisons = prSources.filter { Self.comparison($0.id) != nil && !sources.contains($0) }
+            // Comparisons the person asked for (a branch against this one, a commit of an earlier day) are not in
+            // the list git builds.
+            let comparisons = prSources.filter {
+                (Self.comparison($0.id) != nil || HistoricalBaseline.commitHash(fromSourceId: $0.id) != nil) && !sources.contains($0)
+            }
             prSources = sources + comparisons
             revision += 1
             if selectDefaultSource {
@@ -2727,9 +2757,70 @@ final class ArchitectureStore: ObservableObject {
         showPR(id, root: root, db: db)
     }
 
+    // MARK: Comparison by date
+
+    /// The person chose a calendar day (`YYYY-MM-DD`) in the PR X-Ray's date picker: read the commits made that
+    /// day on every local branch. A day asked for while an earlier one is still being read replaces it.
+    func listHistory(day text: String, root: URL) {
+        let calendar = Calendar.autoupdatingCurrent
+        historyRequest += 1
+        let request = historyRequest
+        // The page sends valid days; one outside the calendar the history can have (before 1970) has no commits.
+        guard let day = HistoricalBaseline.day(from: text, calendar: calendar) else {
+            historyPicker = HistoryPicker(day: text, state: "ready", commits: [])
+            revision += 1
+            return
+        }
+        historyPicker = HistoryPicker(day: text, state: "loading", commits: [])
+        revision += 1
+        Task {
+            let commits = await Task.detached {
+                HistoricalBaseline.commits(on: day, calendar: calendar) {
+                    ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path] + $0)
+                }
+            }.value
+            guard request == historyRequest else { return }
+            historyPicker = HistoryPicker(day: text, state: commits == nil ? "unavailable" : "ready",
+                                          commits: (commits ?? []).map {
+                                              HistoryPicker.Entry(sha: $0.sha, short: $0.shortSha, subject: $0.subject,
+                                                                  author: $0.author, time: $0.committed.timeIntervalSince1970)
+                                          })
+            revision += 1
+        }
+    }
+
+    /// The person chose a commit of that day: show the working copy against it, like a branch comparison (no AI
+    /// run until asked: Analyze and Review are buttons in the view).
+    func compareWithCommit(sha: String, root: URL, db: SemanticDatabase?) {
+        guard let id = HistoricalBaseline.sourceId(for: sha), let arguments = HistoricalBaseline.logArguments(forCommit: sha) else { return }
+        let calendar = Calendar.autoupdatingCurrent
+        Task {
+            let commit = await Task.detached { () -> HistoricalBaseline.Commit? in
+                ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path] + arguments)
+                    .flatMap { HistoricalBaseline.parse($0).first }
+            }.value
+            guard let commit, commit.sha == sha else {
+                error = "That commit is no longer in this repository."
+                revision += 1
+                return
+            }
+            historyRequest += 1
+            historyPicker = nil
+            showComparison(id: id, title: HistoricalBaseline.title(for: commit, calendar: calendar), root: root, db: db)
+        }
+    }
+
     /// The change as a unified diff. Git serves the local checkout and branch comparisons; a
     /// pull request needs `gh`, which runs only while the GitHub integration is on (`gitHub`).
     nonisolated private static func diff(for source: PRSource, root: URL, repo: GitHubRepo?, gitHub: Bool) -> String? {
+        if let sha = HistoricalBaseline.commitHash(fromSourceId: source.id) {
+            // The chosen commit is the baseline itself, not its merge base with HEAD: it may sit on another
+            // branch. The other side is the working copy: committed work, uncommitted changes and new files.
+            guard commit(of: sha, root: root) != nil, let arguments = HistoricalBaseline.diffArguments(since: sha),
+                  let tracked = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path] + arguments)
+            else { return nil }
+            return tracked + untrackedDiff(root: root)
+        }
         if let chosen = comparison(source.id) {
             guard let base = mergeBase(with: chosen.ref, root: root) else { return nil }
             if chosen.reverse {
@@ -2937,6 +3028,11 @@ final class ArchitectureStore: ObservableObject {
     var reviewWhenLoaded = false
 
     func showPR(_ sourceId: String, root: URL, db: SemanticDatabase? = nil) {
+        // The wishes of the caller belong to this request: taken now, so that a failed or replaced load cannot leave
+        // them behind for the next, unrelated one.
+        let review = reviewWhenLoaded, analyze = analyzeWhenLoaded
+        reviewWhenLoaded = false
+        analyzeWhenLoaded = false
         // Any pull request by number, also one not in the list (older, merged, closed).
         if sourceId.hasPrefix("gh:"), !prSources.contains(where: { $0.id == sourceId }), Int(sourceId.dropFirst(3)) != nil {
             prSources.append(PRSource(id: sourceId, title: "#" + sourceId.dropFirst(3)))
@@ -2948,9 +3044,9 @@ final class ArchitectureStore: ObservableObject {
         }
         error = nil
         Task {
-            guard await loadPR(source, root: root) else { reviewWhenLoaded = false; return }
-            if reviewWhenLoaded { reviewWhenLoaded = false; reviewPR(root: root, db: db) }
-            if analyzeWhenLoaded { analyzeWhenLoaded = false; analyzePR(root: root, db: nil) }
+            guard await loadPR(source, root: root) else { return }
+            if review { reviewPR(root: root, db: db) }
+            if analyze { analyzePR(root: root, db: nil) }
         }
     }
 
@@ -2958,6 +3054,10 @@ final class ArchitectureStore: ObservableObject {
     /// when it is the change already shown.
     @discardableResult
     private func loadPR(_ source: PRSource, root: URL, keepReview: Bool = false) async -> Bool {
+        // Loads can overlap (a comparison with an old commit takes seconds to read): the last one started is the one
+        // that shows. A replaced load returns false without writing anything.
+        prLoadToken += 1
+        let token = prLoadToken
         prRoot = root
         setStatus("Loading \(source.title)…")
         // A reload keeps the repository the pull request came from.
@@ -2966,6 +3066,10 @@ final class ArchitectureStore: ObservableObject {
         let (diff, checkout, base) = await Task.detached { () -> (String?, PRCheckout?, String?) in
             var checkout = source.id.hasPrefix("gh:") ? Self.fetchPR(number: String(source.id.dropFirst(3)), root: root, repo: repo, gitHub: gitHub) : nil
             var base = checkout?.mergeBase ?? (source.id == "local" ? Self.localMergeBase(root: root) : nil)
+            // A historical baseline is the commit itself; removed files open as they were in it.
+            if let sha = HistoricalBaseline.commitHash(fromSourceId: source.id), Self.commit(of: sha, root: root) != nil {
+                base = sha
+            }
             if let chosen = Self.comparison(source.id), let mergeBase = Self.mergeBase(with: chosen.ref, root: root) {
                 base = mergeBase
                 // Another branch's changes are read from that branch, not from the working copy.
@@ -2976,8 +3080,11 @@ final class ArchitectureStore: ObservableObject {
             }
             return (Self.diff(for: source, root: root, repo: repo, gitHub: gitHub), checkout, base)
         }.value
+        guard token == prLoadToken else { return false }
         guard let diff else {
-            error = !source.id.hasPrefix("gh:") ? "Could not read the changes from git."
+            error = HistoricalBaseline.commitHash(fromSourceId: source.id) != nil
+                ? "Could not read the changes since that commit. It may no longer be in this repository."
+                : !source.id.hasPrefix("gh:") ? "Could not read the changes from git."
                 : gitHub ? "Could not load the pull request. Check that GitHub CLI (gh) is installed and signed in."
                 : "Could not load the pull request: the GitHub integration is turned off in Settings."
             setStatus(nil)
@@ -2987,15 +3094,18 @@ final class ArchitectureStore: ObservableObject {
         prBase = base
         prRepo = source.id.hasPrefix("gh:") ? repo : nil
         let files = snapshot?.view("modules")?.nodes.filter { $0.kind == "file" }.compactMap(\.path) ?? []
-        let dependencies = await Task.detached { () -> [PRDependency] in
-            ArchitectureScanner.dependencyChanges(lines: Self.diffLines(diff), projectFiles: files)
+        // A diff against an old commit can be tens of megabytes: read it off the main thread.
+        let (dependencies, parsedFiles, fileDiffs) = await Task.detached { () -> ([PRDependency], [PRFileChange], [String: String]) in
+            let dependencies = ArchitectureScanner.dependencyChanges(lines: Self.diffLines(diff), projectFiles: files)
                 .map { PRDependency(source: $0.source, target: $0.target, change: $0.added ? "added" : "removed") }
+            return (dependencies, Self.parseDiff(diff), Self.splitDiff(diff))
         }.value
+        guard token == prLoadToken else { return false }
         let previous = prOverlay?.source.id == source.id ? prOverlay : nil
         let changed = diff != prDiffText
         prDiffText = diff
-        prFileDiffs = Self.splitDiff(diff)
-        var overlay = PROverlay(source: source, files: Self.parseDiff(diff), reviewed: false, dependencies: dependencies)
+        prFileDiffs = fileDiffs
+        var overlay = PROverlay(source: source, files: parsedFiles, reviewed: false, dependencies: dependencies)
         overlay.chat = previous?.chat ?? []
         // A reload after the code changed keeps the review, marked outdated.
         if keepReview, let previous {
@@ -3239,7 +3349,7 @@ final class ArchitectureStore: ObservableObject {
         }
         let map = Self.lineMap(diff: diff, current: content)
         // Local changes moved on (new commits, edits): read them again, at most every 10 s.
-        if !map.inSync, overlay.source.id == "local", let root = prRoot,
+        if !map.inSync, overlay.source.id == "local" || HistoricalBaseline.commitHash(fromSourceId: overlay.source.id) != nil, let root = prRoot,
            Date().timeIntervalSince(prReloadedAt) > 10 {
             prReloadedAt = Date()
             let source = overlay.source
@@ -4084,6 +4194,8 @@ final class ArchitectureStore: ObservableObject {
             let error: String?
             let prSources: [PRSource]
             let pr: PROverlay?
+            /// The commits of the day chosen in the PR X-Ray's date picker.
+            let history: HistoryPicker?
             let busy: Bool
             let describing: [String]
             let filters: [ImportanceRater.Filter]
@@ -4110,7 +4222,7 @@ final class ArchitectureStore: ObservableObject {
         }
         let modules = snapshot?.view("modules")
         let payload = Payload(mode: mode, snapshot: snapshot.map { withCodeArchitecture(withContents(withUnderstandingEvidence($0))) }, status: status, error: error,
-                              prSources: prSources, pr: prOverlay.map(withChangeNotes), busy: busy, describing: Array(describing),
+                              prSources: prSources, pr: prOverlay.map(withChangeNotes), history: historyPicker, busy: busy, describing: Array(describing),
                               filters: Array(ImportanceRater.allFilters.dropFirst()),
                               root: rootPath, outlining: Array(outlining), activateFilter: activateFilter,
                               searchSummaries: searchSummaries, searchAnswers: searchAnswers,
