@@ -70,7 +70,8 @@ It does **not** own:
 | `vendor/js/markview-render.js` | `renderMarkdown`, frontmatter panel, Mermaid/Prism passes, headings, semantic blocks + diff, heading IntersectionObserver |
 | `vendor/js/markview-edit.js` | Stats, font slider, Turndown, source/WYSIWYG mode switch, format commands, floating format bar, save/translate/refresh senders |
 | `vendor/js/markview-find.js` | Selection actions (translate/explain), feature-action menu, action popup, `window.showSelectionResult`, find bar |
-| `vendor/js/markview-bridge.js` | Theme, `sendToSwift`, second error capture, base `window.setContent` |
+| `vendor/js/markview-themes.js` | The window theme: tokens of the six appearances (classic-dark, classic-light, darcula, midnight, graphite, paper) as ~118 CSS custom properties on `<html>`, `data-preset` / `data-theme` / `data-accent`; `MarkViewThemes.apply(id, accent)`; shared by the editor, discussion and terminal pages. Its base colours are compared with `Models/AppTheme.swift` by `tools/tests/theme-model-tests.sh` |
+| `vendor/js/markview-bridge.js` | Theme entry (`applyTheme`), `sendToSwift`, second error capture, base `window.setContent` |
 | `vendor/js/markview-structured.js` | JSON/XML/YAML tree view, format/minify, struct headings; `window.setStructuredContent` |
 | `vendor/js/markview-insight-srcdoc.js` | Insight: escapes, lib map, blob materialisation, iframe `srcdoc` builder incl. the iframe script |
 | `vendor/js/markview-insight-helpers.js` | Insight chrome: enter/leave view, breadcrumbs, status bar, 10 s ready timer |
@@ -119,8 +120,8 @@ It does **not** own:
 
 - **`EditorView`** (`EditorView.swift:6`) — `makeNSView` builds `WKWebViewConfiguration`, registers
   `bridge` as the `"bridge"` handler (`:16`), enables `developerExtrasEnabled` via private KVC
-  (`:19`), reads `index.html` from the bundle, rewrites `data-theme="dark"` to the current theme
-  (`:30`), and loads it with `loadHTMLString(html, baseURL: <bundle>/Editor/)` (`:182-187`).
+  (`:19`), reads `index.html` from the bundle, rewrites `data-preset="classic-dark" data-theme="dark"` to the window's
+  `WindowTheme.htmlAttributes` (`:51`), and loads it with `loadHTMLString(html, baseURL: <bundle>/Editor/)` (`:182-187`).
   `updateNSView` pushes the active tab and theme on every SwiftUI update (`:40-53`).
 - **`EditorView.Coordinator`** (`:61`) — state: `isEditorReady`, `pendingContent/URL/Tab`,
   `lastLoadedContent` (dedupe key), `lastLoadedDocumentURL`, `currentDocumentBaseURL`,
@@ -204,7 +205,7 @@ Insight iframe `<script src>` for prism/mermaid/chart/katex (`markview-insight-s
 **Into this subsystem**
 
 - SwiftUI: `ContentView.swift:55` instantiates `EditorView()`; environment objects
-  `WorkspaceManager`, `ThemeManager`.
+  `WorkspaceManager`, `WindowTheme`.
 - Notifications posted elsewhere and observed in `EditorView.Coordinator.init`:
   `.performPDFExport` (posted `ContentView.swift:339`), `.scrollToHeading` (`TOCView.swift:50`),
   `.scrollToText` (`TOCView.swift:173`, `WorkspaceManager.swift:1156`, `:1334`, `:3061`),
@@ -303,7 +304,7 @@ htmlChunk}` (`markview-insight-handlers.js:182`, `:401`), `initSectionLib {secti
 | `window.setInsightStatus(sid, msg, phase)` | encoded strings | `WebViewBridge.swift:582`, from `EditorView.swift:603` | `markview-insight-handlers.js:247` |
 | `window.releaseInsightBlobs()` | — | `WebViewBridge.swift:599`, via hook `EditorView.swift:465-468` | `markview-insight-handlers.js:292` |
 | `window.setDocumentBase('<url>')` | **single-quoted interpolation** | `WebViewBridge.swift:614`, from `EditorView.swift:333` | `markview-globals.js:3` |
-| `window.setTheme('dark'\|'light')` | constant | `WebViewBridge.swift:626`, from `EditorView.swift:683` | `markview-globals.js:7` (+ wrappers) |
+| `window.setTheme('<appearance id>', '#RRGGBB'\|null)` | `WindowTheme.webArguments` (ids and hex only) | `WebViewBridge.setTheme`, from `EditorView.Coordinator.setTheme` | `markview-globals.js` → `markview-themes.js` (+ wrappers) |
 | `window.scrollToHeading('<id>')` | **single-quoted interpolation** | `WebViewBridge.swift:637`, from `EditorView.swift:688` | `markview-globals.js:15`, `markview-canvas.js:69` |
 | `window.scrollToText` / `window.scrollToHeadingText` `.apply(null, [text])` | JSON array | `EditorView.swift:698` | `markview-globals.js:22`, `markview-mdext.js:114` |
 | `window.showSelectionResult(title, markdown)` | JSON literals | `EditorView.swift:830-831` (translate error), `:861` (selection result) | `markview-find.js:131` |
@@ -328,7 +329,7 @@ JS functions exposed but never called from Swift: `toggleSourceMode`, `getMarkdo
 | JS→Swift | `{type:"resolveLinks", request:int, paths:[string]}` | `terminal.html:124` | `:139` (≤512 paths, request ≥0) |
 | Swift→JS | `mvWrite('<base64>')` | `terminal.html:158` | `TerminalSession.swift:436` |
 | Swift→JS | `mvResolvedLinks(request, [paths])` | `terminal.html:76` | `:163` |
-| Swift→JS | `mvSetTheme(bool)`, `mvFocus()`, `mvReset()`, `mvExited(code)` | `terminal.html:164-189` | `:188`, `:193`, `:300`, `:278` |
+| Swift→JS | `mvSetTheme('<appearance id>', accent\|null)`, `mvFocus()`, `mvReset()`, `mvExited(code)` | `terminal.html` (`discussion.html` has the same `mvSetTheme`) | `TerminalSession.applyTheme`, `DiscussionThreadView` |
 | (diagnostics) | `mvMouseMode()`, `mvText()`, `mvSize()` | `terminal.html:179-186` | tests only |
 
 The terminal page is loaded with `loadFileURL(page, allowingReadAccessTo: Editor/)`
@@ -358,7 +359,7 @@ sequenceDiagram
 ```
 
 Steps: `EditorView.swift:10-38` → `:182-187` → `:291-296` (pending) → `:191-236` (didFinish).
-Theme: HTML string rewrite at `:30`; later `setTheme` only when `isEditorReady` and changed (`:680-684`).
+Theme: HTML string rewrite of the `<html>` attributes at load (editor); discussion and terminal pages get the same attributes from a `WKUserScript` at document start (`WindowTheme.firstPaintScript`); later `setTheme` only when `isEditorReady` and changed.
 
 ### 6.2 Render markdown (file tab)
 
@@ -490,7 +491,6 @@ openable `file://` targets as tabs (honouring `#L42` fragments), other `file://`
 
 | Item | Where | Format | Owner |
 |---|---|---|---|
-| `markview-theme` | WKWebView localStorage (default data store, `file://` origin) | `"light"`/`"dark"` | `markview-bridge.js:8`, read `markview-state.js:6` |
 | `markview-font-size` | localStorage | number string (10–20) | `markview-edit.js:20-25`, read `markview-code.js:44` |
 | `markview-code-notes-width` | localStorage | px int | `markview-code.js:64` via `MVPanels` (`markview-panels.js:25-30`) |
 | `markview-xray-details-width` | localStorage | px int | `markview-architecture.js:2053` |
@@ -499,8 +499,8 @@ openable `file://` targets as tabs (honouring `#L42` fragments), other `file://`
 | Exported PDF | user-chosen path (`NSSavePanel`) | PDF | `PDFExporter.swift:74-81`, `:120` |
 | In-memory | `Coordinator` fields (§3), JS `state` | — | this module |
 
-No `UserDefaults` or `@AppStorage` keys are read or written in this subsystem. Theme comes from
-`ThemeManager.effectiveTheme` (`ThemeManager.swift:24`). `WorkspaceManager` persists tab content;
+No `UserDefaults` or `@AppStorage` keys are read or written in this subsystem. The theme comes from the window's
+`WindowTheme` (`webArguments`: appearance id and accent; `htmlAttributes` for the first paint). `WorkspaceManager` persists tab content;
 the editor never writes files itself.
 
 ---

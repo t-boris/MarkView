@@ -4712,3 +4712,53 @@ margins, pictures and diagrams not cut, everything fits the page, a background, 
   v5.40.0 published as Latest (signed, notarized, stapled DMG, sha256 4ad8bb94...): https://github.com/t-boris/MarkView/releases/tag/v5.40.0.
   Local copies: build/MarkView-5.40.0.dmg and build/release/MarkView.app. The installed app was not touched.
 
+
+
+# Per-window themes (feature per-window-themes, GitHub #312) — goal session 2026-11-08, branch feat/per-window-themes
+
+Request (Boris, /goal): implement what `docs/features/per-window-themes` specifies; recorded answers are binding; answers given now are
+written back (DEC-003 palettes + one font family approved, DEC-004 Classic until a theme is chosen, DEC-005 a new window inherits the
+theme and every remembered accent); bug-doc leftovers committed to main (d96efd9) at Boris's word; PR, CI, merge, version, release.
+Not part of the goal: browser-tab check, manual checklist.
+
+## Findings in the code that shaped the design
+- Native colours are one static palette, `VSDark` (1468 references in ~50 views), which reads `NSApp.effectiveAppearance`: it cannot differ
+  per window. `ThemeManager` is one object for all windows; every window is forced to `darkAqua` (MarkViewApp.onAppear,
+  WindowSessionController); the saved `theme` is light / dark / system (default system, never written by the toggle as system).
+- The editor, discussion and terminal pages each have their own two palettes keyed by `data-theme` / `:root.light`.
+- Per-window state already exists as a pattern (`PanelLayout`, `WindowSession`); `appFontScale` is the environment pattern.
+
+## Design (proposed in DEC-006: environment palette per window)
+- `AppTheme.swift` (Foundation only, standalone checks): `AppTheme` (system, classicDark, classicLight, darcula, midnight, graphite, paper),
+  `ThemeColor` (hex, luminance, contrast, adjusted-to-contrast), `ThemePalette` (native tokens, syntax, terminal), `WindowThemeSettings`
+  (theme + accent per theme, tolerant decoding), `ThemeSettingsStore` (legacy migration, last-changed settings for new windows).
+- Per window: `WindowTheme` (ObservableObject owned by `WorkspaceManager`) -> `NSWindow.appearance` (darkAqua / aqua / nil for System),
+  SwiftUI environment `\.palette`, web payload `(themeId, accent)`, saved in the window session.
+- `VSDark.x` -> `palette.x` everywhere (no static palette left); picker popover from the header button and the menu item (Shift-Cmd-T).
+- Web: one shared `markview-themes.js` (six token tables, `applyTheme(id, accent)`) used by the editor, discussion and terminal pages.
+
+## Plan
+- [x] 0. Read the whole folder and the code; Boris's answers into DEC-003..005; overview criteria 4 and 5 updated; #312 commented.
+- [x] 1. I-1 `AppTheme.swift` + `tools/tests/theme-model-tests.sh` (palettes, contrast, accent derivation, migration, tolerant decoding,
+      per-theme accent memory, inheritance of the full collection).
+- [x] 2. I-4/I-5 web surfaces: `markview-themes.js` (118 CSS variables for six appearances), editor / discussion / terminal pages,
+      CodeMirror (rebuilt from `tools/web-vendor/codemirror-entry.js`), Prism, diagrams, research map, data viewers; checked in real
+      WebKit by `tools/tests/theme-web-tests.sh` (212 checks, no window shown) incl. the Classic fixture captured from origin/main.
+- [x] 3. I-1/I-2 window plumbing: `WindowTheme`, session persistence (`WorkspaceWindowState.theme`), `NSWindow.appearance`, environment
+      palette, picker (`ThemePickerView`), View > Theme menu command, header button. Checked off-screen by
+      `tools/tests/window-theme-tests.sh` (two windows, two palettes at once) and `window-session-tests.sh`.
+- [x] 4. I-3 `VSDark` -> `palette` migration (46 files + system `.primary`/`.secondary` in 20 more), GitHub issue HTML, NSTextView of the
+      intake editor, settings window; `ThemeManager`/`MatrixTheme` removed; Debug build succeeds.
+- [x] 5. Verified: two windows with two themes at once (window-theme-tests, theme-web-tests), relaunch (window-session-tests), upgrade
+      from light / dark / absent / invalid (theme-model-tests), legibility (contrast >= 4.5 in Swift and on rendered pages), state kept on
+      a theme change (no reload; web test keeps text, scroll and unsaved input). Existing web harnesses (book-pdf, data-viewers,
+      editor-diagrams, document-files, editor-document-routing, pdf-export, structure-reveal, terminal-layout, research-map-web,
+      ui-studio-web/-session, pdf-reader, dictation, intake, browser-popup, web-preview) pass.
+- [ ] 6. Records current, version bump, commits, PR, CI green, merge, release, install check.
+
+## Notes while working
+- `tools/tests/prototype-runtime-tests.sh` fails 2 checks ("the first role lacks a permission...", "the role switch shows the first role")
+  identically on pristine origin/main (d96efd9): not caused by this change; left alone and reported.
+- `tools/tests/code-architecture-tests.sh` fails 2 checks (order of operation kinds) identically on pristine origin/main.
+- `tools/tests/terminal-link-tests.sh` fails 1 check ("unsupported file uses default app", .iso) identically on pristine origin/main:
+  a file-association difference of this Mac, not this change.

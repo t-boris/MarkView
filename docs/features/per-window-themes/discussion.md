@@ -26,3 +26,14 @@
 ### AI updated the requirements · 2026-11-08
 
 DEC-001 written into the overview.
+
+### Agent · 2026-11-08
+
+Implementation notes (2026-11-08, 5.41.0), recorded so the specification matches the code.
+
+- Base tokens are exactly DEC-003's: editor, panel, text and accent of Darcula (#2B2B2B, #323232, #E0E0E0, #E6A15C), Midnight (#151C2B, #1D2738, #E5EBF5, #79B8FF), Graphite (#202124, #2A2C30, #E8EAED, #B39DDB) and Paper (#FFFCF5, #F2EDE3, #292724, #315E9B). No base shade moved. The contrast step DEC-003 allows was needed only for derived colours: Paper's semantic green (#287030) and orange (#A05000) are darker than the shared semantic colours because the shared ones were below 4.5:1 on Paper's panel; an accent used as text or icon is lightened or darkened until it reaches 4.5:1 on the editor and panel backgrounds, while badge fills keep the raw accent with a readable label colour.
+- Classic Dark and Classic Light (DEC-004) keep every colour of the pre-theme look value for value, checked against a fixture captured from the pre-theme pages (Tests/Fixtures/themes/classic-computed.json). One consequence of DEC-003's single font family: the monospaced font of source and code in Classic is now the system stack (SF Mono, then the system monospaced fallback) instead of Menlo, so it matches every other theme.
+- System follows macOS and resolves to Classic Dark or Classic Light. Before this change every window was forced dark whatever the saved setting; now a Mac in light mode shows Classic Light under System, which is what the assumption "System follows macOS" asks for.
+- A selection is the background mixed with the accent (38% on dark appearances, 24% on light ones), so selections follow the accent while staying legible; Classic without an accent override keeps its original selection colour.
+- The mechanism (DEC-006: one palette per window in the SwiftUI environment, NSWindow.appearance per window, web tokens in one shared file) was chosen by the implementer and is still proposed; it needs the owner's acceptance.
+- Not themed on purpose: documents' own content (an HTML file previewed as HTML, images and their transparency checkerboard, the web pages of the in-app browser, the prototype and UI Studio previews of other people's designs), the fixed semantic colours of status dots and category colours of diagrams, and Recursive Insight's sandboxed page, which follows only dark or light.
