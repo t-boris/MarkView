@@ -148,7 +148,7 @@ struct DDESettingsView: View {
                 }.padding(8)
             }
 
-            // Usage chips in the Terminal tab header: which detected agents are shown (DEC-012).
+            // Usage chips in the workspace top bar: which detected agents are shown (DEC-012).
             GroupBox("Agent usage (Terminal tab)") {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(UsageAgent.allCases) { agent in AgentUsageVisibilityToggle(agent: agent) }

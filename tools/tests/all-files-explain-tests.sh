@@ -13,5 +13,6 @@ tree = Path('MarkView/Models/FileNode.swift').read_text()
 tests = Path('tools/tests/AllFilesExplainTests.swift').read_text()
 Path(sys.argv[1]).write_text(file_types + '\n' + prompts + '\n' + tree + '\n' + tests)
 PY
-swiftc -o "$out/all-files-explain-tests" "$out/main.swift"
+# ArchiveSupport.swift: FileType.hasViewer asks Archive.isArchive.
+swiftc -o "$out/all-files-explain-tests" MarkView/Models/ArchiveSupport.swift "$out/main.swift"
 "$out/all-files-explain-tests"

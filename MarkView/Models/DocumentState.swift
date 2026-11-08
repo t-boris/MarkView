@@ -56,6 +56,13 @@ enum FileType: String {
         supportedExtensions.contains(url.pathExtension.lowercased()) || codeLanguage(for: url) != nil
     }
 
+    /// Whether MarkView has a viewer for the file, decided by its name and never by reading it
+    /// (DEC-004 of flexible-files-views-and-visible-agent-usage): the Openable files category of Files
+    /// keeps these. `isOpenable` is wider: the editor may still try any other file as text.
+    static func hasViewer(_ url: URL) -> Bool {
+        isSupported(url) || isImage(url) || Archive.isArchive(url) || viewerDotfiles.contains(url.lastPathComponent)
+    }
+
     /// Whether `url` is an image (any format the system decodes), shown in the image viewer.
     static func isImage(_ url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
@@ -151,6 +158,15 @@ enum FileType: String {
 
     private static let plainFileNames: Set<String> = ["LICENSE", "LICENCE", "COPYING", "CODEOWNERS", "AUTHORS",
                                                        "NOTICE", "CHANGELOG", "VERSION", "CONTRIBUTORS"]
+
+    /// Configuration and shell dotfiles that Files treats as having a viewer (they open as text on a click, DEC-005).
+    /// Kept apart from the tables above on purpose: those also tell the X-Ray scanner what is source code.
+    private static let viewerDotfiles: Set<String> = [
+        ".gitignore", ".gitmodules", ".gitattributes", ".mailmap", ".dockerignore", ".npmignore", ".prettierignore",
+        ".eslintignore", ".prettierrc", ".eslintrc", ".babelrc", ".nvmrc", ".tool-versions", ".ruby-version",
+        ".node-version", ".python-version", ".editorconfig",
+        ".zshrc", ".zprofile", ".bashrc", ".bash_profile", ".profile",
+    ]
 
     private static let codeFileNames: [String: String] = [
         "Dockerfile": "dockerfile", "Containerfile": "dockerfile", "Makefile": "shell",

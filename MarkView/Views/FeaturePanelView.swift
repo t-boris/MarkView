@@ -30,7 +30,6 @@ struct FeaturePanelView: View {
     @State private var cleanup: Set<FeatureCleanup>?
     @State private var confirmRestart = false
     @State private var confirmDelete = false
-    @State private var showCycleTime = false
 
     init(store: FeatureStore, layout: PanelLayout) {
         self.store = store
@@ -188,13 +187,11 @@ struct FeaturePanelView: View {
                     if store.hasImplementationStarted(feature) {
                         Text("Implementation started — start over and delete are off")
                     }
-                    Divider()
-                    Button("Project Cycle Time…") { showCycleTime = true }
                 } label: {
                     Image(systemName: "ellipsis.circle").uiFont(size: 11)
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .help("Delete this feature, project cycle time")
+                .help("Delete this feature")
                 FeatureStatusMenu(store: store, feature: feature)
             }
             .confirmationDialog("Start \(feature.title) over?", isPresented: $confirmRestart) {
@@ -214,9 +211,6 @@ struct FeaturePanelView: View {
             }
             .sheet(isPresented: Binding(get: { cleanup != nil }, set: { if !$0 { cleanup = nil } })) {
                 FeatureCleanupSheet(store: store, slug: feature.slug, selected: cleanup ?? []) { cleanup = nil }
-            }
-            .sheet(isPresented: $showCycleTime) {
-                CycleTimeSummarySheet(store: store) { showCycleTime = false }
             }
             HStack(spacing: 2) {
                 ForEach(FeatureStage.allCases, id: \.self) { item in

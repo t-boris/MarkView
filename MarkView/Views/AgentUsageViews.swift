@@ -1,7 +1,8 @@
 import SwiftUI
 
-// The Terminal tab's usage indicators (DEC-006): one compact chip per agent in the header, the
-// details in a popover, and the fallback-limit form (DEC-014). No notifications (DEC-004).
+// The usage indicators (DEC-006 of ai-agent-usage-quota-tracker-codex-claude-code): one compact chip per
+// agent in the workspace top bar (flexible-files-views-and-visible-agent-usage, AC-6, AC-7), the details in
+// a popover, and the fallback-limit form (DEC-014). No notifications (DEC-004).
 
 extension UsageLevel {
     func color(_ palette: AppPalette) -> Color {
@@ -13,17 +14,29 @@ extension UsageLevel {
     }
 }
 
-/// The chips of the detected agents the user has not hidden (Settings → DDE).
-/// Appearing and disappearing start and stop the usage polling (DEC-010), so the host keeps the bar
-/// in the view tree at every width; each chip shrinks on its own (`AgentUsageChip`, DEC-017).
+/// The chips of the detected agents the user has not hidden (Settings → DDE), in the workspace top bar.
+/// Appearing and disappearing start and stop the usage polling (DEC-010), so the host keeps the bar in the
+/// view tree at every width. It takes the richest form that fits the width it is given (DEC-017): chips
+/// with the reset time, chips with the percentage, minimal chips, and last a single gauge button whose
+/// popover lists every agent, so the indicators stay reachable without crowding the other controls.
 struct AgentUsageBar: View {
+    @Environment(\.palette) private var palette
     @ObservedObject private var tracker = AgentUsageTracker.shared
     @AppStorage(UsageAgent.claude.hiddenKey) private var claudeHidden = false
     @AppStorage(UsageAgent.codex.hiddenKey) private var codexHidden = false
+    @State private var showingAll = false
+    /// The chip whose details are open; kept here so that switching to another form (a resize, a new countdown
+    /// text) does not close it.
+    @State private var detailsFor: UsageAgent?
 
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(agents) { agent in AgentUsageChip(agent: agent, tracker: tracker) }
+        // With no agent to show the first form is empty and always fits, so the bar stays in the view tree (and
+        // keeps the polling running) without drawing anything.
+        ViewThatFits(in: .horizontal) {
+            chips(.full)
+            chips(.percent)
+            chips(.minimal)
+            gaugeButton
         }
         .onAppear { tracker.indicatorAppeared() }
         .onDisappear { tracker.indicatorDisappeared() }
@@ -32,34 +45,101 @@ struct AgentUsageBar: View {
     private var agents: [UsageAgent] {
         tracker.detected.filter { $0 == .claude ? !claudeHidden : !codexHidden }
     }
+
+    private func chips(_ detail: AgentUsageChip.Detail) -> some View {
+        HStack(spacing: 4) {
+            ForEach(agents) { agent in
+                AgentUsageChip(agent: agent, tracker: tracker, detail: detail,
+                               showingDetails: Binding(get: { detailsFor == agent },
+                                                       set: { detailsFor = $0 ? agent : (detailsFor == agent ? nil : detailsFor) }))
+            }
+        }
+        .fixedSize()
+    }
+
+    /// The narrowest form: one button, coloured by the most urgent quota, that opens every agent's details.
+    private var gaugeButton: some View {
+        Button { showingAll.toggle() } label: {
+            Image(systemName: "gauge.with.needle")
+                .uiFont(size: 13)
+                .foregroundColor(urgentColor)
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(RoundedRectangle(cornerRadius: 4).fill(palette.border.opacity(0.45)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Agent usage: " + agents.map { AgentUsageChip.summary(of: $0, snapshot: tracker.snapshots[$0], now: tracker.now) }.joined(separator: " "))
+        .accessibilityLabel("Agent usage")
+        .accessibilityValue(agents.map { AgentUsageChip.summary(of: $0, snapshot: tracker.snapshots[$0], now: tracker.now) }.joined(separator: " "))
+        .popover(isPresented: $showingAll, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(agents) { agent in
+                    AgentUsagePopover(agent: agent, tracker: tracker)
+                    if agent != agents.last { Divider() }
+                }
+            }
+        }
+    }
+
+    private var urgentColor: Color {
+        let levels = agents.compactMap { agent -> UsageLevel? in
+            guard let snapshot = tracker.snapshots[agent] else { return nil }
+            switch snapshot.state {
+            case .official, .userLimit: return snapshot.state.headline?.level
+            case .noLimit, .unavailable: return nil
+            }
+        }
+        if levels.contains(.critical) { return UsageLevel.critical.color(palette) }
+        if levels.contains(.warning) { return UsageLevel.warning.color(palette) }
+        return palette.textDim
+    }
 }
 
-private struct AgentUsageChip: View {
+struct AgentUsageChip: View {
     @Environment(\.palette) private var palette
     let agent: UsageAgent
     @ObservedObject var tracker: AgentUsageTracker
-    @State private var showingDetails = false
+    let detail: Detail
+    @Binding var showingDetails: Bool
+
+    /// How much the chip says: with the reset time, with the percentage and its label, or only the short form.
+    enum Detail { case full, percent, minimal }
 
     var body: some View {
         let snapshot = tracker.snapshots[agent]
         Button { showingDetails.toggle() } label: {
-            ViewThatFits(in: .horizontal) {
-                content(snapshot, detail: .full)
-                content(snapshot, detail: .percent)
-                content(snapshot, detail: .minimal)
-            }
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 4).fill(palette.border.opacity(0.45)))
-            .contentShape(Rectangle())
+            content(snapshot, detail: detail)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(RoundedRectangle(cornerRadius: 4).fill(palette.border.opacity(0.45)))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(help(snapshot))
+        .accessibilityLabel("\(agent.displayName) usage")
+        .accessibilityValue(Self.summary(of: agent, snapshot: snapshot, now: tracker.now))
         .popover(isPresented: $showingDetails, arrowEdge: .bottom) {
             AgentUsagePopover(agent: agent, tracker: tracker)
         }
     }
 
-    private enum Detail { case full, percent, minimal }
+    /// One sentence for VoiceOver and the gauge's tooltip: the agent, the quota used or why there is none, and how
+    /// trustworthy it is. Unavailable usage is said to be unavailable, never zero.
+    static func summary(of agent: UsageAgent, snapshot: AgentUsageSnapshot?, now: Date) -> String {
+        guard let snapshot else { return "\(agent.displayName): reading usage." }
+        switch snapshot.state {
+        case .official, .userLimit:
+            guard let window = snapshot.state.headline else { return "\(agent.displayName): no quota window." }
+            var text = "\(agent.displayName): \(UsageFormat.percent(window.percentUsed)) of the \(window.label) quota used"
+            if let resetsAt = window.resetsAt { text += ", resets in \(UsageFormat.countdown(resetsAt.timeIntervalSince(now)))" }
+            if window.source == .estimated { text += ", estimated from local logs" }
+            if snapshot.isStale(now: now) { text += ", stale" }
+            return text + "."
+        case .noLimit(let today):
+            return "\(agent.displayName): \(UsageFormat.tokens(today.tokens)) tokens used today, no limit set."
+        case .unavailable(let reason):
+            return "\(agent.displayName): usage unavailable, \(reason)."
+        }
+    }
 
     @ViewBuilder
     private func content(_ snapshot: AgentUsageSnapshot?, detail: Detail) -> some View {
@@ -72,7 +152,8 @@ private struct AgentUsageChip: View {
                         let stale = snapshot.isStale(now: tracker.now)
                         UsageMeter(percent: window.percentUsed, color: window.level.color(palette)).frame(width: 22, height: 4)
                         Text(name).foregroundColor(palette.textDim)
-                        Text((window.source == .estimated ? "~" : "") + UsageFormat.percent(window.percentUsed))
+                        Text((window.source == .estimated ? "~" : "") + UsageFormat.percent(window.percentUsed)
+                             + (detail == .minimal ? "" : " used"))
                             .fontWeight(.semibold).foregroundColor(window.level.color(palette))
                         if detail == .full {
                             Text(resetText(window)).foregroundColor(palette.textDim)
@@ -82,7 +163,7 @@ private struct AgentUsageChip: View {
                 case .noLimit(let today):
                     Text(name).foregroundColor(palette.textDim)
                     Text(UsageFormat.tokens(today.tokens)).foregroundColor(palette.text)
-                    if detail == .full { Text("today · set a limit").foregroundColor(palette.textDim) }
+                    if detail != .minimal { Text(detail == .full ? "today · set a limit" : "today").foregroundColor(palette.textDim) }
                 case .unavailable:
                     Image(systemName: "exclamationmark.triangle").foregroundColor(palette.textDim)
                     Text(name).foregroundColor(palette.textDim)
@@ -133,7 +214,7 @@ private struct UsageMeter: View {
 
 // MARK: - Popover
 
-private struct AgentUsagePopover: View {
+struct AgentUsagePopover: View {
     @Environment(\.palette) private var palette
     let agent: UsageAgent
     @ObservedObject var tracker: AgentUsageTracker
