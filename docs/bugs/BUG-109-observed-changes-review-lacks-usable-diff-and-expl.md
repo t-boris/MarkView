@@ -2,7 +2,7 @@
 type: bug
 id: BUG-109
 title: Observed changes review lacks usable diff and explanations
-status: open
+status: fixing
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-08
@@ -14,6 +14,8 @@ questions:
     status: answered
     answer: 5.43.0
 issue: "#325"
+branch: fix/xray-and-review-batch
+updated: 2026-11-08
 ---
 
 # Observed changes review lacks usable diff and explanations
@@ -82,3 +84,7 @@ MarkView 5.43.0 on macOS. The screenshot shows a modified Swift file selected in
 ## Original description
 
 UI для сравнения это окошко ужасное. Во-первых, его невозможно расширить. Во-вторых, нет хайлайтинга, нет объяснения изменений. Это должно быть нормально, чтобы было объяснение на каждое изменение. То есть я должен запускать потом и показывать тебе разницу. Показывать где в этом файле разница, почему это разница, на что она влияет. А так это совершенно бессмысленное окошко.
+
+## Resolution
+
+Fixed in the batch branch fix/xray-and-review-batch (PR #331, 5.46.0). The review is now a tab (File changes) instead of a sheet, so it follows the window and has the whole centre area (the sheet could not be enlarged in the installed app; the 5.42.1 fix had only been measured off screen). A line diff groups each file's differences into changes with three lines of context: line numbers in the old and the new text, added and removed lines highlighted, where each change is (lines 120–134, was 118–129), the declaration or heading it sits in, and a summary. Explain changes asks the project's assistant, on request only, what each change does, why it was probably made and what it affects; the answer appears on each change. Checked by tools/tests/text-diff-tests.sh and tools/tests/project-change-review-layout-tests.sh (the shipping tab hosted off screen at 400, 800 and 1600 pt). Not checked: the tab in the installed app, and Explain changes with a real assistant.

@@ -5004,3 +5004,14 @@ Boris, after the feature-3 report: "first fix everything, then install locally" 
 - Merged as PR #330 (5.45.0): Workflow tab in the project window, source/graphical views of `.dde/workflow/workflow.json`, processes with their own transitions, templates in Settings.
 - Verified: Debug build; `issue-lifecycle-tests.sh workflow|display|completion`; `workflow-editor-layout-tests.sh` (400/760/1100 pt, all pages and source). The full run of every harness was stopped on request.
 - Not hand-checked in the running app. No release yet: Boris asked for one common release after the next batch of bugs, so the BUG-108 report stays `fixed` and MarkView lists PR #330 as "not in a published release yet".
+
+## BUG-111, BUG-110, BUG-109 batch (2026-11-08)
+One branch `fix/xray-and-review-batch` (PR #331, 5.46.0), one commit per bug, as the hand-off asked.
+- [x] BUG-111: the top level of the Logical/Structure/Deployment views is laid out to the right and downwards on an undrawn copy; the direction that can be shown larger wins (`xray-layout-web-tests.sh`, fails on the old script).
+- [x] BUG-110: the date button and picker are in the project X-Ray; a chosen commit opens the comparison view (`xray-comparison-web-tests.sh`); DEC-010 records it (supersedes the placement in DEC-009).
+- [x] BUG-109: line diff (`TextDiff`), changes with numbers, highlight, location and section; "Explain changes" on request; the review is a tab, not a sheet (`text-diff-tests.sh`, `project-change-review-layout-tests.sh`).
+
+### Review
+- Verified: Debug build; the four suites above plus `project-change-tests.sh`. The full run of every harness was not repeated (Boris asked to skip it).
+- Not hand-checked in the running app: the date picker flow, the tab in a real window, "Explain changes" with a real assistant, the reporter's own project for BUG-111 (BQ-4/BQ-5 still open).
+- Decisions I made without asking: the date comparison opens the existing comparison view rather than a lens in the current X-Ray; the review became a tab; explanations are on request and let the assistant read the project read-only.

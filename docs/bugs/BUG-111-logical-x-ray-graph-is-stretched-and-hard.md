@@ -2,7 +2,7 @@
 type: bug
 id: BUG-111
 title: Logical X-Ray graph is stretched and hard to read
-status: open
+status: fixing
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-08
@@ -53,6 +53,8 @@ questions:
         text: На текущей версии проверить пока не удалось.
     status: open
 issue: "#329"
+branch: fix/xray-and-review-batch
+updated: 2026-11-08
 ---
 
 # Logical X-Ray graph is stretched and hard to read
@@ -123,3 +125,7 @@ MarkView 5.43.0 on macOS, X-Ray Logical view. The screenshot shows Pull request 
 ## Original description
 
 Неоптимальное размещение компонентов в логической разбивке внутри X-Ray.
+
+## Resolution
+
+Fixed in the batch branch fix/xray-and-review-batch (PR #331, 5.46.0). Cause reproduced: the top level of a connected graph always flowed to the right, so a chain of eight components laid out as 1374 × 210 on a 1119 × 792 canvas, fitted at 0.77, with the 8.5 px descriptions at about 6.5 px and the rest of the canvas empty. The top level (Logical, Structure and Deployment, 3 to 150 boxes) is now laid out both to the right and downwards on a copy that is never drawn, and the direction that can be shown larger wins (the same graph is 514 × 639 downwards, fitted at 1.15; a wide, low canvas keeps the rightward flow). Checked by the new tools/tests/xray-layout-web-tests.sh, which fails on the old script. The reporter's own project (BQ-4) was not available and the installed app was not checked (BQ-5 is still open).

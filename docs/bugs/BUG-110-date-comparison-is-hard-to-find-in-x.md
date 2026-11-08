@@ -2,7 +2,7 @@
 type: bug
 id: BUG-110
 title: Date comparison is hard to find in X-Ray
-status: open
+status: fixed
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-08
@@ -28,6 +28,8 @@ questions:
     status: answered
     answer: 5.43.0
 issue: "#327"
+branch: fix/xray-and-review-batch
+updated: 2026-11-08
 ---
 
 # Date comparison is hard to find in X-Ray
@@ -108,3 +110,7 @@ User-reported MarkView 5.43.0 on macOS; macOS version and project are unknown. S
 ## Original description
 
 В X-Ray нет возможности выбрать сравнение текущего кода с какой-либо датой, вернее, коммита какой-то определенной даты. Мы это делали, но в UI это нигде не появилось.
+
+## Resolution
+
+Fixed in the batch branch fix/xray-and-review-batch (PR #331, 5.46.0). The project X-Ray toolbar now has the "Compare with a date…" button and its picker, not only the PR X-Ray. Choosing a commit opens the comparison view (the PR X-Ray tab, as a branch comparison does) with the working copy against that commit; no pull request is needed. Folder X-Rays have no comparison view and do not offer it. Decision on the open discussion question: the result opens in the existing comparison view, not in the current X-Ray, because that view already shows file diffs and the changed parts. Checked by tools/tests/xray-comparison-web-tests.sh (project X-Ray opens the picker, lists commits, asks to compare with exactly the chosen one; folder X-Ray hides it). Not checked by hand in the installed app.
