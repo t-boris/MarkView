@@ -181,6 +181,22 @@ do {
           && IssueLifecycleDisplay.reopenStatus(kind: .bug, status: "closed", workflow: workflow) == "open")
     check("only a completed status can be reopened", IssueLifecycleDisplay.reopenStatus(kind: .feature, status: "ready", workflow: workflow) == nil
           && IssueLifecycleDisplay.reopenStatus(kind: .feature, status: "archived", workflow: workflow) == nil)
+
+    // A process with transitions of its own (BUG-108): accepting, reopening and starting by a note follow the item's process.
+    var withProcess = ProjectWorkflow.standard
+    var own = ProcessTemplate.quickFeature.variant(kind: .feature, id: "quick-feature", in: withProcess)
+    own.rules = own.rules!.filter { $0.kind != .acceptance }
+    withProcess.variants.append(own)
+    check("a process without an acceptance step offers none, while the standard feature does",
+          IssueLifecycleDisplay.acceptStatus(kind: .feature, status: "implemented", workflow: withProcess, variantID: "quick-feature") == nil
+          && IssueLifecycleDisplay.acceptStatus(kind: .feature, status: "implemented", workflow: withProcess, variantID: StandardWorkflow.featureVariantID) == "verified"
+          && IssueLifecycleDisplay.acceptStatus(kind: .feature, status: "implemented", workflow: withProcess) == "verified")
+    check("a process reopens a completed item through its own transitions",
+          IssueLifecycleDisplay.reopenStatus(kind: .feature, status: "implemented", workflow: withProcess, variantID: "quick-feature") == "implementing")
+    let noted = IssueLifecycleDisplay.make(kind: .feature, issue: "small", status: "ready", history: IssueHistory(kind: .feature, issue: "small", all: []),
+                                           completion: "", workflow: withProcess, variantID: "quick-feature")
+    check("the display of an item shows the process it follows and its note start", noted.variantID == "quick-feature" && noted.variantName == "Quick feature"
+          && noted.canStartWithNote)
 }
 
 finish("display")

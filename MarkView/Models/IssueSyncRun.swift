@@ -77,7 +77,8 @@ final class IssueSyncRun: ObservableObject {
             for item in plan.linkedItems(target) {
                 let kind: IssueKind = item.kind == .feature ? .feature : .bug
                 guard seen.insert("\(kind.rawValue):\(item.id)").inserted else { continue }
-                if IssueReconciler.completionTarget(kind: kind, status: item.status, workflow: lifecycle.workflow) != nil {
+                if IssueReconciler.completionTarget(kind: kind, status: item.status, workflow: lifecycle.workflow,
+                                                    variantID: lifecycle.assignedVariantID(kind, item.id)) != nil {
                     underWay.append((kind: kind, issue: item.id))
                 } else if item.isDone {
                     switch lifecycle.completion(kind, item.id, status: item.status) {

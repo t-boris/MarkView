@@ -39,7 +39,6 @@
 		114407D9EFB092F23A6F9E12 /* BrowserPasswords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 007C5A3FE30FBBE5A71A6FA8 /* BrowserPasswords.swift */; };
 		11C3C1C4E28EB8CB51AB48F6 /* IssueSyncRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 297DFB300C5D61C4F3F7D68D /* IssueSyncRun.swift */; };
 		13930BD202A1F632A683E466 /* StructuralIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 534BBEA6C51F184621BBDE91 /* StructuralIndexer.swift */; };
-		13E81B76350606EA17B5B7A8 /* WorkflowEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8971A659659AAB3CFCB6D340 /* WorkflowEditorSheet.swift */; };
 		14DD672AB65415DCCECC7245 /* DocumentFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 659CD2D529EC42B2A426EAAC /* DocumentFiles.swift */; };
 		154E375918D7240F90F0B49F /* SearchPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEBBA8DD1B02E66BC2AFAC6 /* SearchPanelView.swift */; };
 		157DDC41421A035DDCC9B022 /* xterm.css in Resources */ = {isa = PBXBuildFile; fileRef = 411349198AB547C789A6D5A7 /* xterm.css */; };
@@ -91,6 +90,7 @@
 		33AE23A5BCD4D0FF6BBAD275 /* markview-themes.js in Resources */ = {isa = PBXBuildFile; fileRef = 69423CB226D3F71D19E063E5 /* markview-themes.js */; };
 		34AF3B699235B8FBA506BC50 /* markview-book.js in Resources */ = {isa = PBXBuildFile; fileRef = 00957E10407CD88C7C573C38 /* markview-book.js */; };
 		357F08AC660A1E560A138E99 /* DeploymentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03C366A9013B412C265A07FA /* DeploymentModels.swift */; };
+		3657B4C053502DBF309CF0D1 /* WorkflowTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E908A064B54D4D4B3B8EE6EE /* WorkflowTabView.swift */; };
 		37BFB608EE9C5A7E44349DBD /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A5536B20A2DD735F6BA815A /* EditorView.swift */; };
 		3824EA89779E6F8AD2B05497 /* AIPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A772D24F7564B57E808520A /* AIPrompts.swift */; };
 		385FF3231429AC909C3F1914 /* markview-edit.js in Resources */ = {isa = PBXBuildFile; fileRef = 532F3E12BF8941192E531B0B /* markview-edit.js */; };
@@ -394,6 +394,7 @@
 		EF49456C7DDBE5A38F1CC431 /* ResearchMapRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 115DC67845659B28A4FE3E34 /* ResearchMapRun.swift */; };
 		EFD0357B1249A5D014B893E4 /* WorkspaceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDC9210ADC47CAF918764DB3 /* WorkspaceManager.swift */; };
 		F02CFF15FB77E319202C89F0 /* terminal.html in Resources */ = {isa = PBXBuildFile; fileRef = 7D11CCE605051BBC0566CA2D /* terminal.html */; };
+		F0368D8DF54E2D704074ACCC /* WorkflowEditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62C89643044A9925644D73BC /* WorkflowEditorModel.swift */; };
 		F1ACA906C8851DDE26C3B948 /* DiscussionPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41D2D4F1EA4F7347A199FD69 /* DiscussionPrompt.swift */; };
 		F278A31184C35394A15B7F96 /* ProjectOperationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 912140EE22AFCD2CE3BDFE87 /* ProjectOperationsView.swift */; };
 		F282D1E659F36523BCB0F220 /* ProjectChangeWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E90FC78FD8B2778771A514 /* ProjectChangeWatcher.swift */; };
@@ -597,6 +598,7 @@
 		62268454385302347AE5A8F3 /* MarkViewApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkViewApp.swift; sourceTree = "<group>"; };
 		629AC491A02BE9A042CEF3D2 /* prism-swift.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-swift.min.js"; sourceTree = "<group>"; };
 		62C261EE44FC1141644D95BE /* prism-c.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-c.min.js"; sourceTree = "<group>"; };
+		62C89643044A9925644D73BC /* WorkflowEditorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowEditorModel.swift; sourceTree = "<group>"; };
 		62CFDF9FD40076EEACC1B7E5 /* UIStudioSimulation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioSimulation.swift; sourceTree = "<group>"; };
 		6308D9F3A184573ADBEF4BFC /* HistoricalBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoricalBaseline.swift; sourceTree = "<group>"; };
 		64EBEB12B8498F7BDC5D0ADD /* IssueSyncViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueSyncViews.swift; sourceTree = "<group>"; };
@@ -657,7 +659,6 @@
 		8713CD727E78F36BD7A6CBBF /* UIStudioGraphQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioGraphQL.swift; sourceTree = "<group>"; };
 		872961C48C130402739DD233 /* UIStudioServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioServer.swift; sourceTree = "<group>"; };
 		895F4D266DDC908733BA5EBA /* IssueLifecycleContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueLifecycleContext.swift; sourceTree = "<group>"; };
-		8971A659659AAB3CFCB6D340 /* WorkflowEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowEditorSheet.swift; sourceTree = "<group>"; };
 		89AF21E7EC037DF41CC973BB /* ProjectAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectAgentTools.swift; sourceTree = "<group>"; };
 		89E15210EC0B4B920554FD0D /* FeatureVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureVocabulary.swift; sourceTree = "<group>"; };
 		8A691B8C8A96CED660607A98 /* UIStudioPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioPrompts.swift; sourceTree = "<group>"; };
@@ -805,6 +806,7 @@
 		E802C0AB5CDA33CD9676A804 /* CodeNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeNavigation.swift; sourceTree = "<group>"; };
 		E81F55A332ECE5F803F4612A /* IssueTransitionLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueTransitionLog.swift; sourceTree = "<group>"; };
 		E8354BE838C8A78ED8B8E305 /* js-yaml.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "js-yaml.min.js"; sourceTree = "<group>"; };
+		E908A064B54D4D4B3B8EE6EE /* WorkflowTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowTabView.swift; sourceTree = "<group>"; };
 		EA0C02416AEB84C19FEA344E /* ContentsPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentsPanelView.swift; sourceTree = "<group>"; };
 		EA5359172A93CF061733031F /* BrowserPopup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPopup.swift; sourceTree = "<group>"; };
 		EA8528AC59F5DF6B456427AB /* PrototypeFeatureWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeFeatureWriter.swift; sourceTree = "<group>"; };
@@ -1135,6 +1137,7 @@
 				83D82BEDE854FFB9C40E29EC /* WindowSessionController.swift */,
 				9373C4D827475F2C25EDED31 /* WindowTheme.swift */,
 				6ED484A68FCCB897811B8168 /* WindowTitle.swift */,
+				62C89643044A9925644D73BC /* WorkflowEditorModel.swift */,
 				BDC9210ADC47CAF918764DB3 /* WorkspaceManager.swift */,
 				3F66D5EF3E31CCC33D408BA1 /* XRayCluster.swift */,
 				E3CB217F1317B780D7EE6C48 /* XRayContent.swift */,
@@ -1209,7 +1212,7 @@
 				1A6291D82348E4A264695D63 /* UIStudioPreviewHost.swift */,
 				ECF8D0D924530B8C94483B11 /* UIStudioTrackingLine.swift */,
 				15F3C39CF6E64AB9AA1EDA1B /* UIStudioView.swift */,
-				8971A659659AAB3CFCB6D340 /* WorkflowEditorSheet.swift */,
+				E908A064B54D4D4B3B8EE6EE /* WorkflowTabView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -1893,7 +1896,8 @@
 				CBF31B5E8E50178F95B4926C /* WindowSessionController.swift in Sources */,
 				64B4A8A6A3ABBCCE19B5CC79 /* WindowTheme.swift in Sources */,
 				57D9A37DCD381F7027AA8046 /* WindowTitle.swift in Sources */,
-				13E81B76350606EA17B5B7A8 /* WorkflowEditorSheet.swift in Sources */,
+				F0368D8DF54E2D704074ACCC /* WorkflowEditorModel.swift in Sources */,
+				3657B4C053502DBF309CF0D1 /* WorkflowTabView.swift in Sources */,
 				EFD0357B1249A5D014B893E4 /* WorkspaceManager.swift in Sources */,
 				8509AB727B59B4DD5CD83A56 /* XRayCluster.swift in Sources */,
 				4095BC8ADAD6AE04D6A7D406 /* XRayContent.swift in Sources */,
@@ -1941,7 +1945,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.44.1;
+				CURRENT_PROJECT_VERSION = 5.45.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1956,7 +1960,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.44.1;
+				MARKETING_VERSION = 5.45.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -2020,7 +2024,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.44.1;
+				CURRENT_PROJECT_VERSION = 5.45.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -2041,7 +2045,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.44.1;
+				MARKETING_VERSION = 5.45.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

@@ -195,7 +195,10 @@ struct DeliveryRules: Equatable, Sendable {
     var needsGitHub: Bool { pullRequestRequired || checksRequired || githubReleaseRequired }
 }
 
-/// One set of development and delivery conditions for one work-item type (DEC-019, DEC-025, DEC-027).
+/// One process of the project for one work-item type: the development and delivery conditions (DEC-019, DEC-025, DEC-027) and,
+/// when the process has them, its own transitions (BUG-108). The statuses and their roles belong to the type and are shared by
+/// all its processes, so every list, filter and sync keeps reading one vocabulary; a process decides which steps between those
+/// statuses exist and what each needs. A process without `rules` follows the transitions of its type.
 struct RuleVariant: Codable, Equatable, Identifiable, Sendable {
     var id: String
     var name: String
@@ -206,9 +209,13 @@ struct RuleVariant: Codable, Equatable, Identifiable, Sendable {
     var delivery: DeliveryEvent
     var acceptance: AcceptanceMode
     var summary: String
+    /// The transitions of this process; nil = those of its type.
+    var rules: [LifecycleRule]?
 
     init(id: String, name: String, kind: IssueKind, start: StartEvidenceMode = .agentSession, integration: IntegrationPath,
-         checks: Bool, delivery: DeliveryEvent = .none, acceptance: AcceptanceMode = .aiWithEvidence, summary: String = "") {
+         checks: Bool, delivery: DeliveryEvent = .none, acceptance: AcceptanceMode = .aiWithEvidence, summary: String = "",
+         rules: [LifecycleRule]? = nil) {
+        self.rules = rules
         self.id = id
         self.name = name
         self.kind = kind
@@ -227,6 +234,7 @@ struct RuleVariant: Codable, Equatable, Identifiable, Sendable {
         var parts = [integration.title, checks ? "checks required" : "no checks", delivery.title.lowercased()]
         parts.append("start: " + (start == .agentSession ? "agent session" : "agent session or note"))
         parts.append("accepted by: " + (acceptance == .humanOnly ? "a person" : "a person or an AI with evidence"))
+        if let rules { parts.append("its own \(rules.count) transition\(rules.count == 1 ? "" : "s")") }
         return parts.joined(separator: "; ")
     }
 }
@@ -264,6 +272,101 @@ enum VariantTemplate: String, CaseIterable, Sendable {
     }
 }
 
+// MARK: - Process templates
+
+/// The general templates a project starts a process of its own from (BUG-108): a process is a rule variant with its own
+/// transitions. A template is only a starting point: the project keeps its own copy and changes it freely, so editing the project's
+/// process never touches the template, and the Settings window holds nothing but these templates.
+enum ProcessTemplate: String, CaseIterable, Identifiable, Sendable {
+    case quickFeature = "quick-feature"
+    case standardTransitions = "standard-transitions"
+    case fromScratch = "from-scratch"
+
+    var id: String { rawValue }
+
+    /// The id the Quick Feature intake looks for: a project that has a process with it gives its quick features that process.
+    static let quickFeatureID = "quick-feature"
+
+    var title: String {
+        switch self {
+        case .quickFeature: return "Quick feature"
+        case .standardTransitions: return "Copy of the standard transitions"
+        case .fromScratch: return "From scratch"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .quickFeature:
+            return "A small feature without the specification stages: it goes to Ready, is implemented straight on the default branch and is accepted by a person or an AI with evidence."
+        case .standardTransitions:
+            return "The transitions of the type as they are now, with the delivery rules of its default process, to change one step at a time."
+        case .fromScratch:
+            return "Only a start and a completion, the least a process needs; every other step is added by hand."
+        }
+    }
+
+    /// Quick feature is a way to work on a feature; the others suit both types.
+    func applies(to kind: IssueKind) -> Bool { self != .quickFeature || kind == .feature }
+
+    /// A new process of `kind` made from this template, on top of the statuses the project's type has now.
+    func variant(kind: IssueKind, id: String, in workflow: ProjectWorkflow) -> RuleVariant {
+        let definition = workflow.lifecycle(kind)
+        switch self {
+        case .quickFeature:
+            return RuleVariant(id: id, name: title, kind: kind, start: .agentOrNote, integration: .directToMain, checks: false,
+                               summary: "A small feature: no specification stages, committed straight to the default branch.",
+                               rules: Self.transitions(definition, quick: true))
+        case .standardTransitions:
+            let base = workflow.resolvedVariant(kind, assigned: nil)
+            return RuleVariant(id: id, name: "Copy of " + (base?.name ?? "standard"), kind: kind, start: base?.start ?? .agentSession,
+                               integration: base?.integration ?? .directToMain, checks: base?.checks ?? false,
+                               delivery: base?.delivery ?? .none, acceptance: base?.acceptance ?? .aiWithEvidence,
+                               summary: "Starts as a copy of the standard transitions; change what differs.",
+                               rules: definition.rules)
+        case .fromScratch:
+            return RuleVariant(id: id, name: "New process", kind: kind, integration: .directToMain, checks: false,
+                               summary: "A process built from nothing: add the steps it needs.",
+                               rules: Self.transitions(definition, quick: false))
+        }
+    }
+
+    /// Transitions built from the roles of the type's statuses, so they fit a project that renamed or added statuses: a start from
+    /// every not-started status, a completion that needs delivery evidence, and, for a quick feature, the rest of a short path.
+    static func transitions(_ definition: IssueLifecycleDefinition, quick: Bool) -> [LifecycleRule] {
+        let waiting = definition.statuses(with: .notStarted).map(\.id)
+        let completed = definition.statuses(with: .completed).map(\.id)
+        guard let active = definition.statuses(with: .active).first?.id, let done = completed.first, !waiting.isEmpty else { return [] }
+        let everyone: [LifecycleActorKind: [LifecycleCondition]] = [.human: [.startEvidence], .ai: [.startEvidence], .system: [.startEvidence]]
+        var rules: [LifecycleRule] = []
+        // A quick feature skips the specification: any not-started status goes straight to the last one (Ready).
+        if quick, let ready = waiting.last, waiting.count > 1 {
+            rules.append(LifecycleRule(from: Set(waiting).subtracting([ready]), to: ready, kind: .spec, needs: [.human: [], .ai: [], .system: []]))
+        }
+        rules.append(LifecycleRule(from: Set(waiting), to: active, kind: .start, needs: everyone))
+        if quick, let ready = waiting.last {
+            rules.append(LifecycleRule(from: [active], to: ready, kind: .rollback, needs: [.human: [.reason], .system: []]))
+        }
+        rules.append(LifecycleRule(from: Set(waiting).union([active]), to: done, kind: .completion,
+                                   needs: [.human: [.deliveryEvidence], .ai: [.deliveryEvidence], .system: [.deliveryEvidence]]))
+        if quick {
+            if completed.count > 1 {
+                rules.append(LifecycleRule(from: [done], to: completed[1], kind: .acceptance, needs: [.human: [], .ai: [.acceptanceEvidence]]))
+            }
+            rules.append(LifecycleRule(from: Set(completed), to: active, kind: .reopen,
+                                       needs: [.human: [.reason], .ai: [.regressionEvidence], .system: [.regressionEvidence]]))
+            if let cancelled = definition.statuses(with: .cancelled).first?.id {
+                let open = Set(definition.statusIDs).subtracting([cancelled])
+                rules.append(LifecycleRule(from: open, to: cancelled, kind: .cancellation, needs: [.human: [], .ai: []]))
+                if let ready = waiting.last {
+                    rules.append(LifecycleRule(from: [cancelled], to: ready, kind: .reopen, needs: [.human: [.reason]]))
+                }
+            }
+        }
+        return rules
+    }
+}
+
 // MARK: - The workflow
 
 struct ProjectWorkflow: Codable, Equatable, Sendable {
@@ -280,6 +383,14 @@ struct ProjectWorkflow: Codable, Equatable, Sendable {
     var defaultBugVariant: String
 
     func lifecycle(_ kind: IssueKind) -> IssueLifecycleDefinition { kind == .feature ? feature : bug }
+
+    /// The statuses of a type with the transitions of the process an item follows: the process's own when it has them, else the
+    /// type's. `assigned` is the item's variant id (nil = the default of its type).
+    func lifecycle(_ kind: IssueKind, variant assigned: String?) -> IssueLifecycleDefinition {
+        var definition = lifecycle(kind)
+        if let own = resolvedVariant(kind, assigned: assigned)?.rules { definition.rules = own }
+        return definition
+    }
 
     mutating func setLifecycle(_ kind: IssueKind, _ definition: IssueLifecycleDefinition) {
         if kind == .feature { feature = definition } else { bug = definition }
@@ -452,34 +563,7 @@ extension ProjectWorkflow {
             for role in [LifecycleRole.notStarted, .active, .completed] where definition.statuses(with: role).isEmpty {
                 add("The \(label) lifecycle needs a status with the role \"\(role.title)\".")
             }
-            var seen = Set<String>()
-            for rule in definition.rules {
-                if rule.from.isEmpty { add("A \(label) transition to \(rule.to) has no source status.") }
-                for from in rule.from where !definition.isKnown(from) { add("A \(label) transition starts at \(from), which is not a \(label) status.") }
-                if !definition.isKnown(rule.to) { add("A \(label) transition ends at \(rule.to), which is not a \(label) status.") }
-                if rule.from.contains(rule.to) { add("A \(label) transition from \(rule.to) to itself changes nothing.") }
-                if !seen.insert(rule.id).inserted { add("The \(label) transition \(rule.id) is listed twice.") }
-                if rule.kind == .start, definition.role(of: rule.to) != .active {
-                    add("The \(label) start transition to \(rule.to) must end in a status with the role \"Active\".")
-                }
-                if rule.kind == .completion, definition.role(of: rule.to) != .completed {
-                    add("The \(label) completion transition to \(rule.to) must end in a status with the role \"Completed\".")
-                }
-                if rule.kind == .completion, rule.from.contains(where: { definition.role(of: $0) == .completed }) {
-                    add("The \(label) completion transition to \(rule.to) cannot start in a completed status.")
-                }
-                // A role alone never confirms delivery (DEC-023): whoever may complete the work needs delivery evidence for it.
-                if rule.kind == .completion {
-                    for (actor, conditions) in rule.needs where !conditions.contains(.deliveryEvidence) {
-                        add("The \(label) completion transition to \(rule.to) must require delivery evidence from \(actor.rawValue == "ai" ? "AI" : actor.rawValue).")
-                    }
-                }
-            }
-            if !definition.rules.contains(where: { $0.kind == .start }) { add("The \(label) lifecycle needs a start transition.") }
-            if !definition.rules.contains(where: { $0.kind == .completion }) { add("The \(label) lifecycle needs a completion transition.") }
-            if !definition.rules.contains(where: { $0.kind == .completion && $0.needs[.system] != nil && !$0.from.filter { definition.role(of: $0) == .active }.isEmpty }) {
-                add("The \(label) completion from an active status must be open to MarkView, so finished work is recorded as soon as its evidence is complete.")
-            }
+            Self.validateTransitions(definition, label: label, kind: label, add: add)
         }
 
         let variantIDs = variants.map(\.id)
@@ -492,6 +576,12 @@ extension ProjectWorkflow {
             if case .humanConfirmed(let event) = variant.delivery, event.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 add("The rule variant \(variant.name) needs the name of the delivery event a person confirms.")
             }
+            // A process with its own transitions is judged like a type: its steps use the statuses of its type.
+            if let own = variant.rules {
+                var definition = lifecycle(variant.kind)
+                definition.rules = own
+                Self.validateTransitions(definition, label: "\u{201C}\(variant.name)\u{201D} process", kind: variant.kind.rawValue, add: add)
+            }
         }
         for kind in [IssueKind.feature, .bug] {
             let chosen = variant(defaultVariantID(kind))
@@ -499,6 +589,78 @@ extension ProjectWorkflow {
             else if chosen == nil || chosen?.kind != kind { add("The default \(kind.rawValue) rule variant must be one of the \(kind.rawValue) rule variants.") }
         }
         return problems
+    }
+
+    /// The checks of one transition table: of a type, or of a process that has its own. `label` names the table in the messages and
+    /// `kind` the type whose statuses the transitions use.
+    private static func validateTransitions(_ definition: IssueLifecycleDefinition, label: String, kind: String, add: (String) -> Void) {
+        var seen = Set<String>()
+        for rule in definition.rules {
+            if rule.from.isEmpty { add("A \(label) transition to \(rule.to) has no source status.") }
+            for from in rule.from where !definition.isKnown(from) { add("A \(label) transition starts at \(from), which is not a \(kind) status.") }
+            if !definition.isKnown(rule.to) { add("A \(label) transition ends at \(rule.to), which is not a \(kind) status.") }
+            if rule.from.contains(rule.to) { add("A \(label) transition from \(rule.to) to itself changes nothing.") }
+            if !seen.insert(rule.id).inserted { add("The \(label) transition \(rule.id) is listed twice.") }
+            if rule.kind == .start, definition.role(of: rule.to) != .active {
+                add("The \(label) start transition to \(rule.to) must end in a status with the role \"Active\".")
+            }
+            if rule.kind == .completion, definition.role(of: rule.to) != .completed {
+                add("The \(label) completion transition to \(rule.to) must end in a status with the role \"Completed\".")
+            }
+            if rule.kind == .completion, rule.from.contains(where: { definition.role(of: $0) == .completed }) {
+                add("The \(label) completion transition to \(rule.to) cannot start in a completed status.")
+            }
+            // A role alone never confirms delivery (DEC-023): whoever may complete the work needs delivery evidence for it.
+            if rule.kind == .completion {
+                for (actor, conditions) in rule.needs where !conditions.contains(.deliveryEvidence) {
+                    add("The \(label) completion transition to \(rule.to) must require delivery evidence from \(actor.rawValue == "ai" ? "AI" : actor.rawValue).")
+                }
+            }
+        }
+        if !definition.rules.contains(where: { $0.kind == .start }) { add("The \(label) lifecycle needs a start transition.") }
+        if !definition.rules.contains(where: { $0.kind == .completion }) { add("The \(label) lifecycle needs a completion transition.") }
+        if !definition.rules.contains(where: { $0.kind == .completion && $0.needs[.system] != nil && !$0.from.filter { definition.role(of: $0) == .active }.isEmpty }) {
+            add("The \(label) completion from an active status must be open to MarkView, so finished work is recorded as soon as its evidence is complete.")
+        }
+    }
+}
+
+// MARK: - Editing
+
+extension ProjectWorkflow {
+    /// Removes a status of a type with the transitions that ended there or started only there, in the table of the type and in the
+    /// own tables of its processes. Returns how many transitions went with it.
+    @discardableResult
+    mutating func removeStatus(_ id: String, kind: IssueKind) -> Int {
+        func without(_ rules: [LifecycleRule]) -> [LifecycleRule] {
+            rules.compactMap { rule in
+                guard rule.to != id else { return nil }
+                var rule = rule
+                rule.from.remove(id)
+                return rule.from.isEmpty ? nil : rule
+            }
+        }
+        var current = lifecycle(kind)
+        var dropped = current.rules.count
+        current.statuses.removeAll { $0.id == id }
+        current.rules = without(current.rules)
+        dropped -= current.rules.count
+        setLifecycle(kind, current)
+        for index in variants.indices where variants[index].kind == kind {
+            guard let own = variants[index].rules else { continue }
+            let kept = without(own)
+            dropped += own.count - kept.count
+            variants[index].rules = kept
+        }
+        return dropped
+    }
+
+    /// `base`, or `base-2`, `base-3`… when a process already has that id.
+    func freshVariantID(_ base: String) -> String {
+        var id = base
+        var suffix = 2
+        while variant(id) != nil { id = base + "-\(suffix)"; suffix += 1 }
+        return id
     }
 }
 

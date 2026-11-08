@@ -94,6 +94,7 @@ extension FeatureAssistant {
             if !assumptions.isEmpty { body += "\n## Assumptions\n\nMade by the AI where the request left a choice open; correct them in the discussion.\n\n\(assumptions)\n" }
             body += "\n## Acceptance Criteria\n\n\(criteria)\n"
         }
+        store.lifecycle.assignQuickFeatureProcess(slug)
         store.moveFeature(slug, to: "ready", by: .system("Quick feature"))
         _ = await ingest(.text(title: "Original request", text: dump, kind: "intake"), into: slug)
         for url in attachments { await ingest(.file(url), into: slug) }

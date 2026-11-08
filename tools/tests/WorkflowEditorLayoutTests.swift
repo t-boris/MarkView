@@ -1,10 +1,11 @@
 import AppKit
 import SwiftUI
 
-// BUG-108: the shipping project workflow editor (WorkflowEditorSheet) hosted off screen (a borderless window far outside the
-// display, never shown) and measured: every control must lie inside the sheet at every tab, and the sheet must be no wider than
-// the settings window it opens from. Run through tools/tests/workflow-editor-layout-tests.sh, which compiles the real view and the
-// real workflow model with the stand-ins below.
+// BUG-108: the shipping Workflow tab (WorkflowTabView) hosted off screen (a borderless window far outside the display, never
+// shown) and measured at the widths a person may have it: every control and every list must lie inside the tab on every page, in
+// the graphical and in the source view, for the standard workflow and for one at its widest (the first form of the bug was a
+// transition whose label was wider than its sheet, which cut off the left edge). Run through
+// tools/tests/workflow-editor-layout-tests.sh, which compiles the real view and the real workflow model with the stand-ins below.
 
 extension View {
     func uiFont(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> some View {
@@ -13,7 +14,7 @@ extension View {
     func uiFont(_ style: Font.TextStyle, weight: Font.Weight? = nil) -> some View { font(.system(style)).fontWeight(weight) }
 }
 
-/// The part of the coordinator the sheet calls; the real one needs a project folder on disk.
+/// The part of the coordinator the tab calls; the real one needs a project folder on disk.
 @MainActor final class IssueLifecycleCoordinator {
     struct WorkflowSaveReport: Equatable {
         var workflow: ProjectWorkflow
@@ -21,6 +22,8 @@ extension View {
     }
     var workflowLoad: WorkflowLoad = .loaded(.standard)
     var workflow: ProjectWorkflow { workflowLoad.effective }
+    var workflowStore: ProjectWorkflowStore? { nil }
+    func reloadWorkflow() {}
     func workflowImpact(of changed: ProjectWorkflow) -> WorkflowImpact { WorkflowImpact() }
     func saveWorkflow(_ changed: ProjectWorkflow, statusReplacements: [IssueKind: [String: String]] = [:],
                       variantReplacements: [String: String] = [:], by actor: LifecycleActor) -> Result<WorkflowSaveReport, WorkflowStoreError> {
@@ -64,7 +67,8 @@ struct Extent { let sheet: CGFloat; let scroll: ClosedRange<CGFloat>?; let docum
                   controls: fields.isEmpty ? nil : (fields.map(\.minX).min()!)...(fields.map(\.maxX).max()!))
 }
 
-/// A workflow at its widest: every transition starts from every status, every actor needs every condition, ids are long.
+/// A workflow at its widest: every transition starts from every status, every actor needs every condition, ids are long, and the
+/// project has the processes with transitions of their own.
 func widest() -> ProjectWorkflow {
     var workflow = ProjectWorkflow.standard
     for kind in [IssueKind.feature, .bug] {
@@ -80,50 +84,100 @@ func widest() -> ProjectWorkflow {
         }
         workflow.setLifecycle(kind, definition)
     }
+    return withProcesses(workflow, widen: true)
+}
+
+/// The processes with transitions of their own: Quick feature, and a bug process from the copy template.
+func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkflow {
+    var workflow = base
+    var quick = ProcessTemplate.quickFeature.variant(kind: .feature, id: ProcessTemplate.quickFeatureID, in: workflow)
+    var copy = ProcessTemplate.standardTransitions.variant(kind: .bug, id: "bug-copy", in: workflow)
+    if widen {
+        for index in (quick.rules ?? []).indices {
+            quick.rules![index].from = Set(workflow.feature.statusIDs)
+            for actor in [LifecycleActorKind.human, .ai, .system] { quick.rules![index].needs[actor] = LifecycleCondition.allCases }
+        }
+        quick.name = "A quick feature process with a name that goes on and on and on"
+        copy.name = "Copy of the standard bug process with another very long name"
+    }
+    workflow.variants += [quick, copy]
     return workflow
 }
 
-@MainActor func measureSheet(_ label: String, workflow: ProjectWorkflow) {
+@MainActor func measureTab(_ label: String, workflow: ProjectWorkflow, width: CGFloat) {
     let store = FeatureStore()
     store.lifecycle.workflowLoad = .loaded(workflow)
-    let hosting = NSHostingView(rootView: WorkflowEditorSheet(store: store))
-    let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 760, height: 700), styleMask: [.borderless],
+    let editor = WorkflowEditorModel()
+    editor.attach(to: store)
+    editor.expanded = [ProcessTemplate.quickFeatureID, "bug-copy"]
+    let hosting = NSHostingView(rootView: WorkflowTabView(store: store, editor: editor))
+    let size = NSSize(width: width, height: 720)
+    let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size), styleMask: [.borderless],
                           backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.contentView = hosting
+    hosting.frame = NSRect(origin: .zero, size: size)
     defer { window.close() }
 
-    let ideal = hosting.fittingSize
-    window.setContentSize(ideal)
-    settle(hosting)
-    check(ideal.width <= 760, "\(label): the sheet asks for no more than 760 pt (\(Int(ideal.width)) pt)", "ideal width \(ideal.width)")
-    guard let tabs = descendants(hosting).compactMap({ $0 as? NSSegmentedControl }).first else {
-        check(false, "\(label): the tab picker is on screen"); return
-    }
-    for (index, name) in ["Features", "Bugs", "Rule variants"].enumerated() {
-        tabs.selectedSegment = index
-        if let action = tabs.action { NSApp.sendAction(action, to: tabs.target, from: tabs) }
+    // The narrowest the tab can be: ask for far less and see what it settles at. The window's centre column is at least 400 pt wide.
+    if width == 400 {
+        window.setContentSize(NSSize(width: 100, height: 720))
         settle(hosting)
-        let e = extent(of: hosting)
-        print("info  \(label) / \(name): sheet \(Int(e.sheet)), scroll \(e.scroll.map { "\(Int($0.lowerBound))…\(Int($0.upperBound))" } ?? "-"), document \(e.document.map { Int($0) } ?? -1), clip \(e.clip.map { Int($0) } ?? -1), fields \(e.controls.map { "\(Int($0.lowerBound))…\(Int($0.upperBound))" } ?? "-")")
-        guard let scroll = e.scroll, let document = e.document, let clip = e.clip, let controls = e.controls else {
-            check(false, "\(label) / \(name): the list is on screen"); continue
+        check(hosting.bounds.width <= 400, "\(label): the tab shrinks to the narrowest centre column of the window, 400 pt (\(Int(hosting.bounds.width)) pt)")
+        window.setContentSize(size)
+        hosting.frame = NSRect(origin: .zero, size: size)
+    }
+
+    let views: [(String, () -> Void)] = [
+        ("Features", { editor.page = .features }),
+        ("Bugs", { editor.page = .bugs }),
+        ("Processes", { editor.page = .processes }),
+        ("Source", { editor.switchMode(.source, store: store) }),
+    ]
+    for (index, (name, show)) in views.enumerated() {
+        show()
+        settle(hosting)
+        let all = descendants(hosting)
+        func frame(_ view: NSView) -> CGRect { view.convert(view.bounds, to: hosting) }
+        let w = hosting.bounds.width
+        let name = "\(label) @ \(Int(width)) pt / \(name)"
+        // The controls of the header (tab picker, view picker, name field) and every text field of the page.
+        let controls = all.filter { $0 is NSTextField || $0 is NSSegmentedControl }.map(frame).filter { $0.width > 0 }
+        if let low = controls.map(\.minX).min(), let high = controls.map(\.maxX).max() {
+            check(low >= 0 && high <= w, "\(name): every text field and picker lie inside the tab (\(Int(low))…\(Int(high)) of \(Int(w)))")
+        } else {
+            check(false, "\(name): there are controls on screen")
         }
-        check(scroll.lowerBound >= 0 && scroll.upperBound <= e.sheet,
-              "\(label) / \(name): the list lies inside the sheet (\(Int(scroll.lowerBound))…\(Int(scroll.upperBound)) of \(Int(e.sheet)))")
-        check(document <= clip + 0.5, "\(label) / \(name): the list's content is no wider than the list (\(Int(document)) of \(Int(clip)))")
-        check(controls.lowerBound >= 0 && controls.upperBound <= e.sheet,
-              "\(label) / \(name): every text field and the tab picker lie inside the sheet (\(Int(controls.lowerBound))…\(Int(controls.upperBound)))")
+        if editor.mode == .source {
+            let text = all.first { $0 is NSTextView }.map(frame)
+            check(text != nil && text!.minX >= 0 && text!.maxX <= w, "\(name): the source text lies inside the tab",
+                  text.map { "\(Int($0.minX))…\(Int($0.maxX))" } ?? "no text view")
+        } else {
+            let scroll = all.first { String(describing: type(of: $0)) == "HostingScrollView" }.map(frame)
+            let document = all.first { String(describing: type(of: $0)) == "DocumentView" }.map { frame($0).width }
+            let clip = all.first { String(describing: type(of: $0)) == "HostingClipView" }.map { frame($0).width }
+            print("info  \(name): scroll \(scroll.map { "\(Int($0.minX))…\(Int($0.maxX))" } ?? "-"), document \(document.map { Int($0) } ?? -1), clip \(clip.map { Int($0) } ?? -1)")
+            if let scroll, let document, let clip {
+                check(scroll.minX >= 0 && scroll.maxX <= w, "\(name): the list lies inside the tab (\(Int(scroll.minX))…\(Int(scroll.maxX)) of \(Int(w)))")
+                check(document <= clip + 0.5, "\(name): the list's content is no wider than the list (\(Int(document)) of \(Int(clip)))")
+            } else {
+                check(false, "\(name): the list is on screen")
+            }
+        }
         if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
             hosting.cacheDisplay(in: hosting.bounds, to: rep)
-            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(label)-\(index).png"))
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(label)-\(Int(width))-\(index).png"))
         }
+        if editor.mode == .source { editor.switchMode(.visual, store: store) }
     }
 }
 
 @MainActor func run() {
-    measureSheet("standard workflow", workflow: .standard)
-    measureSheet("widest workflow", workflow: widest())
+    for width in [400, 760, 1100] as [CGFloat] {
+        measureTab("standard workflow", workflow: .standard, width: width)
+        measureTab("with processes", workflow: withProcesses(.standard), width: width)
+        measureTab("widest workflow", workflow: widest(), width: width)
+    }
 }
 
 let app = NSApplication.shared

@@ -642,6 +642,16 @@ do {
           && IssueReconciler.completionTarget(kind: .bug, status: "fixing", workflow: custom) == nil)
     let reopened = rig.service.apply(request("done", "todo", boris, reason: "It came back"))
     check("a person reopens a completed status into an unstarted one", reopened.isApplied && rig.history.lastChange?.transitionKind == .reopen)
+
+    // The completion target of an item follows the process it follows (BUG-108).
+    var processes = ProjectWorkflow.standard
+    var own = ProcessTemplate.quickFeature.variant(kind: .feature, id: "quick-feature", in: processes)
+    own.rules = own.rules!.filter { $0.kind != .completion || $0.needs[.system] == nil }
+    own.rules!.append(LifecycleRule(from: ["implementing"], to: "implemented", kind: .completion, needs: [.human: [.deliveryEvidence]]))
+    processes.variants.append(own)
+    check("a process that does not let MarkView complete an item has no completion target of its own",
+          IssueReconciler.completionTarget(kind: .feature, status: "implementing", workflow: processes) == "implemented"
+          && IssueReconciler.completionTarget(kind: .feature, status: "implementing", workflow: processes, variantID: "quick-feature") == nil)
 }
 
 do {

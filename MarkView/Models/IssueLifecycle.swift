@@ -306,7 +306,8 @@ enum LifecyclePolicy {
     /// The one decision function. A refusal changes nothing and says what is missing (REQ-001 criterion 3).
     static func decide(_ request: TransitionRequest) -> TransitionDecision {
         let kind = request.kind
-        let lifecycle = request.workflow.lifecycle(kind)
+        // The statuses of the type with the transitions of the process this item follows (BUG-108).
+        let lifecycle = request.workflow.lifecycle(kind, variant: request.variantID)
         let from = LifecycleVocabulary.normalize(request.from)
         let to = LifecycleVocabulary.normalize(request.to)
         let vocabulary = lifecycle.statusIDs
@@ -476,7 +477,7 @@ enum LifecyclePolicy {
         let from = LifecycleVocabulary.normalize(status)
         let probe = TransitionRequest(kind: kind, issue: "", from: from, to: "", actor: LifecycleActor(kind: actor, name: ""), reason: reason,
                                       evidence: evidence, workflow: workflow, variantID: variantID)
-        return workflow.lifecycle(kind).rules.filter { $0.from.contains(from) }.map { rule in
+        return workflow.lifecycle(kind, variant: variantID).rules.filter { $0.from.contains(from) }.map { rule in
             guard let listed = rule.needs[actor] else { return NextStep(to: rule.to, kind: rule.kind, needs: nil, unmet: []) }
             let needs = effectiveNeeds(listed, rule: rule, request: probe)
             return NextStep(to: rule.to, kind: rule.kind, needs: needs, unmet: needs.filter { !isMet($0, probe) })

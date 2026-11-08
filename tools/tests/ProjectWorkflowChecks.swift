@@ -346,5 +346,139 @@ check("a plan that cannot be read is ignored and left as it is",
       adoptStore.pending() == nil && fm.fileExists(atPath: adoptRoot.appendingPathComponent(".dde/workflow/pending-replacements.json").path))
 try? fm.removeItem(at: adoptRoot)
 
+// MARK: Processes with their own transitions (BUG-108)
+
+// A project that has a Quick feature process: the template on top of the standard statuses.
+var withQuick = ProjectWorkflow.standard
+withQuick.variants.append(ProcessTemplate.quickFeature.variant(kind: .feature, id: ProcessTemplate.quickFeatureID, in: withQuick))
+let quick = withQuick.variant(ProcessTemplate.quickFeatureID)!
+check("a workflow with the Quick feature process is valid", withQuick.validate().isEmpty)
+check("the Quick feature process has transitions of its own and the standard ones do not",
+      quick.rules != nil && standard.variant(StandardWorkflow.featureVariantID)!.rules == nil)
+check("a process without its own transitions reads those of its type",
+      withQuick.lifecycle(.feature, variant: StandardWorkflow.featureVariantID).rules == withQuick.feature.rules
+      && withQuick.lifecycle(.feature, variant: nil).rules == withQuick.feature.rules)
+check("a process with its own transitions reads them, and the statuses stay those of its type",
+      withQuick.lifecycle(.feature, variant: ProcessTemplate.quickFeatureID).rules == quick.rules!
+      && withQuick.lifecycle(.feature, variant: ProcessTemplate.quickFeatureID).statusIDs == withQuick.feature.statusIDs)
+check("a bug never takes the transitions of a feature process",
+      withQuick.lifecycle(.bug, variant: ProcessTemplate.quickFeatureID).rules == withQuick.bug.rules)
+
+// The same step is judged by the process the item follows.
+check("a feature in idea goes straight to ready in the Quick feature process, as a person",
+      allowed(decide(withQuick, .feature, from: "idea", to: "ready", actor: person, variant: ProcessTemplate.quickFeatureID)))
+check("a feature in draft may not start without evidence in either process",
+      rejected(decide(withQuick, .feature, from: "draft", to: "implementing", actor: agent, variant: ProcessTemplate.quickFeatureID)) != nil)
+check("the Quick feature process lets MarkView, not only a person, move an idea to ready",
+      allowed(decide(withQuick, .feature, from: "idea", to: "ready", actor: app, variant: ProcessTemplate.quickFeatureID)))
+check("the Quick feature process starts from ready on a hand-off",
+      allowed(decide(withQuick, .feature, from: "ready", to: "implementing", actor: agent, variant: ProcessTemplate.quickFeatureID,
+                     evidence: LifecycleEvidence(start: handedOff))))
+// A step that only the standard transitions have: draft → review is a specification stage there and no transition in a quick feature.
+check("draft → review is a transition of the standard feature",
+      allowed(decide(withQuick, .feature, from: "draft", to: "review", actor: agent, variant: StandardWorkflow.featureVariantID)))
+check("draft → review is not a transition of the Quick feature process: an AI is refused, a person must force it",
+      rejected(decide(withQuick, .feature, from: "draft", to: "review", actor: agent, variant: ProcessTemplate.quickFeatureID)) != nil
+      && rejected(decide(withQuick, .feature, from: "draft", to: "review", actor: person, variant: ProcessTemplate.quickFeatureID)) != nil)
+check("a person forces it with a reason",
+      { if case .overridden = decide(withQuick, .feature, from: "draft", to: "review", actor: person, variant: ProcessTemplate.quickFeatureID,
+                                     reason: "Wants a review after all", force: true) { return true } else { return false } }())
+check("an item without a variant follows the default process of its type",
+      allowed(decide(withQuick, .feature, from: "draft", to: "review", actor: agent)))
+
+// What the item is offered next follows its process too.
+func steps(_ variant: String?, from status: String) -> [String] {
+    LifecyclePolicy.nextSteps(kind: .feature, status: status, actor: .human, evidence: .none, workflow: withQuick, variantID: variant).map(\.to)
+}
+check("from draft the standard feature offers the specification stages and the Quick feature process only ready",
+      steps(StandardWorkflow.featureVariantID, from: "draft").contains("review") && steps(ProcessTemplate.quickFeatureID, from: "draft") == ["ready", "implementing", "implemented", "archived"]
+      && !steps(ProcessTemplate.quickFeatureID, from: "draft").contains("review"))
+check("the completion target reads the process too",
+      withQuick.lifecycle(.feature, variant: ProcessTemplate.quickFeatureID).completionTarget(from: "implementing") == "implemented")
+
+// A process without its own transitions is unchanged by the new field.
+check("a variant without its own transitions writes no `rules` key, so an older app reads the file",
+      { let object = try! JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+        return (object["variants"] as! [[String: Any]]).allSatisfy { $0["rules"] == nil } }())
+check("a variant with its own transitions writes them",
+      { let object = try! JSONSerialization.jsonObject(with: try! encoder.encode(withQuick)) as! [String: Any]
+        return (object["variants"] as! [[String: Any]]).contains { $0["id"] as? String == "quick-feature" && ($0["rules"] as? [Any])?.isEmpty == false } }())
+
+// Validation judges the own transitions like those of a type.
+var brokenProcess = withQuick
+brokenProcess.variants[brokenProcess.variants.count - 1].rules = quick.rules!.filter { $0.kind != .completion }
+check("a process without a completion transition is refused",
+      brokenProcess.validate().contains { $0.message.contains("Quick feature") && $0.message.contains("needs a completion transition") })
+brokenProcess = withQuick
+brokenProcess.variants[brokenProcess.variants.count - 1].rules = quick.rules! + [LifecycleRule(from: ["draft"], to: "shipped", kind: .spec, needs: [.human: []])]
+check("a process whose transition ends in a status its type lacks is refused",
+      brokenProcess.validate().contains { $0.message.contains("Quick feature") && $0.message.contains("shipped") })
+brokenProcess = withQuick
+brokenProcess.variants[brokenProcess.variants.count - 1].rules = quick.rules!.map { rule in
+    var rule = rule
+    if rule.kind == .completion { rule.needs[.ai] = [] }
+    return rule
+}
+check("a completion in a process still needs delivery evidence from everyone it lists",
+      brokenProcess.validate().contains { $0.message.contains("must require delivery evidence from AI") })
+
+// Templates.
+for template in ProcessTemplate.allCases {
+    for kind in [IssueKind.feature, .bug] where template.applies(to: kind) {
+        var made = ProjectWorkflow.standard
+        made.variants.append(template.variant(kind: kind, id: "made", in: made))
+        check("a \(kind.rawValue) process from the \(template.title) template is valid", made.validate().isEmpty)
+    }
+}
+check("Quick feature is offered for features only", ProcessTemplate.quickFeature.applies(to: .feature) && !ProcessTemplate.quickFeature.applies(to: .bug))
+let copy = ProcessTemplate.standardTransitions.variant(kind: .bug, id: "copy", in: .standard)
+check("the copy template starts from the transitions and the delivery rules of the type's default process",
+      copy.rules == standard.bug.rules && copy.deliveryRules == standardBugRules)
+check("the from-scratch template is the least a process needs: a start and a completion",
+      Set(ProcessTemplate.fromScratch.variant(kind: .feature, id: "x", in: .standard).rules!.map(\.kind)) == [.start, .completion])
+// A project that renamed its statuses still gets a valid process, because the template is built from roles.
+var renamed = ProjectWorkflow.standard
+var renamedFeature = renamed.feature
+renamedFeature.statuses = [WorkflowStatus(id: "todo", role: .notStarted), WorkflowStatus(id: "doing", role: .active), WorkflowStatus(id: "done", role: .completed)]
+renamedFeature.rules = ProcessTemplate.transitions(renamedFeature, quick: false)
+renamed.feature = renamedFeature
+renamed.variants.append(ProcessTemplate.quickFeature.variant(kind: .feature, id: "quick-feature", in: renamed))
+check("the Quick feature template adapts to renamed statuses", renamed.validate().isEmpty
+      && renamed.variant("quick-feature")!.rules!.contains { $0.kind == .start && $0.from == ["todo"] && $0.to == "doing" })
+
+// Editing the draft: removing a status takes it out of the own transitions of the processes of its type.
+var trimmed = withQuick
+let dropped = trimmed.removeStatus("exploring", kind: .feature)
+check("removing a status removes it from the type and from the own transitions of a process",
+      !trimmed.feature.isKnown("exploring") && !trimmed.feature.rules.contains { $0.from.contains("exploring") || $0.to == "exploring" }
+      && !trimmed.variant(ProcessTemplate.quickFeatureID)!.rules!.contains { $0.from.contains("exploring") || $0.to == "exploring" } && dropped > 0)
+check("removing a status of the other type leaves the process alone",
+      { var other = withQuick; other.removeStatus("closed", kind: .bug); return other.variant(ProcessTemplate.quickFeatureID)!.rules == quick.rules }())
+check("a fresh process id is unique", withQuick.freshVariantID("quick-feature") == "quick-feature-2" && withQuick.freshVariantID("new") == "new")
+
+// A process that is removed while an item follows it: the item is listed for a replacement, like any removed variant.
+let followers = [WorkflowItem(kind: .feature, issue: "small", status: "ready", variant: ProcessTemplate.quickFeatureID)]
+var withoutQuick = withQuick
+withoutQuick.variants.removeAll { $0.id == ProcessTemplate.quickFeatureID }
+check("removing a process that an item follows lists the item",
+      WorkflowChange.impact(from: withQuick, to: withoutQuick, items: followers).variants[ProcessTemplate.quickFeatureID] == ["small"])
+
+// The file: a process with its own transitions survives the round trip, an old file without the field is read as it is, and the
+// source text is read by the same path as the file.
+let quickFile = ProjectWorkflowStore.text(of: withQuick)
+check("the source text of a workflow reads back as the same workflow",
+      { if case .loaded(let back) = ProjectWorkflowStore.load(from: Data(quickFile.utf8)) { return back == withQuick } else { return false } }())
+check("the source text ends with one newline and is stable", quickFile.hasSuffix("}\n") && ProjectWorkflowStore.text(of: withQuick) == quickFile)
+check("a file written before processes had transitions is read unchanged",
+      { if case .loaded(let old) = ProjectWorkflowStore.load(from: Data(ProjectWorkflowStore.text(of: standard).utf8)) { return old == standard && old.variants.allSatisfy { $0.rules == nil } } else { return false } }())
+check("the source text that is not JSON is told apart",
+      { if case .failure(.damaged(let why)) = ProjectWorkflowStore.parse(Data("{ nope".utf8)) { return why.contains("not a JSON object") } else { return false } }())
+check("a source text that parses but breaks a rule is returned for the editor to judge, and the file read refuses it",
+      { var invalid = standard; invalid.name = " "
+        let text = Data(ProjectWorkflowStore.text(of: invalid).utf8)
+        if case .success(let parsed) = ProjectWorkflowStore.parse(text), case .damaged = ProjectWorkflowStore.load(from: text) { return parsed.name == " " } else { return false } }())
+check("a source text from a newer app is unsupported, not damaged",
+      { if case .failure(.unsupported(let schema)) = ProjectWorkflowStore.parse(Data("{\"schema\": 99}".utf8)) { return schema == 99 } else { return false } }())
+
 try? fm.removeItem(at: root)
 finish("project workflow")

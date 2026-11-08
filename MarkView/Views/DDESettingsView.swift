@@ -13,7 +13,6 @@ struct DDESettingsView: View {
     @AppStorage(AppFontScale.storageKey) private var fontScalePercent = AppFontScale.defaultPercent
     @State private var showKey = false
     @State private var showDone = false
-    @State private var showWorkflow = false
     @State private var saved = false
     @State private var openaiStatus: KeyStatus = .unknown
 
@@ -232,17 +231,27 @@ struct DDESettingsView: View {
 
             RemoteSettingsSection()
 
-            GroupBox("Project workflow") {
+            GroupBox("Workflow templates") {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("The statuses of features and bugs in this project, the steps between them, who may make each step and on what evidence, and the rule variants an item can follow. The workflow decides transitions; the Definition of Done below only guides the work.")
+                    Text("The workflow of a project (its statuses, transitions and processes) is configured inside the project, in its Workflow tab, and kept in .dde/workflow/workflow.json. These are the general templates a process starts from; the project keeps its own copy.")
                         .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
-                    Button("Project Workflow…") { showWorkflow = true }
+                    ForEach(ProcessTemplate.allCases) { template in
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(template.title).uiFont(size: 11, weight: .medium)
+                            Text(template.summary).uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Delivery rules").uiFont(size: 11, weight: .medium)
+                        Text(VariantTemplate.allCases.map(\.title).joined(separator: "; ") + ". They keep the transitions of the type.")
+                            .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Button("Open the project's Workflow tab") { workspaceManager.openWorkflow() }
                         .disabled(workspaceManager.projectFolder == nil)
-                        .help(workspaceManager.projectFolder == nil ? "Open a project folder first" : "Configure statuses, transitions and rule variants")
+                        .help(workspaceManager.projectFolder == nil ? "Open a project folder first" : "Configure this project's statuses, transitions and processes")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).padding(6)
             }
-            .sheet(isPresented: $showWorkflow) { WorkflowEditorSheet(store: workspaceManager.features) }
 
             GroupBox("Implement with AI") {
                 VStack(alignment: .leading, spacing: 6) {
