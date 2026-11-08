@@ -34,7 +34,8 @@ struct ProjectChangeReviewBar: View {
     }
 }
 
-private struct ProjectChangeReviewSheet: View {
+/// The review sheet. Not private so that tools/tests/project-change-review-layout-tests.sh can host the shipping view.
+struct ProjectChangeReviewSheet: View {
     @Environment(\.palette) private var palette
     @ObservedObject var review: ProjectChangeReview
     @EnvironmentObject var workspaceManager: WorkspaceManager
@@ -69,7 +70,10 @@ private struct ProjectChangeReviewSheet: View {
                     .uiFont(size: 10)
                     .tag(change.path)
                 }
-                .frame(minWidth: 210, idealWidth: 260)
+                // The list only names the file: the comparison gets the rest of the sheet (BUG-107). Without an upper
+                // bound the list and the comparison, both flexible, shared the width equally, which left each of the
+                // two versions a quarter of the sheet.
+                .frame(minWidth: 180, idealWidth: 220, maxWidth: 260)
                 Divider()
                 if let selected {
                     VStack(spacing: 0) {
@@ -102,7 +106,9 @@ private struct ProjectChangeReviewSheet: View {
                 }
             }.padding(10)
         }
-        .frame(minWidth: 680, minHeight: 440)
+        // It opens at a size made for reading two versions side by side, and can be resized from there.
+        .frame(minWidth: 760, idealWidth: 1000, maxWidth: .infinity,
+               minHeight: 440, idealHeight: 640, maxHeight: .infinity)
         .onAppear { selectedPath = review.changes.first?.path }
     }
 
