@@ -1615,3 +1615,15 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
 - SourceKit shows "Cannot find type/scope" for every file of a multi-file target it has not indexed together. Compile (`xcodebuild`, or the suite script) before believing it.
 - Saving a workflow that removes a status or variant in use is a two-step write with an ordering rule: the file first, then the reassignment of items as records of their own kind. A crash between
   the steps leaves items on a status the workflow no longer has, which reads as `unknown` and is never a pass; the next start finishes the move.
+
+## 2026-11-08 — five suites that were "known failures" for weeks
+
+- A failure called "not mine, fails on clean main" is still a failure: Boris asked to fix it ("even if the errors were not in this session"). Run every suite once at the start of a task, write down the red
+  ones, and fix them in a branch of their own instead of carrying the list from report to report.
+- Four of the five were stale tests, one was a stale file list; none was an app bug. In each case a later commit changed behaviour on purpose and updated only its own test: the operation kind order
+  (`b1ce96c` aligned the panel with `ProjectOperation.primaryKindOrder`), "every regular file is openable" (`18fb9da`), and `DeploymentStore` gaining `CloudServices` and `ProviderHints`
+  (`17415de`). When a behaviour changes, grep `tools/tests` for the old expectation and for every script that compiles the changed file.
+- Before changing a test, find the commit that made it fail and read its message: that decides whether the test or the app is wrong. Change the app only with Boris's approval.
+- A web-view harness must not use the persistent website data store: the prototype runtime keeps the chosen role in `localStorage`, so the second run on a machine started as the role the first run
+  ended with. A harness passes on a clean CI runner and fails on a developer machine. Use `WKWebsiteDataStore.nonPersistent()` and run a suite twice in a row before calling it stable.
+- zsh treats a bare `=====` in `echo` as an expansion and aborts the command: quote separators.

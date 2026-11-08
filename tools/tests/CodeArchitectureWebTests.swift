@@ -480,7 +480,8 @@ return JSON.stringify({
 let noNode = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
 let noNodeButtons = noNode["buttons"] as? [String] ?? []
 let noNodeBadges = noNode["badges"] as? [String] ?? []
-check(noNode["headings"] as? [String] == ["Project operations", "Deploy (3)", "Install (1)", "Build (2)", "Restart (1)", "Clean (1)", "Other (1)", "Seeding (1)"],
+// The kind order is ProjectOperation.primaryKindOrder (deploy, build, test, run, install, clean, restart, other; b1ce96c); an unknown kind follows.
+check(noNode["headings"] as? [String] == ["Project operations", "Deploy (3)", "Build (2)", "Install (1)", "Clean (1)", "Restart (1)", "Other (1)", "Seeding (1)"],
       "no node selected: one heading per kind in a fixed order, an unknown kind after the known ones", text)
 check((noNode["rows"] as? [String])?.count == 10 && (noNode["rows"] as? [String]).map({ Set($0).count }) == 10,
       "no node selected: every project operation is listed once, not only the primary ones", text)
@@ -501,7 +502,7 @@ return JSON.stringify({
 """)
 let withNode = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
 let nodeRows = withNode["rows"] as? [String] ?? []
-check(withNode["headings"] as? [String] == ["Project operations", "Related to api", "Deploy (2)", "Install (1)", "Build (2)", "Restart (1)", "Clean (1)", "Other (1)", "Seeding (1)"],
+check(withNode["headings"] as? [String] == ["Project operations", "Related to api", "Deploy (2)", "Build (2)", "Install (1)", "Clean (1)", "Restart (1)", "Other (1)", "Seeding (1)"],
       "node selected: related operations first, then the remaining ones by kind", text)
 check(nodeRows.count == 10 && nodeRows.first == "arch-operation related|Deploy prod · prod · deploy"
       && nodeRows.dropFirst().allSatisfy { !$0.hasPrefix("arch-operation related") }, "node selected: only the related operation is highlighted and none is dropped or repeated", text)

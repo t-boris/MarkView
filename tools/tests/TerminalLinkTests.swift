@@ -143,9 +143,17 @@ final class WhisperClient {}
             try await display("\u{1b}[?1000h\u{1b}[?1006hsample.swift:42\r\n")
             try await hover(); try await click()
             check(opened.count == 1 && opened.first?.1 == 42 && inputs.isEmpty, "file in mouse-tracking TUI")
+            // Every regular file opens in the app (FileType.isOpenable); binary content is refused when the file is read.
             try await display("archive.iso\r\n")
             try await hover(); try await click()
-            check(external == [root.appendingPathComponent("archive.iso")] && opened.isEmpty, "unsupported file uses default app")
+            check(opened.count == 1 && opened.first?.0 == root.appendingPathComponent("archive.iso") && external.isEmpty, "a file of any type opens in the app")
+            // A session without a file opener hands the file to the default app.
+            let fileOpener = session.openFile
+            session.openFile = nil
+            try await display("archive.iso\r\n")
+            try await hover(); try await click()
+            check(external == [root.appendingPathComponent("archive.iso")] && opened.isEmpty, "without a file opener the file goes to the default app")
+            session.openFile = fileOpener
             try await display("漢字 sample.swift:42\r\n")
             try await hover(col: 7); try await click()
             check(opened.count == 1 && opened.first?.1 == 42, "wide characters before path")
