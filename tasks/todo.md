@@ -1,3 +1,24 @@
+# BUG-108: the Project Workflow editor is clipped on the left (GitHub #324) — session 2026-11-08
+
+Request (Boris, bug handoff): read BUG-108, reproduce, find the root cause, fix, verify; BQ-1 is answered ("always": the clipping recurs after
+reopening) and binding. No new question was needed, so nothing was added to Clarifications. Branch + PR; version patch.
+
+## Plan
+- [x] 1. Reproduce: `tools/tests/workflow-editor-layout-tests.sh` hosts the shipping `WorkflowEditorSheet` off screen and measures every tab. Before
+  the fix the Features tab fails (list -69…829 in a 760 pt sheet) for the standard workflow and for the widest one; the snapshot shows the
+  report's cut text.
+- [x] 2. Root cause: the "From:" menu of each transition was `fixedSize`; the cancellation rule's label (91 characters) made the list 881 pt wide
+  in 724 pt, and the sheet's fixed frame centred the overflow. The actor menus had the same flaw.
+- [x] 3. Fix in `WorkflowEditorSheet.swift`: From menu as wide as its label up to 360 pt, actor menus share the row, both truncate with the full
+  text in a tooltip. All three tabs pass for both workflows.
+- [x] 4. Debug build, version 5.44.1, PR #328 merged (2759556).
+- [x] 5. Release v5.44.1 published by `./release.sh --publish` (DMG signed by Developer ID, notarized, stapled; `spctl` accepts it; app reports 5.44.1; copies in `build/`). BUG-108 resolution written through `markview_update_bug`; MarkView recorded `fixed` itself after the release.
+
+## Review
+Evidence: the layout script above (fails before, passes after), Debug build. Not checked by hand in the running app: the fixed sheet in
+Boris's settings window, and how the truncated menus read (pickers and menus are not captured by an off-screen snapshot; their layout is
+measured through the list width).
+
 # Flexible Files views and visible agent usage (feature flexible-files-views-and-visible-agent-usage, GitHub #320) — goal session 2026-11-08
 
 Request (Boris, /goal): implement `docs/features/flexible-files-views-and-visible-agent-usage` (AC-1…AC-8, REQ-001, plan I-1…I-6,

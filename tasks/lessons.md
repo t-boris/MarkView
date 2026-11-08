@@ -1,5 +1,20 @@
 # Lessons
 
+## A fixed sheet width centres whatever overflows it: one `fixedSize` label can cut both edges (BUG-108, 5.44.1)
+
+- The Project Workflow sheet is `.frame(width: 760)`. One rule's "From:" menu (nine statuses, 91 characters, `.fixedSize()`) made the
+  scroll area 881 pt wide, and the frame centred the overflow, so the left edge (title, Name field, tabs) was cut off on every open. It looked
+  like a window-size problem (settings window 640 pt, sheet 760 pt, a 400 pt scroll height); none of those was the cause. The report's
+  hypotheses were all about the container; the cause was one child's ideal width.
+- Reproduce a layout bug before touching the view: host the shipping view in a borderless `NSWindow` far outside the display (never shown),
+  switch tabs through the `NSSegmentedControl` (`sendAction`), and read the frames of the AppKit-backed pieces (`HostingScrollView`,
+  `DocumentView`, text fields). `bitmapImageRepForCachingDisplay` + `cacheDisplay` writes a PNG that shows the same cut text as the screenshot
+  (it leaves out pickers and buttons). The splice list for such a harness grows through the model files a view uses
+  (`IssueLifecycleDisplay`, `IssueLifecycleEvidence`, `IssueTransitionLog`, `FeatureVocabulary`): add them one compile error at a time.
+- Test with the data at its widest, not only the shipped default: every status in every From, every condition for every actor, long ids. A
+  label built from user data must be bounded (`frame(maxWidth:)`, `lineLimit(1)`, `truncationMode`) and carry the full text in `.help`.
+- `fixedSize()` on a menu or text whose content comes from data is a latent overflow; keep it only for fixed labels.
+
 ## "Filters" means the visibility filters too, and a goal's CI step does not override a standing rule (Files views, 5.44.0)
 
 Boris, mid-turn: "Когда я говорил про фильтры, я еще имел ввиду, чтобы, например, отфильтровать gitignore ... или может быть hidden не показывать."
