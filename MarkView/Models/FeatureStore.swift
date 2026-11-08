@@ -39,6 +39,9 @@ final class FeatureStore: ObservableObject {
     @Published var lastError: String?
 
     private(set) var root: URL?
+    /// True once the project's features and bugs were read at least once since the folder was opened: only then is an empty list a
+    /// project without items rather than a list not read yet.
+    private(set) var hasLoaded = false
     private var pollTask: Task<Void, Never>?
     private var fingerprint = ""
     /// Bumped by every write and reset: a background reload that started earlier is dropped.
@@ -112,6 +115,7 @@ final class FeatureStore: ObservableObject {
         issueSort = .default
         features = []
         bugs = []
+        hasLoaded = false
         hasFeaturesFolder = false
         hasIssues = false
         fingerprint = ""
@@ -131,6 +135,7 @@ final class FeatureStore: ObservableObject {
             guard folder == featuresFolder, started == generation else { return }
             features = loaded
             bugs = bugList
+            hasLoaded = true
             updateFolderFlags()
             lifecycle.reconcileLocal()
             fingerprint = print
@@ -269,6 +274,7 @@ final class FeatureStore: ObservableObject {
             features = Self.loadAll(folder)
         }
         if let bugsFolder { bugs = Self.loadBugs(bugsFolder) }
+        hasLoaded = true
         updateFolderFlags()
         lifecycle.reconcileLocal()
         fingerprint = ""  // the poll re-reads the dates and settles
@@ -399,10 +405,17 @@ final class FeatureStore: ObservableObject {
         return removed
     }
 
+    /// Implementation started or done: the project's workflow gives the feature's status the role active or completed. Deleting or
+    /// restarting the feature is not offered then.
+    func hasImplementationStarted(_ feature: Feature) -> Bool {
+        let role = lifecycle.workflow.role(.feature, IssueStatus.normalize(feature.status))
+        return role == .active || role == .completed
+    }
+
     /// Move a feature's whole folder to the Trash (not offered once implementation started).
     @discardableResult
     func deleteFeature(_ slug: String) -> Bool {
-        guard let feature = feature(slug), !feature.isImplemented else { return false }
+        guard let feature = feature(slug), !hasImplementationStarted(feature) else { return false }
         do {
             try FileManager.default.trashItem(at: feature.folder, resultingItemURL: nil)
         } catch {
@@ -446,7 +459,7 @@ final class FeatureStore: ObservableObject {
     /// idea) and the attached sources stay; status back to idea, understanding unknown.
     @discardableResult
     func restartFeature(_ slug: String) -> Bool {
-        guard let feature = feature(slug), feature.isStructured, !feature.isImplemented else { return false }
+        guard let feature = feature(slug), feature.isStructured, !hasImplementationStarted(feature) else { return false }
         // Asked first: the files go to the Trash before the status moves, so a refused move must not leave a half-restart.
         guard lifecycle.canMove(.feature, slug, to: "idea", actor: .human(lifecycleActor)) else {
             lastError = "\(slug) is \(feature.status) and cannot go back to idea from there. Reopen it first."
@@ -563,6 +576,13 @@ final class FeatureStore: ObservableObject {
         reloadSync()
         return true
     }
+
+    /// The status a bug takes for a role in this project's workflow: a new report is not started, a report of a change that is
+    /// already made is completed. Nil when the workflow has no such status.
+    func bugStatus(role: LifecycleRole) -> String? { lifecycle.workflow.bug.statuses(with: role).first?.id }
+
+    /// The step a person takes to close a record of a bug now: the cancellation or acceptance the workflow offers from its status.
+    func bugClosingStatus(_ key: String) -> String? { lifecycle.endingTarget(.bug, key, actor: .human, via: [.cancellation, .acceptance]) }
 
     /// Writes a new numbered bug report in docs/bugs/ through `BugReportWriter`, for the `markview_create_bug` tool and UI
     /// Studio's change tracking (REQ-012). Returns its id and file.
@@ -688,6 +708,7 @@ final class FeatureStore: ObservableObject {
     private func observeLifecycle() {
         guard let project = lifecycleProject else { return }
         let current = Dictionary(features.map { ($0.slug, LifecycleSnapshot($0)) }, uniquingKeysWith: { a, _ in a })
+        let workflow = lifecycle.workflow
         defer { lifecycleBaseline = current }
         guard let previous = lifecycleBaseline, LifecycleLog.shared.claim(project, by: self) else { return }
         for (slug, now) in current where !lifecycleQuiet.contains(slug) {
@@ -695,11 +716,11 @@ final class FeatureStore: ObservableObject {
             if before.openQuestions > 0 && now.openQuestions == 0 { recordLifecycle(.questionsResolved, feature: slug) }
             if (before.status != "ready" && now.status == "ready") || (before.readiness < 100 && now.readiness == 100) {
                 recordLifecycle(.specReady, feature: slug)
-            } else if !before.isImplementing && now.isImplementing {
+            } else if !before.isImplementing(in: workflow) && now.isImplementing(in: workflow) {
                 recordSpecReadyIfMissing(slug)
             }
-            if before.status != "implemented" && now.status == "implemented" {
-                recordLifecycle(.implementationFinished, feature: slug, note: "Status implemented")
+            if !before.isCompleted(in: workflow) && now.isCompleted(in: workflow) {
+                recordLifecycle(.implementationFinished, feature: slug, note: "Status \(now.status)")
             }
         }
     }
@@ -713,7 +734,7 @@ final class FeatureStore: ObservableObject {
     /// implementation becomes `implementing`, with the hand-off as the start evidence (DEC-011). Call it only after the
     /// hand-off succeeded; a failed one leaves the status alone (REQ-003).
     func markImplementing(_ slug: String, handoff tool: String) {
-        guard let status = feature(slug)?.status, Feature.beforeImplementation.contains(status) else { return }
+        guard let status = feature(slug)?.status, lifecycle.startTarget(.feature, from: status) != nil else { return }
         lifecycle.startByHandoff(.feature, slug, tool: tool, actor: .human(lifecycleActor))
     }
 
@@ -882,5 +903,11 @@ struct LifecycleSnapshot: Equatable {
         readiness = feature.isStructured ? feature.readiness : 0
     }
 
-    var isImplementing: Bool { ["implementing", "implemented", "verified"].contains(status) }
+    /// Implementation started or done: the workflow gives the status the role active or completed.
+    func isImplementing(in workflow: ProjectWorkflow) -> Bool {
+        let role = workflow.role(.feature, IssueStatus.normalize(status))
+        return role == .active || role == .completed
+    }
+
+    func isCompleted(in workflow: ProjectWorkflow) -> Bool { workflow.isCompleted(.feature, IssueStatus.normalize(status)) }
 }

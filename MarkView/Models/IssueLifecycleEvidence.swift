@@ -144,9 +144,15 @@ struct DeliveryInput: Sendable {
     /// When the issue was last reopened: implementation work for a reopened issue is work merged
     /// after that time, so that a reopened issue does not complete again on the work that was already there.
     var since: Date?
+    /// The delivery event the rule variant asks a person to confirm (DEC-018, DEC-027), and the person's confirmation of it in the
+    /// current round of work; nil: nothing is asked, or it was not confirmed.
+    var confirmedEvent: String?
+    var eventConfirmation: String?
 
     init(sources: [EvidenceSource], work: [WorkUnit], releaseRequired: Bool, releases: [WorkRef: ReleaseState] = [:], since: Date? = nil,
-         pullRequestRequired: Bool = false, checksRequired: Bool = true) {
+         pullRequestRequired: Bool = false, checksRequired: Bool = true, confirmedEvent: String? = nil, eventConfirmation: String? = nil) {
+        self.confirmedEvent = confirmedEvent
+        self.eventConfirmation = eventConfirmation
         self.sources = sources
         self.work = work
         self.releaseRequired = releaseRequired
@@ -224,9 +230,16 @@ enum DeliveryEvaluator {
             missing.append("no implementation work was merged since the issue was started or reopened")
         }
 
+        // A delivery event outside GitHub is proven by a person's confirmation; without it the work is not delivered (DEC-018).
+        if let event = input.confirmedEvent, input.eventConfirmation == nil {
+            missing.append("the delivery event \"\(event)\" has not been confirmed by a person")
+        }
+
         if !missing.isEmpty { return .incomplete(missing: missing + unknown) }
         if !unknown.isEmpty { return .unknown(reasons: unknown) }
-        return .complete(summary: merged.map { summary($0, input) })
+        var lines = merged.map { summary($0, input) }
+        if let event = input.confirmedEvent, let note = input.eventConfirmation { lines.append("\"\(event)\" confirmed by a person: \(note)") }
+        return .complete(summary: lines)
     }
 
     private static func summary(_ unit: WorkUnit, _ input: DeliveryInput) -> String {

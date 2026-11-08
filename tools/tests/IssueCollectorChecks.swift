@@ -107,8 +107,12 @@ struct GitHubClient: Sendable {
         git(["merge", "--no-ff", "unrelated", "-m", "Merge pull request #3 from example/unrelated\n\nAnother change"], in: root)
         // A direct commit titled with an issue number, like "(#293)" on t-boris/MarkView: BUG-104.
         commit("note.swift", "docs: a note about an issue (#4)")
-        func subject(_ kind: IssueKind, _ key: String) -> IssueEvidenceCollector.Subject {
-            .init(kind: kind, issue: key, exclusiveNumbers: [], sharedNumbers: [], since: nil)
+        // The delivery rules of the standard workflow, as they are when it is adopted in a project without a Definition of Done.
+        let standardFeature = ProjectWorkflow.standard.variant(StandardWorkflow.featureVariantID)!.deliveryRules
+        let standardBug = ProjectWorkflow.standard.variant(StandardWorkflow.bugVariantID)!.deliveryRules
+        func subject(_ kind: IssueKind, _ key: String, rules: DeliveryRules? = nil, confirmation: String? = nil) -> IssueEvidenceCollector.Subject {
+            .init(kind: kind, issue: key, exclusiveNumbers: [], sharedNumbers: [], since: nil,
+                  rules: rules ?? (kind == .feature ? standardFeature : standardBug), eventConfirmation: confirmation)
         }
         let feature = await IssueEvidenceCollector.collect(subject(.feature, "ci"), root: root, githubEnabled: true)
         check("a branch commit trailer identifies its merged PR", feature.isComplete && feature.lines.contains { $0.contains("PR #1") })
@@ -118,11 +122,12 @@ struct GitHubClient: Sendable {
         check("unrelated merges do not complete another issue", !missing.isComplete)
         let docsOnly = await IssueEvidenceCollector.collect(subject(.feature, "docs-only"), root: root, githubEnabled: true)
         check("a documentation commit is not attributed to the next unrelated merge", !docsOnly.isComplete)
-        try! fm.createDirectory(at: root.appendingPathComponent(".dde"), withIntermediateDirectories: true)
-        try! #"{"items":[{"id":"deploy","mode":"require"}]}"#.write(to: root.appendingPathComponent(".dde/definition-of-done.json"), atomically: true, encoding: .utf8)
         let released = await IssueEvidenceCollector.collect(subject(.feature, "ci"), root: root, githubEnabled: true)
-        check("a merged feature does not need a release", released.isComplete)
-        try! fm.removeItem(at: root.appendingPathComponent(".dde"))
+        check("a merged feature does not need a release under the standard feature variant", released.isComplete)
+        let releaseRules = DeliveryRules(integration: .directToMain, checksRequired: false, event: .githubRelease)
+        let notReleased = await IssueEvidenceCollector.collect(subject(.feature, "ci", rules: releaseRules), root: root, githubEnabled: true)
+        check("a variant that requires a GitHub release is complete once a release contains the work",
+              notReleased.isComplete && notReleased.lines.contains { $0.contains("v1") })
         // An actual direct-to-main commit is identified by the feature discussion, without a commit trailer.
         commit("direct.swift", "Implement work directly")
         let sha = gitOutput(["rev-parse", "HEAD"], in: root)
@@ -130,29 +135,37 @@ struct GitHubClient: Sendable {
         try! fm.createDirectory(at: discussion.deletingLastPathComponent(), withIntermediateDirectories: true)
         try! "Implementation was pushed directly to main at \(sha.prefix(7)). Local regression tests passed."
             .write(to: discussion, atomically: true, encoding: .utf8)
-        try! fm.createDirectory(at: root.appendingPathComponent(".dde"), withIntermediateDirectories: true)
-        let settings = root.appendingPathComponent(".dde/definition-of-done.json")
-        try! #"{"items":[{"id":"ci","mode":"skip"},{"id":"pr","mode":"skip"}]}"#.write(to: settings, atomically: true, encoding: .utf8)
         let direct = await IssueEvidenceCollector.collect(subject(.feature, "direct"), root: root, githubEnabled: false)
         check("a documented direct main commit completes when PR and CI are not required", direct.isComplete && direct.lines.contains { $0.contains("CI not required") })
-        try! #"{"items":[{"id":"ci","mode":"skip"},{"id":"pr","mode":"require"}]}"#.write(to: settings, atomically: true, encoding: .utf8)
-        let requiredPR = await IssueEvidenceCollector.collect(subject(.feature, "direct"), root: root, githubEnabled: true)
-        check("a direct commit on main implements a feature even when the checklist requires a PR", requiredPR.isComplete)
-        try! #"{"items":[{"id":"ci","mode":"skip"},{"id":"pr","mode":"skip"},{"id":"deploy","mode":"require"}]}"#.write(to: settings, atomically: true, encoding: .utf8)
-        let needsRelease = await IssueEvidenceCollector.collect(subject(.feature, "direct"), root: root, githubEnabled: false)
-        check("a direct commit implements a feature without deployment", needsRelease.isComplete)
-        try! fm.removeItem(at: root.appendingPathComponent(".dde"))
+        let pullRequestRules = DeliveryRules(integration: .pullRequest, checksRequired: false, event: .none)
+        let requiredPR = await IssueEvidenceCollector.collect(subject(.feature, "direct", rules: pullRequestRules), root: root, githubEnabled: true)
+        check("a direct commit on main is a gap when the variant requires a pull request", !requiredPR.isComplete)
+        let viaPR = await IssueEvidenceCollector.collect(subject(.feature, "ci", rules: pullRequestRules), root: root, githubEnabled: true)
+        check("a merged pull request satisfies a variant that requires one", viaPR.isComplete)
+        let unreleased = await IssueEvidenceCollector.collect(subject(.feature, "direct", rules: releaseRules), root: root, githubEnabled: true)
+        check("a variant that requires a release waits when no release contains the work", !unreleased.isComplete)
+        let needsRelease = await IssueEvidenceCollector.collect(subject(.feature, "direct", rules: releaseRules), root: root, githubEnabled: false)
+        check("without GitHub a variant that needs a release is not complete", !needsRelease.isComplete)
+        let eventRules = DeliveryRules(integration: .directToMain, checksRequired: false, event: .humanConfirmed(name: "installed"))
+        let unconfirmed = await IssueEvidenceCollector.collect(subject(.feature, "direct", rules: eventRules), root: root, githubEnabled: false)
+        check("a delivery event that a person confirms is missing until they do",
+              !unconfirmed.isComplete && unconfirmed.lines.contains { $0.contains("\"installed\" has not been confirmed") })
+        let confirmed = await IssueEvidenceCollector.collect(subject(.feature, "direct", rules: eventRules, confirmation: "on the other Mac"), root: root, githubEnabled: false)
+        check("a person's confirmation completes it without GitHub", confirmed.isComplete && confirmed.lines.contains { $0.contains("confirmed by a person") })
         let unavailable = await IssueEvidenceCollector.collect(subject(.feature, "ci"), root: root, githubEnabled: false)
         check("a merged feature does not wait for unavailable checks", unavailable.isComplete)
-        let shared = IssueEvidenceCollector.Subject(kind: .feature, issue: "not-ci", exclusiveNumbers: [], sharedNumbers: [77], since: nil)
+        let shared = IssueEvidenceCollector.Subject(kind: .feature, issue: "not-ci", exclusiveNumbers: [], sharedNumbers: [77], since: nil, rules: standardFeature)
         let ambiguous = await IssueEvidenceCollector.collect(shared, root: root, githubEnabled: true)
         check("a shared GitHub issue reference does not confirm a particular feature", !ambiguous.isComplete)
-        let reopened = IssueEvidenceCollector.Subject(kind: .feature, issue: "ci", exclusiveNumbers: [], sharedNumbers: [], since: Date().addingTimeInterval(60))
+        let reopened = IssueEvidenceCollector.Subject(kind: .feature, issue: "ci", exclusiveNumbers: [], sharedNumbers: [], since: Date().addingTimeInterval(60), rules: standardFeature)
         let old = await IssueEvidenceCollector.collect(reopened, root: root, githubEnabled: true)
         check("work merged before a reopening cannot complete it", !old.isComplete)
         try! "".write(to: root.appendingPathComponent(".failed-check"), atomically: true, encoding: .utf8)
         let failed = await IssueEvidenceCollector.collect(subject(.feature, "ci"), root: root, githubEnabled: true)
-        check("a merged associated feature does not wait for checks", failed.isComplete)
+        check("a merged associated feature does not wait for checks under the standard feature variant", failed.isComplete)
+        let checkRules = DeliveryRules(integration: .directToMain, checksRequired: true, event: .none)
+        let failedChecks = await IssueEvidenceCollector.collect(subject(.feature, "ci", rules: checkRules), root: root, githubEnabled: true)
+        check("a variant that requires successful checks is incomplete when one failed", !failedChecks.isComplete)
         // BUG-104: which answers of a batched pullRequest query can be trusted.
         func answer(_ status: Int32, _ object: [String: Any]) -> GitHubClient.Output {
             GitHubClient.Output(status: status, stdout: String(decoding: try! JSONSerialization.data(withJSONObject: object), as: UTF8.self), stderr: "")
@@ -207,9 +220,11 @@ struct GitHubClient: Sendable {
         git(["checkout", "main"], in: source)
         git(["merge", "--no-ff", "fix-200", "-m", "Merge pull request #1 from example/fix-200\n\nFix BUG-200"], in: source)
         git(["clone", "-q", "--depth", "2", "--branch", "main", "file://\(source.path)", shallow.path], in: fm.temporaryDirectory)
-        let recordSHA = gitOutput(["rev-list", "--max-parents=0", "HEAD"], in: shallow)
+        // A depth-2 clone of a merge has two roots (the record and the fix); the commit the collector sees is the end of the first-parent
+        // chain, found by position so that the commit timestamps (which tie within one second) cannot change the answer.
+        let recordSHA = gitOutput(["rev-list", "--first-parent", "HEAD"], in: shallow).split(separator: "\n").last.map(String.init) ?? ""
         let marker = shallow.appendingPathComponent(".gh-commit-files")
-        let boundary = IssueEvidenceCollector.Subject(kind: .bug, issue: "BUG-200", exclusiveNumbers: [], sharedNumbers: [], since: nil)
+        let boundary = IssueEvidenceCollector.Subject(kind: .bug, issue: "BUG-200", exclusiveNumbers: [], sharedNumbers: [], since: nil, rules: standardBug)
 
         try! "docs/bugs/BUG-200.md\n".write(to: marker, atomically: true, encoding: .utf8)
         let recorded = await IssueEvidenceCollector.collect(boundary, root: shallow, githubEnabled: true)

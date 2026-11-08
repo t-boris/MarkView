@@ -53,8 +53,9 @@ enum IssueCompletion {
     /// - `deliveryNow`: the delivery evidence collected now, when it was collected. It only matters for an overridden
     ///   or unconfirmed completion: complete evidence confirms it (DEC-015). A completion that is verified stays
     ///   verified whatever `deliveryNow` says; whether it still holds on the remote is a question for the GitHub runner.
-    static func state(kind: IssueKind, status: String, history: IssueHistory, deliveryNow: DeliveryVerdict?) -> IssueCompletionState {
-        analysis(kind: kind, status: status, history: history, deliveryNow: deliveryNow, adoptExternalEdit: false).state
+    static func state(kind: IssueKind, status: String, history: IssueHistory, deliveryNow: DeliveryVerdict?,
+                      workflow: ProjectWorkflow = .standard) -> IssueCompletionState {
+        analysis(kind: kind, status: status, history: history, deliveryNow: deliveryNow, adoptExternalEdit: false, workflow: workflow).state
     }
 
     static func isVerified(_ state: IssueCompletionState) -> Bool {
@@ -84,13 +85,13 @@ enum IssueCompletion {
     /// `adoptExternalEdit` answers the reconciler's question: what the state would be once a stored status that
     /// differs from the history is recorded as an external edit (until then it is `unknown`, a stale status).
     static func analysis(kind: IssueKind, status: String, history: IssueHistory, deliveryNow: DeliveryVerdict?,
-                         adoptExternalEdit: Bool) -> Analysis {
+                         adoptExternalEdit: Bool, workflow: ProjectWorkflow = .standard) -> Analysis {
         let stored = LifecycleVocabulary.normalize(status)
-        guard LifecycleVocabulary.isKnown(kind, stored) else {
+        guard LifecycleVocabulary.isKnown(kind, stored, in: workflow) else {
             let shown = stored.isEmpty ? "(none)" : stored
             return unknown("the status \"\(shown)\" is not a \(kind.rawValue) status")
         }
-        guard isCompletedOrArchived(kind, stored) else {
+        guard isCompletedOrArchived(kind, stored, in: workflow) else {
             return Analysis(state: .notComplete, note: "\(stored) is not a completed status")
         }
         if !history.pending.isEmpty {
@@ -100,14 +101,14 @@ enum IssueCompletion {
             return unknown("\(history.issue) has no lifecycle history, so its \(stored) status is not backed by a record")
         }
 
-        var walked = fold(kind: kind, records: history.records)
+        var walked = fold(kind: kind, records: history.records, workflow: workflow)
         if walked.status != stored {
             let recorded = history.unresolvedExternal.contains { LifecycleVocabulary.normalize($0.to) == stored }
             guard adoptExternalEdit || recorded else {
                 let expected = walked.status.map { $0.isEmpty ? "(none)" : $0 } ?? "(none)"
                 return unknown("the stored status \"\(stored)\" is not the one the history ends with (\"\(expected)\")")
             }
-            walked.chain = externalChain(kind: kind, from: walked.status ?? "", to: stored)
+            walked.chain = externalChain(kind: kind, from: walked.status ?? "", to: stored, workflow: workflow)
         }
 
         let confirmedNow = deliveryNow?.isComplete == true
@@ -152,24 +153,25 @@ enum IssueCompletion {
         var status: String?
     }
 
-    static func isCompletedOrArchived(_ kind: IssueKind, _ status: String) -> Bool {
-        LifecycleVocabulary.isCompletedStatus(kind, status) || (kind == .feature && LifecycleVocabulary.normalize(status) == "archived")
+    /// Completed or cancelled by role: the work is over (a feature implemented or archived, a bug fixed or closed).
+    static func isCompletedOrArchived(_ kind: IssueKind, _ status: String, in workflow: ProjectWorkflow = .standard) -> Bool {
+        workflow.isFinished(kind, status)
     }
 
     private static func unknown(_ message: String) -> Analysis {
         Analysis(state: .unknown(message), note: message)
     }
 
-    private static func fold(kind: IssueKind, records: [TransitionRecord]) -> Walk {
+    private static func fold(kind: IssueKind, records: [TransitionRecord], workflow: ProjectWorkflow) -> Walk {
         var result = Walk()
         for record in records {
             let to = LifecycleVocabulary.normalize(record.to)
             switch record.phase {
             case .baseline:
                 result.status = to
-                if LifecycleVocabulary.isCompletedStatus(kind, to) {
+                if LifecycleVocabulary.isCompletedStatus(kind, to, in: workflow) {
                     result.chain = .unverified("it was already \(to) when MarkView first recorded it, with no delivery evidence")
-                } else if isCompletedOrArchived(kind, to) {
+                } else if isCompletedOrArchived(kind, to, in: workflow) {
                     result.chain = .unknown("it was already archived when MarkView first recorded it")
                 } else {
                     result.chain = .none
@@ -177,37 +179,37 @@ enum IssueCompletion {
             case .external:
                 let from = LifecycleVocabulary.normalize(record.from)
                 result.status = to
-                result.chain = externalChain(kind: kind, from: from, to: to)
+                result.chain = externalChain(kind: kind, from: from, to: to, workflow: workflow)
             case .applied, .recovered:
-                result.chain = chain(after: record, kind: kind, previous: result.chain)
+                result.chain = chain(after: record, kind: kind, previous: result.chain, workflow: workflow)
                 result.status = to
             case .confirmed:
                 // Evidence confirms the completed status the history ends with; nothing else.
-                guard result.status == to, isCompletedOrArchived(kind, to) else { continue }
+                guard result.status == to, isCompletedOrArchived(kind, to, in: workflow) else { continue }
                 switch result.chain {
                 case .overridden, .unverified: result.chain = .verified(basis: record.evidence)
                 default: break
                 }
-            case .begin, .aborted, .rejected, .github:
+            case .begin, .aborted, .rejected, .github, .assignment, .evidence:
                 continue
             }
         }
         return result
     }
 
-    private static func externalChain(kind: IssueKind, from: String, to: String) -> Chain {
-        guard isCompletedOrArchived(kind, to) else { return .none }
+    private static func externalChain(kind: IssueKind, from: String, to: String, workflow: ProjectWorkflow) -> Chain {
+        guard isCompletedOrArchived(kind, to, in: workflow) else { return .none }
         let origin = from.isEmpty ? "(none)" : from
         return .unverified("the status was changed from \(origin) to \(to) outside MarkView, so no lifecycle condition was checked")
     }
 
     /// What an applied (or recovered) transition does to the chain.
-    private static func chain(after record: TransitionRecord, kind: IssueKind, previous: Chain) -> Chain {
+    private static func chain(after record: TransitionRecord, kind: IssueKind, previous: Chain, workflow: ProjectWorkflow) -> Chain {
         let from = LifecycleVocabulary.normalize(record.from)
         let to = LifecycleVocabulary.normalize(record.to)
         switch record.transitionKind ?? .unlisted {
         case .completion:
-            guard LifecycleVocabulary.isCompletedStatus(kind, to) else { return .none }
+            guard LifecycleVocabulary.isCompletedStatus(kind, to, in: workflow) else { return .none }
             if record.override {
                 return .overridden(overrideNote(record, to: to))
             }
@@ -234,15 +236,21 @@ enum IssueCompletion {
             return .cancelled("archived before completion")
         case .reopen:
             // Withdrawing an acceptance (verified back to implemented) leaves the delivery as it was; any other reopen ends the chain.
-            if LifecycleVocabulary.isCompletedStatus(kind, from), LifecycleVocabulary.isCompletedStatus(kind, to) { return previous }
+            if LifecycleVocabulary.isCompletedStatus(kind, from, in: workflow), LifecycleVocabulary.isCompletedStatus(kind, to, in: workflow) { return previous }
             return .none
         case .spec, .start, .rollback:
             return .none
         case .unlisted:
-            // A forced step outside the table: a completed target is an override, an archive a cancellation.
-            if LifecycleVocabulary.isCompletedStatus(kind, to) { return .overridden(overrideNote(record, to: to)) }
-            if kind == .feature && to == "archived" { return .cancelled("archived before completion") }
+            // A forced step outside the table: a completed target is an override, a cancelled one a cancellation.
+            if LifecycleVocabulary.isCompletedStatus(kind, to, in: workflow) { return .overridden(overrideNote(record, to: to)) }
+            if workflow.role(kind, to) == .cancelled { return .cancelled("archived before completion") }
             return .none
+        case .replacement:
+            // The workflow lost a status and a person chose another for the item (DEC-021, DEC-029). A finished item stays what it was
+            // while it is still finished; one that was not finished, or is not any more, has no completion in progress.
+            guard isCompletedOrArchived(kind, to, in: workflow) else { return .none }
+            if case .none = previous { return .unverified("the status was replaced by a person when the workflow changed, so no lifecycle condition was checked") }
+            return previous
         }
     }
 

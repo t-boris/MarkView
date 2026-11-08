@@ -14,17 +14,25 @@ struct BasketBug: Equatable {
     var status: String
     /// Front matter `feature:` when the report names one; bugs otherwise belong to no feature.
     var feature: String = ""
+    /// What the status means in the project's workflow (feature-3); nil when the workflow does not have it.
+    var role: LifecycleRole? = nil
 }
 
 /// The selection itself: paths in the order they were added. In memory, one per window (DEC-008).
 struct BugBasket: Equatable {
     private(set) var paths: [String] = []
 
-    /// A bug can go to the basket only while it is open (DEC-010).
-    static func canAdd(_ bug: BasketBug) -> Bool { IssueStatus.normalize(bug.status) == "open" }
+    /// A bug can go to the basket only while it has not been started (DEC-010).
+    static func canAdd(_ bug: BasketBug) -> Bool {
+        if let role = bug.role { return role == .notStarted }
+        return IssueStatus.normalize(bug.status) == "open"
+    }
 
     /// Already being fixed: stays in the basket, marked, left out of the batch (DEC-008).
-    static func isBeingFixed(_ bug: BasketBug) -> Bool { IssueStatus.inProgress.contains(IssueStatus.normalize(bug.status)) }
+    static func isBeingFixed(_ bug: BasketBug) -> Bool {
+        if let role = bug.role { return role == .active }
+        return IssueStatus.inProgress.contains(IssueStatus.normalize(bug.status))
+    }
 
     var isEmpty: Bool { paths.isEmpty }
     var count: Int { paths.count }

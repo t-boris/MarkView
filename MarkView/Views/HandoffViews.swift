@@ -188,13 +188,17 @@ struct HandoffPanelView: View {
             let store = workspaceManager.features
             let slug = feature.slug, person = store.lifecycleActor
             let service = store.lifecycle.service
+            // The step is judged under the project's workflow and the item's rule variant, like every other status change.
+            let workflow = store.lifecycle.workflow
+            let variant = store.lifecycle.assignedVariantID(.feature, slug)
             _ = try await SpecificationHandoffStore.shared.markReady(
                 project: project, slug: slug, actor: person, commitStatus: { from in
                     // The live status goes through the lifecycle service like every other status change.
                     guard let service else { return false }
                     let seen = from.isEmpty ? "idea" : from
                     service.recordBaseline(.feature, slug, status: seen)
-                    let result = service.apply(TransitionRequest(kind: .feature, issue: slug, from: seen, to: "ready", actor: .human(person)))
+                    let result = service.apply(TransitionRequest(kind: .feature, issue: slug, from: seen, to: "ready", actor: .human(person),
+                                                                 workflow: workflow, variantID: variant))
                     return result.reachedStatus
                 })
             workspaceManager.features.reloadSync(feature.slug)

@@ -39,6 +39,7 @@
 		114407D9EFB092F23A6F9E12 /* BrowserPasswords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 007C5A3FE30FBBE5A71A6FA8 /* BrowserPasswords.swift */; };
 		11C3C1C4E28EB8CB51AB48F6 /* IssueSyncRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 297DFB300C5D61C4F3F7D68D /* IssueSyncRun.swift */; };
 		13930BD202A1F632A683E466 /* StructuralIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 534BBEA6C51F184621BBDE91 /* StructuralIndexer.swift */; };
+		13E81B76350606EA17B5B7A8 /* WorkflowEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8971A659659AAB3CFCB6D340 /* WorkflowEditorSheet.swift */; };
 		14DD672AB65415DCCECC7245 /* DocumentFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 659CD2D529EC42B2A426EAAC /* DocumentFiles.swift */; };
 		154E375918D7240F90F0B49F /* SearchPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEBBA8DD1B02E66BC2AFAC6 /* SearchPanelView.swift */; };
 		157DDC41421A035DDCC9B022 /* xterm.css in Resources */ = {isa = PBXBuildFile; fileRef = 411349198AB547C789A6D5A7 /* xterm.css */; };
@@ -267,6 +268,7 @@
 		99C90D6D88A9F9AE4D8AF123 /* UIStudioAuthMock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE30F452BE6F56F06FCC972E /* UIStudioAuthMock.swift */; };
 		9BC6E14F104CFF0A722A0BB1 /* IssueListing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0283B26E80EA8FB9388E0688 /* IssueListing.swift */; };
 		9C3121F4B7629B8EBE5DE49D /* UIStudioConnections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C1A7D7E3414B22FEF3836BD /* UIStudioConnections.swift */; };
+		9C4DA44F3BEA0F4D04B30E15 /* ProjectWorkflowStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EFED0AF1527B1A44DD95C1A /* ProjectWorkflowStore.swift */; };
 		9C59A1E999EB653E03478FA0 /* PrototypeFeatureWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8528AC59F5DF6B456427AB /* PrototypeFeatureWriter.swift */; };
 		9CE756F50996950EE520D986 /* RemoteTerminalConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173CDBCF76BA471F54B8A3A7 /* RemoteTerminalConnection.swift */; };
 		9E23615DDB835FE6E9DC2B37 /* ControlToolRunner+Agents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EBD8CA222E37B957D752DD0 /* ControlToolRunner+Agents.swift */; };
@@ -414,6 +416,7 @@
 		FB66FDB4BCB4FC386A679B71 /* ModuleExplorerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07E6C73E57B66F2FC4DCD08F /* ModuleExplorerView.swift */; };
 		FBEE26C2ACD8DA6D055AC11B /* markview-canvas.css in Resources */ = {isa = PBXBuildFile; fileRef = ADA371AF8ACDEABE2F93D359 /* markview-canvas.css */; };
 		FC165556724BC49AFB71FF4E /* PDFExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4755545E00CAA90E990A42E /* PDFExporter.swift */; };
+		FC420EFF9ACE397D28554582 /* ProjectWorkflow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2357585DBC121171960CA66E /* ProjectWorkflow.swift */; };
 		FD1C0F289E9ACBBE25E0BE8A /* UIStudioRedaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D54B115714DE50CAF6CDA0F /* UIStudioRedaction.swift */; };
 		FDEC1C9110BC9238829B7A22 /* BugBasketView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 477DD53694435ADC874CA1A0 /* BugBasketView.swift */; };
 		FE65CF5E21B3802C1110F123 /* DiscussionToolRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35456F1E8AE265DB77CE801 /* DiscussionToolRunner.swift */; };
@@ -482,6 +485,7 @@
 		223D8243369C4F080D0ECC84 /* markdown-it-container.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markdown-it-container.min.js"; sourceTree = "<group>"; };
 		226F0597A71AE84E53BAA337 /* IssueReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueReconciler.swift; sourceTree = "<group>"; };
 		234669AA71D7061108B72B97 /* SemanticModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticModels.swift; sourceTree = "<group>"; };
+		2357585DBC121171960CA66E /* ProjectWorkflow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectWorkflow.swift; sourceTree = "<group>"; };
 		237DD0835DF06F9CC7A08573 /* WikiLinkResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLinkResolver.swift; sourceTree = "<group>"; };
 		253BAC42F71F867A6BC8DA76 /* prism-markdown.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-markdown.min.js"; sourceTree = "<group>"; };
 		25CD39285DCF78B6677A6485 /* auto-render.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "auto-render.min.js"; sourceTree = "<group>"; };
@@ -556,6 +560,7 @@
 		4D31981A7FD238AE190DF1A6 /* ProjectOperationDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperationDiscovery.swift; sourceTree = "<group>"; };
 		4DAE64D3DEB0D0DFB0ABB6A2 /* UIStudioPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioPreparation.swift; sourceTree = "<group>"; };
 		4E5C49BB3F8E4AF05F47765E /* CommandPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPolicy.swift; sourceTree = "<group>"; };
+		4EFED0AF1527B1A44DD95C1A /* ProjectWorkflowStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectWorkflowStore.swift; sourceTree = "<group>"; };
 		5063B80E8DE8FEF81AF48AFA /* markview-globals.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-globals.js"; sourceTree = "<group>"; };
 		50690741D7CB7EF5A17A1949 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5099218B9F25E2085FEEA6D2 /* katex.min.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = katex.min.css; sourceTree = "<group>"; };
@@ -649,6 +654,7 @@
 		8713CD727E78F36BD7A6CBBF /* UIStudioGraphQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioGraphQL.swift; sourceTree = "<group>"; };
 		872961C48C130402739DD233 /* UIStudioServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioServer.swift; sourceTree = "<group>"; };
 		895F4D266DDC908733BA5EBA /* IssueLifecycleContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueLifecycleContext.swift; sourceTree = "<group>"; };
+		8971A659659AAB3CFCB6D340 /* WorkflowEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowEditorSheet.swift; sourceTree = "<group>"; };
 		89AF21E7EC037DF41CC973BB /* ProjectAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectAgentTools.swift; sourceTree = "<group>"; };
 		89E15210EC0B4B920554FD0D /* FeatureVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureVocabulary.swift; sourceTree = "<group>"; };
 		8A691B8C8A96CED660607A98 /* UIStudioPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioPrompts.swift; sourceTree = "<group>"; };
@@ -1039,6 +1045,8 @@
 				50B0AF0B20435C1D64C3CCC7 /* ProjectToolRunner.swift */,
 				AFEBD3D56EF661E1DF638D80 /* ProjectToolRunner+Edit.swift */,
 				41657FF7A91331D01993FAB3 /* ProjectToolRunner+Lifecycle.swift */,
+				2357585DBC121171960CA66E /* ProjectWorkflow.swift */,
+				4EFED0AF1527B1A44DD95C1A /* ProjectWorkflowStore.swift */,
 				8E8965BA2170772C6393FB45 /* PrototypeAI.swift */,
 				EBF852F0FD6018D2E711401C /* PrototypeAI+Handoff.swift */,
 				3EBA0E9DC5756C90FFE50D30 /* PrototypeAudit.swift */,
@@ -1195,6 +1203,7 @@
 				1A6291D82348E4A264695D63 /* UIStudioPreviewHost.swift */,
 				ECF8D0D924530B8C94483B11 /* UIStudioTrackingLine.swift */,
 				15F3C39CF6E64AB9AA1EDA1B /* UIStudioView.swift */,
+				8971A659659AAB3CFCB6D340 /* WorkflowEditorSheet.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -1758,6 +1767,8 @@
 				6611DAB9EB812B4A045B9F5A /* ProjectToolRunner+Edit.swift in Sources */,
 				46072FD65DFA2FCCEAC27FFF /* ProjectToolRunner+Lifecycle.swift in Sources */,
 				8F57D15C98A99D233F5E269C /* ProjectToolRunner.swift in Sources */,
+				FC420EFF9ACE397D28554582 /* ProjectWorkflow.swift in Sources */,
+				9C4DA44F3BEA0F4D04B30E15 /* ProjectWorkflowStore.swift in Sources */,
 				598C33AB8B8DA0A9FC3D8315 /* PrototypeAI+Handoff.swift in Sources */,
 				FE92D8886919B6864DC4A936 /* PrototypeAI.swift in Sources */,
 				90FBEE7F8E1CC870B1044E53 /* PrototypeAudit.swift in Sources */,
@@ -1874,6 +1885,7 @@
 				CBF31B5E8E50178F95B4926C /* WindowSessionController.swift in Sources */,
 				64B4A8A6A3ABBCCE19B5CC79 /* WindowTheme.swift in Sources */,
 				57D9A37DCD381F7027AA8046 /* WindowTitle.swift in Sources */,
+				13E81B76350606EA17B5B7A8 /* WorkflowEditorSheet.swift in Sources */,
 				EFD0357B1249A5D014B893E4 /* WorkspaceManager.swift in Sources */,
 				8509AB727B59B4DD5CD83A56 /* XRayCluster.swift in Sources */,
 				4095BC8ADAD6AE04D6A7D406 /* XRayContent.swift in Sources */,
@@ -1921,7 +1933,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.42.1;
+				CURRENT_PROJECT_VERSION = 5.43.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1936,7 +1948,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.42.1;
+				MARKETING_VERSION = 5.43.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -2000,7 +2012,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.42.1;
+				CURRENT_PROJECT_VERSION = 5.43.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -2021,7 +2033,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.42.1;
+				MARKETING_VERSION = 5.43.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

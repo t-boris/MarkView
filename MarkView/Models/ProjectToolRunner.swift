@@ -12,7 +12,7 @@ enum ProjectToolRunner {
         store.reloadSync()
         do {
             switch tool {
-            case "markview_guide": return .init(text: ProjectAgentTools.guide(args["topic"] as? String))
+            case "markview_guide": return .init(text: ProjectAgentTools.guide(args["topic"] as? String, workflow: store.lifecycle.workflow))
             case "markview_project": return .init(text: project(store, root))
             case "markview_list_features": return .init(text: listFeatures(store, status: try ProjectAgentTools.text(args, "status")))
             case "markview_get_feature": return try getFeature(store, args)
@@ -57,7 +57,7 @@ enum ProjectToolRunner {
         return """
         Project folder: \(root.path)
         Features: \(store.features.count)\(statuses.isEmpty ? "" : " (\(statuses))")
-        Bugs: \(store.bugs.count) (\(store.bugs.filter { $0.status != "closed" && $0.status != "fixed" }.count) not closed)
+        Bugs: \(store.bugs.count) (\(store.bugs.filter { !store.lifecycle.workflow.isFinished(.bug, IssueStatus.normalize($0.status)) }.count) not closed)
         Prototypes: \(PrototypeFiles.existingSlugs(root: root).count)
         Discussions: \(((try? FileManager.default.contentsOfDirectory(atPath: DiscussionStore.base(root: root).path)) ?? []).filter { !$0.hasPrefix(".") }.count) (markview_discussions)
         Deployments: markview_deployments
@@ -391,7 +391,10 @@ enum ProjectToolRunner {
         let body = ProjectAgentTools.bugBody(title: title, summary: summary, steps: try ProjectAgentTools.list(args, "steps"),
                                              expected: try ProjectAgentTools.text(args, "expected"), actual: try ProjectAgentTools.text(args, "actual"),
                                              environment: try ProjectAgentTools.text(args, "environment"))
-        var draft = BugReportDraft(title: title, body: body, status: "open", severity: severity, reporter: store.defaultOwner,
+        guard let initial = store.bugStatus(role: .notStarted) else {
+            return .error("This project's bug workflow has no status with the role \"Not started\", so a new bug has no status to start in.")
+        }
+        var draft = BugReportDraft(title: title, body: body, status: initial, severity: severity, reporter: store.defaultOwner,
                                    provenance: provenance(""))
         for key in ["regression_of", "related"] {
             if let target = try issueReference(store, args, key), !target.isEmpty { draft.fields.append((key: key, value: target)) }

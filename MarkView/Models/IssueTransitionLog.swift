@@ -29,6 +29,16 @@ struct TransitionRecord: Codable, Equatable, Identifiable, Sendable {
         case baseline
         /// Outcome of a GitHub close or reopen (`githubOutcome`).
         case github
+        /// A rule variant was assigned to the item (`to` is the variant id, `from` the earlier one; feature-3, DEC-019, DEC-024).
+        case assignment
+        /// A person's note that is evidence: manual work has started, or a delivery event happened (`humanEvidence`).
+        case evidence
+    }
+
+    /// What a person's evidence note is about (REQ-004, DEC-018).
+    enum HumanEvidenceKind: String, Codable, Sendable {
+        case start
+        case delivery
     }
 
     /// The operation id: the begin and the applied record of one transition share it.
@@ -50,14 +60,23 @@ struct TransitionRecord: Codable, Equatable, Identifiable, Sendable {
     var message: String?
     /// `external` records: false until confirmed. Others: nil.
     var verified: Bool?
-    /// `github` records: the target ("#294") and how the write ended.
+    /// `github` records: the target ("#294") and how the write ended. `evidence` records of a delivery: the event.
     var target: String?
     var githubOutcome: GitHubWriteOutcome?
+    /// The revision of the project workflow and the rule variant the record was decided under (feature-3, DEC-026); nil on
+    /// records written before workflows existed.
+    var workflowRevision: Int?
+    var variant: String?
+    var humanEvidence: HumanEvidenceKind?
 
     init(id: UUID = UUID(), phase: Phase, command: String = "", kind: IssueKind, issue: String, from: String = "", to: String = "",
          actor: LifecycleActor, at: Date = Date(), reason: String? = nil, transitionKind: TransitionKind? = nil, override: Bool = false,
          bypassed: [LifecycleCondition] = [], missing: [LifecycleCondition] = [], evidence: [String] = [], message: String? = nil,
-         verified: Bool? = nil, target: String? = nil, githubOutcome: GitHubWriteOutcome? = nil) {
+         verified: Bool? = nil, target: String? = nil, githubOutcome: GitHubWriteOutcome? = nil,
+         workflowRevision: Int? = nil, variant: String? = nil, humanEvidence: HumanEvidenceKind? = nil) {
+        self.workflowRevision = workflowRevision
+        self.variant = variant
+        self.humanEvidence = humanEvidence
         self.id = id
         self.phase = phase
         self.command = command
@@ -238,6 +257,32 @@ struct IssueHistory: Equatable, Sendable {
     }
 
     var githubOutcomes: [TransitionRecord] { records.filter { $0.phase == .github } }
+
+    // MARK: Workflow records (feature-3)
+
+    /// The rule variant a person or the adoption assigned last; nil when none was.
+    var assignedVariant: String? { records.last { $0.phase == .assignment }?.to }
+
+    /// A person's note that manual work has started, written after the last change of status and not yet used by a start
+    /// (REQ-004). The note is the start evidence only for a variant that accepts it.
+    var pendingStartNote: TransitionRecord? {
+        let lastChange = records.lastIndex { $0.setsStatus && $0.phase != .baseline } ?? -1
+        return records.enumerated().last { $0.offset > lastChange && $0.element.phase == .evidence && $0.element.humanEvidence == .start }?.element
+    }
+
+    /// A person's confirmation of `event` in the current round of work: after the last reopening, or ever when it was not reopened.
+    func deliveryConfirmation(event: String) -> TransitionRecord? {
+        let wanted = Self.normalizeEvent(event)
+        let round = records.lastIndex { ($0.phase == .applied || $0.phase == .recovered) && $0.transitionKind == .reopen } ?? -1
+        return records.enumerated().last {
+            $0.offset > round && $0.element.phase == .evidence && $0.element.humanEvidence == .delivery
+                && Self.normalizeEvent($0.element.target ?? "") == wanted
+        }?.element
+    }
+
+    static func normalizeEvent(_ event: String) -> String {
+        event.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ").lowercased()
+    }
 }
 
 // MARK: - The service
@@ -345,7 +390,8 @@ final class IssueTransitionService: @unchecked Sendable {
         let message = rejection?.message ?? "stale: the stored status is \"\(current)\""
         let record = TransitionRecord(phase: .rejected, command: request.command, kind: request.kind, issue: request.issue,
                                       from: request.from, to: request.to, actor: request.actor, at: now(), reason: request.reason,
-                                      missing: rejection?.missing ?? [], message: message)
+                                      missing: rejection?.missing ?? [], message: message,
+                                      workflowRevision: request.workflow.revision, variant: request.variant.id)
         // MarkView's own observers ask again at every poll: a refusal identical to the last one is not recorded again.
         let repeated = request.actor.kind == .system && history.records.last.map { last in
             last.phase == .rejected && last.to == record.to && last.from == record.from && last.message == record.message
@@ -356,14 +402,16 @@ final class IssueTransitionService: @unchecked Sendable {
         return .stale(current: current)
     }
 
-    private func perform(_ request: TransitionRequest, basis: TransitionBasis, override: Bool, bypassed: [LifecycleCondition]) -> ApplyResult {
+    private func perform(_ request: TransitionRequest, basis: TransitionBasis, override: Bool, bypassed: [LifecycleCondition],
+                         workflowRevision: Int? = nil, variant: String? = nil) -> ApplyResult {
         let operation = UUID()
         let evidence = override ? [] : request.evidence.lines(for: basis.met)
         func record(_ phase: TransitionRecord.Phase, message: String? = nil) -> TransitionRecord {
             TransitionRecord(id: operation, phase: phase, command: request.command, kind: request.kind, issue: request.issue,
                              from: LifecycleVocabulary.normalize(request.from), to: LifecycleVocabulary.normalize(request.to),
                              actor: request.actor, at: now(), reason: request.trimmedReason.isEmpty ? nil : request.trimmedReason,
-                             transitionKind: basis.kind, override: override, bypassed: bypassed, evidence: evidence, message: message)
+                             transitionKind: basis.kind, override: override, bypassed: bypassed, evidence: evidence, message: message,
+                             workflowRevision: workflowRevision ?? request.workflow.revision, variant: variant ?? request.variant.id)
         }
         let begin = record(.begin)
         do { try storage.append(begin) } catch {
@@ -471,6 +519,70 @@ final class IssueTransitionService: @unchecked Sendable {
                                       from: LifecycleVocabulary.normalize(status), to: LifecycleVocabulary.normalize(status),
                                       actor: .system("MarkView evidence"), at: now(), transitionKind: .completion, evidence: evidence, verified: true)
         return (try? storage.append(record)) != nil ? record : nil
+    }
+
+    // MARK: Workflow records (feature-3)
+
+    /// Assigns a rule variant to an item (DEC-019, DEC-024). Nothing is written when the item already has that variant.
+    @discardableResult
+    func recordAssignment(_ kind: IssueKind, _ issue: String, variant: String, previous: String?, actor: LifecycleActor,
+                          reason: String? = nil, workflowRevision: Int) -> TransitionRecord? {
+        lock.lock(); defer { lock.unlock() }
+        let history = IssueHistory(kind: kind, issue: issue, all: records())
+        if history.assignedVariant == variant { return nil }
+        let record = TransitionRecord(phase: .assignment, command: "assign:\(kind.rawValue):\(issue):\(history.records.count)", kind: kind, issue: issue,
+                                      from: previous ?? "", to: variant, actor: actor, at: now(), reason: reason?.isEmpty == true ? nil : reason,
+                                      workflowRevision: workflowRevision, variant: variant)
+        return (try? storage.append(record)) != nil ? record : nil
+    }
+
+    /// Gives every listed item that has no variant yet the one `variantFor` names for its type, reading the journal once (the adoption
+    /// of a workflow assigns every existing item, DEC-024). Returns true when every item has a variant afterwards.
+    @discardableResult
+    func recordInitialAssignments(_ items: [(kind: IssueKind, issue: String)], variantFor: (IssueKind) -> String, actor: LifecycleActor,
+                                  reason: String, workflowRevision: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        let all = records()
+        var complete = true
+        for item in items {
+            let history = IssueHistory(kind: item.kind, issue: item.issue, all: all)
+            guard history.assignedVariant == nil else { continue }
+            let variant = variantFor(item.kind)
+            let record = TransitionRecord(phase: .assignment, command: "assign:\(item.kind.rawValue):\(item.issue):\(history.records.count)", kind: item.kind,
+                                          issue: item.issue, from: "", to: variant, actor: actor, at: now(), reason: reason,
+                                          workflowRevision: workflowRevision, variant: variant)
+            if (try? storage.append(record)) == nil { complete = false }
+        }
+        return complete
+    }
+
+    /// A person's note that manual work has started, or that a delivery event happened (REQ-004, DEC-018).
+    @discardableResult
+    func recordHumanEvidence(_ kind: IssueKind, _ issue: String, evidence: TransitionRecord.HumanEvidenceKind, text: String, event: String? = nil,
+                             actor: LifecycleActor, variant: String? = nil, workflowRevision: Int? = nil) -> TransitionRecord? {
+        let note = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard actor.kind == .human, !note.isEmpty else { return nil }
+        lock.lock(); defer { lock.unlock() }
+        let history = IssueHistory(kind: kind, issue: issue, all: records())
+        let record = TransitionRecord(phase: .evidence, command: "evidence:\(evidence.rawValue):\(kind.rawValue):\(issue):\(history.records.count)", kind: kind,
+                                      issue: issue, actor: actor, at: now(), reason: note, target: event, workflowRevision: workflowRevision,
+                                      variant: variant, humanEvidence: evidence)
+        return (try? storage.append(record)) != nil ? record : nil
+    }
+
+    /// Moves an item out of a status the workflow no longer has, into the one a person chose (Q-009, DEC-021). It is a transition of
+    /// its own kind: it is neither an override nor delivery evidence, and the earlier history stays as it was.
+    func applyReplacement(_ kind: IssueKind, _ issue: String, from: String, to: String, actor: LifecycleActor, reason: String,
+                          workflowRevision: Int, variant: String?) -> ApplyResult {
+        lock.lock(); defer { lock.unlock() }
+        guard actor.kind == .human else { return .failed("Only a person replaces a status.") }
+        guard let current = statuses.status(kind: kind, issue: issue) else { return .failed("\(issue) does not exist.") }
+        guard LifecycleVocabulary.normalize(current) == LifecycleVocabulary.normalize(from) else { return .stale(current: current) }
+        let request = TransitionRequest(command: "replace:\(kind.rawValue):\(issue):\(LifecycleVocabulary.normalize(from)):\(LifecycleVocabulary.normalize(to)):\(workflowRevision)",
+                                        kind: kind, issue: issue, from: from, to: to, actor: actor, reason: reason)
+        if let first = IssueHistory(kind: kind, issue: issue, all: records()).answered(command: request.command) { return .duplicate(first) }
+        return perform(request, basis: TransitionBasis(kind: .replacement, met: []), override: false, bypassed: [],
+                       workflowRevision: workflowRevision, variant: variant)
     }
 
     /// The outcome of a GitHub close or reopen for an issue (REQ-004 criterion 4).

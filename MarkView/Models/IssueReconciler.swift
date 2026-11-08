@@ -17,9 +17,11 @@ struct ReconcileInput: Equatable, Sendable {
     var delivery: DeliveryVerdict?
     /// A bug report with `regression_of` naming this issue, not closed as invalid or duplicate (DEC-009).
     var regressionBug: String?
+    var workflow: ProjectWorkflow
 
     init(kind: IssueKind, issue: String, storedStatus: String, history: IssueHistory,
-         delivery: DeliveryVerdict? = nil, regressionBug: String? = nil) {
+         delivery: DeliveryVerdict? = nil, regressionBug: String? = nil, workflow: ProjectWorkflow = .standard) {
+        self.workflow = workflow
         self.kind = kind
         self.issue = issue
         self.storedStatus = storedStatus
@@ -47,12 +49,8 @@ enum IssueReconciler {
     /// The completed status that work under way can reach on its own, when the delivery evidence is complete: a feature being
     /// implemented becomes implemented, a bug being fixed becomes fixed (REQ-002 criterion 2, DEC-007). Nothing else completes
     /// by itself: a start needs a hand-off, verified and closed need acceptance, and an issue that was never started has no work.
-    static func completionTarget(kind: IssueKind, status: String) -> String? {
-        switch (kind, LifecycleVocabulary.normalize(status)) {
-        case (.feature, "implementing"): return "implemented"
-        case (.bug, "fixing"): return "fixed"
-        default: return nil
-        }
+    static func completionTarget(kind: IssueKind, status: String, workflow: ProjectWorkflow = .standard) -> String? {
+        workflow.lifecycle(kind).completionTarget(from: status)
     }
 
     /// What to do about the issue now. Only `recoverPending` is returned while an operation is pending, only `baseline`
@@ -68,18 +66,18 @@ enum IssueReconciler {
 
         // What the issue is once the edit is on record, without today's delivery evidence.
         let projected = IssueCompletion.analysis(kind: input.kind, status: stored, history: history, deliveryNow: nil,
-                                                 adoptExternalEdit: true).state
+                                                 adoptExternalEdit: true, workflow: input.workflow).state
 
         // A confirmed regression (DEC-009) reopens a completed issue, once per regression bug. A completion that was
         // never a completion (cancelled) is not reopened, and confirming a completion that is reopened now is pointless.
-        if let bug = input.regressionBug, LifecycleVocabulary.isCompletedStatus(input.kind, stored), !isCancelled(projected),
+        if let bug = input.regressionBug, LifecycleVocabulary.isCompletedStatus(input.kind, stored, in: input.workflow), !isCancelled(projected),
            !alreadyReopened(for: bug, in: history) {
             out.append(.reopen(bug: bug, from: stored))
             return out
         }
 
         // Evidence confirms an unproven completion only when it is complete: incomplete or unavailable evidence never does.
-        if let delivery = input.delivery, delivery.isComplete, IssueCompletion.isCompletedOrArchived(input.kind, stored) {
+        if let delivery = input.delivery, delivery.isComplete, IssueCompletion.isCompletedOrArchived(input.kind, stored, in: input.workflow) {
             switch projected {
             case .overridden, .unverifiedEdit:
                 out.append(.confirm(status: stored, evidence: IssueCompletion.deliveryLines(delivery)))
@@ -107,9 +105,9 @@ enum IssueReconciler {
         var out: [Discrepancy] = []
 
         let projected = IssueCompletion.analysis(kind: input.kind, status: stored, history: history, deliveryNow: nil,
-                                                 adoptExternalEdit: true)
+                                                 adoptExternalEdit: true, workflow: input.workflow)
         let now = IssueCompletion.analysis(kind: input.kind, status: stored, history: history, deliveryNow: input.delivery,
-                                           adoptExternalEdit: true)
+                                           adoptExternalEdit: true, workflow: input.workflow)
         let confirmedNow = IssueCompletion.isVerified(now.state) && !IssueCompletion.isVerified(projected.state)
 
         // An edit outside MarkView that nothing has resolved.
@@ -122,7 +120,7 @@ enum IssueReconciler {
         }
 
         // A status outside the vocabulary has no rule to apply.
-        if !stored.isEmpty, !LifecycleVocabulary.isKnown(input.kind, stored), !editListed {
+        if !stored.isEmpty, !LifecycleVocabulary.isKnown(input.kind, stored, in: input.workflow), !editListed {
             out.append(Discrepancy(kind: .unverifiedEdit, message: "\(issue) has the status \"\(stored)\", which is not a \(input.kind.rawValue) status. No lifecycle rule applies to it; only a person can move it."))
         }
 

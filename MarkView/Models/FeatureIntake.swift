@@ -299,7 +299,7 @@ extension FeatureAssistant {
         front.set("type", "bug")
         front.set("id", id)
         front.set("title", title)
-        front.set("status", "open")
+        front.set("status", store.bugStatus(role: .notStarted) ?? "open")
         front.set("severity", object["severity"] as? String ?? "medium")
         front.set("issue", linkedIssue.map { "#\($0)" })
         front.set("reporter", store.defaultOwner)

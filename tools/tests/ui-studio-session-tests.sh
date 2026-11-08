@@ -24,7 +24,7 @@ swiftc -o "$out/ui-studio-session-harness" \
   MarkView/Models/UIStudioPrompts.swift MarkView/Models/UIStudioContext.swift MarkView/Models/UIStudioSelection.swift MarkView/Models/UIStudioPolicy.swift \
   MarkView/Models/UIStudioGateway.swift MarkView/Models/UIStudioServer.swift MarkView/Models/UIStudioConnections.swift MarkView/Models/UIStudioAgents.swift \
   MarkView/Models/UIStudioSession.swift MarkView/Models/BrowserElementPick.swift MarkView/Models/WebAppPreview.swift \
-  MarkView/Models/FrontMatter.swift MarkView/Models/FeatureVocabulary.swift MarkView/Models/IssueListing.swift MarkView/Models/IssueLifecycle.swift MarkView/Models/IssueTransitionLog.swift MarkView/Models/BugReportWriter.swift MarkView/Models/UIStudioTracking.swift MarkView/Models/UIStudioSession+Tracking.swift \
+  MarkView/Models/FrontMatter.swift MarkView/Models/FeatureVocabulary.swift MarkView/Models/IssueListing.swift MarkView/Models/ProjectWorkflow.swift MarkView/Models/IssueLifecycle.swift MarkView/Models/IssueTransitionLog.swift MarkView/Models/BugReportWriter.swift MarkView/Models/UIStudioTracking.swift MarkView/Models/UIStudioSession+Tracking.swift \
   MarkView/Models/ImageAttachments.swift \
   MarkView/Models/UIStudioEnvironmentMap.swift MarkView/Models/UIStudioEnvironmentMapper.swift \
   MarkView/Models/UIStudioGraphQL.swift MarkView/Models/UIStudioChannels.swift \

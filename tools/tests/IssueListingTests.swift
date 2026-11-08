@@ -125,5 +125,21 @@ check("tone dropped", IssueStatus.tone(feature("f", "rejected")) == .dropped)
 check("tone active", IssueStatus.tone(feature("f", "implementing")) == .active && IssueStatus.tone(bug("b", "fixing")) == .active)
 check("tone open", IssueStatus.tone(bug("b", "")) == .open)
 
+// A status of the project's workflow is read by its role, whatever it is called (feature-3).
+func roled(_ kind: IssueFacts.Kind, _ status: String, _ role: LifecycleRole) -> IssueFacts {
+    var facts = kind == .feature ? feature("f", status) : bug("b", status)
+    facts.role = role
+    return facts
+}
+check("a completed role is closed and implemented under any name", IssueStatus.isClosed(roled(.feature, "shipped", .completed)) && IssueStatus.isImplemented(roled(.feature, "shipped", .completed)))
+check("a cancelled role is closed but not implemented", IssueStatus.isClosed(roled(.feature, "dropped", .cancelled)) && !IssueStatus.isImplemented(roled(.feature, "dropped", .cancelled)))
+check("an active role is open and active under any name", !IssueStatus.isClosed(roled(.bug, "in-review", .active)) && IssueStatus.tone(roled(.bug, "in-review", .active)) == .active)
+check("a not-started role is open even when the name sounds finished", !IssueStatus.isClosed(roled(.bug, "closed", .notStarted)) && IssueStatus.tone(roled(.bug, "closed", .notStarted)) == .open)
+check("the role beats the old name for active work too", IssueStatus.tone(roled(.feature, "implementing", .notStarted)) == .open)
+check("a completed bug and a completed feature are done, a cancelled feature is dropped",
+      IssueStatus.tone(roled(.bug, "done", .completed)) == .done && IssueStatus.tone(roled(.feature, "live", .completed)) == .done && IssueStatus.tone(roled(.feature, "shelved", .cancelled)) == .dropped)
+check("a bug is never implemented", !IssueStatus.isImplemented(roled(.bug, "done", .completed)))
+check("a status without a role is still read by name", IssueStatus.isClosed(feature("f", "rejected")))
+
 print(failures == 0 ? "All issue listing checks passed" : "\(failures) check(s) failed")
 exit(failures == 0 ? 0 : 1)

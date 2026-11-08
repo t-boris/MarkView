@@ -32,6 +32,18 @@ enum GitHubAction: Equatable, Sendable {
     /// Nothing to write, but GitHub and MarkView disagree and a person should look. Local statuses are never changed
     /// because of GitHub (Q-004).
     case discrepancy(IssueSyncTarget, Discrepancy)
+
+    /// Whether a person has to confirm the action before it writes to GitHub (feature-3, DEC-030, Q-003). The classification is a
+    /// function of the action type: this switch has no default, so a new action type does not compile until it is classified, and the
+    /// runner carries out only actions that need no confirmation. Only the synchronization that existed before workflows (close on
+    /// verified completion, reopen when linked work was reopened) and the actions that write nothing run on their own; any other
+    /// kind of action starts as `true` and is shown to the person first.
+    var needsConfirmation: Bool {
+        switch self {
+        case .close, .reopen: return false
+        case .leave, .discrepancy: return false
+        }
+    }
 }
 
 enum IssueGitHubPlanner {

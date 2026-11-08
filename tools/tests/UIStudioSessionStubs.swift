@@ -101,6 +101,17 @@ final class FeatureStore {
 
     var lifecycleActor: String { "Tester" }
 
+    func bugStatus(role: LifecycleRole) -> String? {
+        switch role {
+        case .notStarted: return "open"
+        case .active: return "fixing"
+        case .completed: return "fixed"
+        case .cancelled: return "closed"
+        }
+    }
+
+    func bugClosingStatus(_ key: String) -> String? { "closed" }
+
     @discardableResult
     func moveFeature(_ slug: String, to status: String, by actor: LifecycleActor, reason: String? = nil, surface: Bool = true) -> ApplyResult {
         moves.append("feature \(slug) → \(status) by \(actor.kind.rawValue) \(actor.name)")

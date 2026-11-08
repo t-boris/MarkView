@@ -15,6 +15,11 @@ enum IssueEvidenceCollector {
         var sharedNumbers: Set<Int>
         /// When the item was last reopened, if this is a new round of work.
         var since: Date?
+        /// What the item's rule variant requires: the integration path, the checks and the delivery event (feature-3, DEC-027). The
+        /// Definition of Done and the project guide are no longer read here (DEC-022).
+        var rules: DeliveryRules
+        /// A person's confirmation of the delivery event the rules name, since the work was last reopened; nil: not confirmed.
+        var eventConfirmation: String?
     }
 
     /// Units read in full, newest first. More implementation work than this names the item only in a project that tracks it in
@@ -36,20 +41,9 @@ enum IssueEvidenceCollector {
             return DeliveryEvaluator.evaluate(DeliveryInput(sources: [.unavailable("git", "git log failed")], work: [], releaseRequired: false))
         }
         var history = GitWorkLog.commits(from: log.stdout)
-        let definition = try? Data(contentsOf: root.appendingPathComponent(".dde/definition-of-done.json"))
-        let required = subject.kind == .bug && ReleaseRequirement.isRequired(definitionOfDoneJSON: definition)
-        let guides = ["AGENTS.md", "CLAUDE.md"].compactMap { name -> String? in
-            guard let text = try? String(contentsOf: root.appendingPathComponent(name), encoding: .utf8), text.utf8.count <= 1_000_000 else { return nil }
-            return text
-        }.joined(separator: "\n")
-        var policy = ProjectDeliveryPolicy.read(definition: definition, guide: guides)
-        // A feature is implemented as soon as its associated code lands on the default branch.
-        if subject.kind == .feature {
-            policy.checksRequired = false
-            policy.pullRequestRequired = false
-        }
-
-        let needsGitHub = policy.checksRequired || policy.pullRequestRequired || required
+        let rules = subject.rules
+        let required = rules.githubReleaseRequired
+        let needsGitHub = rules.needsGitHub
         var client: GitHubClient?
         if githubEnabled {
             if GitHubClient.ghPath() == nil {
@@ -107,7 +101,7 @@ enum IssueEvidenceCollector {
 
         var work: [WorkUnit] = []
         for match in matches.prefix(unitLimit) {
-            work.append(await unit(for: match, root: root, client: client, checksRequired: policy.checksRequired))
+            work.append(await unit(for: match, root: root, client: client, checksRequired: rules.checksRequired))
         }
         var releases: [WorkRef: ReleaseState] = [:]
         if required {
@@ -118,7 +112,8 @@ enum IssueEvidenceCollector {
             }
         }
         return DeliveryEvaluator.evaluate(DeliveryInput(sources: sources, work: work, releaseRequired: required, releases: releases, since: subject.since,
-                                                        pullRequestRequired: policy.pullRequestRequired, checksRequired: policy.checksRequired))
+                                                        pullRequestRequired: rules.pullRequestRequired, checksRequired: rules.checksRequired,
+                                                        confirmedEvent: rules.confirmedEventName, eventConfirmation: subject.eventConfirmation))
     }
 
     // MARK: Git

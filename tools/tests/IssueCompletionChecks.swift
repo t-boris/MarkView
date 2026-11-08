@@ -617,4 +617,53 @@ for status in ["open", "fixed", "closed", "done", ""] {
 check("a feature status is not read as a bug status", IssueReconciler.completionTarget(kind: .bug, status: "implementing") == nil
       && IssueReconciler.completionTarget(kind: .feature, status: "fixing") == nil)
 
+// MARK: A workflow with other status names, and a replaced status (feature-3)
+
+do {
+    func renamed(_ definition: IssueLifecycleDefinition, _ names: [String: String]) -> IssueLifecycleDefinition {
+        IssueLifecycleDefinition(
+            statuses: definition.statuses.map { WorkflowStatus(id: names[$0.id] ?? $0.id, role: $0.role) },
+            rules: definition.rules.map { LifecycleRule(from: Set($0.from.map { names[$0] ?? $0 }), to: names[$0.to] ?? $0.to, kind: $0.kind, needs: $0.needs) })
+    }
+    var custom = ProjectWorkflow.standard
+    custom.bug = renamed(custom.bug, ["open": "todo", "fixing": "doing", "fixed": "done", "closed": "accepted"])
+    func request(_ from: String, _ to: String, _ actor: LifecycleActor, evidence: LifecycleEvidence = .none, reason: String? = nil) -> TransitionRequest {
+        TransitionRequest(kind: .bug, issue: "BUG-001", from: from, to: to, actor: actor, reason: reason, evidence: evidence, workflow: custom)
+    }
+    let rig = Rig("todo", kind: .bug)
+    check("work starts under the renamed statuses", rig.service.apply(request("todo", "doing", claude, evidence: start)).isApplied)
+    check("and completes on evidence", rig.service.apply(request("doing", "done", app, evidence: delivered)).isApplied)
+    let state = IssueCompletion.state(kind: .bug, status: "done", history: rig.history, deliveryNow: nil, workflow: custom)
+    check("a completion under renamed statuses is verified", IssueCompletion.isVerified(state))
+    check("a renamed completed status is a completed-or-archived one by role", IssueCompletion.isCompletedOrArchived(.bug, "accepted", in: custom)
+          && !IssueCompletion.isCompletedOrArchived(.bug, "doing", in: custom))
+    check("the old names are not statuses of that workflow", unknownReason(IssueCompletion.state(kind: .bug, status: "fixed", history: rig.history, deliveryNow: nil, workflow: custom)) != nil)
+    check("the reconciler finds the completion target of the renamed active status", IssueReconciler.completionTarget(kind: .bug, status: "doing", workflow: custom) == "done"
+          && IssueReconciler.completionTarget(kind: .bug, status: "fixing", workflow: custom) == nil)
+    let reopened = rig.service.apply(request("done", "todo", boris, reason: "It came back"))
+    check("a person reopens a completed status into an unstarted one", reopened.isApplied && rig.history.lastChange?.transitionKind == .reopen)
+}
+
+do {
+    // The workflow loses "implemented": a person moves the item to "verified" (DEC-021, DEC-029).
+    let rig = Rig("implementing")
+    rig.move("implemented", app, evidence: delivered)
+    check("the item is verified complete before the change", IssueCompletion.isVerified(IssueCompletion.state(kind: .feature, status: "implemented", history: rig.history, deliveryNow: nil)))
+    let moved = rig.service.applyReplacement(.feature, "f", from: "implemented", to: "verified", actor: boris, reason: "implemented was removed", workflowRevision: 2, variant: nil)
+    check("a replacement into another completed status moves the item", moved.isApplied && rig.status == "verified")
+    check("it keeps its verified completion", IssueCompletion.isVerified(IssueCompletion.state(kind: .feature, status: "verified", history: rig.history, deliveryNow: nil)))
+}
+
+do {
+    // A replacement into a completed status of an item that was not completed has no evidence behind it.
+    let rig = Rig("draft")
+    let moved = rig.service.applyReplacement(.feature, "f", from: "draft", to: "implemented", actor: boris, reason: "draft was removed", workflowRevision: 2, variant: nil)
+    check("a replacement can move an unfinished item", moved.isApplied && rig.status == "implemented")
+    check("a replacement is never delivery evidence", !IssueCompletion.isVerified(IssueCompletion.state(kind: .feature, status: "implemented", history: rig.history, deliveryNow: nil)))
+    let toDraft = Rig("implemented")
+    toDraft.move("implementing", boris, reason: "back")
+    let replaced = toDraft.service.applyReplacement(.feature, "f", from: "implementing", to: "ready", actor: boris, reason: "implementing was removed", workflowRevision: 2, variant: nil)
+    check("a replacement into an unfinished status leaves no completion", replaced.isApplied && IssueCompletion.state(kind: .feature, status: "ready", history: toDraft.history, deliveryNow: nil) == .notComplete)
+}
+
 finish("completion")

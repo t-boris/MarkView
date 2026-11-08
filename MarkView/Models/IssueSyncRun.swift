@@ -51,9 +51,9 @@ final class IssueSyncRun: ObservableObject {
         }
         let origin = client.repo.slug
         if started == generation { phase = "Reading documents…" }
-        let items = await Task.detached(priority: .userInitiated) {
+        let items = lifecycle.withRoles(await Task.detached(priority: .userInitiated) {
             IssueSyncLoader.items(features: features, bugs: bugs)
-        }.value
+        }.value)
 
         // GitHub is asked first: only the items linked to an issue that is open now can close anything, so only they are worth
         // the evidence of git and GitHub (a project can hold hundreds of old done items).
@@ -77,7 +77,7 @@ final class IssueSyncRun: ObservableObject {
             for item in plan.linkedItems(target) {
                 let kind: IssueKind = item.kind == .feature ? .feature : .bug
                 guard seen.insert("\(kind.rawValue):\(item.id)").inserted else { continue }
-                if IssueReconciler.completionTarget(kind: kind, status: item.status) != nil {
+                if IssueReconciler.completionTarget(kind: kind, status: item.status, workflow: lifecycle.workflow) != nil {
                     underWay.append((kind: kind, issue: item.id))
                 } else if item.isDone {
                     switch lifecycle.completion(kind, item.id, status: item.status) {
@@ -95,7 +95,7 @@ final class IssueSyncRun: ObservableObject {
         if !unverified.isEmpty { await lifecycle.reconcileEvidence(only: unverified) }
 
         // Completing or confirming changed statuses on disk: read the documents again for the plan.
-        let current = await Task.detached(priority: .userInitiated) { IssueSyncLoader.items(features: features, bugs: bugs) }.value
+        let current = lifecycle.withRoles(await Task.detached(priority: .userInitiated) { IssueSyncLoader.items(features: features, bugs: bugs) }.value)
         let linked = Self.linked(current, lifecycle: lifecycle)
 
         // One lookup and at most one change per issue (DEC-008); a failure does not stop the rest. A change is read back
@@ -109,9 +109,13 @@ final class IssueSyncRun: ObservableObject {
                 let held = outcomes[target]
                 outcomes[target] = IssueSyncOutcome(kind: .skipped, detail: [held?.detail, note.message].compactMap { $0 }.joined(separator: " — "))
             case .close(let target, _), .reopen(let target, _):
+                guard !action.needsConfirmation else {
+                    outcomes[target] = IssueSyncOutcome(kind: .skipped, detail: "this change to GitHub needs your confirmation; Sync does not make it on its own")
+                    continue
+                }
                 // Links, statuses and history are read once more just before the write (REQ-006 criterion 5): a change made
                 // while the evidence was read, or by another window, withdraws the write.
-                let fresh = await Task.detached(priority: .userInitiated) { IssueSyncLoader.items(features: features, bugs: bugs) }.value
+                let fresh = lifecycle.withRoles(await Task.detached(priority: .userInitiated) { IssueSyncLoader.items(features: features, bugs: bugs) }.value)
                 let freshActions = IssueGitHubPlanner.plan(items: Self.linked(fresh, lifecycle: lifecycle), origin: origin, remotes: remotes, closedAt: closedAt)
                 guard freshActions.contains(action) else {
                     outcomes[target] = IssueSyncOutcome(kind: .skipped, detail: "the linked items changed while Sync was running; run Sync again")

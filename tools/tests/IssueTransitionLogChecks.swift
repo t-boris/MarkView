@@ -297,6 +297,111 @@ do {
     check("a person's refusals are all recorded", rig.service.history(.feature, "f").rejections.count == 4)
 }
 
+// MARK: Workflow records (feature-3)
+
+do {
+    var workflow = ProjectWorkflow.standard
+    workflow.revision = 4
+    let rig = Rig("ready")
+    let started = TransitionRequest(command: "s1", kind: .feature, issue: "f", from: "ready", to: "implementing", actor: markview,
+                                    evidence: LifecycleEvidence(start: hand), workflow: workflow, variantID: StandardWorkflow.featureVariantID)
+    check("a transition is applied under a workflow", rig.service.apply(started).isApplied)
+    let history = rig.service.history(.feature, "f")
+    check("its records name the workflow revision and the variant", history.records.allSatisfy { $0.workflowRevision == 4 && $0.variant == StandardWorkflow.featureVariantID })
+
+    let refused = TransitionRequest(command: "s2", kind: .feature, issue: "f", from: "implementing", to: "verified", actor: claude, workflow: workflow)
+    _ = rig.service.apply(refused)
+    check("a refusal names them too", rig.service.history(.feature, "f").records.last { $0.phase == .rejected }?.workflowRevision == 4)
+
+    check("an item starts without an assigned variant", history.assignedVariant == nil)
+    let first = rig.service.recordAssignment(.feature, "f", variant: "by-hand", previous: nil, actor: boris, reason: "Done by hand", workflowRevision: 4)
+    check("a variant assignment is a record", first?.phase == .assignment && first?.to == "by-hand" && first?.reason == "Done by hand")
+    check("the last assignment is the variant of the item", rig.service.history(.feature, "f").assignedVariant == "by-hand")
+    check("the same variant again writes nothing", rig.service.recordAssignment(.feature, "f", variant: "by-hand", previous: "by-hand", actor: boris, workflowRevision: 4) == nil)
+    _ = rig.service.recordAssignment(.feature, "f", variant: "standard-feature", previous: "by-hand", actor: boris, workflowRevision: 5)
+    check("a later assignment replaces it", rig.service.history(.feature, "f").assignedVariant == "standard-feature")
+    check("an assignment is not a change of status", rig.service.history(.feature, "f").expectedStatus == "implementing" && rig.status() == "implementing")
+}
+
+do {
+    // The adoption of a workflow gives every existing item its variant in one pass over the journal (DEC-024).
+    let rig = Rig("ready")
+    _ = rig.service.recordAssignment(.bug, "BUG-002", variant: "by-hand-bug", previous: nil, actor: boris, workflowRevision: 1)
+    let items: [(kind: IssueKind, issue: String)] = [(.feature, "f"), (.bug, "BUG-001"), (.bug, "BUG-002")]
+    let done = rig.service.recordInitialAssignments(items, variantFor: { $0 == .feature ? StandardWorkflow.featureVariantID : StandardWorkflow.bugVariantID },
+                                                    actor: .system("MarkView"), reason: "The standard workflow was adopted.", workflowRevision: 1)
+    check("the pass reports that every item has a variant", done)
+    check("a feature gets the standard feature variant", rig.service.history(.feature, "f").assignedVariant == StandardWorkflow.featureVariantID)
+    check("a bug gets the standard bug variant", rig.service.history(.bug, "BUG-001").assignedVariant == StandardWorkflow.bugVariantID)
+    check("an item that already has a variant keeps it", rig.service.history(.bug, "BUG-002").assignedVariant == "by-hand-bug")
+    check("the records name MarkView and the reason",
+          rig.service.history(.bug, "BUG-001").records.last { $0.phase == .assignment }.map { $0.actor.kind == .system && $0.reason == "The standard workflow was adopted." } == true)
+    let before = rig.service.records().count
+    check("repeating the pass writes nothing", rig.service.recordInitialAssignments(items, variantFor: { _ in "x" }, actor: .system("MarkView"), reason: "again", workflowRevision: 1)
+          && rig.service.records().count == before)
+}
+
+do {
+    let rig = Rig("ready")
+    check("no start note is pending at first", rig.service.history(.feature, "f").pendingStartNote == nil)
+    check("an AI cannot write a person's note", rig.service.recordHumanEvidence(.feature, "f", evidence: .start, text: "I started", actor: claude) == nil)
+    check("an empty note is not evidence", rig.service.recordHumanEvidence(.feature, "f", evidence: .start, text: "   ", actor: boris) == nil)
+    let written = rig.service.recordHumanEvidence(.feature, "f", evidence: .start, text: "  Started by hand  ", actor: boris, variant: "by-hand", workflowRevision: 2)
+    check("a person's start note is a record", written?.phase == .evidence && written?.humanEvidence == .start && written?.reason == "Started by hand")
+    check("it is pending until work starts", rig.service.history(.feature, "f").pendingStartNote?.reason == "Started by hand")
+    check("a note is not a change of status", rig.status() == "ready" && rig.service.history(.feature, "f").expectedStatus == nil)
+    var workflow = ProjectWorkflow.standard
+    workflow.variants.append(VariantTemplate.manualWork.variant(kind: .feature, id: "by-hand"))
+    let noteStart = TransitionRequest(command: "n1", kind: .feature, issue: "f", from: "ready", to: "implementing", actor: boris,
+                                      evidence: LifecycleEvidence(start: .note(text: "Started by hand", by: "Boris", at: Date())),
+                                      workflow: workflow, variantID: "by-hand")
+    check("the standard variant does not take a note",
+          !rig.service.apply(TransitionRequest(command: "n0", kind: .feature, issue: "f", from: "ready", to: "implementing", actor: boris,
+                                               evidence: LifecycleEvidence(start: .note(text: "x", by: "Boris", at: Date())))).isApplied)
+    let started = rig.service.apply(noteStart)
+    check("the note starts work under a variant that accepts one", started.isApplied)
+    check("a used note is no longer pending", rig.service.history(.feature, "f").pendingStartNote == nil)
+    check("the start record keeps the note in its evidence", rig.service.history(.feature, "f").lastChange?.evidence.contains { $0.contains("note by Boris") } == true)
+}
+
+do {
+    let rig = Rig("implementing")
+    let history = { rig.service.history(.feature, "f") }
+    check("a delivery event is unconfirmed at first", history().deliveryConfirmation(event: "Installed") == nil)
+    check("an AI cannot confirm a delivery event", rig.service.recordHumanEvidence(.feature, "f", evidence: .delivery, text: "ok", event: "installed", actor: claude) == nil)
+    _ = rig.service.recordHumanEvidence(.feature, "f", evidence: .delivery, text: "On the other Mac", event: "installed", actor: boris)
+    check("a person's confirmation is found by the event name, ignoring case and spacing", history().deliveryConfirmation(event: "  INSTALLED ")?.reason == "On the other Mac")
+    check("another event is not confirmed", history().deliveryConfirmation(event: "deployed") == nil)
+    _ = rig.service.apply(request("implementing", "implemented", boris, reason: "delivered", force: true))
+    check("the confirmation survives completion", history().deliveryConfirmation(event: "installed") != nil)
+    _ = rig.service.apply(request("implemented", "implementing", boris, reason: "regression found"))
+    check("a reopening starts a new round, so the old confirmation no longer counts", history().deliveryConfirmation(event: "installed") == nil)
+}
+
+do {
+    var workflow = ProjectWorkflow.standard
+    workflow.revision = 6
+    let rig = Rig("implemented")
+    let blocked = rig.service.applyReplacement(.feature, "f", from: "implemented", to: "verified", actor: claude, reason: "workflow changed", workflowRevision: 6, variant: nil)
+    check("only a person replaces a status", !blocked.isApplied && rig.status() == "implemented")
+    let stale = rig.service.applyReplacement(.feature, "f", from: "draft", to: "verified", actor: boris, reason: "workflow changed", workflowRevision: 6, variant: nil)
+    if case .stale = stale { check("a replacement from a status the item no longer has is stale", true) } else { check("a replacement from a status the item no longer has is stale", false) }
+    let replaced = rig.service.applyReplacement(.feature, "f", from: "implemented", to: "verified", actor: boris, reason: "The workflow no longer has implemented", workflowRevision: 6, variant: nil)
+    check("a replacement moves the item", replaced.isApplied && rig.status() == "verified")
+    let record = rig.service.history(.feature, "f").lastChange
+    check("it is recorded as a replacement, not an override", record?.transitionKind == .replacement && record?.override == false && record?.workflowRevision == 6)
+    check("it keeps the person's reason", record?.reason == "The workflow no longer has implemented")
+}
+
+do {
+    // Records written before workflows existed have none of the new fields and must still be read.
+    let old = #"{"id":"00000000-0000-0000-0000-000000000001","phase":"applied","command":"c","kind":"feature","issue":"f","from":"ready","to":"implementing","actor":{"kind":"human","name":"Boris"},"at":"2026-11-05T10:00:00Z","override":false,"bypassed":[],"evidence":[],"missing":[]}"#
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let record = try? decoder.decode(TransitionRecord.self, from: Data(old.utf8))
+    check("a record from before workflows decodes without the new fields", record?.workflowRevision == nil && record?.variant == nil && record?.humanEvidence == nil && record?.to == "implementing")
+}
+
 // MARK: File storage
 
 do {

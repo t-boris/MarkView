@@ -271,11 +271,6 @@ struct Feature: Identifiable {
     func object(_ id: String) -> FeatureObject? { allObjects.first { $0.id == id } }
 
     /// Understanding dimension → known | partial | unknown | n/a.
-    /// Implementation started or done: deleting or restarting the feature is not offered then.
-    var isImplemented: Bool { ["implementing", "implemented", "verified"].contains(status) }
-    /// Statuses that become `implementing` when the feature is handed to implementation
-    /// (Create issues, Implement with AI); later statuses are left as they are.
-    static let beforeImplementation: Set<String> = ["ready", "resolving", "review", "draft", "exploring"]
     /// Discovery (Explore) is over: requirements written from now on are approved.
     var isPastExplore: Bool { !["idea", "exploring", "draft"].contains(status) }
     /// Discovery is over, or the questions asked are all answered or deferred.
@@ -597,8 +592,6 @@ struct BugReport: Identifiable, Hashable {
     var openQuestions: [BugQuestion] { questions.filter { $0.status == "open" } }
     var answeredQuestions: [BugQuestion] { questions.filter { $0.status != "open" } }
 
-    static let statuses = FeatureVocabulary.bugStatuses
-
     static func load(_ url: URL) -> BugReport? {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         let (front, body) = FrontMatter.split(text)
@@ -631,12 +624,26 @@ extension Feature {
         IssueFacts(kind: .feature, id: slug, title: title, status: front.string("status"), priority: front.string("priority"),
                    updated: front.string("updated"), created: front.string("created"), modified: modified)
     }
+
+    /// The facts with the role the project's workflow gives the status.
+    func issueFacts(in workflow: ProjectWorkflow) -> IssueFacts {
+        var facts = issueFacts
+        facts.role = workflow.role(.feature, IssueStatus.normalize(status))
+        return facts
+    }
 }
 
 extension BugReport {
     var issueFacts: IssueFacts {
         IssueFacts(kind: .bug, id: key, title: title, status: hasStatus ? status : "", priority: severity,
                    updated: updated, created: created, modified: modified)
+    }
+
+    /// The facts with the role the project's workflow gives the status; a bug without a status is open.
+    func issueFacts(in workflow: ProjectWorkflow) -> IssueFacts {
+        var facts = issueFacts
+        facts.role = hasStatus ? workflow.role(.bug, IssueStatus.normalize(status)) : .notStarted
+        return facts
     }
 }
 

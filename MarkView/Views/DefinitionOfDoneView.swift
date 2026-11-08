@@ -19,7 +19,7 @@ struct DefinitionOfDoneSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(feature == nil ? "Definition of Done" : "Implement with AI").uiFont(size: 14, weight: .semibold)
             Text(feature == nil
-                 ? "What the assistant has to do before an implementation goal counts as finished. Applies to this project."
+                 ? "What the assistant has to do before an implementation goal counts as finished. Applies to this project. It guides the work: what a status change needs comes from the project workflow, and changing this list does not change it."
                  : "What “done” means for \(feature?.lastPathComponent ?? "this feature"). The assistant gets this with the goal and has to show evidence for each required item.")
                 .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             ScrollView {

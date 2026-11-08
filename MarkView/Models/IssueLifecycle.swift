@@ -2,11 +2,12 @@ import Foundation
 
 // The shared lifecycle rules of features and bugs (issue-lifecycle-management, plan I-1): who may move an
 // issue from one status to another, on what evidence, and why a request is refused. UI, project MCP and
-// MarkView's own workflows all ask this one function (REQ-001). Foundation only (with FeatureVocabulary.swift
-// and IssueListing.swift), so tools/tests/issue-lifecycle-tests.sh compiles it on its own.
+// MarkView's own workflows all ask this one function (REQ-001). Foundation only (with FeatureVocabulary.swift,
+// IssueListing.swift and ProjectWorkflow.swift), so tools/tests/issue-lifecycle-tests.sh compiles it on its own.
 //
-// The stored statuses stay the vocabularies of `FeatureVocabulary` (DEC-013): features idea … archived, bugs
-// open, fixing, fixed, closed. Nothing here writes a file; `IssueTransitionService` does that around a decision.
+// The statuses, the transitions and the conditions are the project's workflow (feature-3, ProjectWorkflow.swift); a request that
+// names none is judged by the standard workflow, which is the feature's idea … archived and the bug's open, fixing, fixed, closed
+// of before workflows existed (DEC-013, DEC-017). Nothing here writes a file; `IssueTransitionService` does that around a decision.
 
 enum IssueKind: String, Codable, Sendable {
     case feature, bug
@@ -52,6 +53,8 @@ enum LifecycleCondition: String, Codable, CaseIterable, Sendable {
     case reason
     /// The pair of statuses is not in the lifecycle table at all.
     case listedTransition = "listed-transition"
+    /// The rule variant of the item lets only a person accept (feature-3, DEC-027).
+    case humanAcceptance = "human-acceptance"
 
     var title: String {
         switch self {
@@ -62,6 +65,7 @@ enum LifecycleCondition: String, Codable, CaseIterable, Sendable {
         case .cancellationEvidence: return "cancellation evidence (duplicate, invalid or already fixed)"
         case .reason: return "a reason"
         case .listedTransition: return "a transition that exists in the lifecycle table"
+        case .humanAcceptance: return "a person's acceptance (this rule variant lets only a person accept)"
         }
     }
 }
@@ -78,6 +82,7 @@ enum TransitionKind: String, Codable, Sendable {
     case reopen         // a completed issue back to unfinished work
     case rollback       // unfinished work back to an earlier stage
     case unlisted       // forced; not in the table
+    case replacement    // a person replaced a status that the workflow no longer has (feature-3, DEC-021, DEC-029)
 }
 
 // MARK: - Evidence the policy reads
@@ -87,11 +92,14 @@ enum StartEvidence: Codable, Equatable, Sendable {
     case handoff(tool: String, at: Date)
     /// An AI session declared itself to be working on the issue through project MCP.
     case attached(session: String, at: Date)
+    /// A person's note says that manual work has started (REQ-004). Counts only where the rule variant allows it.
+    case note(text: String, by: String, at: Date)
 
     var summary: String {
         switch self {
         case .handoff(let tool, _): return "handed to \(tool)"
         case .attached(let session, _): return "session \(session) attached"
+        case .note(let text, let by, _): return "note by \(by): \(text)"
         }
     }
 }
@@ -204,9 +212,16 @@ struct TransitionRequest: Sendable {
     var at: Date
     /// When the facts behind an automatic request were observed; older than the latest applied change → stale.
     var observedAt: Date?
+    /// The project's workflow the request is judged by (DEC-020: always the current one) and the rule variant assigned to the item;
+    /// nil means the default variant of its type.
+    var workflow: ProjectWorkflow
+    var variantID: String?
 
     init(command: String = UUID().uuidString, kind: IssueKind, issue: String, from: String, to: String, actor: LifecycleActor,
-         reason: String? = nil, force: Bool = false, evidence: LifecycleEvidence = .none, at: Date = Date(), observedAt: Date? = nil) {
+         reason: String? = nil, force: Bool = false, evidence: LifecycleEvidence = .none, at: Date = Date(), observedAt: Date? = nil,
+         workflow: ProjectWorkflow = .standard, variantID: String? = nil) {
+        self.workflow = workflow
+        self.variantID = variantID
         self.command = command
         self.kind = kind
         self.issue = issue
@@ -244,105 +259,59 @@ enum TransitionDecision: Equatable, Sendable {
 
 // MARK: - Vocabulary helpers
 
+/// The statuses of a work-item type, read from the project's workflow (the standard one when none is given).
 enum LifecycleVocabulary {
-    static func statuses(_ kind: IssueKind) -> [String] {
-        kind == .feature ? FeatureVocabulary.featureStatuses : FeatureVocabulary.bugStatuses
+    static func statuses(_ kind: IssueKind, in workflow: ProjectWorkflow = .standard) -> [String] {
+        workflow.lifecycle(kind).statusIDs
     }
 
     /// Lower-case, hyphenated: " In Progress " → "in-progress".
     static func normalize(_ status: String) -> String { IssueStatus.normalize(status) }
 
-    static func isKnown(_ kind: IssueKind, _ status: String) -> Bool { statuses(kind).contains(normalize(status)) }
+    static func isKnown(_ kind: IssueKind, _ status: String, in workflow: ProjectWorkflow = .standard) -> Bool {
+        workflow.lifecycle(kind).isKnown(status)
+    }
 
-    /// The specification stages of a feature, before implementation.
-    static let specStages: Set<String> = ["idea", "exploring", "draft", "review", "resolving", "ready"]
-    /// Stages an AI may set a feature to (the existing allow-list of the project tools).
-    static let aiSpecStages: Set<String> = ["idea", "exploring", "draft", "review", "ready"]
+    /// The role of a status; nil for a status the workflow does not have.
+    static func role(_ kind: IssueKind, _ status: String, in workflow: ProjectWorkflow = .standard) -> LifecycleRole? {
+        workflow.role(kind, status)
+    }
 
     /// Implementation completed (and possibly accepted) by status alone; whether the evidence backs it is
     /// `IssueCompletion`'s question.
-    static func isCompletedStatus(_ kind: IssueKind, _ status: String) -> Bool {
-        let value = normalize(status)
-        return kind == .feature ? ["implemented", "verified"].contains(value) : ["fixed", "closed"].contains(value)
+    static func isCompletedStatus(_ kind: IssueKind, _ status: String, in workflow: ProjectWorkflow = .standard) -> Bool {
+        workflow.isCompleted(kind, status)
     }
 
     /// Work that is under way.
-    static func isActiveStatus(_ kind: IssueKind, _ status: String) -> Bool {
-        let value = normalize(status)
-        return kind == .feature ? value == "implementing" : value == "fixing"
+    static func isActiveStatus(_ kind: IssueKind, _ status: String, in workflow: ProjectWorkflow = .standard) -> Bool {
+        workflow.isActive(kind, status)
     }
 }
 
-// MARK: - The table
-
-struct LifecycleRule: Sendable {
-    var from: Set<String>
-    var to: String
-    var kind: TransitionKind
-    /// Conditions each actor kind must meet. An actor kind that is absent may not make this transition by the
-    /// rules: a human can force it, the others cannot.
-    var needs: [LifecycleActorKind: [LifecycleCondition]]
+extension TransitionRequest {
+    /// The rule variant the request is judged by: the item's assigned one, else the default of its type.
+    var variant: RuleVariant {
+        workflow.resolvedVariant(kind, assigned: variantID) ?? ProjectWorkflow.standard.resolvedVariant(kind, assigned: nil)!
+    }
 }
 
 enum LifecyclePolicy {
     // MARK: Table
 
-    static func rules(_ kind: IssueKind) -> [LifecycleRule] { kind == .feature ? featureRules : bugRules }
-
-    private static let spec = LifecycleVocabulary.specStages
-    private static let beforeStart: Set<String> = spec.subtracting(["idea"])
-
-    private static let featureRules: [LifecycleRule] = {
-        var rules: [LifecycleRule] = []
-        // Between the specification stages: the existing flows (Explore, AI Review, the project tools) keep their freedom;
-        // an AI keeps the stages the project tools always allowed it.
-        for stage in spec {
-            var needs: [LifecycleActorKind: [LifecycleCondition]] = [.human: [], .system: []]
-            if LifecycleVocabulary.aiSpecStages.contains(stage) { needs[.ai] = [] }
-            rules.append(LifecycleRule(from: spec.subtracting([stage]), to: stage, kind: .spec, needs: needs))
-        }
-        rules += [
-            LifecycleRule(from: beforeStart, to: "implementing", kind: .start,
-                          needs: [.human: [.startEvidence], .ai: [.startEvidence], .system: [.startEvidence]]),
-            LifecycleRule(from: ["implementing"], to: "ready", kind: .rollback, needs: [.human: [.reason], .system: []]),
-            LifecycleRule(from: beforeStart.union(["implementing"]), to: "implemented", kind: .completion,
-                          needs: [.human: [.deliveryEvidence], .ai: [.deliveryEvidence], .system: [.deliveryEvidence]]),
-            LifecycleRule(from: ["implemented"], to: "verified", kind: .acceptance,
-                          needs: [.human: [], .ai: [.acceptanceEvidence]]),
-            LifecycleRule(from: ["implemented", "verified"], to: "implementing", kind: .reopen,
-                          needs: [.human: [.reason], .ai: [.regressionEvidence], .system: [.regressionEvidence]]),
-            LifecycleRule(from: ["verified"], to: "implemented", kind: .reopen, needs: [.human: [.reason]]),
-            LifecycleRule(from: spec.union(["implementing", "implemented", "verified"]), to: "archived", kind: .cancellation,
-                          needs: [.human: [], .ai: []]),
-            LifecycleRule(from: ["archived"], to: "draft", kind: .reopen, needs: [.human: [.reason]]),
-            LifecycleRule(from: ["archived"], to: "ready", kind: .reopen, needs: [.human: [.reason]]),
-        ]
-        return rules
-    }()
-
-    private static let bugRules: [LifecycleRule] = [
-        LifecycleRule(from: ["open"], to: "fixing", kind: .start,
-                      needs: [.human: [.startEvidence], .ai: [.startEvidence], .system: [.startEvidence]]),
-        LifecycleRule(from: ["fixing"], to: "open", kind: .rollback, needs: [.human: [], .ai: [], .system: []]),
-        LifecycleRule(from: ["open", "fixing"], to: "fixed", kind: .completion,
-                      needs: [.human: [.deliveryEvidence], .ai: [.deliveryEvidence], .system: [.deliveryEvidence]]),
-        LifecycleRule(from: ["fixed"], to: "closed", kind: .acceptance, needs: [.human: [], .ai: [.acceptanceEvidence]]),
-        LifecycleRule(from: ["open", "fixing"], to: "closed", kind: .cancellation,
-                      needs: [.human: [.reason], .ai: [.cancellationEvidence], .system: [.cancellationEvidence]]),
-        LifecycleRule(from: ["fixed", "closed"], to: "open", kind: .reopen,
-                      needs: [.human: [.reason], .ai: [.regressionEvidence], .system: [.regressionEvidence]]),
-    ]
+    static func rules(_ kind: IssueKind, in workflow: ProjectWorkflow = .standard) -> [LifecycleRule] { workflow.lifecycle(kind).rules }
 
     // MARK: Deciding
 
     /// The one decision function. A refusal changes nothing and says what is missing (REQ-001 criterion 3).
     static func decide(_ request: TransitionRequest) -> TransitionDecision {
         let kind = request.kind
+        let lifecycle = request.workflow.lifecycle(kind)
         let from = LifecycleVocabulary.normalize(request.from)
         let to = LifecycleVocabulary.normalize(request.to)
-        let vocabulary = LifecycleVocabulary.statuses(kind)
+        let vocabulary = lifecycle.statusIDs
 
-        guard vocabulary.contains(to) else {
+        guard lifecycle.isKnown(to) else {
             return .rejected(Rejection(missing: [], message: "\"\(request.to)\" is not a \(kind.rawValue) status.",
                                        hints: ["A \(kind.rawValue) status is one of: \(vocabulary.joined(separator: ", "))."]))
         }
@@ -359,12 +328,12 @@ enum LifecyclePolicy {
         if from == to { return .noChange }
 
         // A status outside the vocabulary (a hand-written "done" or "in-progress") is unknown state: only a person moves it.
-        guard vocabulary.contains(from) else {
+        guard lifecycle.isKnown(from) else {
             return unlisted(request, bypassed: [.listedTransition],
                             message: "The current status \"\(request.from.isEmpty ? "(none)" : request.from)\" is not a \(kind.rawValue) status, so no rule applies.")
         }
 
-        let candidates = rules(kind).filter { $0.to == to && $0.from.contains(from) }
+        let candidates = lifecycle.rules.filter { $0.to == to && $0.from.contains(from) }
         guard !candidates.isEmpty else {
             return unlisted(request, bypassed: [.listedTransition],
                             message: "\(kind.rawValue.capitalized) status \(from) → \(to) is not a lifecycle transition.")
@@ -372,11 +341,12 @@ enum LifecyclePolicy {
 
         // Several rules never overlap in the table; take the first that lets this actor in, else report on the first.
         let rule = candidates.first { $0.needs[request.actor.kind] != nil } ?? candidates[0]
-        guard let required = rule.needs[request.actor.kind] else {
+        guard let listed = rule.needs[request.actor.kind] else {
             return forcedOrRefused(request, rule: rule, unmet: [.listedTransition],
                                    message: "\(who(request.actor)) may not change \(from) → \(to) by the rules.",
                                    hints: actorHints(request.actor.kind, rule: rule))
         }
+        let required = effectiveNeeds(listed, rule: rule, request: request)
 
         var met: [LifecycleCondition] = []
         var unmet: [LifecycleCondition] = []
@@ -389,6 +359,14 @@ enum LifecyclePolicy {
         return forcedOrRefused(request, rule: rule, met: met, unmet: unmet,
                                message: "\(from) → \(to) needs " + unmet.map(\.title).joined(separator: " and ") + ".",
                                hints: unmetHints(unmet, request))
+    }
+
+    /// The conditions of a transition for one actor under the item's rule variant: where the variant lets only a person accept, an
+    /// acceptance by anyone else needs a person's acceptance, which they cannot give (DEC-027).
+    static func effectiveNeeds(_ listed: [LifecycleCondition], rule: LifecycleRule, request: TransitionRequest) -> [LifecycleCondition] {
+        guard rule.kind == .acceptance, request.variant.acceptance == .humanOnly, request.actor.kind != .human,
+              !listed.contains(.humanAcceptance) else { return listed }
+        return listed + [.humanAcceptance]
     }
 
     private static func forcedOrRefused(_ request: TransitionRequest, rule: LifecycleRule, met: [LifecycleCondition] = [],
@@ -428,7 +406,8 @@ enum LifecyclePolicy {
         for condition in unmet {
             switch condition {
             case .startEvidence:
-                hints.append("Start it from MarkView (Implement with AI / Fix with AI) or attach the session with markview_attach_issue.")
+                hints.append("Start it from MarkView (Implement with AI / Fix with AI) or attach the session with markview_attach_issue."
+                             + (request.variant.start == .agentOrNote ? " This rule variant also accepts a person's note that manual work has started." : ""))
             case .deliveryEvidence:
                 let detail = request.evidence.delivery.lines.prefix(4).joined(separator: "; ")
                 hints.append("Delivery evidence is \(request.evidence.delivery.label)" + (detail.isEmpty ? "." : ": \(detail)."))
@@ -442,6 +421,8 @@ enum LifecyclePolicy {
                 hints.append("A bug is closed without a fix as a duplicate (duplicate_of) or with the validity check's evidence.")
             case .reason:
                 hints.append("Write a reason.")
+            case .humanAcceptance:
+                hints.append("The rule variant \"\(request.variant.name)\" lets only a person accept this work; ask the person to accept it in the MarkView window.")
             case .listedTransition:
                 break
             }
@@ -452,7 +433,10 @@ enum LifecyclePolicy {
     private static func isMet(_ condition: LifecycleCondition, _ request: TransitionRequest) -> Bool {
         let evidence = request.evidence
         switch condition {
-        case .startEvidence: return evidence.start != nil
+        case .startEvidence:
+            guard let start = evidence.start else { return false }
+            if case .note = start { return request.variant.start == .agentOrNote }
+            return true
         case .deliveryEvidence: return evidence.delivery.isComplete
         case .acceptanceEvidence:
             guard let acceptance = evidence.acceptance else { return false }
@@ -462,15 +446,16 @@ enum LifecyclePolicy {
         case .cancellationEvidence: return evidence.cancellation != nil
         case .reason: return !request.trimmedReason.isEmpty
         case .listedTransition: return true
+        case .humanAcceptance: return request.actor.kind == .human
         }
     }
 
     /// A close without a fix is a cancellation, whatever the finding (duplicate, invalid, withdrawn, already fixed on main): no
-    /// merge, check or release backs it, so it is never verified completion (DEC-010, DEC-013); an archive after completion keeps
-    /// the completion.
+    /// merge, check or release backs it, so it is never verified completion (DEC-010, DEC-013); a cancellation step made from a
+    /// completed status (a feature archived after completion) is an archive and keeps the completion.
     private static func outcomeKind(_ rule: LifecycleRule, _ request: TransitionRequest) -> TransitionKind {
-        if rule.to == "archived" {
-            return LifecycleVocabulary.isCompletedStatus(.feature, request.from) ? .archive : .cancellation
+        if rule.kind == .cancellation || rule.kind == .archive {
+            return request.workflow.isCompleted(request.kind, request.from) ? .archive : .cancellation
         }
         return rule.kind
     }
@@ -487,11 +472,13 @@ enum LifecyclePolicy {
     }
 
     static func nextSteps(kind: IssueKind, status: String, actor: LifecycleActorKind, evidence: LifecycleEvidence,
-                          reason: String? = nil) -> [NextStep] {
+                          reason: String? = nil, workflow: ProjectWorkflow = .standard, variantID: String? = nil) -> [NextStep] {
         let from = LifecycleVocabulary.normalize(status)
-        let probe = TransitionRequest(kind: kind, issue: "", from: from, to: "", actor: LifecycleActor(kind: actor, name: ""), reason: reason, evidence: evidence)
-        return rules(kind).filter { $0.from.contains(from) }.map { rule in
-            guard let needs = rule.needs[actor] else { return NextStep(to: rule.to, kind: rule.kind, needs: nil, unmet: []) }
+        let probe = TransitionRequest(kind: kind, issue: "", from: from, to: "", actor: LifecycleActor(kind: actor, name: ""), reason: reason,
+                                      evidence: evidence, workflow: workflow, variantID: variantID)
+        return workflow.lifecycle(kind).rules.filter { $0.from.contains(from) }.map { rule in
+            guard let listed = rule.needs[actor] else { return NextStep(to: rule.to, kind: rule.kind, needs: nil, unmet: []) }
+            let needs = effectiveNeeds(listed, rule: rule, request: probe)
             return NextStep(to: rule.to, kind: rule.kind, needs: needs, unmet: needs.filter { !isMet($0, probe) })
         }
     }
