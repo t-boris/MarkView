@@ -444,14 +444,17 @@ _ = page.js("window.__reloadMarker = 'same page'; return 'ok';")
 let before = page.json("""
 const r = document.querySelector('.editor-rendered');
 r.style.minHeight = '3000px'; r.scrollTop = 120;
-return JSON.stringify({ html: r.innerHTML.length, text: r.textContent, scroll: r.scrollTop, origin: performance.timeOrigin });
+window.__editorNode = r;
+return JSON.stringify({ html: r.innerHTML.length, text: r.textContent, scroll: r.scrollTop });
 """)
 for look in looks + looks.reversed() { setLook(page, look) }
 let after = page.json("""
 const r = document.querySelector('.editor-rendered');
-return JSON.stringify({ html: r.innerHTML.length, text: r.textContent, scroll: r.scrollTop, origin: performance.timeOrigin, marker: window.__reloadMarker });
+return JSON.stringify({ html: r.innerHTML.length, text: r.textContent, scroll: r.scrollTop, marker: window.__reloadMarker, sameNode: r === window.__editorNode });
 """)
-check((after["marker"] as? String) == "same page" && (after["origin"] as? Double) == (before["origin"] as? Double), "twelve theme changes do not reload the page", "\(after)")
+// A reload would drop the marker and replace the element; the clock (performance.timeOrigin) is not used: some WebKit builds
+// report it with a jitter, which made this check fail on the CI image while the page had not reloaded.
+check((after["marker"] as? String) == "same page" && (after["sameNode"] as? Bool) == true, "twelve theme changes do not reload the page", "\(after)")
 check((after["text"] as? String) == (before["text"] as? String) && (after["html"] as? Int) == (before["html"] as? Int), "the document text and structure are untouched by theme changes")
 check((after["scroll"] as? Double) == (before["scroll"] as? Double), "the scroll position survives theme changes", "\(before["scroll"] ?? "") → \(after["scroll"] ?? "")")
 // Source mode: the unsaved text in the editor field stays too.

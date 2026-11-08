@@ -18,6 +18,9 @@
   the repository root. Treat an empty argument as absent, and `git status` after running a new harness.
 - `ImageRenderer` needs `@MainActor` helpers; read its pixels through an sRGB `CGContext` (the image's own colour space shifts
   values by a few units). That gives a window-isolation check with no window on screen.
+- Do not prove "the page did not reload" with `performance.timeOrigin`: on the CI image WebKit reported it with a jitter, so the check
+  failed while the marker on `window` was intact. Use a marker on `window` plus the identity of a DOM node (`r === window.__node`);
+  the same check fails when the node is replaced, which was verified with a deliberate mutation.
 - `prototype-runtime-tests.sh` fails two checks on pristine origin/main as well. Before chasing a red harness, run it from a
   `git worktree add --detach <dir> origin/main`; remove the worktree after.
 
