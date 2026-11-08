@@ -1795,6 +1795,9 @@ class WorkspaceManager: ObservableObject {
             // Comparison by date: the commits of the calendar day chosen in the PR X-Ray ("YYYY-MM-DD").
             architecture.listHistory(day: payload["day"] as? String ?? "", root: root)
         case "compareWithCommit":
+            // The comparison with a date opens in the comparison view, like a branch comparison, from the project's X-Ray
+            // as well as from the PR X-Ray (BUG-110): it needs no pull request.
+            if scope.isEmpty { openXRayTab(scope: TabKind.pullRequestScope) }
             architecture.compareWithCommit(sha: payload["sha"] as? String ?? "", root: root, db: semanticDatabase)
         case "prFileDiff":
             architecture.showFileDiff(path: payload["path"] as? String ?? "")

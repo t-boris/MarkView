@@ -274,6 +274,13 @@ enum TabKind {
 
     /// Scope of the PR X-Ray tab: the project's X-Ray seen through one change.
     static let pullRequestScope = "#pr"
+
+    /// What the X-Ray page is told about the tab it draws: "pr" for the PR X-Ray, "folder" for the X-Ray of one folder
+    /// (it has no comparison view to open), nil for the project's X-Ray.
+    static func architectureMode(scope: String) -> String? {
+        if scope == pullRequestScope { return "pr" }
+        return scope.isEmpty ? nil : "folder"
+    }
 }
 
 /// What a GitHub tab shows, in which repository ("owner/name"); `title` is the tab's name.

@@ -67,7 +67,7 @@
                 prMap: 'focused',   // PR X-Ray map: 'focused' (the parts the change touches) or 'full' (the whole X-Ray, changes marked)
                 prFull: null,       // the full map's view: the X-Ray's own view plus the files the change removes or adds
                 prExpandedFor: null, // change whose touched parts were opened on the full map
-                historyOpen: false, // the date picker of the PR X-Ray is shown
+                historyOpen: false, // the date picker is shown (project X-Ray and PR X-Ray)
                 selected: null,
                 graphKey: null,     // view + snapshot version the canvas was built from
                 viewChosen: false,  // the user picked a view (no automatic fallback to Structure)
@@ -3125,7 +3125,9 @@
                 Array.prototype.forEach.call(el.prMap.querySelectorAll('[data-arch-pr-map]'), function(b) {
                     b.classList.toggle('on', b.getAttribute('data-arch-pr-map') === ui.prMap);
                 });
-                el.prDate.hidden = !prTab;
+                // Comparison with a date stands on its own (BUG-110): the project X-Ray offers it too, not only the PR X-Ray.
+                // A folder X-Ray has no comparison view to open, so it does not.
+                el.prDate.hidden = p.mode === 'folder';
                 el.hide.hidden = el.hide.hidden || prTab;
                 el.flagged.parentElement.hidden = el.flagged.parentElement.hidden || prTab;
                 el.prOpen.hidden = prTab;
@@ -3171,11 +3173,11 @@
                 renderHistory();
             }
 
-            /** The date picker of the PR X-Ray: a day first, then one of the commits made that day, to compare the
+            /** The date picker (project X-Ray and PR X-Ray): a day first, then one of the commits made that day, to compare the
              *  working copy with. A day without commits says so. */
             function renderHistory() {
                 const p = ui.payload || {};
-                const open = ui.historyOpen && p.mode === 'pr';
+                const open = ui.historyOpen && p.mode !== 'folder';
                 el.history.hidden = !open;
                 if (!open) { delete el.historyList.dataset.key; return; }
                 const list = el.historyList;
