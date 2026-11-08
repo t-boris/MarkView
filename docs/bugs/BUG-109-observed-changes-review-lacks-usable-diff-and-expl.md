@@ -61,6 +61,14 @@ MarkView for macOS. The supplied screenshot shows Observed file changes with a m
 - The exact resize gesture and whether enlarging the parent window changes the sheet size are unknown.
 - No live reproduction was performed. The exact macOS version and display configuration are unknown.
 
+## Validity check
+
+**Outcome:** Still present on main (checked 2026-11-08).
+
+**Verified against:** `origin/main` @ `8d5d8d784d` (2026-11-08) — docs: lesson on merging without waiting for CI
+
+**Reason:** The review still displays the complete Before and Current text in separate scroll views without highlighting differences, identifying their locations, or explaining individual changes and their impact. ProjectChangeScanner records file-level snapshots and classifications but does not produce change-level comparisons. The sheet has flexible dimensions and a wider preferred size, but the code and off-screen layout test do not establish whether a user can enlarge the presented sheet; that part requires a live check.
+
 ## Attachments
 
 ![assets/BUG-109-pasted-image-E7DCBB95-31DE-45E1-BB03-E2E4A4095293.png](assets/BUG-109-pasted-image-E7DCBB95-31DE-45E1-BB03-E2E4A4095293.png)
