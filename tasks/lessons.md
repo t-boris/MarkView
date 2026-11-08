@@ -1602,3 +1602,16 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
   which put `status: open` back and created the discrepancy. Never restore, stash or reset a file the lifecycle tools wrote; copy it byte for byte to where it has to go and
   leave the project tree alone (the next `git switch` brings identical bytes). Repair a wrong status only through the tools (`markview_set_bug_status` with the reason).
 
+
+## 2026-11-08 — feature-3: moving a hard-coded table into data
+
+- Move the old table into the new data type first and run the unchanged suites against it (`ProjectWorkflow.standard`): the policy, completion and GitHub suites passing
+  untouched is the proof that the standard workflow behaves as before. Only then add the checks for what is new. Every consumer that still compares a status by name (`== "closed"`,
+  `["fixed", "closed"].contains`) is a bug in a project with other names: grep the string literals of every status after the refactor and replace each with a role or a workflow lookup.
+- A test script compiles only the files it lists. Adding a Foundation-only file (`ProjectWorkflow.swift`) that an existing file now depends on breaks every script that compiles that
+  file, with a "cannot find type" error far from the cause: add it to each script (`control-agent-tools`, `project-agent-tools`, `ui-studio-session`, …) in the same change.
+- A check that depends on commit timestamps is flaky when two commits land in the same second. The collector chose "the last commit" by date; in a depth-2 shallow clone with two roots
+  the order was a coin flip (about one run in six). Choose by topology (`rev-list --first-parent`, last line), never by time, and run a suspect check ten times before trusting it.
+- SourceKit shows "Cannot find type/scope" for every file of a multi-file target it has not indexed together. Compile (`xcodebuild`, or the suite script) before believing it.
+- Saving a workflow that removes a status or variant in use is a two-step write with an ordering rule: the file first, then the reassignment of items as records of their own kind. A crash between
+  the steps leaves items on a status the workflow no longer has, which reads as `unknown` and is never a pass; the next start finishes the move.

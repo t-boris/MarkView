@@ -4851,3 +4851,40 @@ Request (Boris): "Сначала фиксни мне баг 107, а потом �
 - [x] Reproduce with a measurement, [x] fix, [x] build, [x] version 5.42.1, [x] PR #318 checks (pdf-book, pdf-reader, themes), [x] merged (2f6224d), [x] release v5.42.1 (signed, notarized, SHA-256 of the published DMG equals the local one), [x] BUG-107 `fixed` (MarkView set it from the merge and release evidence), [ ] install on this Mac (Boris asked for it on 2026-11-08; detached, verified in the next turn).
 - Not checked by hand in the installed app yet (added and modified files use the same layout; the test has a deleted and a modified file).
 
+
+# Project workflows (feature feature-3, GitHub #319) — goal session 2026-11-08, branch feat/feature-3-project-workflows
+
+Request (Boris, /goal): implement `docs/features/feature-3` (REQ-001…006, plan I-1…I-6, DEC-016…025, Q-001…009, F-001…004, discussion.md).
+Recorded answers are binding. New decisions proposed by me and applied by default: DEC-026 storage and load errors, DEC-027 variant fields,
+DEC-028 evidence and unavailable-evidence behaviour, DEC-029 default variant of tool-created items and replacement records, DEC-030 no new
+automatic GitHub action. Branch + PR + merge + signed release (not main directly; the goal overrides the earlier "main directly" habit).
+
+## Design (data first, then the places that read it)
+- `ProjectWorkflow.swift` (Foundation only): lifecycle roles, statuses with roles, transition rules as data (the old static tables are
+  the standard workflow), rule variants (start, integration, checks, delivery event, acceptance), validation, editing operations that
+  report the impact on work items, JSON coding with schema + revision, migration from the Definition of Done and the guide (once).
+- `IssueLifecycle.swift`: `LifecycleVocabulary`/`LifecyclePolicy` read a `ProjectWorkflow` and the item's variant (default `.standard`, so
+  every existing check keeps compiling and proves the standard workflow behaves as before).
+- Evidence: the collector and evaluator read the variant (PR / checks / release / human-confirmed event) and no longer the Definition of
+  Done or the guide; human start notes and delivery confirmations are journal records.
+- Journal: records carry workflow revision + variant; new record kinds for assignments, human evidence, replaced statuses.
+- Coordinator (`FeatureStore+Lifecycle.swift`): loads/adopts the workflow, assigns variants, every request passes workflow + variant.
+- Roles drive completion, reopening, GitHub sync, filters and badges; MCP tools take statuses from the workflow.
+- UI: Workflow editor (Settings), variant picker, start note and delivery confirmation in the Lifecycle section, Definition of Done copy.
+
+## Plan
+- [x] 1. Spec: decisions DEC-026…030 proposed; statuses of requirements/tasks kept current as work lands.
+- [x] 2. I-1/I-2 model: `ProjectWorkflow.swift` + checks (`tools/tests/issue-lifecycle-tests.sh workflow`), parity with the old tables.
+- [x] 3. I-3 policy on workflow + variant; I-4 evidence on variant (collector, evaluator, human evidence records).
+- [x] 4. I-1/I-2 storage: workflow store, assignments, adoption + migration, replacement on delete; journal fields.
+- [x] 5. I-5 completion/reconciler/sync/listing/context/handoff/MCP on roles.
+- [x] 6. I-6 UI: editor, pickers, start note, delivery confirmation, DoD copy.
+- [x] 7. Verify: all lifecycle suites + new suite, Debug build, spec criteria one by one, independent review.
+- [ ] 8. Version bump (minor), commits, push, PR, CI green, merge, signed release, install check, issue #319 closed.
+
+## Review (feature-3, filled in before the pull request)
+- The standard workflow reproduces the old tables: the policy, completion, GitHub, listing, sync, basket and agent-tool suites passed against it unchanged. New checks: `tools/tests/ProjectWorkflowChecks.swift` (model, validation, adoption, storage, pending files), the workflow records in the log suite, a renamed-status workflow in the completion suite, variants in the context and display suites, role-based filters and sync.
+- An independent review of the coordinator, editor and consumers found eleven defects; ten were fixed (stale editor draft, interrupted or partial replacement, a completion without delivery evidence counting as verified, a hand-off outside the workflow, adoption bookkeeping in memory only, main-thread journal rereads, regression reports reading unknown statuses as open, half-switched UI Studio records, editor rows indexing removed rows, a wrong variant stamp). One was left as specified: a delivery confirmation is stale only after a reopening (DEC-028).
+- Not exercised in the running app (compiled and reviewed only): the Settings editor, the variant picker, start by note, delivery confirmation, and the coordinator's save-with-replacements path. Gaps for Boris: no variant picker in the creation dialogs (REQ-005 criterion 1); DEC-026..031 are still proposed.
+- Suites that fail on a clean `origin/main` too and are not caused by this change: database-explorer and deployment-store (a missing `CloudServices.swift` in their file lists), terminal-link (one default-app check), code-architecture and prototype-runtime (WebKit layout checks).
+
