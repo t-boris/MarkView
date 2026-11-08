@@ -11,7 +11,23 @@ let editor = CommandLine.arguments[1]
 var failures = 0
 var errorsSeen = 0
 var errorProbe: (() -> Int)?
+// A hung page must not hang the test run. The suite is long (about four minutes on a CI runner, more on a slow one), so a
+// fixed total budget fails a healthy run that is merely slow. What is watched is progress: the run stops when no check has
+// reported for 120 s, or when it has lasted 20 minutes in all.
+let progressLock = NSLock()
+var lastProgress = Date()
+let startedAt = Date()
+func noteProgress() { progressLock.lock(); lastProgress = Date(); progressLock.unlock() }
+func secondsSinceProgress() -> TimeInterval { progressLock.lock(); defer { progressLock.unlock() }; return Date().timeIntervalSince(lastProgress) }
+let watchdog = DispatchSource.makeTimerSource(queue: .global())
+watchdog.schedule(deadline: .now() + 5, repeating: 5)
+watchdog.setEventHandler {
+    if secondsSinceProgress() > 120 { print("TIMEOUT: no check reported for 120 s"); exit(1) }
+    if Date().timeIntervalSince(startedAt) > 1200 { print("TIMEOUT: the suite did not finish in 20 minutes"); exit(1) }
+}
+watchdog.resume()
 func check(_ ok: Bool, _ message: String, _ detail: @autoclosure () -> String = "") {
+    noteProgress()
     if !ok { failures += 1 }
     print("\(ok ? "ok  " : "FAIL") \(message) \(ok ? "" : String(detail().prefix(900)))")
     // Say where a page error first shows up (the page's own diagnostics only report "Script error." for file URLs).
@@ -20,12 +36,6 @@ func check(_ ok: Bool, _ message: String, _ detail: @autoclosure () -> String = 
         if count > errorsSeen { errorsSeen = count; print("info  page errors so far: \(count), first seen at the check above") }
     }
 }
-// A hung page must not hang the test run.
-DispatchQueue.global().asyncAfter(deadline: .now() + 240) {
-    print("TIMEOUT: no result after 240 s")
-    exit(1)
-}
-
 struct Message { let type: String; let doc: String; let payload: [String: Any] }
 final class Bridge: NSObject, WKScriptMessageHandler {
     var messages: [Message] = []

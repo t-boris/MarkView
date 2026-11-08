@@ -1568,3 +1568,23 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
   extraction as "D O C U M E N T" there (compare text without white space), and a timer assertion that expected "1:1x" read the page 6 s
   late on a slow runner (give timing checks a window). The first CI run is part of the verification, not a formality.
 
+## 2026-11-08 — X-Ray comparison by date (5.42.0): state shared between two screens of one page
+
+- The PR X-Ray tab and the project X-Ray are one web page with one `ui` object. Putting the full map of a change on the Logical view id made it
+  share the open parts, the focus, the selected node and the "only flagged" / "hide tests" switches with the project's own view. An
+  independent review found it by asking "what is left behind when the person hops tabs". Give a mode its own state key (`stateKey()`), and
+  clear what only makes sense inside the mode (selection, switches whose controls are hidden there) when entering or leaving it.
+- A "do it once" guard (`prExpandedFor`) must be keyed by everything that makes the work valid again (view, source, file list) and reset with
+  the root, or a second visit finds the screen in its initial, collapsed state.
+- A request-scoped wish ("analyze when loaded") must be taken when the request starts, not read after the load: a failed or replaced load then
+  cannot leave it behind for an unrelated request. Overlapping loads need a token checked after every await; a replaced load writes nothing.
+- A single click that navigates away (opens the file viewer) is right on a map that shows only files of the change and wrong on a map that
+  shows the whole project: gate the shortcut on what the node is, not on which tab is open.
+- Checks that pass on the first run prove little: every new group here was shown failing on the old page (67 of the first 80 web checks) and
+  under a targeted mutation of the new code (halo off, container lost, guard never reset, shared state, tap always opens, risk always wins).
+- A watchdog with a fixed total budget fails a healthy run on a slow machine. `research-map-web-tests` allowed 240 s for a suite that takes
+  about 55 s locally and 3-4 minutes on a CI runner; on #316 every check was `ok` and the job still failed with "TIMEOUT: no result after
+  240 s" (the same job had failed this way on other branches; a re-run passed). Watch progress instead of total time: stop after 120 s
+  without a reported check, with a generous cap (20 minutes) for the whole run. Show the old budget failing on a slow stand-in and both new
+  limits biting on a stuck run.
+

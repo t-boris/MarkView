@@ -4775,3 +4775,63 @@ Not part of the goal: browser-tab check, manual checklist.
   duplicate build step of `themes.yml`) - not changed without approval.
 - Process: two pushes to the PR doubled the CI runs; the first push failed one theme check (`performance.timeOrigin` jitter on the CI
   image), lesson recorded in `tasks/lessons.md`.
+
+# X-Ray comparison by date (feature x-ray-comparison-by-date, GitHub #314) — goal session 2026-11-08, branch feat/x-ray-comparison-by-date
+
+Request (Boris, /goal): implement what `docs/features/x-ray-comparison-by-date` specifies (REQ-001…004, plan I-1…I-4, DEC-001…006,
+Q-001…004, F-001/F-002); verify against the specification; keep records and GitHub #314 current; tests and build; commit everything;
+PR, CI, merge, version bump, release and confirm the deployed version. Branch and pull request ARE part of this goal (explicit).
+Not part of it: a check in a MarkView browser tab, a manual test checklist.
+
+## Findings in the code that shaped the design
+- The PR X-Ray (`mode: "pr"`, one `ArchitectureStore`, sources `local`, `cmp:<ref>`, `rev:<ref>`, `gh:<n>`) draws only the *focused*
+  map (`buildPRView`); the *full* map with highlights exists only as the "Pull request" overlay of the project X-Ray tab, and the two are
+  not switchable. The PR tab hides the overlay menu and forces `ui.overlay = 'pr'` on every payload, so complexity/size can never show.
+- `cmp:<ref>` diffs against `merge-base(ref, HEAD)`. For a historical commit that is wrong when the commit is not an ancestor of `HEAD`
+  (a commit on another local branch): the baseline must be the chosen commit itself -> a new source id `at:<full sha>`.
+- A deleted file is a node of the focused map only when its parent exists in the base view, has no mark, and is absent from the full map.
+- `refreshPRSources` keeps only `cmp:`/`rev:` extras: any other custom source id is dropped on the next refresh.
+
+## Design
+- `HistoricalBaseline.swift` (Foundation only): commits of a local calendar day by committer time (`git log --branches`, filtered in
+  Swift: git's `--since/--until` stop early on a skewed clock), `at:<sha>` ids (full object names only), title. Checked by
+  `tools/tests/historical-baseline-tests.sh` (real git in a temp repo, mutation-checked).
+- `ArchitectureStore`: `at:` source (diff = working tree vs the commit + untracked files; base = the commit, so removed files open as they
+  were), picker state `history` (day, commits, state) answered per day, no AI run until asked (like `compareBranch`).
+- Page: a date control in the PR tab toolbar (date -> commits of that day or "no commits" -> choose); a Focused/Full switch; the overlay
+  menu works in the PR tab; changed nodes carry a marker that does not depend on the overlay colour (underlay + `+a −d` in the label);
+  deleted files are marked nodes (dashed red, "removed") in both maps, placed in their nearest surviving component/folder.
+
+## Plan
+- [x] 0. Read the whole folder and the code; branch from origin/main; plan here.
+- [x] 1. I-1 `HistoricalBaseline` + standalone checks (mutations: author date, `--all`, date limit, closed bound all fail the checks).
+- [x] 2. I-2 `at:` source in `ArchitectureStore` (diff via `HistoricalBaseline.diffArguments`, base = the commit, refresh keeps it, title) + picker state `HistoryPicker` and the actions `historyCommits` / `compareWithCommit` in `WorkspaceManager`; Debug build succeeds.
+- [x] 3. I-1 page: *Compare with a date…* button, date field (starts on today), commit list, empty / loading / unreadable states.
+- [x] 4. I-3 page: Focused / Full map switch (`ui.prMap`, `buildFullPRView`, `openChangedParts`), removed-file nodes on both maps in the nearest surviving container (`changeExtras`), details and diff for them.
+- [x] 5. I-4 page: overlay menu in the PR tab (no AI filters), halo / `+a −d` / ✕ marks independent of the overlay (`changeFacts`), legend.
+- [x] 6. Web checks in WebKit for 3-5 (`tools/tests/xray-comparison-web-tests.sh`, 86 checks; 67 of the first 80 fail on the old page, 6 targeted mutations of the new code each fail the checks that guard them).
+- [x] 7. Records current (DEC-007..009 proposed, requirement links, discussion note; criteria stay unticked until the installed app is checked by hand), docs (README, architecture), version 5.42.0, build, tests. GitHub #314 is commented at push time.
+- [ ] 8. Commit, push once, PR, CI green, merge, release, confirm the deployed version.
+
+## Review (before the pull request)
+- Evidence: `tools/tests/historical-baseline-tests.sh` (day filter by committer time and time zone, `git log --branches`, the diff arguments
+  against a real temporary repository: committed + uncommitted + staged-new edits, a removed file, a rename read as removed + added, a
+  non-ASCII path, a commit of another branch as the baseline; each group fails under a targeted mutation) and
+  `tools/tests/xray-comparison-web-tests.sh` (86 checks in WebKit: focused and full map, removed files, overlays on both maps, the date
+  picker and its empty state, source choice without an AI run, project X-Ray unchanged, tab hops). Debug build succeeds. The related
+  harnesses pass (xray-content, structure-outline, structure-reveal, book-xray, git-status, editor-document-routing, theme-web,
+  research-map-web, editor-diagrams); `code-architecture-tests` (2 operations-panel checks) and `terminal-link-tests` (1 check) fail
+  identically on pristine origin/main.
+- An independent review (reading the diff, not my conclusions) found three page-state defects, all fixed with a check that fails without the
+  fix: a tap on an untouched file left the full map (the single-tap open now applies to files of the change only), the risk colour of an
+  analysis overrode another overlay, and the full map shared its open parts with the project's Logical view (it has its own state now, and
+  the opened-once guard is keyed by view, change and file list and cleared per root). Also fixed: load races (the last choice wins, a
+  replaced load writes nothing), diff parsing off the main thread, an `at:` source never starts an AI run from the "Pull request" button,
+  a failed load no longer leaves a stale analyze/review wish, history and loads of the old workspace do not land in the next one, the
+  history list is not rebuilt under the pointer, and "Only flagged" / "Hide tests" of the project X-Ray no longer hide parts of a change.
+- Known limits (documented, not fixed): binary files and 100% renames have no content lines (renames are read as removed + added for `at:`);
+  new files are the existing untracked-file rule (text, at most 200 files of 512 KB); AI filters are not offered in the PR tab;
+  `prFileURL` runs one `git show` on the main actor when a removed file is opened (existing behaviour, a few milliseconds); a changed file
+  that is opened as a box to show its parts keeps its `+added −removed` label but gets no halo; `listHistory` is not cancelled when the date
+  is stepped quickly (stale answers are ignored). Criteria are not ticked: the installed app has not been used on a real repository yet.
+
