@@ -2,7 +2,7 @@
 type: feature
 id: per-window-themes
 title: Per-Window Themes
-status: implementing
+status: implemented
 owner: Boris Tsekinovsky
 created: 2026-11-08
 provenance: Created from the quick feature intake

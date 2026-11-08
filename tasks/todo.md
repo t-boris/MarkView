@@ -4754,7 +4754,7 @@ Not part of the goal: browser-tab check, manual checklist.
       a theme change (no reload; web test keeps text, scroll and unsaved input). Existing web harnesses (book-pdf, data-viewers,
       editor-diagrams, document-files, editor-document-routing, pdf-export, structure-reveal, terminal-layout, research-map-web,
       ui-studio-web/-session, pdf-reader, dictation, intake, browser-popup, web-preview) pass.
-- [ ] 6. Records current, version bump, commits, PR, CI green, merge, release, install check.
+- [x] 6. Records current, version bump, commits, PR #313, CI green (10/10 on 4bec170), merged (64d3d4c), release v5.41.0 published.
 
 ## Notes while working
 - `tools/tests/prototype-runtime-tests.sh` fails 2 checks ("the first role lacks a permission...", "the role switch shows the first role")
@@ -4762,3 +4762,16 @@ Not part of the goal: browser-tab check, manual checklist.
 - `tools/tests/code-architecture-tests.sh` fails 2 checks (order of operation kinds) identically on pristine origin/main.
 - `tools/tests/terminal-link-tests.sh` fails 1 check ("unsupported file uses default app", .iso) identically on pristine origin/main:
   a file-association difference of this Mac, not this change.
+
+## Review (2026-11-08)
+- Delivered: PR #313 merged into main as 64d3d4c, version 5.41.0, signed + notarized + stapled DMG published as GitHub release v5.41.0
+  (Latest); `spctl` accepts the DMG and the app inside as Notarized Developer ID; the app reports 5.41.0 and bundles `markview-themes.js`.
+- Evidence: theme-model-tests (incl. Swift <-> web base colours), window-theme-tests, window-session-tests, theme-web-tests (212 checks),
+  the existing web and view harnesses, the Debug build, and the ten PR checks. Failing identically on pristine origin/main, so not part of
+  this change: prototype-runtime-tests (2), code-architecture-tests (2), terminal-link-tests (1).
+- Not done on purpose (outside the goal): no walk-through in the installed app; acceptance criteria left unticked for the owner.
+- Open for the owner: DEC-006 (mechanism) is still `proposed`; criteria acceptance (`implemented` -> `verified`); CI cost: nine
+  workflows run on every push to a PR and several more on every push to main (proposal: `concurrency: cancel-in-progress`, drop the
+  duplicate build step of `themes.yml`) - not changed without approval.
+- Process: two pushes to the PR doubled the CI runs; the first push failed one theme check (`performance.timeOrigin` jitter on the CI
+  image), lesson recorded in `tasks/lessons.md`.

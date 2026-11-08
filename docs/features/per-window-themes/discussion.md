@@ -37,3 +37,18 @@ Implementation notes (2026-11-08, 5.41.0), recorded so the specification matches
 - A selection is the background mixed with the accent (38% on dark appearances, 24% on light ones), so selections follow the accent while staying legible; Classic without an accent override keeps its original selection colour.
 - The mechanism (DEC-006: one palette per window in the SwiftUI environment, NSWindow.appearance per window, web tokens in one shared file) was chosen by the implementer and is still proposed; it needs the owner's acceptance.
 - Not themed on purpose: documents' own content (an HTML file previewed as HTML, images and their transparency checkerboard, the web pages of the in-app browser, the prototype and UI Studio previews of other people's designs), the fixed semantic colours of status dots and category colours of diagrams, and Recursive Insight's sandboxed page, which follows only dark or light.
+
+### Agent · 2026-11-08
+
+Delivery and evidence (2026-11-08): merged as PR #313 (main 64d3d4c), version 5.41.0; all ten PR checks passed on the final commit 4bec170.
+
+Automated evidence per acceptance criterion (no window is shown by any of these):
+- AC-1 picker, System and four presets, Paper light and the rest dark: theme-model-tests (choices, light/dark, System resolves to Classic Dark/Light), window-theme-tests (NSWindow.appearance per theme, picker renders in every theme). The Theme… command (Shift-Cmd-T) and the header button set the window's showsPicker; that wiring is verified by reading the code, not by driving the menu.
+- AC-2 immediate update of interface, editor, preview, discussion and terminal: window-theme-tests (rendered pixels follow a theme change at once), theme-web-tests (every appearance on the real pages, a change is a restyle with no reload).
+- AC-3 accent override, reset, independence of windows: window-theme-tests (an accent in one window does not change another), theme-web-tests (override and reset, two pages with two themes at once).
+- AC-4 restore and new-window start: window-session-tests (theme and accents survive a new process; an older session opens), window-theme-tests (a new window takes the last change with every accent; restoring is not remembered as a change).
+- AC-5 upgrade and fallback: theme-model-tests (legacy light, dark, system and absent become Classic; unreadable or wrong-typed settings fall back to Classic Dark).
+- AC-6 legibility and kept state: contrast of every text pair at least 4.5:1 in theme-model-tests and on rendered pages in theme-web-tests; open documents, scroll position and unsaved input survive twelve theme changes (theme-web-tests).
+What was not done, because the owner excluded it from this goal: no check in the installed application, no manual walk-through. The acceptance criteria are therefore left unticked for the owner's acceptance (implemented, not verified).
+
+Records: the sentence in plan I-3 that the palettes and font approach are unconfirmed is superseded by DEC-003. DEC-006 (the mechanism) is still proposed and needs the owner's decision. Existing failures on pristine origin/main, unrelated to this change: prototype-runtime-tests (2), code-architecture-tests (2), terminal-link-tests (1).
