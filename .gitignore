@@ -34,6 +34,9 @@ Package.resolved
 # DDE workspace data
 .dde/
 
+# MarkView's own cache of the project's discovered commands (rebuilt by the app on every scan)
+.markview/
+
 # VS Code
 .vscode/
 *.code-workspace
