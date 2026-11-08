@@ -85,7 +85,7 @@ window.make = function(opts) {
         { path: 'src/ui/old-panel.js', additions: 0, deletions: 60, ranges: [], deleted: true },
         { path: 'src/legacy/old.js', additions: 0, deletions: 40, ranges: [], deleted: true }];
     const payload = {
-        mode: opts.project ? undefined : 'pr', root: '/tmp/project', busy: false, filters: [], describing: [], outlining: [],
+        mode: opts.folder ? 'folder' : opts.project ? undefined : 'pr', root: '/tmp/project', busy: false, filters: [], describing: [], outlining: [],
         searchSummaries: {}, searchAnswers: {}, understandingAnswers: {}, edgeNotes: {}, codeSequenceDiagrams: [], codeSequenceInfo: [],
         automaticState: {}, automaticAnalysis: true,
         snapshot: { views: [{ id: 'modules', nodes: modules, edges: [] }, { id: 'logical', nodes: logical, edges: [{ source: 'l:f:src/ui/view.js', target: 'l:f:src/core/engine.js', kind: 'imports', weight: 1 }] }],
@@ -415,8 +415,39 @@ return JSON.stringify({ map: document.getElementById('arch-pr-map').hidden, date
     ai: !!document.querySelector('#arch-overlay optgroup[data-ai]') });
 """)
 let project = (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? [:]
-check(project["map"] as? Bool == true && project["date"] as? Bool == true && project["history"] as? Bool == true, "the project X-Ray has neither the map switch nor the date picker", text)
+check(project["map"] as? Bool == true && project["date"] as? Bool == false && project["history"] as? Bool == true,
+      "the project X-Ray has no map switch, and has the date button with its picker closed (BUG-110)", text)
 check(project["views"] as? Bool == false && project["ai"] as? Bool == true, "the project X-Ray keeps its view tabs and AI filters", text)
+
+// MARK: The date comparison from the project X-Ray (BUG-110): no pull request, no PR view first
+bridge.messages.removeAll()
+text = js("""
+window.showArchitecture(window.make({ project: true, noChange: true }));
+await window.settle(2);
+document.getElementById('arch-pr-date').click();
+await new Promise(r => setTimeout(r, 200));
+const opened = !document.getElementById('arch-history').hidden;
+window.showArchitecture(window.make({ project: true, noChange: true, history: { day: document.getElementById('arch-history-day').value, state: 'ready',
+    commits: [{ sha: 'd'.repeat(40), short: 'dddddddd', subject: 'Earlier work', author: 'Tester', time: 1790000000 }] } }));
+await new Promise(r => setTimeout(r, 300));
+const rows = document.querySelectorAll('.arch-history-row').length;
+if (rows) document.querySelector('.arch-history-row').click();
+await new Promise(r => setTimeout(r, 200));
+return JSON.stringify({ opened, rows, closed: document.getElementById('arch-history').hidden });
+""")
+let projectDate = (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? [:]
+check(projectDate["opened"] as? Bool == true && projectDate["rows"] as? Int == 1 && projectDate["closed"] as? Bool == true,
+      "the project X-Ray opens the date picker, lists the day's commits and closes it on a pick", text)
+check(bridge.sent("historyCommits").count >= 1, "the project X-Ray asks for the commits of the chosen day", "\(bridge.messages)")
+check(bridge.sent("compareWithCommit").map { $0["sha"] as? String } == [String(repeating: "d", count: 40)],
+      "a commit picked in the project X-Ray asks to compare with exactly that commit", "\(bridge.messages)")
+
+text = js("""
+window.showArchitecture(window.make({ project: true, folder: true, noChange: true }));
+await window.settle(2);
+return String(document.getElementById('arch-pr-date').hidden);
+""")
+check(text == "true", "a folder X-Ray has no date comparison (it has no comparison view to open)", text)
 
 print(failures == 0 ? "All X-Ray comparison web checks passed" : "\(failures) check(s) failed")
 exit(failures == 0 ? 0 : 1)

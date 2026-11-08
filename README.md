@@ -370,7 +370,7 @@ flowchart TB
     end
     subgraph Code["Code"]
         C1["Review changes<br/>(uncommitted)"]
-        C2["Observed file changes<br/>(side-by-side diff)"]
+        C2["Observed file changes<br/>(diff in a tab, explained on request)"]
         C3["Security review"]
         C4["Codebase Audit"]
     end
@@ -394,7 +394,7 @@ flowchart TB
 | **A document against the code** | **Docs ↔ code** terminal prompt; the documentation overlay in X-Ray flags documents older than the code they mention. |
 | **A passage** | Selection actions: challenge, find edge cases, find contradictions, explain, ask, find related documentation. |
 | **Uncommitted changes** | **Review changes** terminal prompt: bugs, edge cases, leftovers and missing tests with `file:line`. |
-| **Whatever changed on disk** | The **observed file changes** bar counts files added, modified or deleted since the project opened — by you, an agent or a build — and **Review** shows each as a side-by-side diff. |
+| **Whatever changed on disk** | The **observed file changes** bar counts files added, modified or deleted since the project opened — by you, an agent or a build — and **Review** opens a tab with each changed file as a list of changes — highlighted added and removed lines with their line numbers, where each change is and what it replaces — and **Explain changes** asks the project's assistant what each one does, why it was probably made and what it affects. |
 | **A pull request** | **Review PR…** prompt, or **PR X-Ray**: where the PR lands in the architecture, the diff, AI findings and impact, chat, approve or merge. A failed CI run offers **Explain Failure** and **Fix with AI**. |
 | **Security** | **Security review** prompt. |
 | **The whole codebase** | **Codebase Audit** (8–16 documents in `docs/generated-architecture/`), **Constructive Critic** (a review file plus a task list) and **Code Structure Map** in AI Tools. |

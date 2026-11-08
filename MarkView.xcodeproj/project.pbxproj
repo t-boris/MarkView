@@ -153,6 +153,7 @@
 		5A2CFFAE2DD498F851B8B3FE /* UIStudioBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEFD6DFD2725A8E5CA0B9E6B /* UIStudioBridge.swift */; };
 		5A61FA46DD9D7AD21D9D4EEF /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58148304B78246A455B450C /* TerminalView.swift */; };
 		5A7331CB270C34FF1EB66620 /* IssueSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ED15DDB619C352BEA2D90F4 /* IssueSync.swift */; };
+		5BB57E2F91B30007A94877C7 /* ChangeExplanation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5AB3B32AD80B0DC35219D3 /* ChangeExplanation.swift */; };
 		5BBA465181633BD39D541176 /* InsightModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5512D54B1337F5917699C7D0 /* InsightModels.swift */; };
 		5C987E1F79D333237A661FE4 /* ResearchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2B2061839C6FC000555491E /* ResearchViews.swift */; };
 		5CAE8E69834D69CFCD886C56 /* BugReportWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B9B7C71F9506E1F39D08A0F /* BugReportWriter.swift */; };
@@ -181,6 +182,7 @@
 		644D31913AC7071C24D50ABE /* markview-init.js in Resources */ = {isa = PBXBuildFile; fileRef = 83A467FF2FEC9862D7D5B972 /* markview-init.js */; };
 		64B4A8A6A3ABBCCE19B5CC79 /* WindowTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9373C4D827475F2C25EDED31 /* WindowTheme.swift */; };
 		655AEBF582AECF54E3EECC62 /* InsightArchiveExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75FC7940299CE6E834BFE230 /* InsightArchiveExporter.swift */; };
+		6569C3F5C2AFF962E4070489 /* TextDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B3E1F0C54027CD3A8565C4C /* TextDiff.swift */; };
 		6611DAB9EB812B4A045B9F5A /* ProjectToolRunner+Edit.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFEBD3D56EF661E1DF638D80 /* ProjectToolRunner+Edit.swift */; };
 		6620FB3FC9A787B047A9CA9D /* IssueLifecycleSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDDD2DE8F80A834F0FEA6CD3 /* IssueLifecycleSection.swift */; };
 		66A2E7B7F4FDF6FD2B44C822 /* ArchitectureModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6B0748CACE05B758D369F89 /* ArchitectureModel.swift */; };
@@ -288,6 +290,7 @@
 		A7CEF9D3F896F83A07ED97DD /* AppPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = F21484D9CD11D287345F6D43 /* AppPalette.swift */; };
 		AB32AC4AB441646866BB588B /* FilterSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A903B7EB574BDD8969788FE /* FilterSearch.swift */; };
 		AB772A1CF9E16E47D4B8E23B /* GitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5CB38E9CF1EB846033B0A8 /* GitView.swift */; };
+		ABAF5DAC540027464649560A /* ProjectChangeReviewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8930513F5E47FE846434F86D /* ProjectChangeReviewModel.swift */; };
 		ACC4EC4EED2064E5A42D8B93 /* ArchitectureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A4D926B6E77144DA360543F /* ArchitectureStore.swift */; };
 		AD14A1DE17208264B020F4DD /* UIStudioDataFix.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD11BE03C1B1516FA7E0C8E9 /* UIStudioDataFix.swift */; };
 		AD1A9D000AE91E8675089859 /* UIStudioEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83829D1752CE48AE3223142A /* UIStudioEvidence.swift */; };
@@ -587,6 +590,7 @@
 		58204F3C068030E1598BED42 /* BookPDFExportModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookPDFExportModel.swift; sourceTree = "<group>"; };
 		5854350E9786267B0E8656AF /* DefinitionOfDone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DefinitionOfDone.swift; sourceTree = "<group>"; };
 		5AA953CE3F790CC504854A3A /* UIStudioModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioModels.swift; sourceTree = "<group>"; };
+		5B3E1F0C54027CD3A8565C4C /* TextDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextDiff.swift; sourceTree = "<group>"; };
 		5B43997D8A629734399B2640 /* NewProjectSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProjectSheet.swift; sourceTree = "<group>"; };
 		5C41B9BB6F1B879525F97C0A /* RemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCommand.swift; sourceTree = "<group>"; };
 		5E240F8B955EB833FBFEF31A /* markview-insight-srcdoc.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-insight-srcdoc.js"; sourceTree = "<group>"; };
@@ -636,6 +640,7 @@
 		78E7E3873B311E1D57458AEB /* RemoteToolBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteToolBridge.swift; sourceTree = "<group>"; };
 		795FD366C1490B12B6E18DD4 /* markdown-it.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markdown-it.min.js"; sourceTree = "<group>"; };
 		7B32B9655FF8C1B4211E6028 /* PrototypeThemes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeThemes.swift; sourceTree = "<group>"; };
+		7B5AB3B32AD80B0DC35219D3 /* ChangeExplanation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeExplanation.swift; sourceTree = "<group>"; };
 		7D0CE8C153AC9E7F3B14145B /* PrototypeHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeHandoff.swift; sourceTree = "<group>"; };
 		7D11CCE605051BBC0566CA2D /* terminal.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = terminal.html; sourceTree = "<group>"; };
 		7D4807224B482E48E25EFFFA /* markview-diagram-viewer.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-diagram-viewer.js"; sourceTree = "<group>"; };
@@ -658,6 +663,7 @@
 		8617D6996AEA0B711F366A7C /* CLICompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletion.swift; sourceTree = "<group>"; };
 		8713CD727E78F36BD7A6CBBF /* UIStudioGraphQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioGraphQL.swift; sourceTree = "<group>"; };
 		872961C48C130402739DD233 /* UIStudioServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioServer.swift; sourceTree = "<group>"; };
+		8930513F5E47FE846434F86D /* ProjectChangeReviewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectChangeReviewModel.swift; sourceTree = "<group>"; };
 		895F4D266DDC908733BA5EBA /* IssueLifecycleContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueLifecycleContext.swift; sourceTree = "<group>"; };
 		89AF21E7EC037DF41CC973BB /* ProjectAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectAgentTools.swift; sourceTree = "<group>"; };
 		89E15210EC0B4B920554FD0D /* FeatureVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureVocabulary.swift; sourceTree = "<group>"; };
@@ -947,6 +953,7 @@
 				9C501ACCB7ED2B026E7B473E /* BugBatch.swift */,
 				4B9B7C71F9506E1F39D08A0F /* BugReportWriter.swift */,
 				FD9CDC3A061835FA482444D4 /* BugValidity.swift */,
+				7B5AB3B32AD80B0DC35219D3 /* ChangeExplanation.swift */,
 				BDD60B865C8AFD298FC5EB04 /* ClaudeSessionModel.swift */,
 				8617D6996AEA0B711F366A7C /* CLICompletion.swift */,
 				221F39018C2CA8AA7FA32473 /* CloudServices.swift */,
@@ -1041,6 +1048,7 @@
 				89AF21E7EC037DF41CC973BB /* ProjectAgentTools.swift */,
 				6CB25CF391C44897DD4AF564 /* ProjectBootstrap.swift */,
 				85C85E2BEE8759104FBAE2CE /* ProjectChangeReview.swift */,
+				8930513F5E47FE846434F86D /* ProjectChangeReviewModel.swift */,
 				D3E90FC78FD8B2778771A514 /* ProjectChangeWatcher.swift */,
 				BA8F968A66CC85F478E65280 /* ProjectColor.swift */,
 				2CD989BCFEEFA92D710964BA /* ProjectDraftStore.swift */,
@@ -1099,6 +1107,7 @@
 				8D10759E6114CC3E831EE66D /* TerminalChildProcess.swift */,
 				A440251497E5756568B77B87 /* TerminalLink.swift */,
 				E5547BF6AD940A3322F4D1A0 /* TerminalSession.swift */,
+				5B3E1F0C54027CD3A8565C4C /* TextDiff.swift */,
 				3C130B3890F584C0D4CCD2D4 /* UIStudioAgents.swift */,
 				AE30F452BE6F56F06FCC972E /* UIStudioAuthMock.swift */,
 				BEFD6DFD2725A8E5CA0B9E6B /* UIStudioBridge.swift */,
@@ -1635,6 +1644,7 @@
 				5CAE8E69834D69CFCD886C56 /* BugReportWriter.swift in Sources */,
 				DC55330FB0996F5C23062435 /* BugValidity.swift in Sources */,
 				83B0C087FC9FE19D379FA53E /* CLICompletion.swift in Sources */,
+				5BB57E2F91B30007A94877C7 /* ChangeExplanation.swift in Sources */,
 				279B4AA4056129EE40C5F2EB /* ClaudeSessionModel.swift in Sources */,
 				24A5F71CED74B803814EF7F6 /* CloudServices.swift in Sources */,
 				A5190AB848B0ADF17DF3D784 /* CloudServicesView.swift in Sources */,
@@ -1764,6 +1774,7 @@
 				1024E357E18DFF4E233DC275 /* ProjectAgentTools.swift in Sources */,
 				A24B49057B4B87E4278B429F /* ProjectBootstrap.swift in Sources */,
 				D40D607EDA753D4E0873C3A8 /* ProjectChangeReview.swift in Sources */,
+				ABAF5DAC540027464649560A /* ProjectChangeReviewModel.swift in Sources */,
 				415531DA77449F4A0EFBA98F /* ProjectChangeReviewView.swift in Sources */,
 				F282D1E659F36523BCB0F220 /* ProjectChangeWatcher.swift in Sources */,
 				F324179022E7E9D377890F80 /* ProjectColor.swift in Sources */,
@@ -1852,6 +1863,7 @@
 				60E3B9524CBA5ED7607671DD /* TerminalLink.swift in Sources */,
 				807ADE72FFAC137867E6C025 /* TerminalSession.swift in Sources */,
 				5A61FA46DD9D7AD21D9D4EEF /* TerminalView.swift in Sources */,
+				6569C3F5C2AFF962E4070489 /* TextDiff.swift in Sources */,
 				338234E5DEFD98BF198314CE /* ThemePickerView.swift in Sources */,
 				0785042AA6A1CE426EA201AD /* UIStudioAgents.swift in Sources */,
 				99C90D6D88A9F9AE4D8AF123 /* UIStudioAuthMock.swift in Sources */,
@@ -1945,7 +1957,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.45.0;
+				CURRENT_PROJECT_VERSION = 5.46.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1960,7 +1972,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.45.0;
+				MARKETING_VERSION = 5.46.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -2024,7 +2036,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.45.0;
+				CURRENT_PROJECT_VERSION = 5.46.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -2045,7 +2057,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.45.0;
+				MARKETING_VERSION = 5.46.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

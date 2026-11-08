@@ -261,6 +261,8 @@ enum TabKind {
     /// The project's Workflow: statuses, transitions and processes of features and bugs, edited graphically or as JSON
     /// (`WorkflowTabView`).
     case workflow
+    /// The review of the file changes MarkView observed on disk since the project opened (BUG-109).
+    case changeReview
     /// A GitHub Actions run or an issue, shown by `GitHubRunView` / `GitHubIssueView`.
     case github(GitHubItem)
     /// A web page (a local development server or any site), shown by `BrowserTabView`.
@@ -274,6 +276,13 @@ enum TabKind {
 
     /// Scope of the PR X-Ray tab: the project's X-Ray seen through one change.
     static let pullRequestScope = "#pr"
+
+    /// What the X-Ray page is told about the tab it draws: "pr" for the PR X-Ray, "folder" for the X-Ray of one folder
+    /// (it has no comparison view to open), nil for the project's X-Ray.
+    static func architectureMode(scope: String) -> String? {
+        if scope == pullRequestScope { return "pr" }
+        return scope.isEmpty ? nil : "folder"
+    }
 }
 
 /// What a GitHub tab shows, in which repository ("owner/name"); `title` is the tab's name.
@@ -333,6 +342,7 @@ struct OpenTab: Identifiable {
         if case .deployments = kind { return "Build & Deployment" }
         if case .discussions = kind { return "Discussions" }
         if case .workflow = kind { return "Workflow" }
+        if case .changeReview = kind { return "File changes" }
         if case .github(let item) = kind { return item.title }
         // The page title lives on the main actor; the tab bar shows it with `BrowserTabTitle`.
         if case .browser = kind { return "Browser" }

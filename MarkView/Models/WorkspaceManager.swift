@@ -1127,6 +1127,7 @@ class WorkspaceManager: ObservableObject {
             case .deployments: saved = .deployments
             case .discussions: saved = .discussions
             case .workflow: saved = .workflow
+            case .changeReview: saved = .changeReview
             case .data: saved = .data(tab.url)
             case .github(let item): saved = .github(item)
             case .architecture(let scope): saved = .architecture(scope)
@@ -1189,6 +1190,7 @@ class WorkspaceManager: ObservableObject {
             case .deployments: openDeployments()
             case .discussions: openDiscussions()
             case .workflow: openWorkflow()
+            case .changeReview: openChangeReview()
             case .image(let url), .pdf(let url), .data(let url), .archive(let url):
                 if url.isFileURL, fm.fileExists(atPath: url.path) { openFile(url) }
             case .github(let item): openGitHubTab(item)
@@ -1795,6 +1797,9 @@ class WorkspaceManager: ObservableObject {
             // Comparison by date: the commits of the calendar day chosen in the PR X-Ray ("YYYY-MM-DD").
             architecture.listHistory(day: payload["day"] as? String ?? "", root: root)
         case "compareWithCommit":
+            // The comparison with a date opens in the comparison view, like a branch comparison, from the project's X-Ray
+            // as well as from the PR X-Ray (BUG-110): it needs no pull request.
+            if scope.isEmpty { openXRayTab(scope: TabKind.pullRequestScope) }
             architecture.compareWithCommit(sha: payload["sha"] as? String ?? "", root: root, db: semanticDatabase)
         case "prFileDiff":
             architecture.showFileDiff(path: payload["path"] as? String ?? "")
@@ -4985,6 +4990,19 @@ class WorkspaceManager: ObservableObject {
         }
         var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-workflow"), content: "", originalContent: "")
         tab.kind = .workflow
+        layout.workspaceArea = .files
+        showCenter = true
+        tabsStore.appendTab(tab, activate: true)
+    }
+
+    /// The review of observed file changes, as a tab (BUG-109): a sheet could not be enlarged, a tab has the whole centre area.
+    func openChangeReview() {
+        guard let root = rootNode?.url else { return }
+        for index in openTabs.indices {
+            if case .changeReview = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
+        }
+        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-file-changes"), content: "", originalContent: "")
+        tab.kind = .changeReview
         layout.workspaceArea = .files
         showCenter = true
         tabsStore.appendTab(tab, activate: true)

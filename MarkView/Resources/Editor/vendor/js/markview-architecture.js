@@ -67,7 +67,8 @@
                 prMap: 'focused',   // PR X-Ray map: 'focused' (the parts the change touches) or 'full' (the whole X-Ray, changes marked)
                 prFull: null,       // the full map's view: the X-Ray's own view plus the files the change removes or adds
                 prExpandedFor: null, // change whose touched parts were opened on the full map
-                historyOpen: false, // the date picker of the PR X-Ray is shown
+                historyOpen: false, // the date picker is shown (project X-Ray and PR X-Ray)
+                flow: 'RIGHT',      // the direction the top level of the last connected graph was laid out in (BUG-111)
                 selected: null,
                 graphKey: null,     // view + snapshot version the canvas was built from
                 viewChosen: false,  // the user picked a view (no automatic fallback to Structure)
@@ -76,6 +77,7 @@
                 operations: null,   // project-root operations only; folder X-Rays receive none
             };
             let cy = null;
+            let flowToken = 0; // a layout that starts while a direction is still being chosen replaces it
             let libs = null;
 
             function post(action, fields) {
@@ -1191,37 +1193,79 @@
                     return { 'elk.algorithm': 'rectpacking', 'elk.aspectRatio': String(ratio), 'elk.spacing.nodeNode': 14,
                              'elk.padding': '[top=30,left=14,bottom=14,right=14]' };
                 };
-                const layered = {
-                    'elk.algorithm': 'layered', 'elk.direction': ui.view === 'code' && cy.nodes().every(function(n) { return n.data('kind') === 'layer' || n.data('kind') === 'externalGroup'; }) ? 'DOWN' : 'RIGHT',
-                    'elk.layered.spacing.nodeNodeBetweenLayers': 46, 'elk.spacing.nodeNode': 18,
-                    'elk.padding': '[top=30,left=14,bottom=14,right=14]',
-                    'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
-                    // Keep document order (sections, files) where edges allow it.
-                    'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+                const layeredFor = function(direction) {
+                    return {
+                        'elk.algorithm': 'layered', 'elk.direction': direction,
+                        'elk.layered.spacing.nodeNodeBetweenLayers': 46, 'elk.spacing.nodeNode': 18,
+                        'elk.padding': '[top=30,left=14,bottom=14,right=14]',
+                        'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+                        // Keep document order (sections, files) where edges allow it.
+                        'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+                    };
                 };
-                cy.layout({
-                    name: 'elk', fit: !fitTo && !keepView, padding: 28, animate: ui.view !== 'code' && count < 200, animationDuration: 420,
-                    nodeDimensionsIncludeLabels: false,
-                    elk: Object.assign({ 'elk.hierarchyHandling': 'SEPARATE_CHILDREN' },
-                        topSparse ? packed(Math.max(0.5, cy.width() / Math.max(1, cy.height()))) : layered),
-                    nodeLayoutOptions: function(node) {
-                        if (!node.isParent()) return {};
-                        return sparse(node.children()) ? packed(1.6) : layered;
-                    },
-                    stop: function() {
-                        cy.nodes('.appearing').animate({ style: { opacity: 1 } }, { duration: 350, complete: function() {
-                            cy.nodes('.appearing').removeClass('appearing').removeStyle('opacity');
-                        } });
-                        if (fitTo) {
-                            const target = cy.getElementById(fitTo);
-                            if (target.length) {
-                                const elements = target.union(target.descendants()).union(target.neighborhood());
-                                if (ui.view === 'code') cy.fit(elements, 40);
-                                else cy.animate({ fit: { eles: elements, padding: 40 }, duration: 260 });
+                const bands = ui.view === 'code' && cy.nodes().every(function(n) { return n.data('kind') === 'layer' || n.data('kind') === 'externalGroup'; });
+                // Boxes inside a box flow to the right, as they always did.
+                const layered = layeredFor(bands ? 'DOWN' : 'RIGHT');
+                // The top level of a connected graph flows to the right or downwards, whichever fills the canvas better (BUG-111):
+                // a chain of components laid out to the right is as wide as the chain is long and as high as one box, so on a
+                // canvas that is nearly as tall as it is wide the fit shrank it to a thin strip of unreadable labels.
+                const options = function(direction) {
+                    return {
+                        name: 'elk', nodeDimensionsIncludeLabels: false,
+                        elk: Object.assign({ 'elk.hierarchyHandling': 'SEPARATE_CHILDREN' },
+                            topSparse ? packed(Math.max(0.5, cy.width() / Math.max(1, cy.height()))) : direction ? layeredFor(direction) : layered),
+                        nodeLayoutOptions: function(node) {
+                            if (!node.isParent()) return {};
+                            return sparse(node.children()) ? packed(1.6) : layered;
+                        },
+                    };
+                };
+                const run = function(direction) {
+                    cy.layout(Object.assign(options(direction), {
+                        fit: !fitTo && !keepView, padding: 28, animate: ui.view !== 'code' && count < 200, animationDuration: 420,
+                        stop: function() {
+                            cy.nodes('.appearing').animate({ style: { opacity: 1 } }, { duration: 350, complete: function() {
+                                cy.nodes('.appearing').removeClass('appearing').removeStyle('opacity');
+                            } });
+                            if (fitTo) {
+                                const target = cy.getElementById(fitTo);
+                                if (target.length) {
+                                    const elements = target.union(target.descendants()).union(target.neighborhood());
+                                    if (ui.view === 'code') cy.fit(elements, 40);
+                                    else cy.animate({ fit: { eles: elements, padding: 40 }, duration: 260 });
+                                }
                             }
-                        }
-                    },
-                }).run();
+                        },
+                    })).run();
+                };
+                const choosing = !topSparse && !bands && ui.view !== 'code' && !fitTo && !keepView
+                    && cy.nodes().orphans().length > 2 && count <= 150;
+                if (!choosing) { run(bands ? undefined : ui.flow); return; }
+                const token = ++flowToken;
+                const width = cy.width(), height = cy.height();
+                // Each direction is tried on a copy of the graph that is never drawn; the one that can be shown larger wins.
+                const scaleOf = function(direction) {
+                    return new Promise(function(resolve) {
+                        let copy = null;
+                        try {
+                            copy = cytoscape({ headless: true, styleEnabled: true, style: cy.style().json(), elements: cy.elements().jsons() });
+                            const trial = copy.layout(Object.assign(options(direction), { fit: false, animate: false }));
+                            trial.one('layoutstop', function() {
+                                const box = copy.nodes().boundingBox({ includeLabels: false });
+                                copy.destroy();
+                                resolve(Math.min((width - 56) / Math.max(1, box.w), (height - 56) / Math.max(1, box.h)));
+                            });
+                            trial.run();
+                        } catch (e) { if (copy) copy.destroy(); resolve(0); }
+                    });
+                };
+                scaleOf('RIGHT').then(function(right) {
+                    return scaleOf('DOWN').then(function(down) { return down > right * 1.15 ? 'DOWN' : 'RIGHT'; });
+                }).then(function(direction) {
+                    if (token !== flowToken || !cy) return;
+                    ui.flow = direction;
+                    run(direction);
+                });
             }
 
             /** Message over the canvas when the chosen view does not exist yet. */
@@ -3125,7 +3169,9 @@
                 Array.prototype.forEach.call(el.prMap.querySelectorAll('[data-arch-pr-map]'), function(b) {
                     b.classList.toggle('on', b.getAttribute('data-arch-pr-map') === ui.prMap);
                 });
-                el.prDate.hidden = !prTab;
+                // Comparison with a date stands on its own (BUG-110): the project X-Ray offers it too, not only the PR X-Ray.
+                // A folder X-Ray has no comparison view to open, so it does not.
+                el.prDate.hidden = p.mode === 'folder';
                 el.hide.hidden = el.hide.hidden || prTab;
                 el.flagged.parentElement.hidden = el.flagged.parentElement.hidden || prTab;
                 el.prOpen.hidden = prTab;
@@ -3171,11 +3217,11 @@
                 renderHistory();
             }
 
-            /** The date picker of the PR X-Ray: a day first, then one of the commits made that day, to compare the
+            /** The date picker (project X-Ray and PR X-Ray): a day first, then one of the commits made that day, to compare the
              *  working copy with. A day without commits says so. */
             function renderHistory() {
                 const p = ui.payload || {};
-                const open = ui.historyOpen && p.mode === 'pr';
+                const open = ui.historyOpen && p.mode !== 'folder';
                 el.history.hidden = !open;
                 if (!open) { delete el.historyList.dataset.key; return; }
                 const list = el.historyList;

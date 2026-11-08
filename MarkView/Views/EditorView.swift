@@ -364,7 +364,7 @@ struct EditorView: NSViewRepresentable {
                 bridge.clearDocument(in: webView)
                 routeArchitecture(scope: scope, webView: webView)
                 return
-            case .terminal, .image, .pdf, .archive, .deployments, .discussions, .workflow, .github, .browser, .prototype, .uiStudio:
+            case .terminal, .image, .pdf, .archive, .deployments, .discussions, .workflow, .changeReview, .github, .browser, .prototype, .uiStudio:
                 // Drawn over the editor (TerminalTabView, ImageViewerView, GitHub views); it keeps its content.
                 return
             case .data:
@@ -505,7 +505,7 @@ struct EditorView: NSViewRepresentable {
                     .receive(on: DispatchQueue.main)
                     .sink { [weak self, weak webView, weak store] _ in
                         guard let self, let webView, let store else { return }
-                        self.bridge.showArchitecture(store.payloadJSON(mode: scope == TabKind.pullRequestScope ? "pr" : nil), in: webView)
+                        self.bridge.showArchitecture(store.payloadJSON(mode: TabKind.architectureMode(scope: scope)), in: webView)
                     }
                 // Analysis progress changes with every file the assistant reads: send it
                 // on its own, at most a few times a second.
@@ -525,7 +525,7 @@ struct EditorView: NSViewRepresentable {
                     content.cancel(); progress.cancel(); operationChanges?.cancel()
                 }
             } else {
-                bridge.showArchitecture(store.payloadJSON(mode: scope == TabKind.pullRequestScope ? "pr" : nil), in: webView)
+                bridge.showArchitecture(store.payloadJSON(mode: TabKind.architectureMode(scope: scope)), in: webView)
                 if let operations { bridge.setProjectOperations(operations.payloadJSON(), in: webView) }
             }
         }
