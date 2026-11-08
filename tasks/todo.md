@@ -4888,3 +4888,13 @@ automatic GitHub action. Branch + PR + merge + signed release (not main directly
 - Not exercised in the running app (compiled and reviewed only): the Settings editor, the variant picker, start by note, delivery confirmation, and the coordinator's save-with-replacements path. Gaps for Boris: no variant picker in the creation dialogs (REQ-005 criterion 1); DEC-026..031 are still proposed.
 - Suites that fail on a clean `origin/main` too and are not caused by this change: database-explorer and deployment-store (a missing `CloudServices.swift` in their file lists), terminal-link (one default-app check), code-architecture and prototype-runtime (WebKit layout checks).
 
+## Fix the failing suites (branch `fix/failing-test-suites`, 2026-11-08)
+Boris, after the feature-3 report: "first fix everything, then install locally" and "even if the errors were not in this session". So the five suites that failed on a clean `origin/main` are fixed too.
+- [x] 1. database-explorer, deployment-store: `CloudServices.swift` and `ProviderHints.swift` added to the compile lists (`DeploymentStore` depends on both since 4.35.0).
+- [x] 2. code-architecture: the X-Ray test expected the kind order of 4.65.14; the panel follows `ProjectOperation.primaryKindOrder` since `b1ce96c`. Test updated.
+- [x] 3. prototype-runtime: the harness used the persistent WebKit store, so the role chosen in the previous run leaked into the next one. Non-persistent store; run twice to prove it.
+- [x] 4. terminal-link: "every regular file is openable" (`18fb9da`) made the `.iso` case stale. The test now checks that the file opens in the app, and that a session without a file opener uses the default app.
+- [x] 5. Full run of all 129 scripts in `tools/tests`: 125 exit 0; `project-operation-discovery-tests.sh` is a zsh script (my runner used bash; run directly it passes) and three `*-live*` scripts are manual checks against the real CLI/relay and need arguments. No `FAIL` line in the log. Debug build succeeded.
+- [ ] 6. PR with the test-only changes (no app code, so no version bump, no release), checks, merge.
+- [ ] 7. Install the current release (5.43.0) on this Mac, detached, windows restored, after Boris's explicit request of this turn; check version, pid, environment, windows.
+

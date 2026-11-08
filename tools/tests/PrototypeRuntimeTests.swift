@@ -78,6 +78,8 @@ final class Page: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 _ = NSApplication.shared
 let page = Page()
 let configuration = WKWebViewConfiguration()
+// The runtime keeps the chosen role in localStorage; a persistent store would carry it into the next run.
+configuration.websiteDataStore = WKWebsiteDataStore.nonPersistent()
 configuration.setURLSchemeHandler(PrototypeSchemeHandler(root: site), forURLScheme: PrototypeSchemeHandler.scheme)
 configuration.userContentController.add(page, name: "mvError")
 configuration.userContentController.addUserScript(WKUserScript(source: listener, injectionTime: .atDocumentStart, forMainFrameOnly: true))
