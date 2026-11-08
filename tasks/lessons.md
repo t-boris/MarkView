@@ -1,5 +1,19 @@
 # Lessons
 
+## "Filters" means the visibility filters too, and a goal's CI step does not override a standing rule (Files views, 5.44.0)
+
+Boris, mid-turn: "Когда я говорил про фильтры, я еще имел ввиду, чтобы, например, отфильтровать gitignore ... или может быть hidden не показывать."
+- The spec's AC-3 listed hidden items, a name query and a category, but Boris's idea of "filters" also covered Git-ignored items. Before
+  building a filter set, list every way an item can be "noise" in a file browser (hidden, Git-ignored, build output, excluded folders,
+  unsupported types) and put the whole list into the plan so one answer settles it; record the extension as a requirement at once (REQ-001).
+- The goal template said "wait for CI" while the memory said "never wait for CI". When a template step and a standing rule conflict, ask once
+  and write the answer into the plan's header, not just into the chat.
+- A spec premise can be wrong about the code (F-001 assumed the list hid unopenable files; `FileType.isOpenable` is true for every regular
+  file). Grep the predicate before building on a spec sentence, then ask about the real behaviour.
+- `ViewThatFits` in an `HStack` next to a `Spacer`: prove the narrow-width behaviour with a mock of the container (`ImageRenderer` or an
+  offscreen `NSHostingView`, never a shown window) instead of reasoning about proposals; the mock showed the form degrading full, percent,
+  minimal, gauge with the neighbours' gap kept at 6pt.
+
 ## Every push starts a round of CI: batch pushes and add no workflow without asking (Boris, 2026-11-08, PR #313)
 
 Boris: "Почему так много CI запущено? ... Я же заплачу за каждый билд."
