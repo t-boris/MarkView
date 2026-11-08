@@ -1582,4 +1582,9 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
   shows the whole project: gate the shortcut on what the node is, not on which tab is open.
 - Checks that pass on the first run prove little: every new group here was shown failing on the old page (67 of the first 80 web checks) and
   under a targeted mutation of the new code (halo off, container lost, guard never reset, shared state, tap always opens, risk always wins).
+- A watchdog with a fixed total budget fails a healthy run on a slow machine. `research-map-web-tests` allowed 240 s for a suite that takes
+  about 55 s locally and 3-4 minutes on a CI runner; on #316 every check was `ok` and the job still failed with "TIMEOUT: no result after
+  240 s" (the same job had failed this way on other branches; a re-run passed). Watch progress instead of total time: stop after 120 s
+  without a reported check, with a generous cap (20 minutes) for the whole run. Show the old budget failing on a slow stand-in and both new
+  limits biting on a stuck run.
 
