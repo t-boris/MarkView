@@ -1588,3 +1588,13 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
   without a reported check, with a generous cap (20 minutes) for the whole run. Show the old budget failing on a slow stand-in and both new
   limits biting on a stuck run.
 
+## 2026-11-08 — BUG-107: two flexible SwiftUI siblings split the width equally
+
+- A list and a detail pane that are both flexible children of one `HStack` get the width in equal parts until one of them has a maximum. A `minWidth` and an
+  `idealWidth` on the list did not make it narrow: the list took half of the sheet and the two versions a quarter each. Bound the secondary pane
+  (`maxWidth`) and let the primary one take the rest; give a sheet an `idealWidth`/`idealHeight`, or it opens at its minimum.
+- A SwiftUI layout can be measured without a UI test target: host the shipping view in a borderless `NSWindow` far outside the displays (never ordered front), set the
+  content size, run the layout, and read the frames of the AppKit hosts (`ListCoreScrollView` for a `List`, `HostingScrollView` for a `ScrollView`). Compile the view as it
+  ships and stub only its model and environment inside the test file. Run the same checks against the old file (`git show origin/main:…`) to see the bug as numbers
+  that match the screenshot before changing the view.
+

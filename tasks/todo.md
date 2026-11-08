@@ -4835,3 +4835,19 @@ Not part of it: a check in a MarkView browser tab, a manual test checklist.
   that is opened as a box to show its parts keeps its `+added −removed` label but gets no halo; `listHistory` is not cancelled when the date
   is stepped quickly (stale answers are ignored). Criteria are not ticked: the installed app has not been used on a real repository yet.
 
+# BUG-107 — the Observed file changes comparison is too narrow (GitHub #315, 5.42.1) — 2026-11-08
+
+Request (Boris): "Сначала фиксни мне баг 107, а потом сделай релиз и установи мне локально." Branch `fix/BUG-107-review-comparison-width`, PR #318.
+
+- Cause: `ProjectChangeReviewSheet` put the file list (`List`, min 210 / ideal 260, no maximum) and the comparison pane in one `HStack`; both are flexible,
+  so SwiftUI split the width equally: the list took half of the sheet and Before and Current a quarter each (screenshot: list about 345 pt, each version about
+  170 pt of 698 pt). The sheet had only `minWidth: 680`, so it opened at that minimum.
+- Fix (`MarkView/Views/ProjectChangeReviewView.swift`): list `minWidth 180, idealWidth 220, maxWidth 260`; sheet `minWidth 760, idealWidth 1000, maxWidth ∞,
+  minHeight 440, idealHeight 640, maxHeight ∞`. The struct is no longer `private`, so the test can host it.
+- Evidence: `tools/tests/project-change-review-layout-tests.sh` hosts the shipping sheet in a borderless window far outside the display (never shown) and reads the
+  AppKit hosts of the list (`ListCoreScrollView`) and the two versions (`HostingScrollView`). Old sheet: 760 pt list 380 / Before 190 / Current 188 (49 %), 1300 pt list
+  650, versions 324 (49 %), opens at the minimum — 9 checks fail. Fixed sheet: 760 pt list 260 / versions 249 (65 %), opening size 1000 pt versions 369 (73 %),
+  1600 pt versions 669 (83 %). Debug build succeeds.
+- [x] Reproduce with a measurement, [x] fix, [x] build, [x] version 5.42.1, [ ] PR checks, [ ] merge, [ ] release and install, [ ] BUG-107 `fixed` after the release.
+- Not checked by hand in the installed app yet (added and modified files use the same layout; the test has a deleted and a modified file).
+

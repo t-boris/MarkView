@@ -2,12 +2,13 @@
 type: bug
 id: BUG-107
 title: Observed changes comparison is too narrow
-status: open
+status: fixing
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-08
 provenance: Created from the bug intake
 issue: "#315"
+updated: 2026-11-08
 ---
 
 # Observed changes comparison is too narrow
@@ -58,3 +59,11 @@ MarkView on macOS. The screenshot shows the Observed file changes sheet with a d
 ## Original description
 
 Look at attachment the Compare is too narrow - FIX
+
+## Resolution
+
+Cause: in ProjectChangeReviewSheet the file list (List with minWidth 210, idealWidth 260 and no upper bound) and the comparison pane were both flexible children of one HStack, so SwiftUI split the width equally: the list took half of the sheet and Before and Current a quarter each (the screenshot: list about 345 pt, each version about 170 pt of a 698 pt sheet). The sheet also had only a minimum width (680 pt) and no preferred size, so it opened at that minimum.
+
+Change (MarkView/Views/ProjectChangeReviewView.swift, version 5.42.1): the list is bounded (minWidth 180, idealWidth 220, maxWidth 260) so the comparison gets the rest of the width, and the sheet has a minimum of 760 x 440 pt, opens at 1000 x 640 pt and can be resized larger. The sheet struct is no longer private so the layout test can host it.
+
+Verification: tools/tests/project-change-review-layout-tests.sh hosts the shipping sheet off screen and measures it. The old sheet fails it (760 pt: list 380, Before 190, Current 188, comparison 49 %; 1300 pt: list 650, versions 324 each; opens at the minimum). The fixed sheet passes at 760 pt (list 260, versions 249 each, 65 %), at its opening size 1000 pt (list 260, versions 369 each, 73 %) and enlarged to 1600 pt (list 260, versions 669 each, 83 %). Debug build succeeds. Not checked by hand in the installed app: added and modified files use the same layout and are covered by the same measurement (two files are in the test).
