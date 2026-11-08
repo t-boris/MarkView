@@ -151,4 +151,29 @@ check(st.startingSettings().theme == .classicLight, "a record that names no know
 d.set(42, forKey: ThemeSettingsStore.lastChangedKey)
 check(st.startingSettings().theme == .classicLight, "a record of the wrong type is not used")
 
+// The web token file repeats the base colours of every appearance (editor, panel, text, accent); both sides must agree.
+let tokenFile = "MarkView/Resources/Editor/vendor/js/markview-themes.js"
+if let js = try? String(contentsOfFile: tokenFile, encoding: .utf8) {
+    let hex = "(#[0-9A-Fa-f]{6})"
+    let pattern = "'([a-z-]+)': \\{ base: \\{ bg: '\(hex)', panel: '\(hex)', text: '\(hex)', accent: '\(hex)' \\}"
+    let regex = try! NSRegularExpression(pattern: pattern)
+    var seen = Set<String>()
+    for match in regex.matches(in: js, range: NSRange(js.startIndex..., in: js)) {
+        func group(_ i: Int) -> String { String(js[Range(match.range(at: i), in: js)!]) }
+        let id = group(1)
+        guard let theme = AppTheme.allCases.first(where: { $0 != .system && $0.webID == id }) else {
+            check(false, "the web token file names an appearance the app does not know: \(id)"); continue
+        }
+        seen.insert(id)
+        let base = ThemePalette.webBase(theme)
+        check(ThemeColor(hex: group(2))?.rgb == base.bg.rgb, "\(id): editor background is the same in Swift and in the web tokens")
+        check(ThemeColor(hex: group(3))?.rgb == base.panel.rgb, "\(id): panel background is the same in Swift and in the web tokens")
+        check(ThemeColor(hex: group(4))?.rgb == base.text.rgb, "\(id): text is the same in Swift and in the web tokens")
+        check(ThemeColor(hex: group(5))?.rgb == base.accent.rgb, "\(id): accent is the same in Swift and in the web tokens")
+    }
+    check(seen == Set(AppTheme.allCases.filter { $0 != .system }.map(\.webID)), "the web token file has a base for every appearance (found \(seen.sorted()))")
+} else {
+    check(false, "the web token file can be read from the repository root: \(tokenFile)")
+}
+
 if failures == 0 { print("theme model checks passed") } else { print("\(failures) failure(s)"); exit(1) }

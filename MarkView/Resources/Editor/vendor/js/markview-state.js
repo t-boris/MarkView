@@ -3,7 +3,7 @@
 
         const state = {
             mode: 'source', // 'source' | 'preview' | 'structured' | 'structured-source' | 'insight'
-            theme: localStorage.getItem('markview-theme') || 'light',
+            theme: document.documentElement.getAttribute('data-theme') || 'dark', // 'dark' | 'light', the mode of the window theme
             markdown: '',
             headings: [],
             activeHeadingId: null,
@@ -96,7 +96,7 @@
 
         try {
             if (typeof mermaid !== 'undefined') {
-                mermaid.initialize({ startOnLoad: false, theme: state.theme === 'dark' ? 'dark' : 'default' });
+                mermaid.initialize(Object.assign({ startOnLoad: false }, MarkViewThemes.mermaid()));
             }
         } catch (e) {
             console.warn('Mermaid initialization failed:', e);

@@ -1305,8 +1305,8 @@
                 origSetStructured(content, fileType);
             };
             const origSetTheme = window.setTheme;
-            window.setTheme = function(theme) {
-                origSetTheme(theme);
-                if (viewer) viewer.setTheme(theme === 'dark');
+            window.setTheme = function(id, accent) {
+                origSetTheme(id, accent);
+                if (viewer) viewer.setTheme(isDark());
             };
         })();

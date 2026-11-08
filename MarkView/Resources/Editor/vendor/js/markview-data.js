@@ -22,7 +22,7 @@
     .dv-bar input[type=search] { width: 220px; }
     .dv-btn { background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; padding: 3px 8px; cursor: pointer; font: inherit; }
     .dv-btn:hover { border-color: var(--accent-primary); }
-    .dv-btn.on { background: var(--accent-primary); color: #fff; border-color: var(--accent-primary); }
+    .dv-btn.on { background: var(--accent-fill); color: var(--on-accent); border-color: var(--accent-fill); }
     .dv-btn:disabled { opacity: .5; cursor: default; }
     .dv-sql { display: none; padding: 6px 10px; border-bottom: 1px solid var(--border-color); gap: 6px; }
     .dv-sql.visible { display: flex; }

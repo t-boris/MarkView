@@ -17,8 +17,8 @@
             }
 
             const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
-            const bg = isDark ? '#1e1e1e' : '#ffffff';
-            const textColor = isDark ? '#d4d4d4' : '#1e1e1e';
+            const bg = MarkViewThemes.token('--bg-primary');
+            const textColor = MarkViewThemes.token('--text-primary');
             const linkColor = isDark ? '#555' : '#bbb';
             const tc = {service:'#4ec9b0',database:'#c586c0',api:'#569cd6',queue:'#ce9178',
                 system:'#9cdcfe',gateway:'#dcdcaa',cache:'#d7ba7d',pipeline:'#dcdcaa',
@@ -272,7 +272,7 @@
             // Filter + controls bar
             const filterBar = document.createElement('div');
             filterBar.style.cssText = 'position:absolute;top:4px;left:4px;display:flex;gap:3px;flex-wrap:wrap;max-width:80%;';
-            const btnStyle = `padding:2px 6px;border:1px solid #3c3c3c;background:${isDark?'#252526':'#f3f3f3'};color:${textColor};border-radius:3px;font-size:calc(9px * var(--ui-scale, 1));cursor:pointer;`;
+            const btnStyle = `padding:2px 6px;border:1px solid ${MarkViewThemes.token('--border-color')};background:${MarkViewThemes.token('--bg-secondary')};color:${textColor};border-radius:3px;font-size:calc(9px * var(--ui-scale, 1));cursor:pointer;`;
 
             // "All" filter
             filterBar.innerHTML = `<button style="${btnStyle}" onclick="filterCanvasGroup('${container.id}','all')">All</button>`;

@@ -71,21 +71,20 @@ const languages = {
   crystal: legacy(crystal),
 };
 
-function palette(dark) {
-  return dark
-    ? { bg: "#17191c", fg: "#d8dce1", gutter: "#6b727c", gutterBg: "#17191c", active: "#1f2327",
-        sel: "#2b3a5c", kw: "#c792ea", str: "#9ece6a", num: "#ff9e64", com: "#6b7480", fn: "#7aa2f7",
-        type: "#2ac3de", prop: "#a9b1d6", op: "#89ddff", tag: "#f7768e", marker: "#2c3035", match: "#3b4261" }
-    : { bg: "#fbfbfa", fg: "#1b1e23", gutter: "#9aa0a8", gutterBg: "#fbfbfa", active: "#f1f2f0",
-        sel: "#d6e0fb", kw: "#8a3fb8", str: "#2d7d46", num: "#b3541e", com: "#8a9099", fn: "#2b54d9",
-        type: "#0b7a8a", prop: "#3d4450", op: "#6b717b", tag: "#c2413b", marker: "#e3e5e1", match: "#e4e9fb" };
+// The colours are the window theme's custom properties (--cm-* in markview-themes.js), so a theme change repaints the
+// open code view without rebuilding its state.
+function palette() {
+  const v = (name) => `var(--cm-${name})`;
+  return { bg: v("bg"), fg: v("fg"), gutter: v("gutter"), gutterBg: v("bg"), active: v("active"), sel: v("sel"), kw: v("kw"),
+           str: v("str"), num: v("num"), com: v("com"), fn: v("fn"), type: v("type"), prop: v("prop"), op: v("op"),
+           tag: v("tag"), marker: v("marker"), match: v("match") };
 }
 
 function themeExtensions(dark) {
-  const c = palette(dark);
+  const c = palette();
   const base = EditorView.theme({
     "&": { color: c.fg, backgroundColor: c.bg, height: "100%", fontSize: "var(--mv-code-size, 13px)" },
-    ".cm-scroller": { fontFamily: "'SF Mono', ui-monospace, Menlo, monospace", lineHeight: "1.55" },
+    ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "1.55" },
     ".cm-content": { caretColor: c.fg, padding: "8px 0" },
     ".cm-gutters": { backgroundColor: c.gutterBg, color: c.gutter, border: "none" },
     ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: c.active },
@@ -94,7 +93,7 @@ function themeExtensions(dark) {
     ".cm-foldGutter .cm-gutterElement": { cursor: "pointer", color: c.gutter },
     ".cm-foldPlaceholder": { backgroundColor: c.active, border: "none", color: c.gutter },
     ".cm-panels": { backgroundColor: c.active, color: c.fg },
-    ".mv-flash": { backgroundColor: dark ? "#3a3218" : "#fbefd2" },
+    ".mv-flash": { backgroundColor: "var(--cm-flash)" },
   }, { dark });
   const style = HighlightStyle.define([
     { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword], color: c.kw },
