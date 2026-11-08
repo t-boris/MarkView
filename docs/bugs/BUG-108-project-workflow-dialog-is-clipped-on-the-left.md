@@ -28,7 +28,9 @@ updated: 2026-11-08
 
 ## Summary
 
-The Project Workflow editor was reported and shown clipped on the left, and the user says the clipping recurs after reopening. Validity against origin/main at 8d5d8d784d remains inconclusive: the presentation path and potentially conflicting width constraints remain, but no runtime check has established whether the defect still occurs. The separate request to relocate project configuration and add templates or custom processes is a feature request, not an established cause of clipping.
+The Project Workflow editor was reported and shown clipped on the left, and the user says the clipping recurs after reopening (found and fixed in 5.44.1: a transition label wider than the sheet).
+
+The same report also asks for more, and this is part of this bug, not a separate feature (Boris, 2026-11-08: if it should have been done and is not, it is a bug): the general Settings are only for templates, the configuration of one project must live inside that project, in MarkView itself; it is kept in the project's workflow file and shown visually (and as text); and it lets a project say which sequence of statuses each type of work follows (feature, quick feature, bug and more), made from a ready template or from scratch. The earlier validity-check wording that called this "a separate feature request" was wrong.
 
 ## Steps to reproduce
 
@@ -40,6 +42,8 @@ The Project Workflow editor was reported and shown clipped on the left, and the 
 ## Expected
 
 The complete workflow editor and its controls are visible or otherwise accessible and usable within the available window or screen area, including when space is limited.
+
+The workflow of a project is configured inside that project's window, in a Workflow tab, not in the general Settings (which keep only the templates). The tab shows the project's workflow file (.dde/workflow/workflow.json, an existing one is picked up as it is) both as a graphical editor and as source text. It covers the processes of every type of work: feature, quick feature, bug and custom ones, each made from a template or from scratch, with its own transitions and conditions.
 
 ## Actual
 

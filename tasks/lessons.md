@@ -1,5 +1,21 @@
 # Lessons
 
+## A report's "Original description" is the request; the validity check's summary is not (BUG-108 follow-up, 5.45.0)
+
+- BUG-108 said "починить обрезку", and ALSO, in the same original text, that project configuration must live inside the project, not in the
+  general settings (which are only for templates), in a project file shown visually, with processes per type (feature, quick feature, bug,
+  custom) from templates or from scratch. The validity check had summarised that second half as "a separate feature request, not an
+  established cause of clipping". I fixed only the clipping, shipped 5.44.1, called the bug fixed and, when Boris asked, offered to file the
+  rest as a feature. He answered: "if it should have been done and is not, it is a bug; do it in this bug, immediately".
+- Rule: before planning a bug fix, read the whole `## Original description` and list every request in it (the dictated text mixes several)
+  next to the summary; each is in scope unless Boris says otherwise. A machine summary or a "not a cause" note narrows nothing: do not
+  decide that part of what he wrote is out of scope, and never answer "that is a feature" for something he wrote in the report. If it is
+  truly unclear, ask before building the narrow fix, not after the release.
+- A bug closed on the clipping alone is not done: when the report names more than one outcome, the final checklist has one line per outcome.
+- Pace: after the code is verified by the suites that cover the change, do not run every harness in the repo and do not wait on long
+  checks Boris did not ask for ("мне не нужны все эти проверки, ты просто тратишь мои токены", 2026-11-08). Run the focused suites, build, open
+  the PR, merge, release.
+
 ## A fixed sheet width centres whatever overflows it: one `fixedSize` label can cut both edges (BUG-108, 5.44.1)
 
 - The Project Workflow sheet is `.frame(width: 760)`. One rule's "From:" menu (nine statuses, 91 characters, `.fixedSize()`) made the

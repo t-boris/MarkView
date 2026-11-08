@@ -1,3 +1,27 @@
+# BUG-108 follow-up: the workflow is configured inside the project, as processes (2026-11-08)
+
+Boris, after release 5.44.1: "did you only fix the window size? Where is it configured per project, inside MarkView, not in Settings? The
+project file?" The original report (Original description of BUG-108) asks for exactly this, not only for the clipped sheet; the validity
+check had filed it as a separate feature request, which was wrong. His decisions (no questions left): the file stays
+`.dde/workflow/workflow.json` and the existing one is picked up as it is; the editor is a separate tab of the project window with two
+views, graphical and source (JSON, YAML is not needed); processes are all of them (feature, quick feature, bug and custom ones), made from
+a template or from scratch; the general Settings keep only the templates.
+
+## Plan
+- [x] 1. Model: a rule variant is a process. `RuleVariant.rules` (optional, additive): the transitions the process follows; absent = the
+  transitions of its type. Statuses and roles stay shared by the type, so every list, filter and sync keeps working.
+- [x] 2. Engine: `decide`, `nextSteps`, the store's start/ending/regression targets, the item display, the reconciler and the sync view
+  read the transitions of the item's process.
+- [x] 3. Templates (`ProcessTemplate`): Quick feature, a copy of the standard transitions of a type, from scratch. Quick Feature intake
+  assigns the quick-feature process when the project has it.
+- [x] 4. Source view: the workflow as JSON text, parsed by the same decode + validate path as the file.
+- [x] 5. The Workflow tab of the project window (graphical + source), the header button and the menu; the sheet and its button in
+  Settings go, Settings keeps the templates.
+- [x] 6. Tests: model checks (own transitions in decide/nextSteps, validation, templates, file round trip, old file still decodes),
+  layout checks for the tab.
+- [ ] 7. Version 5.45.0, PR, merge, release; BUG-108 updated in MarkView (resolution, clarifications), GitHub #324 reopened with the
+  explanation and closed again after the release.
+
 # BUG-108: the Project Workflow editor is clipped on the left (GitHub #324) — session 2026-11-08
 
 Request (Boris, bug handoff): read BUG-108, reproduce, find the root cause, fix, verify; BQ-1 is answered ("always": the clipping recurs after
@@ -4975,3 +4999,8 @@ Boris, after the feature-3 report: "first fix everything, then install locally" 
 - [ ] 6. PR with the test-only changes (no app code, so no version bump, no release), checks, merge.
 - [ ] 7. Install the current release (5.43.0) on this Mac, detached, windows restored, after Boris's explicit request of this turn; check version, pid, environment, windows.
 
+
+### Review (BUG-108 follow-up, 2026-11-08)
+- Merged as PR #330 (5.45.0): Workflow tab in the project window, source/graphical views of `.dde/workflow/workflow.json`, processes with their own transitions, templates in Settings.
+- Verified: Debug build; `issue-lifecycle-tests.sh workflow|display|completion`; `workflow-editor-layout-tests.sh` (400/760/1100 pt, all pages and source). The full run of every harness was stopped on request.
+- Not hand-checked in the running app. No release yet: Boris asked for one common release after the next batch of bugs, so the BUG-108 report stays `fixed` and MarkView lists PR #330 as "not in a published release yet".
