@@ -55,6 +55,7 @@ questions:
 issue: "#329"
 branch: fix/xray-and-review-batch
 updated: 2026-11-08
+issues: []
 ---
 
 # Logical X-Ray graph is stretched and hard to read
