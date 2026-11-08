@@ -234,7 +234,7 @@ struct ContentView: View {
             guard workspaceManager.openTabs.indices.contains(index) else { return }
             let tab = workspaceManager.openTabs[index]
             switch tab.kind {
-            case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .terminal, .browser, .data, .prototype, .uiStudio:
+            case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .changeReview, .terminal, .browser, .data, .prototype, .uiStudio:
                 lastFilesTab = tab.id
                 workspaceManager.layout.workspaceArea = .files
                 if case .file = tab.kind,
@@ -655,6 +655,10 @@ struct ContentView: View {
                     } else if case .workflow = activeTab.kind {
                         WorkflowTabView(store: workspaceManager.features, editor: workspaceManager.workflowEditor)
                             .id(activeTab.id)
+                    } else if case .changeReview = activeTab.kind {
+                        ProjectChangeReviewTab(review: changeReview)
+                            .environmentObject(workspaceManager)
+                            .id(activeTab.id)
                     } else if case .deployments = activeTab.kind {
                         DeploymentsView(store: workspaceManager.deployments)
                             .environmentObject(workspaceManager)
@@ -702,7 +706,7 @@ struct ContentView: View {
                 workspaceManager.activeTabIndex = index
             } else if let index = workspaceManager.openTabs.firstIndex(where: { tab in
                 switch tab.kind {
-                case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .terminal, .browser, .prototype, .uiStudio: return true
+                case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .changeReview, .terminal, .browser, .prototype, .uiStudio: return true
                 default: return false
                 }
             }) {
