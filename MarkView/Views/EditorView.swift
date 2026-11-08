@@ -5,7 +5,7 @@ import Combine
 /// NSViewRepresentable wrapper for WKWebView markdown editor
 struct EditorView: NSViewRepresentable {
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var windowTheme: WindowTheme
     @Environment(\.appFontScale) private var fontScale
 
     func makeNSView(context: Context) -> WKWebView {
@@ -48,8 +48,7 @@ struct EditorView: NSViewRepresentable {
         if let htmlURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Editor") ??
            Bundle.main.url(forResource: "index", withExtension: "html"),
            var html = try? String(contentsOf: htmlURL, encoding: .utf8) {
-            let currentTheme = themeManager.effectiveTheme == .dark ? "dark" : "light"
-            html = html.replacingOccurrences(of: "data-theme=\"dark\"", with: "data-theme=\"\(currentTheme)\"")
+            html = html.replacingOccurrences(of: "data-preset=\"classic-dark\" data-theme=\"dark\"", with: windowTheme.htmlAttributes)
             context.coordinator.editorHTML = html
         }
 
@@ -72,7 +71,7 @@ struct EditorView: NSViewRepresentable {
         }
 
         // Update theme
-        coordinator.setTheme(themeManager.effectiveTheme)
+        coordinator.setTheme(windowTheme.webArguments)
         coordinator.setUIScale(fontScale)
     }
 
@@ -101,7 +100,7 @@ struct EditorView: NSViewRepresentable {
         private var currentCodeURL: URL?
         private var pendingCodeReveal: (url: URL, line: Int, endLine: Int?)?
         private var currentLineRevealURL: URL?
-        private var lastTheme: Theme?
+        private var lastTheme: String?
         private var isEditorReady = false
         private var pendingContent: String?
         private var pendingDocumentURL: URL?
@@ -753,10 +752,10 @@ struct EditorView: NSViewRepresentable {
             webView.evaluateJavaScript("window.mvSetUIScale && window.mvSetUIScale(\(Double(scale)))")
         }
 
-        func setTheme(_ theme: Theme) {
-            guard let webView = webView, isEditorReady, theme != lastTheme else { return }
-            lastTheme = theme
-            bridge.setTheme(theme, in: webView)
+        func setTheme(_ arguments: String) {
+            guard let webView = webView, isEditorReady, arguments != lastTheme else { return }
+            lastTheme = arguments
+            bridge.setTheme(arguments, in: webView)
         }
 
         func scrollToHeading(_ headingId: String) {
@@ -907,7 +906,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         Task { @MainActor in
             self.isEditorReady = true
             // Apply theme that was deferred while editor was loading
-            self.setTheme(self.parent.themeManager.effectiveTheme)
+            self.setTheme(self.parent.windowTheme.webArguments)
             self.setUIScale(self.uiScale)
             let idx = self.parent.workspaceManager.activeTabIndex
             if idx >= 0, idx < self.parent.workspaceManager.openTabs.count {
@@ -1074,5 +1073,5 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 #Preview {
     EditorView()
         .environmentObject(WorkspaceManager())
-        .environmentObject(ThemeManager())
+        .environmentObject(WindowTheme())
 }

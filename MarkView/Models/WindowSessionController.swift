@@ -106,13 +106,15 @@ final class WindowSessionController {
         window.delegate = closeDelegate
         // Native restoration otherwise races us and creates extra empty windows.
         window.isRestorable = false
-        window.appearance = NSAppearance(named: .darkAqua)
+        // The window takes its own saved theme before anything is drawn; a window without one keeps the starting theme.
+        if let saved = state?.theme { workspace.theme.restore(saved) }
+        workspace.theme.attach(window)
         if state?.frame == nil {
             window.setContentSize(NSSize(width: 1200, height: 800))
             window.center()
         }
 
-        workspace.objectWillChange.merge(with: workspace.layout.objectWillChange)
+        workspace.objectWillChange.merge(with: workspace.layout.objectWillChange, workspace.theme.objectWillChange)
             .sink { [weak self] _ in self?.scheduleSave() }
             .store(in: &entry.subscriptions)
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification,

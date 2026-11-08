@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 /// The browser's saved logins: look at them, delete them, bring them in from Chrome. Passwords
 /// themselves are never shown here; they stay in the login Keychain until a page is filled.
 struct BrowserPasswordsSheet: View {
+    @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     @State private var logins: [SavedLogin] = []
     @State private var never: [String] = []
@@ -22,13 +23,13 @@ struct BrowserPasswordsSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Saved Passwords").uiFont(size: 14, weight: .semibold)
             Text("Stored in your login Keychain. A password is read only when you fill a login form of that exact site.")
-                .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                .uiFont(size: 11).foregroundColor(palette.textDim)
             TextField("Filter by site or user", text: $filter).textFieldStyle(.roundedBorder)
             Group {
                 if shown.isEmpty {
                     Text(logins.isEmpty ? "Nothing saved yet. Sign in to a site here and MarkView offers to save the password."
                                         : "No match.")
-                        .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 11).foregroundColor(palette.textDim)
                         .frame(maxWidth: .infinity, minHeight: 120)
                 } else {
                     List {
@@ -37,7 +38,7 @@ struct BrowserPasswordsSheet: View {
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(login.host).uiFont(size: 12, weight: .medium)
                                     Text(login.username.isEmpty ? "(no user name)" : login.username)
-                                        .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                                        .uiFont(size: 11).foregroundColor(palette.textDim)
                                 }
                                 Spacer()
                                 Button { copyPassword(login) } label: { Image(systemName: "doc.on.doc") }
@@ -66,7 +67,7 @@ struct BrowserPasswordsSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Import from Google Chrome").uiFont(size: 12, weight: .semibold)
                 Text("Chrome keeps its passwords encrypted, so MarkView does not read them directly. In Chrome open Password Manager → Settings → Export passwords, then choose the file here.")
-                    .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Button("Open Chrome Password Settings") { openChrome() }
                         .disabled(Self.chromeURL == nil)
@@ -74,7 +75,7 @@ struct BrowserPasswordsSheet: View {
                 }
             }
             if let message {
-                Text(message).uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                Text(message).uiFont(size: 11).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 Spacer()

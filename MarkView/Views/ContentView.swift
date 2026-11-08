@@ -161,7 +161,6 @@ private struct RightPanelWidthKeeper: NSViewRepresentable {
 }
 
 struct ContentView: View {
-    @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.appFontScale) private var appFontScale
     @Environment(\.openWindow) private var openWindow
     var windowSessionID = UUID()
@@ -186,7 +185,13 @@ struct ContentView: View {
     @AppStorage(BrowserControlServer.agentToolsKey(.antigravity)) private var browserToolsAntigravity = true
 
     var body: some View {
-        let _ = themeToken // force re-render of entire tree on theme change
+        WindowThemeHost(theme: workspaceManager.theme) { windowContent }
+    }
+
+    /// The palette of this window, for the parts of this view that draw with it (its children read it from the environment).
+    private var palette: AppPalette { workspaceManager.theme.palette }
+
+    private var windowContent: some View {
         VStack(spacing: 0) {
             workspaceHeader
             if let projectKey { ProjectColorBand(color: projectColors.color(forKey: projectKey)) }
@@ -222,9 +227,6 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .exportPDFRequested)) { _ in
             exportPDF()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .themeDidChange)) { _ in
-            workspaceManager.themeVersion += 1
         }
         .onChange(of: workspaceManager.activeTabIndex) { index in
             guard workspaceManager.openTabs.indices.contains(index) else { return }
@@ -291,7 +293,7 @@ struct ContentView: View {
         .sheet(isPresented: $workspaceManager.showGlobalSearch) {
             SharedSearchView()
                 .environmentObject(workspaceManager)
-                .environmentObject(themeManager)
+                .windowThemed(workspaceManager.theme)
         }
         .sheet(isPresented: Binding(
             get: { workspaceManager.projectOperations?.panelVisible ?? false },
@@ -345,7 +347,8 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openInActiveWindow)) { _ in
             drainPendingOpens(trigger: "request")
         }
-        .onChange(of: hostWindow) { _ in
+        .onChange(of: hostWindow) { window in
+            if let window { workspaceManager.theme.attach(window) }
             updateWindowIdentity()
             attachWindowSession()
         }
@@ -387,10 +390,10 @@ struct ContentView: View {
                     }
                     .uiFont(size: 12, weight: .semibold)
                     .fixedSize()
-                    .foregroundColor(workspaceManager.terminalVisible && !workspaceManager.showTOC ? VSDark.blue : VSDark.text)
+                    .foregroundColor(workspaceManager.terminalVisible && !workspaceManager.showTOC ? palette.blue : palette.text)
                     .padding(.horizontal, 9)
                     .frame(height: controlWidth)
-                    .background(workspaceManager.terminalVisible && !workspaceManager.showTOC ? VSDark.bgActive : Color.clear)
+                    .background(workspaceManager.terminalVisible && !workspaceManager.showTOC ? palette.bgActive : Color.clear)
                     .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
@@ -418,7 +421,7 @@ struct ContentView: View {
                         if !MarkViewApp.version.isEmpty {
                             Text("MarkView v\(MarkViewApp.version)")
                                 .uiFont(size: 10, weight: .medium)
-                                .foregroundColor(VSDark.text)
+                                .foregroundColor(palette.text)
                                 .lineLimit(1)
                         }
                     }
@@ -429,7 +432,7 @@ struct ContentView: View {
                 .padding(.horizontal, 12)
                 .frame(width: compact ? min(230, geometry.size.width * 0.26) : min(300, geometry.size.width * 0.3),
                        height: controlWidth, alignment: .leading)
-                .background(VSDark.bgActive)
+                .background(palette.bgActive)
                 .cornerRadius(7)
                 Spacer(minLength: 4)
                 AgentActivityChip(monitor: workspaceManager.agentActivity, workspaceManager: workspaceManager, compact: compact)
@@ -471,7 +474,7 @@ struct ContentView: View {
                         Button("Open X-Ray") { workspaceManager.openArchitecture() }
                             .disabled(workspaceManager.rootNode == nil)
                         AIToolsMenu(workspaceManager: workspaceManager)
-                        Button("Toggle Theme") { themeManager.toggleTheme() }
+                        Button("Theme…") { workspaceManager.theme.showsPicker = true }
                         Button("DDE Settings…") { DDESettingsWindow.show(workspace: workspaceManager) }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -480,12 +483,13 @@ struct ContentView: View {
                     .menuIndicator(.hidden)
                     .help("More window actions")
                     .accessibilityLabel("More window actions")
+                    .themePicker(workspaceManager.theme)
                 } else {
                     AIToolsMenu(workspaceManager: workspaceManager)
-                    headerButton(themeManager.effectiveTheme == .dark ? "sun.max" : "moon",
-                                 help: "Light / dark theme", width: controlWidth) {
-                        themeManager.toggleTheme()
+                    headerButton("paintpalette", help: "Theme (⇧⌘T)", width: controlWidth) {
+                        workspaceManager.theme.showsPicker.toggle()
                     }
+                    .themePicker(workspaceManager.theme)
                 }
             }
             .padding(.leading, 12)
@@ -493,13 +497,13 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(height: min(70, 44 * max(1, appFontScale)))
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
         .overlay(alignment: .bottom) { Divider() }
     }
 
     private var headerDivider: some View {
         Rectangle()
-            .fill(VSDark.border)
+            .fill(palette.border)
             .frame(width: 1, height: 22 * min(1.5, max(1, appFontScale)))
             .padding(.horizontal, 3)
     }
@@ -509,9 +513,9 @@ struct ContentView: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .uiFont(size: 14)
-                .foregroundColor(selected ? VSDark.blue : VSDark.text)
+                .foregroundColor(selected ? palette.blue : palette.text)
                 .frame(width: width, height: width)
-                .background(selected ? VSDark.bgActive : Color.clear)
+                .background(selected ? palette.bgActive : Color.clear)
                 .cornerRadius(6)
                 .contentShape(Rectangle())
         }
@@ -594,7 +598,7 @@ struct ContentView: View {
             TabBarView().environmentObject(workspaceManager)
             filesCenter
         }
-        .background(VSDark.bg)
+        .background(palette.bg)
     }
 
     private var filesCenter: some View {
@@ -610,7 +614,6 @@ struct ContentView: View {
                 ZStack {
                     EditorView()
                         .environmentObject(workspaceManager)
-                        .environmentObject(themeManager)
                     let activeTab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
                     if case .terminal(let id) = activeTab.kind,
                        let session = workspaceManager.terminalSession(id) {
@@ -757,7 +760,6 @@ struct ContentView: View {
         if isFolder(url) { workspaceManager.openFolder(url) } else { workspaceManager.openFile(url) }
     }
 
-    private var themeToken: Int { workspaceManager.themeVersion }
     private var graphCreatorSheetBinding: Binding<Bool> {
         Binding(
             get: { workspaceManager.pendingGraphCreatorType != nil },
@@ -777,11 +779,11 @@ struct ContentView: View {
         VStack(spacing: 14) {
             Image(systemName: "doc.richtext")
                 .uiFont(size: 36)
-                .foregroundColor(VSDark.blue)
+                .foregroundColor(palette.blue)
 
             Text(workspaceManager.rootNode == nil ? "Open a Project" : "No File Open")
                 .uiFont(size: 20, weight: .semibold)
-                .foregroundColor(VSDark.textBright)
+                .foregroundColor(palette.textBright)
 
             if workspaceManager.rootNode != nil {
                 // A folder is open but no document yet.
@@ -811,7 +813,7 @@ struct ContentView: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 120 * min(appFontScale, 1.5)), spacing: 8)], spacing: 8) {
                     Button("Open Folder...") { openFolder() }
                         .buttonStyle(.borderedProminent)
-                        .tint(VSDark.blue)
+                        .tint(palette.blue)
                     Button("Open File...") { openFile() }
                         .buttonStyle(.bordered)
                     // Start a Project from Scratch (REQ-001): no folder needed.
@@ -841,7 +843,7 @@ struct ContentView: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(VSDark.bg)
+        .background(palette.bg)
     }
 
     // MARK: - Actions
@@ -903,6 +905,7 @@ struct ContentView: View {
 /// A recent folder on the start screen: click opens it; the hover "×" or the context menu
 /// removes it from the list.
 private struct RecentProjectRow: View {
+    @Environment(\.palette) private var palette
     let path: String
     let onOpen: () -> Void
     let onRemove: () -> Void
@@ -917,7 +920,7 @@ private struct RecentProjectRow: View {
             .help(path)
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundColor(.secondary)
+                    .foregroundColor(palette.textDim)
             }
             .buttonStyle(.plain)
             .help("Remove from Recent Projects")
@@ -947,7 +950,6 @@ private struct WindowAccessor: NSViewRepresentable {
 
 #Preview {
     ContentView()
-        .environmentObject(ThemeManager())
         .environmentObject(WorkspaceManager())
 }
 

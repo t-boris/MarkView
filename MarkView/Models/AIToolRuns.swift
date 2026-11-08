@@ -69,6 +69,7 @@ final class AIToolJobs: ObservableObject {
 }
 
 struct AIToolJobsBanner: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var jobs: AIToolJobs
 
     var body: some View {
@@ -79,23 +80,23 @@ struct AIToolJobsBanner: View {
                     case .running:
                         ProgressView().controlSize(.small)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(job.title).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
-                            Text(job.stage).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                            Text(job.title).uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
+                            Text(job.stage).uiFont(size: 10).foregroundColor(palette.textDim)
                         }
                         Button("Stop") { jobs.cancel(job.id) }.buttonStyle(.bordered).controlSize(.small)
                     case .failed(let message):
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundColor(VSDark.orange)
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundColor(palette.orange)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("\(job.title) failed").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
-                            Text(message).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(3)
+                            Text("\(job.title) failed").uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
+                            Text(message).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(3)
                         }
                         Button("Dismiss") { jobs.dismiss(job.id) }.buttonStyle(.bordered).controlSize(.small)
                     }
                 }
                 .padding(10)
                 .frame(maxWidth: 420, alignment: .leading)
-                .background(VSDark.bg.opacity(0.97))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(VSDark.textDim.opacity(0.4)))
+                .background(palette.bg.opacity(0.97))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.textDim.opacity(0.4)))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }

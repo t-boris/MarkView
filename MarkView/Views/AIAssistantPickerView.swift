@@ -7,6 +7,7 @@ import SwiftUI
 /// a project (a single file, the welcome screen) it edits the defaults, which projects that have not
 /// chosen their own follow.
 struct AIAssistantPickerView: View {
+    @Environment(\.palette) private var palette
     /// The project whose choice is edited; nil edits the defaults.
     let project: URL?
 
@@ -69,7 +70,7 @@ struct AIAssistantPickerView: View {
             }
 
             Text("Applies from the next message. Switching assistant starts a new session.")
-                .uiFont(size: 9).foregroundColor(.secondary)
+                .uiFont(size: 9).foregroundColor(palette.textDim)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in refresh += 1 }
@@ -89,12 +90,12 @@ struct AIAssistantPickerView: View {
                         if !option.id.isEmpty && option.id != option.name {
                             Text(option.id)
                                 .uiFont(size: 9, design: .monospaced)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(palette.textDim)
                         }
                     }
                     if !option.detail.isEmpty {
                         Text(option.detail)
-                            .uiFont(size: 9).foregroundColor(.secondary)
+                            .uiFont(size: 9).foregroundColor(palette.textDim)
                             .lineLimit(2)
                     }
                 }

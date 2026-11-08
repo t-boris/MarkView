@@ -213,7 +213,6 @@ enum DDEIndexerRunner {
 
 struct MarkViewApp: App {
     @NSApplicationDelegateAdaptor(MarkViewAppDelegate.self) private var appDelegate
-    @StateObject private var themeManager = ThemeManager()
     @FocusedValue(\.workspaceManager) private var activeWorkspace
     @FocusedValue(\.workspaceHasFolder) private var activeWorkspaceHasFolder
 
@@ -228,12 +227,10 @@ struct MarkViewApp: App {
         Self.debugLogStatic("MarkViewApp body evaluated")
         return WindowGroup(id: WindowSessionController.sceneID, for: UUID.self) { id in
             ContentView(windowSessionID: id.wrappedValue)
-                .environmentObject(themeManager)
                 .appFontScaled()
                 .frame(minWidth: 900, minHeight: 600)
                 .onAppear {
                     appDelegate.log("ContentView onAppear START")
-                    NSApp.appearance = NSAppearance(named: .darkAqua)
                     // Handle files/folders opened via Finder Services
                     appDelegate.onOpenURLs = { urls in
                         appDelegate.log("onOpenURLs callback fired with \(urls.count) URLs")
@@ -330,8 +327,8 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut("k", modifiers: [.command, .shift])
 
-                Button("Toggle Theme") {
-                    themeManager.toggleTheme()
+                Button("Theme…") {
+                    activeWorkspace?.theme.showsPicker = true
                 }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
 
@@ -541,13 +538,16 @@ enum DDESettingsWindow {
 
     /// Show `workspace`'s settings: opened from another window, the content is rebuilt for it.
     private static func bind(_ window: NSWindow, to workspace: WorkspaceManager) {
+        shownWorkspace?.theme.detach(window)
         shownWorkspace = workspace
         let size = window.contentLayoutRect.size
         let hosting = NSHostingView(
             rootView: DDESettingsView()
                 .environmentObject(workspace)
                 .appFontScaled()
+                .windowThemed(workspace.theme)
         )
+        workspace.theme.attach(window)
         // The window owns its dimensions; the scroll view follows the available viewport.
         hosting.sizingOptions = []
         window.contentView = hosting
@@ -558,7 +558,6 @@ enum DDESettingsWindow {
 // MARK: - Notification Names
 extension Notification.Name {
     static let exportPDFRequested = Notification.Name("exportPDFRequested")
-    static let themeDidChange = Notification.Name("ThemeDidChange")
     static let openInActiveWindow = Notification.Name("openInActiveWindow")
     static let showFolderPicker = Notification.Name("showFolderPicker")
     static let performPDFExport = Notification.Name("PerformPDFExport")

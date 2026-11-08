@@ -5,6 +5,7 @@ import WebKit
 /// A browser tab in the centre: navigation, address field, "Save as Markdown" into the
 /// project, and the Preview Web App states shown until the app's page is up.
 struct BrowserTabView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @ObservedObject var session: BrowserSession
     @State private var address = ""
@@ -19,20 +20,20 @@ struct BrowserTabView: View {
             toolbar
             if session.isLoading {
                 GeometryReader { geometry in
-                    Rectangle().fill(VSDark.blue)
+                    Rectangle().fill(palette.blue)
                         .frame(width: geometry.size.width * max(0.05, session.progress), height: 2)
                 }
                 .frame(height: 2)
             } else {
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
             }
             BrowserAgentBar(session: session)
             if let prompt = session.passwordPrompt { passwordPromptBar(prompt) }
             if let offer = session.fillOffer, session.passwordPrompt == nil { fillOfferBar(offer) }
             if let download = session.download { downloadBanner(download) }
             if let saved { savedBanner(saved) }
-            if session.isPicking { noticeBar("Click an element to send it to the AI — Esc cancels", symbol: "cursorarrow.rays", color: VSDark.blue) }
-            if let notice = session.pickNotice { noticeBar(notice, symbol: "checkmark.circle.fill", color: VSDark.green, dismiss: true) }
+            if session.isPicking { noticeBar("Click an element to send it to the AI — Esc cancels", symbol: "cursorarrow.rays", color: palette.blue) }
+            if let notice = session.pickNotice { noticeBar(notice, symbol: "checkmark.circle.fill", color: palette.green, dismiss: true) }
             ZStack {
                 BrowserWebViewRepresentable(session: session)
                 if let preview = session.preview {
@@ -44,7 +45,7 @@ struct BrowserTabView: View {
                 }
             }
         }
-        .background(VSDark.bg)
+        .background(palette.bg)
         .onAppear {
             address = session.url?.absoluteString ?? ""
             if session.url == nil && session.preview == nil { addressFocused = true }
@@ -80,7 +81,7 @@ struct BrowserTabView: View {
                     .keyboardShortcut("r", modifiers: .command)
             }
             HStack(spacing: 5) {
-                Image(systemName: lockSymbol).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Image(systemName: lockSymbol).uiFont(size: 10).foregroundColor(palette.textDim)
                 TextField("Address, localhost:5173, or search", text: $address)
                     .textFieldStyle(.plain)
                     .uiFont(size: 11, design: .monospaced)
@@ -93,13 +94,13 @@ struct BrowserTabView: View {
             }
             .padding(.horizontal, 8)
             .frame(height: 22)
-            .background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bg))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(addressFocused ? VSDark.blue : VSDark.border, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 5).fill(palette.bg))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(addressFocused ? palette.blue : palette.border, lineWidth: 1))
             Button {
                 if session.isPicking { session.cancelPick() } else { Task { await session.pickElement() } }
             } label: {
                 Image(systemName: "cursorarrow.rays").uiFont(size: 12)
-                    .foregroundColor(session.isPicking ? VSDark.blue : VSDark.text)
+                    .foregroundColor(session.isPicking ? palette.blue : palette.text)
             }
             .buttonStyle(.plain)
             .disabled(session.url == nil)
@@ -134,7 +135,7 @@ struct BrowserTabView: View {
             Button { renameTab() } label: {
                 Text(session.agentName).uiFont(size: 10, weight: .semibold, design: .monospaced)
                     .padding(.horizontal, 5).padding(.vertical, 2)
-                    .background(VSDark.bgActive).cornerRadius(4)
+                    .background(palette.bgActive).cornerRadius(4)
             }
             .buttonStyle(.plain)
             .help("This tab's name for agents (\"use tab \(session.agentName)\") — click to rename, e.g. Jira")
@@ -143,7 +144,7 @@ struct BrowserTabView: View {
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private var lockSymbol: String {
@@ -181,7 +182,7 @@ struct BrowserTabView: View {
                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol).uiFont(size: 12)
-                .foregroundColor(disabled ? VSDark.textDim.opacity(0.5) : VSDark.text)
+                .foregroundColor(disabled ? palette.textDim.opacity(0.5) : palette.text)
                 .frame(width: 22, height: 22)
                 .contentShape(Rectangle())
         }
@@ -195,9 +196,9 @@ struct BrowserTabView: View {
 
     private func passwordPromptBar(_ prompt: PasswordPrompt) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "key.fill").foregroundColor(VSDark.blue)
+            Image(systemName: "key.fill").foregroundColor(palette.blue)
             Text(prompt.isUpdate ? "Update the saved password for \(label(prompt))?" : "Save the password for \(label(prompt))?")
-                .uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(1).truncationMode(.middle)
+                .uiFont(size: 11).foregroundColor(palette.text).lineLimit(1).truncationMode(.middle)
             Spacer()
             Button(prompt.isUpdate ? "Update" : "Save") { session.savePasswordPrompt() }
             Button("Not now") { session.dismissPasswordPrompt() }
@@ -205,7 +206,7 @@ struct BrowserTabView: View {
         }
         .controlSize(.small)
         .padding(.horizontal, 10).padding(.vertical, 4)
-        .background(VSDark.blue.opacity(0.12))
+        .background(palette.blue.opacity(0.12))
     }
 
     private func label(_ prompt: PasswordPrompt) -> String {
@@ -214,8 +215,8 @@ struct BrowserTabView: View {
 
     private func fillOfferBar(_ offer: PasswordFillOffer) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "key.fill").foregroundColor(VSDark.blue)
-            Text("A saved login for \(offer.host) is available.").uiFont(size: 11).foregroundColor(VSDark.text)
+            Image(systemName: "key.fill").foregroundColor(palette.blue)
+            Text("A saved login for \(offer.host) is available.").uiFont(size: 11).foregroundColor(palette.text)
             Spacer()
             if offer.usernames.count > 1 {
                 Menu("Fill…") {
@@ -230,18 +231,18 @@ struct BrowserTabView: View {
         }
         .controlSize(.small)
         .padding(.horizontal, 10).padding(.vertical, 4)
-        .background(VSDark.blue.opacity(0.12))
+        .background(palette.blue.opacity(0.12))
     }
 
     private func noticeBar(_ text: String, symbol: String, color: Color, dismiss: Bool = false) -> some View {
         HStack(spacing: 8) {
             Image(systemName: symbol).foregroundColor(color)
-            Text(text).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(2)
+            Text(text).uiFont(size: 11).foregroundColor(palette.text).lineLimit(2)
             Spacer()
             if dismiss { Button { session.pickNotice = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
         }
         .padding(.horizontal, 10).padding(.vertical, 4)
-        .background(VSDark.bgActive)
+        .background(palette.bgActive)
     }
 
     private func downloadBanner(_ download: BrowserDownload) -> some View {
@@ -249,18 +250,18 @@ struct BrowserTabView: View {
             switch download {
             case .running(let name):
                 ProgressView().controlSize(.small)
-                Text("Downloading \(name)…").uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(1).truncationMode(.middle)
+                Text("Downloading \(name)…").uiFont(size: 11).foregroundColor(palette.text).lineLimit(1).truncationMode(.middle)
                 Spacer()
             case .finished(let url):
-                Image(systemName: "arrow.down.circle.fill").foregroundColor(VSDark.green)
-                Text("Downloaded \(url.lastPathComponent)").uiFont(size: 11).foregroundColor(VSDark.text)
+                Image(systemName: "arrow.down.circle.fill").foregroundColor(palette.green)
+                Text("Downloaded \(url.lastPathComponent)").uiFont(size: 11).foregroundColor(palette.text)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer()
                 Button("Open") { NSWorkspace.shared.open(url); session.download = nil }
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
             case .failed(let message):
-                Image(systemName: "exclamationmark.triangle.fill").foregroundColor(VSDark.orange)
-                Text(message).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(2)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundColor(palette.orange)
+                Text(message).uiFont(size: 11).foregroundColor(palette.text).lineLimit(2)
                 Spacer()
             }
             if case .running = download {} else {
@@ -269,7 +270,7 @@ struct BrowserTabView: View {
         }
         .controlSize(.small)
         .padding(.horizontal, 10).padding(.vertical, 4)
-        .background(VSDark.bgActive)
+        .background(palette.bgActive)
     }
 
     // MARK: - Saved banner
@@ -286,8 +287,8 @@ struct BrowserTabView: View {
 
     private func savedBanner(_ url: URL) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "checkmark.circle.fill").foregroundColor(VSDark.green)
-            Text("Saved \(relativePath(url))").uiFont(size: 11).foregroundColor(VSDark.text)
+            Image(systemName: "checkmark.circle.fill").foregroundColor(palette.green)
+            Text("Saved \(relativePath(url))").uiFont(size: 11).foregroundColor(palette.text)
                 .lineLimit(1).truncationMode(.middle)
             Spacer()
             Button("Open") {
@@ -299,7 +300,7 @@ struct BrowserTabView: View {
         }
         .controlSize(.small)
         .padding(.horizontal, 10).padding(.vertical, 4)
-        .background(VSDark.bgActive)
+        .background(palette.bgActive)
     }
 
     private func relativePath(_ url: URL) -> String {
@@ -317,7 +318,7 @@ struct BrowserTabView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
-        .background(VSDark.bg)
+        .background(palette.bg)
     }
 
     @ViewBuilder
@@ -325,17 +326,17 @@ struct BrowserTabView: View {
         switch state {
         case .searching:
             ProgressView().controlSize(.small)
-            Text("Looking for the project's web app…").uiFont(size: 12).foregroundColor(VSDark.textDim)
+            Text("Looking for the project's web app…").uiFont(size: 12).foregroundColor(palette.textDim)
         case .choose(let targets):
-            Image(systemName: "macwindow.on.rectangle").uiFont(size: 26).foregroundColor(VSDark.textDim)
-            Text("Which app should be previewed?").uiFont(size: 13, weight: .semibold).foregroundColor(VSDark.text)
+            Image(systemName: "macwindow.on.rectangle").uiFont(size: 26).foregroundColor(palette.textDim)
+            Text("Which app should be previewed?").uiFont(size: 13, weight: .semibold).foregroundColor(palette.text)
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(targets, id: \.folder) { target in
                     Button { session.startWebApp?(target) } label: {
                         HStack {
                             Text(target.label).uiFont(size: 12, weight: .medium)
                             Spacer(minLength: 16)
-                            Text(target.command).uiFont(size: 11, design: .monospaced).foregroundColor(VSDark.textDim)
+                            Text(target.command).uiFont(size: 11, design: .monospaced).foregroundColor(palette.textDim)
                         }
                         .frame(minWidth: 320)
                     }
@@ -344,43 +345,43 @@ struct BrowserTabView: View {
         case .starting(let target, let started):
             ProgressView().controlSize(.small)
             Text(started ? "Starting \(target.label)…" : "Checking \(target.label)…")
-                .uiFont(size: 13, weight: .semibold).foregroundColor(VSDark.text)
+                .uiFont(size: 13, weight: .semibold).foregroundColor(palette.text)
             Text(started
                  ? "`\(target.command)` runs in a terminal tab. The app opens here as soon as the server answers."
                  : "Looking for a running server on port \(target.ports.map(String.init).joined(separator: ", ")).")
-                .uiFont(size: 11).foregroundColor(VSDark.textDim).multilineTextAlignment(.center)
+                .uiFont(size: 11).foregroundColor(palette.textDim).multilineTextAlignment(.center)
             if target.isElectron {
                 Text("An Electron app: only its web part runs here, Electron itself is not started.")
-                    .uiFont(size: 11).foregroundColor(VSDark.textDim).multilineTextAlignment(.center)
+                    .uiFont(size: 11).foregroundColor(palette.textDim).multilineTextAlignment(.center)
             }
             if started { Button("Show Terminal") { session.showTerminal?() } }
         case .timedOut(let target):
-            Image(systemName: "exclamationmark.triangle").uiFont(size: 24).foregroundColor(VSDark.orange)
-            Text("\(target.label) did not answer yet").uiFont(size: 13, weight: .semibold).foregroundColor(VSDark.text)
+            Image(systemName: "exclamationmark.triangle").uiFont(size: 24).foregroundColor(palette.orange)
+            Text("\(target.label) did not answer yet").uiFont(size: 13, weight: .semibold).foregroundColor(palette.text)
             Text("Check the dev server's terminal for errors, or type its address above.")
-                .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                .uiFont(size: 11).foregroundColor(palette.textDim)
             HStack {
                 Button("Show Terminal") { session.showTerminal?() }
                 Button("Try Again") { session.startWebApp?(target) }
             }
         case .portInUse(let target, let port):
-            Image(systemName: "exclamationmark.triangle").uiFont(size: 24).foregroundColor(VSDark.orange)
-            Text("Port \(port) is already in use").uiFont(size: 13, weight: .semibold).foregroundColor(VSDark.text)
+            Image(systemName: "exclamationmark.triangle").uiFont(size: 24).foregroundColor(palette.orange)
+            Text("Port \(port) is already in use").uiFont(size: 13, weight: .semibold).foregroundColor(palette.text)
             Text("Stop the other server or choose a free port, then try again.")
-                .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                .uiFont(size: 11).foregroundColor(palette.textDim)
             Button("Try Again") { session.startWebApp?(target) }
         case .noApp:
-            Image(systemName: "globe").uiFont(size: 26).foregroundColor(VSDark.textDim)
-            Text("No web app found in this project").uiFont(size: 13, weight: .semibold).foregroundColor(VSDark.text)
+            Image(systemName: "globe").uiFont(size: 26).foregroundColor(palette.textDim)
+            Text("No web app found in this project").uiFont(size: 13, weight: .semibold).foregroundColor(palette.text)
             Text("No supported web app was found. Add .markview/preview.json with its command and port,\nor type the address of your server above, e.g. localhost:3000.")
-                .uiFont(size: 11).foregroundColor(VSDark.textDim).multilineTextAlignment(.center)
+                .uiFont(size: 11).foregroundColor(palette.textDim).multilineTextAlignment(.center)
         }
     }
 
     @ViewBuilder
     private func errorContent(_ error: String) -> some View {
-        Image(systemName: "wifi.exclamationmark").uiFont(size: 24).foregroundColor(VSDark.orange)
-        Text(error).uiFont(size: 12).foregroundColor(VSDark.text).multilineTextAlignment(.center)
+        Image(systemName: "wifi.exclamationmark").uiFont(size: 24).foregroundColor(palette.orange)
+        Text(error).uiFont(size: 12).foregroundColor(palette.text).multilineTextAlignment(.center)
         HStack {
             Button("Retry") { session.reload() }
             if session.previewTerminalID != nil { Button("Show Terminal") { session.showTerminal?() } }
@@ -389,10 +390,10 @@ struct BrowserTabView: View {
 
     @ViewBuilder
     private var emptyContent: some View {
-        Image(systemName: "globe").uiFont(size: 26).foregroundColor(VSDark.textDim)
-        Text("Type an address above").uiFont(size: 13, weight: .semibold).foregroundColor(VSDark.text)
+        Image(systemName: "globe").uiFont(size: 26).foregroundColor(palette.textDim)
+        Text("Type an address above").uiFont(size: 13, weight: .semibold).foregroundColor(palette.text)
         Text("localhost:5173 or any site. Selected text or the whole page can be saved as Markdown into the project.")
-            .uiFont(size: 11).foregroundColor(VSDark.textDim).multilineTextAlignment(.center)
+            .uiFont(size: 11).foregroundColor(palette.textDim).multilineTextAlignment(.center)
         if workspaceManager.rootNode != nil {
             Button("Preview Web App") { workspaceManager.previewWebApp() }
         }
@@ -429,6 +430,7 @@ private struct BrowserWebViewRepresentable: NSViewRepresentable {
 
 /// The tab bar's title of a browser tab, following the page title.
 struct BrowserTabTitle: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: BrowserSession
 
     var body: some View {
@@ -437,7 +439,7 @@ struct BrowserTabTitle: View {
             Text(session.agentName)
                 .uiFont(size: 9, weight: .semibold, design: .monospaced)
                 .padding(.horizontal, 3)
-                .background(session.agentStopped ? VSDark.orange.opacity(0.25) : VSDark.bgActive)
+                .background(session.agentStopped ? palette.orange.opacity(0.25) : palette.bgActive)
                 .cornerRadius(3)
             Text(session.displayTitle)
         }
@@ -446,15 +448,16 @@ struct BrowserTabTitle: View {
 
 /// While an agent drives the tab (or the user stopped agents): who, and Stop / Allow.
 struct BrowserAgentBar: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: BrowserSession
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 5)) { context in
             if session.agentStopped {
-                bar(icon: "hand.raised.fill", text: "Agents are stopped for tab \(session.agentName).", color: VSDark.orange,
+                bar(icon: "hand.raised.fill", text: "Agents are stopped for tab \(session.agentName).", color: palette.orange,
                     button: "Allow") { session.agentStopped = false }
             } else if let last = session.agentLastUsed, context.date.timeIntervalSince(last) < 120 {
-                bar(icon: "sparkles", text: "An agent is using this tab (\(session.agentName)).", color: VSDark.blue,
+                bar(icon: "sparkles", text: "An agent is using this tab (\(session.agentName)).", color: palette.blue,
                     button: "Stop") { session.agentStopped = true }
             }
         }
@@ -463,7 +466,7 @@ struct BrowserAgentBar: View {
     private func bar(icon: String, text: String, color: Color, button: String, action: @escaping () -> Void) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon).uiFont(size: 10).foregroundColor(color)
-            Text(text).uiFont(size: 11).foregroundColor(VSDark.text)
+            Text(text).uiFont(size: 11).foregroundColor(palette.text)
             Spacer()
             Button(button, action: action).controlSize(.small)
         }
@@ -475,6 +478,7 @@ struct BrowserAgentBar: View {
 /// "Save Page": a Markdown document of the selection or the page, or a PDF of the page; which folder
 /// of the project, and the file name.
 struct SavePageMarkdownSheet: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: BrowserSession
     @State var mode: PageCapture.Mode
     @State var format: PageFormat
@@ -546,7 +550,7 @@ struct SavePageMarkdownSheet: View {
                     ProgressView().controlSize(.small).frame(maxWidth: .infinity, minHeight: 160)
                 } else if format == .pdf {
                     Text("A PDF of the whole page as it is shown now, in A4 pages.")
-                        .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 11).foregroundColor(palette.textDim)
                         .frame(maxWidth: .infinity, minHeight: 160)
                 } else if let capture, !capture.markdown.isEmpty {
                     ScrollView {
@@ -557,19 +561,19 @@ struct SavePageMarkdownSheet: View {
                             .padding(8)
                     }
                     .frame(height: 220)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bg))
+                    .background(RoundedRectangle(cornerRadius: 5).fill(palette.bg))
                 } else {
                     Text(mode == .selection ? "Nothing is selected on the page. Select text first, or save the whole page."
                                             : "The page has no readable content yet.")
-                        .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 11).foregroundColor(palette.textDim)
                         .frame(maxWidth: .infinity, minHeight: 160)
                 }
             }
             if let error {
-                Text(error).uiFont(size: 11).foregroundColor(VSDark.red)
+                Text(error).uiFont(size: 11).foregroundColor(palette.red)
             }
             HStack {
-                if let capture, format == .markdown { Text("\(capture.markdown.count) characters").uiFont(size: 10).foregroundColor(VSDark.textDim) }
+                if let capture, format == .markdown { Text("\(capture.markdown.count) characters").uiFont(size: 10).foregroundColor(palette.textDim) }
                 if saving { ProgressView().controlSize(.small) }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)

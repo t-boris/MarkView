@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Deployments: the places the project runs, and how each one is doing.
 struct DeploymentsView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @ObservedObject var store: DeploymentStore
     @State private var editing: DeploymentEnvironment?
@@ -10,11 +11,11 @@ struct DeploymentsView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar.frame(width: 214)
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             VStack(spacing: 0) {
                 if let operations = workspaceManager.projectOperations {
                     BuildDeploymentOperationBar(operations: operations, scan: scan)
-                    Divider().background(VSDark.border)
+                    Divider().background(palette.border)
                 }
                 Group {
                 if let id = store.selected, let env = store.environment(id) {
@@ -27,7 +28,7 @@ struct DeploymentsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background(VSDark.bg)
+        .background(palette.bg)
         .sheet(item: $editing) { env in EnvironmentEditor(store: store, original: env, isNew: false) { editing = nil } }
         .sheet(isPresented: $adding) {
             EnvironmentEditor(store: store, original: DeploymentEnvironment(id: "", name: "", kind: .ssh), isNew: true) { adding = false }
@@ -49,21 +50,21 @@ struct DeploymentsView: View {
     private var sidebar: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Text("ENVIRONMENTS").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.textDim)
+                Text("ENVIRONMENTS").uiFont(size: 10, weight: .semibold).foregroundColor(palette.textDim)
                 Spacer()
                 Button { adding = true } label: { Image(systemName: "plus") }.help("Add an environment by hand")
                 Button { store.refreshAll() } label: { Image(systemName: "arrow.clockwise") }.help("Look at every environment again")
                     .disabled(store.environments.isEmpty)
             }
-            .buttonStyle(.plain).foregroundColor(VSDark.textDim).padding(.horizontal, 10).padding(.vertical, 8)
-            Divider().background(VSDark.border)
+            .buttonStyle(.plain).foregroundColor(palette.textDim).padding(.horizontal, 10).padding(.vertical, 8)
+            Divider().background(palette.border)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(store.environments) { env in row(env) }
                     suggestionsSection
                 }
             }
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             HStack(spacing: 6) {
                 Toggle("Refresh every 30 s", isOn: $store.autoRefresh).toggleStyle(.checkbox).uiFont(size: 10)
                 Spacer()
@@ -74,7 +75,7 @@ struct DeploymentsView: View {
             .buttonStyle(.bordered).controlSize(.small).padding(.horizontal, 10).padding(.bottom, 10)
             .help("The assistant reads the code, docs and GitHub setup, asks what it cannot find out, and proposes environments")
         }
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private func row(_ env: DeploymentEnvironment) -> some View {
@@ -83,14 +84,14 @@ struct DeploymentsView: View {
             HStack(spacing: 8) {
                 Circle().fill(color(state)).frame(width: 9, height: 9)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(env.name).uiFont(size: 12, weight: .medium).foregroundColor(VSDark.text).lineLimit(1)
-                    Text(subtitle(env)).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1)
+                    Text(env.name).uiFont(size: 12, weight: .medium).foregroundColor(palette.text).lineLimit(1)
+                    Text(subtitle(env)).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 if state?.phase == .loading { ProgressView().controlSize(.small).scaleEffect(0.6) }
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(store.selected == env.id ? VSDark.bgActive : Color.clear)
+            .background(store.selected == env.id ? palette.bgActive : Color.clear)
             .contentShape(Rectangle())
         }.buttonStyle(.plain)
     }
@@ -104,33 +105,33 @@ struct DeploymentsView: View {
     }
 
     private func color(_ state: DeploymentStore.State?) -> Color {
-        guard let state else { return VSDark.textDim.opacity(0.5) }
-        if state.phase == .failed { return VSDark.red }
-        guard let snap = state.snapshot else { return state.phase == .loaded ? VSDark.green : VSDark.textDim.opacity(0.5) }
-        switch snap.health { case .ok: return VSDark.green; case .warning: return VSDark.orange; case .critical: return VSDark.red }
+        guard let state else { return palette.textDim.opacity(0.5) }
+        if state.phase == .failed { return palette.red }
+        guard let snap = state.snapshot else { return state.phase == .loaded ? palette.green : palette.textDim.opacity(0.5) }
+        switch snap.health { case .ok: return palette.green; case .warning: return palette.orange; case .critical: return palette.red }
     }
 
     @ViewBuilder private var suggestionsSection: some View {
         HStack {
-            Text("FOUND IN THE PROJECT").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+            Text("FOUND IN THE PROJECT").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
             Spacer()
             if store.scanning { ProgressView().controlSize(.small).scaleEffect(0.6) }
-            else { Button("Scan again") { scan() }.buttonStyle(.plain).uiFont(size: 9).foregroundColor(VSDark.blue) }
+            else { Button("Scan again") { scan() }.buttonStyle(.plain).uiFont(size: 9).foregroundColor(palette.blue) }
         }.padding(.horizontal, 10).padding(.top, 12).padding(.bottom, 4)
         if store.suggestions.isEmpty && !store.scanning {
             Text("Nothing found in the workflows, platform files, docs and ~/.ssh/config. Add one by hand, or ask the assistant.")
-                .uiFont(size: 10).foregroundColor(VSDark.textDim).padding(.horizontal, 10)
+                .uiFont(size: 10).foregroundColor(palette.textDim).padding(.horizontal, 10)
         }
         ForEach(store.suggestions) { s in
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text(s.name).uiFont(size: 11, weight: .medium).foregroundColor(VSDark.text).lineLimit(1)
-                    Text(s.kind == .cloud ? s.provider : s.host).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1)
+                    Text(s.name).uiFont(size: 11, weight: .medium).foregroundColor(palette.text).lineLimit(1)
+                    Text(s.kind == .cloud ? s.provider : s.host).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1)
                     Spacer()
                     Button("Add") { store.accept(s) }.buttonStyle(.bordered).controlSize(.mini)
                 }
-                ForEach(s.evidence.prefix(2), id: \.self) { Text($0).uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1).truncationMode(.middle) }
-                ForEach(s.missing, id: \.self) { Text($0).uiFont(size: 9).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true) }
+                ForEach(s.evidence.prefix(2), id: \.self) { Text($0).uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1).truncationMode(.middle) }
+                ForEach(s.missing, id: \.self) { Text($0).uiFont(size: 9).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true) }
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
         }
@@ -138,10 +139,10 @@ struct DeploymentsView: View {
 
     private var emptyState: some View {
         VStack(spacing: 10) {
-            Image(systemName: "server.rack").uiFont(size: 30).foregroundColor(VSDark.textDim)
-            Text("Where does this project run?").uiFont(size: 14, weight: .semibold).foregroundColor(VSDark.text)
+            Image(systemName: "server.rack").uiFont(size: 30).foregroundColor(palette.textDim)
+            Text("Where does this project run?").uiFont(size: 14, weight: .semibold).foregroundColor(palette.text)
             Text("Add a server (over SSH), this Mac, or a cloud service. MarkView looks at CPU, memory, disks, services, containers and logs, read-only. Anything that changes something asks you first.")
-                .uiFont(size: 11).foregroundColor(VSDark.textDim).multilineTextAlignment(.center).frame(maxWidth: 420)
+                .uiFont(size: 11).foregroundColor(palette.textDim).multilineTextAlignment(.center).frame(maxWidth: 420)
             HStack {
                 Button("Add an environment") { adding = true }.buttonStyle(.borderedProminent)
                 Button("Ask AI to find where it runs") { workspaceManager.analyzeDeploymentsWithAI() }
@@ -152,6 +153,7 @@ struct DeploymentsView: View {
 
 
 private struct BuildDeploymentOperationBar: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var operations: ProjectOperationsStore
     let scan: () -> Void
     @State private var showAllOperations = false
@@ -159,10 +161,10 @@ private struct BuildDeploymentOperationBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("BUILD & DEPLOYMENT COMMANDS").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.textDim)
+                Text("BUILD & DEPLOYMENT COMMANDS").uiFont(size: 10, weight: .semibold).foregroundColor(palette.textDim)
                 Spacer()
                 if let phase = operations.discoveryPhase {
-                    Text("Scanning · " + phase).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    Text("Scanning · " + phase).uiFont(size: 10).foregroundColor(palette.textDim)
                     ProgressView().controlSize(.small)
                     Button("Cancel") { operations.cancelDiscovery() }
                 } else {
@@ -171,15 +173,15 @@ private struct BuildDeploymentOperationBar: View {
                 Button("Add") { operations.edit(id: nil) }.disabled(operations.readOnly)
             }
             if let error = operations.fileError ?? operations.message {
-                Text(error).uiFont(size: 10).foregroundColor(VSDark.orange).textSelection(.enabled)
+                Text(error).uiFont(size: 10).foregroundColor(palette.orange).textSelection(.enabled)
             }
             if operations.sourcesChanged {
-                Text("Project sources changed. Scan again to update commands.").uiFont(size: 10).foregroundColor(VSDark.orange)
+                Text("Project sources changed. Scan again to update commands.").uiFont(size: 10).foregroundColor(palette.orange)
             }
             let primary = operations.primaryOperations
             if primary.isEmpty && operations.discoveryPhase == nil {
                 Text("Scan the project to find build, test, run, clean and deployment commands.")
-                    .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 10).foregroundColor(palette.textDim)
             }
             ScrollView(.horizontal) {
                 HStack(spacing: 6) {
@@ -198,11 +200,11 @@ private struct BuildDeploymentOperationBar: View {
                             let items = operations.operations.filter { $0.kind == kind }
                                 .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
                             if !items.isEmpty {
-                                Text(kind.capitalized).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.textDim)
+                                Text(kind.capitalized).uiFont(size: 10, weight: .semibold).foregroundColor(palette.textDim)
                                 ForEach(items) { operation in
                                     HStack {
                                         operationButton(operation, store: operations)
-                                        Text(operation.command).uiFont(size: 10).foregroundColor(VSDark.textDim).textSelection(.enabled)
+                                        Text(operation.command).uiFont(size: 10).foregroundColor(palette.textDim).textSelection(.enabled)
                                         Spacer()
                                         Button("Edit") { operations.edit(id: operation.id) }.disabled(operations.readOnly)
                                     }
@@ -213,7 +215,7 @@ private struct BuildDeploymentOperationBar: View {
                 }.frame(maxHeight: 220)
             }
             if let report = operations.discoveryReport {
-                Text(report.message).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Text(report.message).uiFont(size: 10).foregroundColor(palette.textDim)
                 ForEach(Array(report.proposals.enumerated()), id: \.offset) { index, proposal in
                     HStack {
                         Text("Proposal: \(proposal.label) · \(proposal.command)").uiFont(size: 10).textSelection(.enabled)
@@ -223,7 +225,7 @@ private struct BuildDeploymentOperationBar: View {
                 }
                 ForEach(Array(report.notDetermined.enumerated()), id: \.offset) { index, item in
                     HStack {
-                        Text("\(item.label): \(item.reason)").uiFont(size: 10).foregroundColor(VSDark.orange)
+                        Text("\(item.label): \(item.reason)").uiFont(size: 10).foregroundColor(palette.orange)
                         Button("Add manually") { operations.addUnknown(index: index) }
                     }
                 }
@@ -249,6 +251,7 @@ private struct BuildDeploymentOperationBar: View {
 // MARK: - Detail
 
 private struct EnvironmentDetail: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @ObservedObject var store: DeploymentStore
     let env: DeploymentEnvironment
@@ -291,24 +294,24 @@ private struct EnvironmentDetail: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(env.name).uiFont(size: 18, weight: .semibold).foregroundColor(VSDark.text).lineLimit(1)
+                Text(env.name).uiFont(size: 18, weight: .semibold).foregroundColor(palette.text).lineLimit(1)
                 if let snap = state.snapshot, snap.os != "cloud" { healthBadge(snap) }
                 Spacer(minLength: 0)
             }
             Text(env.kind == .ssh ? "\(env.destination):\(env.port)" : env.kind == .local ? "This Mac" : env.provider)
-                .uiFont(size: 11, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1)
+                .uiFont(size: 11, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1)
             HStack(spacing: 8) {
                 Button { Task { await store.refresh(env.id) } } label: { Label("Refresh", systemImage: "arrow.clockwise") }.disabled(state.phase == .loading)
                 Button("Edit", action: edit)
                 if state.phase == .loading { ProgressView().controlSize(.small) }
-                if let updated = state.updated { Text("looked at \(updated.formatted(date: .omitted, time: .standard))").uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1) }
+                if let updated = state.updated { Text("looked at \(updated.formatted(date: .omitted, time: .standard))").uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1) }
                 Spacer(minLength: 0)
             }.controlSize(.small)
         }
     }
 
     private func healthBadge(_ snap: SystemSnapshot) -> some View {
-        let (text, color): (String, Color) = snap.health == .ok ? ("Healthy", VSDark.green) : snap.health == .warning ? ("Needs a look", VSDark.orange) : ("Problem", VSDark.red)
+        let (text, color): (String, Color) = snap.health == .ok ? ("Healthy", palette.green) : snap.health == .warning ? ("Needs a look", palette.orange) : ("Problem", palette.red)
         return Text(text).uiFont(size: 10, weight: .semibold).foregroundColor(color)
             .padding(.horizontal, 8).padding(.vertical, 2).background(color.opacity(0.15)).cornerRadius(8)
             .help(snap.reasons.isEmpty ? "Nothing stands out" : snap.reasons.joined(separator: "\n"))
@@ -316,9 +319,9 @@ private struct EnvironmentDetail: View {
 
     private func problemBanner(_ problem: ConnectionProblem) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(VSDark.red)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(palette.red)
             VStack(alignment: .leading, spacing: 6) {
-                Text(problem.message).uiFont(size: 11).foregroundColor(VSDark.text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                Text(problem.message).uiFont(size: 11).foregroundColor(palette.text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                 if problem == .hostKeyUnknown {
                     Button("Check the host key…") { Task { trusting = await HostKeys.scan(host: env.host, port: env.port) ?? ([], ["The server did not give a key. Is it reachable?"]) } }
                         .controlSize(.small)
@@ -326,16 +329,16 @@ private struct EnvironmentDetail: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(10).background(VSDark.red.opacity(0.12)).cornerRadius(6)
+        .padding(10).background(palette.red.opacity(0.12)).cornerRadius(6)
     }
 
     private var trustSheet: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Trust this server?").uiFont(size: 14, weight: .semibold)
             Text("Compare these fingerprints with what the server's owner gives you (or `ssh-keygen -lf /etc/ssh/ssh_host_*_key.pub` on the server). If they match, trust the host: its key is added to ~/.ssh/known_hosts.")
-                .uiFont(size: 11).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             ScrollView { Text((trusting?.fingerprints ?? []).joined(separator: "\n")).uiFont(size: 11, design: .monospaced).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-                .frame(height: 90).padding(6).background(VSDark.bgInput).cornerRadius(5)
+                .frame(height: 90).padding(6).background(palette.bgInput).cornerRadius(5)
             HStack {
                 Spacer()
                 Button("Cancel") { trusting = nil }
@@ -359,38 +362,38 @@ private struct EnvironmentDetail: View {
                 gauge("Uptime", value: nil, text: SystemProbe.uptimeText(snap.uptimeSeconds), detail: "\(snap.os) \(snap.kernel)\n\(snap.host)", warn: false, bad: false, series: [])
             }
             VStack(alignment: .leading, spacing: 6) {
-                Text("DISKS").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+                Text("DISKS").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
                 ForEach(snap.disks, id: \.mount) { disk in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 8) {
-                            Text(disk.mount).uiFont(size: 11, design: .monospaced).foregroundColor(VSDark.text).lineLimit(1).truncationMode(.middle).frame(maxWidth: 170, alignment: .leading)
+                            Text(disk.mount).uiFont(size: 11, design: .monospaced).foregroundColor(palette.text).lineLimit(1).truncationMode(.middle).frame(maxWidth: 170, alignment: .leading)
                             bar(Double(disk.percent) / 100, warn: disk.percent >= 80, bad: disk.percent >= 90)
-                            Text("\(disk.percent) %").uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim).frame(width: 40, alignment: .trailing)
+                            Text("\(disk.percent) %").uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim).frame(width: 40, alignment: .trailing)
                         }
-                        Text("\(bytes(disk.usedKB)) used of \(bytes(disk.sizeKB))").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                        Text("\(bytes(disk.usedKB)) used of \(bytes(disk.sizeKB))").uiFont(size: 9).foregroundColor(palette.textDim)
                     }
                 }
             }
-            .padding(10).background(VSDark.bgSidebar).cornerRadius(6)
+            .padding(10).background(palette.bgSidebar).cornerRadius(6)
         }
     }
 
     private func gauge(_ title: String, value: Double?, text: String, detail: String, warn: Bool, bad: Bool, series: [Double]) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
-            Text(text).uiFont(size: 20, weight: .semibold).foregroundColor(bad ? VSDark.red : warn ? VSDark.orange : VSDark.text)
+            Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
+            Text(text).uiFont(size: 20, weight: .semibold).foregroundColor(bad ? palette.red : warn ? palette.orange : palette.text)
             if let value { bar(value, warn: warn, bad: bad) }
-            if series.count > 1 { Sparkline(values: series, color: bad ? VSDark.red : warn ? VSDark.orange : VSDark.blue).frame(height: 22) }
-            Text(detail).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(3)
+            if series.count > 1 { Sparkline(values: series, color: bad ? palette.red : warn ? palette.orange : palette.blue).frame(height: 22) }
+            Text(detail).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(3)
         }
-        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(palette.bgSidebar).cornerRadius(6)
     }
 
     private func bar(_ fraction: Double, warn: Bool, bad: Bool) -> some View {
         GeometryReader { proxy in
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 3).fill(VSDark.bgInput)
-                RoundedRectangle(cornerRadius: 3).fill(bad ? VSDark.red : warn ? VSDark.orange : VSDark.green)
+                RoundedRectangle(cornerRadius: 3).fill(palette.bgInput)
+                RoundedRectangle(cornerRadius: 3).fill(bad ? palette.red : warn ? palette.orange : palette.green)
                     .frame(width: max(2, proxy.size.width * CGFloat(min(max(fraction, 0), 1))))
             }
         }.frame(height: 8)
@@ -398,60 +401,60 @@ private struct EnvironmentDetail: View {
 
     private func checks(_ snap: SystemSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("CHECKS").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+            Text("CHECKS").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
             ForEach(env.checks) { check in
                 let result = snap.checks.first { $0.id == check.id }
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: result?.status == .ok ? "checkmark.circle.fill" : result?.status == .fail ? "xmark.octagon.fill" : "questionmark.circle")
-                        .foregroundColor(result?.status == .ok ? VSDark.green : result?.status == .fail ? VSDark.red : VSDark.textDim)
+                        .foregroundColor(result?.status == .ok ? palette.green : result?.status == .fail ? palette.red : palette.textDim)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(check.title.isEmpty ? check.id : check.title).uiFont(size: 11).foregroundColor(VSDark.text)
-                        Text("\(check.kind.rawValue) \(check.target)").uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1).truncationMode(.middle)
+                        Text(check.title.isEmpty ? check.id : check.title).uiFont(size: 11).foregroundColor(palette.text)
+                        Text("\(check.kind.rawValue) \(check.target)").uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1).truncationMode(.middle)
                     }
                     Spacer(minLength: 4)
-                    if let detail = result?.detail, !detail.isEmpty { Text(detail).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(2).multilineTextAlignment(.trailing).frame(maxWidth: 140, alignment: .trailing) }
-                    if state.held.contains(where: { $0.id == check.id }) { Text("needs your OK").uiFont(size: 10).foregroundColor(VSDark.orange).help("This command is not on the read-only list, so it does not run by itself. Run it from the command box.") }
+                    if let detail = result?.detail, !detail.isEmpty { Text(detail).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(2).multilineTextAlignment(.trailing).frame(maxWidth: 140, alignment: .trailing) }
+                    if state.held.contains(where: { $0.id == check.id }) { Text("needs your OK").uiFont(size: 10).foregroundColor(palette.orange).help("This command is not on the read-only list, so it does not run by itself. Run it from the command box.") }
                 }
             }
         }
-        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(palette.bgSidebar).cornerRadius(6)
     }
 
     private func services(_ snap: SystemSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             if !snap.containers.isEmpty {
-                Text("CONTAINERS").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+                Text("CONTAINERS").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
                 ForEach(snap.containers, id: \.name) { c in
                     HStack(spacing: 8) {
-                        Circle().fill(c.status.lowercased().hasPrefix("up") ? VSDark.green : VSDark.orange).frame(width: 7, height: 7)
-                        Text(c.name).uiFont(size: 11, weight: .medium).foregroundColor(VSDark.text)
-                        Text(c.image).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1)
+                        Circle().fill(c.status.lowercased().hasPrefix("up") ? palette.green : palette.orange).frame(width: 7, height: 7)
+                        Text(c.name).uiFont(size: 11, weight: .medium).foregroundColor(palette.text)
+                        Text(c.image).uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1)
                         Spacer()
-                        Text(c.status).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                        Text(c.status).uiFont(size: 10).foregroundColor(palette.textDim)
                     }
                 }
             }
             if !snap.failedUnits.isEmpty {
-                Text("FAILED SERVICES").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.red).padding(.top, 4)
-                ForEach(snap.failedUnits, id: \.self) { Text($0).uiFont(size: 11, design: .monospaced).foregroundColor(VSDark.red) }
+                Text("FAILED SERVICES").uiFont(size: 9, weight: .semibold).foregroundColor(palette.red).padding(.top, 4)
+                ForEach(snap.failedUnits, id: \.self) { Text($0).uiFont(size: 11, design: .monospaced).foregroundColor(palette.red) }
             }
         }
-        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(palette.bgSidebar).cornerRadius(6)
     }
 
     private func processes(_ snap: SystemSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("BUSIEST PROCESSES").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+            Text("BUSIEST PROCESSES").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
             ForEach(snap.processes, id: \.pid) { p in
                 HStack {
-                    Text(p.name).uiFont(size: 11, design: .monospaced).foregroundColor(VSDark.text).lineLimit(1)
+                    Text(p.name).uiFont(size: 11, design: .monospaced).foregroundColor(palette.text).lineLimit(1)
                     Spacer()
-                    Text(String(format: "%.1f %% CPU", p.cpu)).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim)
-                    Text(String(format: "%.1f %% mem", p.memory)).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim)
+                    Text(String(format: "%.1f %% CPU", p.cpu)).uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim)
+                    Text(String(format: "%.1f %% mem", p.memory)).uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim)
                 }
             }
         }
-        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(palette.bgSidebar).cornerRadius(6)
     }
 
     @ViewBuilder private var cloud: some View {
@@ -465,21 +468,21 @@ private struct EnvironmentDetail: View {
 
     private var rawCloud: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("CLOUD STATE (\(env.provider.uppercased()))").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
-            if env.cloudCommands.isEmpty { Text("No commands yet. Add read-only commands of the provider's CLI in Edit.").uiFont(size: 11).foregroundColor(VSDark.textDim) }
+            Text("CLOUD STATE (\(env.provider.uppercased()))").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
+            if env.cloudCommands.isEmpty { Text("No commands yet. Add read-only commands of the provider's CLI in Edit.").uiFont(size: 11).foregroundColor(palette.textDim) }
             ForEach(env.cloudCommands) { c in
                 VStack(alignment: .leading, spacing: 3) {
                     HStack {
-                        Text(c.title).uiFont(size: 11, weight: .medium).foregroundColor(VSDark.text)
-                        Text(c.command).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1)
+                        Text(c.title).uiFont(size: 11, weight: .medium).foregroundColor(palette.text)
+                        Text(c.command).uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1)
                         Spacer()
-                        if !CommandPolicy.classify(c.command).isReadOnly { Text("asks first").uiFont(size: 10).foregroundColor(VSDark.orange) }
+                        if !CommandPolicy.classify(c.command).isReadOnly { Text("asks first").uiFont(size: 10).foregroundColor(palette.orange) }
                     }
                     if let out = state.cloud[c.id] {
                         if !out.result.succeeded, let found = ProviderHints.problem(command: c.command, stderr: out.result.stderr + out.result.stdout, status: out.result.status),
                            let advice = ProviderHints.advice(command: c.command, stderr: out.result.stderr + out.result.stdout, status: out.result.status) {
                             VStack(alignment: .leading, spacing: 4) {
-                                Label(advice, systemImage: "wrench.and.screwdriver").uiFont(size: 10).foregroundColor(VSDark.orange)
+                                Label(advice, systemImage: "wrench.and.screwdriver").uiFont(size: 10).foregroundColor(palette.orange)
                                     .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                                 HStack(spacing: 8) {
                                     if found.problem == .missing {
@@ -494,24 +497,24 @@ private struct EnvironmentDetail: View {
                             }
                         }
                         Text(out.result.succeeded ? out.result.stdout : (out.result.stderr.isEmpty ? out.result.stdout : out.result.stderr))
-                            .uiFont(size: 10, design: .monospaced).foregroundColor(out.result.succeeded ? VSDark.text : VSDark.red)
+                            .uiFont(size: 10, design: .monospaced).foregroundColor(out.result.succeeded ? palette.text : palette.red)
                             .textSelection(.enabled).lineLimit(30).frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(6).background(VSDark.bgInput).cornerRadius(4)
+                            .padding(6).background(palette.bgInput).cornerRadius(4)
                     } else if state.phase == .loading {
-                        Text("Looking…").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                        Text("Looking…").uiFont(size: 10).foregroundColor(palette.textDim)
                     }
                 }
             }
         }
-        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(palette.bgSidebar).cornerRadius(6)
     }
 
     /// Ask the assistant about this environment; it looks with the markview_deployments tools.
     private var assistantCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "sparkles").foregroundColor(VSDark.purple)
-                Text("ASK THE AI ABOUT THIS ENVIRONMENT").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+                Image(systemName: "sparkles").foregroundColor(palette.purple)
+                Text("ASK THE AI ABOUT THIS ENVIRONMENT").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
             }
             HStack {
                 TextField("e.g. Why is it slow? Is the database fine? What failed in the last hour?", text: $question)
@@ -530,9 +533,9 @@ private struct EnvironmentDetail: View {
             }
             AdvisorAnswers(advisor: workspaceManager.deploymentAdvisor, envID: env.id) { q in askInAgents(q) }
             Text("MarkView looks at the environment, reads the logs that matter (read-only) and your project's assistant answers from that. To go further, continue in the Agents tab: there it can run more commands, and anything that changes something is shown to you here first.")
-                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
         }
-        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(palette.bgSidebar).cornerRadius(6)
     }
 
     private var quickQuestions: [String] {
@@ -563,7 +566,7 @@ private struct EnvironmentDetail: View {
     private var logs: some View {
         let sources = store.logSources(env.id)
         return VStack(alignment: .leading, spacing: 6) {
-            Text("LOGS").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+            Text("LOGS").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
             HStack {
                 Picker("", selection: $logSource) {
                     ForEach(sources) { Text($0.title).tag($0.id) }
@@ -577,16 +580,16 @@ private struct EnvironmentDetail: View {
                 Spacer(minLength: 0)
             }
             if logText.isEmpty && !running {
-                Text("Pick a log and Fetch. These are read-only commands: the system's journal and one log per service and container.").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Text("Pick a log and Fetch. These are read-only commands: the system's journal and one log per service and container.").uiFont(size: 10).foregroundColor(palette.textDim)
             }
             if !logText.isEmpty {
                 ScrollView {
-                    Text(filteredLog).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).textSelection(.enabled)
+                    Text(filteredLog).uiFont(size: 10, design: .monospaced).foregroundColor(palette.text).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                }.frame(height: 240).padding(6).background(VSDark.bgInput).cornerRadius(4)
+                }.frame(height: 240).padding(6).background(palette.bgInput).cornerRadius(4)
             }
         }
-        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(palette.bgSidebar).cornerRadius(6)
         .onAppear { if logSource.isEmpty { logSource = sources.first?.id ?? "" } }
     }
 
@@ -607,7 +610,7 @@ private struct EnvironmentDetail: View {
 
     private var commandBox: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("RUN A COMMAND").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+            Text("RUN A COMMAND").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
             HStack {
                 TextField(env.kind == .cloud ? "e.g. vercel logs my-deployment" : "e.g. journalctl -u myapp -n 100 --no-pager", text: $command)
                     .textFieldStyle(.roundedBorder).font(.system(size: 11, design: .monospaced)).onSubmit(runCommand)
@@ -615,18 +618,18 @@ private struct EnvironmentDetail: View {
             }
             if !command.trimmingCharacters(in: .whitespaces).isEmpty { riskChip }
             if let output {
-                ScrollView { Text(output).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-                    .frame(maxHeight: 260).padding(6).background(VSDark.bgInput).cornerRadius(4)
+                ScrollView { Text(output).uiFont(size: 10, design: .monospaced).foregroundColor(palette.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                    .frame(maxHeight: 260).padding(6).background(palette.bgInput).cornerRadius(4)
             }
         }
-        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(palette.bgSidebar).cornerRadius(6)
     }
 
     @ViewBuilder private var riskChip: some View {
         switch CommandPolicy.classify(command) {
-        case .readOnly: Label("Read-only: runs at once", systemImage: "eye").uiFont(size: 10).foregroundColor(VSDark.green)
-        case .needsConfirmation(let why): Label("Asks you first: \(why)", systemImage: "hand.raised").uiFont(size: 10).foregroundColor(VSDark.orange)
-        case .blocked(let why): Label(why, systemImage: "nosign").uiFont(size: 10).foregroundColor(VSDark.red)
+        case .readOnly: Label("Read-only: runs at once", systemImage: "eye").uiFont(size: 10).foregroundColor(palette.green)
+        case .needsConfirmation(let why): Label("Asks you first: \(why)", systemImage: "hand.raised").uiFont(size: 10).foregroundColor(palette.orange)
+        case .blocked(let why): Label(why, systemImage: "nosign").uiFont(size: 10).foregroundColor(palette.red)
         }
     }
 
@@ -665,18 +668,18 @@ private struct EnvironmentDetail: View {
         return Group {
             if !entries.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("RECENT COMMANDS").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+                    Text("RECENT COMMANDS").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
                     ForEach(Array(entries)) { e in
                         HStack(spacing: 8) {
-                            Text(e.time.formatted(date: .omitted, time: .standard)).uiFont(size: 10).foregroundColor(VSDark.textDim)
-                            Text(e.origin).uiFont(size: 10, weight: .medium).foregroundColor(e.origin == "You" ? VSDark.blue : VSDark.purple)
-                            Text(e.command).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).lineLimit(1).truncationMode(.middle)
+                            Text(e.time.formatted(date: .omitted, time: .standard)).uiFont(size: 10).foregroundColor(palette.textDim)
+                            Text(e.origin).uiFont(size: 10, weight: .medium).foregroundColor(e.origin == "You" ? palette.blue : palette.purple)
+                            Text(e.command).uiFont(size: 10, design: .monospaced).foregroundColor(palette.text).lineLimit(1).truncationMode(.middle)
                             Spacer()
-                            Text(e.outcome + (e.status.map { " (\($0))" } ?? "")).uiFont(size: 10).foregroundColor(e.outcome == "ran" ? VSDark.textDim : VSDark.orange)
+                            Text(e.outcome + (e.status.map { " (\($0))" } ?? "")).uiFont(size: 10).foregroundColor(e.outcome == "ran" ? palette.textDim : palette.orange)
                         }
                     }
                 }
-                .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
+                .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(palette.bgSidebar).cornerRadius(6)
             }
         }
     }
@@ -706,21 +709,22 @@ private struct Sparkline: View {
 // MARK: - Approval
 
 private struct ApprovalSheet: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var store: DeploymentStore
     let request: DeploymentApproval
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Image(systemName: "hand.raised.fill").foregroundColor(VSDark.orange).font(.system(size: 18))
+                Image(systemName: "hand.raised.fill").foregroundColor(palette.orange).font(.system(size: 18))
                 Text("\(request.origin) \(request.origin == "You" ? "want" : "wants") to run a command").uiFont(size: 14, weight: .semibold)
             }
             Text("On \(request.environment.name) (\(request.environment.kind == .ssh ? request.environment.destination : request.environment.kind == .local ? "this Mac" : request.environment.provider))")
-                .uiFont(size: 11).foregroundColor(.secondary)
+                .uiFont(size: 11).foregroundColor(palette.textDim)
             Text(request.command).uiFont(size: 12, design: .monospaced).textSelection(.enabled)
-                .padding(8).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgInput).cornerRadius(5)
+                .padding(8).frame(maxWidth: .infinity, alignment: .leading).background(palette.bgInput).cornerRadius(5)
             if !request.purpose.isEmpty { Text("For: \(request.purpose)").uiFont(size: 11).fixedSize(horizontal: false, vertical: true) }
-            Text("Why you are asked: \(request.reason)").uiFont(size: 10).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("Why you are asked: \(request.reason)").uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
                 Button("Don't run") { store.answer(false) }.keyboardShortcut(.cancelAction)
@@ -735,6 +739,7 @@ private struct ApprovalSheet: View {
 // MARK: - Editor
 
 private struct EnvironmentEditor: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var store: DeploymentStore
     @State var env: DeploymentEnvironment
     let isNew: Bool
@@ -771,7 +776,7 @@ private struct EnvironmentEditor: View {
                             field("Port") { TextField("22", text: $portText).textFieldStyle(.roundedBorder).frame(width: 70).onChange(of: portText) { env.port = Int($0) ?? 22 } }
                         }
                         field("Key file (optional)") { TextField("~/.ssh/id_ed25519: leave empty to use your agent and ~/.ssh/config", text: $env.identityFile).textFieldStyle(.roundedBorder) }
-                        Text("MarkView never stores passwords or keys. It connects with your SSH agent or key file, without prompts.").uiFont(size: 10).foregroundColor(.secondary)
+                        Text("MarkView never stores passwords or keys. It connects with your SSH agent or key file, without prompts.").uiFont(size: 10).foregroundColor(palette.textDim)
                     }
                     if env.kind == .cloud {
                         field("Provider") { TextField("vercel, fly, heroku, aws, gcloud, kubernetes…", text: $env.provider).textFieldStyle(.roundedBorder) }
@@ -819,7 +824,7 @@ private struct EnvironmentEditor: View {
                     }
                     field("Notes") { TextEditor(text: $env.notes).font(.system(size: 11)).frame(height: 60).border(Color.secondary.opacity(0.3)) }
                     if !env.evidence.isEmpty {
-                        field("Where this came from") { Text(env.evidence.joined(separator: "\n")).uiFont(size: 10).foregroundColor(.secondary).textSelection(.enabled) }
+                        field("Where this came from") { Text(env.evidence.joined(separator: "\n")).uiFont(size: 10).foregroundColor(palette.textDim).textSelection(.enabled) }
                     }
                     ForEach(env.problems, id: \.self) { Text($0).uiFont(size: 11).foregroundColor(.red) }
                 }
@@ -855,7 +860,7 @@ private struct EnvironmentEditor: View {
 
     private func field<Content: View>(_ label: String, @ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(label).uiFont(size: 10, weight: .semibold).foregroundColor(.secondary)
+            Text(label).uiFont(size: 10, weight: .semibold).foregroundColor(palette.textDim)
             content()
         }
     }
@@ -863,7 +868,7 @@ private struct EnvironmentEditor: View {
     private func listEditor<Content: View>(_ title: String, add: @escaping () -> Void, @ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(title).uiFont(size: 10, weight: .semibold).foregroundColor(.secondary)
+                Text(title).uiFont(size: 10, weight: .semibold).foregroundColor(palette.textDim)
                 Spacer()
                 Button { add() } label: { Image(systemName: "plus.circle") }.buttonStyle(.plain)
             }
@@ -874,6 +879,7 @@ private struct EnvironmentEditor: View {
 
 /// The answers to the questions asked about an environment, with what the assistant is doing while it works.
 private struct AdvisorAnswers: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var advisor: DeploymentAdvisor
     let envID: String
     let continueInAgents: (String) -> Void
@@ -882,24 +888,24 @@ private struct AdvisorAnswers: View {
         if let exchange = advisor.latest(envID) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(exchange.question).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text).lineLimit(2)
+                    Text(exchange.question).uiFont(size: 11, weight: .semibold).foregroundColor(palette.text).lineLimit(2)
                     Spacer(minLength: 4)
                     if case .working = exchange.state { Button("Stop") { advisor.cancel(envID) }.controlSize(.small) }
-                    else { Button { advisor.clear(envID) } label: { Image(systemName: "xmark") }.buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Clear") }
+                    else { Button { advisor.clear(envID) } label: { Image(systemName: "xmark") }.buttonStyle(.plain).foregroundColor(palette.textDim).help("Clear") }
                 }
                 switch exchange.state {
                 case .working(let step):
-                    HStack(spacing: 6) { ProgressView().controlSize(.small); Text(step).uiFont(size: 10).foregroundColor(VSDark.textDim) }
+                    HStack(spacing: 6) { ProgressView().controlSize(.small); Text(step).uiFont(size: 10).foregroundColor(palette.textDim) }
                 case .failed(let message):
-                    Label(message, systemImage: "exclamationmark.triangle").uiFont(size: 10).foregroundColor(VSDark.red).textSelection(.enabled)
+                    Label(message, systemImage: "exclamationmark.triangle").uiFont(size: 10).foregroundColor(palette.red).textSelection(.enabled)
                 case .done: EmptyView()
                 }
                 if !exchange.answer.isEmpty {
-                    Text(rendered(exchange.answer)).uiFont(size: 11).foregroundColor(VSDark.text).textSelection(.enabled)
+                    Text(rendered(exchange.answer)).uiFont(size: 11).foregroundColor(palette.text).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
                 }
                 if !exchange.evidence.isEmpty {
-                    Text("Read: " + exchange.evidence.joined(separator: " · ")).uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(2)
+                    Text("Read: " + exchange.evidence.joined(separator: " · ")).uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(2)
                 }
                 if exchange.state == .done {
                     HStack(spacing: 8) {
@@ -909,7 +915,7 @@ private struct AdvisorAnswers: View {
                     }.controlSize(.small)
                 }
             }
-            .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bg).cornerRadius(6)
+            .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(palette.bg).cornerRadius(6)
         }
     }
 

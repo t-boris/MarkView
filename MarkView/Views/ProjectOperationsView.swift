@@ -79,6 +79,7 @@ struct ProjectDeployButton: View {
 }
 
 struct ProjectOperationConsole: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var store: ProjectOperationsStore
 
     private static func runTitle(label: String, environment: String?, state: String) -> String {
@@ -124,14 +125,14 @@ struct ProjectOperationConsole: View {
                     Text("Last run: " + last.state.capitalized)
                     if let code = last.exitCode { Text("Exit code: \(code)") }
                     if let ended = last.ended { Text("Ended: \(ended.formatted())") }
-                    Text("Output is not kept across application restarts.").foregroundStyle(.secondary)
+                    Text("Output is not kept across application restarts.").foregroundColor(palette.textDim)
                     Spacer()
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 Text("Select an operation to see its output.")
-                    .foregroundStyle(.secondary)
+                    .foregroundColor(palette.textDim)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -140,6 +141,7 @@ struct ProjectOperationConsole: View {
 }
 
 private struct OperationRunPanel: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var store: ProjectOperationsStore
     @ObservedObject var run: ProjectOperationRun
 
@@ -147,12 +149,12 @@ private struct OperationRunPanel: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Text(run.snapshot.label).font(.headline)
-                if let environment = run.snapshot.environment { Text(environment).foregroundStyle(.secondary) }
+                if let environment = run.snapshot.environment { Text(environment).foregroundColor(palette.textDim) }
                 Text(run.state.capitalized)
                     .foregroundStyle(run.state == "failed" ? .red : .secondary)
-                if let code = run.exitCode { Text("Exit \(code)").foregroundStyle(.secondary) }
-                if run.state == "dispatched" { Text("Remote run is not tracked").foregroundStyle(.secondary) }
-                if let seconds = run.graceSeconds { Text("\(seconds) s before escalation").foregroundStyle(.secondary) }
+                if let code = run.exitCode { Text("Exit \(code)").foregroundColor(palette.textDim) }
+                if run.state == "dispatched" { Text("Remote run is not tracked").foregroundColor(palette.textDim) }
+                if let seconds = run.graceSeconds { Text("\(seconds) s before escalation").foregroundColor(palette.textDim) }
                 Spacer()
                 if run.state == "running" { Button("Cancel") { store.cancel(id: run.id) } }
                 if run.state == "cancelling" { Button("Force stop") { store.forceStop(id: run.id) } }

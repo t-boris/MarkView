@@ -2,6 +2,7 @@ import SwiftUI
 import PDFKit
 
 struct PDFReaderView: View {
+    @Environment(\.palette) private var palette
     let url: URL
     @ObservedObject var reader: PDFReaderController
     @State private var sidebar = true
@@ -29,7 +30,7 @@ struct PDFReaderView: View {
                 status
             }
         }
-        .background(VSDark.bg)
+        .background(palette.bg)
         .task(id: url) { await reader.load(url) }
         .task(id: query) {
             if !query.isEmpty {
@@ -67,9 +68,9 @@ struct PDFReaderView: View {
             Button("Fit Width") { reader.setFit(.width) }
         }
         .buttonStyle(.borderless)
-        .foregroundColor(VSDark.text)
+        .foregroundColor(palette.text)
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private var search: some View {
@@ -96,9 +97,9 @@ struct PDFReaderView: View {
                 Text("Copying restricted").uiFont(size: 10).help("The PDF's permissions do not allow copying.")
             }
         }
-        .foregroundColor(VSDark.textDim)
+        .foregroundColor(palette.textDim)
         .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private var navigationPanel: some View {
@@ -111,7 +112,7 @@ struct PDFReaderView: View {
             if navigation == "Pages" {
                 PDFReaderThumbnails(reader: reader)
             } else if reader.outline.isEmpty {
-                Text("No document outline").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                Text("No document outline").uiFont(size: 11).foregroundColor(palette.textDim)
                     .padding()
                 Spacer()
             } else {
@@ -127,7 +128,7 @@ struct PDFReaderView: View {
                 .listStyle(.sidebar)
             }
         }
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private var status: some View {
@@ -152,7 +153,7 @@ struct PDFReaderView: View {
             }
             Spacer()
         }
-        .foregroundColor(VSDark.textDim)
+        .foregroundColor(palette.textDim)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
     }

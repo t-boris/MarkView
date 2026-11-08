@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 
 struct HandoffStartList: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @ObservedObject var store: FeatureStore
     @State private var ready: [(feature: Feature, state: HandoffState)] = []
@@ -18,7 +19,7 @@ struct HandoffStartList: View {
             ForEach(ready, id: \.feature.slug) { item in
                 HStack(spacing: 8) {
                     Image(systemName: item.state.hasChanged ? "exclamationmark.triangle" : "checkmark.seal")
-                        .foregroundColor(item.state.hasChanged ? VSDark.orange : VSDark.green)
+                        .foregroundColor(item.state.hasChanged ? palette.orange : palette.green)
                     Text(item.feature.title).lineLimit(1)
                     Text(item.state.hasChanged ? "Changed" : "Ready")
                         .uiFont(size: 10, weight: .semibold)
@@ -39,11 +40,11 @@ struct HandoffStartList: View {
             }
             if ready.isEmpty {
                 Text("A handed-off specification appears here with links to Files and Work.")
-                    .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 11).foregroundColor(palette.textDim)
             }
         }
         .padding(12)
-        .background(VSDark.bgActive)
+        .background(palette.bgActive)
         .cornerRadius(8)
         .task(id: store.features.map(\.slug).joined(separator: ":")) {
             while !Task.isCancelled {
@@ -67,6 +68,7 @@ struct HandoffStartList: View {
 }
 
 struct HandoffPanelView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     let feature: Feature
 
@@ -93,20 +95,20 @@ struct HandoffPanelView: View {
                     if state?.hasChanged == true {
                         Label("Changed since handoff", systemImage: "exclamationmark.triangle")
                             .uiFont(size: 11, weight: .semibold)
-                            .foregroundColor(VSDark.orange)
+                            .foregroundColor(palette.orange)
                     }
                 } else {
-                    Text("No handoff yet").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                    Text("No handoff yet").uiFont(size: 11).foregroundColor(palette.textDim)
                 }
             }
 
             if expanded {
                 if let revision = state?.revision {
                     Text("Handed off by \(revision.actor) · \(revision.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                        .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 10).foregroundColor(palette.textDim)
                     if let changes = state?.changes, !changes.isEmpty {
                         Text(changes.map { "\($0.kind.rawValue.capitalized): \($0.path)" }.joined(separator: " · "))
-                            .uiFont(size: 10).foregroundColor(VSDark.orange)
+                            .uiFont(size: 10).foregroundColor(palette.orange)
                             .lineLimit(2)
                     }
                 }
@@ -129,7 +131,7 @@ struct HandoffPanelView: View {
                         HStack(spacing: 6) {
                             Image(systemName: linkedFileExists(path) ? "doc" : "exclamationmark.triangle")
                             Text(path).uiFont(size: 10, design: .monospaced).lineLimit(1)
-                            if !linkedFileExists(path) { Text("Missing").uiFont(size: 10).foregroundColor(VSDark.orange) }
+                            if !linkedFileExists(path) { Text("Missing").uiFont(size: 10).foregroundColor(palette.orange) }
                             Spacer(minLength: 0)
                             Button { Task { await removeFile(path) } } label: { Image(systemName: "xmark") }
                                 .buttonStyle(.plain).help("Remove linked file")
@@ -138,15 +140,15 @@ struct HandoffPanelView: View {
                     }
                 } else {
                     Text("No files linked. The developer can browse the project after handoff.")
-                        .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 10).foregroundColor(palette.textDim)
                 }
                 if let error {
-                    Text(error).uiFont(size: 10).foregroundColor(VSDark.red)
+                    Text(error).uiFont(size: 10).foregroundColor(palette.red)
                 }
             }
         }
         .padding(10)
-        .background(VSDark.bgActive)
+        .background(palette.bgActive)
         .cornerRadius(8)
         .padding(.horizontal, 10).padding(.top, 8)
         .sheet(isPresented: $showingVersions) {
@@ -251,6 +253,7 @@ struct HandoffPanelView: View {
 }
 
 struct HandoffResumeBar: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     let resume: HandoffResume
 
@@ -272,13 +275,13 @@ struct HandoffResumeBar: View {
             }
             if resume.linkedFiles.isEmpty {
                 Text("No files were linked. Browse project files or return to the specification in Work.")
-                    .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 11).foregroundColor(palette.textDim)
             }
             ForEach(resume.missingFiles, id: \.self) { path in
-                Text("Missing linked file: \(path)").uiFont(size: 11).foregroundColor(VSDark.orange)
+                Text("Missing linked file: \(path)").uiFont(size: 11).foregroundColor(palette.orange)
             }
         }
-        .padding(10).background(VSDark.bgActive)
+        .padding(10).background(palette.bgActive)
     }
 }
 

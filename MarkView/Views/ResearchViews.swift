@@ -7,6 +7,7 @@ import AppKit
 /// Research-only fields of the intake sheet: target documents (DEC-009), output path (DEC-006)
 /// and the repository's web search opt-out (DEC-011).
 struct ResearchIntakeOptions: View {
+    @Environment(\.palette) private var palette
     let root: URL
     @Binding var targets: [URL]
     @Binding var outputPath: String
@@ -20,11 +21,11 @@ struct ResearchIntakeOptions: View {
                     HStack(spacing: 2) {
                         Text(ResearchJobs.relative(url, to: root) ?? url.lastPathComponent).uiFont(.caption).lineLimit(1)
                         Button(action: { targets.removeAll { $0 == url } }) { Image(systemName: "xmark.circle.fill") }
-                            .buttonStyle(.plain).foregroundColor(.secondary)
+                            .buttonStyle(.plain).foregroundColor(palette.textDim)
                     }
-                    .padding(.horizontal, 5).padding(.vertical, 2).background(VSDark.bgInput).cornerRadius(4)
+                    .padding(.horizontal, 5).padding(.vertical, 2).background(palette.bgInput).cornerRadius(4)
                 }
-                if targets.isEmpty { Text("the whole repository").uiFont(.caption).foregroundColor(.secondary) }
+                if targets.isEmpty { Text("the whole repository").uiFont(.caption).foregroundColor(palette.textDim) }
                 Button("Add…") { chooseTargets() }.uiFont(.caption)
                 Spacer()
             }
@@ -72,6 +73,7 @@ struct WebSearchToggle: View {
 /// Under the editor: running research jobs (elapsed time, current step, Cancel) and, for an
 /// open research document, its status and "Continue / deepen" (DEC-005, DEC-012).
 struct ResearchBar: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var research: ResearchJobs
     let root: URL?
     /// The open document, when it is file-backed.
@@ -89,10 +91,10 @@ struct ResearchBar: View {
                         TimelineView(.periodic(from: job.started, by: 1)) { context in
                             let seconds = max(0, Int(context.date.timeIntervalSince(job.started)))
                             Text(String(format: "%d:%02d", seconds / 60, seconds % 60))
-                                .uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text)
+                                .uiFont(size: 10, design: .monospaced).foregroundColor(palette.text)
                         }
-                        Text(job.title).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.textBright).lineLimit(1)
-                        Text("· " + job.step).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                        Text(job.title).uiFont(size: 10, weight: .semibold).foregroundColor(palette.textBright).lineLimit(1)
+                        Text("· " + job.step).uiFont(size: 10).foregroundColor(palette.textDim)
                             .lineLimit(1).truncationMode(.middle)
                         Spacer(minLength: 4)
                         SmallButton(title: "Cancel", icon: "stop.circle") { research.cancel(job.id) }
@@ -102,23 +104,23 @@ struct ResearchBar: View {
                 }
                 if let message = research.message {
                     HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle").uiFont(size: 9).foregroundColor(VSDark.yellow)
-                        Text(message).uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(2).textSelection(.enabled)
+                        Image(systemName: "exclamationmark.triangle").uiFont(size: 9).foregroundColor(palette.yellow)
+                        Text(message).uiFont(size: 10).foregroundColor(palette.text).lineLimit(2).textSelection(.enabled)
                         Spacer(minLength: 4)
                         Button(action: { research.message = nil }) { Image(systemName: "xmark").uiFont(size: 9) }
-                            .buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Dismiss")
+                            .buttonStyle(.plain).foregroundColor(palette.textDim).help("Dismiss")
                     }
                     .padding(.horizontal, 10).padding(.vertical, 3)
                 }
                 if isResearch, let file = activeFile {
                     let complete = front.string("status") != "incomplete"
                     HStack(spacing: 6) {
-                        Image(systemName: "books.vertical").uiFont(size: 9).foregroundColor(VSDark.blue)
-                        Text("Research").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
+                        Image(systemName: "books.vertical").uiFont(size: 9).foregroundColor(palette.blue)
+                        Text("Research").uiFont(size: 10, weight: .semibold).foregroundColor(palette.text)
                         Text(complete ? "complete" : "incomplete")
-                            .uiFont(size: 10).foregroundColor(complete ? VSDark.green : VSDark.yellow)
+                            .uiFont(size: 10).foregroundColor(complete ? palette.green : palette.yellow)
                         Text("· select text and use ✦ › Revise With Comment to have the AI rework a passage")
-                            .uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1)
+                            .uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1)
                         Spacer(minLength: 4)
                         SmallButton(title: "Continue / Deepen…", icon: "arrow.down.doc", prominent: true) {
                             research.requestFollowUp(for: file)
@@ -129,8 +131,8 @@ struct ResearchBar: View {
                     .padding(.horizontal, 10).padding(.vertical, 3)
                 }
             }
-            .background(VSDark.bgSidebar)
-            .overlay(Divider().background(VSDark.border), alignment: .top)
+            .background(palette.bgSidebar)
+            .overlay(Divider().background(palette.border), alignment: .top)
             // Presented here: this view observes the jobs, the window's root view does not.
             .sheet(item: $research.followUp) { request in
                 if let root {
@@ -144,6 +146,7 @@ struct ResearchBar: View {
 /// "Continue / deepen": a follow-up question, or a retry of the latest incomplete part,
 /// which is pre-selected when the latest section is incomplete (DEC-013).
 struct ResearchFollowUpSheet: View {
+    @Environment(\.palette) private var palette
     let file: URL
     let root: URL
     @ObservedObject var research: ResearchJobs
@@ -166,10 +169,10 @@ struct ResearchFollowUpSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Image(systemName: "books.vertical").foregroundColor(VSDark.blue)
+                Image(systemName: "books.vertical").foregroundColor(palette.blue)
                 Text("Continue / Deepen Research").uiFont(.headline)
             }
-            Text(file.lastPathComponent).uiFont(.caption).foregroundColor(.secondary)
+            Text(file.lastPathComponent).uiFont(.caption).foregroundColor(palette.textDim)
             if let target = retryTarget {
                 Picker("", selection: $retry) {
                     Text("Ask a follow-up question").tag(false)
@@ -179,17 +182,17 @@ struct ResearchFollowUpSheet: View {
             }
             if retry, let target = retryTarget {
                 Text("Runs this question again with the partial answer as context and appends the result; the incomplete part stays as it is.")
-                    .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 Text(target.question.isEmpty ? "(no question recorded)" : target.question)
                     .uiFont(size: 12).padding(8).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(VSDark.bgInput).cornerRadius(4)
+                    .background(palette.bgInput).cornerRadius(4)
             } else {
                 Text("The AI reads the document as it is saved (with your edits) and appends its answer as a new dated section.")
-                    .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 TextEditor(text: $question)
                     .uiFont(size: 13)
                     .frame(minWidth: 520, minHeight: 160)
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(VSDark.border, lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(palette.border, lineWidth: 1))
             }
             WebSearchToggle(root: root)
             HStack {

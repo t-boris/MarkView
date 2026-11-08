@@ -10,6 +10,8 @@ struct WorkspaceWindowState: Codable, Identifiable {
     var panels: WorkspacePanelState?
     var frame: CGRect?
     var minimized = false
+    /// The theme of this window and the accent each theme remembers in it; absent in sessions saved before themes.
+    var theme: WindowThemeSettings?
 }
 
 struct WorkspacePanelState: Codable {

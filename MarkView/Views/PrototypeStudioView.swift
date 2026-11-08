@@ -6,6 +6,7 @@ import WebKit
 /// The tab of Prototype Studio: the live prototype on the left, the review conversation on the right.
 /// "Point" lets the reviewer click an element in the preview and say what to do with it.
 struct PrototypeStudioView: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: PrototypeSession
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var draft = ""
@@ -33,7 +34,7 @@ struct PrototypeStudioView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 previewHeader
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
                 if session.hasSite {
                     PrototypePreview(session: session)
                 } else {
@@ -43,7 +44,7 @@ struct PrototypeStudioView: View {
             resizeHandle
             conversation.frame(width: chatWidth)
         }
-        .background(VSDark.bg)
+        .background(palette.bg)
         .onDisappear { dictation.cancel() }
         .onAppear { if !session.hasSite && !session.isBusy && session.manifest.version == 0 { session.generate() } }
         // A prototype saved before themes were recorded gets its record from the copied stylesheets when it is opened; one saved before
@@ -57,7 +58,7 @@ struct PrototypeStudioView: View {
 
     /// The divider between preview and conversation; dragging it left widens the conversation.
     private var resizeHandle: some View {
-        Rectangle().fill(VSDark.border).frame(width: 1)
+        Rectangle().fill(palette.border).frame(width: 1)
             .padding(.horizontal, 3)
             .contentShape(Rectangle())
             .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
@@ -75,17 +76,17 @@ struct PrototypeStudioView: View {
 
     private var previewHeader: some View {
         HStack(spacing: 8) {
-            Image(systemName: "rectangle.on.rectangle.angled").uiFont(size: 10).foregroundColor(VSDark.blue)
-            Text(session.manifest.title).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text).lineLimit(1)
+            Image(systemName: "rectangle.on.rectangle.angled").uiFont(size: 10).foregroundColor(palette.blue)
+            Text(session.manifest.title).uiFont(size: 11, weight: .semibold).foregroundColor(palette.text).lineLimit(1)
             if session.manifest.version > 0 {
                 Text("v\(session.manifest.version)\(session.manifest.approved ? " · approved" : "")")
-                    .uiFont(size: 10).foregroundColor(session.manifest.approved ? VSDark.green : VSDark.textDim)
+                    .uiFont(size: 10).foregroundColor(session.manifest.approved ? palette.green : palette.textDim)
             }
             if session.manifest.mode == .code {
                 // A reconstruction saved before UI Studio: history, never the live application (REQ-001, DEC-005).
-                Text("Historical reconstruction").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.purple)
+                Text("Historical reconstruction").uiFont(size: 9, weight: .semibold).foregroundColor(palette.purple)
                     .padding(.horizontal, 5).padding(.vertical, 1)
-                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(VSDark.purple.opacity(0.6)))
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(palette.purple.opacity(0.6)))
                     .help("A reconstruction of the code as it was ("
                           + (session.manifest.sources.isEmpty ? "the whole project" : session.manifest.sources.joined(separator: ", "))
                           + "), saved before UI Studio. It is not the current application: Open in UI Studio shows the real interface.")
@@ -95,7 +96,7 @@ struct PrototypeStudioView: View {
                 Button { showingDisclosure.toggle() } label: {
                     Label("Assumptions & gaps (\(disclosed))", systemImage: "info.circle").uiFont(size: 10)
                 }
-                .buttonStyle(.plain).foregroundColor(VSDark.textDim)
+                .buttonStyle(.plain).foregroundColor(palette.textDim)
                 .popover(isPresented: $showingDisclosure, arrowEdge: .bottom) { disclosure }
                 .help("What the assistant assumed, and what the original does that this prototype only simulates or lacks")
             }
@@ -105,13 +106,13 @@ struct PrototypeStudioView: View {
                     Label("\(session.unresolvedProblems.count) not working", systemImage: "exclamationmark.triangle.fill")
                         .uiFont(size: 10, weight: .semibold)
                 }
-                .buttonStyle(.plain).foregroundColor(VSDark.red)
+                .buttonStyle(.plain).foregroundColor(palette.red)
                 .popover(isPresented: $showingProblems, arrowEdge: .bottom) { unresolvedList }
                 .help("The check of the preview still finds problems that the fix round did not repair; click for the list")
             }
             if !session.runtimeErrors.isEmpty {
                 Label("\(session.runtimeErrors.count)", systemImage: "exclamationmark.triangle.fill")
-                    .uiFont(size: 10).foregroundColor(VSDark.orange)
+                    .uiFont(size: 10).foregroundColor(palette.orange)
                     .help(session.runtimeErrors.joined(separator: "\n"))
             }
             if let page = session.shownPage {
@@ -184,29 +185,29 @@ struct PrototypeStudioView: View {
             Button { workspaceManager.openHTMLInBrowser(session.siteIndex) } label: {
                 Image(systemName: "globe")
             }
-            .buttonStyle(.plain).foregroundColor(VSDark.textDim).disabled(!session.hasSite)
+            .buttonStyle(.plain).foregroundColor(palette.textDim).disabled(!session.hasSite)
             .help("Open the prototype in a browser tab")
             Button { NSWorkspace.shared.activateFileViewerSelecting([session.siteFolder]) } label: {
                 Image(systemName: "folder")
             }
-            .buttonStyle(.plain).foregroundColor(VSDark.textDim)
+            .buttonStyle(.plain).foregroundColor(palette.textDim)
             .help("Show the prototype files in Finder")
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     /// The assumptions the assistant made and the known gaps of a reconstruction, as recorded at generation.
     /// The problems the fix round left, and the way to run it again.
     private var unresolvedList: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Still not working").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+            Text("Still not working").uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
             Text("The preview check found these after the fix round. The prototype is not ready until they are gone.")
-                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(session.unresolvedProblems.enumerated()), id: \.offset) { _, item in
-                        Text("• \(item)").uiFont(size: 11).foregroundColor(VSDark.text)
+                        Text("• \(item)").uiFont(size: 11).foregroundColor(palette.text)
                             .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                     }
                 }
@@ -231,19 +232,19 @@ struct PrototypeStudioView: View {
             VStack(alignment: .leading, spacing: 10) {
                 if !session.manifest.assumptions.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Assumptions").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+                        Text("Assumptions").uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
                         ForEach(session.manifest.assumptions, id: \.self) { item in
-                            Text("• \(item)").uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                            Text("• \(item)").uiFont(size: 11).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
                 if !session.manifest.gaps.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Known gaps").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+                        Text("Known gaps").uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
                         Text("What the original does that this prototype only simulates or lacks; recorded when it was generated.")
-                            .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                            .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                         ForEach(session.manifest.gaps, id: \.self) { item in
-                            Text("• \(item)").uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                            Text("• \(item)").uiFont(size: 11).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -259,11 +260,11 @@ struct PrototypeStudioView: View {
 
     private func stateColor(_ state: PrototypeBaseline.State) -> Color {
         switch state {
-        case .inSync: return VSDark.green
-        case .codeChanged: return VSDark.orange
-        case .prototypeEdited: return VSDark.blue
+        case .inSync: return palette.green
+        case .codeChanged: return palette.orange
+        case .prototypeEdited: return palette.blue
         case .bothChanged: return Color.red
-        case .unknown: return VSDark.textDim
+        case .unknown: return palette.textDim
         }
     }
 
@@ -313,13 +314,13 @@ struct PrototypeStudioView: View {
                     PrototypeHandoffDraftView(run: run) { session.handoff = nil }
                 } else {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Hand off to code").uiFont(size: 15, weight: .semibold).foregroundColor(VSDark.text)
+                        Text("Hand off to code").uiFont(size: 15, weight: .semibold).foregroundColor(palette.text)
                         if !handoff.changes.hasBaseline {
                             Text(PrototypeBaseline.Status(baselineVersion: nil, units: [], unclaimed: [], added: []).summary)
-                                .uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                                .uiFont(size: 11).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
                         } else {
                             Text("Nothing to hand off: the prototype's files are as they were at the last sync (v\(handoff.changes.baselineVersion ?? 0)).")
-                                .uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                                .uiFont(size: 11).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
                         }
                         HStack { Spacer(); Button("Close") { session.handoff = nil }.keyboardShortcut(.defaultAction) }
                     }
@@ -335,11 +336,11 @@ struct PrototypeStudioView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 6) {
                 if let status = session.syncStatus {
-                    Text(status.summary).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+                    Text(status.summary).uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
                         .fixedSize(horizontal: false, vertical: true)
                     if status.hasBaseline {
                         Text("Last synced at v\(status.baselineVersion ?? 0). Checked just now, on this computer, without an assistant run.")
-                            .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                            .uiFont(size: 10).foregroundColor(palette.textDim)
                     }
                     ForEach(PrototypeBaseline.State.allCases, id: \.self) { state in
                         let units = status.units.filter { $0.state == state }
@@ -347,22 +348,22 @@ struct PrototypeStudioView: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Label("\(state.title) (\(units.count))", systemImage: stateSymbol(state))
                                     .uiFont(size: 11, weight: .semibold).foregroundColor(stateColor(state))
-                                Text(state.meaning).uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                                Text(state.meaning).uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                                 ForEach(units, id: \.unit.id) { unit in
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(unit.unit.name + (unit.unit.kind == .component ? " · component" : unit.unit.kind == .foundation ? " · shell" : ""))
-                                            .uiFont(size: 11).foregroundColor(VSDark.text)
+                                            .uiFont(size: 11).foregroundColor(palette.text)
                                         if !unit.changedSources.isEmpty {
                                             Text("code: " + unit.changedSources.joined(separator: ", ")).uiFont(size: 10, design: .monospaced)
-                                                .foregroundColor(VSDark.textDim).lineLimit(3)
+                                                .foregroundColor(palette.textDim).lineLimit(3)
                                         }
                                         if !unit.editedFiles.isEmpty {
                                             Text("prototype: " + unit.editedFiles.joined(separator: ", ")).uiFont(size: 10, design: .monospaced)
-                                                .foregroundColor(VSDark.textDim).lineLimit(3)
+                                                .foregroundColor(palette.textDim).lineLimit(3)
                                         }
                                         if state == .unknown && status.hasBaseline {
                                             Text(unit.unit.sources.isEmpty ? "No source file is known for this unit." : "Some sources the plan named were not found.")
-                                                .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                                                .uiFont(size: 10).foregroundColor(palette.textDim)
                                         }
                                     }
                                     .padding(.leading, 8)
@@ -372,14 +373,14 @@ struct PrototypeStudioView: View {
                     }
                     if !status.unclaimed.isEmpty {
                         Text("Changed files no unit lists (the prototype may depend on them): " + PrototypeBaseline.list(status.unclaimed, limit: 6))
-                            .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                            .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     }
                     if !status.added.isEmpty {
                         Text("New files since the last sync: " + PrototypeBaseline.list(status.added, limit: 6))
-                            .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                            .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     }
                 } else {
-                    Text(session.checkingSync ? "Comparing the code with the last sync…" : "Not checked yet.").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                    Text(session.checkingSync ? "Comparing the code with the last sync…" : "Not checked yet.").uiFont(size: 11).foregroundColor(palette.textDim)
                 }
                 HStack {
                     Button { Task { await session.refreshSyncStatus() } } label: { Label("Check again", systemImage: "arrow.clockwise") }
@@ -426,7 +427,7 @@ struct PrototypeStudioView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Source components the prototype reproduces. Select one to outline its instances in the preview; pointing at an element selects its component.")
-                    .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     .padding(.bottom, 6)
                 ForEach(session.manifest.components, id: \.path) { component in
                     componentRow(component)
@@ -445,21 +446,21 @@ struct PrototypeStudioView: View {
         let usage = screens == 0 ? "no screen names it" : "\(screens) screen\(screens == 1 ? "" : "s")"
         return VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                Text(component.label).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
-                Text(usage).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Text(component.label).uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
+                Text(usage).uiFont(size: 10).foregroundColor(palette.textDim)
                 Spacer()
                 if let state = session.syncStatus?.units.first(where: { $0.unit.id == component.path }) { stateBadge(state) }
                 if selected, let count = session.highlightedInstances {
-                    Text(count == 0 ? "not on this page" : "\(count) on this page").uiFont(size: 10).foregroundColor(VSDark.blue)
+                    Text(count == 0 ? "not on this page" : "\(count) on this page").uiFont(size: 10).foregroundColor(palette.blue)
                 }
             }
-            Text(component.path).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1)
+            Text(component.path).uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1)
                 .help(component.screens.isEmpty ? component.path : "Used by: \(component.screens.joined(separator: ", "))")
             if selected { componentActions(component.path) }
         }
         .padding(6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 5).fill(selected ? VSDark.selection.opacity(0.5) : Color.clear))
+        .background(RoundedRectangle(cornerRadius: 5).fill(selected ? palette.selection.opacity(0.5) : Color.clear))
         .contentShape(Rectangle())
         .onTapGesture { session.selectedComponent = selected ? nil : component.path }
     }
@@ -500,11 +501,11 @@ struct PrototypeStudioView: View {
             Spacer()
             if session.isBusy {
                 Text("The assistant plans the screens, builds the shell, then writes the screens side by side. Everything it does is listed here.")
-                    .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 11).foregroundColor(palette.textDim)
                 PrototypeProgressView(session: session, maxLogHeight: 260).frame(maxWidth: 480)
             } else {
-                Image(systemName: "rectangle.on.rectangle.angled").uiFont(size: 28).foregroundColor(VSDark.textDim)
-                Text("No prototype files yet.").uiFont(size: 12).foregroundColor(VSDark.textDim)
+                Image(systemName: "rectangle.on.rectangle.angled").uiFont(size: 28).foregroundColor(palette.textDim)
+                Text("No prototype files yet.").uiFont(size: 12).foregroundColor(palette.textDim)
             }
             if !session.isBusy && session.manifest.version == 0 {
                 Button("Build the prototype") { session.generate() }
@@ -534,17 +535,17 @@ struct PrototypeStudioView: View {
                     if let last = session.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
                 }
             }
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             composer
         }
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private func bubble(_ message: PrototypeSession.Message) -> some View {
-        let color: Color = message.role == .user ? VSDark.bgActive : message.role == .error ? VSDark.red.opacity(0.18) : VSDark.bg
+        let color: Color = message.role == .user ? palette.bgActive : message.role == .error ? palette.red.opacity(0.18) : palette.bg
         return VStack(alignment: .leading, spacing: 6) {
             Text(message.text)
-                .uiFont(size: 11).foregroundColor(VSDark.text)
+                .uiFont(size: 11).foregroundColor(palette.text)
                 .textSelection(.enabled)
             if let request = message.retry {
                 HStack(spacing: 8) {
@@ -593,10 +594,10 @@ struct PrototypeStudioView: View {
             .help("Choose what your next request is about: the whole prototype, one screen or one source component. Point at an element in the preview to aim it at that element.")
             if let target = session.target {
                 if let detail = target.detail {
-                    Text(detail).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1).help(detail)
+                    Text(detail).uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1).help(detail)
                 }
                 Button { session.target = nil } label: { Image(systemName: "xmark.circle.fill") }
-                    .buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Aim the request at the whole prototype again")
+                    .buttonStyle(.plain).foregroundColor(palette.textDim).help("Aim the request at the whole prototype again")
             }
             Spacer()
         }
@@ -607,27 +608,27 @@ struct PrototypeStudioView: View {
             targetRow
             if let pick = session.pick {
                 HStack(spacing: 6) {
-                    Image(systemName: "scope").foregroundColor(VSDark.blue)
+                    Image(systemName: "scope").foregroundColor(palette.blue)
                     Text(pick.text.isEmpty ? pick.selector : "“\(pick.text.prefix(40))” · \(pick.tag)")
-                        .uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(1)
+                        .uiFont(size: 10).foregroundColor(palette.text).lineLimit(1)
                     Spacer()
                     Button { session.pick = nil } label: { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.plain).foregroundColor(VSDark.textDim)
+                        .buttonStyle(.plain).foregroundColor(palette.textDim)
                 }
-                .padding(6).background(RoundedRectangle(cornerRadius: 5).fill(VSDark.selection.opacity(0.5)))
+                .padding(6).background(RoundedRectangle(cornerRadius: 5).fill(palette.selection.opacity(0.5)))
                 if let component = pick.component, !component.isEmpty {
                     // The element or its nearest marked ancestor reproduces this source file (REQ-007).
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 4) {
-                            Text("Component:").uiFont(size: 10).foregroundColor(VSDark.textDim)
-                            Text(component).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).lineLimit(1)
+                            Text("Component:").uiFont(size: 10).foregroundColor(palette.textDim)
+                            Text(component).uiFont(size: 10, design: .monospaced).foregroundColor(palette.text).lineLimit(1)
                                 .help(component)
                         }
                         componentActions(component)
                     }
-                    .padding(6).background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bgInput.opacity(0.6)))
+                    .padding(6).background(RoundedRectangle(cornerRadius: 5).fill(palette.bgInput.opacity(0.6)))
                 } else if session.manifest.mode == .code {
-                    Text("No source component is recorded for this element.").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    Text("No source component is recorded for this element.").uiFont(size: 10).foregroundColor(palette.textDim)
                 }
                 Picker("", selection: $pickScreenshot) {
                     Text("HTML").tag(false)
@@ -640,7 +641,7 @@ struct PrototypeStudioView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 3))
                 }
             } else if session.pickMode {
-                Text("Click an element in the preview.").uiFont(size: 10).foregroundColor(VSDark.blue)
+                Text("Click an element in the preview.").uiFont(size: 10).foregroundColor(palette.blue)
             }
             ImageAttachmentStrip(attachments: $session.attachments)
             HStack(alignment: .top, spacing: 6) {
@@ -649,7 +650,7 @@ struct PrototypeStudioView: View {
                     .frame(height: 70)
                     .scrollContentBackground(.hidden)
                     .focused($draftFocused)
-                    .padding(4).background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bgInput))
+                    .padding(4).background(RoundedRectangle(cornerRadius: 5).fill(palette.bgInput))
                     .disabled(!session.hasSite || session.isBusy)
                     .takesImageAttachments($session.attachments, text: $draft)
                 ImageAttachmentMenu(attachments: $session.attachments)
@@ -699,16 +700,17 @@ struct PrototypeStudioView: View {
 /// What a running assistant is doing: the current step, the time so far and a list of its actions
 /// (files read, searches, files being written), so a long run never looks like a hang.
 struct PrototypeProgressView: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: PrototypeSession
     var maxLogHeight: CGFloat
 
     @ViewBuilder
     private func screenIcon(_ state: PrototypeAI.ScreenState) -> some View {
         switch state {
-        case .queued: Image(systemName: "circle").uiFont(size: 10).foregroundColor(VSDark.textDim)
+        case .queued: Image(systemName: "circle").uiFont(size: 10).foregroundColor(palette.textDim)
         case .writing: ProgressView().controlSize(.mini).scaleEffect(0.7)
-        case .done: Image(systemName: "checkmark.circle.fill").uiFont(size: 11).foregroundColor(VSDark.green)
-        case .failed: Image(systemName: "exclamationmark.triangle.fill").uiFont(size: 11).foregroundColor(VSDark.red)
+        case .done: Image(systemName: "checkmark.circle.fill").uiFont(size: 11).foregroundColor(palette.green)
+        case .failed: Image(systemName: "exclamationmark.triangle.fill").uiFont(size: 11).foregroundColor(palette.red)
         }
     }
 
@@ -722,36 +724,36 @@ struct PrototypeProgressView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
-                Text((session.stage ?? "Working") + "…").uiFont(size: 11, weight: .medium).foregroundColor(VSDark.text).lineLimit(2)
+                Text((session.stage ?? "Working") + "…").uiFont(size: 11, weight: .medium).foregroundColor(palette.text).lineLimit(2)
                 Spacer()
                 if let started = session.runStarted {
                     TimelineView(.periodic(from: started, by: 1)) { context in
                         let seconds = Int(context.date.timeIntervalSince(started))
                         Text(String(format: "%d:%02d", seconds / 60, seconds % 60))
-                            .uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim)
+                            .uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim)
                     }
                 }
                 Button("Stop") { session.cancel() }.controlSize(.small)
             }
             if let phase = session.phase {
-                Text(phase).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.blue).fixedSize(horizontal: false, vertical: true)
+                Text(phase).uiFont(size: 10, weight: .semibold).foregroundColor(palette.blue).fixedSize(horizontal: false, vertical: true)
             }
             if !session.screens.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(session.screens) { screen in
                         HStack(spacing: 6) {
                             screenIcon(screen.state).frame(width: 14)
-                            Text(screen.name).uiFont(size: 11).foregroundColor(screen.state == .queued ? VSDark.textDim : VSDark.text)
+                            Text(screen.name).uiFont(size: 11).foregroundColor(screen.state == .queued ? palette.textDim : palette.text)
                                 .lineLimit(1)
                             if case .failed(let problem) = screen.state {
-                                Text(problem).uiFont(size: 9).foregroundColor(VSDark.red).lineLimit(1)
+                                Text(problem).uiFont(size: 9).foregroundColor(palette.red).lineLimit(1)
                             }
                             Spacer()
                         }
                     }
                 }
                 .padding(6)
-                .background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bgInput.opacity(0.6)))
+                .background(RoundedRectangle(cornerRadius: 5).fill(palette.bgInput.opacity(0.6)))
             }
             if !session.activity.isEmpty {
                 ScrollViewReader { proxy in
@@ -760,8 +762,8 @@ struct PrototypeProgressView: View {
                             ForEach(session.activity) { line in
                                 HStack(alignment: .top, spacing: 6) {
                                     Text(Self.clock.string(from: line.time))
-                                        .uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
-                                    Text(line.text).uiFont(size: 10).foregroundColor(VSDark.text)
+                                        .uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
+                                    Text(line.text).uiFont(size: 10).foregroundColor(palette.text)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                                 .id(line.id)
@@ -770,7 +772,7 @@ struct PrototypeProgressView: View {
                         .padding(6)
                     }
                     .frame(maxHeight: maxLogHeight)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bgInput.opacity(0.6)))
+                    .background(RoundedRectangle(cornerRadius: 5).fill(palette.bgInput.opacity(0.6)))
                     .onChange(of: session.activity.count) { _ in
                         if let last = session.activity.last { proxy.scrollTo(last.id, anchor: .bottom) }
                     }

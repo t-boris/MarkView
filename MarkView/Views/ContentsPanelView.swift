@@ -5,6 +5,7 @@ import WebKit
 /// its headings, an HTML file its page, an archive its entries, and every file its facts (kind, size,
 /// dates, text counts, image size).
 struct ContentsPanelView<Headings: View>: View {
+    @Environment(\.palette) private var palette
     let tab: OpenTab
     @ViewBuilder let headings: () -> Headings
     @AppStorage("contents.infoExpanded") private var infoExpanded = true
@@ -16,15 +17,15 @@ struct ContentsPanelView<Headings: View>: View {
                 ArchiveContentsPanel(url: tab.url).id(tab.url)
             case .file where FileType.isHTML(tab.url):
                 HTMLPreviewView(url: tab.url, token: tab.originalContent.hashValue).id(tab.url)
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
                 info
             case .file where StructureOutline.supports(tab.url):
                 StructureOutlineList(url: tab.url, text: tab.content)
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
                 info
             case .file where !tab.headings.isEmpty:
                 headings()
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
                 info
             case .file, .image, .pdf, .data:
                 if case .image = tab.kind { ImageThumbnail(url: tab.url).id(tab.url) }
@@ -40,7 +41,7 @@ struct ContentsPanelView<Headings: View>: View {
                 TabFactsPanel(tab: tab)
             }
         }
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private var info: some View {
@@ -50,7 +51,7 @@ struct ContentsPanelView<Headings: View>: View {
                     Image(systemName: infoExpanded ? "chevron.down" : "chevron.right").uiFont(size: 8).frame(width: 10)
                     Text("FILE").uiFont(size: 9, weight: .semibold)
                     Spacer()
-                }.foregroundColor(VSDark.textDim).padding(.horizontal, 10).padding(.vertical, 5).contentShape(Rectangle())
+                }.foregroundColor(palette.textDim).padding(.horizontal, 10).padding(.vertical, 5).contentShape(Rectangle())
             }.buttonStyle(.plain)
             if infoExpanded {
                 ScrollView { FileInfoRows(url: tab.url, revision: tab.originalContent.hashValue).padding(.horizontal, 10).padding(.bottom, 8) }
@@ -60,12 +61,13 @@ struct ContentsPanelView<Headings: View>: View {
     }
 
     private func placeholder(_ text: String) -> some View {
-        Text(text).uiFont(size: 11).foregroundColor(VSDark.textDim).frame(maxWidth: .infinity).padding(.vertical, 14)
+        Text(text).uiFont(size: 11).foregroundColor(palette.textDim).frame(maxWidth: .infinity).padding(.vertical, 14)
     }
 }
 
 /// The facts of a file as label and value rows; read off the main thread, again when `revision` changes.
 struct FileInfoRows: View {
+    @Environment(\.palette) private var palette
     let url: URL
     var revision = 0
     @State private var info: FileInfo?
@@ -75,8 +77,8 @@ struct FileInfoRows: View {
             if let info {
                 ForEach(info.rows) { row in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(row.label).uiFont(size: 10).foregroundColor(VSDark.textDim).frame(width: 70, alignment: .leading)
-                        Text(row.value).uiFont(size: 10).foregroundColor(VSDark.text).textSelection(.enabled)
+                        Text(row.label).uiFont(size: 10).foregroundColor(palette.textDim).frame(width: 70, alignment: .leading)
+                        Text(row.value).uiFont(size: 10).foregroundColor(palette.text).textSelection(.enabled)
                             .lineLimit(row.label == "Path" ? 4 : 2).truncationMode(.middle)
                         Spacer(minLength: 0)
                     }
@@ -134,6 +136,7 @@ struct HTMLPreviewView: NSViewRepresentable {
 
 /// An archive in the panel: facts, a filter and the entries (a click opens the file).
 struct ArchiveContentsPanel: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @StateObject private var model: ArchiveModel
 
@@ -145,26 +148,26 @@ struct ArchiveContentsPanel: View {
             case .loading:
                 Spacer(); ProgressView().controlSize(.small); Spacer()
             case .failed(let message):
-                Spacer(); Text(message).uiFont(size: 10).foregroundColor(VSDark.orange).padding(12); Spacer()
+                Spacer(); Text(message).uiFont(size: 10).foregroundColor(palette.orange).padding(12); Spacer()
             case .loaded:
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(model.files) files · \(model.folders) folders")
-                        .uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
+                        .uiFont(size: 10, weight: .semibold).foregroundColor(palette.text)
                     Text("\(byteString(model.unpackedBytes)) unpacked · \(byteString(model.archiveBytes)) archive")
-                        .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 10).foregroundColor(palette.textDim)
                     HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                        Image(systemName: "magnifyingglass").uiFont(size: 9).foregroundColor(palette.textDim)
                         TextField("Filter files", text: $model.filter).textFieldStyle(.plain).uiFont(size: 10)
                     }
-                    .padding(.horizontal, 6).padding(.vertical, 3).background(VSDark.bgInput).cornerRadius(4)
+                    .padding(.horizontal, 6).padding(.vertical, 3).background(palette.bgInput).cornerRadius(4)
                     if let error = model.error {
-                        Text(error).uiFont(size: 9).foregroundColor(VSDark.red).textSelection(.enabled)
+                        Text(error).uiFont(size: 9).foregroundColor(palette.red).textSelection(.enabled)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
                 ArchiveEntriesList(model: model, compact: true)
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
                 ScrollView { FileInfoRows(url: model.url).padding(10) }.frame(maxHeight: 130)
             }
         }
@@ -176,6 +179,7 @@ struct ArchiveContentsPanel: View {
 
 /// The keys of a JSON or YAML file as a tree; a click jumps to the key in the file.
 struct StructureOutlineList: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     let url: URL
     /// The text as edited, so the outline follows typing.
@@ -188,15 +192,15 @@ struct StructureOutlineList: View {
         VStack(spacing: 0) {
             if items.count > 12 || !filter.isEmpty {
                 HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    Image(systemName: "magnifyingglass").uiFont(size: 9).foregroundColor(palette.textDim)
                     TextField("Filter keys", text: $filter).textFieldStyle(.plain).uiFont(size: 10)
                 }
-                .padding(.horizontal, 6).padding(.vertical, 3).background(VSDark.bgInput).cornerRadius(4).padding(8)
+                .padding(.horizontal, 6).padding(.vertical, 3).background(palette.bgInput).cornerRadius(4).padding(8)
             }
             if shown.isEmpty {
                 Spacer()
                 Text(computing ? "Reading the structure…" : items.isEmpty ? "No keys found" : "No key matches")
-                    .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 11).foregroundColor(palette.textDim)
                 Spacer()
             } else {
                 ScrollView {
@@ -205,11 +209,11 @@ struct StructureOutlineList: View {
                             Button { workspaceManager.revealStructure(url, item: item) } label: {
                                 HStack(spacing: 4) {
                                     Color.clear.frame(width: CGFloat(filter.isEmpty ? item.depth : 0) * 12, height: 1)
-                                    Circle().fill(VSDark.textDim.opacity(0.4)).frame(width: 5, height: 5)
+                                    Circle().fill(palette.textDim.opacity(0.4)).frame(width: 5, height: 5)
                                     Text(item.title).uiFont(size: 11, design: item.title.hasPrefix("[") ? .monospaced : .default)
-                                        .foregroundColor(VSDark.text).lineLimit(1).truncationMode(.middle)
+                                        .foregroundColor(palette.text).lineLimit(1).truncationMode(.middle)
                                     Spacer(minLength: 4)
-                                    Text("\(item.line)").uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
+                                    Text("\(item.line)").uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
                                 }
                                 .padding(.vertical, 2).padding(.horizontal, 8).contentShape(Rectangle())
                             }.buttonStyle(.plain)
@@ -234,14 +238,15 @@ struct StructureOutlineList: View {
 
 /// A label and a value, in the style of the file facts.
 struct FactRows: View {
+    @Environment(\.palette) private var palette
     let rows: [(String, String)]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(row.0).uiFont(size: 10).foregroundColor(VSDark.textDim).frame(width: 70, alignment: .leading)
-                    Text(row.1).uiFont(size: 10).foregroundColor(VSDark.text).textSelection(.enabled)
+                    Text(row.0).uiFont(size: 10).foregroundColor(palette.textDim).frame(width: 70, alignment: .leading)
+                    Text(row.1).uiFont(size: 10).foregroundColor(palette.text).textSelection(.enabled)
                         .lineLimit(4).truncationMode(.middle)
                     Spacer(minLength: 0)
                 }
@@ -286,6 +291,7 @@ struct TabFactsPanel: View {
 
 /// A prototype: its facts and screens.
 struct PrototypeContentsPanel: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: PrototypeSession
 
     var body: some View {
@@ -296,17 +302,17 @@ struct PrototypeContentsPanel: View {
                                 ("Approved", manifest.approved ? "Yes" : "Not yet"),
                                 ("Screens", String(manifest.screens.count)), ("Sources", manifest.sources.joined(separator: ", "))])
                 if !manifest.screens.isEmpty {
-                    Text("SCREENS").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+                    Text("SCREENS").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
                     ForEach(manifest.screens, id: \.self) { screen in
                         HStack(spacing: 4) {
-                            Image(systemName: "rectangle.portrait").uiFont(size: 9).foregroundColor(VSDark.textDim)
-                            Text(screen).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(1)
+                            Image(systemName: "rectangle.portrait").uiFont(size: 9).foregroundColor(palette.textDim)
+                            Text(screen).uiFont(size: 11).foregroundColor(palette.text).lineLimit(1)
                         }
                     }
                 }
                 if !manifest.assumptions.isEmpty {
-                    Text("ASSUMPTIONS").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
-                    ForEach(manifest.assumptions, id: \.self) { Text("• " + $0).uiFont(size: 10).foregroundColor(VSDark.text) }
+                    Text("ASSUMPTIONS").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
+                    ForEach(manifest.assumptions, id: \.self) { Text("• " + $0).uiFont(size: 10).foregroundColor(palette.text) }
                 }
             }
             .padding(10)
@@ -345,6 +351,7 @@ final class BrowserOutlineModel: ObservableObject {
 }
 
 struct BrowserContentsPanel: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: BrowserSession
     @StateObject private var model: BrowserOutlineModel
 
@@ -363,17 +370,17 @@ struct BrowserContentsPanel: View {
                                 ("Links", String(model.links))]).padding(10)
             }
             .frame(maxHeight: 130)
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             HStack {
-                Text("HEADINGS").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+                Text("HEADINGS").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
                 Spacer()
                 Button { model.reload() } label: { Image(systemName: "arrow.clockwise").uiFont(size: 9) }
-                    .buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Read the page's headings again")
+                    .buttonStyle(.plain).foregroundColor(palette.textDim).help("Read the page's headings again")
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
             if model.headings.isEmpty {
                 Spacer()
-                Text(session.isLoading ? "Loading…" : "No headings on this page").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                Text(session.isLoading ? "Loading…" : "No headings on this page").uiFont(size: 11).foregroundColor(palette.textDim)
                 Spacer()
             } else {
                 ScrollView {
@@ -382,8 +389,8 @@ struct BrowserContentsPanel: View {
                             Button { model.scroll(to: heading) } label: {
                                 HStack(spacing: 4) {
                                     Color.clear.frame(width: CGFloat(heading.level - 1) * 12, height: 1)
-                                    Circle().fill(VSDark.textDim.opacity(0.4)).frame(width: 5, height: 5)
-                                    Text(heading.text).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(2)
+                                    Circle().fill(palette.textDim.opacity(0.4)).frame(width: 5, height: 5)
+                                    Text(heading.text).uiFont(size: 11).foregroundColor(palette.text).lineLimit(2)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                                 .padding(.vertical, 2).padding(.horizontal, 8).contentShape(Rectangle())

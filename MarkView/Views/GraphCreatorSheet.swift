@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Sheet for creating a new graph diagram from selected source documents
 struct GraphCreatorSheet: View {
+    @Environment(\.palette) private var palette
     let workspaceManager: WorkspaceManager
     @Binding var isPresented: Bool
     var preselectedType: String = "architecture"
@@ -26,8 +27,8 @@ struct GraphCreatorSheet: View {
             // Header
             HStack {
                 Image(systemName: "point.3.connected.trianglepath.dotted")
-                    .uiFont(size: 16).foregroundColor(VSDark.blue)
-                Text("New Graph Diagram").uiFont(.title3, weight: .bold).foregroundColor(VSDark.text)
+                    .uiFont(size: 16).foregroundColor(palette.blue)
+                Text("New Graph Diagram").uiFont(.title3, weight: .bold).foregroundColor(palette.text)
                 Spacer()
             }
 
@@ -35,7 +36,7 @@ struct GraphCreatorSheet: View {
             GroupBox("Source Documents") {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("\(selectedFiles.count) selected").uiFont(.caption).foregroundColor(.secondary)
+                        Text("\(selectedFiles.count) selected").uiFont(.caption).foregroundColor(palette.textDim)
                         Spacer()
                         Button("Current") { selectCurrentFile() }.uiFont(.caption)
                         Button("All") { selectAll() }.uiFont(.caption)
@@ -48,7 +49,7 @@ struct GraphCreatorSheet: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: selectedFiles.contains(file) ? "checkmark.square.fill" : "square")
                                         .uiFont(size: 11)
-                                        .foregroundColor(selectedFiles.contains(file) ? VSDark.blue : .secondary)
+                                        .foregroundColor(selectedFiles.contains(file) ? palette.blue : .secondary)
                                     Text(file).uiFont(size: 11).lineLimit(1)
                                     Spacer()
                                 }
@@ -91,10 +92,10 @@ struct GraphCreatorSheet: View {
                 Button("Cancel") { isPresented = false }
                 Spacer()
                 Text(selectedFiles.isEmpty ? "No documents: the assistant works from the code" : "")
-                    .uiFont(.caption).foregroundColor(.secondary)
+                    .uiFont(.caption).foregroundColor(palette.textDim)
                 Button("Generate") { generate() }
                     .buttonStyle(.borderedProminent)
-                    .tint(VSDark.blue)
+                    .tint(palette.blue)
             }
         }
         .padding(20)

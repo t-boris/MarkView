@@ -6,7 +6,7 @@ import WebKit
 struct DiscussionThreadView: NSViewRepresentable {
     var turns: [DiscussionTurn]
     var live: DiscussionStore.Live?
-    var dark: Bool
+    @EnvironmentObject private var theme: WindowTheme
 
     static var pageURL: URL? { Bundle.main.url(forResource: "discussion", withExtension: "html", subdirectory: "Editor") }
 
@@ -15,6 +15,9 @@ struct DiscussionThreadView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.add(context.coordinator, name: "discussion")
+        // The first paint already has this window's theme; later changes arrive through `mvSetTheme`.
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: theme.firstPaintScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.setValue(false, forKey: "drawsBackground")
@@ -24,7 +27,7 @@ struct DiscussionThreadView: NSViewRepresentable {
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
-        context.coordinator.update(turns: turns, live: live, dark: dark)
+        context.coordinator.update(turns: turns, live: live, theme: theme.webArguments)
     }
 
     final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
@@ -32,17 +35,17 @@ struct DiscussionThreadView: NSViewRepresentable {
         private var ready = false
         private var sentTurns: [DiscussionTurn]?
         private var sentLive: DiscussionStore.Live??
-        private var sentDark: Bool?
-        private var wanted: (turns: [DiscussionTurn], live: DiscussionStore.Live?, dark: Bool)?
+        private var sentTheme: String?
+        private var wanted: (turns: [DiscussionTurn], live: DiscussionStore.Live?, theme: String)?
 
-        func update(turns: [DiscussionTurn], live: DiscussionStore.Live?, dark: Bool) {
-            wanted = (turns, live, dark)
+        func update(turns: [DiscussionTurn], live: DiscussionStore.Live?, theme: String) {
+            wanted = (turns, live, theme)
             flush()
         }
 
         private func flush() {
             guard ready, let view, let wanted else { return }
-            if sentDark != wanted.dark { sentDark = wanted.dark; view.evaluateJavaScript("mvSetTheme(\(wanted.dark))") }
+            if sentTheme != wanted.theme { sentTheme = wanted.theme; view.evaluateJavaScript("mvSetTheme(\(wanted.theme))") }
             if sentTurns != wanted.turns {
                 sentTurns = wanted.turns
                 view.evaluateJavaScript("mvSetTurns(\(Self.literal(Self.json(wanted.turns.map { ["question": $0.question, "answer": $0.answer] }))))")
@@ -74,7 +77,7 @@ struct DiscussionThreadView: NSViewRepresentable {
             switch type {
             case "ready":
                 ready = true
-                sentTurns = nil; sentLive = nil; sentDark = nil
+                sentTurns = nil; sentLive = nil; sentTheme = nil
                 flush()
             case "copy":
                 guard let text = body["text"] as? String, !text.isEmpty else { return }

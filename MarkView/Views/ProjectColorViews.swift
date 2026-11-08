@@ -33,6 +33,7 @@ struct ProjectColorButton: View {
 
 /// The fixed palette (DEC-009) as swatches; the current color carries a check mark.
 private struct ProjectColorPicker: View {
+    @Environment(\.palette) private var palette
     let selected: ProjectColor
     let choose: (ProjectColor) -> Void
 
@@ -60,7 +61,7 @@ private struct ProjectColorPicker: View {
             }
             Text("Every window of this folder shows it.")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundColor(palette.textDim)
         }
         .padding(14)
     }

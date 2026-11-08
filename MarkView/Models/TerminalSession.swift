@@ -177,8 +177,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.add(WeakMessageHandler(self), name: "terminal")
         // The first fit already uses the current scale, so the PTY starts with the final grid.
+        // The first paint already has the window's theme (the page is created lazily, after the host applied it).
         configuration.userContentController.addUserScript(WKUserScript(
-            source: "window.mvFontScale = \(Double(fontScale)); window.mvOperation = \(operationCommand != nil);",
+            source: "window.mvFontScale = \(Double(fontScale)); window.mvOperation = \(operationCommand != nil); \(themeFirstPaint)",
             injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let view = WKWebView(frame: .zero, configuration: configuration)
         if let page = Self.pageURL {
@@ -194,7 +195,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
             case "ready":
                 pageReady = true
                 resize(cols: body["cols"] as? Int ?? 80, rows: body["rows"] as? Int ?? 24)
-                applyTheme()
+                webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(themeArguments))")
                 applyFontScale()
                 if masterFD < 0 && (operationCommand == nil || !operationStartedOnce) { start() }
                 else { flush() }
@@ -259,10 +260,18 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         }
     }
 
-    func applyTheme() {
+    /// The theme of the window this terminal is shown in, as the arguments of the page's `mvSetTheme`
+    /// (`WindowTheme.webArguments`); kept so the page gets it again when it reloads.
+    private var themeArguments = "'classic-dark', null"
+    /// The same theme as <html> attributes, set at document start so a reload paints it from the first frame.
+    private var themeFirstPaint = ""
+
+    /// `arguments` and `firstPaint` are `WindowTheme.webArguments` and `WindowTheme.firstPaintScript`.
+    func applyTheme(arguments: String, firstPaint: String) {
+        themeArguments = arguments
+        themeFirstPaint = firstPaint
         guard pageReady else { return }
-        let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(dark))")
+        webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(themeArguments))")
     }
 
     func setFontScale(_ scale: CGFloat) {

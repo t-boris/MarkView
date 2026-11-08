@@ -5,10 +5,12 @@ import WebKit
 /// screen when SwiftUI rebuilds this host (tab or panel switches).
 struct TerminalHostView: NSViewRepresentable {
     @ObservedObject var session: TerminalSession
+    @EnvironmentObject private var theme: WindowTheme
     @Environment(\.appFontScale) private var fontScale
 
     func makeNSView(context: Context) -> NSView {
         let container = NSView()
+        applyTheme()
         attach(to: container)
         session.setFontScale(fontScale)
         return container
@@ -16,8 +18,13 @@ struct TerminalHostView: NSViewRepresentable {
 
     func updateNSView(_ container: NSView, context: Context) {
         if session.webView.superview !== container { attach(to: container) }
+        applyTheme()
         session.setFontScale(fontScale)
         DispatchQueue.main.async { session.refit() }
+    }
+
+    private func applyTheme() {
+        session.applyTheme(arguments: theme.webArguments, firstPaint: theme.firstPaintScript)
     }
 
     private func attach(to container: NSView) {
@@ -27,7 +34,7 @@ struct TerminalHostView: NSViewRepresentable {
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
         DispatchQueue.main.async {
-            session.applyTheme()
+            applyTheme()
             session.refit()
         }
     }
@@ -36,13 +43,14 @@ struct TerminalHostView: NSViewRepresentable {
 /// Microphone for a terminal: dictated text is typed at the prompt, not sent —
 /// check it and press Enter yourself.
 struct TerminalDictationButton: View {
+    @Environment(\.palette) private var palette
     let session: TerminalSession?
 
     var body: some View {
         if let session {
             SessionDictationButton(session: session, whisper: session.dictation)
         } else {
-            Image(systemName: "mic").uiFont(size: 12).foregroundColor(VSDark.textDim.opacity(0.5))
+            Image(systemName: "mic").uiFont(size: 12).foregroundColor(palette.textDim.opacity(0.5))
         }
     }
 }
@@ -50,6 +58,7 @@ struct TerminalDictationButton: View {
 /// The microphone of one session: the recording lives in the session, so switching tabs or
 /// panels keeps it going; the text is typed into the terminal the recording was started for.
 private struct SessionDictationButton: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: TerminalSession
     @ObservedObject var whisper: WhisperClient
     /// The last transcript held no words: not an error of the recorder, but the person is told why it may be.
@@ -59,7 +68,7 @@ private struct SessionDictationButton: View {
         Button(action: toggle) {
             Image(systemName: whisper.isRecording ? "mic.fill" : session.transcribing ? "waveform" : "mic")
                 .uiFont(size: 12)
-                .foregroundColor(whisper.isRecording ? VSDark.red : VSDark.textDim)
+                .foregroundColor(whisper.isRecording ? palette.red : palette.textDim)
         }
         .buttonStyle(.plain)
         .disabled(session.transcribing)
@@ -86,7 +95,7 @@ private struct SessionDictationButton: View {
     private var notice: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "exclamationmark.triangle").foregroundColor(VSDark.orange)
+                Image(systemName: "exclamationmark.triangle").foregroundColor(palette.orange)
                 Text(message ?? "").textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
@@ -128,6 +137,7 @@ private struct SessionDictationButton: View {
 
 /// "Restart" in a terminal header: ends the session (and whatever runs in it) and starts anew.
 struct TerminalRestartButton: View {
+    @Environment(\.palette) private var palette
     let help: String
     var compact = false
     let action: () -> Void
@@ -139,9 +149,9 @@ struct TerminalRestartButton: View {
                 else { Label("Restart", systemImage: "arrow.clockwise") }
             }
                 .uiFont(size: 10, weight: .medium)
-                .foregroundColor(VSDark.text)
+                .foregroundColor(palette.text)
                 .padding(.horizontal, 7).padding(.vertical, 2)
-                .background(RoundedRectangle(cornerRadius: 4).fill(VSDark.border.opacity(0.6)))
+                .background(RoundedRectangle(cornerRadius: 4).fill(palette.border.opacity(0.6)))
         }
         .buttonStyle(.plain)
         .help(help)
@@ -168,6 +178,7 @@ struct TerminalStopButton: View {
 /// Shared terminal area: session tabs for assistant CLIs or a plain shell,
 /// with buttons that hand a ready-made prompt to the assistant.
 struct AITerminalPanel: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @Environment(\.appFontScale) private var fontScale
     /// This window's project choice when last seen ("tool|model"): the terminal follows only its own
@@ -182,7 +193,7 @@ struct AITerminalPanel: View {
             VStack(spacing: 0) {
                 tabBar(compact: compact)
                 AgentActivityBanner(monitor: workspaceManager.agentActivity, terminalID: workspaceManager.aiTerminal?.id)
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
                 if let session = workspaceManager.aiTerminal {
                     HStack(spacing: 7) {
                         Image(systemName: "exclamationmark.shield")
@@ -198,13 +209,13 @@ struct AITerminalPanel: View {
                         Spacer(minLength: 0)
                         if !compact { Text("Changes: review below") }
                     }
-                    .uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 9).foregroundColor(palette.textDim)
                     .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(VSDark.bgSidebar)
+                    .background(palette.bgSidebar)
                 }
                 if workspaceManager.aiWorkspaceRoot != nil || workspaceManager.rootNode != nil {
                     TerminalPromptBar(expanded: $promptsExpanded)
-                    Divider().background(VSDark.border)
+                    Divider().background(palette.border)
                 }
                 if let session = workspaceManager.aiTerminal {
                     TerminalHostView(session: session).id(session.id)
@@ -214,7 +225,7 @@ struct AITerminalPanel: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(VSDark.bg)
+        .background(palette.bg)
         .sheet(isPresented: $showRemoteConnections) { RemoteConnectionsView() }
         .onAppear {
             workspaceManager.ensureAITerminal()
@@ -275,7 +286,7 @@ struct AITerminalPanel: View {
             }
         }
         .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private func terminalTab(_ session: TerminalSession, compact: Bool) -> some View {
@@ -311,7 +322,7 @@ struct AITerminalPanel: View {
             Divider()
             Button { showRemoteConnections = true } label: { Label("Connect to Home…", systemImage: "network") }
         } label: {
-            Image(systemName: "plus").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textDim)
+            Image(systemName: "plus").uiFont(size: 11, weight: .semibold).foregroundColor(palette.textDim)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -322,9 +333,9 @@ struct AITerminalPanel: View {
     private var placeholder: some View {
         VStack(spacing: 10) {
             Spacer()
-            Image(systemName: "terminal").uiFont(size: 26).foregroundColor(VSDark.textDim)
+            Image(systemName: "terminal").uiFont(size: 26).foregroundColor(palette.textDim)
             if workspaceManager.aiWorkspaceRoot == nil && workspaceManager.rootNode == nil {
-                Text("Open a folder to start a terminal").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                Text("Open a folder to start a terminal").uiFont(size: 11).foregroundColor(palette.textDim)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 12)
@@ -345,6 +356,7 @@ struct AITerminalPanel: View {
 
 /// One terminal in the AI panel's tab bar.
 private struct TerminalPanelTab: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: TerminalSession
     let monitor: AgentActivityMonitor
     let compact: Bool
@@ -373,7 +385,7 @@ private struct TerminalPanelTab: View {
                     .help(remote.detail)
                 Text(remote.detail).uiFont(size: 9).lineLimit(1).frame(maxWidth: 170).help(remote.detail)
             } else if !session.isRunning {
-                Circle().fill(VSDark.textDim).frame(width: 5, height: 5).help("Exited")
+                Circle().fill(palette.textDim).frame(width: 5, height: 5).help("Exited")
             } else {
                 AgentTabDot(monitor: monitor, terminalID: session.id)
             }
@@ -384,9 +396,9 @@ private struct TerminalPanelTab: View {
             .opacity(hovering || isActive ? 1 : 0)
             .help("Close this terminal (ends what runs in it)")
         }
-        .foregroundColor(isActive ? VSDark.text : VSDark.textDim)
+        .foregroundColor(isActive ? palette.text : palette.textDim)
         .padding(.horizontal, 7).padding(.vertical, 3)
-        .background(RoundedRectangle(cornerRadius: 4).fill(isActive ? VSDark.border.opacity(0.7) : Color.clear))
+        .background(RoundedRectangle(cornerRadius: 4).fill(isActive ? palette.border.opacity(0.7) : Color.clear))
         .contentShape(Rectangle())
         .onTapGesture(perform: select)
         .onHover { hovering = $0 }
@@ -396,6 +408,7 @@ private struct TerminalPanelTab: View {
 /// Buttons that hand a ready-made prompt to the assistant (`TerminalPrompt.all`).
 /// Click sends it; ⌥-click only types it, to edit before pressing Enter.
 private struct TerminalPromptBar: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @Binding var expanded: Bool
     @State private var pickingPullRequest = false
@@ -410,7 +423,7 @@ private struct TerminalPromptBar: View {
                     Text("PROMPTS").uiFont(size: 9, weight: .bold)
                     Spacer()
                 }
-                .foregroundColor(VSDark.textDim)
+                .foregroundColor(palette.textDim)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -422,7 +435,7 @@ private struct TerminalPromptBar: View {
             }
         }
         .padding(.horizontal, 8).padding(.vertical, 5)
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private var activeFile: String? {
@@ -448,9 +461,9 @@ private struct TerminalPromptBar: View {
                 Text(prompt.title).uiFont(size: 10).lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .foregroundColor(unavailable ? VSDark.textDim.opacity(0.5) : VSDark.text)
+            .foregroundColor(unavailable ? palette.textDim.opacity(0.5) : palette.text)
             .padding(.horizontal, 6).padding(.vertical, 4)
-            .background(RoundedRectangle(cornerRadius: 4).fill(VSDark.border.opacity(0.45)))
+            .background(RoundedRectangle(cornerRadius: 4).fill(palette.border.opacity(0.45)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -484,6 +497,7 @@ private struct TerminalPromptBar: View {
 
 /// Preview the actual bounds before handing the synchronization request to the current agent.
 private struct GitHubActivityPicker: View {
+    @Environment(\.palette) private var palette
     let typeOnly: Bool
     let choose: (GitHubActivityWindow) -> Void
     @State private var period: GitHubActivityPeriod = .weekdays
@@ -521,7 +535,7 @@ private struct GitHubActivityPicker: View {
             case .weekdays:
                 Stepper("\(weekdays) weekdays (\(weekdays * 24) hours)", value: $weekdays, in: 1...30)
                 Text("Weekdays count as 24 hours; Saturday and Sunday extend the lookback. Monday 09:00 → Thursday 09:00 for two weekdays. No holiday calendar.")
-                    .uiFont(size: 10).foregroundColor(.secondary)
+                    .uiFont(size: 10).foregroundColor(palette.textDim)
             case .hours:
                 Stepper("Last \(hours) calendar hours", value: $hours, in: 1...720)
             case .custom:
@@ -532,7 +546,7 @@ private struct GitHubActivityPicker: View {
                 Text("From: \(window.start.formatted(date: .abbreviated, time: .shortened))\nThrough: \(window.end.formatted(date: .abbreviated, time: .shortened))\nTimezone: \(TimeZone.current.identifier)")
                     .uiFont(size: 11).textSelection(.enabled)
                 Text("Includes all GitHub activity within these dates, including weekends. Creates or updates local features and bugs, then reports priorities.")
-                    .uiFont(size: 10).foregroundColor(.secondary)
+                    .uiFont(size: 10).foregroundColor(palette.textDim)
             } else {
                 Text("Choose an end after the start, no later than now.")
                     .uiFont(size: 10).foregroundColor(.red)
@@ -554,6 +568,7 @@ private struct GitHubActivityPicker: View {
 /// Which pull request to review: typed (number or URL), picked from the open ones, or the
 /// current branch's.
 private struct PullRequestPicker: View {
+    @Environment(\.palette) private var palette
     let root: URL?
     let choose: (String?) -> Void
     @State private var typed = ""
@@ -573,14 +588,14 @@ private struct PullRequestPicker: View {
             if loading {
                 ProgressView().scaleEffect(0.6)
             } else if open.isEmpty {
-                Text("No open pull requests found (gh).").uiFont(size: 10).foregroundColor(.secondary)
+                Text("No open pull requests found (gh).").uiFont(size: 10).foregroundColor(palette.textDim)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(open, id: \.number) { pr in
                             Button { choose("pull request #\(pr.number)") } label: {
                                 HStack(spacing: 6) {
-                                    Text("#\(pr.number)").uiFont(size: 11, design: .monospaced).foregroundColor(.secondary)
+                                    Text("#\(pr.number)").uiFont(size: 11, design: .monospaced).foregroundColor(palette.textDim)
                                     Text(pr.title).uiFont(size: 11).lineLimit(1)
                                     Spacer(minLength: 0)
                                 }
@@ -615,13 +630,14 @@ private struct PullRequestPicker: View {
 
 /// An editor tab showing a terminal opened in a folder.
 struct TerminalTabView: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var session: TerminalSession
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: "terminal").uiFont(size: 10).foregroundColor(VSDark.textDim)
-                Text(session.directory.path).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Image(systemName: "terminal").uiFont(size: 10).foregroundColor(palette.textDim)
+                Text(session.directory.path).uiFont(size: 10).foregroundColor(palette.textDim)
                     .lineLimit(1).truncationMode(.head)
                 Spacer()
                 TerminalDictationButton(session: session)
@@ -631,8 +647,8 @@ struct TerminalTabView: View {
                 }
             }
             .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(VSDark.bgSidebar)
-            Divider().background(VSDark.border)
+            .background(palette.bgSidebar)
+            Divider().background(palette.border)
             TerminalHostView(session: session)
         }
         .onAppear { DispatchQueue.main.async { session.focus() } }

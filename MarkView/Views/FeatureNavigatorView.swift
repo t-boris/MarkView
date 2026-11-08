@@ -11,6 +11,7 @@ struct LeftPanelView: View {
 }
 
 private struct LeftPanelContent: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var store: FeatureStore
     /// This window's Files/Issues choice and open feature (BUG-004: not shared between windows).
     @ObservedObject var layout: PanelLayout
@@ -34,7 +35,7 @@ private struct LeftPanelContent: View {
                     sidebarButton("Issues", symbol: "checklist", selected: showingIssues) { mode = "issues" }
                 }
                 .padding(6)
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
             }
             if showingIssues {
                 if let slug = openFeature, store.feature(slug) != nil {
@@ -55,7 +56,7 @@ private struct LeftPanelContent: View {
                 FileTreeView()
             }
         }
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     private func sidebarButton(_ title: String, symbol: String, selected: Bool,
@@ -65,7 +66,7 @@ private struct LeftPanelContent: View {
                 .uiFont(size: 11, weight: selected ? .semibold : .regular)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 5)
-                .background(selected ? VSDark.bgActive : Color.clear)
+                .background(selected ? palette.bgActive : Color.clear)
                 .cornerRadius(5)
         }
         .buttonStyle(.plain)
@@ -76,6 +77,7 @@ private struct LeftPanelContent: View {
 /// Features (docs/features/*) and bugs (docs/bugs/*.md) of the project, filtered by the text
 /// field and the funnel menu, ordered by the sort menu within each section (issue #24).
 struct IssuesListView: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var store: FeatureStore
     /// The window's bug basket: open bugs can be put in it from their rows (issue #31).
     @ObservedObject var batch: BugBatch
@@ -96,7 +98,7 @@ struct IssuesListView: View {
         let filtering = !filter.isEmpty || !store.issueFilter.isDefault
         VStack(spacing: 0) {
             HStack(spacing: 4) {
-                Image(systemName: "magnifyingglass").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                Image(systemName: "magnifyingglass").uiFont(size: 9).foregroundColor(palette.textDim)
                 TextField("Filter", text: $filter).textFieldStyle(.plain).uiFont(size: 11)
                 filterMenu
                 sortMenu
@@ -105,7 +107,7 @@ struct IssuesListView: View {
             .padding(.horizontal, 8).padding(.vertical, 4)
             if !store.issueFilter.isDefault { activeFilterSummary }
             IssueSyncReportView(sync: store.issueSync)
-            Divider().background(VSDark.border)
+            Divider().background(palette.border)
             if filtering, features.isEmpty, bugs.isEmpty {
                 noMatches
             } else {
@@ -134,8 +136,8 @@ struct IssuesListView: View {
         Button(action: { open(feature.slug) }) {
             HStack(spacing: 5) {
                 Image(systemName: feature.isStructured ? "square.stack.3d.up" : "doc.text")
-                    .uiFont(size: 9).foregroundColor(VSDark.blue).frame(width: 12)
-                Text(feature.title).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(1)
+                    .uiFont(size: 9).foregroundColor(palette.blue).frame(width: 12)
+                Text(feature.title).uiFont(size: 11).foregroundColor(palette.text).lineLimit(1)
                 Spacer(minLength: 2)
                 IssueLinks(numbers: feature.issueNumbers)
                 // Without a status the feature reads as its default (Idea / Draft), muted.
@@ -162,7 +164,7 @@ struct IssuesListView: View {
         if inBasket || batch.canAdd(bug) {
             Button(action: { batch.toggle(bug) }) {
                 Image(systemName: inBasket ? "basket.fill" : "basket").uiFont(size: 9)
-                    .foregroundColor(inBasket ? VSDark.blue : VSDark.textDim)
+                    .foregroundColor(inBasket ? palette.blue : palette.textDim)
                     .frame(width: 18, height: 16).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -180,9 +182,9 @@ struct IssuesListView: View {
         }) {
             HStack(spacing: 5) {
                 Image(systemName: "ladybug").uiFont(size: 9)
-                    .foregroundColor(["critical", "high"].contains(bug.severity) ? VSDark.red : VSDark.orange).frame(width: 12)
-                Text(bug.key).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
-                Text(bug.title).uiFont(size: 11).foregroundColor(bug.status == "open" ? VSDark.text : VSDark.textDim).lineLimit(1)
+                    .foregroundColor(["critical", "high"].contains(bug.severity) ? palette.red : palette.orange).frame(width: 12)
+                Text(bug.key).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
+                Text(bug.title).uiFont(size: 11).foregroundColor(bug.status == "open" ? palette.text : palette.textDim).lineLimit(1)
                 Spacer(minLength: 2)
                 IssueLinks(numbers: bug.issueNumbers)
                 IssueStatusBadge(text: bug.hasStatus ? IssueStatus.normalize(bug.status) : "open",
@@ -216,7 +218,7 @@ struct IssuesListView: View {
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         .padding(2)
-        .background(RoundedRectangle(cornerRadius: 3).fill(active ? VSDark.blue.opacity(0.35) : Color.clear))
+        .background(RoundedRectangle(cornerRadius: 3).fill(active ? palette.blue.opacity(0.35) : Color.clear))
         .help(active ? "Filter: \(store.issueFilter.summary)" : "Filter by status and type")
     }
 
@@ -248,12 +250,12 @@ struct IssuesListView: View {
     /// "Open · Bugs  ✕": the funnel filter in force; ✕ clears it, not the text or the sort (DEC-010).
     private var activeFilterSummary: some View {
         HStack(spacing: 4) {
-            Image(systemName: "line.3.horizontal.decrease").uiFont(size: 8).foregroundColor(VSDark.blue)
-            Text(store.issueFilter.summary).uiFont(size: 10).foregroundColor(VSDark.text)
+            Image(systemName: "line.3.horizontal.decrease").uiFont(size: 8).foregroundColor(palette.blue)
+            Text(store.issueFilter.summary).uiFont(size: 10).foregroundColor(palette.text)
                 .lineLimit(1).truncationMode(.tail)
             Spacer(minLength: 2)
             Button(action: { store.issueFilter = IssueFilter() }) {
-                Image(systemName: "xmark.circle.fill").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Image(systemName: "xmark.circle.fill").uiFont(size: 10).foregroundColor(palette.textDim)
             }
             .buttonStyle(.plain).help("Reset the filter")
         }
@@ -263,7 +265,7 @@ struct IssuesListView: View {
     /// Nothing matches the text and the funnel together: one action clears both (DEC-009).
     private var noMatches: some View {
         VStack(spacing: 6) {
-            Text("No matching items").uiFont(size: 11).foregroundColor(VSDark.textDim)
+            Text("No matching items").uiFont(size: 11).foregroundColor(palette.textDim)
             Button("Reset Filters") {
                 store.issueFilter = IssueFilter()
                 filter = ""
@@ -289,14 +291,14 @@ struct IssuesListView: View {
         HStack(spacing: 5) {
             Button(action: { expanded.wrappedValue.toggle() }) {
                 HStack(spacing: 5) {
-                    Image(systemName: expanded.wrappedValue ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(VSDark.textDim).frame(width: 10)
-                    Text(title.uppercased()).uiFont(size: 9, weight: .bold).foregroundColor(VSDark.textDim)
-                    Text("\(count)").uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
+                    Image(systemName: expanded.wrappedValue ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(palette.textDim).frame(width: 10)
+                    Text(title.uppercased()).uiFont(size: 9, weight: .bold).foregroundColor(palette.textDim)
+                    Text("\(count)").uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
                 }
             }.buttonStyle(.plain)
             Spacer()
             Button(action: { workspaceManager.intake = IntakeRequest(kind: kind) }) {
-                Image(systemName: "plus").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                Image(systemName: "plus").uiFont(size: 9).foregroundColor(palette.textDim)
             }.buttonStyle(.plain).help(kind.title)
         }
         .padding(.horizontal, 8).padding(.vertical, 4)
@@ -306,13 +308,14 @@ struct IssuesListView: View {
 /// Status of a feature or bug in its row: up to 12 characters, then cut with the whole value in
 /// the tooltip; the title gives way first (DEC-014).
 struct IssueStatusBadge: View {
+    @Environment(\.palette) private var palette
     let text: String
     let tone: IssueStatus.Tone
     /// No status written: the default is shown dimmed.
     var muted = false
 
     var body: some View {
-        let color = muted ? VSDark.textDim : toneColor
+        let color = muted ? palette.textDim : toneColor
         Text(text.count > 12 ? String(text.prefix(11)) + "…" : text)
             .uiFont(size: 9, weight: .medium)
             .foregroundColor(color)
@@ -325,16 +328,17 @@ struct IssueStatusBadge: View {
 
     private var toneColor: Color {
         switch tone {
-        case .open: return VSDark.blue
-        case .active: return VSDark.yellow
-        case .done: return VSDark.green
-        case .dropped: return VSDark.textDim
+        case .open: return palette.blue
+        case .active: return palette.yellow
+        case .done: return palette.green
+        case .dropped: return palette.textDim
         }
     }
 }
 
 /// "#12 #40": the GitHub issues something refers to, each opening the issue.
 struct IssueLinks: View {
+    @Environment(\.palette) private var palette
     let numbers: [Int]
     @EnvironmentObject var workspaceManager: WorkspaceManager
 
@@ -345,7 +349,7 @@ struct IssueLinks: View {
                 Button("#\(number)") { workspaceManager.openGitHubIssue(number) }
                     .buttonStyle(.plain)
                     .uiFont(size: 9, weight: .medium, design: .monospaced)
-                    .foregroundColor(VSDark.blue)
+                    .foregroundColor(palette.blue)
                     .help("Open GitHub issue #\(number)")
             }
         }
@@ -356,6 +360,7 @@ struct IssueLinks: View {
 
 /// Sidebar sections of the active feature (spec §3, §29): each object opens its Markdown file.
 struct FeatureNavigatorView: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var store: FeatureStore
     var onBack: (() -> Void)? = nil
     @EnvironmentObject var workspaceManager: WorkspaceManager
@@ -374,11 +379,11 @@ struct FeatureNavigatorView: View {
                         Text("Issues").uiFont(size: 11)
                         Spacer()
                     }
-                    .foregroundColor(VSDark.blue)
+                    .foregroundColor(palette.blue)
                     .padding(.horizontal, 10).padding(.vertical, 5)
                     .contentShape(Rectangle())
                 }.buttonStyle(.plain)
-                Divider().background(VSDark.border)
+                Divider().background(palette.border)
             }
             if let feature = store.active {
                 ScrollView {
@@ -403,21 +408,21 @@ struct FeatureNavigatorView: View {
                 .onChange(of: listedIDs(feature)) { ids in selection.keep(only: ids) }
                 if selection.count > 1 {
                     HStack(spacing: 8) {
-                        Text("\(selection.count) selected").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
+                        Text("\(selection.count) selected").uiFont(size: 10, weight: .semibold).foregroundColor(palette.text)
                         Spacer()
                         Button { delete(selection.ordered(listedIDs(feature)), in: feature) } label: {
                             Image(systemName: "trash").uiFont(size: 11)
                         }
-                        .buttonStyle(.plain).foregroundColor(VSDark.red).help("Delete the selected objects")
+                        .buttonStyle(.plain).foregroundColor(palette.red).help("Delete the selected objects")
                         Button { selection.clear() } label: { Image(systemName: "xmark").uiFont(size: 9, weight: .semibold) }
-                            .buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Clear the selection")
+                            .buttonStyle(.plain).foregroundColor(palette.textDim).help("Clear the selection")
                     }
                     .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(VSDark.bgActive)
+                    .background(palette.bgActive)
                 }
             }
         }
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
     }
 
     /// Object ids in the order the expanded sections show them (⇧-click ranges follow it).
@@ -445,11 +450,11 @@ struct FeatureNavigatorView: View {
             let isExpanded = expanded.contains("documents")
             Button(action: { if isExpanded { expanded.remove("documents") } else { expanded.insert("documents") } }) {
                 HStack(spacing: 5) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(VSDark.textDim).frame(width: 10)
-                    Image(systemName: "doc.on.doc").uiFont(size: 10).foregroundColor(VSDark.blue).frame(width: 14)
-                    Text("Documents").uiFont(size: 11, weight: .medium).foregroundColor(VSDark.text)
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(palette.textDim).frame(width: 10)
+                    Image(systemName: "doc.on.doc").uiFont(size: 10).foregroundColor(palette.blue).frame(width: 14)
+                    Text("Documents").uiFont(size: 11, weight: .medium).foregroundColor(palette.text)
                     Spacer()
-                    Text("\(feature.documents.count)").uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
+                    Text("\(feature.documents.count)").uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
                 }
                 .padding(.horizontal, 8).padding(.vertical, 3)
                 .contentShape(Rectangle())
@@ -458,14 +463,14 @@ struct FeatureNavigatorView: View {
                 ForEach(feature.documents, id: \.self) { url in
                     Button(action: { open(url) }) {
                         HStack(spacing: 5) {
-                            Image(systemName: "doc.text").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                            Image(systemName: "doc.text").uiFont(size: 9).foregroundColor(palette.textDim)
                             Text(url.deletingPathExtension().lastPathComponent).uiFont(size: 11)
-                                .foregroundColor(isActive(url) ? VSDark.textBright : VSDark.text).lineLimit(1)
+                                .foregroundColor(isActive(url) ? palette.textBright : palette.text).lineLimit(1)
                                 .help(url.lastPathComponent)
                             Spacer(minLength: 0)
                         }
                         .padding(.leading, 28).padding(.trailing, 8).padding(.vertical, 2)
-                        .background(isActive(url) ? VSDark.selection.opacity(0.35) : Color.clear)
+                        .background(isActive(url) ? palette.selection.opacity(0.35) : Color.clear)
                         .contentShape(Rectangle())
                     }.buttonStyle(.plain)
                 }
@@ -475,12 +480,12 @@ struct FeatureNavigatorView: View {
 
     private func header(_ feature: Feature) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(feature.title).uiFont(size: 12, weight: .semibold).foregroundColor(VSDark.textBright).lineLimit(2)
+            Text(feature.title).uiFont(size: 12, weight: .semibold).foregroundColor(palette.textBright).lineLimit(2)
             if !feature.issueNumbers.isEmpty { IssueLinks(numbers: feature.issueNumbers) }
             HStack(spacing: 6) {
                 FeatureStatusMenu(store: store, feature: feature)
                 Spacer()
-                Text("\(feature.readiness)%").uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim)
+                Text("\(feature.readiness)%").uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim)
             }
             ReadinessBar(value: feature.readiness)
         }
@@ -496,13 +501,13 @@ struct FeatureNavigatorView: View {
             if isExpanded { expanded.remove(kind.rawValue) } else { expanded.insert(kind.rawValue) }
         }) {
             HStack(spacing: 5) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(VSDark.textDim).frame(width: 10)
-                Image(systemName: kind.icon).uiFont(size: 10).foregroundColor(VSDark.blue).frame(width: 14)
-                Text(kind.title).uiFont(size: 11, weight: .medium).foregroundColor(VSDark.text)
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(palette.textDim).frame(width: 10)
+                Image(systemName: kind.icon).uiFont(size: 10).foregroundColor(palette.blue).frame(width: 14)
+                Text(kind.title).uiFont(size: 11, weight: .medium).foregroundColor(palette.text)
                 Spacer()
                 if !objects.isEmpty {
                     Text(openCount > 0 && openCount != objects.count ? "\(openCount)/\(objects.count)" : "\(objects.count)")
-                        .uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
                 }
             }
             .padding(.horizontal, 8).padding(.vertical, 3)
@@ -514,13 +519,13 @@ struct FeatureNavigatorView: View {
                 Button(action: { click(object, in: feature) }) {
                     HStack(spacing: 5) {
                         FeatureStatusDot(object: object)
-                        Text(object.id).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
-                        Text(object.title).uiFont(size: 11).foregroundColor(isActive(object.url) ? VSDark.textBright : VSDark.text).lineLimit(1)
+                        Text(object.id).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
+                        Text(object.title).uiFont(size: 11).foregroundColor(isActive(object.url) ? palette.textBright : palette.text).lineLimit(1)
                         Spacer(minLength: 0)
                     }
                     .padding(.leading, 28).padding(.trailing, 8).padding(.vertical, 2)
-                    .background(selection.contains(object.id) ? VSDark.blue.opacity(0.3)
-                                : isActive(object.url) ? VSDark.selection.opacity(0.35) : Color.clear)
+                    .background(selection.contains(object.id) ? palette.blue.opacity(0.3)
+                                : isActive(object.url) ? palette.selection.opacity(0.35) : Color.clear)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -542,10 +547,10 @@ struct FeatureNavigatorView: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Color.clear.frame(width: 10)
-                Image(systemName: icon).uiFont(size: 10).foregroundColor(VSDark.blue).frame(width: 14)
-                Text(title).uiFont(size: 11, weight: .medium).foregroundColor(VSDark.text)
+                Image(systemName: icon).uiFont(size: 10).foregroundColor(palette.blue).frame(width: 14)
+                Text(title).uiFont(size: 11, weight: .medium).foregroundColor(palette.text)
                 Spacer()
-                if let detail { Text(detail).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim) }
+                if let detail { Text(detail).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim) }
             }
             .padding(.horizontal, 8).padding(.vertical, 3)
             .contentShape(Rectangle())
@@ -560,9 +565,9 @@ struct FeatureNavigatorView: View {
             if showHistory { Task { history = await store.history(of: feature.folder, limit: 25) } }
         }) {
             HStack(spacing: 5) {
-                Image(systemName: showHistory ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(VSDark.textDim).frame(width: 10)
-                Image(systemName: "clock.arrow.circlepath").uiFont(size: 10).foregroundColor(VSDark.blue).frame(width: 14)
-                Text("History").uiFont(size: 11, weight: .medium).foregroundColor(VSDark.text)
+                Image(systemName: showHistory ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(palette.textDim).frame(width: 10)
+                Image(systemName: "clock.arrow.circlepath").uiFont(size: 10).foregroundColor(palette.blue).frame(width: 14)
+                Text("History").uiFont(size: 11, weight: .medium).foregroundColor(palette.text)
                 Spacer()
             }
             .padding(.horizontal, 8).padding(.vertical, 3)
@@ -571,10 +576,10 @@ struct FeatureNavigatorView: View {
         .buttonStyle(.plain)
         if showHistory {
             if history.isEmpty {
-                Text("No commits yet").uiFont(size: 10).foregroundColor(VSDark.textDim).padding(.leading, 28)
+                Text("No commits yet").uiFont(size: 10).foregroundColor(palette.textDim).padding(.leading, 28)
             }
             ForEach(history, id: \.self) { line in
-                Text(line).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
+                Text(line).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
                     .lineLimit(2).padding(.leading, 28).padding(.trailing, 8).padding(.vertical, 1)
                     .textSelection(.enabled)
             }
@@ -608,13 +613,14 @@ struct FeatureStatusMenu: View {
 }
 
 struct ReadinessBar: View {
+    @Environment(\.palette) private var palette
     let value: Int
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2).fill(VSDark.bgInput)
-                RoundedRectangle(cornerRadius: 2).fill(value >= 80 ? VSDark.green : value >= 50 ? VSDark.yellow : VSDark.orange)
+                RoundedRectangle(cornerRadius: 2).fill(palette.bgInput)
+                RoundedRectangle(cornerRadius: 2).fill(value >= 80 ? palette.green : value >= 50 ? palette.yellow : palette.orange)
                     .frame(width: geometry.size.width * CGFloat(value) / 100)
             }
         }
@@ -624,6 +630,7 @@ struct ReadinessBar: View {
 
 /// Status of an object as a coloured dot.
 struct FeatureStatusDot: View {
+    @Environment(\.palette) private var palette
     let object: FeatureObject
 
     var body: some View {
@@ -632,16 +639,16 @@ struct FeatureStatusDot: View {
 
     private var color: Color {
         switch object.status {
-        case "approved", "implemented", "accepted", "answered", "resolved": return VSDark.green
-        case "rejected", "dismissed", "superseded": return VSDark.textDim
-        case "deferred", "accepted-risk": return VSDark.purple
-        case "review", "discussing", "proposed": return VSDark.yellow
+        case "approved", "implemented", "accepted", "answered", "resolved": return palette.green
+        case "rejected", "dismissed", "superseded": return palette.textDim
+        case "deferred", "accepted-risk": return palette.purple
+        case "review", "discussing", "proposed": return palette.yellow
         default:
             if object.kind == .finding {
-                return ["blocker", "high"].contains(object.front.string("severity")) ? VSDark.red : VSDark.orange
+                return ["blocker", "high"].contains(object.front.string("severity")) ? palette.red : palette.orange
             }
-            if object.isBlocking { return VSDark.red }
-            return VSDark.blue
+            if object.isBlocking { return palette.red }
+            return palette.blue
         }
     }
 }
@@ -649,6 +656,7 @@ struct FeatureStatusDot: View {
 /// "New Feature / New Bug / I Need to Understand": write everything you know, add files,
 /// the AI does the rest (feature files + GitHub issue, bug report + GitHub issue, researched answer).
 struct IntakeSheet: View {
+    @Environment(\.palette) private var palette
     let request: IntakeRequest
     private var kind: IntakeKind { request.kind }
     @ObservedObject var workspaceManager: WorkspaceManager
@@ -689,7 +697,7 @@ struct IntakeSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Image(systemName: icon).foregroundColor(VSDark.blue)
+                Image(systemName: icon).foregroundColor(palette.blue)
                 Text(kind.title).uiFont(.headline)
                 Spacer()
                 if kind == .understand || kind == .research {
@@ -698,7 +706,7 @@ struct IntakeSheet: View {
                     }
                 }
             }
-            Text(kind.prompt).uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(kind.prompt).uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             IntakeTextEditor(text: $text, focused: $editorFocused, attach: { urls in
                 attachments += urls.filter { !attachments.contains($0) }
             }, failed: { failed = $0 })
@@ -735,7 +743,7 @@ struct IntakeSheet: View {
                         HStack(spacing: 3) {
                             Text("Linked to #\(linkedIssue) — no new issue is filed").uiFont(.caption)
                             Button(action: { self.linkedIssue = nil }) { Image(systemName: "xmark.circle.fill") }
-                                .buttonStyle(.plain).foregroundColor(.secondary)
+                                .buttonStyle(.plain).foregroundColor(palette.textDim)
                         }
                         if kind == .bug { Toggle("Add the analysis to #\(linkedIssue) as a comment", isOn: $commentOnIssue).uiFont(.caption) }
                     }
@@ -744,7 +752,7 @@ struct IntakeSheet: View {
             }
             HStack(spacing: 6) {
                 Button("Add Files…") { chooseFiles() }
-                Text("or paste images with ⌘V").uiFont(.caption).foregroundColor(.secondary)
+                Text("or paste images with ⌘V").uiFont(.caption).foregroundColor(palette.textDim)
             }
             ScrollView(.horizontal) {
             HStack(spacing: 6) {
@@ -753,25 +761,25 @@ struct IntakeSheet: View {
                         IntakeAttachmentThumbnail(url: url)
                         Text(url.lastPathComponent).uiFont(.caption).lineLimit(1)
                         Button(action: { attachments.removeAll { $0 == url } }) { Image(systemName: "xmark.circle.fill") }
-                            .buttonStyle(.plain).foregroundColor(.secondary)
+                            .buttonStyle(.plain).foregroundColor(palette.textDim)
                     }
-                    .padding(.horizontal, 5).padding(.vertical, 2).background(VSDark.bgInput).cornerRadius(4)
+                    .padding(.horizontal, 5).padding(.vertical, 2).background(palette.bgInput).cornerRadius(4)
                 }
                 Spacer()
             }
             }
-            Text(footnote).uiFont(.caption2).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(footnote).uiFont(.caption2).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             if let failed { Text(failed).uiFont(.caption).foregroundColor(.red).textSelection(.enabled) }
             HStack {
                 if loadingSource {
                     ProgressView().scaleEffect(0.6)
                     Text("Loading \(request.loadIssue.map { "#\($0)" } ?? request.loadPullRequest.map { "PR #\($0)" } ?? "")…")
-                        .uiFont(.caption).foregroundColor(.secondary)
+                        .uiFont(.caption).foregroundColor(palette.textDim)
                 }
                 if working {
                     ProgressView().scaleEffect(0.6)
                     Text("Analyzing…")
-                        .uiFont(.caption).foregroundColor(.secondary)
+                        .uiFont(.caption).foregroundColor(palette.textDim)
                 }
                 Spacer()
                 // Esc cancels a dictation first; the next Esc closes the sheet.
@@ -796,8 +804,8 @@ struct IntakeSheet: View {
     }
 
     private var editorBorder: Color {
-        if dropping { return VSDark.blue }
-        return dictation.isRecording ? VSDark.red : VSDark.border
+        if dropping { return palette.blue }
+        return dictation.isRecording ? palette.red : palette.border
     }
 
     /// The issue or pull request the sheet was opened from: its text becomes the material.
@@ -831,14 +839,14 @@ struct IntakeSheet: View {
                 issueFilter.isEmpty || "#\($0.number) \($0.title)".localizedCaseInsensitiveContains(issueFilter)
             }
             if issues.isEmpty {
-                Text(workspaceManager.gitHub.loadingIssues ? "Loading…" : "No open issues").uiFont(.caption).foregroundColor(.secondary)
+                Text(workspaceManager.gitHub.loadingIssues ? "Loading…" : "No open issues").uiFont(.caption).foregroundColor(palette.textDim)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(issues) { issue in
                         Button(action: { load(issue.number) }) {
                             HStack(spacing: 5) {
-                                Text("#\(issue.number)").uiFont(size: 11, design: .monospaced).foregroundColor(VSDark.blue)
+                                Text("#\(issue.number)").uiFont(size: 11, design: .monospaced).foregroundColor(palette.blue)
                                 Text(issue.title).uiFont(size: 11).lineLimit(1)
                                 Spacer(minLength: 0)
                             }

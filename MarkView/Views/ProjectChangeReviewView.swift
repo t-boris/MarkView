@@ -1,18 +1,19 @@
 import SwiftUI
 
 struct ProjectChangeReviewBar: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var review: ProjectChangeReview
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var showingReview = false
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "doc.text.magnifyingglass").foregroundColor(VSDark.blue)
+            Image(systemName: "doc.text.magnifyingglass").foregroundColor(palette.blue)
             if review.changes.isEmpty {
-                Text("File changes: none observed").foregroundColor(VSDark.textDim)
+                Text("File changes: none observed").foregroundColor(palette.textDim)
             } else {
                 Text("\(review.changes.count) observed file change\(review.changes.count == 1 ? "" : "s")")
-                    .foregroundColor(VSDark.text)
+                    .foregroundColor(palette.text)
             }
             Spacer(minLength: 0)
             if review.isScanning { ProgressView().controlSize(.mini) }
@@ -25,7 +26,7 @@ struct ProjectChangeReviewBar: View {
         }
         .uiFont(size: 10)
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(VSDark.bgSidebar)
+        .background(palette.bgSidebar)
         .sheet(isPresented: $showingReview) {
             ProjectChangeReviewSheet(review: review)
                 .environmentObject(workspaceManager)
@@ -34,6 +35,7 @@ struct ProjectChangeReviewBar: View {
 }
 
 private struct ProjectChangeReviewSheet: View {
+    @Environment(\.palette) private var palette
     @ObservedObject var review: ProjectChangeReview
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @Environment(\.dismiss) private var dismiss
@@ -52,7 +54,7 @@ private struct ProjectChangeReviewSheet: View {
                 Button("Done") { dismiss() }
             }.padding(12)
             Text("Changes since this project opened. MarkView observes disk files; the source of each change is unknown.")
-                .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                .uiFont(size: 10).foregroundColor(palette.textDim)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12)
             Divider()
             HStack(spacing: 0) {
@@ -62,7 +64,7 @@ private struct ProjectChangeReviewSheet: View {
                               change.kind == .deleted ? "minus.circle" : "pencil.circle")
                         Text(change.path).lineLimit(1)
                         Spacer()
-                        Text(change.kind.rawValue.capitalized).foregroundColor(VSDark.textDim)
+                        Text(change.kind.rawValue.capitalized).foregroundColor(palette.textDim)
                     }
                     .uiFont(size: 10)
                     .tag(change.path)
@@ -93,7 +95,7 @@ private struct ProjectChangeReviewSheet: View {
             Divider()
             HStack {
                 Text("Original files remain on disk. Reviewing does not apply or revert changes.")
-                    .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 10).foregroundColor(palette.textDim)
                 Spacer()
                 Button("Mark reviewed") {
                     Task { await review.acknowledge(); dismiss() }

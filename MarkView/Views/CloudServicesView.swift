@@ -3,6 +3,7 @@ import SwiftUI
 
 /// What a cloud place runs, one row per function, site, machine or deployment: its state, its log, a link to open it.
 struct CloudServicesCard: View {
+    @Environment(\.palette) private var palette
     let env: DeploymentEnvironment
     @ObservedObject var store: DeploymentStore
     /// Hand a log to the assistant: (question, log text, log title).
@@ -22,12 +23,12 @@ struct CloudServicesCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text("SERVICES").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+                Text("SERVICES").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
                 ForEach(CloudServices.totals(state.items), id: \.group) { total in
                     HStack(spacing: 4) {
-                        Text("\(total.count) \(total.group.lowercased())").uiFont(size: 10).foregroundColor(VSDark.textDim)
-                        if total.bad > 0 { badge("\(total.bad) failing", VSDark.red) }
-                        if total.warn > 0 { badge("\(total.warn) warning", VSDark.orange) }
+                        Text("\(total.count) \(total.group.lowercased())").uiFont(size: 10).foregroundColor(palette.textDim)
+                        if total.bad > 0 { badge("\(total.bad) failing", palette.red) }
+                        if total.warn > 0 { badge("\(total.warn) warning", palette.orange) }
                     }
                 }
                 Spacer()
@@ -36,12 +37,12 @@ struct CloudServicesCard: View {
                     .buttonStyle(.plain).disabled(state.loading).help("Look again")
             }
             ForEach(state.problems, id: \.self) { problem in
-                Label(problem, systemImage: "exclamationmark.triangle").uiFont(size: 10).foregroundColor(VSDark.orange)
+                Label(problem, systemImage: "exclamationmark.triangle").uiFont(size: 10).foregroundColor(palette.orange)
                     .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
             }
             if state.items.isEmpty {
                 Text(state.loading ? "Looking…" : state.updated == nil ? "Not looked at yet." : "The provider lists nothing for this project.")
-                    .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 10).foregroundColor(palette.textDim)
             } else {
                 if state.items.count > 8 {
                     TextField("Filter by name", text: $filter).textFieldStyle(.roundedBorder).uiFont(size: 11)
@@ -54,20 +55,20 @@ struct CloudServicesCard: View {
                                 HStack(spacing: 4) {
                                     Image(systemName: collapsed.contains(group) ? "chevron.right" : "chevron.down").uiFont(size: 8)
                                     Text(group).uiFont(size: 11, weight: .semibold)
-                                    Text("\(rows.count)").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                                    Text("\(rows.count)").uiFont(size: 10).foregroundColor(palette.textDim)
                                 }
-                            }.buttonStyle(.plain).foregroundColor(VSDark.text)
+                            }.buttonStyle(.plain).foregroundColor(palette.text)
                             if !collapsed.contains(group) { ForEach(rows) { row($0) } }
                         }
                     }
                 }
                 if let updated = state.updated {
                     Text("Looked at \(updated.formatted(date: .omitted, time: .standard)). A badge on a site is its answer to a request from this Mac; a function has no state here, read its log.")
-                        .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
-        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(palette.bgSidebar).cornerRadius(6)
         .onAppear { if state.updated == nil && !state.loading { Task { await store.loadServices(env.id) } } }
         .sheet(item: $logRequest) { request in
             ServiceLogSheet(env: env, store: store, request: request, askAI: askAI)
@@ -87,8 +88,8 @@ struct CloudServicesCard: View {
     private func row(_ service: CloudService) -> some View {
         HStack(spacing: 8) {
             Circle().fill(color(service.level)).frame(width: 7, height: 7).opacity(service.level == .unknown && service.state == nil ? 0.25 : 1)
-            Text(service.name).uiFont(size: 11, weight: .medium).foregroundColor(VSDark.text).lineLimit(1).truncationMode(.middle)
-            Text(service.details.joined(separator: " · ")).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1)
+            Text(service.name).uiFont(size: 11, weight: .medium).foregroundColor(palette.text).lineLimit(1).truncationMode(.middle)
+            Text(service.details.joined(separator: " · ")).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1)
             Spacer(minLength: 4)
             if let word = service.state { badge(word, color(service.level)) }
             if service.logCommand != nil {
@@ -118,10 +119,10 @@ struct CloudServicesCard: View {
 
     private func color(_ level: CloudService.Level) -> Color {
         switch level {
-        case .ok: return VSDark.green
-        case .warn: return VSDark.orange
-        case .bad: return VSDark.red
-        case .unknown: return VSDark.textDim
+        case .ok: return palette.green
+        case .warn: return palette.orange
+        case .bad: return palette.red
+        case .unknown: return palette.textDim
         }
     }
 
@@ -138,6 +139,7 @@ struct ServiceLogRequest: Identifiable {
 
 /// The log of one service: fetched when the sheet opens (a read-only command), filterable, and the assistant can read it.
 struct ServiceLogSheet: View {
+    @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     let env: DeploymentEnvironment
     @ObservedObject var store: DeploymentStore
@@ -160,7 +162,7 @@ struct ServiceLogSheet: View {
                 Spacer()
                 if loading { ProgressView().controlSize(.small) }
             }
-            Text(request.service.logCommand ?? "").uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim).textSelection(.enabled)
+            Text(request.service.logCommand ?? "").uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim).textSelection(.enabled)
             HStack {
                 TextField("Filter lines (error, 500, …)", text: $filter).textFieldStyle(.roundedBorder)
                 Button("Fetch again") { fetch() }.disabled(loading)
@@ -168,9 +170,9 @@ struct ServiceLogSheet: View {
                     .disabled(text.isEmpty).help("Send what is on screen to the assistant")
             }
             ScrollView {
-                Text(shown.isEmpty ? (loading ? "Fetching…" : "Nothing.") : shown).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).textSelection(.enabled)
+                Text(shown.isEmpty ? (loading ? "Fetching…" : "Nothing.") : shown).uiFont(size: 10, design: .monospaced).foregroundColor(palette.text).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-            }.frame(height: 360).padding(6).background(VSDark.bgInput).cornerRadius(4)
+            }.frame(height: 360).padding(6).background(palette.bgInput).cornerRadius(4)
             HStack {
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)

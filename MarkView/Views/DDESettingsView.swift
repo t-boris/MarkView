@@ -4,6 +4,7 @@ import AVFoundation
 
 /// Settings panel for DDE — AI CLI (assistant, model, paths), voice input, maintenance
 struct DDESettingsView: View {
+    @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var openaiKey: String = ""
     @AppStorage(ActionOutputLanguage.storageKey) private var outputLanguage = ActionOutputLanguage.documentLanguage
@@ -56,7 +57,7 @@ struct DDESettingsView: View {
                             .disabled(AppFontScale.validated(fontScalePercent) == AppFontScale.defaultPercent)
                     }
                     Text("Scales text in every window: AI answers, settings, sidebars, labels, buttons and the terminal. Document text in the editor and previews keeps its own size slider.")
-                        .uiFont(size: 9).foregroundColor(.secondary)
+                        .uiFont(size: 9).foregroundColor(palette.textDim)
                         .fixedSize(horizontal: false, vertical: true)
                 }.padding(8)
             }
@@ -77,10 +78,10 @@ struct DDESettingsView: View {
                         keyStatusView(openaiStatus)
                         Spacer()
                         Text("Optional: Whisper voice input")
-                            .uiFont(size: 9).foregroundColor(.secondary)
+                            .uiFont(size: 9).foregroundColor(palette.textDim)
                     }
                     Text("The 🎤 in the terminals and in the New Feature / New Bug / I Need to Understand text works without a key, using macOS's built-in speech recognition on this Mac (nothing is sent anywhere; choose its language below). With a key, dictation uses OpenAI Whisper instead: it detects the language by itself and is usually more accurate, but the dictated audio is sent to OpenAI and billed to this key; it is not stored — the temporary recording is deleted right after. Recordings stop at 10 minutes.")
-                        .uiFont(size: 9).foregroundColor(.secondary)
+                        .uiFont(size: 9).foregroundColor(palette.textDim)
                         .fixedSize(horizontal: false, vertical: true)
                 }.padding(8)
             }
@@ -98,7 +99,7 @@ struct DDESettingsView: View {
                         Text(project == nil
                              ? "No project is open in this window, so this sets the defaults for projects that have not chosen their own. Each project chooses its assistant, model and X-Ray model in its own window: here or in the toolbar."
                              : "This project's choice, the same as its window's toolbar menu; other projects keep theirs. Applies to its X-Ray, Explain, selection actions, translation, diagrams, Recursive Insight and AI terminal. The X-Ray model is chosen in the toolbar.")
-                            .uiFont(size: 9).foregroundColor(.secondary)
+                            .uiFont(size: 9).foregroundColor(palette.textDim)
                             .fixedSize(horizontal: false, vertical: true)
                         AIAssistantPickerView(project: project)
                         HStack {
@@ -112,17 +113,17 @@ struct DDESettingsView: View {
                             .fixedSize()
                         }
                         Text("Explanations, descriptions, reviews and Actions results. Changing it marks existing explanations as outdated.")
-                            .uiFont(size: 9).foregroundColor(.secondary)
+                            .uiFont(size: 9).foregroundColor(palette.textDim)
                         Stepper(value: $researchTimeout, in: 5...120, step: 5) {
                             Text("New Research time limit: \(researchTimeout) min").uiFont(.caption)
                         }
                         .fixedSize()
                         Text("A research job that runs longer stops; what it found so far is saved and marked incomplete.")
-                            .uiFont(size: 9).foregroundColor(.secondary)
+                            .uiFont(size: 9).foregroundColor(palette.textDim)
                         Toggle("Analyze code projects automatically (X-Ray)", isOn: $autoAnalyze)
                             .uiFont(.caption)
                         Text("When a code project opens, X-Ray scans it and the assistant reads its architecture and traces its main scenarios in the background; refreshed after code changes (60 s of quiet, at most one AI run per 15 min, projects up to 5000 source files). Off: only the local layers, no CLI is started.")
-                            .uiFont(size: 9).foregroundColor(.secondary)
+                            .uiFont(size: 9).foregroundColor(palette.textDim)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
@@ -141,7 +142,7 @@ struct DDESettingsView: View {
                             .uiFont(size: 10, design: .monospaced)
                             .onSubmit { UserDefaults.standard.set(extraPath, forKey: "settings.cli.extraPATH") }
                         Text("Added to PATH for spawned CLIs. Node version dirs are included automatically.")
-                            .uiFont(size: 9).foregroundColor(.secondary)
+                            .uiFont(size: 9).foregroundColor(palette.textDim)
                     }
                 }.padding(8)
             }
@@ -151,7 +152,7 @@ struct DDESettingsView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(UsageAgent.allCases) { agent in AgentUsageVisibilityToggle(agent: agent) }
                     Text("Official limit data is requested with the agent's own sign-in, read locally and sent only to its vendor. Otherwise usage is counted from local logs (~/.claude, ~/.codex).")
-                        .uiFont(size: 9).foregroundColor(.secondary)
+                        .uiFont(size: 9).foregroundColor(palette.textDim)
                 }.padding(8)
             }
 
@@ -173,7 +174,7 @@ struct DDESettingsView: View {
                         Text(WhisperClient.engineName).uiFont(.caption)
                         Spacer()
                         Text(WhisperClient.engine == .openAI ? "Audio is sent to OpenAI" : "Runs on this Mac, nothing is sent")
-                            .uiFont(size: 9).foregroundColor(.secondary)
+                            .uiFont(size: 9).foregroundColor(palette.textDim)
                     }
                     if WhisperClient.engine == .openAI {
                         HStack {
@@ -204,7 +205,7 @@ struct DDESettingsView: View {
                             }
                         }.pickerStyle(.menu)
                         Text("macOS recognizes one language at a time and cannot detect it, so pick the language you dictate in. More languages: System Settings \u{2192} Keyboard \u{2192} Dictation (each downloads once). For mixed languages or the best accuracy, add an OpenAI key above.")
-                            .uiFont(size: 9).foregroundColor(.secondary)
+                            .uiFont(size: 9).foregroundColor(palette.textDim)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
@@ -233,7 +234,7 @@ struct DDESettingsView: View {
             GroupBox("Implement with AI") {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("What “done” means for an implementation goal: a fresh branch from origin/main, up-to-date records and GitHub issues, everything committed, a pull request with green CI, tests, deploy… Each item can be required, asked about or skipped; you can also change it just before a run.")
-                        .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     Button("Definition of Done…") { showDone = true }
                         .disabled(workspaceManager.projectFolder == nil)
                         .help(workspaceManager.projectFolder == nil ? "Open a project folder first" : "Choose what the assistant must finish")
@@ -248,7 +249,7 @@ struct DDESettingsView: View {
                     if let folder = workspaceManager.rootNode?.url {
                         Text("MarkView data stored in “\(folder.lastPathComponent)”: the search index, architecture, AI descriptions and filters, file contents and Insight pages. Documents and code are never touched.")
                             .uiFont(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(palette.textDim)
                             .fixedSize(horizontal: false, vertical: true)
                         HStack {
                             Button {
@@ -265,7 +266,7 @@ struct DDESettingsView: View {
                     } else {
                         Text("Open a folder to manage its MarkView data. The same commands are in the File menu.")
                             .uiFont(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(palette.textDim)
                     }
                 }
                 .padding(8)
@@ -324,7 +325,7 @@ struct DDESettingsView: View {
                     cliProbeStatusView(probe)
                 } else {
                     Label("Not checked", systemImage: "questionmark.circle")
-                        .uiFont(.caption).foregroundColor(.secondary)
+                        .uiFont(.caption).foregroundColor(palette.textDim)
                 }
                 Spacer()
                 Button("Check") { probeCLI(tool) }
@@ -339,7 +340,7 @@ struct DDESettingsView: View {
             if let path = cliProbes[tool]?.path {
                 Text(path)
                     .uiFont(size: 9, design: .monospaced)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(palette.textDim)
                     .textSelection(.enabled)
             }
         }
@@ -361,7 +362,7 @@ struct DDESettingsView: View {
                 case .some(false):
                     Text("· NOT signed in").uiFont(.caption).foregroundColor(.orange)
                 case nil:
-                    Text("· sign-in state unknown").uiFont(.caption).foregroundColor(.secondary)
+                    Text("· sign-in state unknown").uiFont(.caption).foregroundColor(palette.textDim)
                 }
             }
         }
@@ -419,7 +420,7 @@ struct DDESettingsView: View {
                 .uiFont(.caption).foregroundColor(.orange)
         @unknown default:
             Label("Unknown", systemImage: "questionmark.circle")
-                .uiFont(.caption).foregroundColor(.secondary)
+                .uiFont(.caption).foregroundColor(palette.textDim)
         }
     }
 
@@ -437,7 +438,7 @@ struct DDESettingsView: View {
                 .uiFont(.caption).foregroundColor(.orange)
         @unknown default:
             Label("Unknown", systemImage: "questionmark.circle")
-                .uiFont(.caption).foregroundColor(.secondary)
+                .uiFont(.caption).foregroundColor(palette.textDim)
         }
     }
 
@@ -456,7 +457,7 @@ struct DDESettingsView: View {
         switch status {
         case .unknown:
             Label("Not verified", systemImage: "questionmark.circle")
-                .uiFont(.caption).foregroundColor(.secondary)
+                .uiFont(.caption).foregroundColor(palette.textDim)
         case .checking:
             HStack(spacing: 4) {
                 ProgressView().scaleEffect(0.5)
@@ -502,6 +503,7 @@ struct DDESettingsView: View {
 
 /// Show or hide one agent's usage chip; undetected agents are listed but never shown.
 private struct AgentUsageVisibilityToggle: View {
+    @Environment(\.palette) private var palette
     let agent: UsageAgent
     @AppStorage private var hidden: Bool
     private let detected: Bool
@@ -518,7 +520,7 @@ private struct AgentUsageVisibilityToggle: View {
                 .uiFont(.caption)
                 .disabled(!detected)
             if !detected {
-                Text("not detected").uiFont(size: 9).foregroundColor(.secondary)
+                Text("not detected").uiFont(size: 9).foregroundColor(palette.textDim)
             }
         }
     }
