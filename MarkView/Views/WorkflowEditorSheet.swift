@@ -128,6 +128,7 @@ struct WorkflowEditorSheet: View {
     private func ruleRow(_ kind: IssueKind, _ index: Int) -> some View {
         let rule = ruleBinding(kind, index)
         let statuses = draft.lifecycle(kind).statuses
+        let from = "From: " + (rule.wrappedValue.from.isEmpty ? "none" : rule.wrappedValue.from.sorted().joined(separator: ", "))
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Menu {
@@ -139,9 +140,13 @@ struct WorkflowEditorSheet: View {
                             }))
                     }
                 } label: {
-                    Text("From: " + (rule.wrappedValue.from.isEmpty ? "none" : rule.wrappedValue.from.sorted().joined(separator: ", "))).lineLimit(1)
+                    Text(from).lineLimit(1).truncationMode(.tail)
                 }
-                .fixedSize().controlSize(.small)
+                .controlSize(.small)
+                // The menu is as wide as its label up to this limit: a step that starts from every status (cancellation) names
+                // them all, and a label of that length used to make the whole editor wider than its sheet (BUG-108).
+                .frame(maxWidth: 360, alignment: .leading)
+                .help(from)
                 Image(systemName: "arrow.right").foregroundColor(palette.textDim)
                 Picker("", selection: rule.to) { ForEach(statuses) { Text($0.title).tag($0.id) } }
                     .labelsHidden().frame(width: 150)
@@ -155,7 +160,7 @@ struct WorkflowEditorSheet: View {
             }
             HStack(spacing: 10) {
                 ForEach([LifecycleActorKind.human, .ai, .system], id: \.self) { actor in
-                    actorMenu(rule, actor)
+                    actorMenu(rule, actor).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -165,6 +170,7 @@ struct WorkflowEditorSheet: View {
 
     private func actorMenu(_ rule: Binding<LifecycleRule>, _ actor: LifecycleActorKind) -> some View {
         let needs = rule.wrappedValue.needs[actor]
+        let summary = Self.actorTitle(actor) + ": " + (needs.map { $0.isEmpty ? "nothing needed" : $0.map(\.words).joined(separator: ", ") } ?? "not allowed")
         return Menu {
             Toggle("May make this step", isOn: Binding(
                 get: { rule.wrappedValue.needs[actor] != nil },
@@ -182,10 +188,11 @@ struct WorkflowEditorSheet: View {
                 .disabled(needs == nil)
             }
         } label: {
-            Text(Self.actorTitle(actor) + ": " + (needs.map { $0.isEmpty ? "nothing needed" : $0.map(\.words).joined(separator: ", ") } ?? "not allowed"))
-                .lineLimit(1)
+            Text(summary).lineLimit(1).truncationMode(.tail)
         }
-        .fixedSize().controlSize(.small)
+        // The three actors share the row; a long list of conditions is cut with an ellipsis and read in full from the tooltip.
+        .controlSize(.small)
+        .help(summary)
     }
 
     private static let editableKinds: [TransitionKind] = [.spec, .start, .completion, .acceptance, .reopen, .rollback, .cancellation]
