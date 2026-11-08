@@ -20,46 +20,47 @@ issue: "#325"
 
 ## Summary
 
-The Observed file changes review sheet is reported to be impossible to enlarge and presents before-and-after text without highlighting or explanations, making it difficult to understand individual changes and their impact.
+The observed file changes review presents plain snapshots without highlighting, change locations, or explanations. The user also reports that the review sheet cannot be enlarged; that resize failure remains unverified.
 
 ## Steps to reproduce
 
-1. Open a project in MarkView and change a text file after the project has opened.
-2. Refresh observed file changes if necessary and click Review in the observed changes bar.
-3. Select the modified file.
-4. Try to enlarge the review sheet and inspect how the Before and Current versions identify and explain each difference.
+1. Open a project in MarkView 5.43.0.
+2. Modify a readable text file after the project has opened.
+3. Refresh observed file changes if necessary, then click Review in the observed changes bar.
+4. Select the modified file and try to enlarge the review sheet.
+5. Inspect how the Before and Current versions identify and explain the differences.
 
 ## Expected
 
-The comparison should be enlargeable and provide enough space to inspect changes. It should visibly highlight each difference, show where it occurs in the file, and provide an explanation for each change covering why it is a difference and its impact.
+The comparison can be enlarged and provides sufficient space to inspect changes. Each difference is visibly highlighted and located in the file, with an explanation of why it differs and its impact.
 
 ## Actual
 
-The user reports that the comparison window cannot be enlarged, does not highlight differences, and provides no explanation of individual changes. The screenshot shows a narrow sheet with a file list and two independently scrolled, heavily wrapped plain-text columns; the visible text does not identify corresponding changes.
+The user reports that the review sheet cannot be enlarged and that individual changes are neither highlighted nor explained. The supplied screenshot shows a modified Swift file in narrow, heavily wrapped Before and Current columns at different scroll positions, without visible change locations or explanations. The inability to resize has not been independently reproduced.
 
 ## Environment
 
-MarkView for macOS. The supplied screenshot shows Observed file changes with a modified Swift file selected. The app version, macOS version, display size, scaling, and parent window size are unknown.
+MarkView 5.43.0 on macOS. The screenshot shows a modified Swift file selected in the Observed file changes sheet. The macOS version, display configuration, and parent window size are unknown.
 
 ## Suspected code
 
-- `MarkView/Views/ProjectChangeReviewView.swift` — Presents the sheet, controls its dimensions, and renders the Before and Current columns as separate plain-text scroll views.
-- `MarkView/Models/ProjectChangeReview.swift` — Captures and classifies observed file snapshots; inspect it when adding change-level comparison data.
-- `MarkView/Views/ContentView.swift` — Hosts the observed changes bar and provides the parent context for the review sheet.
-- `docs/bugs/BUG-107-observed-changes-comparison-is-too-narrow.md` — Records a related layout fix in version 5.42.1 and notes that enlargement was measured in an off-screen test but not checked by hand in the installed app.
-- `README.md` — Describes Review as a side-by-side diff for observed file changes.
+- `MarkView/Views/ProjectChangeReviewView.swift` — Presents the SwiftUI sheet, specifies its dimensions, and displays the snapshots in separate plain-text scroll views.
+- `MarkView/Models/ProjectChangeReview.swift` — Captures and classifies file-level snapshots without producing change-level comparisons; readable text capture is limited to files of at most 512 KiB.
+- `MarkView/Views/ContentView.swift` — Hosts the observed changes bar and supplies the parent context for the review sheet.
+- `docs/bugs/BUG-107-observed-changes-comparison-is-too-narrow.md` — Documents the related 5.42.1 layout fix and its off-screen verification, without a manual check of resizing in the installed app.
+- `README.md` — Describes Review as a side-by-side diff.
 
 ## Likely causes
 
-- The shipping view renders each complete version as plain monospaced SwiftUI Text in a separate ScrollView. The inspected view does not compute or display highlighted change ranges or explanations.
-- The review is presented as a SwiftUI sheet. The current source specifies flexible maximum dimensions and says it can be resized, but the reported inability to enlarge it has not been reproduced; its cause or relationship to the installed version is unconfirmed.
-- ProjectChangeScanner records before and current snapshots and classifies files as added, modified, or deleted. Those file-level records do not themselves provide per-change explanations.
+- The current review view renders each complete snapshot as plain monospaced text in a separate scroll view; it does not compute or highlight corresponding changes or provide explanations.
+- The scanner records file-level classifications and snapshots, but no change-level comparison or semantic impact analysis.
+- The cause of the reported inability to enlarge the sheet is unconfirmed. Flexible view dimensions and an off-screen layout test do not establish that the presented sheet is user-resizable.
 
 ## Missing information
 
-- The installed MarkView version is needed to determine whether the report predates the BUG-107 layout fix.
-- The exact resize gesture and whether enlarging the parent window changes the sheet size are unknown.
-- No live reproduction was performed. The exact macOS version and display configuration are unknown.
+- The resize gesture attempted and whether enlarging the parent window changes the sheet size are unknown.
+- The macOS version, display size and scaling, and parent window dimensions are unknown.
+- The resize failure has not been reproduced in a live app. Version 5.43.0 is later than the BUG-107 fix recorded for 5.42.1, but the installed build's behavior has not been independently verified.
 
 ## Validity check
 

@@ -29,8 +29,8 @@ wrong; `FileType.hasViewer` is the new classification.
 - [x] 3. FileTreeView: Workspace level, Icon/List/Tree, filters, explicit sort, creation target, reveal, unsupported files.
 - [x] 4. Top bar: usage indicators moved and labelled; Cycle Time button; narrow-width behaviour.
 - [x] 5. Verify each AC against the code; harnesses (`file-browser`, `agent-usage`, `lifecycle`) and Debug build green.
-- [ ] 6. Version bump, commits, push once, PR, merge, release `./release.sh --publish`, confirm the deployed version.
-- [ ] 7. Spec statuses (criteria ticked, decisions), #320 comment and close after the merge.
+- [x] 6. Version bump, commits, push once, PR #326 merged (3ca92f3), release v5.44.0 published by `./release.sh --publish` (DMG signed by Developer ID, notarized, stapled; `spctl` accepts it; app reports 5.44.0). Copies: `build/MarkView-5.44.0.dmg`, `build/release/MarkView.app`.
+- [x] 7. Spec statuses (REQ-001 criteria ticked, DEC-010 added, feature status implemented by MarkView after the merge), #320 comment and close after the merge.
 
 ## Review (2026-11-08, version 5.44.0)
 

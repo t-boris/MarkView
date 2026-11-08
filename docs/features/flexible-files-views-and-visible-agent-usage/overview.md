@@ -2,7 +2,7 @@
 type: feature
 id: flexible-files-views-and-visible-agent-usage
 title: Flexible Files Views and Visible Agent Usage
-status: implementing
+status: implemented
 owner: Boris Tsekinovsky
 created: 2026-11-08
 provenance: Created from the quick feature intake
