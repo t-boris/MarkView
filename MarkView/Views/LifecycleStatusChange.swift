@@ -50,13 +50,38 @@ enum LifecycleStatusChange {
         return false
     }
 
+    /// A person says that manual work has started (REQ-004): the note is asked first and is the start evidence for a variant that
+    /// accepts one. The start itself is still decided by the workflow.
+    @discardableResult
+    static func startByNote(store: FeatureStore, kind: IssueKind, issue: String) -> Bool {
+        guard let note = askReason(title: "Start \(issue) by hand", message: "Write what has been started. The history keeps your note as the start evidence.",
+                                   button: "Start", placeholder: "What has been started (required)") else { return false }
+        let result = store.lifecycle.startManually(kind, issue, note: note, by: .human(store.lifecycleActor), surface: false)
+        if result.reachedStatus { return true }
+        store.lastError = result.explanation
+        return false
+    }
+
+    /// A person confirms the delivery event the variant names. MarkView then completes the work when the rest of its evidence is there.
+    @discardableResult
+    static func confirmDelivery(store: FeatureStore, kind: IssueKind, issue: String, event: String) async -> Bool {
+        guard let note = askReason(title: "Confirm “\(event)”", message: "\(issue): say how you know. The history keeps your note as delivery evidence.",
+                                   button: "Confirm", placeholder: "How you know (required)") else { return false }
+        guard store.lifecycle.confirmDelivery(kind, issue, note: note, by: .human(store.lifecycleActor)) else {
+            store.lastError = "The confirmation could not be recorded."
+            return false
+        }
+        await store.lifecycle.completeFinishedWork(only: [(kind: kind, issue: issue)])
+        return true
+    }
+
     /// A sheet that asks for one line of text; nil when cancelled or left empty.
-    private static func askReason(title: String, message: String, button: String) -> String? {
+    private static func askReason(title: String, message: String, button: String, placeholder: String = "Why (required)") -> String? {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
-        field.placeholderString = "Why (required)"
+        field.placeholderString = placeholder
         alert.accessoryView = field
         alert.addButton(withTitle: button)
         alert.addButton(withTitle: "Cancel")

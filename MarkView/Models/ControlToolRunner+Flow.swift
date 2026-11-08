@@ -130,6 +130,7 @@ extension ControlToolRunner {
         return .init(slug: feature.slug, status: feature.status,
                      running: runningKeys(assistant, slug: feature.slug),
                      openQuestions: feature.openQuestions.count, understood: feature.discoveryDone, pastExplore: feature.isPastExplore,
+                     implementationStarted: target.workspace.features.hasImplementationStarted(feature),
                      requirements: requirements.count, draftRequirements: requirements.filter { $0.status == "draft" }.count,
                      openFindings: openFindings(feature).count, planIssues: issues.count,
                      issuesFiled: issues.filter { $0.github != nil }.count, gitHubReady: assistant.gitHubClient() != nil)

@@ -320,4 +320,13 @@ do {
     check("parsing the state is unchanged", IssueSyncRemote.parse(json: #"{"state":"closed","closed_at":"2026-11-05T10:20:30Z"}"#) == .issue(open: false))
 }
 
+// MARK: Which actions run on their own (feature-3, DEC-030)
+
+do {
+    let actions: [GitHubAction] = [.close(t(1), because: ["BUG-001"]), .reopen(t(2), because: "BUG-002 was reopened"),
+                                   .leave(t(3), IssueSyncOutcome(kind: .skipped, detail: "x")), .discrepancy(t(4), Discrepancy(kind: .githubClosedEarly, message: "x"))]
+    check("the synchronization that existed before workflows runs on its own", actions.prefix(2).allSatisfy { !$0.needsConfirmation })
+    check("actions that write nothing need no confirmation", actions.suffix(2).allSatisfy { !$0.needsConfirmation })
+}
+
 finish("github")

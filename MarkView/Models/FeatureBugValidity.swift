@@ -61,7 +61,13 @@ extension FeatureAssistant {
         if let key = store.bug(at: url)?.key {
             let evidence = verdict.evidence.map(\.path).joined(separator: ", ")
             let closing = LifecycleEvidence(cancellation: .alreadyFixed("already fixed on \(verdict.baseline?.label ?? "main"): \(evidence)"))
-            let moved = store.moveBug(key, to: "closed", by: .system("Validity check"), evidence: closing, surface: false)
+            // The step the workflow gives MarkView for closing a bug that needs no fix.
+            guard let closed = store.lifecycle.cancellationTarget(.bug, key, actor: .system) else {
+                let why = "This project's bug workflow has no step that closes a bug without a fix from its status."
+                store.lastError = "The check found this bug already fixed on \(verdict.baseline?.label ?? "main"), but \(why) The report stays as it is."
+                return why
+            }
+            let moved = store.moveBug(key, to: closed, by: .system("Validity check"), evidence: closing, surface: false)
             guard moved.reachedStatus else {
                 store.lastError = "The check found this bug already fixed on \(verdict.baseline?.label ?? "main"), but closing the report was refused: \(moved.explanation) The report stays open."
                 return moved.explanation

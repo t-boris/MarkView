@@ -178,14 +178,14 @@ struct FeaturePanelView: View {
                 Spacer()
                 SmallButton(title: "Clean up", icon: "trash") { cleanup = Set(FeatureCleanup.allCases) }
                     .help("Delete outdated requirements, answered questions, closed findings and cancelled decisions")
-                if feature.isStructured, !feature.isImplemented {
+                if feature.isStructured, !store.hasImplementationStarted(feature) {
                     SmallButton(title: "Start over", icon: "arrow.counterclockwise") { confirmRestart = true }
                         .help("Start the feature again from its overview: everything produced from it goes to the Trash")
                 }
                 Menu {
                     Button("Delete Feature…") { confirmDelete = true }
-                        .disabled(feature.isImplemented)
-                    if feature.isImplemented {
+                        .disabled(store.hasImplementationStarted(feature))
+                    if store.hasImplementationStarted(feature) {
                         Text("Implementation started — start over and delete are off")
                     }
                     Divider()
@@ -838,9 +838,9 @@ struct BugPanelView: View {
                     IssueLinks(numbers: bug.issueNumbers)
                     Spacer()
                     Menu {
-                        ForEach(BugReport.statuses, id: \.self) { status in
-                            Button((status == bug.status ? "✓ " : "") + status.capitalized) {
-                                Task { await LifecycleStatusChange.perform(store: store, kind: .bug, issue: bug.key, to: status) }
+                        ForEach(store.lifecycle.workflow.bug.statuses) { status in
+                            Button((status.id == IssueStatus.normalize(bug.status) ? "✓ " : "") + status.title) {
+                                Task { await LifecycleStatusChange.perform(store: store, kind: .bug, issue: bug.key, to: status.id) }
                             }
                         }
                     } label: {

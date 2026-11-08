@@ -458,4 +458,38 @@ do {
     check("a sighting that cannot be written is not associated", broken.noteCall(issue: "export-pdf", session: "s1") == false)
 }
 
+// MARK: The workflow and the rule variant in the context (feature-3)
+
+do {
+    var workflow = ProjectWorkflow.standard
+    workflow.variants.append(VariantTemplate.manualWork.variant(kind: .feature, id: "by-hand"))
+    let input = IssueContextInput(kind: .feature, issue: "export-pdf", title: "Export to PDF", status: "ready", history: history([]),
+                                  delivery: .notCollected, actor: .human, workflow: workflow, variantID: "by-hand")
+    let text = IssueLifecycleContext.text(input)
+    check("the context names the rule variant and what it requires", text.contains("Rule variant: Manual work, accepted by a person") && text.contains("accepted by: a person"))
+    check("a variant that accepts a note says a note starts the work", text.contains("a person writes a note that manual work has started"))
+    let standardText = IssueLifecycleContext.text(featureInput(status: "ready", delivery: .notCollected, actor: .human))
+    check("the standard variant does not offer a note", !standardText.contains("a person writes a note"))
+    check("the standard variant is named too", standardText.contains("Rule variant: Standard feature"))
+
+    let ai = IssueContextInput(kind: .feature, issue: "export-pdf", title: "Export to PDF", status: "implemented", history: history([]),
+                               delivery: .complete(summary: ["PR #7 merged"]), actor: .ai, workflow: workflow, variantID: "by-hand")
+    check("under a person-only variant an AI is told a person must accept", IssueLifecycleContext.text(ai).contains("a person's acceptance"))
+
+    let problem = IssueContextInput(kind: .feature, issue: "export-pdf", title: "Export to PDF", status: "ready", history: history([]),
+                                    delivery: .notCollected, actor: .ai, workflowProblem: "The project workflow file cannot be used (the file is not a JSON object).")
+    check("a workflow that cannot be read is said to be replaced by the standard rules", IssueLifecycleContext.text(problem).contains("The standard rules apply until it is repaired."))
+
+    check("the guidance is the standard text for the standard workflow", IssueLifecycleContext.guidance(for: .standard) == IssueLifecycleContext.guidance)
+    var custom = ProjectWorkflow.standard
+    custom.bug.statuses = custom.bug.statuses.map { WorkflowStatus(id: $0.id == "fixing" ? "doing" : $0.id, role: $0.role) }
+    check("the guidance names the statuses of a different workflow", IssueLifecycleContext.guidance(for: custom).contains("doing (active)"))
+
+    let note = TransitionRecord(phase: .evidence, command: "e1", kind: .feature, issue: "export-pdf", actor: .human("Boris"), at: Date(), reason: "Started by hand",
+                                humanEvidence: .start)
+    let withNote = IssueContextInput(kind: .feature, issue: "export-pdf", title: "Export to PDF", status: "ready", history: history([note]),
+                                     delivery: .notCollected, actor: .human, workflow: workflow, variantID: "by-hand")
+    check("a pending start note makes the start step need nothing more", !IssueLifecycleContext.text(withNote).contains("ready → implementing (start): needs start evidence"))
+}
+
 finish("context")

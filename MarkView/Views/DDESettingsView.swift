@@ -13,6 +13,7 @@ struct DDESettingsView: View {
     @AppStorage(AppFontScale.storageKey) private var fontScalePercent = AppFontScale.defaultPercent
     @State private var showKey = false
     @State private var showDone = false
+    @State private var showWorkflow = false
     @State private var saved = false
     @State private var openaiStatus: KeyStatus = .unknown
 
@@ -231,9 +232,21 @@ struct DDESettingsView: View {
 
             RemoteSettingsSection()
 
+            GroupBox("Project workflow") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("The statuses of features and bugs in this project, the steps between them, who may make each step and on what evidence, and the rule variants an item can follow. The workflow decides transitions; the Definition of Done below only guides the work.")
+                        .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+                    Button("Project Workflow…") { showWorkflow = true }
+                        .disabled(workspaceManager.projectFolder == nil)
+                        .help(workspaceManager.projectFolder == nil ? "Open a project folder first" : "Configure statuses, transitions and rule variants")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading).padding(6)
+            }
+            .sheet(isPresented: $showWorkflow) { WorkflowEditorSheet(store: workspaceManager.features) }
+
             GroupBox("Implement with AI") {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("What “done” means for an implementation goal: a fresh branch from origin/main, up-to-date records and GitHub issues, everything committed, a pull request with green CI, tests, deploy… Each item can be required, asked about or skipped; you can also change it just before a run.")
+                    Text("What “done” means for an implementation goal: a fresh branch from origin/main, up-to-date records and GitHub issues, everything committed, a pull request with green CI, tests, deploy… Each item can be required, asked about or skipped; you can also change it just before a run. It guides the assistant; what a status change needs is set in the project workflow above.")
                         .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     Button("Definition of Done…") { showDone = true }
                         .disabled(workspaceManager.projectFolder == nil)

@@ -1,15 +1,15 @@
 #!/bin/bash
 # Checks the issue lifecycle modules (docs/features/issue-lifecycle-management): the transition policy, the history and
 # service, the delivery evidence, verified completion and reconciliation, the GitHub sync planner, the AI context and the
-# Lifecycle section's display model.
+# Lifecycle section's display model, and the project workflow they run on (docs/features/feature-3).
 # The app has no XCTest target: each suite is compiled on its own with a test main and run.
-#   tools/tests/issue-lifecycle-tests.sh [suite ...]      suites: policy log evidence collector completion github context display store
+#   tools/tests/issue-lifecycle-tests.sh [suite ...]      suites: workflow policy log evidence collector completion github context display store
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 M=MarkView/Models
-base=("$M/FeatureVocabulary.swift" "$M/IssueListing.swift" "$M/IssueLifecycle.swift" tools/tests/IssueChecksSupport.swift)
+base=("$M/FeatureVocabulary.swift" "$M/IssueListing.swift" "$M/ProjectWorkflow.swift" "$M/IssueLifecycle.swift" tools/tests/IssueChecksSupport.swift)
 
 run() {  # name, checks file, extra sources...
     local name=$1 checks=$2; shift 2
@@ -19,9 +19,10 @@ run() {  # name, checks file, extra sources...
     "$out/$name"
 }
 
-want=("$@"); [ ${#want[@]} -eq 0 ] && want=(policy log evidence collector completion github context display store)
+want=("$@"); [ ${#want[@]} -eq 0 ] && want=(workflow policy log evidence collector completion github context display store)
 for suite in "${want[@]}"; do
     case $suite in
+        workflow)   run workflow ProjectWorkflowChecks.swift "$M/IssueLifecycleEvidence.swift" "$M/ProjectWorkflowStore.swift" ;;
         policy)     run policy IssueLifecyclePolicyChecks.swift ;;
         log)        run log IssueTransitionLogChecks.swift "$M/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift ;;
         evidence)   run evidence IssueEvidenceChecks.swift "$M/IssueLifecycleEvidence.swift" ;;

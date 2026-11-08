@@ -185,5 +185,10 @@ check("start: the notice names the unmarked bug", BatchStart.notice(unmarkedOutc
     $0.contains("BUG-102 is in the prompt but could not be marked fixing") && $0.contains("its status is unchanged")
 } == true)
 
+// The role the project's workflow gives the status decides (feature-3).
+func roled(_ status: String, _ role: LifecycleRole) -> BasketBug { var item = bug("B1", status); item.role = role; return item }
+check("a not-started status can be added whatever it is called", BugBasket.canAdd(roled("triaged", .notStarted)) && !BugBasket.canAdd(roled("open", .active)))
+check("an active status is being fixed whatever it is called", BugBasket.isBeingFixed(roled("in-review", .active)) && !BugBasket.isBeingFixed(roled("fixing", .notStarted)))
+
 print(failures == 0 ? "All bug basket checks passed" : "\(failures) check(s) failed")
 exit(failures == 0 ? 0 : 1)

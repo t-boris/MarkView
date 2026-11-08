@@ -43,7 +43,7 @@ extension StudioSession {
     func trackUndo(_ operation: StudioOperation) {
         guard operation.status == .undone, let tracking = operation.tracking, tracking.isRecorded, let store = featureStore() else { return }
         let note = trackingText().revertNote(isBug: tracking.isBug, context: operation.kind == .context)
-        mark(tracking, status: tracking.isBug ? "closed" : "rejected", note: note, store: store)
+        mark(tracking, status: tracking.isBug ? store.bugClosingStatus(tracking.id) : "rejected", note: note, store: store)
     }
 
     /// Moves a change's record between requirement and bug: the new record is written first, with the same pictures,
@@ -63,7 +63,7 @@ extension StudioSession {
                 ? session.recordRequirement(next, tracking: base, store: store, text: text, movedFrom: old.id)
                 : session.recordBug(next, tracking: base, store: store, text: text, movedFrom: old.id)
             guard let moved else { return }
-            session.mark(old, status: old.isBug ? "closed" : "superseded", note: text.movedNote(to: moved), store: store)
+            session.mark(old, status: old.isBug ? store.bugClosingStatus(old.id) : "superseded", note: text.movedNote(to: moved), store: store)
             next.tracking = moved
             session.replace(next)
         }
@@ -166,7 +166,13 @@ extension StudioSession {
                            text: StudioTrackingText, movedFrom: String? = nil) -> StudioOperation.Tracking? {
         let facts = trackingFacts(operation, tracking, movedFrom: movedFrom)
         let folder = store.bugsFolder.flatMap(trackingPath) ?? "docs/bugs"
-        let draft = text.bugDraft(operation, feature: tracking.feature, facts: facts, reporter: store.defaultOwner, folder: folder)
+        var draft = text.bugDraft(operation, feature: tracking.feature, facts: facts, reporter: store.defaultOwner, folder: folder)
+        // The change is already made, so its report starts in the workflow's completed status.
+        guard let completed = store.bugStatus(role: .completed) else {
+            notice = "The change could not be recorded as a bug: this project's bug workflow has no completed status."
+            return nil
+        }
+        draft.status = completed
         do {
             let written = try store.createBug(draft)
             var next = tracking
@@ -180,10 +186,12 @@ extension StudioSession {
     }
 
     /// Sets a record's status and appends a note; a bug report is found by its file, which must be in the project.
-    private func mark(_ tracking: StudioOperation.Tracking, status: String, note: String, store: FeatureStore) {
+    /// Adds `note` to the record and gives it `status`. A bug whose workflow has no step to close it from its status (`status` nil) keeps
+    /// its status and gets the note, and the person is told.
+    private func mark(_ tracking: StudioOperation.Tracking, status: String?, note: String, store: FeatureStore) {
         guard tracking.isBug else {
             store.update(tracking.id, in: tracking.feature) { front, body in
-                front.set("status", status)
+                if let status { front.set("status", status) }
                 body += note
             }
             return
@@ -191,6 +199,10 @@ extension StudioSession {
         let written = StudioChanges.validatedURL(tracking.file, root: root).map { url in
             url.pathExtension == "md" && store.updateBug(url) { _, body in body += note }
         } ?? false
+        guard let status else {
+            notice = "\(tracking.id) keeps its status: this project's bug workflow has no step that closes it from where it is."
+            return
+        }
         // The status goes through the lifecycle service (the person's Undo is a human step).
         let moved = written ? store.moveBug(tracking.id, to: status, by: .human(store.lifecycleActor), surface: false) : nil
         if let moved, !moved.reachedStatus {

@@ -131,5 +131,12 @@ check("preflight error report has no rows", IssueSyncReport(origin: origin, erro
 check("label in origin is #n", t(12).label(origin: origin) == "#12")
 check("label elsewhere names the repo", t(5, "upstream/MarkView").label(origin: origin) == "upstream/markview#5")
 
+// The role of the status in the project's workflow decides whether an item is done (feature-3).
+func roled(_ item: IssueSyncItem, _ role: LifecycleRole) -> IssueSyncItem { var copy = item; copy.role = role; return copy }
+check("a completed role is done under any name", roled(feature("f", "shipped"), .completed).isDone && roled(bug("b", "accepted"), .completed).isDone)
+check("a cancelled role is done", roled(feature("f", "shelved"), .cancelled).isDone)
+check("an active or not-started role is not done, even under a finished-sounding name", !roled(feature("f", "implemented"), .active).isDone && !roled(bug("b", "closed"), .notStarted).isDone)
+check("a status without a role is read by name", feature("f", "verified").isDone && bug("b", "fixed").isDone && !bug("b", "fixing").isDone)
+
 print(failures == 0 ? "All issue sync checks passed" : "\(failures) check(s) failed")
 exit(failures == 0 ? 0 : 1)

@@ -136,6 +136,7 @@ final class BugBatch: ObservableObject {
     }
 
     private static func basketBug(_ bug: BugReport, store: FeatureStore) -> BasketBug {
-        BasketBug(path: store.relativePath(bug.url), key: bug.key, title: bug.title, status: bug.status, feature: bug.feature)
+        BasketBug(path: store.relativePath(bug.url), key: bug.key, title: bug.title, status: bug.status, feature: bug.feature,
+                  role: bug.hasStatus ? store.lifecycle.workflow.role(.bug, IssueStatus.normalize(bug.status)) : .notStarted)
     }
 }

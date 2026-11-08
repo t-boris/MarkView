@@ -130,7 +130,7 @@ check(advice { $0.pastExplore = true; $0.requirements = 4 }.contains("\"plan\"")
 check(advice { $0.pastExplore = true; $0.requirements = 4; $0.planIssues = 3; $0.issuesFiled = 1; $0.gitHubReady = true }.contains("\"issues\""), "a plan not yet filed: file it")
 check(advice { $0.pastExplore = true; $0.requirements = 4; $0.planIssues = 3; $0.issuesFiled = 1; $0.gitHubReady = false }.contains("markview_flow_implement"), "without GitHub: implement")
 check(advice { $0.pastExplore = true; $0.requirements = 4; $0.planIssues = 3; $0.issuesFiled = 3; $0.gitHubReady = true }.contains("markview_flow_implement"), "filed: implement")
-check(advice { $0.status = "implementing"; $0.pastExplore = true }.contains("markview_agent_wait"), "implementing: follow the agent")
+check(advice { $0.status = "building"; $0.implementationStarted = true; $0.pastExplore = true }.contains("markview_agent_wait"), "implementation started (any status with that role): follow the agent")
 check(advice { $0.pastExplore = true }.contains("no requirements"), "reviewed but empty: say so")
 
 // MARK: MCP answers

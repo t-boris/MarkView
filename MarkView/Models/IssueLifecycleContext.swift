@@ -227,10 +227,19 @@ struct IssueContextInput: Sendable {
     /// Features: every acceptance criterion of the active requirements is ticked; nil: not known.
     var criteriaTicked: Bool?
     var githubLinks: [String]
+    /// The project's workflow and the rule variant assigned to the item (nil: the default of its type), feature-3.
+    var workflow: ProjectWorkflow
+    var variantID: String?
+    /// Why the workflow could not be read, when it could not: the project then runs on the standard rules (DEC-026).
+    var workflowProblem: String?
 
     init(kind: IssueKind, issue: String, title: String, status: String, history: IssueHistory, delivery: DeliveryVerdict,
          completionLabel: String = "", discrepancies: [String] = [], attached: [SessionAttachment] = [],
-         actor: LifecycleActorKind = .ai, criteriaTicked: Bool? = nil, githubLinks: [String] = []) {
+         actor: LifecycleActorKind = .ai, criteriaTicked: Bool? = nil, githubLinks: [String] = [],
+         workflow: ProjectWorkflow = .standard, variantID: String? = nil, workflowProblem: String? = nil) {
+        self.workflow = workflow
+        self.variantID = variantID
+        self.workflowProblem = workflowProblem
         self.kind = kind
         self.issue = issue
         self.title = title
@@ -315,12 +324,30 @@ enum IssueLifecycleContext {
     10. Report what MarkView accepted and what it refused. Do not call an issue complete before markview_issue_context says so.
     """
 
+    /// The guidance for a project: the standard text, and for a project whose statuses differ the statuses of its workflow.
+    static func guidance(for workflow: ProjectWorkflow) -> String {
+        let standard = ProjectWorkflow.standard
+        if workflow.feature.statuses == standard.feature.statuses, workflow.bug.statuses == standard.bug.statuses { return guidance }
+        func line(_ kind: IssueKind) -> String {
+            workflow.lifecycle(kind).statuses.map { "\($0.id) (\($0.role.title.lowercased()))" }.joined(separator: ", ")
+        }
+        return guidance + """
+
+
+        This project's workflow replaces the statuses above (name: \(workflow.name), revision \(workflow.revision)):
+        - Feature: \(line(.feature)).
+        - Bug: \(line(.bug)).
+        - A completed status is delivered work; cancelled work is not a completion. Which transitions exist and what each needs is shown \
+        by markview_issue_context for the issue.
+        """
+    }
+
     // MARK: Context of one issue
 
     static func text(_ input: IssueContextInput) -> String {
         let kind = input.kind
         let status = LifecycleVocabulary.normalize(input.status)
-        let known = LifecycleVocabulary.isKnown(kind, status)
+        let known = LifecycleVocabulary.isKnown(kind, status, in: input.workflow)
         let sessions = input.attached.filter { $0.issue.lowercased() == input.issue.lowercased() && $0.kind == kind }
         var out: [String] = []
 
@@ -329,6 +356,12 @@ enum IssueLifecycleContext {
         let label = oneLine(input.completionLabel, limit: 60)
         if !label.isEmpty { out.append("Completion: \(label)") }
         out.append(roleLine(input.actor))
+        if let variant = input.workflow.resolvedVariant(kind, assigned: input.variantID) {
+            out.append("Rule variant: \(oneLine(variant.name, limit: 60)) (\(oneLine(variant.description, limit: 240)))")
+        }
+        if let problem = input.workflowProblem {
+            out.append("Workflow: \(oneLine(problem, limit: 200)) The standard rules apply until it is repaired.")
+        }
 
         if known {
             out.append("")
@@ -370,7 +403,7 @@ enum IssueLifecycleContext {
 
     private static func outstanding(_ input: IssueContextInput, status: String) -> [String] {
         let kind = input.kind
-        guard LifecycleVocabulary.isActiveStatus(kind, status) || LifecycleVocabulary.isCompletedStatus(kind, status) else {
+        guard LifecycleVocabulary.isActiveStatus(kind, status, in: input.workflow) || LifecycleVocabulary.isCompletedStatus(kind, status, in: input.workflow) else {
             return ["Outstanding work: delivery is not tracked at status \(status); it is checked while work is under way and after completion."]
         }
         var lines: [String] = []
@@ -380,7 +413,7 @@ enum IssueLifecycleContext {
         case .unknown: lines.append("Outstanding work: delivery evidence is unknown (unknown is never completion).")
         }
         lines += bullets(input.delivery.lines, limit: 8)
-        if kind == .feature, status == "implementing" || status == "implemented" {
+        if kind == .feature, input.workflow.role(kind, status) == .active || input.workflow.role(kind, status) == .completed {
             lines.append("Acceptance criteria: \(criteriaWord(input.criteriaTicked)).")
         }
         return lines
@@ -398,9 +431,14 @@ enum IssueLifecycleContext {
 
     private static func nextStepLines(_ input: IssueContextInput, status: String, sessions: [SessionAttachment]) -> [String] {
         let kind = input.kind
-        let evidence = LifecycleEvidence(start: SessionAttachment.startEvidence(sessions), delivery: input.delivery)
-        let order = LifecycleVocabulary.statuses(kind)
-        let steps = LifecyclePolicy.nextSteps(kind: kind, status: status, actor: input.actor, evidence: evidence).sorted {
+        var start = SessionAttachment.startEvidence(sessions)
+        if start == nil, let note = input.history.pendingStartNote {
+            start = .note(text: note.reason ?? "", by: note.actor.name, at: note.at)
+        }
+        let evidence = LifecycleEvidence(start: start, delivery: input.delivery)
+        let order = LifecycleVocabulary.statuses(kind, in: input.workflow)
+        let steps = LifecyclePolicy.nextSteps(kind: kind, status: status, actor: input.actor, evidence: evidence,
+                                              workflow: input.workflow, variantID: input.variantID).sorted {
             (order.firstIndex(of: $0.to) ?? order.count, $0.kind.rawValue) < (order.firstIndex(of: $1.to) ?? order.count, $1.kind.rawValue)
         }
         let tool = kind == .feature ? "markview_set_status" : "markview_set_bug_status"
@@ -426,7 +464,7 @@ enum IssueLifecycleContext {
     }
 
     private static func stepLine(_ step: LifecyclePolicy.NextStep, status: String, input: IssueContextInput) -> String? {
-        let head = "- \(status) → \(step.to) (\(kindWord(step, from: status, kind: input.kind)))"
+        let head = "- \(status) → \(step.to) (\(kindWord(step, from: status, kind: input.kind, workflow: input.workflow)))"
         guard step.needs != nil else {
             return input.actor == .human ? "\(head): only as an override; write a reason." : nil
         }
@@ -435,7 +473,7 @@ enum IssueLifecycleContext {
         return "\(head): needs \(words)."
     }
 
-    private static func kindWord(_ step: LifecyclePolicy.NextStep, from status: String, kind: IssueKind) -> String {
+    private static func kindWord(_ step: LifecyclePolicy.NextStep, from status: String, kind: IssueKind, workflow: ProjectWorkflow) -> String {
         switch step.kind {
         case .spec: return "specification"
         case .start: return "start"
@@ -444,16 +482,18 @@ enum IssueLifecycleContext {
         case .reopen: return "reopen"
         case .rollback: return "step back"
         case .unlisted: return "outside the table"
+        case .replacement: return "replacement of a removed status"
         case .archive, .cancellation:
             if kind == .bug { return "closed without a fix, not a completion" }
-            return LifecycleVocabulary.isCompletedStatus(.feature, status) ? "archive, keeps the completion" : "cancellation, not a completion"
+            return LifecycleVocabulary.isCompletedStatus(.feature, status, in: workflow) ? "archive, keeps the completion" : "cancellation, not a completion"
         }
     }
 
     private static func unmetWords(_ condition: LifecycleCondition, _ input: IssueContextInput) -> String {
         switch condition {
         case .startEvidence:
-            return "start evidence (no handoff and no attached session yet: call markview_attach_issue)"
+            return "start evidence (no handoff and no attached session yet: call markview_attach_issue"
+                + (input.workflow.resolvedVariant(input.kind, assigned: input.variantID)?.start == .agentOrNote ? ", or a person writes a note that manual work has started" : "") + ")"
         case .deliveryEvidence:
             return "delivery evidence (\(input.delivery.label); see Outstanding work)"
         case .acceptanceEvidence:
@@ -468,6 +508,8 @@ enum IssueLifecycleContext {
             return "a reason (written by the person)"
         case .listedTransition:
             return "a listed transition"
+        case .humanAcceptance:
+            return "a person's acceptance (this rule variant lets only a person accept; ask the person)"
         }
     }
 
@@ -548,7 +590,8 @@ enum IssueLifecycleContext {
     // MARK: Handoff block
 
     /// Appended to the prompts that hand an issue to an agent ("Implement with AI", "Fix with AI").
-    static func handoffBlock(kind: IssueKind, issue: String, status: String, nextSteps: [LifecyclePolicy.NextStep]) -> String {
+    static func handoffBlock(kind: IssueKind, issue: String, status: String, nextSteps: [LifecyclePolicy.NextStep],
+                             workflow: ProjectWorkflow = .standard) -> String {
         let tool = kind == .feature ? "markview_set_status" : "markview_set_bug_status"
         let current = LifecycleVocabulary.normalize(status)
         var lines: [String] = []
@@ -561,12 +604,12 @@ enum IssueLifecycleContext {
         }
         lines.append("- verified / closed after a fix needs your evidence text (what you verified and how) and, for a feature, every acceptance criterion ticked.")
         lines.append("- You are not the person: you cannot override a rule or approve in their place, and by_user: true does not change that.")
-        lines.append(nextLine(kind: kind, status: current, nextSteps: nextSteps))
+        lines.append(nextLine(kind: kind, status: current, nextSteps: nextSteps, workflow: workflow))
         return lines.joined(separator: "\n")
     }
 
-    private static func nextLine(kind: IssueKind, status: String, nextSteps: [LifecyclePolicy.NextStep]) -> String {
-        let order = LifecycleVocabulary.statuses(kind)
+    private static func nextLine(kind: IssueKind, status: String, nextSteps: [LifecyclePolicy.NextStep], workflow: ProjectWorkflow) -> String {
+        let order = LifecycleVocabulary.statuses(kind, in: workflow)
         let open = nextSteps.filter { $0.needs != nil && $0.kind != .spec }.sorted {
             (order.firstIndex(of: $0.to) ?? order.count, $0.kind.rawValue) < (order.firstIndex(of: $1.to) ?? order.count, $1.kind.rawValue)
         }
@@ -588,6 +631,7 @@ enum IssueLifecycleContext {
         case .cancellationEvidence: return "duplicate_of or the validity finding"
         case .reason: return "a reason"
         case .listedTransition: return "a listed transition"
+        case .humanAcceptance: return "a person's acceptance"
         }
     }
 

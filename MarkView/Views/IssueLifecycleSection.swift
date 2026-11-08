@@ -21,6 +21,7 @@ struct IssueLifecycleSection: View {
         VStack(alignment: .leading, spacing: 6) {
             header
             if expanded, let model {
+                variantPicker(model)
                 actions(model)
                 if let delivery { deliveryBlock(delivery) }
                 if !model.discrepancies.isEmpty { discrepancyBlock(model.discrepancies) }
@@ -67,7 +68,19 @@ struct IssueLifecycleSection: View {
 
     private func actions(_ model: IssueLifecycleDisplay) -> some View {
         FlowButtons {
-            if model.canCheckEvidence || LifecycleVocabulary.isActiveStatus(kind, model.status) {
+            if model.canStartWithNote {
+                SmallButton(title: "Start by note…", icon: "square.and.pencil") {
+                    if LifecycleStatusChange.startByNote(store: store, kind: kind, issue: issue) { reload() }
+                }
+                .help("Manual work has started: your note is the start evidence under this rule variant.")
+            }
+            if let event = model.eventToConfirm, !model.eventConfirmed {
+                SmallButton(title: "Confirm “\(event)”…", icon: "checkmark.shield") {
+                    Task { if await LifecycleStatusChange.confirmDelivery(store: store, kind: kind, issue: issue, event: event) { reload() } }
+                }
+                .help("This rule variant counts the work as delivered when you confirm that “\(event)” happened.")
+            }
+            if model.canCheckEvidence || LifecycleVocabulary.isActiveStatus(kind, model.status, in: store.lifecycle.workflow) {
                 SmallButton(title: checking ? "Checking…" : "Check evidence", icon: "checkmark.seal") { check() }
                     .disabled(checking)
                     .help("Reads git and, with the GitHub integration on, GitHub: merge, checks and the required release. A completed status that the evidence backs is confirmed.")
@@ -86,6 +99,27 @@ struct IssueLifecycleSection: View {
             }
             SmallButton(title: "Refresh", icon: "arrow.clockwise") { reload() }
                 .help("Read the history again")
+        }
+    }
+
+    /// The rule variant of the item: how its start, delivery and acceptance are judged. A person picks another at any time (DEC-019);
+    /// the workflow's current rules apply to the next transition (DEC-020).
+    private func variantPicker(_ model: IssueLifecycleDisplay) -> some View {
+        let variants = store.lifecycle.workflow.variants(for: kind)
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text("Rule variant").uiFont(size: 10, weight: .semibold).foregroundColor(palette.textDim)
+                Picker("", selection: Binding(get: { model.variantID }, set: { chosen in
+                    if store.lifecycle.assignVariant(kind, issue, to: chosen, by: .human(store.lifecycleActor)) { reload() }
+                })) {
+                    ForEach(variants) { Text($0.name).tag($0.id) }
+                }
+                .labelsHidden().fixedSize().controlSize(.small)
+                .help("Which conditions this \(kind.rawValue) must meet to start, to count as delivered and to be accepted")
+            }
+            if !model.variantSummary.isEmpty {
+                Text(model.variantSummary).uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

@@ -20,7 +20,31 @@ struct IssueFacts: Equatable {
     var created: String = ""
     /// Modification time of the item's file(s).
     var modified: Date? = nil
+    /// What the status means in the project's workflow (feature-3); nil when the workflow does not have it, as for a status written by
+    /// hand. The filters and badges read the role, not the name.
+    var role: LifecycleRole? = nil
 }
+
+/// What a status means to the code that is not a transition table (DEC-023, F-001): completion, reopening, progress, GitHub.
+enum LifecycleRole: String, Codable, CaseIterable, Sendable {
+    case notStarted = "not-started"
+    case active
+    case completed
+    case cancelled
+
+    var title: String {
+        switch self {
+        case .notStarted: return "Not started"
+        case .active: return "Active"
+        case .completed: return "Completed"
+        case .cancelled: return "Cancelled"
+        }
+    }
+
+    /// The work is over, delivered or not.
+    var isFinished: Bool { self == .completed || self == .cancelled }
+}
+
 
 /// Status values as the filters understand them (DEC-002, DEC-005, DEC-014).
 enum IssueStatus {
@@ -30,6 +54,8 @@ enum IssueStatus {
             .replacingOccurrences(of: "_", with: "-").replacingOccurrences(of: " ", with: "-")
     }
 
+    // A status of the project's workflow is read by its role (`IssueFacts.role`). These names classify only a status that the workflow does
+    // not have: a value written by hand, such as `done` or `rejected`.
     /// Delivered features. `done` is accepted for features written by hand.
     static let implementedFeature: Set<String> = ["implemented", "verified", "done"]
     /// Features that are over, delivered or not.
@@ -40,13 +66,16 @@ enum IssueStatus {
 
     /// Anything not closed — including a missing or unknown status — is open.
     static func isClosed(_ facts: IssueFacts) -> Bool {
+        if let role = facts.role { return role.isFinished }
         let status = normalize(facts.status)
         return facts.kind == .feature ? closedFeature.contains(status) : closedBug.contains(status)
     }
 
     /// Only features are implemented or not; a bug is neither.
     static func isImplemented(_ facts: IssueFacts) -> Bool {
-        facts.kind == .feature && implementedFeature.contains(normalize(facts.status))
+        guard facts.kind == .feature else { return false }
+        if let role = facts.role { return role == .completed }
+        return implementedFeature.contains(normalize(facts.status))
     }
 
     /// How a status badge reads at a glance.
@@ -54,7 +83,7 @@ enum IssueStatus {
 
     static func tone(_ facts: IssueFacts) -> Tone {
         let status = normalize(facts.status)
-        if inProgress.contains(status) { return .active }
+        if facts.role == .active || (facts.role == nil && inProgress.contains(status)) { return .active }
         guard isClosed(facts) else { return .open }
         return facts.kind == .bug || isImplemented(facts) ? .done : .dropped
     }

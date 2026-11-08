@@ -14,6 +14,9 @@ final class IssueLifecycleCoordinator {
         var service: IssueTransitionService
         var statuses: MarkdownIssueStatusStore
         var sessions: SessionLinkStore
+        var workflowStore: ProjectWorkflowStore
+        /// What the workflow file held when it was last read (feature-3, DEC-026).
+        var workflow: WorkflowLoad
     }
 
     private var cached: Parts?
@@ -31,12 +34,233 @@ final class IssueLifecycleCoordinator {
         if let cached, cached.root == key { return cached }
         let folder = root.appendingPathComponent(".dde/lifecycle", isDirectory: true)
         let statuses = MarkdownIssueStatusStore(root: root)
+        let workflowStore = ProjectWorkflowStore(projectRoot: root)
+        let load = readWorkflow(workflowStore, root: root)
         let made = Parts(root: key,
                          service: IssueTransitionService(storage: FileTransitionStorage(url: folder.appendingPathComponent("transitions.jsonl")), statuses: statuses),
                          statuses: statuses,
-                         sessions: SessionLinkStore(url: folder.appendingPathComponent("sessions.jsonl")))
+                         sessions: SessionLinkStore(url: folder.appendingPathComponent("sessions.jsonl")),
+                         workflowStore: workflowStore, workflow: load)
         cached = made
         return made
+    }
+
+    // MARK: - The project workflow (feature-3)
+
+    /// What the workflow file holds now: loaded, not adopted yet, damaged, or from a newer app.
+    var workflowLoad: WorkflowLoad { parts?.workflow ?? .missing }
+
+    /// The workflow that decides transitions now. When the file cannot be used this is the built-in standard workflow, and
+    /// `workflowProblem` says so (DEC-026).
+    var workflow: ProjectWorkflow { workflowLoad.effective }
+
+    var workflowProblem: String? { workflowLoad.problem }
+
+    var workflowStore: ProjectWorkflowStore? { parts?.workflowStore }
+
+    /// What the workflow file holds. A project that records its lifecycle adopts the standard workflow the first time it is opened
+    /// and again whenever an adoption could not be written (DEC-022, DEC-024); a draft that is not a project yet, or a plain folder
+    /// opened as a viewer, gets no files.
+    private func readWorkflow(_ workflowStore: ProjectWorkflowStore, root: URL) -> WorkflowLoad {
+        let load = workflowStore.load()
+        if case .missing = load, store.recordsLifecycle { return workflowStore.adoptIfMissing(projectRoot: root) }
+        return load
+    }
+
+    /// Reads the file again, so that a repair made outside the app takes effect.
+    func reloadWorkflow() {
+        guard var current = cached ?? parts, let root = store.root else { return }
+        current.workflow = readWorkflow(current.workflowStore, root: root)
+        cached = current
+        store.objectWillChange.send()
+    }
+
+    /// The variant assigned to an item, else the default of its type.
+    func variant(_ kind: IssueKind, _ issue: String) -> RuleVariant? {
+        workflow.resolvedVariant(kind, assigned: history(kind, issue)?.assignedVariant)
+    }
+
+    /// The assigned variant id, nil when none was assigned (the item follows the default of its type).
+    func assignedVariantID(_ kind: IssueKind, _ issue: String) -> String? { history(kind, issue)?.assignedVariant }
+
+    /// Records the variant of an item. Only a person picks one (DEC-019); the variant must exist for the type of the item.
+    @discardableResult
+    func assignVariant(_ kind: IssueKind, _ issue: String, to variantID: String, by actor: LifecycleActor, reason: String? = nil) -> Bool {
+        guard let parts, actor.kind == .human, let chosen = workflow.variant(variantID), chosen.kind == kind else { return false }
+        let previous = parts.service.history(kind, issue).assignedVariant
+        let wrote = parts.service.recordAssignment(kind, issue, variant: variantID, previous: previous, actor: actor, reason: reason,
+                                                   workflowRevision: workflow.revision) != nil
+        if wrote { store.objectWillChange.send() }
+        return wrote || previous == variantID
+    }
+
+    /// Gives every item without a variant the standard one of its type, once, when the workflow was adopted (DEC-024). The default
+    /// of a type may change later; the items that existed keep how they were treated before. The marker file survives a quit: the
+    /// pass is repeated at each start until every item has its variant, and only after the project's items were read at least once.
+    private func assignExistingItems(parts: Parts) {
+        guard store.hasLoaded, parts.workflowStore.assignmentPending else { return }
+        let complete = parts.service.recordInitialAssignments(
+            items().map { (kind: $0.kind, issue: $0.issue) },
+            variantFor: { $0 == .feature ? StandardWorkflow.featureVariantID : StandardWorkflow.bugVariantID },
+            actor: .system("MarkView"), reason: "The standard workflow was adopted.", workflowRevision: workflow.revision)
+        if complete { parts.workflowStore.clearAssignmentPending() }
+    }
+
+    /// The status a start moves an item to from `status`, as the workflow has it; nil when it has no start from there.
+    func startTarget(_ kind: IssueKind, from status: String) -> String? {
+        let normalized = LifecycleVocabulary.normalize(status)
+        return workflow.lifecycle(kind).rules.first { $0.kind == .start && $0.from.contains(normalized) }?.to
+    }
+
+    /// The status the workflow lets `actor` end an item in from its status through a step of one of `kinds`: a cancellation
+    /// closes a bug that needs no fix or archives a feature; an acceptance closes a fixed bug.
+    func endingTarget(_ kind: IssueKind, _ issue: String, actor: LifecycleActorKind, via kinds: Set<TransitionKind>) -> String? {
+        guard let stored = storedStatus(kind, issue) else { return nil }
+        let normalized = LifecycleVocabulary.normalize(stored)
+        return workflow.lifecycle(kind).rules.first { kinds.contains($0.kind) && $0.from.contains(normalized) && $0.needs[actor] != nil }?.to
+    }
+
+    func cancellationTarget(_ kind: IssueKind, _ issue: String, actor: LifecycleActorKind) -> String? {
+        endingTarget(kind, issue, actor: actor, via: [.cancellation])
+    }
+
+    /// The status a reopening by MarkView (a regression report) moves a completed item to.
+    private func regressionTarget(_ kind: IssueKind, from status: String) -> String? {
+        let normalized = LifecycleVocabulary.normalize(status)
+        return workflow.lifecycle(kind).rules.first { $0.kind == .reopen && $0.from.contains(normalized) && $0.needs[.system] != nil }?.to
+    }
+
+    private func workflowItems() -> [WorkflowItem] {
+        guard let service = parts?.service else { return [] }
+        let all = service.records()
+        return items().map {
+            WorkflowItem(kind: $0.kind, issue: $0.issue, status: $0.status, variant: IssueHistory(kind: $0.kind, issue: $0.issue, all: all).assignedVariant)
+        }
+    }
+
+    /// Gives sync items the role their status has in the project's workflow, so that "done" follows roles (REQ-006).
+    func withRoles(_ items: [IssueSyncItem]) -> [IssueSyncItem] {
+        let workflow = workflow
+        return items.map { item in
+            var copy = item
+            copy.role = workflow.role(item.kind == .feature ? .feature : .bug, IssueStatus.normalize(item.status))
+            return copy
+        }
+    }
+
+    /// What saving `changed` would take away from items that use it: the statuses and variants they have that `changed` lacks.
+    func workflowImpact(of changed: ProjectWorkflow) -> WorkflowImpact {
+        WorkflowChange.impact(from: workflow, to: changed, items: workflowItems())
+    }
+
+    struct WorkflowSaveReport: Equatable {
+        var workflow: ProjectWorkflow
+        var statusesReplaced = 0
+        var variantsReplaced = 0
+        /// Items that could not be moved; each line says which and why. The workflow itself is saved.
+        var failures: [String] = []
+    }
+
+    /// Saves a changed workflow (REQ-001, DEC-021, DEC-029). A person must have chosen a replacement for every in-use status and
+    /// variant the change removes. The file is saved first; then the items are re-assigned and moved, each by a record of its own
+    /// kind that keeps the earlier history. Only a person changes the workflow.
+    func saveWorkflow(_ changed: ProjectWorkflow, statusReplacements: [IssueKind: [String: String]] = [:],
+                      variantReplacements: [String: String] = [:], by actor: LifecycleActor) -> Result<WorkflowSaveReport, WorkflowStoreError> {
+        guard let parts, store.recordsLifecycle else { return .failure(.notEditable("This window has no project folder open.")) }
+        guard actor.kind == .human else { return .failure(.notEditable("Only a person changes the workflow.")) }
+        guard parts.workflow.isEditable else { return .failure(.notEditable(parts.workflow.problem ?? "The workflow file cannot be edited.")) }
+        let current = workflow
+        let invalid = changed.validate()
+        guard invalid.isEmpty else { return .failure(.invalid(invalid.map(\.message))) }
+        let impact = WorkflowChange.impact(from: current, to: changed, items: workflowItems())
+        let missing = WorkflowChange.problems(of: impact, in: changed, statusReplacements: statusReplacements,
+                                              variantReplacements: variantReplacements, old: current)
+        guard missing.isEmpty else { return .failure(.invalid(missing.map(\.message))) }
+
+        // What the save owes the items is written before the file changes, so a save that is interrupted, or an item that cannot be
+        // moved now, is finished at the next start instead of leaving the item on a status the workflow no longer has.
+        let plan = WorkflowChange.plan(of: impact, old: current, revision: changed.revision + 1, actor: actor.name,
+                                       statusReplacements: statusReplacements, variantReplacements: variantReplacements)
+        if !plan.isEmpty {
+            do { try parts.workflowStore.savePending(plan) } catch { return .failure(.writeFailed(error.localizedDescription)) }
+        }
+        // The change is made on top of the revision the person edited: if the file moved on meanwhile (another window, an edit by hand),
+        // the save is refused instead of overwriting that change.
+        let saved: ProjectWorkflow
+        do { saved = try parts.workflowStore.save(changed, expectedRevision: changed.revision) } catch let error as WorkflowStoreError {
+            parts.workflowStore.clearPending()
+            return .failure(error)
+        } catch {
+            parts.workflowStore.clearPending()
+            return .failure(.writeFailed(error.localizedDescription))
+        }
+        cached?.workflow = .loaded(saved)
+
+        var report = WorkflowSaveReport(workflow: saved)
+        let outcome = carryOut(plan, workflow: saved, parts: parts)
+        report.statusesReplaced = outcome.statusesReplaced
+        report.variantsReplaced = outcome.variantsReplaced
+        report.failures = outcome.failures
+        store.objectWillChange.send()
+        return .success(report)
+    }
+
+    struct ReplacementOutcome: Equatable {
+        var statusesReplaced = 0
+        var variantsReplaced = 0
+        var failures: [String] = []
+    }
+
+    /// Moves the items a save owes a replacement, in the name of the person who chose it (DEC-021). It can be repeated: an item that
+    /// already left the removed status or variant is skipped. What could not be done stays in the pending file for the next start.
+    private func carryOut(_ plan: PendingReplacements, workflow saved: ProjectWorkflow, parts: Parts) -> ReplacementOutcome {
+        var outcome = ReplacementOutcome()
+        guard !plan.isEmpty else { return outcome }
+        let actor = LifecycleActor.human(plan.actor)
+        var remaining = PendingReplacements(revision: plan.revision, actor: plan.actor)
+        for entry in plan.variants {
+            let assigned = parts.service.history(entry.kind, entry.issue).assignedVariant
+            if let assigned, assigned != entry.from { continue }
+            let wrote = parts.service.recordAssignment(entry.kind, entry.issue, variant: entry.to, previous: entry.from, actor: actor,
+                                                       reason: "The variant \"\(entry.from)\" was removed from the workflow.",
+                                                       workflowRevision: saved.revision)
+            if wrote != nil {
+                outcome.variantsReplaced += 1
+            } else {
+                outcome.failures.append("\(entry.issue): the new variant could not be recorded.")
+                remaining.variants.append(entry)
+            }
+        }
+        for entry in plan.statuses {
+            // An item that is gone, or already left the removed status, needs nothing.
+            guard let stored = parts.statuses.status(kind: entry.kind, issue: entry.issue),
+                  LifecycleVocabulary.normalize(stored) == LifecycleVocabulary.normalize(entry.from) else { continue }
+            let variant = saved.resolvedVariant(entry.kind, assigned: parts.service.history(entry.kind, entry.issue).assignedVariant)?.id
+            let result = parts.service.applyReplacement(entry.kind, entry.issue, from: entry.from, to: entry.to, actor: actor,
+                                                        reason: "The status \"\(entry.from)\" was removed from the workflow.",
+                                                        workflowRevision: saved.revision, variant: variant)
+            if result.reachedStatus {
+                outcome.statusesReplaced += 1
+            } else {
+                outcome.failures.append("\(entry.issue): \(result.explanation)")
+                remaining.statuses.append(entry)
+            }
+        }
+        if remaining.isEmpty { parts.workflowStore.clearPending() } else { try? parts.workflowStore.savePending(remaining) }
+        if outcome.statusesReplaced > 0 { store.reloadSync() }
+        return outcome
+    }
+
+    /// Finishes a save that was interrupted, or whose items could not all be moved (DEC-021). A plan whose revision the workflow file
+    /// never reached belongs to a save that did not happen and is dropped.
+    private func resumePendingReplacements(parts: Parts) {
+        guard let plan = parts.workflowStore.pending() else { return }
+        guard case .loaded(let saved) = parts.workflow else { return }
+        guard saved.revision >= plan.revision else { parts.workflowStore.clearPending(); return }
+        let outcome = carryOut(plan, workflow: saved, parts: parts)
+        if !outcome.failures.isEmpty {
+            store.lastError = "Some work items could not be moved to the replacement chosen when the workflow was saved: " + outcome.failures.prefix(3).joined(separator: " ")
+        }
     }
 
     var service: IssueTransitionService? { parts?.service }
@@ -51,7 +275,7 @@ final class IssueLifecycleCoordinator {
     /// Whether the status of the item is backed by evidence (DEC-010), judged from its history.
     func completion(_ kind: IssueKind, _ issue: String, status: String, delivery: DeliveryVerdict? = nil) -> IssueCompletionState {
         guard let history = history(kind, issue) else { return .unknown("The project has no lifecycle history yet.") }
-        return IssueCompletion.state(kind: kind, status: status, history: history, deliveryNow: delivery)
+        return IssueCompletion.state(kind: kind, status: status, history: history, deliveryNow: delivery, workflow: workflow)
     }
 
     static func label(_ state: IssueCompletionState) -> String {
@@ -79,7 +303,8 @@ final class IssueLifecycleCoordinator {
         }
         parts.service.recordBaseline(kind, issue, status: stored)
         let request = TransitionRequest(command: command, kind: kind, issue: issue, from: seen ?? stored, to: status, actor: actor,
-                                        reason: reason, force: force, evidence: evidence)
+                                        reason: reason, force: force, evidence: evidence, workflow: workflow,
+                                        variantID: parts.service.history(kind, issue).assignedVariant)
         let result = parts.service.apply(request)
         if result.reachedStatus { store.reloadSync(kind == .feature ? issue : nil) }
         return finish(result, surface: surface)
@@ -106,11 +331,11 @@ final class IssueLifecycleCoordinator {
             return finish(.failed("\(issue) was not found in this project."), surface: surface)
         }
         let target = LifecycleVocabulary.normalize(status)
-        var evidence = LifecycleEvidence(start: SessionAttachment.startEvidence(parts.sessions.attachments(for: issue)),
+        var evidence = LifecycleEvidence(start: startEvidence(kind, issue, parts: parts),
                                          acceptance: acceptanceEvidence(kind, issue, text: acceptance),
                                          regression: regressionEvidence(kind, issue),
                                          cancellation: cancellation)
-        let completes = (kind == .feature && target == "implemented") || (kind == .bug && target == "fixed")
+        let completes = workflow.lifecycle(kind).rules.contains { $0.kind == .completion && $0.to == target && $0.from.contains(LifecycleVocabulary.normalize(stored)) }
         if completes, LifecycleVocabulary.normalize(stored) != target {
             evidence.delivery = await deliveryVerdict(kind, issue)
         }
@@ -123,19 +348,62 @@ final class IssueLifecycleCoordinator {
     @discardableResult
     func startByHandoff(_ kind: IssueKind, _ issue: String, tool: String, actor: LifecycleActor, surface: Bool = true) -> ApplyResult {
         guard let parts else { return finish(.failed("This window has no project folder open."), surface: surface) }
+        guard let stored = storedStatus(kind, issue), let target = startTarget(kind, from: stored) else {
+            return finish(.failed("\(issue) cannot be started from its status in this project's workflow."), surface: surface)
+        }
         let now = Date()
         let stamp = ISO8601DateFormatter().string(from: now)
         _ = try? parts.sessions.attach(issue: issue, kind: kind, session: "\(tool)@\(stamp)", tool: tool, via: .handoff)
-        return transition(kind, issue, to: kind == .feature ? "implementing" : "fixing", actor: actor,
+        return transition(kind, issue, to: target, actor: actor,
                           evidence: LifecycleEvidence(start: .handoff(tool: tool, at: now)), surface: surface)
+    }
+
+    /// A person says that manual work on an item has started (REQ-004, DEC-018). The note is the start evidence only under a variant
+    /// that accepts one; the start itself is then an ordinary transition decided by the policy.
+    @discardableResult
+    func startManually(_ kind: IssueKind, _ issue: String, note: String, by actor: LifecycleActor, surface: Bool = true) -> ApplyResult {
+        guard let parts, let stored = parts.statuses.status(kind: kind, issue: issue) else {
+            return finish(.failed("\(issue) was not found in this project."), surface: surface)
+        }
+        guard variant(kind, issue)?.start == .agentOrNote else {
+            return finish(.failed("The rule variant of \(issue) starts only with an agent session. Choose another variant to start by a note."), surface: surface)
+        }
+        guard let target = startTarget(kind, from: stored) else {
+            return finish(.failed("\(issue) cannot be started from its status in this project's workflow."), surface: surface)
+        }
+        guard parts.service.recordHumanEvidence(kind, issue, evidence: .start, text: note, actor: actor, variant: variant(kind, issue)?.id,
+                                                workflowRevision: workflow.revision) != nil else {
+            return finish(.failed("Write what has been started: a note is the evidence."), surface: surface)
+        }
+        let evidence = LifecycleEvidence(start: startEvidence(kind, issue, parts: parts))
+        return transition(kind, issue, to: target, actor: actor, evidence: evidence, from: stored, surface: surface)
+    }
+
+    /// A person confirms the delivery event the variant names ("installed", "deployed to production"). It is evidence; the
+    /// completion itself is still made by MarkView when the rest of the delivery is there (REQ-004, DEC-018).
+    @discardableResult
+    func confirmDelivery(_ kind: IssueKind, _ issue: String, note: String, by actor: LifecycleActor) -> Bool {
+        guard let parts, let event = variant(kind, issue)?.deliveryRules.confirmedEventName else { return false }
+        let wrote = parts.service.recordHumanEvidence(kind, issue, evidence: .delivery, text: note, event: event, actor: actor,
+                                                      variant: variant(kind, issue)?.id, workflowRevision: workflow.revision) != nil
+        if wrote { store.objectWillChange.send() }
+        return wrote
+    }
+
+    /// The start evidence of an item: the earliest attached session, else a person's note when the variant accepts one.
+    private func startEvidence(_ kind: IssueKind, _ issue: String, parts: Parts) -> StartEvidence? {
+        if let session = SessionAttachment.startEvidence(parts.sessions.attachments(for: issue)) { return session }
+        guard variant(kind, issue)?.start == .agentOrNote, let note = parts.service.history(kind, issue).pendingStartNote else { return nil }
+        return .note(text: note.reason ?? "", by: note.actor.name, at: note.at)
     }
 
     /// Whether the lifecycle lets a hand-off start the item now (asked before a prompt is sent, so the prompt names only items
     /// that can really be marked).
     func canStartByHandoff(_ kind: IssueKind, _ issue: String) -> Bool {
-        guard let stored = storedStatus(kind, issue) else { return false }
-        let probe = TransitionRequest(kind: kind, issue: issue, from: stored, to: kind == .feature ? "implementing" : "fixing",
-                                      actor: .human("person"), evidence: LifecycleEvidence(start: .handoff(tool: "probe", at: Date())))
+        guard let stored = storedStatus(kind, issue), let target = startTarget(kind, from: stored) else { return false }
+        let probe = TransitionRequest(kind: kind, issue: issue, from: stored, to: target,
+                                      actor: .human("person"), evidence: LifecycleEvidence(start: .handoff(tool: "probe", at: Date())),
+                                      workflow: workflow, variantID: assignedVariantID(kind, issue))
         switch LifecyclePolicy.decide(probe) {
         case .allowed, .noChange, .overridden: return true
         case .rejected: return false
@@ -146,7 +414,8 @@ final class IssueLifecycleCoordinator {
     /// asked before work that cannot be undone (trashing files, sending a prompt) so it is not done for a move that will be refused.
     func canMove(_ kind: IssueKind, _ issue: String, to status: String, actor: LifecycleActor) -> Bool {
         guard let stored = storedStatus(kind, issue) else { return false }
-        switch LifecyclePolicy.decide(TransitionRequest(kind: kind, issue: issue, from: stored, to: status, actor: actor)) {
+        switch LifecyclePolicy.decide(TransitionRequest(kind: kind, issue: issue, from: stored, to: status, actor: actor,
+                                                        workflow: workflow, variantID: assignedVariantID(kind, issue))) {
         case .allowed, .noChange: return true
         case .overridden, .rejected: return false
         }
@@ -156,8 +425,10 @@ final class IssueLifecycleCoordinator {
     func handoffBlock(_ kind: IssueKind, _ issues: [String]) -> String {
         guard let first = issues.first, let status = storedStatus(kind, first) else { return "" }
         let steps = LifecyclePolicy.nextSteps(kind: kind, status: status, actor: .ai,
-                                              evidence: LifecycleEvidence(start: .handoff(tool: "handoff", at: Date())))
-        return IssueLifecycleContext.handoffBlock(kind: kind, issue: issues.joined(separator: ", "), status: status, nextSteps: steps)
+                                              evidence: LifecycleEvidence(start: .handoff(tool: "handoff", at: Date())),
+                                              workflow: workflow, variantID: assignedVariantID(kind, first))
+        return IssueLifecycleContext.handoffBlock(kind: kind, issue: issues.joined(separator: ", "), status: status, nextSteps: steps,
+                                                  workflow: workflow)
     }
 
     // MARK: - Evidence
@@ -174,8 +445,8 @@ final class IssueLifecycleCoordinator {
     func regressionBug(_ kind: IssueKind, _ issue: String) -> String? {
         let wanted = issue.uppercased()
         return store.bugs.first { bug in
-            bug.regressionOf.uppercased() == wanted && bug.duplicateOf.isEmpty && ["open", "fixing"].contains(LifecycleVocabulary.normalize(bug.status))
-                && bug.key.uppercased() != wanted
+            bug.regressionOf.uppercased() == wanted && bug.duplicateOf.isEmpty && bug.key.uppercased() != wanted
+                && [.notStarted, .active].contains(workflow.role(.bug, IssueStatus.normalize(bug.status)))
         }?.key
     }
 
@@ -200,8 +471,12 @@ final class IssueLifecycleCoordinator {
         guard let root = store.root, let history = history(kind, issue) else { return .notCollected }
         let linked = numbers(kind, issue)
         let since = history.deliveryRoundStart
+        let rules = (workflow.resolvedVariant(kind, assigned: history.assignedVariant) ?? workflow.resolvedVariant(kind, assigned: nil))?.deliveryRules
+            ?? ProjectWorkflow.standard.resolvedVariant(kind, assigned: nil)!.deliveryRules
+        let confirmation = rules.confirmedEventName.flatMap { history.deliveryConfirmation(event: $0)?.reason }
         let subject = IssueEvidenceCollector.Subject(kind: kind, issue: issue, exclusiveNumbers: linked.own.subtracting(linked.others),
-                                                     sharedNumbers: linked.own.intersection(linked.others), since: since)
+                                                     sharedNumbers: linked.own.intersection(linked.others), since: since,
+                                                     rules: rules, eventConfirmation: confirmation)
         return await IssueEvidenceCollector.collect(subject, root: root, githubEnabled: GitHubSettings.enabled)
     }
 
@@ -214,15 +489,19 @@ final class IssueLifecycleCoordinator {
     /// Cheap, no network: closes interrupted operations, records first looks (baseline) and edits made outside MarkView, and
     /// reopens a completed item when a bug report names it as a regression (DEC-009, DEC-015). Runs after every load.
     func reconcileLocal() {
-        guard !reconciling, store.recordsLifecycle, let parts else { return }
+        guard !reconciling, store.recordsLifecycle, parts != nil else { return }
         reconciling = true
         defer { reconciling = false }
+        reloadWorkflow()
+        guard let parts = self.parts else { return }
+        assignExistingItems(parts: parts)
+        resumePendingReplacements(parts: parts)
         parts.service.recoverPending()
         let all = parts.service.records()
         for item in items() {
             let history = IssueHistory(kind: item.kind, issue: item.issue, all: all)
             let input = ReconcileInput(kind: item.kind, issue: item.issue, storedStatus: item.status, history: history, delivery: nil,
-                                       regressionBug: regressionBug(item.kind, item.issue))
+                                       regressionBug: regressionBug(item.kind, item.issue), workflow: workflow)
             for action in IssueReconciler.actions(input) { perform(action, for: item, parts: parts) }
         }
         scheduleProgressCheck()
@@ -239,7 +518,7 @@ final class IssueLifecycleCoordinator {
         case .confirm(let status, let evidence):
             parts.service.recordConfirmation(item.kind, item.issue, status: status, evidence: evidence)
         case .reopen(let bug, _):
-            let destination = item.kind == .feature ? "implementing" : "open"
+            guard let destination = regressionTarget(item.kind, from: item.status) else { return }
             transition(item.kind, item.issue, to: destination, actor: .system("regression report \(bug)"), reason: "Regression reported in \(bug).",
                        evidence: LifecycleEvidence(regression: .bug(id: bug)), command: "regression:\(item.issue):\(bug)", surface: false)
         }
@@ -257,7 +536,7 @@ final class IssueLifecycleCoordinator {
         var completed: [String] = []
         for target in candidates {
             guard let status = storedStatus(target.kind, target.issue),
-                  let destination = IssueReconciler.completionTarget(kind: target.kind, status: status) else { continue }
+                  let destination = IssueReconciler.completionTarget(kind: target.kind, status: status, workflow: workflow) else { continue }
             let key = "\(target.kind.rawValue):\(target.issue)"
             if let last = lastProgressCheck[key], Date().timeIntervalSince(last) < minimumInterval { continue }
             lastProgressCheck[key] = Date()
@@ -277,7 +556,7 @@ final class IssueLifecycleCoordinator {
     /// integration on (without it no check can be read, so nothing could complete).
     private func scheduleProgressCheck() {
         guard progressTask == nil, GitHubSettings.enabled,
-              items().contains(where: { IssueReconciler.completionTarget(kind: $0.kind, status: $0.status) != nil }) else { return }
+              items().contains(where: { IssueReconciler.completionTarget(kind: $0.kind, status: $0.status, workflow: workflow) != nil }) else { return }
         progressTask = Task { [weak self] in
             guard let self else { return }
             await self.completeFinishedWork(minimumInterval: Self.progressInterval)
@@ -294,9 +573,9 @@ final class IssueLifecycleCoordinator {
         guard let parts, store.recordsLifecycle else { return [] }
         var confirmed: [String] = []
         for target in targets {
-            guard let status = storedStatus(target.kind, target.issue), LifecycleVocabulary.isCompletedStatus(target.kind, status) else { continue }
+            guard let status = storedStatus(target.kind, target.issue), LifecycleVocabulary.isCompletedStatus(target.kind, status, in: workflow) else { continue }
             let before = parts.service.history(target.kind, target.issue)
-            switch IssueCompletion.state(kind: target.kind, status: status, history: before, deliveryNow: nil) {
+            switch IssueCompletion.state(kind: target.kind, status: status, history: before, deliveryNow: nil, workflow: workflow) {
             case .overridden, .unverifiedEdit: break
             default: continue
             }
@@ -304,7 +583,7 @@ final class IssueLifecycleCoordinator {
             // The file may have changed while git and GitHub were read.
             guard let now = storedStatus(target.kind, target.issue), LifecycleVocabulary.normalize(now) == LifecycleVocabulary.normalize(status) else { continue }
             let input = ReconcileInput(kind: target.kind, issue: target.issue, storedStatus: status,
-                                       history: parts.service.history(target.kind, target.issue), delivery: delivery, regressionBug: nil)
+                                       history: parts.service.history(target.kind, target.issue), delivery: delivery, regressionBug: nil, workflow: workflow)
             let item = (kind: target.kind, issue: target.issue, status: status)
             for action in IssueReconciler.actions(input) {
                 perform(action, for: item, parts: parts)
@@ -319,16 +598,18 @@ final class IssueLifecycleCoordinator {
     func discrepancies(_ kind: IssueKind, _ issue: String, status: String, delivery: DeliveryVerdict?) -> [Discrepancy] {
         guard let history = history(kind, issue) else { return [] }
         return IssueReconciler.discrepancies(ReconcileInput(kind: kind, issue: issue, storedStatus: status, history: history, delivery: delivery,
-                                                            regressionBug: regressionBug(kind, issue)))
+                                                            regressionBug: regressionBug(kind, issue), workflow: workflow))
     }
 
     /// What the Lifecycle section of the window shows for one item (REQ-004). Reads the journal, so callers keep the result
     /// instead of asking on every redraw. `delivery` is the verdict of an explicit evidence check, when one was made.
     func display(_ kind: IssueKind, _ issue: String, delivery: DeliveryVerdict? = nil) -> IssueLifecycleDisplay? {
         guard let parts, let status = parts.statuses.status(kind: kind, issue: issue), let history = history(kind, issue) else { return nil }
-        let state = IssueCompletion.state(kind: kind, status: status, history: history, deliveryNow: delivery)
-        let notes = discrepancies(kind, issue, status: status, delivery: delivery).map(\.message)
-        return IssueLifecycleDisplay.make(kind: kind, issue: issue, status: status, history: history, completion: Self.label(state), discrepancies: notes)
+        let state = IssueCompletion.state(kind: kind, status: status, history: history, deliveryNow: delivery, workflow: workflow)
+        var notes = discrepancies(kind, issue, status: status, delivery: delivery).map(\.message)
+        if let problem = workflowProblem { notes.append(problem) }
+        return IssueLifecycleDisplay.make(kind: kind, issue: issue, status: status, history: history, completion: Self.label(state), discrepancies: notes,
+                                          workflow: workflow, variantID: history.assignedVariant)
     }
 
     /// The person asked to check the delivery evidence of one item: git and GitHub are read now (GitHub only when the integration
@@ -342,7 +623,7 @@ final class IssueLifecycleCoordinator {
     func contextText(_ kind: IssueKind, _ issue: String, actor: LifecycleActorKind) async -> String? {
         guard let parts, let status = parts.statuses.status(kind: kind, issue: issue), let history = history(kind, issue) else { return nil }
         let delivery = await deliveryVerdict(kind, issue)
-        let state = IssueCompletion.state(kind: kind, status: status, history: history, deliveryNow: delivery)
+        let state = IssueCompletion.state(kind: kind, status: status, history: history, deliveryNow: delivery, workflow: workflow)
         let title: String
         var criteria: Bool?
         var links: [String] = []
@@ -362,7 +643,8 @@ final class IssueLifecycleCoordinator {
         return IssueLifecycleContext.text(IssueContextInput(kind: kind, issue: issue, title: title, status: status, history: history, delivery: delivery,
                                                             completionLabel: Self.label(state), discrepancies: notes,
                                                             attached: parts.sessions.attachments(for: issue), actor: actor, criteriaTicked: criteria,
-                                                            githubLinks: links))
+                                                            githubLinks: links, workflow: workflow, variantID: history.assignedVariant,
+                                                            workflowProblem: workflowProblem))
     }
 
     /// Items under way or with an attached session, one line each (`markview_issue_context` without an issue).
@@ -372,9 +654,9 @@ final class IssueLifecycleCoordinator {
         var lines: [IssueSummaryLine] = []
         for item in items() {
             let attached = parts.sessions.attachments(for: item.issue)
-            guard LifecycleVocabulary.isActiveStatus(item.kind, item.status) || !attached.isEmpty else { continue }
+            guard LifecycleVocabulary.isActiveStatus(item.kind, item.status, in: workflow) || !attached.isEmpty else { continue }
             let state = IssueCompletion.state(kind: item.kind, status: item.status,
-                                              history: IssueHistory(kind: item.kind, issue: item.issue, all: all), deliveryNow: nil)
+                                              history: IssueHistory(kind: item.kind, issue: item.issue, all: all), deliveryNow: nil, workflow: workflow)
             let title = item.kind == .feature ? (store.feature(item.issue)?.title ?? item.issue)
                                               : (store.bugs.first { $0.key == item.issue }?.title ?? item.issue)
             lines.append(IssueSummaryLine(kind: item.kind, issue: item.issue, title: title, status: item.status,

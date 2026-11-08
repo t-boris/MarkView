@@ -83,14 +83,21 @@ enum LifecycleToolRunner {
                 throw ProjectAgentTools.Invalid(message: "No bug report \(original) to name as the original.")
             }
         }
-        let status = original.isEmpty ? try ProjectAgentTools.choice(args, "status", in: FeatureVocabulary.bugStatuses, default: "") : "closed"
-        guard !status.isEmpty else { throw ProjectAgentTools.Invalid(message: "`status` is required: \(FeatureVocabulary.bugStatuses.joined(separator: ", ")).") }
+        let workflow = store.lifecycle.workflow
+        let current = LifecycleVocabulary.normalize(bug.status)
+        // A bug closed as a duplicate takes the step the workflow gives an AI for cancelling work that was not fixed.
+        let cancellations = workflow.bug.rules.filter { $0.kind == .cancellation && $0.from.contains(current) && $0.needs[.ai] != nil }
+        if !original.isEmpty, cancellations.isEmpty {
+            throw ProjectAgentTools.Invalid(message: "This project's bug workflow has no step that closes \(id) as a duplicate from \(current).")
+        }
+        let status = original.isEmpty ? try ProjectAgentTools.choice(args, "status", in: workflow.bug.statusIDs, default: "") : cancellations[0].to
+        guard !status.isEmpty else { throw ProjectAgentTools.Invalid(message: "`status` is required: \(workflow.bug.statusIDs.joined(separator: ", ")).") }
         let reason = try ProjectAgentTools.text(args, "reason")
         let evidence = try ProjectAgentTools.text(args, "evidence")
         var cancellation: CancellationEvidence?
         if !original.isEmpty {
             cancellation = .duplicate(of: original)
-        } else if status == "closed", !evidence.isEmpty, ["open", "fixing"].contains(LifecycleVocabulary.normalize(bug.status)) {
+        } else if !evidence.isEmpty, workflow.bug.rules.contains(where: { $0.kind == .cancellation && $0.to == status && $0.from.contains(current) }) {
             cancellation = .invalid(evidence)
         }
         note(store, issue: bug.key, args)

@@ -152,4 +152,35 @@ do {
     check("row ids are unique", Set(d.history.map(\.id)).count == d.history.count)
 }
 
+// MARK: Variant, note start and delivery event (feature-3)
+
+do {
+    var workflow = ProjectWorkflow.standard
+    workflow.variants.append(VariantTemplate.manualWork.variant(kind: .feature, id: "by-hand"))
+    var confirmed = VariantTemplate.directToMain.variant(kind: .feature, id: "installed")
+    confirmed.delivery = .humanConfirmed(name: "installed")
+    workflow.variants.append(confirmed)
+    func make(_ status: String, variant: String?, _ records: [TransitionRecord] = []) -> IssueLifecycleDisplay {
+        IssueLifecycleDisplay.make(kind: .feature, issue: "export-pdf", status: status, history: IssueHistory(kind: .feature, issue: "export-pdf", all: records),
+                                   completion: "not complete", workflow: workflow, variantID: variant)
+    }
+    let standard = make("ready", variant: nil)
+    check("the standard variant is shown by default", standard.variantID == StandardWorkflow.featureVariantID && standard.variantName == "Standard feature")
+    check("the standard variant offers no start by note", !standard.canStartWithNote)
+    check("a variant that accepts a note offers one before the start", make("ready", variant: "by-hand").canStartWithNote)
+    check("but not once the work is under way", !make("implementing", variant: "by-hand").canStartWithNote)
+    check("a person-only variant still offers accepting an implemented item", make("implemented", variant: "by-hand").acceptTarget == "verified")
+    let installed = make("implementing", variant: "installed")
+    check("a variant with a delivery event a person confirms offers the confirmation", installed.eventToConfirm == "installed" && !installed.eventConfirmed)
+    let confirmation = record(.evidence, "", "", person, minute: 5, target: "installed")
+    var recorded = confirmation
+    recorded.humanEvidence = .delivery
+    check("a recorded confirmation is shown as confirmed", make("implementing", variant: "installed", [recorded]).eventConfirmed)
+    check("a variant without a delivery event offers no confirmation", make("implementing", variant: nil).eventToConfirm == nil)
+    check("reopening goes to the active status by role", IssueLifecycleDisplay.reopenStatus(kind: .feature, status: "verified", workflow: workflow) == "implementing"
+          && IssueLifecycleDisplay.reopenStatus(kind: .bug, status: "closed", workflow: workflow) == "open")
+    check("only a completed status can be reopened", IssueLifecycleDisplay.reopenStatus(kind: .feature, status: "ready", workflow: workflow) == nil
+          && IssueLifecycleDisplay.reopenStatus(kind: .feature, status: "archived", workflow: workflow) == nil)
+}
+
 finish("display")

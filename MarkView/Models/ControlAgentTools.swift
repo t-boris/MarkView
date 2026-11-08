@@ -261,6 +261,8 @@ enum ControlAgentTools {
         var openQuestions = 0
         var understood = false
         var pastExplore = false
+        /// The project's workflow gives the status the role active or completed (feature-3).
+        var implementationStarted = false
         var requirements = 0
         var draftRequirements = 0
         var openFindings = 0
@@ -274,7 +276,7 @@ enum ControlAgentTools {
         if !f.running.isEmpty {
             return "\(f.running.joined(separator: ", ")) is running: markview_flow_status { feature: \"\(f.slug)\", wait_s: 60 } waits for it."
         }
-        if ["implementing", "implemented", "verified"].contains(f.status) {
+        if f.implementationStarted {
             return "Implementation is under way (\(f.status)): follow the agent with markview_agent_wait and markview_agent_read; MarkView completes implemented from git and GitHub; verified is recorded by a person, or by an agent with evidence."
         }
         if f.openQuestions > 0 {

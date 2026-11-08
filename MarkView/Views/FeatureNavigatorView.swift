@@ -88,12 +88,13 @@ struct IssuesListView: View {
     @State private var showBugs = true
 
     var body: some View {
+        let workflow = store.lifecycle.workflow
         let features = store.issueSort.sorted(store.features.filter {
-            matches($0.title + " " + $0.slug) && store.issueFilter.matches($0.issueFacts)
-        }, facts: \.issueFacts)
+            matches($0.title + " " + $0.slug) && store.issueFilter.matches($0.issueFacts(in: workflow))
+        }, facts: { $0.issueFacts(in: workflow) })
         let bugs = store.issueSort.sorted(store.bugs.filter {
-            matches($0.title + " " + $0.key) && store.issueFilter.matches($0.issueFacts)
-        }, facts: \.issueFacts)
+            matches($0.title + " " + $0.key) && store.issueFilter.matches($0.issueFacts(in: workflow))
+        }, facts: { $0.issueFacts(in: workflow) })
         // Unfiltered, both sections show (with their "+"), even when empty.
         let filtering = !filter.isEmpty || !store.issueFilter.isDefault
         VStack(spacing: 0) {
@@ -141,7 +142,7 @@ struct IssuesListView: View {
                 Spacer(minLength: 2)
                 IssueLinks(numbers: feature.issueNumbers)
                 // Without a status the feature reads as its default (Idea / Draft), muted.
-                IssueStatusBadge(text: FeatureVocabulary.label(feature.status), tone: IssueStatus.tone(feature.issueFacts),
+                IssueStatusBadge(text: FeatureVocabulary.label(feature.status), tone: IssueStatus.tone(feature.issueFacts(in: store.lifecycle.workflow)),
                                  muted: feature.front.string("status").isEmpty)
             }
             .padding(.leading, 18).padding(.trailing, 8).padding(.vertical, 3)
@@ -184,11 +185,11 @@ struct IssuesListView: View {
                 Image(systemName: "ladybug").uiFont(size: 9)
                     .foregroundColor(["critical", "high"].contains(bug.severity) ? palette.red : palette.orange).frame(width: 12)
                 Text(bug.key).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
-                Text(bug.title).uiFont(size: 11).foregroundColor(bug.status == "open" ? palette.text : palette.textDim).lineLimit(1)
+                Text(bug.title).uiFont(size: 11).foregroundColor(!bug.hasStatus || store.lifecycle.workflow.role(.bug, IssueStatus.normalize(bug.status)) == .notStarted ? palette.text : palette.textDim).lineLimit(1)
                 Spacer(minLength: 2)
                 IssueLinks(numbers: bug.issueNumbers)
                 IssueStatusBadge(text: bug.hasStatus ? IssueStatus.normalize(bug.status) : "open",
-                                 tone: IssueStatus.tone(bug.issueFacts), muted: !bug.hasStatus)
+                                 tone: IssueStatus.tone(bug.issueFacts(in: store.lifecycle.workflow)), muted: !bug.hasStatus)
             }
             .padding(.leading, 18).padding(.trailing, 2).padding(.vertical, 3)
             .contentShape(Rectangle())
@@ -599,9 +600,9 @@ struct FeatureStatusMenu: View {
 
     var body: some View {
         Menu {
-            ForEach(FeatureVocabulary.featureStatuses, id: \.self) { status in
-                Button((status == feature.status ? "✓ " : "") + FeatureVocabulary.label(status)) {
-                    Task { await LifecycleStatusChange.perform(store: store, kind: .feature, issue: feature.slug, to: status) }
+            ForEach(store.lifecycle.workflow.feature.statuses) { status in
+                Button((status.id == IssueStatus.normalize(feature.status) ? "✓ " : "") + status.title) {
+                    Task { await LifecycleStatusChange.perform(store: store, kind: .feature, issue: feature.slug, to: status.id) }
                 }
             }
         } label: {

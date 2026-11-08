@@ -32,7 +32,12 @@ for name in ["markview_answer_question", "markview_answer_bug_question"] {
 }
 check(ProjectAgentTools.personsStatuses.isSuperset(of: ["approved", "accepted", "answered"]), "settling statuses need the person")
 let setBug = tools.first { $0.name == "markview_set_bug_status" }!
-check(setBug.required == ["id"] && (setBug.properties["status"]?["enum"] as? [String]) == ["open", "fixing", "fixed", "closed"], "a bug status is one of the app's four")
+check(setBug.required == ["id"] && setBug.properties["status"]?["enum"] == nil && setBug.properties["status"]?["type"] as? String == "string", "a bug status is a status of the project's workflow, not a fixed list")
+var tinyWorkflow = ProjectWorkflow.standard
+tinyWorkflow.name = "Renamed"
+tinyWorkflow.bug.statuses = tinyWorkflow.bug.statuses.map { WorkflowStatus(id: $0.id == "fixing" ? "doing" : $0.id, role: $0.role) }
+check(ProjectAgentTools.guide("lifecycle", workflow: tinyWorkflow).contains("doing"), "the lifecycle guide names the statuses of a project whose workflow differs")
+check(ProjectAgentTools.guide("lifecycle") == IssueLifecycleContext.guidance, "the lifecycle guide is the standard text for the standard workflow")
 check(ProjectAgentTools.guide("bug").contains("markview_set_bug_status"), "the bug guide names the status tool")
 let setStatus = tools.first { $0.name == "markview_set_status" }!
 check(setStatus.properties["reason"] != nil && setStatus.properties["evidence"] != nil && setStatus.properties["session"] != nil && setStatus.properties["tool"] != nil, "set_status carries a reason, evidence and the caller's session")
@@ -67,7 +72,7 @@ check(ProjectAgentTools.agentFeatureStatuses == ["idea", "exploring", "draft", "
 
 for topic in ProjectAgentTools.guideTopics { check(ProjectAgentTools.guide(topic).count > 200, "guide \(topic) has text") }
 check(ProjectAgentTools.guideTopics.contains("process") && ProjectAgentTools.guide("process").contains("pull request"), "there is a process guide")
-check(Set(ProjectAgentTools.guideTopics.map(ProjectAgentTools.guide)).count == ProjectAgentTools.guideTopics.count, "guide topics differ")
+check(Set(ProjectAgentTools.guideTopics.map { ProjectAgentTools.guide($0) }).count == ProjectAgentTools.guideTopics.count, "guide topics differ")
 check(ProjectAgentTools.guide(nil) == ProjectAgentTools.guide("overview") && ProjectAgentTools.guide("zzz") == ProjectAgentTools.guide("overview"), "the overview is the default")
 check(ProjectAgentTools.guide("overview").contains("docs/features/<slug>/") && ProjectAgentTools.guide("overview").contains("never write these files by hand"), "the overview names the folder and forbids hand-written files")
 check(ProjectAgentTools.guide("prototype").contains("markview_get_prototype") && ProjectAgentTools.guide("prototype").contains("markview_add_requirement"), "the prototype guide shows the way to features")

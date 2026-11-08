@@ -19,13 +19,17 @@ struct IssueSyncItem: Equatable, Sendable {
     var fieldValues: [String]
     /// Markdown searched for full GitHub issue URLs.
     var texts: [String]
+    /// What the status means in the project's workflow; nil when the workflow does not have it (feature-3, DEC-023).
+    var role: LifecycleRole? = nil
 
-    /// Features count when implemented, verified or archived (DEC-005), and `done` as the Issues list
-    /// reads it (features written by hand); bugs when fixed or closed (owner answer 2026-09-27).
+    /// A status of the workflow is done when its role is completed or cancelled (a feature implemented, verified or archived, DEC-005; a bug
+    /// fixed or closed, owner answer 2026-09-27). Only a status the workflow does not have is read by name: `done` as the Issues list
+    /// reads it (features written by hand).
     static let doneFeature: Set<String> = IssueStatus.implementedFeature.union(["archived"])
     static let doneBug: Set<String> = ["fixed", "closed"]
 
     var isDone: Bool {
+        if let role { return role.isFinished }
         let value = IssueStatus.normalize(status)
         return kind == .feature ? Self.doneFeature.contains(value) : Self.doneBug.contains(value)
     }

@@ -178,10 +178,15 @@ struct IssueSyncReportView: View {
     /// Set the status that counts as done: a feature implemented, a bug fixed.
     private func markDone(_ item: IssueSyncItem) {
         let store = workspaceManager.features
-        let target = item.kind == .feature ? "implemented" : "fixed"
+        let kind: IssueKind = item.kind == .feature ? .feature : .bug
+        // Where finished work goes from the item's status in this project's workflow (REQ-002).
+        guard let target = store.lifecycle.workflow.lifecycle(kind).finishTarget(from: store.lifecycle.storedStatus(kind, item.id) ?? item.status) else {
+            store.lastError = "\(item.id) has no completion step from its status in this project's workflow."
+            return
+        }
         // Through the lifecycle: evidence decides; without it the person is asked for a reason (Q-002 B).
         Task {
-            if await LifecycleStatusChange.perform(store: store, kind: item.kind == .feature ? .feature : .bug, issue: item.id, to: target) {
+            if await LifecycleStatusChange.perform(store: store, kind: kind, issue: item.id, to: target) {
                 changed.insert(item.id)
             }
         }

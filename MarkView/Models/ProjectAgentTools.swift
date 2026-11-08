@@ -97,8 +97,8 @@ enum ProjectAgentTools {
               "session": ["type": "string", "description": "Your session label, as given to markview_attach_issue"],
               "tool": ["type": "string", "description": "Your assistant's name, for the history"],
               "by_user": ["type": "boolean", "description": "true when the person decided this in the conversation (objects only)"]], required: ["feature", "status"]),
-        tool("markview_set_bug_status", "Change the status of a bug report (open, fixing, fixed, closed) under the lifecycle rules of MarkView: fixing needs a hand-off or markview_attach_issue; fixed is recorded only when merge, checks and the required release are evidenced; closing a fixed bug needs `evidence`; closing an unfixed bug needs `duplicate_of` or `evidence` that it is invalid. Read markview_issue_context for what is missing.",
-             ["id": ["type": "string", "description": "BUG-007"], "status": ["type": "string", "enum": FeatureVocabulary.bugStatuses],
+        tool("markview_set_bug_status", "Change the status of a bug report under the lifecycle rules of MarkView and the project's workflow (the standard statuses are open, fixing, fixed, closed; markview_issue_context lists the steps open from the current one): fixing needs a hand-off or markview_attach_issue; fixed is recorded only when merge, checks and the required release are evidenced; closing a fixed bug needs `evidence`; closing an unfixed bug needs `duplicate_of` or `evidence` that it is invalid. Read markview_issue_context for what is missing.",
+             ["id": ["type": "string", "description": "BUG-007"], "status": ["type": "string", "description": "A status of this project's bug workflow"],
               "duplicate_of": ["type": "string", "description": "BUG-006; closes this bug as a duplicate of it"],
               "reason": ["type": "string", "description": "Why, for the history"],
               "evidence": ["type": "string", "description": "What was verified (closing after a fix) or why the report is invalid (closing without a fix)"],
@@ -165,7 +165,8 @@ enum ProjectAgentTools {
 
     static let guideTopics = ["overview", "feature", "requirement", "decision", "question", "bug", "prototype", "workflow", "process", "lifecycle", "deployments"]
 
-    static func guide(_ topic: String?) -> String {
+    /// `workflow` is the project's: the lifecycle guide names its statuses when they differ from the standard ones (feature-3).
+    static func guide(_ topic: String?, workflow: ProjectWorkflow = .standard) -> String {
         switch topic ?? "overview" {
         case "feature": return featureGuide
         case "requirement": return requirementGuide
@@ -175,7 +176,7 @@ enum ProjectAgentTools {
         case "prototype": return prototypeGuide
         case "workflow": return workflowGuide
         case "process": return processGuide
-        case "lifecycle": return IssueLifecycleContext.guidance
+        case "lifecycle": return IssueLifecycleContext.guidance(for: workflow)
         case "deployments": return deploymentsGuide
         default: return overviewGuide
         }
