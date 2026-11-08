@@ -1627,3 +1627,9 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
 - A web-view harness must not use the persistent website data store: the prototype runtime keeps the chosen role in `localStorage`, so the second run on a machine started as the role the first run
   ended with. A harness passes on a clean CI runner and fails on a developer machine. Use `WKWebsiteDataStore.nonPersistent()` and run a suite twice in a row before calling it stable.
 - zsh treats a bare `=====` in `echo` as an expansion and aborts the command: quote separators.
+
+## 2026-11-08 — merging without waiting for CI (second reminder)
+
+- Boris said on 2026-11-04 that CI is not waited for, and said it again on 2026-11-08 while I was polling the checks of a test-only PR: "I said you can merge without waiting for CI".
+  Rule: after my own verification (suites, Debug build) open the PR, merge it at once (`gh pr merge --merge --delete-branch`), release and install; read the check results afterwards and report them.
+  Never start an `until ... gh pr checks` wait loop before a merge. A rule from an older CLAUDE.md line or memory note ("wait for every check run") does not outrank a direct instruction from Boris.
