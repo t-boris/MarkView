@@ -2,7 +2,7 @@
 type: bug
 id: BUG-099
 title: "UI Studio: toolbar button, Log button with filters and mapping progress were never checked in the running app (REQ-011 criteria 1-2, REQ-014 criterion 1)"
-status: open
+status: closed
 severity: low
 reporter: Boris Tsekinovsky
 created: 2026-11-05
@@ -36,3 +36,15 @@ Not verified. Only the models behind them are checked (`fixableErrors`, log entr
 ## Environment
 
 MarkView 5.35.0. Feature markview-ui-studio, REQ-011 criteria 1 and 2, REQ-014 criterion 1 (left unticked).
+
+## AI fix attempt
+
+2026-11-05, branch `fix/ui-studio-bug-batch`: The toolbar, log filters and mapping progress are present in the view code, but their behavior has not been verified by clicking them in the running application. The available session harness checks model state and WebKit, not the project-window SwiftUI controls; a hidden-window UI check or a manual check is still needed.
+
+## Validity check
+
+**Outcome:** Inconclusive (checked 2026-11-06). The status was not changed.
+
+**Verified against:** `origin/main` @ `cc7c08281f` (2026-11-05) — Merge pull request #298 from t-boris/fix/ui-studio-bug-batch
+
+**Reason:** The snapshot contains code for the project toolbar button, the Log button and filtered drawer, and the mapping progress banner. REQ-011 criteria 1–2 and REQ-014 criterion 1 remain unchecked, and the located session checks exercise mapping state rather than the project-window controls. The code alone does not establish that all three controls behave visibly as expected in the running app. A manual or hidden-window UI check is still needed; no runtime defect is established.

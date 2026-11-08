@@ -2,7 +2,7 @@
 type: bug
 id: BUG-106
 title: "Delivery evidence: the oldest commit of a shallow clone counts as code work (its files are the whole tree), so a documentation record blocks fixed"
-status: fixing
+status: fixed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-07
@@ -53,4 +53,3 @@ Not changed on purpose: a shallow clone whose log is shorter than the 400-commit
 of a reopened issue. That can hide work, but it ends in "no merged implementation work", never in a false `complete`.
 
 Open: BUG-091 stays `fixing` until the installed app is 5.39.3 and the agent asks again (only the installed app can record `fixed`).
-

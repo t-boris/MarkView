@@ -2,7 +2,7 @@
 type: bug
 id: BUG-105
 title: "Large Markdown files do not open (or take very long): vivaa-internals docs/research/2026-11-06-strategic-plan.md and 2026-11-07-business-plan.md"
-status: fixing
+status: fixed
 severity: critical
 reporter: Boris Tsekinovsky
 created: 2026-11-07

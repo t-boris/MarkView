@@ -2,7 +2,8 @@
 type: bug
 id: BUG-100
 title: "UI Studio: a protocol MarkView cannot serve is logged but no check proves it is named in the turn (REQ-015 criterion 6)"
-status: open
+status: fixed
+branch: fix/ui-studio-bug-batch
 severity: low
 reporter: Boris Tsekinovsky
 created: 2026-11-05

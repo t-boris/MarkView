@@ -2,7 +2,8 @@
 type: bug
 id: BUG-098
 title: UI Studio change requirement is written approved, but REQ-012 says it is marked implemented
-status: open
+status: fixed
+branch: fix/ui-studio-bug-batch
 severity: low
 reporter: Boris Tsekinovsky
 created: 2026-11-05
@@ -34,3 +35,7 @@ The requirement is written as approved. The criterion stays unticked for this re
 ## Environment
 
 MarkView 5.35.0, `MarkView/Models/UIStudioTracking.swift` and the tracking checks in `tools/tests/UIStudioSessionHarness.swift`. Feature markview-ui-studio, REQ-012 criterion 2, DEC-008.
+
+## Clarifications
+
+- 2026-11-05: Boris confirmed that an applied change must be recorded as `implemented`.
