@@ -251,7 +251,13 @@ flowchart LR
 - **PR X-Ray** shows where a pull request lands in the architecture, with the diff, a verdict
   (*looks good*, *needs attention*, *risky*), impact, findings with **Fix it**, **Explain** and
   **Comment on PR**, a chat, and approve, request changes or merge (squash, merge or rebase). It also
-  compares a local branch with `main` without GitHub.
+  compares a local branch with `main` without GitHub, and the working copy with **an earlier commit
+  chosen by date** (*Compare with a date…*: pick a day, then one of the commits made that day on any
+  local branch, by committer time in your time zone). The comparison includes commits, uncommitted
+  changes and new files; **Focused** shows the parts the change touches with the context they need,
+  **Full map** the whole architecture with the changes highlighted. Files the change removes are
+  marked nodes (✕, dashed) on both maps with their diff one click away, and complexity, size and the
+  other overlays can be on while changed parts keep their halo and their `+added −removed` counts.
 - **Explain** puts section-by-section margin notes on code, configuration and Markdown, with
   Explanation, Pull request, Freshness (time of the last change, from `git blame`) and Importance
   lenses. In the code viewer **⌘-click** goes to a definition and **⌥⌘-click** finds usages (a text

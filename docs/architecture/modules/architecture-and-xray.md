@@ -716,6 +716,26 @@ Sources come from `listPRSources` (`:1774-1804`):
 
 - `local`: all changes against the base branch, uncommitted work included.
 - `gh:<n>`: up to 50 open and 30 closed pull requests through `gh pr list`.
+- `cmp:<ref>` and `rev:<ref>`: a branch comparison chosen from the Git tab's branch menu
+  (`WorkspaceManager.compareBranch`). They start at the merge base of `<ref>` and `HEAD`.
+- `at:<sha>`: the working copy against one earlier commit chosen by date (see below). Chosen
+  sources are kept by `refreshPRSources`; the others are rebuilt from git on every refresh.
+
+**Comparison by date** (`HistoricalBaseline.swift`, feature `x-ray-comparison-by-date`). The PR
+tab's *Compare with a date…* button opens a date picker in the page. The page posts
+`historyCommits {day: "YYYY-MM-DD"}`; `ArchitectureStore.listHistory` reads
+`git log --branches` off the main thread and keeps the commits whose **committer** timestamp falls
+on that calendar day in the user's own time zone (`Calendar.autoupdatingCurrent`; the filter runs
+in Swift because git's `--since` stops walking at an old commit and would miss a commit with a
+wrong clock). The answer travels in the payload as `history {day, state, commits[]}`; only the
+latest request is kept. Choosing a commit posts `compareWithCommit {sha}`, which names the source
+`at:<full sha>` and shows it through `showComparison`, with no AI run until Analyze or Review is
+pressed. The baseline is the chosen commit itself (not a merge base), so a commit of any local
+branch works. `diff(for:)` runs `HistoricalBaseline.diffArguments`: `git diff <sha>` with
+`--no-renames` (a pure rename has no content lines to parse, so it reads as a removed and an added
+file), `core.quotepath=off` and `--no-ext-diff`, plus the untracked files as additions as for
+`local`. `prBase` is the commit, so a removed file opens as it was in it. The local-changes reload
+when the working copy moves on applies to `at:` sources too.
 
 `loadPR` (`:2072-2124`) then:
 
@@ -743,9 +763,19 @@ they drift. `prFileURL` writes the change's version of a file into
 `~/Library/Caches/MarkView/pull-requests/<hash>/…` so the viewer shows the code under review
 (`:1908-1947`).
 
-In JS, `buildPRView` (`:131-170`) keeps only the changed files and their ancestors. New
-files go into the component of their folder. It draws `added` and `removed` dependency
-edges (green, and red dashed).
+In JS, `buildPRView` keeps only the changed files and their ancestors (the **focused map**).
+Files the X-Ray has no node for, new ones and removed ones, are added by `changeExtras` to the
+component of their folder (the nearest folder that still exists for a removed file; a node with
+no container at all stands alone at the top) and are marked `removed` when the change deletes
+them. It draws `added` and `removed` dependency edges (green, and red dashed). The PR tab's
+**Focused / Full map** switch (`ui.prMap`) chooses between that view and `buildFullPRView`, the
+whole Logical (else Structure) view plus the same extras; `openChangedParts` opens the parts
+the change touches once per change. In the PR tab the overlay menu works (the AI filters are not
+offered): the Pull request overlay dims untouched parts, every other overlay colours the parts
+and leaves them undimmed. Changed parts keep their marks whatever the overlay: `changeFacts`
+adds a halo (`underlay`) to changed leaves, `+added −removed` to the label, and a removed file
+gets a ✕ in its name, a dashed red outline and `removed −N`. The web checks are
+`tools/tests/xray-comparison-web-tests.sh`.
 
 ### 5.9 Incremental update
 
