@@ -1597,4 +1597,8 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
   content size, run the layout, and read the frames of the AppKit hosts (`ListCoreScrollView` for a `List`, `HostingScrollView` for a `ScrollView`). Compile the view as it
   ships and stub only its model and environment inside the test file. Run the same checks against the old file (`git show origin/main:…`) to see the bug as numbers
   that match the screenshot before changing the view.
+- The working tree is the lifecycle store: MarkView writes the status of a bug or feature into its Markdown file and records any other change to that file as an "external
+  edit, unverified" discrepancy. After I committed the bug record to main from a throwaway worktree I ran `git checkout -- docs/bugs/…` in the project tree to "clean it",
+  which put `status: open` back and created the discrepancy. Never restore, stash or reset a file the lifecycle tools wrote; copy it byte for byte to where it has to go and
+  leave the project tree alone (the next `git switch` brings identical bytes). Repair a wrong status only through the tools (`markview_set_bug_status` with the reason).
 

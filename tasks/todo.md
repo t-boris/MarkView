@@ -4848,6 +4848,6 @@ Request (Boris): "Сначала фиксни мне баг 107, а потом �
   AppKit hosts of the list (`ListCoreScrollView`) and the two versions (`HostingScrollView`). Old sheet: 760 pt list 380 / Before 190 / Current 188 (49 %), 1300 pt list
   650, versions 324 (49 %), opens at the minimum — 9 checks fail. Fixed sheet: 760 pt list 260 / versions 249 (65 %), opening size 1000 pt versions 369 (73 %),
   1600 pt versions 669 (83 %). Debug build succeeds.
-- [x] Reproduce with a measurement, [x] fix, [x] build, [x] version 5.42.1, [ ] PR checks, [ ] merge, [ ] release and install, [ ] BUG-107 `fixed` after the release.
+- [x] Reproduce with a measurement, [x] fix, [x] build, [x] version 5.42.1, [x] PR #318 checks (pdf-book, pdf-reader, themes), [x] merged (2f6224d), [x] release v5.42.1 (signed, notarized, SHA-256 of the published DMG equals the local one), [x] BUG-107 `fixed` (MarkView set it from the merge and release evidence), [ ] install on this Mac (Boris asked for it on 2026-11-08; detached, verified in the next turn).
 - Not checked by hand in the installed app yet (added and modified files use the same layout; the test has a deleted and a modified file).
 
