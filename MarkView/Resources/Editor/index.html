@@ -1169,6 +1169,17 @@
         .arch-chat .q { font-weight: 600; margin-top: 8px; }
         .arch-chat .a { white-space: pre-wrap; margin-top: 2px; }
         .arch-seg[hidden], .temp-filter[hidden], .arch-check[hidden], #arch-overlay[hidden], .arch-btn[hidden] { display: none; }
+        .arch-history { position: absolute; top: 8px; left: 8px; z-index: 6; width: min(440px, calc(100% - 16px)); max-height: calc(100% - 16px); overflow: auto; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); box-shadow: 0 6px 24px rgba(0, 0, 0, .25); font-size: calc(11.5px * var(--ui-scale, 1)); }
+        .arch-history[hidden] { display: none; }
+        .arch-history label { font-weight: 600; margin-right: 8px; }
+        .arch-history input[type="date"] { font-size: calc(11.5px * var(--ui-scale, 1)); padding: 2px 6px; border-radius: 5px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); }
+        .arch-history-list { margin-top: 8px; }
+        .arch-history-note { color: var(--text-secondary); padding: 6px 0; }
+        .arch-history-row { display: grid; grid-template-columns: auto auto 1fr; gap: 8px; align-items: baseline; width: 100%; text-align: left; padding: 5px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--text-primary); cursor: pointer; font-size: inherit; }
+        .arch-history-row:hover { background: var(--bg-tertiary, rgba(127, 127, 127, .18)); }
+        .arch-history-row .when, .arch-history-row .sha { font-family: "SF Mono", Menlo, monospace; font-size: calc(10.5px * var(--ui-scale, 1)); color: var(--text-secondary); }
+        .arch-history-row .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .arch-history-row .who { grid-column: 3; color: var(--text-secondary); font-size: calc(10.5px * var(--ui-scale, 1)); }
         .temp-filter input { font-size: calc(11px * var(--ui-scale, 1)); width: 190px; padding: 2px 6px; border-radius: 5px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); }
         .temp-filter button { border: 0; background: none; color: var(--text-secondary); cursor: pointer; font-size: calc(11px * var(--ui-scale, 1)); }
         .temp-filter button[hidden] { display: none; }
@@ -1434,6 +1445,11 @@
                     <form class="temp-filter" id="arch-pr-number" hidden title="Any pull request by number or GitHub link, also merged or closed ones">
                         <input placeholder="PR # or link" style="width: 110px">
                     </form>
+                    <div class="arch-seg" id="arch-pr-map" role="tablist" hidden>
+                        <button data-arch-pr-map="focused" class="on" title="Only the parts the change touches, with the context they need">Focused</button>
+                        <button data-arch-pr-map="full" title="The whole architecture with the changes highlighted">Full map</button>
+                    </div>
+                    <button class="arch-btn" id="arch-pr-date" hidden title="Compare the working copy with a commit made on an earlier day">Compare with a date…</button>
                     <button class="arch-btn" id="arch-analyze-pr" hidden title="AI: architectural impact of this change">Analyze PR</button>
                     <button class="arch-btn" id="arch-review" hidden>Review with AI</button>
                     <span class="arch-spacer"></span>
@@ -1463,6 +1479,12 @@
                     <div class="arch-graph-wrap">
                         <div class="arch-graph" id="arch-graph"></div>
                         <div class="arch-empty" id="arch-empty" hidden></div>
+                        <!-- PR X-Ray: pick a day, then one of its commits, to compare the working copy with. -->
+                        <section class="arch-history" id="arch-history" hidden aria-label="Compare with a commit from an earlier day">
+                            <label for="arch-history-day">Commits made on</label>
+                            <input type="date" id="arch-history-day">
+                            <div class="arch-history-list" id="arch-history-list"></div>
+                        </section>
                         <section id="arch-code-sequence" class="arch-code-sequence" hidden aria-label="Code sequence diagram">
                             <div class="arch-toolbar"><strong id="arch-code-sequence-title"></strong><button class="arch-btn" id="arch-code-sequence-close">Back to layers</button></div>
                             <p id="arch-code-sequence-takeaway"></p>

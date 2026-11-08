@@ -27,6 +27,11 @@
                 prOpen: document.getElementById('arch-pr-open'),
                 analyzePR: document.getElementById('arch-analyze-pr'),
                 prNumber: document.getElementById('arch-pr-number'),
+                prMap: document.getElementById('arch-pr-map'),
+                prDate: document.getElementById('arch-pr-date'),
+                history: document.getElementById('arch-history'),
+                historyDay: document.getElementById('arch-history-day'),
+                historyList: document.getElementById('arch-history-list'),
                 review: document.getElementById('arch-review'),
                 analyze: document.getElementById('arch-analyze'),
                 codeTrace: document.getElementById('arch-code-trace'),
@@ -54,9 +59,15 @@
                 codeFilterInitialized: false,
                 ratingRequested: new Set(),   // parents whose children were sent for AI importance
                 describeRequested: new Set(),
-                expanded: { code: new Set(), logical: new Set(), modules: new Set(), deployment: new Set(), docs: new Set(), pr: new Set() },
-                focus: { code: null, logical: null, modules: null, deployment: null, docs: null, pr: null },
+                expanded: { code: new Set(), logical: new Set(), modules: new Set(), deployment: new Set(), docs: new Set(), pr: new Set(),
+                            'prfull:logical': new Set(), 'prfull:modules': new Set() },
+                focus: { code: null, logical: null, modules: null, deployment: null, docs: null, pr: null, 'prfull:logical': null, 'prfull:modules': null },
                 prView: null,       // the PR X-Ray's own view, built from the X-Ray and the change
+                prTab: false,       // this page is the PR X-Ray tab (payload mode "pr")
+                prMap: 'focused',   // PR X-Ray map: 'focused' (the parts the change touches) or 'full' (the whole X-Ray, changes marked)
+                prFull: null,       // the full map's view: the X-Ray's own view plus the files the change removes or adds
+                prExpandedFor: null, // change whose touched parts were opened on the full map
+                historyOpen: false, // the date picker of the PR X-Ray is shown
                 selected: null,
                 graphKey: null,     // view + snapshot version the canvas was built from
                 viewChosen: false,  // the user picked a view (no automatic fallback to Structure)
@@ -69,7 +80,7 @@
 
             function post(action, fields) {
                 // A file opened while a change is shown opens on that change (viewer's "Pull request" lens).
-                if (action === 'openFile' && ui.payload && ui.payload.pr && (ui.view === 'pr' || ui.overlay === 'pr')) {
+                if (action === 'openFile' && ui.payload && ui.payload.pr && (ui.view === 'pr' || ui.prTab || ui.overlay === 'pr')) {
                     fields = Object.assign({ fromPR: true }, fields || {});
                 }
                 try {
@@ -118,7 +129,14 @@
                 const snap = ui.payload && ui.payload.snapshot;
                 if (!snap) return null;
                 if (ui.view === 'pr') return ui.prView;
-                return snap.views.find(function(v) { return v.id === ui.view; }) || null;
+                const view = snap.views.find(function(v) { return v.id === ui.view; }) || null;
+                // The PR X-Ray's full map: the X-Ray's own view, with the files the change removes added to it.
+                return view && ui.prFull && ui.prFull.id === view.id ? ui.prFull : view;
+            }
+
+            /** A change is on screen: the PR X-Ray tab (either map), or the Pull request overlay of the project X-Ray. */
+            function changeShown() {
+                return ui.view === 'pr' || ui.prTab || (overlayApplies() && ui.overlay === 'pr');
             }
 
             /** Links the change adds or removes, as edges between the given view's file ids. */
@@ -129,26 +147,21 @@
                 });
             }
 
-            /** The PR X-Ray: only the parts of the structure the change touches — its files
-             *  inside their components and subsystems — with existing links between them and
-             *  the links the change adds (green) or removes (red, dashed). A file is the leaf:
-             *  what changed inside it is shown when it is opened (the viewer's Pull request lens). */
-            function buildPRView(snap, pr) {
-                if (!snap || !pr) return null;
+            /** The view a change is drawn in (the Logical view, else Structure) and where its files go in it. */
+            function changeBase(snap) {
                 const logical = snap.views.find(function(v) { return v.id === 'logical'; });
                 const base = logical || snap.views.find(function(v) { return v.id === 'modules'; });
                 if (!base) return null;
-                const prefix = logical ? 'l:f:' : 'm:';
-                const byId = new Map(base.nodes.map(function(n) { return [n.id, n]; }));
-                const keep = new Set();
-                const changed = new Set(pr.files.map(function(f) { return prefix + f.path; }));
-                (pr.dependencies || []).forEach(function(d) { changed.add(prefix + d.target); });
-                changed.forEach(function(id) {
-                    for (let n = byId.get(id); n && !keep.has(n.id); n = n.parent != null ? byId.get(n.parent) : null) keep.add(n.id);
-                });
-                // Files the change adds are not in the X-Ray yet: draw them in their folder's component
-                // (or, without the logical view, in their nearest folder of the modules view).
-                const extra = [];
+                return { view: base, logical: !!logical, prefix: logical ? 'l:f:' : 'm:' };
+            }
+
+            /** Files of the change the X-Ray has no node for: new ones, which the scan may not know yet, and
+             *  removed ones, which the scan of the working copy cannot know. Each is drawn in the component of its
+             *  folder (or, without the logical view, in its nearest folder of the Structure view); a removed file whose
+             *  folder is gone as well goes to the nearest folder that is still there. With no container at all it
+             *  stands alone at the top. */
+            function changeExtras(snap, pr, base) {
+                const byId = new Map(base.view.nodes.map(function(n) { return [n.id, n]; }));
                 const assigned = function(path) {
                     for (let folder = path.split('/').slice(0, -1).join('/'); ; folder = folder.split('/').slice(0, -1).join('/')) {
                         const a = (snap.overrides || {})[folder] || ((snap.assignments || {})[folder] || {}).component;
@@ -157,30 +170,62 @@
                     }
                 };
                 const parentFor = function(path) {
-                    if (logical) {
+                    if (base.logical) {
                         const comp = assigned(path);
-                        return comp && byId.has('l:c:' + comp) ? 'l:c:' + comp : 'l:';
+                        return comp && byId.has('l:c:' + comp) ? 'l:c:' + comp : byId.has('l:') ? 'l:' : null;
                     }
                     for (let folder = path.split('/').slice(0, -1).join('/'); folder; folder = folder.split('/').slice(0, -1).join('/')) {
                         if (byId.has('m:' + folder)) return 'm:' + folder;
                     }
-                    return 'm:';
+                    return byId.has('m:') ? 'm:' : null;
                 };
+                const extra = [];
                 pr.files.forEach(function(f) {
-                    const id = prefix + f.path;
+                    const id = base.prefix + f.path;
                     if (byId.has(id)) return;
-                    const parent = parentFor(f.path);
-                    if (!byId.has(parent)) return;
-                    extra.push({ id: id, parent: parent, kind: 'file', name: f.path.split('/').pop(), path: f.path,
-                                 loc: f.deleted ? f.deletions : f.additions, files: 1,
+                    extra.push({ id: id, parent: parentFor(f.path), kind: 'file', name: f.path.split('/').pop(), path: f.path,
+                                 loc: f.deleted ? f.deletions : f.additions, files: 1, removed: !!f.deleted,
                                  summary: f.deleted ? 'Removed in this change' : 'New in this change' });
-                    for (let n = byId.get(parent); n && !keep.has(n.id); n = n.parent != null ? byId.get(n.parent) : null) keep.add(n.id);
-                    keep.add(id);
                 });
-                const nodes = base.nodes.filter(function(n) { return keep.has(n.id); }).concat(extra);
-                const edges = base.edges.filter(function(e) { return keep.has(e.source) && keep.has(e.target) && changed.has(e.source) && changed.has(e.target); })
+                return extra;
+            }
+
+            /** The PR X-Ray's focused map: only the parts of the structure the change touches — its files
+             *  inside their components and subsystems — with existing links between them and
+             *  the links the change adds (green) or removes (red, dashed). A file is the leaf:
+             *  what changed inside it is shown when it is opened (the viewer's Pull request lens). */
+            function buildPRView(snap, pr) {
+                if (!snap || !pr) return null;
+                const base = changeBase(snap);
+                if (!base) return null;
+                const prefix = base.prefix;
+                const byId = new Map(base.view.nodes.map(function(n) { return [n.id, n]; }));
+                const keep = new Set();
+                const changed = new Set(pr.files.map(function(f) { return prefix + f.path; }));
+                (pr.dependencies || []).forEach(function(d) { changed.add(prefix + d.target); });
+                changed.forEach(function(id) {
+                    for (let n = byId.get(id); n && !keep.has(n.id); n = n.parent != null ? byId.get(n.parent) : null) keep.add(n.id);
+                });
+                // The context of a file the X-Ray has no node for (removed, or new) is the container it belongs to.
+                const extra = changeExtras(snap, pr, base);
+                extra.forEach(function(node) {
+                    for (let n = node.parent != null ? byId.get(node.parent) : null; n && !keep.has(n.id); n = n.parent != null ? byId.get(n.parent) : null) keep.add(n.id);
+                    keep.add(node.id);
+                });
+                const nodes = base.view.nodes.filter(function(n) { return keep.has(n.id); }).concat(extra);
+                const edges = base.view.edges.filter(function(e) { return keep.has(e.source) && keep.has(e.target) && changed.has(e.source) && changed.has(e.target); })
                     .concat(prDependencyEdges(prefix).filter(function(e) { return keep.has(e.source) && keep.has(e.target); }));
                 return { id: 'pr', nodes: nodes, edges: edges };
+            }
+
+            /** The PR X-Ray's full map: the whole X-Ray (the Logical view, else Structure) with the files the change
+             *  removes or adds drawn in their containers, so that every changed file is a node as on the focused map. */
+            function buildFullPRView(snap, pr) {
+                if (!snap) return null;
+                const base = changeBase(snap);
+                if (!base) return null;
+                if (!pr) return base.view;
+                return { id: base.view.id, nodes: base.view.nodes.concat(changeExtras(snap, pr, base)), edges: base.view.edges };
             }
 
             function indexView(view) {
@@ -371,7 +416,9 @@
                 while (cur) { if (cur.tags && cur.tags.length) return cur.tags; cur = cur.parent != null ? idx.byId.get(cur.parent) : null; }
                 return [];
             }
-            function hiddenTags() { return ui.view === 'code' ? ui.codeHidden : ui.hidden; }
+            const noTags = new Set();
+            // The PR X-Ray has no "hide tests" menu: what was hidden in the project's X-Ray does not hide parts of a change.
+            function hiddenTags() { return ui.view === 'code' ? ui.codeHidden : ui.prTab ? noTags : ui.hidden; }
             function isHidden(node, idx) {
                 const hidden = hiddenTags();
                 if (!hidden.size || node.kind === 'root') return false;
@@ -456,12 +503,17 @@
                 });
             }
 
+            // The change's files by Structure-view id, built once per payload (every drawn node asks for it).
+            let prByNodeFor = null, prByNodeMap = new Map();
             function prByNode() {
                 const pr = ui.payload && ui.payload.pr;
-                const map = new Map();
-                if (!pr) return map;
-                pr.files.forEach(function(f) { map.set('m:' + f.path, f); });
-                return map;
+                if (!pr) return new Map();
+                if (pr !== prByNodeFor) {
+                    prByNodeFor = pr;
+                    prByNodeMap = new Map();
+                    pr.files.forEach(function(f) { prByNodeMap.set('m:' + f.path, f); });
+                }
+                return prByNodeMap;
             }
 
             const verdictRank = { bug: 3, concern: 2, ok: 1 };
@@ -569,6 +621,28 @@
                 return null;
             }
 
+            /** What the shown change did to a drawn node, whatever overlay colours it: how many changed files are in it
+             *  (a container sums its files), their added and removed lines, and whether it is a file the change removes.
+             *  Null when no change is shown or the node is not touched. */
+            function changeFacts(node, idx) {
+                const pr = ui.payload && ui.payload.pr;
+                if (!pr || !changeShown()) return null;
+                if (['collection', 'group', 'entity', 'change', 'changePart'].indexOf(node.kind) >= 0) return null;
+                const byPath = prByNode();
+                let changed = 0, adds = 0, dels = 0;
+                const seen = new Set();
+                descendantsFiles(node.id, idx, []).forEach(function(id) {
+                    const key = fileKey(idx.byId.get(id));
+                    const f = key && !seen.has(key) ? byPath.get(key) : null;
+                    if (!f) return;
+                    seen.add(key);
+                    changed++; adds += f.additions; dels += f.deletions;
+                });
+                if (!changed) return null;
+                const own = node.kind === 'file' ? byPath.get(fileKey(node)) : null;
+                return { changed: changed, adds: adds, dels: dels, removed: !!(own && own.deleted) };
+            }
+
             /** The value a numeric overlay is coloured by, or null when it does not apply. */
             function overlayValue(info) {
                 if (!info) return null;
@@ -625,17 +699,19 @@
 
             /** Risk the PR analysis gave a component (PR X-Ray only). */
             function prImpact(node) {
-                const a = ui.view === 'pr' && ui.payload.pr && ui.payload.pr.analysis;
+                const a = (ui.view === 'pr' || ui.prTab) && ui.overlay === 'pr' && ui.payload.pr && ui.payload.pr.analysis;
                 if (!a || node.kind !== 'component') return null;
                 const id = node.id.replace(/^l:c:/, '');
                 return a.impact.find(function(i) { return i.component === id; }) || null;
             }
 
             /** `isBox`: an opened container — its title sits above its children and stays short. */
-            function nodeLabel(node, info, isBox) {
+            function nodeLabel(node, info, isBox, facts) {
                 // Long names (dated notes, generated files) are cut; the details panel has them whole.
                 let label = node.name || node.id;
                 if (label.length > 40) label = label.slice(0, 38) + '…';
+                // A file the change removes: marked in its name, so it cannot be taken for a live one.
+                if (facts && facts.removed) label = '✕ ' + label;
                 if (ui.view === 'code' && node.kind === 'layer' && !isBox) {
                     const first = (node.summary || '').split(' · ')[0];
                     if (first) label += '\n' + (first.length > 48 ? first.slice(0, 46) + '…' : first);
@@ -671,7 +747,9 @@
                 }
                 // Line counts are the file's; parts and changes inside it do not repeat them.
                 const inside = ['collection', 'group', 'entity', 'change', 'changePart'].indexOf(node.kind) >= 0;
-                if (info && info.kind === 'pr' && info.changed && !inside) meta.push('+' + info.adds + ' −' + info.dels);
+                if (info && info.kind === 'pr' && info.changed && !inside) meta.push(facts && facts.removed ? 'removed −' + info.dels : '+' + info.adds + ' −' + info.dels);
+                // Another overlay colours the box: the change is still counted in its label.
+                else if (facts && (!info || info.kind !== 'pr')) meta.push(facts.removed ? 'removed −' + facts.dels : '+' + facts.adds + ' −' + facts.dels);
                 if (info && info.kind === 'tests' && info.sources) {
                     meta.push(info.lineCoverage != null ? Math.round(info.lineCoverage * 100) + '% lines covered'
                                                         : info.tested + '/' + info.sources + ' tested');
@@ -708,8 +786,12 @@
             function codeOverview() { return ui.view === 'code' && !ui.expanded.code.size; }
 
             /** Layers open themselves in the Code overview, so each band shows its components. */
+            /** Which open parts and focus the shown view keeps: the full map of a change has its own, so that what is
+             *  opened while reviewing a change does not open the same parts of the project's Logical or Structure view. */
+            function stateKey() { return ui.prTab && ui.prFull ? 'prfull:' + ui.view : ui.view; }
+
             function expandedSet(idx) {
-                const expanded = ui.expanded[ui.view];
+                const expanded = ui.expanded[stateKey()];
                 if (!codeOverview()) return expanded;
                 const open = new Set();
                 idx.byId.forEach(function(n) {
@@ -733,7 +815,8 @@
                     const kids = idx.children.get(node.id) || [];
                     const isBox = expanded.has(node.id) && kids.length > 0;
                     const info = overlayInfo(node, idx);
-                    const label = nodeLabel(node, info, isBox);
+                    const facts = changeFacts(node, idx);
+                    const label = nodeLabel(node, info, isBox, facts);
                     const longest = label.split('\n').reduce(function(m, l) { return Math.max(m, l.length); }, 0);
                     // Size overlay: area grows with lines of code.
                     const grow = ui.overlay === 'size' && overlayApplies() && node.loc
@@ -751,7 +834,11 @@
                         h: (rows > 2 ? 12 + (described ? 11 : 12) * rows : rows > 1 ? 38 : 26) * grow,
                         fill: (prImpact(node) ? { high: c.bad, medium: c.warn, low: c.ok }[prImpact(node).risk] : null)
                             || overlayColor(info, c) || bookColor(bookImportance(node, idx), c) || (node.role ? roleColor[node.role] : null) || '',
-                        dimmed: ui.overlay === 'pr' && info && !info.changed ? 1 : 0,
+                        // Without a change loaded there is nothing to tell apart: nothing is dimmed.
+                        dimmed: ui.overlay === 'pr' && ui.payload.pr && info && !info.changed ? 1 : 0,
+                        // The change, whatever overlay colours the node: a halo (a container that is open shows it on its parts).
+                        changed: facts && !isBox ? 1 : 0,
+                        removed: facts && facts.removed ? 1 : 0,
                         // Keyword match not yet confirmed by the AI: drawn dashed.
                         provisional: info && info.kind === 'ai' && info.provisional && info.level > 0 ? 1 : 0,
                         // "Only flagged": the top two levels of an AI filter, else anything not green/neutral.
@@ -768,7 +855,7 @@
                         w: 260, tw: 240, h: 30, fill: '', dimmed: 0, provisional: 0, flag: 0, expandable: 0 }, classes: 'actors leaf' });
                 }
                 const agg = new Map();
-                const prEdges = ui.view !== 'pr' && overlayApplies() && ui.overlay === 'pr'
+                const prEdges = ui.view !== 'pr' && ((overlayApplies() && ui.overlay === 'pr') || (ui.prTab && ui.payload.pr && codeViews[ui.view]))
                     ? prDependencyEdges(ui.view === 'logical' ? 'l:f:' : 'm:') : [];
                 view.edges.concat(prEdges).forEach(function(e) {
                     if (!idx.byId.has(e.source) || !idx.byId.has(e.target)) return;
@@ -788,7 +875,7 @@
                 });
                 // A dependency with a citation is the AI's inference; one without is a scanner fact (REQ-004).
                 agg.forEach(function(e) { elements.push({ group: 'edges', data: e, classes: e.evidence.length ? 'inference' : '' }); });
-                if (ui.onlyFlagged && overlayApplies() && ui.overlay !== 'size') return keepFlagged(elements, c);
+                if (ui.onlyFlagged && !ui.prTab && overlayApplies() && ui.overlay !== 'size') return keepFlagged(elements, c);
                 return elements;
             }
 
@@ -848,6 +935,12 @@
                     { selector: 'node.actors', style: { 'background-opacity': 0, 'border-style': 'dashed', 'border-color': c.mute,
                         'color': c.mute, 'font-weight': 600, 'events': 'no' } },
                     { selector: 'node[dimmed = 1]', style: { 'opacity': c.dim } },
+                    // A change is marked whatever overlay colours the node: a halo behind a changed part, and a removed
+                    // file with a dashed red outline (its name carries a cross), so neither depends on the fill.
+                    { selector: 'node[changed = 1]', style: { 'underlay-color': c.info, 'underlay-opacity': 0.3, 'underlay-padding': 5,
+                        'underlay-shape': 'round-rectangle', 'underlay-corner-radius': 8 } },
+                    { selector: 'node[removed = 1]', style: { 'border-style': 'dashed', 'border-color': c.bad, 'border-width': 2,
+                        'underlay-color': c.bad, 'underlay-opacity': 0.22 } },
                     // Replace Cytoscape's default selection fill (solid blue) with an accent outline.
                     { selector: 'node:selected', style: { 'border-color': c.accent, 'border-width': 2.5, 'background-color': c.node, 'background-opacity': 1 } },
                     { selector: 'node.box:selected', style: { 'background-color': c.box, 'background-opacity': c.boxAlpha, 'border-color': c.accent } },
@@ -1214,7 +1307,7 @@
                         const d = fresh.get(n.id());
                         if (!d) return;
                         if (n.data('w') !== d.w || n.data('h') !== d.h) resized = true;
-                        n.data({ label: d.label, fill: d.fill, dimmed: d.dimmed, w: d.w, h: d.h });
+                        n.data({ label: d.label, fill: d.fill, dimmed: d.dimmed, changed: d.changed, removed: d.removed, w: d.w, h: d.h });
                     });
                     cy.style(stylesheet());
                 });
@@ -1232,10 +1325,14 @@
                     ui.selected = evt.target.id();
                     highlightNeighbourhood(evt.target);
                     renderDetails();
-                    // In the PR X-Ray a click on a file opens it (on its change when it has one).
-                    if (ui.view === 'pr') {
-                        const node = ui.prView && ui.prView.nodes.find(function(n) { return n.id === evt.target.id(); });
-                        if (node && node.path && (node.kind === 'file' || node.kind === 'doc')) openPRFile(node.path);
+                    // In the PR X-Ray a click on a file opens it (on its change when it has one). On the full map only the
+                    // files of the change do: the others are read here first, and open with a double click as anywhere.
+                    if (ui.view === 'pr' || ui.prTab) {
+                        const shown = currentView();
+                        const node = shown && shown.nodes.find(function(n) { return n.id === evt.target.id(); });
+                        const pr = ui.payload && ui.payload.pr;
+                        const inChange = ui.view === 'pr' || (pr && node && pr.files.some(function(f) { return f.path === node.path; }));
+                        if (node && node.path && (node.kind === 'file' || node.kind === 'doc') && inChange) openPRFile(node.path);
                     }
                 });
                 // An arrow: why the link exists (the AI reads the code behind it).
@@ -1263,7 +1360,7 @@
                 if (!isBook() || !selectedId) return;
                 const view = currentView(); if (!view) return;
                 const idx = indexView(view);
-                const expanded = ui.expanded[ui.view];
+                const expanded = ui.expanded[stateKey()];
                 const seen = new Set();
                 const added = [];
                 view.edges.forEach(function(e) {
@@ -1326,9 +1423,9 @@
                 if (codeOverview()) expandedSet(idx).forEach(function(open) { ui.expanded.code.add(open); });
                 const node = idx.byId.get(id); if (!node) return;
                 const kids = idx.children.get(id) || [];
-                const expanded = ui.expanded[ui.view];
+                const expanded = ui.expanded[stateKey()];
                 if (kids.length) {
-                    if (expanded.has(id)) collapse(id, idx); else { expanded.add(id); ui.focus[ui.view] = id; }
+                    if (expanded.has(id)) collapse(id, idx); else { expanded.add(id); ui.focus[stateKey()] = id; }
                     ui.selected = id;
                     render(expanded.has(id) ? id : null);
                 } else if (node.kind === 'section') {
@@ -1366,10 +1463,10 @@
 
             function collapse(id, idx) {
                 ui.userNavigated = true;
-                const expanded = ui.expanded[ui.view];
+                const expanded = ui.expanded[stateKey()];
                 (function walk(n) { expanded.delete(n); (idx.children.get(n) || []).forEach(walk); })(id);
                 const node = idx.byId.get(id);
-                ui.focus[ui.view] = node && node.parent != null && expanded.has(node.parent) ? node.parent : null;
+                ui.focus[stateKey()] = node && node.parent != null && expanded.has(node.parent) ? node.parent : null;
             }
 
             // ---------------------------------------------------------------- chrome
@@ -1380,7 +1477,7 @@
                 if (!view) return;
                 const idx = indexView(view);
                 const chain = [];
-                let cur = ui.focus[ui.view] ? idx.byId.get(ui.focus[ui.view]) : null;
+                let cur = ui.focus[stateKey()] ? idx.byId.get(ui.focus[stateKey()]) : null;
                 while (cur) { if (!isTransparent(cur)) chain.unshift(cur); cur = cur.parent != null ? idx.byId.get(cur.parent) : null; }
                 const top = document.createElement('button');
                 top.className = 'arch-crumb';
@@ -1388,7 +1485,7 @@
                 // The top level: the details panel goes back to the view's overview (the PR panel
                 // in the PR X-Ray) — nothing stays selected.
                 top.onclick = function() {
-                    ui.expanded[ui.view].clear(); ui.focus[ui.view] = null;
+                    ui.expanded[stateKey()].clear(); ui.focus[stateKey()] = null;
                     ui.selected = null; ui.selectedEdge = null;
                     if (cy) { cy.elements().unselect(); highlightNeighbourhood(null); }
                     render();
@@ -1401,7 +1498,7 @@
                     b.onclick = function() {
                         // Keep this level expanded, collapse everything below it.
                         (idx.children.get(node.id) || []).forEach(function(k) { collapse(k, idx); });
-                        ui.focus[ui.view] = node.id; ui.selected = node.id; ui.selectedEdge = null;
+                        ui.focus[stateKey()] = node.id; ui.selected = node.id; ui.selectedEdge = null;
                         if (cy) cy.elements().unselect();
                         render(node.id);
                     };
@@ -1501,6 +1598,11 @@
                     : overlayApplies() && ui.overlay === 'size'
                     ? [[c.line, 'Box area grows with lines of code']]
                     : [];
+                // Another overlay colours the boxes: the change keeps its own marks.
+                if (ui.prTab && ui.payload.pr && ui.overlay !== 'pr') items.push([c.info, 'Halo = changed (+added −removed lines)']);
+                if (changeShown() && ui.payload.pr && ui.payload.pr.files.some(function(f) { return f.deleted; })) {
+                    items.push([c.bad, '✕ dashed = removed file']);
+                }
                 if (overlayApplies() && ui.overlay === 'tests') items.push([c.info, 'Test code']);
                 const report = ui.payload.snapshot && ui.payload.snapshot.coverageReport;
                 if (ui.overlay === 'tests' && report) items.push([null, 'Line coverage from ' + report]);
@@ -1977,11 +2079,11 @@
                     renderSearchAnswer(d, currentFilter(), ui.payload.searchAnswers[currentFilter().id]);
                     return;
                 }
-                if (!node && ui.view === 'pr') { renderPRPanel(d, snap, idx); return; }
+                if (!node && (ui.view === 'pr' || ui.prTab)) { renderPRPanel(d, snap, idx); return; }
                 // A changed file in the PR X-Ray: its diff, the review and questions about it.
                 // A changed file — in the PR X-Ray, or with the Pull request overlay on — shows its
                 // change: what was added and removed, and why.
-                const showsChange = ui.view === 'pr' || (overlayApplies() && ui.overlay === 'pr');
+                const showsChange = ui.view === 'pr' || ui.prTab || (overlayApplies() && ui.overlay === 'pr');
                 if (node && showsChange && node.path && node.kind === 'file'
                     && ui.payload.pr && ui.payload.pr.files.some(function(f) { return f.path === node.path; })) {
                     renderPRFile(d, node.path);
@@ -2921,6 +3023,7 @@
             function renderFilterOptions() {
                 const old = el.overlay.querySelector('optgroup[data-ai]');
                 if (old) old.remove();
+                if (ui.prTab) return;
                 const group = document.createElement('optgroup');
                 group.label = 'AI filters'; group.setAttribute('data-ai', '1');
                 aiFilters().forEach(function(f) {
@@ -2979,6 +3082,8 @@
                     const made = (p.filters || []).find(function(f) { return f.name === ui.pendingFilterName; });
                     if (made) { ui.overlay = 'ai:' + made.id; ui.pendingFilterName = null; }
                 }
+                // The PR X-Ray offers the overlays that colour a change's parts; AI filters rate parts as you zoom in.
+                if (ui.prTab && ui.overlay.indexOf('ai:') === 0) ui.overlay = 'pr';
                 renderFilterOptions();
                 el.views.forEach(function(b) { b.classList.toggle('on', b.getAttribute('data-arch-view') === ui.view); });
                 // Code metrics colour nothing in the Book: say so instead of offering them.
@@ -3013,8 +3118,14 @@
                 const prTab = p.mode === 'pr';
                 const prMode = prTab || (overlayApplies() && ui.overlay === 'pr');
                 el.views[0].parentElement.hidden = prTab;
-                el.overlay.hidden = prTab;
+                // Complexity, size and the other overlays work on a change too: its parts keep their marks.
+                el.overlay.hidden = false;
                 el.tempFilter.hidden = prTab;
+                el.prMap.hidden = !prTab;
+                Array.prototype.forEach.call(el.prMap.querySelectorAll('[data-arch-pr-map]'), function(b) {
+                    b.classList.toggle('on', b.getAttribute('data-arch-pr-map') === ui.prMap);
+                });
+                el.prDate.hidden = !prTab;
                 el.hide.hidden = el.hide.hidden || prTab;
                 el.flagged.parentElement.hidden = el.flagged.parentElement.hidden || prTab;
                 el.prOpen.hidden = prTab;
@@ -3031,6 +3142,7 @@
                     ? 'Reload the change as it is now and review it again (no cached answers)'
                     : 'AI review of every changed file';
                 el.codeTrace.hidden = ui.view !== 'code' || p.mode === 'pr';
+                renderHistory();
                 el.analyze.disabled = !!p.busy || !p.snapshot;
                 el.analyze.textContent = ui.view === 'code' ? 'Refresh' : 'Analyze';
                 // A folder X-Ray has no automatic pipeline: its Refresh re-reads components and layers only.
@@ -3044,6 +3156,61 @@
                 const statusText = p.error || (ui.progress ? '' : p.status) || codeOverlayInBook || '';
                 el.status.textContent = statusText;
                 el.status.className = p.error ? 'arch-error' : (statusText ? 'arch-working' : '');
+            }
+
+            // ------------------------------------------------------- comparison by date
+
+            function localDay(date) {
+                const pad = function(n) { return String(n).padStart(2, '0'); };
+                return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate());
+            }
+
+            /** Ask Swift for the commits of the chosen day (every local branch; the day is the user's own calendar day). */
+            function askHistory() {
+                if (el.historyDay.value) post('historyCommits', { day: el.historyDay.value });
+                renderHistory();
+            }
+
+            /** The date picker of the PR X-Ray: a day first, then one of the commits made that day, to compare the
+             *  working copy with. A day without commits says so. */
+            function renderHistory() {
+                const p = ui.payload || {};
+                const open = ui.historyOpen && p.mode === 'pr';
+                el.history.hidden = !open;
+                if (!open) { delete el.historyList.dataset.key; return; }
+                const list = el.historyList;
+                const day = el.historyDay.value, h = p.history;
+                // The list is rebuilt only when it differs: a progress tick must not replace the row under the pointer.
+                const key = [day, h && h.day, h && h.state, h ? (h.commits || []).map(function(c) { return c.sha; }).join(',') : ''].join('|');
+                if (list.dataset.key === key) return;
+                list.dataset.key = key;
+                list.textContent = '';
+                const note = function(text) {
+                    const div = document.createElement('div');
+                    div.className = 'arch-history-note'; div.textContent = text;
+                    list.appendChild(div);
+                };
+                if (!day) { note('Choose a day.'); return; }
+                if (!h || h.day !== day || h.state === 'loading') { note('Reading the history…'); return; }
+                if (h.state === 'unavailable') { note('The history could not be read. Is this folder a git repository?'); return; }
+                if (!h.commits.length) { note('No commits were made on this day.'); return; }
+                h.commits.forEach(function(c) {
+                    const row = document.createElement('button');
+                    row.type = 'button'; row.className = 'arch-history-row';
+                    row.title = c.sha + '\n' + c.subject;
+                    [['when', new Date(c.time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })],
+                     ['sha', c.short], ['what', c.subject], ['who', c.author]].forEach(function(part) {
+                        const span = document.createElement('span');
+                        span.className = part[0]; span.textContent = part[1];
+                        row.appendChild(span);
+                    });
+                    row.addEventListener('click', function() {
+                        ui.historyOpen = false;
+                        post('compareWithCommit', { sha: c.sha });
+                        renderHistory();
+                    });
+                    list.appendChild(row);
+                });
             }
 
             // ------------------------------------------------------------ lifecycle
@@ -3070,11 +3237,11 @@
                 if (ui.view === 'code' && isHidden(node, idx)) {
                     ui.codeHidden.clear(); ui.codeFilterInitialized = true; renderToolbar();
                 }
-                const expanded = ui.expanded[ui.view];
+                const expanded = ui.expanded[stateKey()];
                 if ((idx.children.get(id) || []).length) expanded.add(id);
                 let parent = node.parent != null ? idx.byId.get(node.parent) : null;
                 while (parent) { expanded.add(parent.id); parent = parent.parent != null ? idx.byId.get(parent.parent) : null; }
-                ui.focus[ui.view] = (idx.children.get(id) || []).length ? id : node.parent;
+                ui.focus[stateKey()] = (idx.children.get(id) || []).length ? id : node.parent;
                 ui.selected = id;
                 render(id);
                 return true;
@@ -3095,6 +3262,7 @@
                 ui.operations = null;
                 Object.keys(ui.expanded).forEach(function(k) { ui.expanded[k].clear(); });
                 Object.keys(ui.focus).forEach(function(k) { ui.focus[k] = null; });
+                ui.prExpandedFor = null;
                 ui.selected = null;
                 ui.graphKey = null;
                 ui.ratingRequested.clear();
@@ -3102,19 +3270,41 @@
                 ui.userNavigated = false;
             }
 
+            /** The full map opens the parts the change touches, once per change, so that every changed file is a node on
+             *  screen; what the person opens or closes afterwards stays as it is. */
+            function openChangedParts(pr) {
+                // Once per change: the same source with other files (a reload of the local changes) or on another view opens again.
+                if (!pr) return;
+                const key = ui.prFull.id + '|' + pr.source.id + '|' + pr.files.map(function(f) { return f.path; }).join('\n');
+                if (ui.prExpandedFor === key) return;
+                ui.prExpandedFor = key;
+                const byId = new Map(ui.prFull.nodes.map(function(n) { return [n.id, n]; }));
+                const prefix = ui.prFull.id === 'logical' ? 'l:f:' : 'm:';
+                pr.files.forEach(function(f) {
+                    for (let n = byId.get(prefix + f.path); n && n.parent != null; n = byId.get(n.parent)) ui.expanded[stateKey()].add(n.parent);
+                });
+            }
+
             window.showArchitecture = function(payload) {
                 enter();
                 ui.payload = payload || {};
                 if ((ui.payload.root || null) !== ui.root) resetForRoot(ui.payload.root || null);
-                // The PR X-Ray tab shows one view: the change inside the X-Ray.
+                // The PR X-Ray tab shows the change inside the X-Ray: on the focused map (the parts it touches, with the
+                // context they need) or on the full map (the whole X-Ray, the change marked). The overlay starts as the
+                // change's own colours; the person may pick another, and the marks of the change stay.
                 if (ui.payload.mode === 'pr') {
-                    ui.view = 'pr';
-                    ui.overlay = 'pr';
+                    if (!ui.prTab) { ui.prTab = true; ui.overlay = 'pr'; ui.selected = null; ui.selectedEdge = null; }
                     ui.prView = buildPRView(ui.payload.snapshot, ui.payload.pr);
-                    if (ui.prView) ui.prView.nodes.forEach(function(n) {
+                    ui.prFull = ui.prMap === 'full' ? buildFullPRView(ui.payload.snapshot, ui.payload.pr) : null;
+                    ui.view = ui.prFull ? ui.prFull.id : 'pr';
+                    if (ui.prFull) openChangedParts(ui.payload.pr);
+                    else if (ui.prView) ui.prView.nodes.forEach(function(n) {
                         if (ui.prView.nodes.some(function(k) { return k.parent === n.id; })) ui.expanded.pr.add(n.id);
                     });
-                } else if (ui.view === 'pr') {
+                } else if (ui.view === 'pr' || ui.prTab) {
+                    ui.prTab = false;
+                    ui.prFull = null;
+                    ui.selected = null; ui.selectedEdge = null;
                     ui.view = 'logical';
                     ui.overlay = 'none';
                 }
@@ -3159,7 +3349,7 @@
                         + '|' + Object.keys(snap.assignments || {}).length
                         + '|' + snap.views.map(function(v) { return v.id + ':' + v.nodes.length; }).join(',');
                     const pr = ui.payload.pr;
-                    const prShape = ui.view === 'pr' && pr ? '|' + pr.source.id + ':' + pr.files.length + ':' + (pr.dependencies || []).length + ':' + !!pr.analysis
+                    const prShape = ui.prTab && pr ? '|' + pr.source.id + ':' + pr.files.length + ':' + (pr.dependencies || []).length + ':' + !!pr.analysis
                         // Changes inside files arrive later (the AI's explanation).
                         + ':' + pr.files.map(function(f) { return (f.changes || []).length + (f.changeSummary ? 'e' : ''); }).join(',') : '';
                     const key = ui.view + '|' + snap.scannedAt + '|' + (snap.enrichedAt || '') + '|' + shape + prShape;
@@ -3210,8 +3400,31 @@
             });
             el.prSource.addEventListener('change', function() {
                 // In the PR X-Ray a new change is loaded and analysed; elsewhere it is only shown.
-                if (ui.payload && ui.payload.mode === 'pr') post('openPRXRay', { source: el.prSource.value });
+                // A comparison with an earlier commit can span months of work: it is shown, and analysed when asked.
+                if (ui.payload && ui.payload.mode === 'pr' && el.prSource.value.indexOf('at:') !== 0) post('openPRXRay', { source: el.prSource.value });
                 else post('showPR', { source: el.prSource.value });
+            });
+            Array.prototype.forEach.call(el.prMap.querySelectorAll('[data-arch-pr-map]'), function(b) {
+                b.addEventListener('click', function() {
+                    ui.prMap = b.getAttribute('data-arch-pr-map');
+                    ui.selected = null;
+                    ui.selectedEdge = null;
+                    ui.graphKey = null;
+                    window.showArchitecture(ui.payload);
+                });
+            });
+            el.prDate.addEventListener('click', function() {
+                ui.historyOpen = !ui.historyOpen;
+                if (ui.historyOpen) {
+                    const today = localDay(new Date());
+                    el.historyDay.max = today;
+                    if (!el.historyDay.value) el.historyDay.value = today;
+                    askHistory();
+                } else renderHistory();
+            });
+            el.historyDay.addEventListener('change', askHistory);
+            el.history.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') { ui.historyOpen = false; renderHistory(); }
             });
             el.prOpen.addEventListener('click', function() {
                 const current = ui.payload && ui.payload.pr ? ui.payload.pr.source.id : '';
