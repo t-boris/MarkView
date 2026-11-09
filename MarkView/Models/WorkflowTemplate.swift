@@ -265,6 +265,9 @@ final class WorkflowTemplateStore: @unchecked Sendable {
 
     private func file(_ id: String) -> URL { folder.appendingPathComponent(id + ".json") }
 
+    /// Where the file of a template is (for Reveal in Finder); the template need not exist.
+    func url(of id: String) -> URL { file(id) }
+
     /// Only lower-case letters, digits and hyphens: an id is a file name inside the folder and can never point outside it.
     static func isValid(id: String) -> Bool {
         guard !id.isEmpty, id.count <= 64, id != "default" else { return false }

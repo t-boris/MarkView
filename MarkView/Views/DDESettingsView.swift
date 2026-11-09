@@ -233,6 +233,8 @@ struct DDESettingsView: View {
 
             GroupBox("Workflow templates") {
                 VStack(alignment: .leading, spacing: 6) {
+                    WorkflowTemplatesSettings(library: .shared)
+                    Divider().padding(.vertical, 4)
                     Text("The workflow of a project (its statuses, transitions and processes) is configured inside the project, in its Workflow tab, and kept in .dde/workflow/workflow.json. These are the general templates a process starts from; the project keeps its own copy.")
                         .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     ForEach(ProcessTemplate.allCases) { template in

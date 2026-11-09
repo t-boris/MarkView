@@ -160,13 +160,23 @@ final class WorkflowEditorModel: ObservableObject {
     /// Loads a classic flow into the draft (REQ-003). Nothing is stored: Save checks the whole workflow and asks what replaces each
     /// status or process that work items still use (DEC-021), and "Reload from file" brings the old one back.
     func apply(_ flow: WorkflowFlow) {
-        draft = flow.applied(to: draft)
+        load(into: flow.applied(to: draft), message: "\(flow.title) is loaded into the draft. Nothing is saved yet: check the Features and Bugs pages, then press Save. Work items whose status is not in this flow will ask what replaces it.")
+    }
+
+    /// Loads a saved template into the draft as a whole: states, transitions and processes (feature workflow-templates, REQ-002). Like
+    /// a flow it stores nothing; Save asks what replaces each status and process that work items use and the template does not have.
+    func apply(_ template: WorkflowTemplate) {
+        load(into: template.applied(to: draft), message: "The template “\(template.name)” is loaded into the draft: states, transitions and processes. Nothing is saved yet: check the Features, Bugs and Processes pages, then press Save. Work items whose status or process is not in this template will ask what replaces it.")
+    }
+
+    private func load(into workflow: ProjectWorkflow, message text: String) {
+        draft = workflow
         page = .features
         impact = WorkflowImpact()
         statusChoices = [:]
         variantChoices = [:]
         expanded = []
-        message = "\(flow.title) is loaded into the draft. Nothing is saved yet: check the Features and Bugs pages, then press Save. Work items whose status is not in this flow will ask what replaces it."
+        message = text
         if mode == .source { sourceText = ProjectWorkflowStore.text(of: draft) }
     }
 

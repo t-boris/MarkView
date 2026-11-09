@@ -15,6 +15,9 @@ extension View {
 }
 
 /// The part of the coordinator the tab calls; the real one needs a project folder on disk.
+/// The part of GitHubSettings (GitHubStore.swift) that the Done panel reads.
+enum GitHubSettings { static let enabledKey = "settings.github.enabled" }
+
 @MainActor final class IssueLifecycleCoordinator {
     struct WorkflowSaveReport: Equatable {
         var workflow: ProjectWorkflow
@@ -317,29 +320,85 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
     }
 }
 
-/// The picker's list on its own: every flow is there with its columns, the one in use is marked, and nothing runs past the edge.
-@MainActor func picker() {
-    let store = FeatureStore()
-    store.lifecycle.workflowLoad = .loaded(.standard)
-    let editor = WorkflowEditorModel()
-    editor.attach(to: store)
-    var chosen: [String] = []
-    let hosting = NSHostingView(rootView: WorkflowFlowPicker(editor: editor) { chosen.append($0.id) })
-    let size = NSSize(width: 460, height: 520)
+/// A library over a temporary folder with two usable templates (one asks for GitHub, one asks for nothing), one file that cannot be
+/// used, and the plain one chosen for new projects: never the real folder of the app.
+@MainActor func sampleLibrary() -> WorkflowTemplateLibrary {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("mv-layout-templates-\(UUID().uuidString)", isDirectory: true)
+    let store = WorkflowTemplateStore(folder: folder)
+    var strict = WorkflowFlow.kanban.applied(to: .standard)
+    for index in strict.variants.indices { strict.variants[index].integration = .pullRequest; strict.variants[index].checks = true; strict.variants[index].delivery = .githubRelease }
+    _ = try! store.save(name: "Kanban with GitHub", note: "Pull request, CI and release on", workflow: strict)
+    let plain = try! store.save(name: "Plain Kanban", note: "Nothing from GitHub", workflow: WorkflowFlow.kanban.applied(to: StandardWorkflow.make(bug: .init(pullRequestRequired: false, checksRequired: false, releaseRequired: false))))
+    try! Data("not json".utf8).write(to: folder.appendingPathComponent("broken.json"))
+    try! store.setDefault(plain.id)
+    let library = WorkflowTemplateLibrary(store: store)
+    Task { await library.reload() }
+    let deadline = Date().addingTimeInterval(5)
+    while !library.loaded && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+    return library
+}
+
+@MainActor func host<V: View>(_ view: V, size: NSSize, snapshot name: String?) -> (NSHostingView<V>, NSWindow) {
+    let hosting = NSHostingView(rootView: view)
     let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.contentView = hosting
     hosting.frame = NSRect(origin: .zero, size: size)
     window.orderFrontRegardless()
     settle(hosting)
+    for _ in 0..<2 { hosting.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    if let name, let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
+        hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
+    }
+    return (hosting, window)
+}
+
+/// The picker's list on its own: every flow is there with its columns, the templates of the shared folder come first, the one in use is
+/// marked, and nothing runs past the edge.
+@MainActor func picker() {
+    let store = FeatureStore()
+    store.lifecycle.workflowLoad = .loaded(.standard)
+    let editor = WorkflowEditorModel()
+    editor.attach(to: store)
+    let library = sampleLibrary()
+    var chosen: [String] = []
+    var chosenTemplates: [String] = []
+    let (hosting, window) = host(WorkflowFlowPicker(editor: editor, library: library, choose: { chosen.append($0.id) }, chooseTemplate: { chosenTemplates.append($0.id) }),
+                                 size: NSSize(width: 460, height: 560), snapshot: "flow-picker")
     // SwiftUI buttons are not NSButtons; each one has a focus ring view, as in the inspector checks above.
     let buttons = descendants(hosting).filter { String(describing: type(of: $0)) == "_FocusRingView" }
-    check(buttons.count == WorkflowFlow.catalogue.count - 1, "picker: every flow but the one in use has a Use button (\(buttons.count))")
+    // Every flow but the one in use, each template, and "Save as template…".
+    check(buttons.count == (WorkflowFlow.catalogue.count - 1) + library.templates.count + 1, "picker: a Use button for every flow but the one in use and for each template, and a Save button (\(buttons.count))")
     check(editor.currentFlow?.id == "markview", "picker: a project on the standard workflow is on MarkView with specification")
-    if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
-        hosting.cacheDisplay(in: hosting.bounds, to: rep)
-        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("flow-picker.png"))
-    }
+    check(library.templates.map(\.name) == ["Kanban with GitHub", "Plain Kanban"] && library.listing.unusable.map(\.file) == ["broken.json"], "picker: the library lists the two templates and names the broken file")
+    window.close()
+
+    // Taking a template puts all of it into the draft, processes included, and names it on the Flow button.
+    let template = library.templates[0]
+    editor.apply(template)
+    check(editor.draft.variants == template.workflow.variants && editor.draft.feature == template.workflow.feature && editor.draft.bug == template.workflow.bug,
+          "template: loading it replaces states, transitions and processes of the draft")
+    check(editor.draft.revision == 1 && editor.message?.contains("Nothing is saved yet") == true && editor.isDirty, "template: …keeps the revision, is unsaved and says so")
+    check(library.template(matching: editor.draft)?.id == template.id, "template: the draft is recognised as that template")
+    var changed = editor.draft
+    changed.variants[0].checks.toggle()
+    editor.draft = changed
+    check(library.template(matching: editor.draft) == nil, "template: …and no longer once a process is edited")
+    editor.draft = template.applied(to: editor.draft)
+    let (_, again) = host(WorkflowFlowPicker(editor: editor, library: library, choose: { _ in }, chooseTemplate: { _ in }), size: NSSize(width: 460, height: 560), snapshot: "flow-picker-template-in-use")
+    again.close()
+    _ = chosen; _ = chosenTemplates
+}
+
+/// The Settings part: the templates with what each can do, the choice for new projects and the text that says how to switch the
+/// GitHub requirements on.
+@MainActor func templateSettings() {
+    let library = sampleLibrary()
+    let (hosting, window) = host(WorkflowTemplatesSettings(library: library).padding(14).frame(width: 560, alignment: .leading), size: NSSize(width: 560, height: 760), snapshot: "template-settings")
+    let buttons = descendants(hosting).filter { String(describing: type(of: $0)) == "_FocusRingView" }
+    // Per template: Use/Stop, Reveal, Delete; then the built-in default button (a template is chosen) and Open folder.
+    check(buttons.count == library.templates.count * 3 + 2, "settings: each template can be chosen, revealed and deleted, plus the built-in default and the folder (\(buttons.count))")
     window.close()
 }
 
@@ -347,6 +406,7 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
     interaction()
     flows()
     picker()
+    templateSettings()
     for width in [400, 760, 1100] as [CGFloat] {
         measureTab("standard workflow", workflow: .standard, width: width)
         measureTab("with processes", workflow: withProcesses(.standard), width: width)
