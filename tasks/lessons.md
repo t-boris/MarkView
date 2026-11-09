@@ -1720,3 +1720,12 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
 - The first label placement passed its own overlap check and still looked cramped when rendered: a check that proves "no overlap" does not prove "enough room". Look at the picture after the numbers pass, and add the missing quantity to the check (a margin between names, a minimum height per arrow).
 - Prove that a new regression check can fail: run it once with the fix switched off (here the height growth set to zero: 91 checks failed).
 - When a module gains a dependency on another file (here the diagram layout on the transition story), grep every `tools/tests/*.sh` that compiles it and run each of them before the PR: `workflow-flow-tests.sh` was left uncompilable by the BUG-116 PR and only the next feature's new test showed it.
+
+## Take the issue into work before analysing it (2026-11-09, BUG-117)
+Boris saw BUG-117 still in `backlog` while I was already debugging and writing the fix ("why is it backlog now?"). I had created the record and gone straight to evidence and code.
+- Right after `markview_create_bug` / `markview_create_feature`: `markview_attach_issue`, then the status to in-progress, before any analysis. The status is the progress bar Boris watches.
+- Check the board after creating a record, not only at the end.
+
+## For a slow or spinning app, read the system's own CPU reports first (2026-11-09, BUG-117)
+`/Library/Logs/DiagnosticReports/MarkView_*.cpu_resource.diag` (written by macOS when the app averages over 50% CPU) hold the heaviest stack, with function names, over minutes. One read gave the cause; a few-second `sample` showed only the generic display cycle. Order: cpu_resource reports (four of them, same stack across four versions), then `sample`, then a benchmark of the suspect with the app's own code on a copy of the real data. A loop over work items must never call something that re-reads or re-decodes a file.
+- While MarkView is the thing being diagnosed, every `markview_*` call of mine runs on its main thread: keep them few.
