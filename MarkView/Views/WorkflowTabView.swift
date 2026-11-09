@@ -158,19 +158,8 @@ struct WorkflowTabView: View {
         }
     }
 
-    private static let blankVariant = VariantTemplate.directToMain.variant(kind: .feature, id: "")
-
-    private func variantBinding(_ id: String) -> Binding<RuleVariant> {
-        Binding(get: {
-            editor.draft.variants.first { $0.id == id } ?? Self.blankVariant
-        }, set: { value in
-            guard let index = editor.draft.variants.firstIndex(where: { $0.id == id }) else { return }
-            editor.draft.variants[index] = value
-        })
-    }
-
     private func processRow(_ id: String) -> some View {
-        let variant = variantBinding(id)
+        let variant = editor.variantBinding(id)
         let own = variant.wrappedValue.rules != nil
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
@@ -180,50 +169,12 @@ struct WorkflowTabView: View {
                     .buttonStyle(.plain).help("Remove this process. Items that use it follow a process you choose when you save.")
             }
             flowStrip(id)
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) { startAndBranch(variant); checksToggle(variant) }
-                VStack(alignment: .leading, spacing: 6) { startAndBranch(variant); checksToggle(variant) }
-            }
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) { deliveryAndAcceptance(variant) }
-                VStack(alignment: .leading, spacing: 6) { deliveryAndAcceptance(variant) }
-            }
+            WorkflowProcessControls(variant: variant, parts: .all)
             Text(variant.wrappedValue.description).uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             transitionsSection(id, own: own)
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 6).fill(palette.bgInput))
-    }
-
-    @ViewBuilder
-    private func startAndBranch(_ variant: Binding<RuleVariant>) -> some View {
-        labeled("Start") {
-            Picker("", selection: variant.start) { ForEach(StartEvidenceMode.allCases, id: \.self) { Text($0.title).tag($0) } }
-        }
-        labeled("Reaches the branch") {
-            Picker("", selection: variant.integration) { ForEach(IntegrationPath.allCases, id: \.self) { Text($0.title).tag($0) } }
-        }
-    }
-
-    private func checksToggle(_ variant: Binding<RuleVariant>) -> some View {
-        Toggle("Checks must pass", isOn: variant.checks).toggleStyle(.checkbox).uiFont(size: 11)
-    }
-
-    @ViewBuilder
-    private func deliveryAndAcceptance(_ variant: Binding<RuleVariant>) -> some View {
-        labeled("Delivery event") {
-            Picker("", selection: eventKind(variant)) {
-                Text("None").tag(EventKind.none)
-                Text("A published GitHub release").tag(EventKind.release)
-                Text("A person confirms…").tag(EventKind.person)
-            }
-        }
-        if case .humanConfirmed = variant.wrappedValue.delivery {
-            TextField("Event, for example: installed on the other Mac", text: eventName(variant)).textFieldStyle(.roundedBorder)
-        }
-        labeled("Accepted by") {
-            Picker("", selection: variant.acceptance) { ForEach(AcceptanceMode.allCases, id: \.self) { Text($0.title).tag($0) } }
-        }
     }
 
     /// The statuses of the type in order, the ones this process uses lit and coloured by role, the others dim: the shape of the
@@ -277,40 +228,6 @@ struct WorkflowTabView: View {
                         .help("Starts from a copy of the transitions of the type, to change for this process only.")
                 }
             }
-        }
-    }
-
-    private enum EventKind: Hashable { case none, release, person }
-
-    private func eventKind(_ variant: Binding<RuleVariant>) -> Binding<EventKind> {
-        Binding(get: {
-            switch variant.wrappedValue.delivery {
-            case .none: return .none
-            case .githubRelease: return .release
-            case .humanConfirmed: return .person
-            }
-        }, set: { kind in
-            switch kind {
-            case .none: variant.wrappedValue.delivery = .none
-            case .release: variant.wrappedValue.delivery = .githubRelease
-            case .person:
-                if case .humanConfirmed = variant.wrappedValue.delivery { return }
-                variant.wrappedValue.delivery = .humanConfirmed(name: "")
-            }
-        })
-    }
-
-    private func eventName(_ variant: Binding<RuleVariant>) -> Binding<String> {
-        Binding(get: {
-            if case .humanConfirmed(let name) = variant.wrappedValue.delivery { return name }
-            return ""
-        }, set: { variant.wrappedValue.delivery = .humanConfirmed(name: $0) })
-    }
-
-    private func labeled<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
-        HStack(spacing: 4) {
-            Text(title).uiFont(size: 10).foregroundColor(palette.textDim)
-            content().labelsHidden().fixedSize().controlSize(.small)
         }
     }
 

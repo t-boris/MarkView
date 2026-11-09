@@ -265,7 +265,9 @@ struct WorkflowTransitionsEditor: View {
         case nil: break
         }
         for arrow in diagram.arrows.sorted(by: { (lit.contains($0.rule) ? 1 : 0) < (lit.contains($1.rule) ? 1 : 0) }) {
-            drawArrow(&context, arrow, zoom: zoom, selected: lit.contains(arrow.rule), dimmed: !lit.isEmpty && !lit.contains(arrow.rule))
+            // The name of the step and who moves it ("Completion · automatic"), not the name of the step alone (BUG-115).
+            let label = rules.indices.contains(arrow.rule) ? TransitionStory.make(rules[arrow.rule], processes: []).label : arrow.kind.editorTitle
+            drawArrow(&context, arrow, label: label, zoom: zoom, selected: lit.contains(arrow.rule), dimmed: !lit.isEmpty && !lit.contains(arrow.rule))
         }
         if let pull, let from = diagram.nodes.first(where: { $0.id == pull.from }) {
             var line = Path()
@@ -275,7 +277,7 @@ struct WorkflowTransitionsEditor: View {
         }
     }
 
-    private func drawArrow(_ context: inout GraphicsContext, _ arrow: WorkflowDiagram.Arrow, zoom: CGFloat, selected: Bool, dimmed: Bool) {
+    private func drawArrow(_ context: inout GraphicsContext, _ arrow: WorkflowDiagram.Arrow, label text: String, zoom: CGFloat, selected: Bool, dimmed: Bool) {
         let color = kindColor(arrow.kind).opacity(selected ? 1 : (dimmed ? 0.2 : 0.85))
         let width: CGFloat = (selected ? 3.4 : 2) * zoom
         for branch in arrow.branches {
@@ -292,7 +294,7 @@ struct WorkflowTransitionsEditor: View {
             context.fill(head, with: .color(color))
             if !branch.isEntry {
                 // The name sits on a plate of the page's colour so that the curves that cross it do not cut it up.
-                let label = context.resolve(Text(arrow.kind.editorTitle).font(.system(size: 10.5 * zoom, weight: selected ? .bold : .medium)).foregroundColor(color))
+                let label = context.resolve(Text(text).font(.system(size: 10.5 * zoom, weight: selected ? .bold : .medium)).foregroundColor(color))
                 let size = label.measure(in: CGSize(width: 240 * zoom, height: 24 * zoom))
                 let origin = CGPoint(x: branch.pointsRight ? branch.tip.x - 5 * zoom - size.width : branch.tip.x + 5 * zoom,
                                      y: branch.tip.y - 4 * zoom - size.height)
@@ -314,8 +316,8 @@ struct WorkflowTransitionsEditor: View {
             if rules.indices.contains(index) { ruleInspector(index) }
         case nil:
             Text(editor.page == .processes
-                 ? "Point at a state or an arrow to light its path. Click an arrow to change it, or a state to see the arrows into and out of it. Drag from one state to another to add an arrow."
-                 : "Point at a state or an arrow to light its path. Click a state to rename it or change its role, an arrow to change who may make the step and on what evidence. Drag from one state to another to add an arrow.")
+                 ? "Point at a state or an arrow to light its path. Click an arrow to see what makes the step happen and to change it, or a state to see the arrows into and out of it. Drag from one state to another to add an arrow. “automatic” on an arrow: MarkView moves the item by itself when the event happens."
+                 : "Point at a state or an arrow to light its path. Click a state to rename it or change its role, an arrow to see what makes the step happen, who may make it and on what evidence. Drag from one state to another to add an arrow. “automatic” on an arrow: MarkView moves the item by itself when the event happens.")
                 .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -374,10 +376,21 @@ struct WorkflowTransitionsEditor: View {
         return "\(rule.kind.editorTitle): \(from) → \(title(of: rule.to))"
     }
 
+    /// The processes whose evidence this transition table decides: those of a type that follow its transitions, or the process itself.
+    private var followers: [RuleVariant] {
+        switch scope {
+        case .type(let kind): return editor.draft.variants(for: kind).filter { $0.rules == nil }
+        case .process(let id): return editor.draft.variant(id).map { [$0] } ?? []
+        }
+    }
+
+    /// The card of an arrow (BUG-115): where it goes, then when it happens, who may make it, and the evidence each process asks for,
+    /// with the controls that change them.
     private func ruleInspector(_ index: Int) -> some View {
         let rule = ruleBinding(index)
         let from = "From: " + (rule.wrappedValue.from.isEmpty ? "none" : statuses.filter { rule.wrappedValue.from.contains($0.id) }.map(\.title).joined(separator: ", "))
-        return VStack(alignment: .leading, spacing: 4) {
+        let story = TransitionStory.make(rule.wrappedValue, processes: followers)
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Menu {
                     ForEach(statuses) { status in
@@ -405,19 +418,57 @@ struct WorkflowTransitionsEditor: View {
                 Button { removeRule(index) } label: { Image(systemName: "trash") }
                     .buttonStyle(.plain).help("Remove this transition")
             }
-            HStack(spacing: 10) {
-                ForEach([LifecycleActorKind.human, .ai, .system], id: \.self) { actor in
-                    actorMenu(rule, actor).frame(maxWidth: .infinity, alignment: .leading)
+            cardSection("When") {
+                Text(story.trigger).uiFont(size: 11, weight: .medium).fixedSize(horizontal: false, vertical: true)
+            }
+            cardSection("Who") {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(story.actors, id: \.actor) { line in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            actorMenu(rule, line.actor, text: line.text).frame(width: 96, alignment: .leading)
+                            Text(line.text).uiFont(size: 10).foregroundColor(line.allowed ? palette.text : palette.textDim)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
             }
+            cardSection("Evidence") { evidence(story) }
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 6).fill(palette.bgInput))
     }
 
-    private func actorMenu(_ rule: Binding<LifecycleRule>, _ actor: LifecycleActorKind) -> some View {
+    @ViewBuilder
+    private func evidence(_ story: TransitionStory) -> some View {
+        if story.parts.isEmpty {
+            Text("This step reads no setting of a process: only the conditions above.").uiFont(size: 10).foregroundColor(palette.textDim)
+        } else if followers.isEmpty {
+            Text("No process follows these transitions.").uiFont(size: 10).foregroundColor(palette.textDim)
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(followers) { process in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(process.name).uiFont(size: 10, weight: .semibold)
+                        ForEach(story.processes.first { $0.id == process.id }?.lines ?? [], id: \.self) { line in
+                            Text("• " + line).uiFont(size: 10).fixedSize(horizontal: false, vertical: true)
+                        }
+                        WorkflowProcessControls(variant: editor.variantBinding(process.id), parts: story.parts)
+                            .padding(.top, 2)
+                    }
+                }
+            }
+        }
+    }
+
+    private func cardSection<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim).frame(width: 52, alignment: .leading)
+            content().frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func actorMenu(_ rule: Binding<LifecycleRule>, _ actor: LifecycleActorKind, text: String) -> some View {
         let needs = rule.wrappedValue.needs[actor]
-        let summary = Self.actorTitle(actor) + ": " + (needs.map { $0.isEmpty ? "nothing needed" : $0.map(\.words).joined(separator: ", ") } ?? "not allowed")
         return Menu {
             Toggle("May make this step", isOn: Binding(
                 get: { rule.wrappedValue.needs[actor] != nil },
@@ -435,11 +486,10 @@ struct WorkflowTransitionsEditor: View {
                 .disabled(needs == nil)
             }
         } label: {
-            Text(summary).lineLimit(1).truncationMode(.tail)
+            Text(Self.actorTitle(actor)).lineLimit(1)
         }
-        // The three actors share the row; a long list of conditions is cut with an ellipsis and read in full from the tooltip.
         .controlSize(.small)
-        .help(summary)
+        .help(text)
     }
 
     private static let editableKinds: [TransitionKind] = [.spec, .start, .completion, .acceptance, .reopen, .rollback, .cancellation]

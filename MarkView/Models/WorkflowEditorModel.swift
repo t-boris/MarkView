@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 
 /// The state of the Workflow tab (BUG-108). The window keeps it, not the view, so edits that are not saved yet survive a switch
 /// to another tab and back. The draft is the workflow being edited; the graphical view and the source view are two ways of editing
@@ -36,6 +37,19 @@ final class WorkflowEditorModel: ObservableObject {
     private var base: ProjectWorkflow?
 
     var isDirty: Bool { base.map { $0 != draft } ?? false }
+
+    private static let blankVariant = VariantTemplate.directToMain.variant(kind: .feature, id: "")
+
+    /// A binding to one process of the draft, for the Processes page and for the card of an arrow in the diagram. A process that is
+    /// gone (removed from the source view meanwhile) reads as a blank one and writes nothing.
+    func variantBinding(_ id: String) -> Binding<RuleVariant> {
+        Binding(get: { [unowned self] in
+            draft.variants.first { $0.id == id } ?? Self.blankVariant
+        }, set: { [unowned self] value in
+            guard let index = draft.variants.firstIndex(where: { $0.id == id }) else { return }
+            draft.variants[index] = value
+        })
+    }
 
     // MARK: Reading
 
