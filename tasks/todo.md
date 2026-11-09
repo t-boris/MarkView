@@ -5064,7 +5064,14 @@ Decisions (mine; nothing stored changes, `workflow.json` keeps its schema):
 - The arrow label names the step and who moves it ("Completion · automatic", "Acceptance · person or AI").
 - The rule inspector becomes a When / Who / Evidence card; the process controls (how the work reaches the branch, checks, delivery event, who accepts, how work starts) move out of `WorkflowTabView` into one shared view that both the Processes page and the card use (no copy left behind). On the Features / Bugs pages the card lists the processes that follow the type's transitions, each with its own controls; in a process it shows that process.
 
-- [ ] 1. `WorkflowTransitionStory.swift` + `workflow-story-tests.sh`
-- [ ] 2. `WorkflowProcessControls.swift` (shared controls), `WorkflowTabView` uses it
-- [ ] 3. Diagram: arrow labels from the story; rule inspector as the When / Who / Evidence card
-- [ ] 4. Layout test + off-screen render, look at it; build, bump, PR, merge
+- [x] 1. `WorkflowTransitionStory.swift` + `workflow-story-tests.sh`
+- [x] 2. `WorkflowProcessControls.swift` (shared controls), `WorkflowTabView` uses it
+- [x] 3. Diagram: arrow labels from the story; rule inspector as the When / Who / Evidence card
+- [x] 4. Layout test + off-screen render, look at it; build, bump, PR, merge
+
+### Review (BUG-115, 2026-11-08)
+- Merged as PR #335 (5.49.0). Verified: `workflow-story-tests.sh` (new), `workflow-diagram-tests.sh`, `issue-lifecycle-tests.sh workflow`, `workflow-editor-layout-tests.sh` (400/760/1100 pt; real mouse events: a completion arrow's card holds more process settings than a start's, an acceptance arrow's fewer), Debug build; I looked at the off-screen renders of the diagram, the completion card and the Processes page. Not hand-checked in the running app: saving after a change made in the card, and a process with its own transitions.
+- What Boris sees: arrows read "Completion · automatic", "Acceptance · person or AI", "Reopening · person"; clicking one shows WHEN (what makes it happen), WHO (a person / an AI through the project tools / MarkView, each in a sentence and with its menu), EVIDENCE (for each process that follows the transitions: what it requires, with the controls that change it).
+- "automatic" is claimed only for what MarkView really does by itself: a hand-off or attached session starts the work, complete delivery evidence completes it, a regression report reopens it. The standard bug rule that allows MarkView to cancel with evidence is shown as allowed, not as automatic, because nothing makes MarkView do it.
+- Decisions I made without asking: `LifecycleCondition.words` moved next to its enum (it was in a display file that cannot be compiled alone); `variantBinding` moved into `WorkflowEditorModel` so the Processes page and the card share it; the card shows the plain-language evidence lines and the controls together.
+- Open, needs Boris: new event kinds (a visual check as against an automatic one, custom events, "AI reports done through MCP" as its own event) change `workflow.json`; I have not touched the format. BUG-115 stays `fixing` until the common release (5.48.1 and 5.49.0 are merged, 5.48.0 is the last release; the installed app is 5.47.0).

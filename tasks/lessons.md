@@ -1697,3 +1697,9 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
 - BUG-114: a scan that walks overlapping folders returned one file twice, and a different module turned the list into a dictionary with `Dictionary(uniqueKeysWithValues:)`, which aborts the whole app on a repeated key. The bug was not where the trap is, but where the list is made.
 - When a list will be keyed by path or id, make the producer return unique items (track what it has read) and test it with inputs that overlap (nested folders, symlinks, a folder that holds the project), not only with the tidy layout.
 - A crash report is read before anything else: the faulting thread's top frames named the function in seconds, and showed the crash was not in the diagram code that was merged an hour earlier.
+
+
+## 2026-11-08 — say "automatic" only for what the app really does
+
+- BUG-115: the workflow lets MarkView (the system actor) make a step, and the first version of the arrow labels called every such step "automatic". The standalone check against the standard workflow caught the bug rule that allows MarkView to cancel with cancellation evidence: nothing in the app makes it do that. A permission in a table is not an event the app acts on.
+- When a label or a sentence promises behaviour, tie it to the code that performs it (here: the hand-off, the delivery evidence and the regression report in `FeatureStore+Lifecycle`), name that place in a comment, and test it with a rule that is allowed but not performed.
