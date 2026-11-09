@@ -42,16 +42,15 @@ struct RuleEvent: RawRepresentable, Codable, Hashable, Sendable {
         try container.encode(rawValue)
     }
 
-    /// A hand-off to an agent was accepted, or a session attached itself to the item.
+    /// The item was started: a hand-off to an agent was accepted, an agent started it, or a person did.
     static let workStarted = RuleEvent(rawValue: "work-started")
     /// The investigation of a bug by the app produced its result.
     static let investigationFinished = RuleEvent(rawValue: "investigation-finished")
-    /// GitHub shows a pull request for the item that was not there before (needs the GitHub integration).
-    static let pullRequestOpened = RuleEvent(rawValue: "pull-request-opened")
-    /// GitHub shows that a pull request of the item has been merged (needs the GitHub integration).
+    /// GitHub shows that a pull request of the item has been merged since MarkView last looked while it was running (needs the GitHub
+    /// integration). A pull request that was merged before, or while MarkView was closed, is not an event.
     static let pullRequestMerged = RuleEvent(rawValue: "pull-request-merged")
 
-    static let known: [RuleEvent] = [.workStarted, .investigationFinished, .pullRequestOpened, .pullRequestMerged]
+    static let known: [RuleEvent] = [.workStarted, .investigationFinished, .pullRequestMerged]
 
     var isKnown: Bool { Self.known.contains(self) }
 
@@ -60,7 +59,6 @@ struct RuleEvent: RawRepresentable, Codable, Hashable, Sendable {
         switch self {
         case .workStarted: return "work is started"
         case .investigationFinished: return "an investigation finishes"
-        case .pullRequestOpened: return "a pull request is opened"
         case .pullRequestMerged: return "a pull request is merged"
         default: return "\u{201C}\(rawValue)\u{201D} happens"
         }
@@ -69,10 +67,9 @@ struct RuleEvent: RawRepresentable, Codable, Hashable, Sendable {
     /// What the event means, for the agent guide.
     var meaning: String {
         switch self {
-        case .workStarted: return "A hand-off to an agent was accepted, or an agent session attached itself to the item."
+        case .workStarted: return "The item was started: a hand-off to an agent was accepted, an agent started it, or a person did."
         case .investigationFinished: return "The investigation of a bug report by MarkView produced its result (bugs only)."
-        case .pullRequestOpened: return "GitHub shows a pull request of the item that was not seen before (needs the GitHub integration)."
-        case .pullRequestMerged: return "GitHub shows that a pull request of the item has been merged (needs the GitHub integration)."
+        case .pullRequestMerged: return "GitHub shows that a pull request of the item was merged while MarkView was running (needs the GitHub integration); one merged earlier is not an event."
         default: return "Not known to this app: it never fires."
         }
     }

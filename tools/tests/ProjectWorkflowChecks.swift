@@ -164,7 +164,7 @@ check("an event this app does not know is kept as written, and is not known", fu
 check("an unknown event is written back unchanged", String(decoding: try! encoder.encode(futureRule), as: UTF8.self).contains("\"event\":\"teleported\""))
 check("every known event has a title and a meaning",
       RuleEvent.known.allSatisfy { !$0.title.isEmpty && !$0.meaning.isEmpty && !$0.title.contains("happens") && !$0.meaning.contains("Not known") })
-check("the four first events are the known ones", RuleEvent.known.map(\.rawValue) == ["work-started", "investigation-finished", "pull-request-opened", "pull-request-merged"])
+check("the first events are the ones the app sees", RuleEvent.known.map(\.rawValue) == ["work-started", "investigation-finished", "pull-request-merged"])
 
 func withRule(_ rule: LifecycleRule, kind: IssueKind = .bug) -> [String] {
     problems { w in
