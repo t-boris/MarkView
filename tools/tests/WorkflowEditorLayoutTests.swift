@@ -193,6 +193,12 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
     func quick() {
         for _ in 0..<2 { hosting.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
     }
+    /// With SNAPSHOT_DIR set, the hosted tab as it looks now is saved, to be looked at.
+    func snapshot(_ name: String) {
+        guard let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return }
+        hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
+    }
     func send(_ type: NSEvent.EventType, _ p: CGPoint) {
         let location = hosting.convert(NSPoint(x: p.x, y: p.y), to: nil)
         guard let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
@@ -240,6 +246,24 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
     click(at(CGPoint(x: (stub[0].x + stub[1].x) / 2, y: stub[0].y)))
     check(inspector().fields == base.fields && inspector().controls >= base.controls + 6,
           "diagram: a click on an arrow opens its transition (from, to, kind, three actors)", "\(base) -> \(inspector())")
+    let startControls = inspector().controls
+    snapshot("arrow-start")
+
+    // BUG-115: the card of an arrow holds the settings of the processes that step reads, so a completion has more than a start.
+    func stubPoint(_ kind: TransitionKind) -> CGPoint {
+        let arrow = diagram.arrows.first { feature.rules[$0.rule].kind == kind }!
+        let stub = arrow.branches[0].stub
+        return at(CGPoint(x: (stub[0].x + stub[1].x) / 2, y: stub[0].y))
+    }
+    click(stubPoint(.completion))
+    let completionControls = inspector().controls
+    snapshot("arrow-completion")
+    check(!editor.draft.variants(for: .feature).isEmpty && completionControls > startControls,
+          "diagram: the card of a completion arrow holds the delivery settings of the processes (branch, checks, event)", "start \(startControls), completion \(completionControls)")
+    click(stubPoint(.acceptance))
+    snapshot("arrow-acceptance")
+    check(inspector().controls >= base.controls + 6 && inspector().controls < completionControls,
+          "diagram: …an acceptance arrow only who accepts", "\(inspector().controls) of \(completionControls)")
 
     // A drag from a state to another draws an arrow: idea has no way to start the work yet.
     click(at(CGPoint(x: diagram.lanes[1].frame.midX, y: 6)))

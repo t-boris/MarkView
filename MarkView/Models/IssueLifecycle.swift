@@ -70,6 +70,22 @@ enum LifecycleCondition: String, Codable, CaseIterable, Sendable {
     }
 }
 
+extension LifecycleCondition {
+    /// A short name for a person: "delivery evidence", "a reason".
+    var words: String {
+        switch self {
+        case .startEvidence: return "start evidence"
+        case .deliveryEvidence: return "delivery evidence"
+        case .acceptanceEvidence: return "acceptance evidence"
+        case .regressionEvidence: return "regression evidence"
+        case .cancellationEvidence: return "cancellation evidence"
+        case .reason: return "a reason"
+        case .listedTransition: return "a listed transition"
+        case .humanAcceptance: return "a person's acceptance"
+        }
+    }
+}
+
 /// What kind of step a transition is. Completion and cancellation are told apart so that closing a bug
 /// as a duplicate never counts as verified completion (DEC-010, DEC-013).
 enum TransitionKind: String, Codable, Sendable {

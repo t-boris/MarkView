@@ -207,19 +207,3 @@ struct IssueLifecycleDisplay: Equatable, Sendable {
         return formatter.string(from: date)
     }
 }
-
-extension LifecycleCondition {
-    /// A short name for a person: "delivery evidence", "a reason".
-    var words: String {
-        switch self {
-        case .startEvidence: return "start evidence"
-        case .deliveryEvidence: return "delivery evidence"
-        case .acceptanceEvidence: return "acceptance evidence"
-        case .regressionEvidence: return "regression evidence"
-        case .cancellationEvidence: return "cancellation evidence"
-        case .reason: return "a reason"
-        case .listedTransition: return "a listed transition"
-        case .humanAcceptance: return "a person's acceptance"
-        }
-    }
-}
