@@ -98,7 +98,7 @@ struct IssueLifecycleDisplay: Equatable, Sendable {
             canStartWithNote: role == .notStarted && variant?.start == .agentOrNote
                 && workflow.lifecycle(kind, variant: variantID).rules.contains { $0.kind == .start && $0.from.contains(current) && $0.needs[.human] != nil },
             eventToConfirm: (role == .active || role == .completed) ? variant?.deliveryRules.confirmedEventName : nil,
-            eventConfirmed: variant?.deliveryRules.confirmedEventName.map { history.deliveryConfirmation(event: $0) != nil } ?? false)
+            eventConfirmed: variant?.deliveryRules.confirmedEventName.map { history.deliveryConfirmation(event: $0, confirmer: variant?.confirmer ?? .person) != nil } ?? false)
     }
 
     // MARK: Which actions the section offers

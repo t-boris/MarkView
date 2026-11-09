@@ -250,6 +250,30 @@ enum DeliveryConfirmer: String, Codable, CaseIterable, Sendable {
     var title: String { self == .person ? "A person only" : "A person, or an AI with evidence" }
 }
 
+/// Whether someone may confirm the delivery event of a process now, and if not, why (feature assistants-confirm-delivery-with-evidence-
+/// and-propose-workflow, REQ-001). Pure, so that the refusals are checked without the app.
+enum DeliveryConfirmationPolicy {
+    /// The reason a confirmation is refused, written for whoever asked; nil when it may be recorded.
+    static func refusal(issue: String, actor: LifecycleActor, process: RuleVariant?, status: String, role: LifecycleRole?, note: String) -> String? {
+        guard let process, let event = process.deliveryRules.confirmedEventName else {
+            return "The process of \(issue) has no delivery event that somebody confirms, so there is nothing to confirm."
+        }
+        guard actor.kind == .human || actor.kind == .ai else { return "Only a person or an AI confirms a delivery event." }
+        if actor.kind == .ai, process.confirmer == .person {
+            return "The process \u{201C}\(process.name)\u{201D} lets only a person confirm \u{201C}\(event)\u{201D}. Ask the person to confirm it in the "
+                + "Lifecycle section of \(issue) in the MarkView window, or to set \u{201C}Who confirms\u{201D} of the process to a person or an AI with evidence "
+                + "(Workflow, Processes)."
+        }
+        guard role == .active || role == .completed else {
+            return "\(issue) is in \(status), where the work has not started. \u{201C}\(event)\u{201D} can be confirmed once the work is under way."
+        }
+        guard !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "Write what was verified and how: the evidence text is required."
+        }
+        return nil
+    }
+}
+
 /// The delivery conditions of a variant: what the collector and the evaluator read (DEC-027).
 struct DeliveryRules: Equatable, Sendable {
     var integration: IntegrationPath

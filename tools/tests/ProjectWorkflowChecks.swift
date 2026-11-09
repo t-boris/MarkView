@@ -131,6 +131,27 @@ check("the description of a process says an AI may confirm",
         return v.description.contains("confirmed by a person or an AI with evidence") }())
 check("an unknown confirmer does not decode", (try? JSONDecoder().decode(DeliveryConfirmer.self, from: Data(#""robot""#.utf8))) == nil)
 
+// Who may confirm now (DeliveryConfirmationPolicy)
+var installedRule = standard.variants[1]
+installedRule.delivery = .humanConfirmed(name: "Installed on mac")
+func refusal(_ actor: LifecycleActor, _ process: RuleVariant?, role: LifecycleRole? = .active, note: String = "checked") -> String? {
+    DeliveryConfirmationPolicy.refusal(issue: "BUG-001", actor: actor, process: process, status: "in-progress", role: role, note: note)
+}
+check("a person confirms under a process that wants a person", refusal(person, installedRule) == nil)
+check("an AI is refused under a process that wants a person, and is told what to ask for",
+      refusal(agent, installedRule)?.contains("lets only a person confirm") == true && refusal(agent, installedRule)?.contains("Who confirms") == true)
+installedRule.confirmer = .personOrAI
+check("an AI confirms under a process that lets an AI", refusal(agent, installedRule) == nil)
+check("a person still confirms under a process that lets an AI", refusal(person, installedRule) == nil)
+check("MarkView itself never confirms a delivery event", refusal(app, installedRule) != nil)
+check("a confirmation needs the work to be under way", refusal(agent, installedRule, role: .notStarted)?.contains("has not started") == true)
+check("a completed item can still be confirmed", refusal(agent, installedRule, role: .completed) == nil)
+check("a cancelled item cannot be confirmed", refusal(agent, installedRule, role: .cancelled) != nil)
+check("an AI's confirmation needs an evidence text", refusal(agent, installedRule, note: "  ")?.contains("evidence text is required") == true)
+check("a person's confirmation needs a note too", refusal(person, installedRule, note: "") != nil)
+check("a process without a confirmed event has nothing to confirm", refusal(agent, standard.variants[0])?.contains("nothing to confirm") == true)
+check("an item without a process has nothing to confirm", refusal(agent, nil)?.contains("nothing to confirm") == true)
+
 let eventRule = LifecycleRule(from: ["in-progress"], to: "in-review", kind: .spec, needs: [.human: [], .system: []], event: .workStarted)
 check("a rule without an event is unchanged", standard.feature.rules.allSatisfy { $0.event == nil })
 let eventRuleRound = try! JSONDecoder().decode(LifecycleRule.self, from: try! encoder.encode(eventRule))

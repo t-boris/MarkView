@@ -67,8 +67,8 @@ enum LifecycleStatusChange {
     static func confirmDelivery(store: FeatureStore, kind: IssueKind, issue: String, event: String) async -> Bool {
         guard let note = askReason(title: "Confirm “\(event)”", message: "\(issue): say how you know. The history keeps your note as delivery evidence.",
                                    button: "Confirm", placeholder: "How you know (required)") else { return false }
-        guard store.lifecycle.confirmDelivery(kind, issue, note: note, by: .human(store.lifecycleActor)) else {
-            store.lastError = "The confirmation could not be recorded."
+        if case .refused(let reason) = store.lifecycle.confirmDelivery(kind, issue, note: note, by: .human(store.lifecycleActor)) {
+            store.lastError = reason
             return false
         }
         await store.lifecycle.completeFinishedWork(only: [(kind: kind, issue: issue)])

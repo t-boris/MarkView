@@ -395,15 +395,40 @@ final class IssueLifecycleCoordinator {
         return transition(kind, issue, to: target, actor: actor, evidence: evidence, from: stored, surface: surface)
     }
 
-    /// A person confirms the delivery event the variant names ("installed", "deployed to production"). It is evidence; the
-    /// completion itself is still made by MarkView when the rest of the delivery is there (REQ-004, DEC-018).
+    /// What came of a confirmation of a delivery event.
+    enum DeliveryConfirmationResult: Equatable {
+        case confirmed(event: String)
+        /// The reason, written for whoever asked.
+        case refused(String)
+
+        var isConfirmed: Bool { if case .confirmed = self { return true } else { return false } }
+    }
+
+    /// A person, or an AI where the process lets one, confirms the delivery event the variant names ("installed", "deployed to
+    /// production"). It is evidence; the completion itself is still made by MarkView when the rest of the delivery is there
+    /// (REQ-004, DEC-018; feature assistants-confirm-delivery-with-evidence-and-propose-workflow, REQ-001, DEC-004). An AI is refused
+    /// when the process wants a person, and needs a text of what it verified.
     @discardableResult
-    func confirmDelivery(_ kind: IssueKind, _ issue: String, note: String, by actor: LifecycleActor) -> Bool {
-        guard let parts, let event = variant(kind, issue)?.deliveryRules.confirmedEventName else { return false }
-        let wrote = parts.service.recordHumanEvidence(kind, issue, evidence: .delivery, text: note, event: event, actor: actor,
-                                                      variant: variant(kind, issue)?.id, workflowRevision: workflow.revision) != nil
-        if wrote { store.objectWillChange.send() }
-        return wrote
+    func confirmDelivery(_ kind: IssueKind, _ issue: String, note: String, by actor: LifecycleActor) -> DeliveryConfirmationResult {
+        guard let parts, let stored = storedStatus(kind, issue) else { return .refused("\(issue) was not found in this project.") }
+        let process = variant(kind, issue)
+        if let reason = DeliveryConfirmationPolicy.refusal(issue: issue, actor: actor, process: process, status: stored,
+                                                          role: workflow.lifecycle(kind).role(of: stored), note: note) {
+            return .refused(reason)
+        }
+        // The policy has just found the process and its event; this only unwraps them.
+        guard let process, let event = process.deliveryRules.confirmedEventName else { return .refused("Nothing to confirm for \(issue).") }
+        let wrote: TransitionRecord?
+        if actor.kind == .ai {
+            wrote = parts.service.recordAIDeliveryConfirmation(kind, issue, text: note, event: event, actor: actor, variant: process.id,
+                                                               workflowRevision: workflow.revision)
+        } else {
+            wrote = parts.service.recordHumanEvidence(kind, issue, evidence: .delivery, text: note, event: event, actor: actor,
+                                                      variant: process.id, workflowRevision: workflow.revision)
+        }
+        guard wrote != nil else { return .refused("The confirmation could not be written to the history of \(issue).") }
+        store.objectWillChange.send()
+        return .confirmed(event: event)
     }
 
     /// The start evidence of an item: the earliest attached session, else a person's note when the variant accepts one.
@@ -489,7 +514,7 @@ final class IssueLifecycleCoordinator {
         let since = history.deliveryRoundStart
         let rules = (workflow.resolvedVariant(kind, assigned: history.assignedVariant) ?? workflow.resolvedVariant(kind, assigned: nil))?.deliveryRules
             ?? ProjectWorkflow.standard.resolvedVariant(kind, assigned: nil)!.deliveryRules
-        let confirmation = rules.confirmedEventName.flatMap { history.deliveryConfirmation(event: $0)?.reason }
+        let confirmation = rules.confirmedEventName.flatMap { history.deliveryConfirmation(event: $0, confirmer: rules.confirmedBy)?.reason }
         let subject = IssueEvidenceCollector.Subject(kind: kind, issue: issue, exclusiveNumbers: linked.own.subtracting(linked.others),
                                                      sharedNumbers: linked.own.intersection(linked.others), since: since,
                                                      rules: rules, eventConfirmation: confirmation)
