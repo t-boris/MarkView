@@ -228,6 +228,19 @@ func run() async {
     try? indexHTML.write(to: web.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
     try? appJS.write(to: web.appendingPathComponent("app.js"), atomically: true, encoding: .utf8)
     try? ".primary { color: #333; }\n".write(to: web.appendingPathComponent("app.css"), atomically: true, encoding: .utf8)
+    try? """
+    ```sh
+    APP_ENVIRONMENT=dev
+    USE_MOCKS=true
+    ```
+    """.write(to: root.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+    try? """
+    import os
+    import runpy
+    assert os.environ.get("APP_ENVIRONMENT") == "dev", "Invalid application environment"
+    assert os.environ.get("USE_MOCKS") == "true", "The application requires simulated dependencies"
+    runpy.run_module("http.server", run_name="__main__")
+    """.write(to: web.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
     var spec = StudioEnvironmentSpec()
     spec.entities = [StudioEntity(name: "items", fields: [StudioField(name: "name", type: "string", required: true)])]
     spec.seed = ["items": [.object(["id": .number(1), "name": .string("Alpha")]), .object(["id": .number(2), "name": .string("Beta")])]]
@@ -260,7 +273,7 @@ func run() async {
     window.orderFrontRegardless()
 
     let port = freePort()
-    let target = WebAppTarget(folder: web, label: "web", command: "python3 -m http.server \(port) --bind 127.0.0.1", ports: [port])
+    let target = WebAppTarget(folder: web, label: "web", command: "python3 server.py \(port) --bind 127.0.0.1", ports: [port])
 
     func text(_ script: String) async -> String? { (try? await session.call(script)) as? String }
     func idle() async -> Bool { await waitUntil(120) { session.busy == nil } }
@@ -279,6 +292,9 @@ func run() async {
     check("AC-01 the session starts the development server and becomes ready", ready && session.state == .ready,
           "\(session.state) \(session.stateDetail) \(session.serverLog.suffix(400))")
     check("AC-18 the session owns the server it started", session.ownsServer)
+    check("BUG-119 documented local startup settings reach the owned application server",
+          session.serverNotes.contains { $0.contains("APP_ENVIRONMENT=dev from README.md") }
+          && session.serverNotes.contains { $0.contains("USE_MOCKS=true from README.md") })
     _ = await waitUntil(10) { (session.requests.contains { $0.contract == "GET /api/items" && $0.outcome == "simulated" }) }
     let listed = await text("return Array.from(document.querySelectorAll('#list li')).map(l => l.textContent).join(',');")
     check("AC-02 the real page renders the simulated list", listed == "Alpha,Beta", listed ?? "nil")

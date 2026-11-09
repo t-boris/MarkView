@@ -1547,6 +1547,42 @@ func connectionChecks() {
     let parsed = StudioConnections.parseEnvFile("export A=1\nB = \"two # three\"\nC=four # comment\n#D=5\nlower=6\nE='x'y\n")
     check("REQ-007 dotenv lines are parsed", parsed.map { "\($0.name)=\($0.value)" } == ["A=1", "B=two # three", "C=four", "E=x"],
           parsed.map { "\($0.name)=\($0.value)" }.joined(separator: " "))
+
+    // BUG-119: this application's instrumentation hook rejects a missing deployment selector, even after Next prints Ready.
+    write("apps/web/src/config.ts", "process.env.APP_ENVIRONMENT;\nprocess.env.USE_MOCKS;\nprocess.env.PATH;\n")
+    write("README.md", """
+        APP_ENVIRONMENT=prod
+        ```js
+        APP_ENVIRONMENT=prod
+        ```
+        ```sh
+        # Local setup; these assignments are data, never executed.
+        APP_ENVIRONMENT=dev
+        USE_MOCKS=true
+        API_URL=https://real.example.test
+        API_SECRET=do-not-copy-this-example
+        PATH=/untrusted
+        OTHER_ENV=dev
+        ```
+        """)
+    let local = StudioConnections.discover(root: base, appFolder: app, appOrigin: "http://localhost:3000")
+    let localOverrides = StudioConnections.launchOverrides(local, ports: [:], keptReal: [])
+    check("BUG-119 referenced local selectors and mock switches are read from workspace README setup blocks",
+          local.developmentValues == ["APP_ENVIRONMENT": "dev", "USE_MOCKS": "true"]
+          && localOverrides["APP_ENVIRONMENT"] == "dev" && localOverrides["USE_MOCKS"] == "true"
+          && local.disclosures.contains { $0.contains("APP_ENVIRONMENT=dev from README.md") })
+    check("BUG-119 README examples never copy secrets, addresses, executable paths or unreferenced settings",
+          localOverrides["PATH"] == nil && localOverrides["API_URL"] == nil && localOverrides["OTHER_ENV"] == nil
+          && localOverrides["API_SECRET"] != "do-not-copy-this-example"
+          && !local.connections.contains { $0.origin.contains("real.example.test") })
+    write("apps/web/.env.example", "APP_ENVIRONMENT=test\nUSE_MOCKS=true\n")
+    let template = StudioConnections.discover(root: base, appFolder: app, appOrigin: nil)
+    check("BUG-119 app-local env templates take precedence over README defaults",
+          template.developmentValues["APP_ENVIRONMENT"] == "test")
+    write("apps/web/.env.development.local", "APP_ENVIRONMENT=prod\nUSE_MOCKS=false\n")
+    let production = StudioConnections.discover(root: base, appFolder: app, appOrigin: nil)
+    check("BUG-119 an existing non-development setting is never replaced with an example or copied to launch overrides",
+          production.developmentValues.isEmpty)
 }
 
 // MARK: - Gateway parser and serializer (REQ-007: requests the development server makes itself)

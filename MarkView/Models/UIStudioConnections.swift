@@ -44,6 +44,8 @@ struct StudioConnectionDiscovery: Sendable {
     var connections: [StudioServerConnection] = []
     /// Secret-named variables the project reads, with the test value each gets unless the person keeps it real.
     var testValues: [String: String] = [:]
+    /// Documented local-development selectors and mock switches, never credentials or service addresses.
+    var developmentValues: [String: String] = [:]
     /// URL variables that are left as they are, and why.
     var notRedirected: [Note] = []
     var disclosures: [String] = []
@@ -68,6 +70,31 @@ enum StudioConnections {
                                                 "rb", "go", "php", "java", "kt", "cs", "rs", "ex", "exs"]
     static let maxFiles = 4_000
     static let maxFileSize = 512 * 1024
+
+    /// Only settings that select local/test behavior may be copied from setup examples (BUG-119).
+    private static func isDevelopmentValue(_ value: String, for name: String) -> Bool {
+        if name == "USE_MOCKS" { return value == "true" }
+        let selectors: Set<String> = ["APP_ENVIRONMENT", "APP_ENV", "APPLICATION_ENV", "ENVIRONMENT"]
+        return selectors.contains(name) && ["dev", "development", "local", "test", "testing"].contains(value)
+    }
+
+    /// Dotenv assignments inside README setup blocks are examples, not shell commands to execute.
+    private static func documentedEnvironment(_ text: String) -> [(name: String, value: String)] {
+        var fence: String?
+        var assignments: [String] = []
+        let languages: Set<String> = ["sh", "shell", "bash", "zsh", "env", "dotenv"]
+        for line in text.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let current = fence {
+                if trimmed == current { fence = nil }
+                else { assignments.append(line) }
+            } else if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                let marker = String(trimmed.prefix(3))
+                if languages.contains(String(trimmed.dropFirst(3)).lowercased()) { fence = marker }
+            }
+        }
+        return parseEnvFile(assignments.joined(separator: "\n"))
+    }
 
     // MARK: Names
 
@@ -180,6 +207,7 @@ enum StudioConnections {
         // Env files, the app folder's first: real files decide values, examples only name variables and suggest addresses.
         var values: [String: (value: String, file: String)] = [:]
         var examples: [String: (value: String, file: String)] = [:]
+        var documented: [String: (value: String, file: String)] = [:]
         for folder in folders(from: appFolder, upTo: root) {
             for name in envFiles {
                 for (key, value) in read(folder.appendingPathComponent(name)) where values[key] == nil {
@@ -191,6 +219,13 @@ enum StudioConnections {
                     examples[key] = (value, relative(folder.appendingPathComponent(name), root))
                 }
             }
+            let readme = folder.appendingPathComponent("README.md")
+            if let size = (try? readme.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= maxFileSize,
+               let text = try? String(contentsOf: readme, encoding: .utf8) {
+                for (key, value) in documentedEnvironment(text) where documented[key] == nil {
+                    documented[key] = (value, relative(readme, root))
+                }
+            }
         }
 
         // Sources: names the app reads, and the defaults the code gives URL variables.
@@ -200,6 +235,12 @@ enum StudioConnections {
         discovery.disclosures = scan.disclosures
 
         for name in names.sorted() {
+            if scan.referenced.contains(name),
+               let setting = values[name] ?? examples[name] ?? documented[name],
+               isDevelopmentValue(setting.value, for: name) {
+                discovery.developmentValues[name] = setting.value
+                discovery.disclosures.append("\(name)=\(setting.value) from \(setting.file) selects the application's local/test behavior.")
+            }
             if isSecretVariable(name) {
                 let real = values[name]?.value
                 discovery.testValues[name] = testValue(for: name, real: real)
@@ -238,9 +279,9 @@ enum StudioConnections {
     }
 
     /// The variables to set when MarkView starts the server: simulated connections at their gateway port (with their path),
-    /// secrets at their test values unless kept real. Names are validated; nothing else is touched.
+    /// secrets at their test values unless kept real, and the documented local-development settings.
     static func launchOverrides(_ discovery: StudioConnectionDiscovery, ports: [String: UInt16], keptReal: Set<String>) -> [String: String] {
-        var overrides: [String: String] = [:]
+        var overrides = discovery.developmentValues.filter { isDevelopmentValue($0.value, for: $0.key) }
         for connection in discovery.connections where connection.mode == .simulated {
             guard let port = ports[connection.variable], isValidName(connection.variable) else { continue }
             overrides[connection.variable] = "http://127.0.0.1:\(port)" + connection.basePath
