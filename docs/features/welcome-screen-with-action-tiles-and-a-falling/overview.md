@@ -2,7 +2,7 @@
 type: feature
 id: welcome-screen-with-action-tiles-and-a-falling
 title: Welcome screen with action tiles and a falling-symbols backdrop
-status: implemented
+status: done
 owner: Boris Tsekinovsky
 created: 2026-11-09
 provenance: Created by an AI agent through MarkView from Boris, /goal 2026-11-09 with a screenshot of the "No File Open" screen

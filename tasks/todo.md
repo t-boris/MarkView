@@ -5249,3 +5249,64 @@ Review: `docs/plans/2026-11-09-cycle-time-review.md`. Feature record: `docs/feat
 - Merged as PR #344 (5.54.0). On this project's real journal the Features view reads waiting 4 m, cycle 1 h 12 m, lead 1 h 53 m (median) over 8-9 of 35 features and 24 are reported as "completed before MarkView watched them"; Bugs: 117 bugs, 15-16 with a measure. The old 997 h implementation median is gone.
 - Found while looking at the real render: the sheet needs its own `palette.bg` (without it the light text vanishes on the system's light sheet background), the actor must be printed as a person would say it, and a counts line that does not add up to the total looks wrong.
 - Not hand-checked in the running installed app: the Measure since date popover, the Delete evidence confirmation, the link line in the feature and bug panels.
+
+## Feature end-to-end-qa: End-to-End QA (2026-11-09) — PLAN, waiting for Boris's approval
+
+Spec: `docs/features/end-to-end-qa/` (REQ-001..005, DEC-001..011, plan I-1..I-6, GitHub #345). Session `agent-37e6d4e1` is attached; status stays `ready` until the plan is approved, then `in-progress`.
+
+### What exists (read-only research, 2026-11-09)
+
+- Browser: every `BrowserSession` tab shares `WKWebsiteDataStore.default()` (`BrowserSession.swift:159`), so two logins on one host cannot coexist today; `.nonPersistent()` is already used by UI Studio, Prototype and Book PDF. `BrowserAgentExecutor.run(tool, args, in: session)` (`BrowserControlServer.swift:258`) can be called in-process, but the "stopped by user" and enabled-tool gates live in `perform`, so a QA run needs its own gate. Only the active tab is mounted in a window, which breaks `takeSnapshot` on a background tab. Nothing records video or frames. `browser_screenshot` sends an unmasked PNG.
+- Saved logins: Keychain items bound to host + username (`BrowserPasswords.swift`); a named actor can be read in Swift.
+- Scenarios: UI Studio `StudioScenario`/`StudioStep` are a flat list without branches or assertions, stored in `.markview/studio/scenarios/*.json`; session data in `.dde/studio/` with a self-writing `*` `.gitignore`.
+- Graph: Cytoscape + ELK are bundled and lazy-loaded by the architecture view (read-only); the Research Map is the editable template (Swift-owned document, JS sends `researchMap` bridge actions).
+- AI: only CLIs (`CLICompletion.run`, async, `jsonSchema` for Claude and Codex, `images: [URL]`); no validator, callers validate and retry (`UIStudioContext.swift`); progress in `AIToolJobs`.
+- Bugs: `FeatureStore.createBug(BugReportDraft)`; status must come from the project workflow; pictures are relative Markdown links (UI Studio tracking); no attachment field.
+- Native/recording: App Sandbox is off, so launching apps, Accessibility and ScreenCaptureKit need only user grants (Screen Recording, Accessibility), no new entitlement. No code uses ScreenCaptureKit, AVAssetWriter, AX or `NSWorkspace.openApplication` yet. Deployment target macOS 13: `SCStream` + `AVAssetWriter` is possible; `SCRecordingOutput` needs macOS 15. Grants survive only Developer ID builds (`release.sh`); Debug builds are unsigned and reset them.
+
+### Proposed design (needs approval; nothing is built yet)
+
+- D1 Code: Foundation-only models and rules (`QAScenario`, `QARun`, outcomes, `QAMaterialPolicy`, production gate, `QAStore`) with standalone checks in `tools/tests/qa-tests.sh` and a mutation check as in `cycle-time-tests.sh`; then generator, runner, actor host, recorder, analysis, bugs, `Views/QAViews.swift`, `markview-qa.js`.
+- D2 Storage: scenarios `.markview/qa/scenarios/<id>.json` (a reusable project asset, Studio precedent); project policy `.markview/qa/policy.json` (patterns only); runs `.dde/qa/runs/<run-id>/` (run.json, masked frames, video, evidence) with a self-writing `*` `.gitignore`. Credentials never go to files: a scenario holds an actor name and a login reference (host + username) into the Keychain store.
+- D3 Generation: `CLICompletion` with `jsonSchema`, validate and retry, off the main thread, progress in `AIToolJobs`. Output: action / check / alternative / failure nodes, edges with conditions, per-node "changes data" flag, per-branch condition (how to establish it, how to verify it).
+- D4 Editor: a new tab kind `.qa` (wired like `openWorkflow`); Cytoscape + ELK graph in a new `markview-qa.js`, document owned by Swift, `qa` bridge actions (add, update, delete, connect, select path). Select branches to run; edits persist at once.
+- D5 Run engine: the selected branches are separate checks, each from the prepared baseline. Per action node a bounded observe-act loop: the AI gets the masked page snapshot, the node and its expected check and returns one browser tool call or done/blocked; expected checks are verified by DOM assertions plus the AI's reading of the masked screenshot; resolved steps are cached so a re-run can replay without the AI. Outcomes: passed, failed (expected check not met), blocked (cannot proceed: baseline, login, element not found within budget, launch failure), interrupted (user stop, crash, revoked permission), uncovered (branch condition not achieved, branch not executed).
+- D6 Web actors: `BrowserSession` gets an optional data store (default unchanged); each actor uses `.nonPersistent()` (`WKWebsiteDataStore(forIdentifier:)` needs macOS 14). The run view mounts every actor's web view side by side, so nothing switches the visible tab and `takeSnapshot` works; probes mount them in an invisible window. A run-level gate owns the approval record (scenario + preparation), the production data-changing confirmation (on production an action is confirmed unless it is marked read-only) and Stop. Branch conditions: network delay/error injected by a document-start script, verified by the script's own log of the intercepted request; data conditions by preparation steps; not achieved means uncovered.
+- D7 Sensitive material: one choke point prepares everything that is saved or leaves the Mac (video frames, screenshots and snapshot text sent to the AI, bug pictures). Default deny per page/screen; password fields always masked; user patterns and selectors. Fail closed: if masking cannot be applied the item is dropped and the run says "not captured". Web masks in the page before `takeSnapshot`; native masks secure fields and user regions from AX frames before encoding. The existing `browser_screenshot` agent tool is not changed.
+- D8 Recording: web frames from per-actor `takeSnapshot` at a fixed rate, masked, written with `AVAssetWriter` (no Screen Recording grant needed, works offscreen); native via `SCStream` of the app window (needs the grant). Video lives in the run folder and is linked from `run.json`.
+- D9 Native driving: the user picks an installed app, MarkView launches it with `NSWorkspace` (attaching to a running app is out, DEC-008), drives it through Accessibility by pid (find, `AXPress`, set value, keys) with the same observe-act loop over the AX tree text; launch failure means blocked, never completed. Multi-actor model: see open question A.
+- D10 Analysis and bugs: key pages/screens the policy allows go masked to the AI with a schema (UI/UX findings and possible bugs); each detected bug and each failed, blocked or interrupted check becomes one bug through `FeatureStore.createBug` (workflow not-started status, mapped severity, outcome in the title and in a `qa_outcome` field, masked key frames beside the bug like UI Studio tracking, video as a local path because `.dde/` is not committed). One bug per check per run, as specified; de-duplication across re-runs is a possible follow-up.
+- D11 Permissions: Screen Recording and Accessibility use the dictation pattern (status row, explanation, "Open System Settings" deep link). Native and recording verification needs a locally signed Developer ID build, because Debug builds lose the grants on every rebuild.
+
+### Open questions for Boris
+
+- A. Native multi-actor model (DEC-007 left it unspecified): one app instance per actor taking turns (recommended), or one instance with actors as accounts that sign in and out in turn.
+- B. Delivery: one PR and one release for the whole feature (recommended, as with the prototype series), or web first and native as a second PR.
+
+### Stages (tick when done and checked)
+
+- [ ] S0 Worktree `MarkView-qa` on `feat/end-to-end-qa` from up-to-date `origin/main`; feature `in-progress`; DEC-012.. recorded for the approved design choices
+- [ ] S1 Models, rules, store, standalone checks (I-1, I-2, I-4 core): graph validation, path selection, outcome rules (uncovered, blocked vs failed vs interrupted, baseline failure and launch failure never completed), production gate, policy fail-closed, store round trip
+- [ ] S2 Generation and editor tab (I-1): goal in, graph out, edit, select branches, persists, reopens
+- [ ] S3 Targets, actors, credentials, approval, branch conditions (I-2)
+- [ ] S4 Material policy UI and the masking choke point (I-4) — before any run sends page material to the AI
+- [ ] S5 Web runner: isolated actors, run view, outcomes (I-3 web)
+- [ ] S6 Web recording with masking (I-5)
+- [ ] S7 Analysis and bug creation (I-6)
+- [ ] S8 Native macOS: launch, AX driver, `SCStream` recording, native analysis (I-3, I-5, I-6 native)
+- [ ] S9 Verify, docs (README, `docs/architecture/modules/`, `CLAUDE.md` map), `./bump-version.sh minor`, PR, merge, `./release.sh --publish`, remove the worktree
+
+### Verification plan
+
+- Standalone checks for every pure rule, mutation-checked; Debug build; `project.yml` and `MarkView.xcodeproj` aligned.
+- Web: a small fixture app with two users and shared server state under `Tests/Fixtures/`; run in invisible windows with `tools/tests/app-probe`; check recorded frames for masked fields, check what the AI call received, check the three outcomes plus uncovered each happen on a purpose-built branch.
+- Native: a small AppKit fixture app (text field, secure field, button) built with `swiftc`; run with a Developer ID signed local build; check launch failure, masked secure field in the video, per-pid targeting.
+- Run the generator on this project's real goals first; judge the graphs by eye before building the editor on them.
+
+### Risks
+
+- Offscreen or side-by-side web views and `takeSnapshot` timing; frame rate and file size of video.
+- AI observe-act loop is slow and costs tokens (one CLI call per step); the step cache is the mitigation.
+- Accessibility is thin for SwiftUI and custom-drawn apps; background clicks are ignored by SwiftUI, so native actors act in turns with the target frontmost.
+- Masking of native frames is best effort from AX frames; fail closed on anything unknown.
+- `.markview/` and `.dde/` are ignored in this repo, so scenarios are not shared through git here and a bug's video path works only on the Mac that ran it.
