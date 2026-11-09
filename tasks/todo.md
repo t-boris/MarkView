@@ -5075,3 +5075,20 @@ Decisions (mine; nothing stored changes, `workflow.json` keeps its schema):
 - "automatic" is claimed only for what MarkView really does by itself: a hand-off or attached session starts the work, complete delivery evidence completes it, a regression report reopens it. The standard bug rule that allows MarkView to cancel with evidence is shown as allowed, not as automatic, because nothing makes MarkView do it.
 - Decisions I made without asking: `LifecycleCondition.words` moved next to its enum (it was in a display file that cannot be compiled alone); `variantBinding` moved into `WorkflowEditorModel` so the Processes page and the card share it; the card shows the plain-language evidence lines and the controls together.
 - Open, needs Boris: new event kinds (a visual check as against an automatic one, custom events, "AI reports done through MCP" as its own event) change `workflow.json`; I have not touched the format. Released in v5.49.0 (with the BUG-114 fix); MarkView moved BUG-115 to `fixed` by itself when the release was published. Not installed: the installed app is 5.47.0 until Boris says "reinstall".
+
+## Feature workflow-flows-choose-a-classic-flow-clear-columns (2026-11-09)
+Boris on the Workflow tab: the lanes make no sense (Draft, Exploring, Review in "Not started"), PR/CI/release are not visible, "done" is unclear; "look for standard flows (Kanban...) and let a project choose a flow". Answers: spec steps stay data only (DEC-001), Kanban default for NEW projects (DEC-002), ONE PR, one release. Branch `feat/workflow-flows`, minor bump (5.50.0). Research: Jira/Linear/Azure/GitHub/Scrum/Kanban/Shape Up/Bugzilla all reduce to wait / work / done / cancelled, the same four roles; "In Review" is active, "Ready/Selected" is waiting, Azure "Resolved" fits completed (completion then acceptance).
+
+Findings that shape the work:
+- Roles mean the IMPLEMENTATION lifecycle (`hasImplementationStarted` = active or completed), so specification stages stay `not-started`; the lane gets a better title instead of a new role.
+- "Done" lives in two places that disagree: `.dde/definition-of-done.json` (PR, CI, merge, deploy: Require/Ask/Skip) and the process (integration, checks, delivery event, acceptance), which is the authority. Standard feature process = direct, no checks.
+- New features write `idea`/`exploring`/`draft` by name (`FeatureStore.createFeature`, `adoptedOverview`); other flows need the entry status of the workflow.
+- `adoptIfMissing` writes the standard workflow for any project without a file; "new" = no file and no items.
+- `ProcessTemplate.transitions(definition, quick:)` already builds the rules from roles; it needs moves between several active statuses (In progress / In review).
+
+- [ ] 1. `WorkflowDoneSummary.swift`: per process, what Done means (steps, required or not) + mismatch with the Definition of Done; standalone check
+- [ ] 2. Diagram: lane titles, "Stage change", the Done block and warnings (DoD read off the main thread)
+- [ ] 3. `WorkflowFlowTemplate.swift`: the catalogue (MarkView, Kanban, Scrum, Linear, GitHub Projects, Azure DevOps Agile, Shape Up, Kanban + Bugzilla triage), rules from roles; every template validates
+- [ ] 4. "Flow" menu in the Workflow tab (applies to the draft; delivery settings from the Definition of Done read off the main thread)
+- [ ] 5. Entry status for new items; Kanban adoption for a project with no file and no items
+- [ ] 6. Layout test + renders, build, bump to 5.50.0, PR, merge
