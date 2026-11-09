@@ -5231,17 +5231,21 @@ Still to do after Boris installs 5.52.0:
 - [ ] Follow-up: the hint texts of the lifecycle tool replies still say "implementing" and "fixing" instead of the project's statuses.
 
 
-## Proposal: Project Cycle Time review (2026-11-09) — waiting for Boris's decisions
+## Project Cycle Time as a view over the workflow (2026-11-09) — 5.54.0
 
-Full review: `docs/plans/2026-11-09-cycle-time-review.md`. Nothing below is started; section 9 of the review lists the decisions.
+Review: `docs/plans/2026-11-09-cycle-time-review.md`. Feature record: `docs/features/cycle-time-as-a-view-over-the-workflow/` (DEC-001, DEC-010, DEC-014, DEC-015; REQ-001..REQ-006). Boris chose direction A and the review's recommendation for every other decision: non-destructive corrections (DEC-005 relaxed), first start → first completion of the current round (DEC-009 replaced), bugs included, git-history backfill only as a spike, no manual marks, thresholds from the project's own P50/P85.
 
-Found on the real data (this Mac): `review_done` and `verified` were never recorded (0 of 2313 events), manual marks were used 6 times,
-the Kanban flow switch on 2026-11-09 12:52:59 wrote 33 false events (implementation median 997 h instead of 1.0 h, and the log cannot be
-corrected), earliest→latest inflates repeated work, per-model rows are split over 13 spellings of about 5 models, bugs are not measured.
+- [x] Decisions 1–7 answered ("Направление A, остальное по твоим рекомендациям")
+- [x] Phase 1: status layer from `transitions.jsonl` for features and bugs (lead, cycle, waiting, time in each status, rework, acceptance lag); baseline and replacement records are not events; Measure since, Exclude, Recompute; `observeLifecycle`, `recordSpecReadyIfMissing`, the fixed stage chain, the Mark stage sheet and the old summary sheet deleted
+- [x] Phase 2: pace colours (P50/P85, grey under 8 samples), facts (reopened, refused request, acceptance waiting), data-quality marks, Needs attention list, 30-day trend, dig-in (definition → items and what was left out → item stays with the formed records highlighted)
+- [x] Phase 3: evidence per pull request or commit and per process (direct vs pull request), model names canonicalised with a minimum of 5 items per model
+- [ ] Spikes, not built: agent-active time (needs a read of session logs), rebuild from git history (DEC-013 stands)
+- [ ] Not done on purpose: the "checks failing" fact (needs fresh GitHub state; REQ-003 text adjusted), the model of a bug (Fix with AI records none; REQ-005 text adjusted)
+- [x] Standalone check `tools/tests/cycle-time-tests.sh` (about 90 checks; with a replacement counted as an event 3 of them fail); other suites that compile the moved files pass (`github-command`, `github-remote-profile`, `new-project`, `project-agent-tools`, `control-agent-tools`, `workflow-flow`)
+- [x] Debug build; real app driven invisibly with `tools/tests/app-probe` on a copy of this project's journal: summary, measure detail, item detail, Bugs tab, Exclude (settings file written, counts changed)
 
-Plan if direction A (cycle time as a projection over the workflow journal) is approved:
-- [ ] Decisions 1–7 answered (direction, DEC-005, DEC-009, bugs, backfill, manual marks, thresholds)
-- [ ] Phase 1: status layer from `transitions.jsonl` for features and bugs (lead, cycle, waiting, time in each status, rework, acceptance lag); `replace`/`baseline` records are not events; measure-since, exclude item, recompute; delete `observeLifecycle`, the fixed stage chain and the Mark stage sheet
-- [ ] Phase 2: pace colours (P50/P85 of the project's own history, grey under 8 samples), facts, data-quality marks, Needs attention list, trend, dig-in (how the number is made → items → item timeline)
-- [ ] Phase 3: evidence layer chosen by the process variant (direct vs pull request), agent layer with model aliases and a sample-size limit, spikes: agent-active time, rebuild from git history
-- [ ] Each phase: standalone check under `tools/tests/` (run once with the fix switched off to see it fail), Debug build, look at the sheet in the real app with the invisible probe, version bump, PR
+### Review
+
+- Merged as PR #344 (5.54.0). On this project's real journal the Features view reads waiting 4 m, cycle 1 h 12 m, lead 1 h 53 m (median) over 8-9 of 35 features and 24 are reported as "completed before MarkView watched them"; Bugs: 117 bugs, 15-16 with a measure. The old 997 h implementation median is gone.
+- Found while looking at the real render: the sheet needs its own `palette.bg` (without it the light text vanishes on the system's light sheet background), the actor must be printed as a person would say it, and a counts line that does not add up to the total looks wrong.
+- Not hand-checked in the running installed app: the Measure since date popover, the Delete evidence confirmation, the link line in the feature and bug panels.
