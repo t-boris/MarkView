@@ -271,8 +271,12 @@ struct Feature: Identifiable {
     func object(_ id: String) -> FeatureObject? { allObjects.first { $0.id == id } }
 
     /// Understanding dimension → known | partial | unknown | n/a.
-    /// Discovery (Explore) is over: requirements written from now on are approved.
-    var isPastExplore: Bool { !["idea", "exploring", "draft"].contains(status) }
+    /// Every requirement of the feature is approved (or further) and there is at least one: for a workflow without the specification
+    /// stages this is what tells that Explore is over (`IssueLifecycleDefinition.isPastExplore`, which the store asks).
+    var requirementsApproved: Bool {
+        let active = activeRequirements
+        return !active.isEmpty && active.allSatisfy { $0.status != "draft" }
+    }
     /// Discovery is over, or the questions asked are all answered or deferred.
     var discoveryDone: Bool {
         isUnderstood || (!list(.question).isEmpty && openQuestions.isEmpty)

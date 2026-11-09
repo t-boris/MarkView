@@ -244,7 +244,7 @@ final class FeatureStore: ObservableObject {
         front.set("type", "feature")
         front.set("id", candidate)
         front.set("title", title)
-        front.set("status", idea.isEmpty ? "idea" : "exploring")
+        front.set("status", entryFeatureStatus(preferring: idea.isEmpty ? "idea" : "exploring"))
         front.set("owner", defaultOwner)
         front.set("created", Self.today)
         front.set("provenance", "Created manually")
@@ -512,7 +512,7 @@ final class FeatureStore: ObservableObject {
     /// are approved, and the feature moves on to review.
     func finishExplore(_ slug: String) {
         approveRequirements(slug)
-        if let feature = feature(slug), !feature.isPastExplore {
+        if let feature = feature(slug), !isPastExplore(feature) {
             moveFeature(slug, to: "review", by: .human(lifecycleActor))
         }
     }
@@ -577,6 +577,16 @@ final class FeatureStore: ObservableObject {
         return true
     }
 
+    /// The status a new feature starts in: the stage the app asks for (idea, exploring, draft) when this project's workflow has it,
+    /// else the entry of its flow, the first state where work waits (REQ-004).
+    func entryFeatureStatus(preferring preferred: String) -> String { lifecycle.workflow.feature.entryStatus(preferring: preferred) }
+
+    /// Whether `feature` has left Explore: the requirements written from then on are approved, and the later steps of the guided
+    /// flow (ready, plan, implement) are open. The workflow decides what the status means (REQ-004).
+    func isPastExplore(_ feature: Feature) -> Bool {
+        lifecycle.workflow.feature.isPastExplore(status: feature.status, requirementsApproved: feature.requirementsApproved)
+    }
+
     /// The status a bug takes for a role in this project's workflow: a new report is not started, a report of a change that is
     /// already made is completed. Nil when the workflow has no such status.
     func bugStatus(role: LifecycleRole) -> String? { lifecycle.workflow.bug.statuses(with: role).first?.id }
@@ -604,7 +614,7 @@ final class FeatureStore: ObservableObject {
         front.set("type", "feature")
         front.set("id", feature.slug)
         front.set("title", feature.title)
-        front.set("status", "draft")
+        front.set("status", entryFeatureStatus(preferring: "draft"))
         front.set("owner", defaultOwner)
         front.set("created", Self.today)
         front.set("provenance", "Adopted existing feature documents")

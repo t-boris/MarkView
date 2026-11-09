@@ -58,6 +58,7 @@ struct WorkflowTabView: View {
                     Text("Name").uiFont(size: 11)
                     TextField("Workflow name", text: $editor.draft.name).textFieldStyle(.roundedBorder).frame(maxWidth: 260)
                     Spacer(minLength: 0)
+                    flowButton
                     Text("Revision \(editor.draft.revision)").uiFont(size: 10).foregroundColor(palette.textDim)
                 }
                 Picker("", selection: $editor.page) {
@@ -67,6 +68,21 @@ struct WorkflowTabView: View {
             }
         }
         .padding(16)
+    }
+
+    // MARK: Flows
+
+    @State private var choosingFlow = false
+
+    private var flowButton: some View {
+        Button { choosingFlow = true } label: {
+            Text("Flow: " + (editor.currentFlow?.title ?? "custom"))
+        }
+        .controlSize(.small).disabled(!editable)
+        .help("Load a classic flow (Kanban, Scrum, …) into the draft. Nothing is saved until you press Save.")
+        .popover(isPresented: $choosingFlow, arrowEdge: .bottom) {
+            WorkflowFlowPicker(editor: editor) { flow in editor.apply(flow); choosingFlow = false }
+        }
     }
 
     // MARK: Views

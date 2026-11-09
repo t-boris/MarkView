@@ -285,8 +285,68 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
     check(inspector().fields == base.fields && inspector().controls >= base.controls + 6, "diagram: …and opens the transition it made", "\(inspector())")
 }
 
+/// Every flow of the picker loaded into the tab (REQ-003): the draft is the flow and unsaved, the tab still lays out, and the Done
+/// panel under the diagram says what Done means. With SNAPSHOT_DIR set, each flow's Features page is saved to be looked at.
+@MainActor func flows() {
+    for flow in WorkflowFlow.catalogue {
+        let store = FeatureStore()
+        store.lifecycle.workflowLoad = .loaded(.standard)
+        let editor = WorkflowEditorModel()
+        editor.attach(to: store)
+        editor.apply(flow)
+        check(editor.currentFlow?.id == flow.id && editor.draft.name == flow.title, "\(flow.title): loading it puts its statuses and name in the draft")
+        check(flow.id == "markview" || editor.isDirty, "\(flow.title): …as an unsaved change", "dirty \(editor.isDirty)")
+        check(editor.message?.contains("Nothing is saved yet") == true && editor.page == .features, "\(flow.title): …and says nothing is saved yet, on the Features page")
+        check(editor.draft.validate().isEmpty, "\(flow.title): …and the draft is valid", editor.draft.validate().map(\.message).joined(separator: " | "))
+
+        let hosting = NSHostingView(rootView: WorkflowTabView(store: store, editor: editor))
+        let size = NSSize(width: 1100, height: 1500)
+        let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        hosting.frame = NSRect(origin: .zero, size: size)
+        window.orderFrontRegardless()
+        settle(hosting)
+        for _ in 0..<2 { hosting.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
+            hosting.cacheDisplay(in: hosting.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("flow-\(flow.id).png"))
+        }
+        window.close()
+        for width in [400, 1100] as [CGFloat] { measureTab("flow \(flow.title)", workflow: flow.applied(to: .standard), width: width) }
+    }
+}
+
+/// The picker's list on its own: every flow is there with its columns, the one in use is marked, and nothing runs past the edge.
+@MainActor func picker() {
+    let store = FeatureStore()
+    store.lifecycle.workflowLoad = .loaded(.standard)
+    let editor = WorkflowEditorModel()
+    editor.attach(to: store)
+    var chosen: [String] = []
+    let hosting = NSHostingView(rootView: WorkflowFlowPicker(editor: editor) { chosen.append($0.id) })
+    let size = NSSize(width: 460, height: 520)
+    let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = hosting
+    hosting.frame = NSRect(origin: .zero, size: size)
+    window.orderFrontRegardless()
+    settle(hosting)
+    // SwiftUI buttons are not NSButtons; each one has a focus ring view, as in the inspector checks above.
+    let buttons = descendants(hosting).filter { String(describing: type(of: $0)) == "_FocusRingView" }
+    check(buttons.count == WorkflowFlow.catalogue.count - 1, "picker: every flow but the one in use has a Use button (\(buttons.count))")
+    check(editor.currentFlow?.id == "markview", "picker: a project on the standard workflow is on MarkView with specification")
+    if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
+        hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("flow-picker.png"))
+    }
+    window.close()
+}
+
 @MainActor func run() {
     interaction()
+    flows()
+    picker()
     for width in [400, 760, 1100] as [CGFloat] {
         measureTab("standard workflow", workflow: .standard, width: width)
         measureTab("with processes", workflow: withProcesses(.standard), width: width)

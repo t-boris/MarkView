@@ -2,6 +2,12 @@ import Combine
 import Foundation
 import SwiftUI
 
+/// Which transition table the diagram edits: the one of a work-item type, or the own one of a process.
+enum WorkflowScope: Hashable {
+    case type(IssueKind)
+    case process(String)
+}
+
 /// The state of the Workflow tab (BUG-108). The window keeps it, not the view, so edits that are not saved yet survive a switch
 /// to another tab and back. The draft is the workflow being edited; the graphical view and the source view are two ways of editing
 /// the same draft, and saving goes through the same checks and the same replacement of items as before (DEC-021).
@@ -31,6 +37,8 @@ final class WorkflowEditorModel: ObservableObject {
     @Published var newStatus = ""
     /// The processes whose own transitions are open.
     @Published var expanded: Set<String> = []
+    /// The project's own Definition of Done, read off the main thread; nil when it has none (REQ-001: no checklist, no warning).
+    @Published var checklist: DefinitionOfDone?
 
     /// The project the draft was read for, and the workflow as it was when read: a draft equal to it has no unsaved change.
     private var projectKey: String?
@@ -77,6 +85,24 @@ final class WorkflowEditorModel: ObservableObject {
         message = nil
         sourceError = nil
         if mode == .source { sourceText = Self.sourceText(for: store) ?? ProjectWorkflowStore.text(of: loaded) }
+        loadChecklist(root: store.root)
+    }
+
+    /// Reads the project's Definition of Done in the background: the file is small, but file reads stay off the main thread.
+    private func loadChecklist(root: URL?) {
+        guard let root else { checklist = nil; return }
+        Task { [weak self] in
+            let loaded = await Task.detached(priority: .utility) { DefinitionOfDone.loadIfPresent(root: root) }.value
+            self?.checklist = loaded
+        }
+    }
+
+    /// The processes whose settings decide the steps of `scope`: those of a type that follow its transitions, or the process itself.
+    func followers(of scope: WorkflowScope) -> [RuleVariant] {
+        switch scope {
+        case .type(let kind): return draft.variants(for: kind).filter { $0.rules == nil }
+        case .process(let id): return draft.variant(id).map { [$0] } ?? []
+        }
     }
 
     /// What the source view shows for a workflow file that cannot be used: the file itself, so that the person sees what is wrong.
@@ -126,6 +152,22 @@ final class WorkflowEditorModel: ObservableObject {
         standard.revision = draft.revision
         draft = standard
         if mode == .source { sourceText = ProjectWorkflowStore.text(of: standard) }
+    }
+
+    /// The flow the draft is on, by the ids and roles of its statuses; nil for a flow someone changed.
+    var currentFlow: WorkflowFlow? { WorkflowFlow.matching(draft) }
+
+    /// Loads a classic flow into the draft (REQ-003). Nothing is stored: Save checks the whole workflow and asks what replaces each
+    /// status or process that work items still use (DEC-021), and "Reload from file" brings the old one back.
+    func apply(_ flow: WorkflowFlow) {
+        draft = flow.applied(to: draft)
+        page = .features
+        impact = WorkflowImpact()
+        statusChoices = [:]
+        variantChoices = [:]
+        expanded = []
+        message = "\(flow.title) is loaded into the draft. Nothing is saved yet: check the Features and Bugs pages, then press Save. Work items whose status is not in this flow will ask what replaces it."
+        if mode == .source { sourceText = ProjectWorkflowStore.text(of: draft) }
     }
 
     // MARK: Saving

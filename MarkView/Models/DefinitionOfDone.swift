@@ -74,8 +74,14 @@ struct DefinitionOfDone: Codable, Equatable {
     /// a newer app added appear at their place with their default mode; the person's own order and
     /// wording of custom items are kept.
     static func load(root: URL?) -> DefinitionOfDone {
+        loadIfPresent(root: root) ?? .standard
+    }
+
+    /// The project's own checklist; nil when it has none or it cannot be read, so that a caller can tell a choice the person made
+    /// from the standard one.
+    static func loadIfPresent(root: URL?) -> DefinitionOfDone? {
         guard let root, let data = try? Data(contentsOf: url(root: root)),
-              let saved = try? JSONDecoder().decode(DefinitionOfDone.self, from: data) else { return .standard }
+              let saved = try? JSONDecoder().decode(DefinitionOfDone.self, from: data) else { return nil }
         return merged(saved)
     }
 

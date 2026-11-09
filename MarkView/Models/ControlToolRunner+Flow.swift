@@ -129,7 +129,7 @@ extension ControlToolRunner {
         let issues = feature.planIssues
         return .init(slug: feature.slug, status: feature.status,
                      running: runningKeys(assistant, slug: feature.slug),
-                     openQuestions: feature.openQuestions.count, understood: feature.discoveryDone, pastExplore: feature.isPastExplore,
+                     openQuestions: feature.openQuestions.count, understood: feature.discoveryDone, pastExplore: target.workspace.features.isPastExplore(feature),
                      implementationStarted: target.workspace.features.hasImplementationStarted(feature),
                      requirements: requirements.count, draftRequirements: requirements.filter { $0.status == "draft" }.count,
                      openFindings: openFindings(feature).count, planIssues: issues.count,
@@ -306,12 +306,12 @@ extension ControlToolRunner {
         }
         switch step {
         case .explore:
-            guard !feature.isPastExplore else { throw Invalid(message: "\(slug) is past Explore (\(feature.status)).") }
+            guard !store.isPastExplore(feature) else { throw Invalid(message: "\(slug) is past Explore (\(feature.status)).") }
             return try await job("explore:" + slug) { _ in
                 await assistant.exploreNext(slug) ? "Asked the next round of questions." : "Nothing was asked: a question is still open, or discovery is done."
             }
         case .decideRest:
-            guard !feature.isPastExplore else { throw Invalid(message: "\(slug) is past Explore (\(feature.status)).") }
+            guard !store.isPastExplore(feature) else { throw Invalid(message: "\(slug) is past Explore (\(feature.status)).") }
             return try await job("decide:" + slug) { _ in
                 await assistant.decideRest(slug)
                 return "The AI made the remaining decisions (proposed) and ended discovery."
@@ -324,7 +324,7 @@ extension ControlToolRunner {
             return .init(text: "Left Explore: the requirements are approved and \(slug) is in review.\n\n" + describe(target, slug))
         case .review:
             // Reviewing after discovery approves the draft requirements: that is leaving Explore.
-            if feature.discoveryDone, !feature.isPastExplore { try requirePerson(args, "Reviewing now (it approves the requirements and leaves Explore)") }
+            if feature.discoveryDone, !store.isPastExplore(feature) { try requirePerson(args, "Reviewing now (it approves the requirements and leaves Explore)") }
             return try await job("review:" + slug) { _ in
                 await assistant.review(slug)
                 return "Reviewed \(slug)."
@@ -336,14 +336,14 @@ extension ControlToolRunner {
                 return "The AI resolved the open findings of \(slug) (proposed decisions)."
             }
         case .ready:
-            guard feature.isPastExplore, feature.openQuestions.isEmpty, openFindings(feature).isEmpty, !feature.activeRequirements.isEmpty else {
+            guard store.isPastExplore(feature), feature.openQuestions.isEmpty, openFindings(feature).isEmpty, !feature.activeRequirements.isEmpty else {
                 throw Invalid(message: "\(slug) is not ready: it needs Explore finished, no open question or finding, and requirements.\n\n" + describe(target, slug))
             }
             let moved = store.moveFeature(slug, to: "ready", by: .ai("AI agent"), surface: false)
             guard moved.reachedStatus else { throw Invalid(message: moved.explanation) }
             return .init(text: "\(slug) is marked ready.\n\n" + describe(target, slug))
         case .plan:
-            guard feature.isPastExplore else { throw Invalid(message: "Finish Explore first (\(feature.status)).") }
+            guard store.isPastExplore(feature) else { throw Invalid(message: "Finish Explore first (\(feature.status)).") }
             let filed = feature.planIssues.filter { $0.github != nil }.count
             if filed > 0 { throw Invalid(message: "\(slug) has \(filed) issue(s) filed on GitHub; planning again would drop their numbers and file duplicates. Change the plan in MarkView.") }
             if !feature.planIssues.isEmpty, args["replan"] as? Bool != true {
@@ -387,7 +387,7 @@ extension ControlToolRunner {
     static func flowImplement(_ target: Target, _ args: [String: Any], caller: Caller) async throws -> Reply {
         try requirePerson(args, "Starting an implementation")
         let feature = try feature(args, in: target)
-        guard feature.isPastExplore else {
+        guard target.workspace.features.isPastExplore(feature) else {
             throw Invalid(message: "\(feature.slug) is still in Explore (\(feature.status)). Finish discovery and review it first.\n\n" + describe(target, feature.slug))
         }
         let workspace = target.workspace

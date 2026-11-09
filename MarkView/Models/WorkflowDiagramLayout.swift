@@ -24,7 +24,7 @@ struct WorkflowDiagram {
         /// The left padding of a lane that has a bar for entries from its own states.
         var entryPadding: CGFloat = 26
         var laneHeader: CGFloat = 30
-        var laneBottom: CGFloat = 12
+        var laneBottom: CGFloat = 22
         var gutter: CGFloat = 84
         /// Wider windows widen the gaps between the lanes, where the curves and their names need room, up to this.
         var maxGutter: CGFloat = 190
@@ -315,6 +315,20 @@ struct WorkflowDiagram {
 // MARK: - What an arrow drawn between two states means
 
 extension WorkflowDiagram {
+    /// What a lane is called for a person: the role says what the code needs, the title what the states mean (REQ-002). A waiting
+    /// lane that holds several states joined by stage changes is where work is prepared (specified, shaped) before it starts.
+    static func laneTitle(_ role: LifecycleRole, statuses: [WorkflowStatus], rules: [LifecycleRule]) -> String {
+        switch role {
+        case .notStarted:
+            let waiting = Set(statuses.filter { $0.role == .notStarted }.map(\.id))
+            let joined = rules.contains { $0.kind == .spec && waiting.contains($0.to) && !$0.from.isDisjoint(with: waiting) }
+            return waiting.count >= 3 && joined ? "Backlog & specification" : "To do"
+        case .active: return "In progress"
+        case .completed: return "Done"
+        case .cancelled: return "Cancelled"
+        }
+    }
+
     /// The kind of transition a person means by an arrow from `source` to `target`, from the roles of the two statuses and, between
     /// two completed ones, from their order (implemented → verified is acceptance, verified → implemented reopens).
     static func inferredKind(from source: WorkflowStatus, to target: WorkflowStatus, statuses: [WorkflowStatus]) -> TransitionKind {
@@ -363,7 +377,7 @@ extension TransitionKind {
     /// The name the editor shows for a kind of step.
     var editorTitle: String {
         switch self {
-        case .spec: return "Specification"
+        case .spec: return "Stage change"
         case .start: return "Start"
         case .completion: return "Completion"
         case .acceptance: return "Acceptance"

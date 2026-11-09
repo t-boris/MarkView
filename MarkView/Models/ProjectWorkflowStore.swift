@@ -153,6 +153,18 @@ final class ProjectWorkflowStore: @unchecked Sendable {
                                                 checksRequired: policy.checksRequired, releaseRequired: release))
     }
 
+    /// True when the project has no feature folder in docs/features and no bug report in docs/bugs: nothing in it was written under a
+    /// flow yet, so it can start on the default one for new projects.
+    static func hasNoItems(in root: URL) -> Bool {
+        let fileManager = FileManager.default
+        let features = (try? fileManager.contentsOfDirectory(at: root.appendingPathComponent("docs/features", isDirectory: true),
+                                                             includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])) ?? []
+        if features.contains(where: { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }) { return false }
+        let bugs = (try? fileManager.contentsOfDirectory(at: root.appendingPathComponent("docs/bugs", isDirectory: true),
+                                                         includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+        return !bugs.contains { $0.pathExtension.lowercased() == "md" }
+    }
+
     /// Reads the Definition of Done and the guides of a project folder, for `adopted`.
     static func existingSettings(in root: URL) -> (definition: Data?, guide: String?) {
         let definition = try? Data(contentsOf: root.appendingPathComponent(".dde/definition-of-done.json"))
@@ -172,6 +184,9 @@ final class ProjectWorkflowStore: @unchecked Sendable {
         guard case .missing = current else { return current }
         let settings = Self.existingSettings(in: projectRoot)
         var workflow = Self.adopted(definition: settings.definition, guide: settings.guide)
+        // A project that starts empty starts on a board (DEC-002); one that has features or bugs was written under the specification
+        // stages and keeps them. The processes stay those the project's own delivery settings gave.
+        if Self.hasNoItems(in: projectRoot) { workflow = WorkflowFlow.kanban.applied(to: workflow) }
         workflow.revision = 1
         do {
             // The marker first: a file without its marker would leave the items that existed without their variant for good.

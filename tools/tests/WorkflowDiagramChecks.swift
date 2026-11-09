@@ -185,5 +185,18 @@ WorkflowDiagram.connect("implementing", "implemented", statuses: edited.feature.
 edited.feature.rules = table
 check(edited.validate().isEmpty, "a workflow edited by drawing an existing arrow again is still valid", "\(edited.validate().map(\.message))")
 
+// MARK: Lane titles (feature workflow-flows, REQ-002)
+
+check(WorkflowDiagram.laneTitle(.notStarted, statuses: feature.statuses, rules: feature.rules) == "Backlog & specification",
+      "the waiting lane of the MarkView feature flow, six states joined by stage changes, is the backlog and specification")
+check(WorkflowDiagram.laneTitle(.notStarted, statuses: bug.statuses, rules: bug.rules) == "To do", "a bug's single waiting state is just 'To do'")
+let kanbanWaiting = [WorkflowStatus(id: "backlog", role: .notStarted), WorkflowStatus(id: "ready", role: .notStarted), WorkflowStatus(id: "doing", role: .active)]
+let kanbanRules = [LifecycleRule(from: ["backlog"], to: "ready", kind: .spec, needs: [.human: []]), LifecycleRule(from: ["ready"], to: "backlog", kind: .spec, needs: [.human: []])]
+check(WorkflowDiagram.laneTitle(.notStarted, statuses: kanbanWaiting, rules: kanbanRules) == "To do", "two waiting states (Backlog, Ready) are 'To do', not a specification")
+check(WorkflowDiagram.laneTitle(.active, statuses: feature.statuses, rules: feature.rules) == "In progress"
+      && WorkflowDiagram.laneTitle(.completed, statuses: feature.statuses, rules: feature.rules) == "Done"
+      && WorkflowDiagram.laneTitle(.cancelled, statuses: feature.statuses, rules: feature.rules) == "Cancelled", "active, completed and cancelled lanes are In progress, Done and Cancelled")
+check(TransitionKind.spec.editorTitle == "Stage change", "the step between stages is a 'Stage change', which also fits a flow without a specification")
+
 print(failures == 0 ? "\nall passed" : "\n\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

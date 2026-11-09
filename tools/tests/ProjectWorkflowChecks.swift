@@ -271,6 +271,9 @@ check("adoption writes revision 1", first.revision == 1 && fm.fileExists(atPath:
 check("adoption carries the Definition of Done into the bug variant",
       !first.variant(StandardWorkflow.bugVariantID)!.deliveryRules.pullRequestRequired && first.variant(StandardWorkflow.bugVariantID)!.deliveryRules.githubReleaseRequired)
 check("the stored workflow reads back equal", store.load() == .loaded(first))
+check("a project without features or bugs starts on Kanban (DEC-002)", first.name == "Kanban" && first.feature == WorkflowFlow.kanban.feature && first.bug == WorkflowFlow.kanban.bug)
+check("…with the processes its own Definition of Done gave", first.variants.map(\.id) == [StandardWorkflow.featureVariantID, StandardWorkflow.bugVariantID]
+      && first.defaultFeatureVariant == StandardWorkflow.featureVariantID && first.defaultBugVariant == StandardWorkflow.bugVariantID && first.validate().isEmpty)
 
 // The Definition of Done is guidance after adoption: changing it changes nothing.
 try! dod([("pr", "require"), ("ci", "require")]).write(to: root.appendingPathComponent(".dde/definition-of-done.json"))
@@ -323,6 +326,24 @@ if case .damaged(let why) = store.load() { check("a well-formed but invalid work
 
 try! fm.removeItem(at: file)
 check("removing the file makes the project adopt again", store.load() == .missing)
+
+// Which projects start on a board and which keep the specification stages (DEC-002).
+func adopt(prepare: (URL) -> Void) -> ProjectWorkflow {
+    let project = tempProject()
+    prepare(project)
+    guard case .loaded(let workflow) = ProjectWorkflowStore(projectRoot: project).adoptIfMissing(projectRoot: project) else { fatalError("adoption did not load") }
+    return workflow
+}
+func folder(_ project: URL, _ path: String) { try! fm.createDirectory(at: project.appendingPathComponent(path), withIntermediateDirectories: true) }
+func file(_ project: URL, _ path: String) {
+    folder(project, (path as NSString).deletingLastPathComponent)
+    try! "x".write(to: project.appendingPathComponent(path), atomically: true, encoding: .utf8)
+}
+check("a project with a feature keeps the MarkView flow", adopt { folder($0, "docs/features/some-feature") }.feature == standard.feature)
+check("a project with a bug report keeps the MarkView flow", adopt { file($0, "docs/bugs/BUG-001-crash.md") }.feature == standard.feature)
+check("empty docs/features and docs/bugs folders still start on Kanban", adopt { folder($0, "docs/features"); folder($0, "docs/bugs") }.name == "Kanban")
+check("a stray file or hidden entry in them is not an item", adopt { file($0, "docs/features/README.md"); folder($0, "docs/features/.hidden"); file($0, "docs/bugs/notes.txt") }.name == "Kanban")
+check("a project with a feature keeps the standard processes and name", adopt { folder($0, "docs/features/some-feature") }.name == standard.name)
 
 // Work that survives an interruption: the adoption marker and the pending replacements.
 let adoptRoot = tempProject()
