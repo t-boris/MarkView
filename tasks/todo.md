@@ -5151,7 +5151,7 @@ Not in this change (follow-ups to decide with Boris): a faster date parse for th
 
 Boris: two bugs stayed in review although the assistant had restarted and checked the installed app, because the delivery event "Installed on mac" can only be confirmed by a person; and no assistant (Claude Code, Codex, Copilot, Cline, Antigravity) can read or change the workflow. He wants (1) a delivery event that a person or an AI with evidence may confirm, (2) every assistant started in a MarkView window to understand the workflow through MCP and, when he asks in words, to propose a change that he reviews and saves, (3) rules that name an event after which MarkView makes the step itself ("taken into development" or "investigation finished" moves the item to review).
 
-Records: REQ-001 (confirm), REQ-002 (read and learn the format), REQ-003 (propose, the person saves), REQ-004 (events on rules); DEC-001 and DEC-004 accepted; DEC-005 (proposal lives in the window, in memory) and DEC-006 (event on a transition rule, first four events) are `proposed` and wait for Boris; Q-001 answered "yes, in this feature".
+Records: REQ-001 (confirm), REQ-002 (read and learn the format), REQ-003 (propose, the person saves), REQ-004 (events on rules); DEC-001 and DEC-004 accepted; DEC-005 (proposal lives in the window, in memory) and DEC-006 (event on a transition rule) were accepted by Boris on 2026-11-09; Q-001 answered "yes, in this feature".
 
 Part A (not code): Boris changes the delivery event of `standard-bug` to "A published GitHub release" in Workflow, Processes (his own choice); then BUG-116 and BUG-117 are checked with `markview_issue_context` and must read `done`.
 
@@ -5163,14 +5163,32 @@ Findings that shape the plan (read from code on 2026-11-09):
 - Hooks for the events: work-started = `startByHandoff` and the attach path (`FeatureStore+Lifecycle.swift`); investigation-finished = end of `FeatureIntake.analyzeBug`; pull-request-opened and pull-request-merged = the GitHub sync / delivery collector, only with the GitHub integration on (silent when off).
 
 Plan (one branch `feat/assistants-workflow-through-mcp`, one PR, one version bump `minor`; no release until Boris says):
-- [ ] 1. Format: `DeliveryRules.confirmedBy` (person | person-or-ai, absent = person) and `LifecycleRule.event` (known events; an unknown name is kept, never fires, and `validate()` reports it); both optional, schema stays 1, files without them read and write unchanged. Checks for round trip and for an older file.
-- [ ] 2. Confirm delivery: record with the AI as actor and the evidence text; `deliveryConfirmation(event:)` counts an AI record only when the process says person-or-ai (a hand-written AI record under "person only" does not count); `markview_confirm_delivery`; refusals with the reason (person only, no confirmed event, item not under way, empty evidence). Checks in the transition-log and completion suites.
-- [ ] 3. Event engine: `fire(event, kind, issue, cause)` finds rules with that event whose from-statuses contain the stored status and that have a `system` entry, and applies the step as `.system("MarkView")` with a command key per item, event and cause (once; a person's move back is not undone by the same event; nothing for events in the past). Hooks in the four places above. Checks for each hook with a fake workflow.
-- [ ] 4. Read and learn: `markview_get_workflow` (file format, name, revision, plain words), guide topic `workflow-format` (statuses and roles, rules, conditions per actor, processes, who confirms, events, examples, and what the model cannot express); a check fails when an allowed value in code (event, condition, kind, mode) is missing from the guide.
-- [ ] 5. Propose: `markview_propose_workflow(workflow, summary)` validates with the Save checks and returns each problem; a valid proposal is held by the window (`@Published`, memory only), with the differences in plain words and the items that would need a replacement; no tool writes the file; the reply says the person opens Workflow and presses Save. Outdated revision = shown as outdated.
-- [ ] 6. UI: banner in the Workflow tab (who proposed, when, summary, differences; "Review in the draft", "Dismiss"); "Who confirms" on the Processes page and in the Done panel sentence; the event on the rule card and in the diagram story. Built with the existing views; checked off-screen where a layout suite exists, not on screen.
-- [ ] 7. Verification: every standalone suite touched (workflow format, log, completion, store, github, context, flow, diagram, template), Debug build, `./bump-version.sh minor`, PR with test plan, merge. Then ask Boris about the release (one release at the end of the batch).
+- [x] 1. Format: `DeliveryRules.confirmedBy` (person | person-or-ai, absent = person) and `LifecycleRule.event` (known events; an unknown name is kept, never fires, and `validate()` reports it); both optional, schema stays 1, files without them read and write unchanged. Checks for round trip and for an older file.
+- [x] 2. Confirm delivery: record with the AI as actor and the evidence text; `deliveryConfirmation(event:)` counts an AI record only when the process says person-or-ai (a hand-written AI record under "person only" does not count); `markview_confirm_delivery`; refusals with the reason (person only, no confirmed event, item not under way, empty evidence). Checks in the transition-log and completion suites.
+- [x] 3. Event engine: `fire(event, kind, issue, cause)` finds rules with that event whose from-statuses contain the stored status and that have a `system` entry, and applies the step as `.system("MarkView")` with a command key per item, event and cause (once; a person's move back is not undone by the same event; nothing for events in the past). Hooks in the four places above. Checks for each hook with a fake workflow.
+- [x] 4. Read and learn: `markview_get_workflow` (file format, name, revision, plain words), guide topic `workflow-format` (statuses and roles, rules, conditions per actor, processes, who confirms, events, examples, and what the model cannot express); a check fails when an allowed value in code (event, condition, kind, mode) is missing from the guide.
+- [x] 5. Propose: `markview_propose_workflow(workflow, summary)` validates with the Save checks and returns each problem; a valid proposal is held by the window (`@Published`, memory only), with the differences in plain words and the items that would need a replacement; no tool writes the file; the reply says the person opens Workflow and presses Save. Outdated revision = shown as outdated.
+- [x] 6. UI: banner in the Workflow tab (who proposed, when, summary, differences; "Review in the draft", "Dismiss"); "Who confirms" on the Processes page and in the Done panel sentence; the event on the rule card and in the diagram story. Built with the existing views; checked off-screen where a layout suite exists, not on screen.
+- [x] 7. Verification: every standalone suite touched (workflow format, log, completion, store, github, context, flow, diagram, template), Debug build, `./bump-version.sh minor`, PR with test plan, merge. Then ask Boris about the release (one release at the end of the batch).
 
 Not in this change: an MCP tool that writes the workflow file (by decision), events based on time or on files, a proposal that survives a restart, a per-assistant tool list.
 
-Open for Boris before step 1: accept DEC-005 and DEC-006 (or change them).
+### Review (2026-11-09)
+
+Delivered in PR #340 (merged into `main` as da062a7), version 5.52.0. Not released and not installed: that waits for Boris.
+
+What changed against the plan:
+- `pull-request-opened` was dropped from the events. The app observes only merged pull requests, so the event could not fire honestly. REQ-004 and DEC-006 now say so. The events are work-started (any start step), investigation-finished (bugs only) and pull-request-merged (only while MarkView runs, only with GitHub on, the first look at an item only seeds the state).
+- Step 4 and 5 were written together: `markview_get_workflow`, guide topic `workflow-format` (generated from the code's enums), `markview_propose_workflow`. The proposal is held by the coordinator (`workflowProposal`), cleared by any successful save, and shown as outdated when the revision moved.
+- A check reads `AgentBrowserRegistration.swift` for every assistant the app knows (Claude Code, Codex, Copilot, Cline, Antigravity), and another asserts that no tool writes the workflow.
+
+Verified: all 13 suites of `tools/tests/issue-lifecycle-tests.sh`, `project-agent-tools` (39 tools), `control-agent-tools`, `feature-discovery`, `ui-studio-session`, `workflow-story/done/diagram/flow/template`, and `workflow-editor-layout` (the proposal banner measured off-screen at 400, 760 and 1100 pt). Debug build succeeded at 5.52.0.
+
+Not verified (no visible test windows, no full-harness run): the coordinator hooks that raise events (`fire` in `transition`, `FeatureIntake.analyzeBug`, `completeFinishedWork`) are compile-checked and covered only through the service-level suites; nobody has looked at the banner and the "Who confirms" picker in the running app; no assistant has called the new tools in a restarted session (a running session must be restarted to see them).
+
+Still to do after Boris installs 5.52.0:
+- [ ] Part A in the window (Boris): Workflow, Processes, Standard bug, Delivery event, then Save; or choose "A person, or an AI with evidence" under Who confirms.
+- [ ] Check BUG-116 and BUG-117 with `markview_issue_context`; they must read `done`.
+- [ ] Look at the banner by asking an assistant for a change (for example: a bug moves to review when its investigation finishes) and pressing Review in the draft, then Save.
+- [ ] Follow-up: the hint texts of the lifecycle tool replies still say "implementing" and "fixing" instead of the project's statuses.
+
