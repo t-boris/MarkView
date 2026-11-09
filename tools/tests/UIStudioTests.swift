@@ -122,6 +122,72 @@ do {
     check("BUG-097 unknown sort field keeps seed order", names("sort=unknown") == ["Apollo", "Gemini", "Mercury"])
 }
 
+// A list response template keeps filtering and sorting live while supplying the application's pagination contract.
+do {
+    let template = json(#"{"items":"{{ studio.items }}","pagination":{"total":"{{studio.total}}","offset":"{{studio.offset}}","limit":"{{studio.limit}}"}}"#)
+    var taskSpec = StudioEnvironmentSpec()
+    taskSpec.entities = [StudioEntity(name: "task")]
+    taskSpec.seed = ["task": [
+        json(#"{"id":"1","name":"Training pending","type":"Training","status":"pending","recentlyCompleted":"false","dueDate":"2026-01-22"}"#),
+        json(#"{"id":"2","name":"Training overdue","type":"Training","status":"overdue","recentlyCompleted":"false","dueDate":"2026-01-10"}"#),
+        json(#"{"id":"3","name":"Training complete","type":"Training","status":"complete","recentlyCompleted":"true","dueDate":"2026-01-12"}"#),
+        json(#"{"id":"4","name":"Shopper pending","type":"Mystery Shopper","status":"pending","recentlyCompleted":"false","dueDate":"2026-01-24"}"#),
+        json(#"{"id":"5","name":"Shopper overdue","type":"Mystery Shopper","status":"overdue","recentlyCompleted":"false","dueDate":"2026-01-09"}"#),
+        json(#"{"id":"6","name":"Shopper complete","type":"Mystery Shopper","status":"complete","recentlyCompleted":"true","dueDate":"2026-01-13"}"#),
+    ]]
+    taskSpec.rules = [StudioRule(id: "tasks-list", method: "GET", path: "/api/task", operation: .list, entity: "task",
+                                envelope: "items", filters: ["type", "recentlyCompleted"],
+                                response: StudioFixedResponse(status: 200, body: template))]
+    var taskSim = StudioSimulator(spec: taskSpec, scenario: base, appOrigin: app)
+    func tasks(_ query: String) -> StudioJSON? { answer(taskSim.handle(request("GET", "/api/task?" + query))).1 }
+    let all = tasks("limit=10&offset=0")
+    check("list templates expose mixed task types and statuses with numeric pagination",
+          all?["items"]?.arrayValue?.count == 6 && all?["pagination"] == json(#"{"total":6,"offset":0,"limit":10}"#))
+    let training = tasks("type=Training&limit=1&offset=1&sort=dueDate.desc")
+    check("list templates filter and sort before paging; total is the filtered count",
+          training?["items"]?.arrayValue?.first?["id"] == .string("3")
+          && training?["pagination"] == json(#"{"total":3,"offset":1,"limit":1}"#))
+    let completed = tasks("type=Mystery%20Shopper&recentlyCompleted=true&limit=10&offset=0")
+    check("list templates combine task type and recently completed filters",
+          completed?["items"]?.arrayValue?.map { $0["id"] } == [.string("6")]
+          && completed?["pagination"]?["total"] == .number(1))
+    let searched = tasks("q=overdue&page=2&per_page=1&sort=dueDate.asc")
+    check("list templates count search results before slicing page aliases",
+          searched?["items"]?.arrayValue?.first?["id"] == .string("2")
+          && searched?["pagination"] == json(#"{"total":2,"offset":1,"limit":1}"#))
+    let missing = tasks("type=Other&limit=10&offset=0")
+    let beyond = tasks("type=Training&limit=10&offset=20")
+    check("list templates retain pagination for zero matches and out-of-range pages",
+          missing?["items"] == .array([]) && missing?["pagination"] == json(#"{"total":0,"offset":0,"limit":10}"#)
+          && beyond?["items"] == .array([]) && beyond?["pagination"] == json(#"{"total":3,"offset":20,"limit":10}"#))
+    var empty = base
+    empty.overrides = [StudioOverride(ruleId: "tasks-list", empty: true)]
+    taskSim.activate(empty)
+    let emptyPage = tasks("limit=10&offset=0")
+    check("the empty scenario preserves the list response template",
+          emptyPage?["items"] == .array([]) && emptyPage?["pagination"] == json(#"{"total":0,"offset":0,"limit":10}"#))
+
+    taskSpec.rules[0].response = nil
+    taskSim = StudioSimulator(spec: taskSpec, scenario: base, appOrigin: app)
+    var repaired = base
+    repaired.overrides = [StudioOverride(ruleId: "tasks-list", status: 200, body: template)]
+    check("the context controls accept a dynamic list override",
+          StudioContextValidator.problems(StudioContextPlan(structured: contextObject(overrides: [
+              overrideObject(ruleId: "tasks-list", status: 200, body: template.text)
+          ])), current: base, spec: taskSpec).isEmpty)
+    taskSim.activate(repaired)
+    check("a context override repairs an existing list without freezing its filters",
+          tasks("type=Training&limit=10")?["pagination"]?["total"] == .number(3)
+          && tasks("type=Mystery%20Shopper&recentlyCompleted=true&limit=10")?["pagination"]?["total"] == .number(1))
+    repaired.overrides[0] = StudioOverride(ruleId: "tasks-list", status: 200, body: json(#"{"items":[],"fixed":true}"#))
+    taskSim.activate(repaired)
+    check("literal list overrides remain fixed answers", tasks("type=Training") == json(#"{"items":[],"fixed":true}"#))
+    repaired.overrides[0] = StudioOverride(ruleId: "tasks-list", status: 500, body: template)
+    taskSim.activate(repaired)
+    let error = answer(taskSim.handle(request("GET", "/api/task")))
+    check("error overrides remain literal even when their body has list placeholders", error.0 == 500 && error.1 == template)
+}
+
 let renamed = answer(sim.handle(request("PATCH", "/api/projects/2", body: #"{"name":"Gemini II"}"#)))
 check("AC-03 rename answers the record", renamed.0 == 200 && renamed.1?["name"]?.stringValue == "Gemini II" && renamed.1?["status"]?.stringValue == "active")
 check("AC-03 later list reads the rename", answer(sim.handle(request("GET", "/api/projects"))).1?.arrayValue?.contains { $0["name"]?.stringValue == "Gemini II" } == true)
@@ -756,6 +822,17 @@ func promptChecks() {
     let parsed = StudioPrompts.proposal(from: structured)
     check("a strict-schema answer becomes a proposal", parsed?.rules.first?.method == "GET" && parsed?.rules.first?.envelope == nil
           && parsed?.records["labels"]?.count == 2 && parsed?.entities.first?.fields.first?.enumValues == nil && parsed?.rules.first?.evidence.first?.kind == .type)
+    var templated = structured
+    var templateRules = structured["rules"] as! [[String: Any]]
+    templateRules[0]["responseBody"] = #"{"items":"{{studio.items}}","pagination":{"total":"{{studio.total}}"}}"#
+    templated["rules"] = templateRules
+    let templateProposal = StudioPrompts.proposal(from: templated)
+    var preparedSim = StudioSimulator(spec: StudioEnvironmentSpec(), scenario: base, appOrigin: app)
+    let templateProblems = templateProposal.map { preparedSim.register($0) } ?? ["No proposal"]
+    let preparedPage = answer(preparedSim.handle(request("GET", "/api/labels?limit=1"))).1
+    check("preparation parses and registers a dynamic list response with a default success status",
+          templateProblems.isEmpty && preparedPage?["items"]?.arrayValue?.count == 1
+          && preparedPage?["pagination"]?["total"] == .number(2), templateProblems.joined(separator: "; "))
     let plan = StudioPrompts.editPlan(from: ["scope": "shared-component", "scopeNote": "Card is used 6 times", "needsClarification": true,
                                              "question": "All cards or this one?", "options": ["All cards", "Only this card"], "summary": "", "edits": []])
     check("a clarification answer has no edits", plan?.needsClarification == true && plan?.edits.isEmpty == true && plan?.scope == .sharedComponent)

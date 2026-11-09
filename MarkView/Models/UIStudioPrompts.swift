@@ -68,6 +68,12 @@ enum StudioPrompts {
           in `enumValues`, and spread the seed over them. A value the code does not know crashes the page.
         - `filters` name fields of the entity's records only. Paging and sorting parameters (limit, offset, page, per_page, \
           cursor, sort, order) are not filters: MarkView pages lists itself.
+        - For a list whose response is more than an array or a single `envelope`, set `responseBody` to a JSON template. \
+          Whole-string placeholders `{{studio.items}}`, `{{studio.total}}`, `{{studio.offset}}` and `{{studio.limit}}` \
+          become the paged records, the count after filtering and search but before paging, and the effective offset and \
+          page size as JSON numbers. For example: {"items":"{{studio.items}}","pagination":{"total":"{{studio.total}}",\
+          "offset":"{{studio.offset}}","limit":"{{studio.limit}}"}}. Keep operation `list` and its filters, never replace \
+          a filterable list with a fixed `respond` answer.
         - UI Studio is a mock-up (DEC-007): nothing is checked for real. A write, a sign-in, a consent, a payment or a form \
           submission succeeds with the answer the application expects, whatever was typed. That the real server needs \
           authentication, an admin or third-party SDK, a database or another service is never a reason to refuse: answer \
@@ -169,7 +175,8 @@ enum StudioPrompts {
             "include": ["type": "array", "items": ["type": "object", "properties": [
                 "field": ["type": "string"], "entity": ["type": "string"], "foreignKey": ["type": "string"]],
                 "required": ["field", "entity", "foreignKey"]]],
-            "responseStatus": ["type": "integer"], "responseBody": ["type": "string", "description": "JSON text of a respond rule's body"],
+            "responseStatus": ["type": "integer"],
+            "responseBody": ["type": "string", "description": "JSON text of a respond body, or a list/document response template"],
             "evidence": evidence], "required": ["id", "method", "path", "operation", "evidence"]]
         return ["type": "object", "properties": [
             "unsupported": ["type": "boolean"], "reason": ["type": "string"],
@@ -226,8 +233,8 @@ enum StudioPrompts {
                 parsed.response = StudioFixedResponse(status: (rule["responseStatus"] as? NSNumber)?.intValue ?? 200,
                                                       body: nonEmpty("responseBody").flatMap { StudioJSON(text: $0) } ?? .object([:]))
             }
-            if operation == .document {
-                // A document answers with the document itself unless a template wraps it.
+            if operation == .document || operation == .list {
+                // Lists and documents keep their computed data unless a template wraps it.
                 parsed.documentAction = nonEmpty("documentAction").flatMap(StudioRule.DocumentAction.init(rawValue:))
                 if let body = nonEmpty("responseBody").flatMap({ StudioJSON(text: $0) }) {
                     parsed.response = StudioFixedResponse(status: (rule["responseStatus"] as? NSNumber).map(\.intValue).flatMap { $0 > 0 ? $0 : nil } ?? 200,
@@ -302,6 +309,11 @@ enum StudioPrompts {
            every list in full with as many items as the request asks for. You write the new lists yourself, so you never \
            need items the prompt does not show. That is how such data is filled, not a fake, and such data is never \
            `unsupported`. \
+           To repair a list's response shape without losing filtering, sorting or paging, use an override with `status` \
+           200 and a `body` template: {"items":"{{studio.items}}","pagination":{"total":"{{studio.total}}",\
+           "offset":"{{studio.offset}}","limit":"{{studio.limit}}"}}. These whole-string placeholders become the \
+           computed page, filtered total and numeric paging values, not fixed records. Keep or add varied entity records \
+           with `data`/`addData`; do not copy them into a fixed list response. \
            Steps rebuild a page state after the route loads: click, type (`text` \
            into a field), press (a key in `text`), wait (`ms`, at most 10000), navigate (an in-app path in `text`). Use \
            selectors that exist in the project's markup and prefer stable attributes (data-testid, id, name, aria-label) \

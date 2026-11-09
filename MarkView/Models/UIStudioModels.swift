@@ -109,6 +109,7 @@ struct StudioRule: Codable, Hashable, Identifiable, Sendable {
     /// Query parameters a list filters on by equality (`?status=open`).
     var filters: [String]? = nil
     var include: [StudioInclude]? = nil
+    /// Fixed for `respond`; a dynamic response template for `list` and `document`.
     var response: StudioFixedResponse? = nil
     /// The success status when it is not the operation's usual one.
     var status: Int? = nil
@@ -166,6 +167,7 @@ struct StudioOverride: Codable, Hashable, Sendable {
     var method: String? = nil
     var path: String? = nil
     var status: Int? = nil
+    /// A successful list body with `{{studio.items}}` or paging placeholders wraps the dynamic list instead of replacing it.
     var body: StudioJSON? = nil
     var delayMs: Int? = nil
     /// A list answers `[]` (and a detail answers 404).

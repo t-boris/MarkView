@@ -216,20 +216,27 @@ struct StudioSimulator {
             if let key, case .respond(let response, _) = outcome, response.status == 200, !response.hang { journal[key] = response }
             return outcome
         }
-        guard let (rule, parameters) = rule(for: request) else {
+        guard let (matchedRule, parameters) = rule(for: request) else {
             return .unknown(contract: StudioRoute.contractKey(method: request.method, url: request.url, appOrigin: appOrigin))
         }
+        var rule = matchedRule
         let key = request.isWrite ? "write:" + (request.idempotencyKey ?? request.requestId) : nil
         if let key, let recorded = journal[key] { return .respond(recorded, rule: rule.id) }
 
         let override = scenario.overrides.first { matches($0, rule: rule) }
+        let listTemplate = rule.operation == .list && (200..<300).contains(override?.status ?? 0)
+            && override?.body.map(StudioPaging.isTemplate) == true
+        if listTemplate, let override, let status = override.status {
+            rule.response = StudioFixedResponse(status: status, body: override.body)
+            rule.status = status
+        }
         var response: StudioSimResponse
         if let override, override.hang == true {
             response = StudioSimResponse(status: 200, body: nil, hang: true)
-        } else if let override, let status = override.status {
+        } else if let override, let status = override.status, !listTemplate {
             response = .json(status, override.body ?? .object(["error": .string("Simulated error \(status)")]))
         } else if let override, override.empty == true {
-            response = emptyAnswer(rule)
+            response = emptyAnswer(rule, request: request)
         } else {
             var next = state
             var retired = retiredIDs
@@ -240,7 +247,9 @@ struct StudioSimulator {
                 retiredIDs = retired
             }
         }
-        if rule.operation == .respond || rule.operation == .document || override != nil { response = withPlaceholders(response) }
+        if rule.operation == .respond || rule.operation == .document || (override != nil && !listTemplate) {
+            response = withPlaceholders(response)
+        }
         if let delay = override?.delayMs { response.delayMs = max(0, delay) }
         if let key, (200..<300).contains(response.status), !response.hang { journal[key] = response }
         return .respond(response, rule: rule.id)
@@ -252,10 +261,10 @@ struct StudioSimulator {
         return method.uppercased() == rule.method.uppercased() && path == rule.path
     }
 
-    private func emptyAnswer(_ rule: StudioRule) -> StudioSimResponse {
+    private func emptyAnswer(_ rule: StudioRule, request: StudioHTTPRequest) -> StudioSimResponse {
         switch rule.operation {
         case .list:
-            return .json(200, rule.envelope.map { .object([$0: .array([])]) } ?? .array([]))
+            return StudioPaging.answer([], total: 0, rule: rule, query: request.query)
         case .get:
             return .json(404, .object(["error": .string("Not found")]))
         default:
@@ -316,9 +325,10 @@ struct StudioSimulator {
                 list = list.filter { $0[name]?.identityKey == wanted }
             }
             list = StudioPaging.searchAndSort(list, query: query)
+            let total = list.count
             list = StudioPaging.page(list, query: query)
             list = list.map { attach(rule.include, to: $0, idField: idField, state: state, spec: spec) }
-            return .json(rule.status ?? 200, rule.envelope.map { .object([$0: .array(list)]) } ?? .array(list))
+            return StudioPaging.answer(list, total: total, rule: rule, query: query)
         case .get:
             guard let wantedID, let record = records.first(where: { $0[idField]?.identityKey == wantedID }) else { return notFound }
             return .json(rule.status ?? 200, attach(rule.include, to: record, idField: idField, state: state, spec: spec))
@@ -611,16 +621,61 @@ enum StudioPaging {
         }.map(\.element)
     }
 
-    static func page(_ list: [StudioJSON], query: [String: String]) -> [StudioJSON] {
+    static func bounds(query: [String: String], total: Int) -> (offset: Int, limit: Int) {
         let lowered = Dictionary(query.map { ($0.key.lowercased(), $0.value) }, uniquingKeysWith: { first, _ in first })
         func number(_ names: [String]) -> Int? { names.lazy.compactMap { lowered[$0].flatMap { Int($0) } }.first }
         let size = number(sizes).map { max(0, $0) }
         var offset = number(offsets).map { max(0, $0) } ?? 0
-        if number(offsets) == nil, let page = number(pages), let size, page > 0 { offset = (page - 1) * size }
-        guard offset > 0 || size != nil else { return list }
-        let start = min(offset, list.count)
-        let end = size.map { min(list.count, start + $0) } ?? list.count
+        if number(offsets) == nil, let page = number(pages), let size, page > 0 {
+            let product = (page - 1).multipliedReportingOverflow(by: size)
+            offset = product.overflow ? Int.max : product.partialValue
+        }
+        return (offset, size ?? total)
+    }
+
+    static func page(_ list: [StudioJSON], query: [String: String]) -> [StudioJSON] {
+        let bounds = bounds(query: query, total: list.count)
+        let start = min(bounds.offset, list.count)
+        let end = start + min(bounds.limit, list.count - start)
         return Array(list[start..<end])
+    }
+
+    /// A template wraps the computed page, not the seed: totals include filters and search, before paging.
+    static func answer(_ items: [StudioJSON], total: Int, rule: StudioRule, query: [String: String]) -> StudioSimResponse {
+        guard let template = rule.response else {
+            return .json(rule.status ?? 200, rule.envelope.map { .object([$0: .array(items)]) } ?? .array(items))
+        }
+        let bounds = bounds(query: query, total: total)
+        let values: [String: StudioJSON] = [
+            "items": .array(items), "total": .number(Double(total)),
+            "offset": .number(Double(bounds.offset)), "limit": .number(Double(bounds.limit)),
+        ]
+        var response = StudioSimResponse.json(rule.status ?? template.status, fill(template.body ?? .null, values: values))
+        for (name, value) in template.headers ?? [:] { response.headers[name.lowercased()] = value }
+        return response
+    }
+
+    private static func placeholder(_ text: String) -> String? {
+        let compact = text.replacingOccurrences(of: #"\s+"#, with: "", options: .regularExpression)
+        return ["items", "total", "offset", "limit"].first { compact == "{{studio.\($0)}}" }
+    }
+
+    static func isTemplate(_ json: StudioJSON) -> Bool {
+        switch json {
+        case .string(let text): return placeholder(text) != nil
+        case .array(let items): return items.contains(where: isTemplate)
+        case .object(let fields): return fields.values.contains(where: isTemplate)
+        default: return false
+        }
+    }
+
+    private static func fill(_ json: StudioJSON, values: [String: StudioJSON]) -> StudioJSON {
+        switch json {
+        case .string(let text): return placeholder(text).flatMap { values[$0] } ?? json
+        case .array(let items): return .array(items.map { fill($0, values: values) })
+        case .object(let fields): return .object(fields.mapValues { fill($0, values: values) })
+        default: return json
+        }
     }
 }
 
