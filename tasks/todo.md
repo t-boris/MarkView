@@ -7,19 +7,29 @@ several backgrounds to choose from (falling symbols, an aurora, running bugs, "p
 bump (minor, 5.53.0).
 
 ## Plan
-- [ ] 1. Pure models (`Models/WelcomeBackdrop.swift`, `Models/WelcomeActions.swift`): the backdrop kinds and the stored choice (Shuffle resolves
+- [x] 1. Pure models (`Models/WelcomeBackdrop.swift`, `Models/WelcomeActions.swift`): the backdrop kinds and the stored choice (Shuffle resolves
   to one of the animated ones); seeded scenes for Matrix rain (columns, strips, speeds), Aurora (blobs, rays), Bug swarm (paths, followers),
   Network (nodes, edges, pulses); the action catalogue (ids, sections, hints, shortcuts, Git only in a repository).
-- [ ] 2. Layers (`Views/WelcomeBackdropView.swift`): an `NSViewRepresentable` whose view builds a CALayer tree from a scene and animates it
+- [x] 2. Layers (`Views/WelcomeBackdropView.swift`): an `NSViewRepresentable` whose view builds a CALayer tree from a scene and animates it
   with Core Animation only (no timer); size/theme change rebuilds; Reduce Motion = no animations, the model's start positions; never answers
   hit tests; restarts its animations when it moves to a window.
-- [ ] 3. The screen (`Views/WelcomeView.swift`): `WelcomeScreen` takes plain inputs and a slot for the resume list, so a test can host it; tile
+- [x] 3. The screen (`Views/WelcomeView.swift`): `WelcomeScreen` takes plain inputs and a slot for the resume list, so a test can host it; tile
   grid in three sections, Background menu, the empty-window state in the same style. `ContentView.welcomeView` shrinks to the call (the old
   buttons go).
-- [ ] 4. Tests: `tools/tests/welcome-screen-tests.sh` (models, catalogue, hosted screen at several widths, snapshots to look at with SNAPSHOT_DIR),
+- [x] 4. Tests: `tools/tests/welcome-screen-tests.sh` (models, catalogue, hosted screen at several widths, snapshots to look at with SNAPSHOT_DIR),
   proven able to fail once.
-- [ ] 5. Look at every snapshot (4 backdrops x dark/light x project/empty window) and fix what is unreadable before the PR.
-- [ ] 6. Version 5.53.0, Debug build, PR, merge, signed release; status `implemented` after the release is published.
+- [x] 5. Look at every snapshot (4 backdrops x dark/light x project/empty window) and fix what is unreadable before the PR.
+- [x] 6. Version 5.53.0, Debug build, PR #341 merged (0478bf1), release v5.53.0 published by `./release.sh --publish` (Developer ID signed, notarized, stapled, `spctl` accepts the DMG, app reports 5.53.0, copy in `build/`); feature status `implemented`.
+
+## Review (2026-11-09)
+- Delivered as PR #341 (merged 0478bf1), version 5.53.0. `tools/tests/welcome-screen-tests.sh`: 525 checks, three clean runs; the click-through checks were shown
+  able to fail (hit test made to answer). Debug build passes.
+- Boris's mid-work request (several backgrounds) became REQ-002 and grew the scope from one rain to four scenes plus Shuffle/Off; one PR, one bump.
+- Tile list grew from 13 to 17 after the first picture: with 5 and 4 tiles per group the 3-column grid had holes; groups of 6/6/4-5 read as a design.
+- Looked at 45 pictures (4 backdrops + Off x 3 themes x 3 window shapes); fixed from them: a blurred scrim that hid the aurora, hard-edged aurora rays,
+  uneven tile heights, a content column stuck to the top.
+- Not checked by me: the motion on a real display and its WindowServer cost, a hand click on each tile in the running app, the Background menu, the choice
+  surviving a restart, Reduce Motion switched in System Settings (the still path is covered at layer level). REQ criteria for those stay unticked.
 
 ## Not verifiable without the running app
 The motion itself (an off-screen render shows the start positions only) and the cost in WindowServer. Said plainly in the PR and the report.

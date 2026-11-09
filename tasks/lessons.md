@@ -1735,3 +1735,19 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
 - A path through the UI that I have not seen is "according to the code, not checked on screen", said in those words, with the file it comes from.
 - When a step in the lifecycle needs the person, name the one control that surely exists (the status menu at the top right of the bug panel, which offers "change anyway with a reason") and offer the alternative of changing the rule, instead of a hidden button.
 - Say plainly, in the first sentence, why I cannot do the step myself (only a person can confirm a delivery event or force a status), not after a list of what I did.
+
+## 2026-11-09 — a picture from `cacheDisplay` does not show blur, so do not judge an effect by it (welcome backdrops)
+
+- I put a blurred patch of the window colour behind the tile column to calm the text. `bitmapImageRepForCachingDisplay` + `cacheDisplay` renders the layer tree
+  without compositing filters: the patch came out as a hard rectangle with a visible edge, and the aurora behind it looked cut off at x = 120. In the real app
+  the blur would have worked; the picture could not tell me. I removed the effect (text halos on the few words without a card, near-opaque cards for the rest)
+  instead of trusting what I could not see.
+  Rule: for what I must verify by looking, use only effects the snapshot renders (gradients, opacity, shadows); a filter or a blur is "not seen" and is said so.
+- Motion can be proved without a screen: add the animations to layers of a window that is ordered in far outside every display, `CATransaction.flush()`, read
+  `presentation()?.position` twice 0.6 s apart. It showed the matrix strips falling at 74 to 189 pt/s and the bugs walking. The picture of a still layer tree cannot.
+- A check on animated values that depends on a random seed is flaky unless it counts the cases the seed can produce: "every strip fell" failed when 6 of 53 strips
+  had left the bottom edge and come round in 0.6 s. State the exact rule (fell, or came round again, and not many of those).
+- The first picture decided the design: 5 and 4 tiles per group left holes in a 3-column grid, so the list grew by the actions the app really has (Quick Feature,
+  I Need to Understand, New Research, Workflow). Look at the grid after the catalogue changes, not only at the colours.
+- The safety check blocks `rm -f $VAR/*`. Write snapshots to a fresh directory instead of clearing one, or use a literal absolute path.
+
