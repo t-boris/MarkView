@@ -2,7 +2,7 @@
 type: feature
 id: assistants-confirm-delivery-with-evidence-and-propose-workflow
 title: Assistants confirm delivery with evidence and propose workflow changes through MCP
-status: in-progress
+status: done
 owner: Boris Tsekinovsky
 created: 2026-11-09
 provenance: Created by an AI agent through MarkView from Boris, 2026-11-09, messages about BUG-116 and BUG-117 not closing
