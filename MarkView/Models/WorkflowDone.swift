@@ -43,7 +43,8 @@ struct WorkflowDone: Equatable, Sendable {
             release = Mark(name: "Release", required: true, detail: "A GitHub release that contains the work is published")
         case .humanConfirmed(let name):
             let event = name.trimmingCharacters(in: .whitespaces)
-            release = Mark(name: "Delivery event", required: true, detail: event.isEmpty ? "A person confirms the delivery event" : "A person confirms: \(event)")
+            let who = variant.confirmer == .personOrAI ? "A person, or an AI with its evidence, confirms" : "A person confirms"
+            release = Mark(name: "Delivery event", required: true, detail: event.isEmpty ? "\(who) the delivery event" : "\(who): \(event)")
         }
         let marks = [
             Mark(name: "Pull request", required: pullRequest,
@@ -101,7 +102,8 @@ struct WorkflowDone: Equatable, Sendable {
         case .githubRelease: parts.append("a published GitHub release")
         case .humanConfirmed(let name):
             let event = name.trimmingCharacters(in: .whitespaces)
-            parts.append(event.isEmpty ? "a confirmed delivery event" : "a person's confirmation: \(event)")
+            let who = variant.confirmer == .personOrAI ? "a confirmation by a person or an AI with evidence" : "a person's confirmation"
+            parts.append(event.isEmpty ? "a confirmed delivery event" : "\(who): \(event)")
         }
         let joined: String
         switch parts.count {

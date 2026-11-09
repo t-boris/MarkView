@@ -93,5 +93,27 @@ let nobody = TransitionStory.make(edited, processes: [pullRequest])
 check(nobody.label == "Completion" && nobody.processes.isEmpty && nobody.actors.allSatisfy { !$0.allowed },
       "a step nobody may make has a plain label and no process lines", nobody.label)
 
+// MARK: Events and who confirms
+
+let onStart = LifecycleRule(from: ["in-progress"], to: "in-review", kind: .spec, needs: [.human: [], .ai: [], .system: []], event: .workStarted)
+let onStartStory = TransitionStory.make(onStart, processes: [])
+check(onStartStory.trigger == "When work is started", "a rule with an event says when it happens", onStartStory.trigger)
+check(onStartStory.automatic && onStartStory.label.hasSuffix("· automatic"), "a rule with an event is automatic", onStartStory.label)
+check(actor(onStartStory, .system).text == "Makes this step by itself as soon as work is started.", "MarkView is said to take the step when the event happens", actor(onStartStory, .system).text)
+let noEvent = LifecycleRule(from: ["in-progress"], to: "in-review", kind: .spec, needs: [.human: [], .ai: [], .system: []])
+check(!TransitionStory.make(noEvent, processes: []).automatic && TransitionStory.make(noEvent, processes: []).trigger == TransitionStory.triggerWords(for: .spec),
+      "the same rule without an event is not automatic", TransitionStory.make(noEvent, processes: []).trigger)
+let eventClosed = LifecycleRule(from: ["in-progress"], to: "in-review", kind: .spec, needs: [.human: []], event: .workStarted)
+check(!TransitionStory.make(eventClosed, processes: []).automatic, "an event without a MarkView entry does not make the step automatic")
+let eventWithEvidence = LifecycleRule(from: ["in-progress"], to: "done", kind: .completion, needs: [.system: [.deliveryEvidence]], event: .pullRequestMerged)
+check(actor(TransitionStory.make(eventWithEvidence, processes: []), .system).text == "Makes this step by itself as soon as a pull request is merged and the delivery evidence is complete.",
+      "an event and a condition are both named", actor(TransitionStory.make(eventWithEvidence, processes: []), .system).text)
+
+var installedByAI = installed
+installedByAI.confirmer = .personOrAI
+check(TransitionStory.processLines(installedByAI, parts: .delivery).contains("A person, or an AI with its evidence, confirms: installed on the other Mac"),
+      "the process line says that an AI may confirm", "\(TransitionStory.processLines(installedByAI, parts: .delivery))")
+check(TransitionStory.processLines(installed, parts: .delivery).contains("A person confirms: installed on the other Mac"), "and a person only otherwise")
+
 print(failures == 0 ? "\nall passed" : "\n\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

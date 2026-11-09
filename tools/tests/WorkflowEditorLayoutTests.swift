@@ -24,6 +24,8 @@ enum GitHubSettings { static let enabledKey = "settings.github.enabled" }
         var failures: [String] = []
     }
     var workflowLoad: WorkflowLoad = .loaded(.standard)
+    var workflowProposal: WorkflowProposal?
+    func dismissWorkflowProposal() { workflowProposal = nil }
     var workflow: ProjectWorkflow { workflowLoad.effective }
     var workflowStore: ProjectWorkflowStore? { nil }
     func reloadWorkflow() {}
@@ -107,9 +109,10 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
     return workflow
 }
 
-@MainActor func measureTab(_ label: String, workflow: ProjectWorkflow, width: CGFloat) {
+@MainActor func measureTab(_ label: String, workflow: ProjectWorkflow, width: CGFloat, proposal: WorkflowProposal? = nil) {
     let store = FeatureStore()
     store.lifecycle.workflowLoad = .loaded(workflow)
+    store.lifecycle.workflowProposal = proposal
     let editor = WorkflowEditorModel()
     editor.attach(to: store)
     editor.expanded = [ProcessTemplate.quickFeatureID, "bug-copy"]
@@ -411,6 +414,22 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
         measureTab("standard workflow", workflow: .standard, width: width)
         measureTab("with processes", workflow: withProcesses(.standard), width: width)
         measureTab("widest workflow", workflow: widest(), width: width)
+        var proposed = withProcesses(.standard)
+        let existing = Set(proposed.bug.rules.map(\.id))
+        let statuses = proposed.bug.statuses.map(\.id)
+        var added = 0
+        for from in statuses {
+            for to in statuses where from != to && !existing.contains(from + ">" + to) && added < 10 {
+                proposed.bug.rules.append(LifecycleRule(from: [from], to: to, kind: .spec, needs: [.human: [], .ai: [], .system: []],
+                                                        event: added.isMultiple(of: 2) ? .workStarted : .investigationFinished))
+                added += 1
+            }
+        }
+        let proposal = WorkflowProposal(id: UUID(), workflow: proposed,
+                                        summary: "Let an AI confirm the installation of a bug and move a bug to review when its investigation finishes, with a long enough sentence to wrap on a narrow tab",
+                                        proposedBy: "Claude Code", at: Date(), differences: WorkflowDescription.differences(from: .standard, to: proposed))
+        check(proposal.differences.count > 8, "the sample proposal has more changes than the banner shows at first (\(proposal.differences.count))")
+        measureTab("with a proposal", workflow: .standard, width: width, proposal: proposal)
     }
 }
 
