@@ -1685,3 +1685,8 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
 - Look at what a layout draws before calling it done: the geometry checks passed on a layout that put every arrow on one line and let curves leave the drawing. Render the real view off screen (`SNAPSHOT_DIR` in `workflow-editor-layout-tests.sh`) and read the picture.
 - SwiftUI gestures in a window hosted for a test need the window ordered in (`orderFrontRegardless()` on the one placed 20000 pt away from every display); `sendEvent` to a window that was never ordered in does nothing. SwiftUI menus and pickers are no `NSPopUpButton`: count the `_FocusRingView`s to tell what an inspector holds.
 
+
+## 2026-11-08 — a transition diagram must say why, and must fill the screen
+
+- Boris on 5.47.0: "not scale... hard to see transactions", and then: which are the conditions of a transition, where does one see that it must be merged to the default branch, checked visually or automatically, what do the arrows give us? A state diagram that shows only from/to and the name of a step answers none of that. Show the trigger of each arrow (the event or evidence), who may fire it and what MarkView does by itself, next to the arrow, not on another screen.
+- A diagram has to use the room the window has: derive the zoom from the available width (and a height limit) and scale lengths, text and line widths together, instead of a fixed size with a maximum.

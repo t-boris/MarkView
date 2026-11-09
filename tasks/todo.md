@@ -5036,3 +5036,11 @@ Decisions (mine, nothing stored changes: the diagram is a view of the same `Life
 - Not hand-checked in the running app: save after editing in the diagram, the inspector at a real window size, dragging with a trackpad. At 400 pt the diagram is scaled to about half, so its names are small.
 - Decisions I made without asking: native SwiftUI Canvas instead of a web page (no bridge, no library); the statuses list and the transition rows are replaced by the diagram and its inspector (the source view stays); dragging an arrow between two states joins the existing rule of the same kind into the same state instead of adding a duplicate; the head of an arrow cannot be dragged to another state yet (change it in the inspector).
 - BUG-112 is still `fixing` in MarkView: the status rules want the checks and the release. It becomes `fixed` after the common release.
+
+## BUG-113: the transition diagram scales with the tab and is easier to follow (2026-11-08)
+Boris, after the first look at 5.47.0 in the running app: "not scale... hard to see transactions". Branch `fix/bug-113-diagram-scale-and-visibility`, PR #333 (5.48.0), merged (50a9a69). No release of its own.
+- [x] Zoom (`WorkflowDiagram.zoom`, `Metrics(zoom:)`): every length, text size and line width follows the width of the tab (up to 2.2 times, not taller than 700 pt, smaller in a narrow tab); drawn at the real size, not scaled as a bitmap.
+- [x] More air and larger marks: states of a lane 22 pt apart, lines 2 pt, names 10.5 pt, larger arrowheads; room right of the last lane only where an arrow needs it.
+- [x] Pointing at a state or an arrow lights its path, as a click does.
+- Verified: `workflow-diagram-tests.sh`, `workflow-editor-layout-tests.sh` (real mouse events at the zoom the tab uses), `issue-lifecycle-tests.sh workflow`, Debug build, off-screen render at 1100 pt. Not hand-checked in the running app.
+- Open, from Boris's next message (the diagram is "not good enough"): it shows from/to and the name of a step, not WHY a step happens (the condition or event, who or what triggers it, what is automatic). The model has these (per arrow: what a person, an AI and MarkView need; per process: pull request or direct commit, checks, delivery event, who accepts) but they are on other screens. Proposal waits for Boris's answer.
