@@ -804,76 +804,69 @@ struct ContentView: View {
 
     // MARK: - Welcome View
 
+    /// The screen of a window with no file open: action tiles over an animated backdrop (`WelcomeScreen`). What each tile does is
+    /// decided here, with the same calls as the menus and the search commands.
     private var welcomeView: some View {
-        ScrollView {
-        VStack(spacing: 14) {
-            Image(systemName: "doc.richtext")
-                .uiFont(size: 36)
-                .foregroundColor(palette.blue)
-
-            Text(workspaceManager.rootNode == nil ? "Open a Project" : "No File Open")
-                .uiFont(size: 20, weight: .semibold)
-                .foregroundColor(palette.textBright)
-
+        WelcomeScreen(projectName: workspaceManager.rootNode.map { WindowTitle.folderName(of: $0.url) },
+                      isGitRepo: workspaceManager.gitClient.isGitRepo,
+                      perform: performWelcomeAction) {
             if workspaceManager.rootNode != nil {
-                // A folder is open but no document yet.
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120 * min(appFontScale, 1.5)), spacing: 8)], spacing: 8) {
-                    Button { workspaceManager.showAIConsole() } label: {
-                        Label("Open Terminal", systemImage: "terminal")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    Button {
-                        workspaceManager.intake = IntakeRequest(kind: .feature)
-                        workspaceManager.layout.workspaceArea = .work
-                    } label: { Label("New Feature…", systemImage: "plus") }
-                    .buttonStyle(.bordered)
-                    Button(action: { workspaceManager.openArchitecture() }) {
-                        Label("Open X-Ray", systemImage: "viewfinder")
-                    }
-                    .buttonStyle(.bordered)
-                    .keyboardShortcut("4", modifiers: [.command])
-                    Button { openFile() } label: { Label("Open File...", systemImage: "doc") }
-                        .buttonStyle(.bordered)
-                }
-                .padding(.top, 8)
                 HandoffStartList(store: workspaceManager.features)
                     .environmentObject(workspaceManager)
                     .frame(maxWidth: 700)
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120 * min(appFontScale, 1.5)), spacing: 8)], spacing: 8) {
-                    Button("Open Folder...") { openFolder() }
-                        .buttonStyle(.borderedProminent)
-                        .tint(palette.blue)
-                    Button("Open File...") { openFile() }
-                        .buttonStyle(.bordered)
-                    // Start a Project from Scratch (REQ-001): no folder needed.
-                    Button("New Project...") { workspaceManager.newProject = NewProjectRequest() }
-                        .buttonStyle(.bordered)
-                }
-                .padding(.top, 8)
                 ProjectDraftList(drafts: ProjectDraftStore.shared) { id in
                     workspaceManager.newProject = NewProjectRequest(resume: id)
                 }
-                .padding(.top, 12)
                 if !workspaceManager.recentProjects.isEmpty {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Recent projects").uiFont(size: 13, weight: .semibold)
-                    ForEach(workspaceManager.recentProjects, id: \.self) { path in
-                        RecentProjectRow(path: path) {
-                            workspaceManager.openFolder(URL(fileURLWithPath: path, isDirectory: true))
-                        } onRemove: {
-                            workspaceManager.removeRecentProject(path)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Recent projects").uiFont(size: 13, weight: .semibold)
+                        ForEach(workspaceManager.recentProjects, id: \.self) { path in
+                            RecentProjectRow(path: path) {
+                                workspaceManager.openFolder(URL(fileURLWithPath: path, isDirectory: true))
+                            } onRemove: {
+                                workspaceManager.removeRecentProject(path)
+                            }
                         }
                     }
-                }
-                .frame(maxWidth: 600, alignment: .leading)
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(palette.bgActive.opacity(0.94)))
+                    .frame(maxWidth: 600, alignment: .leading)
                 }
             }
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func performWelcomeAction(_ id: WelcomeActionID) {
+        switch id {
+        case .terminal: workspaceManager.showAIConsole()
+        case .newFeature:
+            workspaceManager.intake = IntakeRequest(kind: .feature)
+            workspaceManager.layout.workspaceArea = .work
+        case .quickFeature:
+            workspaceManager.intake = IntakeRequest(kind: .quickFeature)
+            workspaceManager.layout.workspaceArea = .work
+        case .newBug:
+            workspaceManager.intake = IntakeRequest(kind: .bug)
+            workspaceManager.layout.workspaceArea = .work
+        case .understand: workspaceManager.intake = IntakeRequest(kind: .understand)
+        case .research: workspaceManager.newResearch()
+        case .discussions: workspaceManager.openDiscussions()
+        case .tasks: activate(.work)
+        case .xray: workspaceManager.openArchitecture()
+        case .search: workspaceManager.showGlobalSearch = true
+        case .files: activate(.files)
+        case .openFile: openFile()
+        case .git:
+            workspaceManager.layout.workspaceArea = .work
+            workspaceManager.layout.workSection = .git
+        case .deployments: workspaceManager.openDeployments()
+        case .workflow: workspaceManager.openWorkflow()
+        case .uiStudio: workspaceManager.openUIStudio()
+        case .browser: _ = workspaceManager.openBrowser(nil)
+        case .openFolder: openFolder()
+        case .newProject: workspaceManager.newProject = NewProjectRequest()
         }
-        .background(palette.bg)
     }
 
     // MARK: - Actions
