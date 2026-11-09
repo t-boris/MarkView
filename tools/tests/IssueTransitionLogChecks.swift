@@ -425,4 +425,60 @@ do {
     check("the service reads the history back", service.history(.bug, "BUG-002").changes.count == 1)
 }
 
+// MARK: File storage keeps the decoded log until the file changes (BUG-117)
+
+func lineRecord(_ n: Int) -> TransitionRecord {
+    TransitionRecord(phase: .applied, command: "c\(n)", kind: .bug, issue: "BUG-\(n)", from: "open", to: "fixing", actor: claude, reason: "r",
+                     transitionKind: .start, evidence: ["start: handed to Claude Code"])
+}
+
+do {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("lifecycle-cache-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let first = FileTransitionStorage(projectRoot: folder)
+    let second = FileTransitionStorage(projectRoot: folder)  // another window, or another process, on the same project
+    for n in 1...3 { try! first.append(lineRecord(n)) }
+    let loaded = try! first.load()
+    check("a repeated load returns the same records", try! first.load() == loaded && loaded.count == 3)
+
+    try! second.append(lineRecord(4))
+    check("a record appended through another storage shows at the next load",
+          (try! first.load()).map(\.issue) == ["BUG-1", "BUG-2", "BUG-3", "BUG-4"])
+
+    // The file rewritten in place with the same size and other content: the modification time tells.
+    let text = try! String(contentsOf: first.url, encoding: .utf8)
+    Thread.sleep(forTimeInterval: 0.02)
+    try! text.replacingOccurrences(of: "BUG-1\"", with: "BUG-9\"").write(to: first.url, atomically: false, encoding: .utf8)
+    check("a rewrite with the same size and other content shows", (try! first.load()).map(\.issue) == ["BUG-9", "BUG-2", "BUG-3", "BUG-4"])
+
+    Thread.sleep(forTimeInterval: 0.02)
+    try! (text.split(separator: "\n").prefix(2).joined(separator: "\n") + "\n").write(to: first.url, atomically: false, encoding: .utf8)
+    check("a shorter file shows", (try! first.load()).map(\.issue) == ["BUG-1", "BUG-2"])
+
+    // Replaced by another file (the way an editor or a git checkout writes): a new identity.
+    let replacement = folder.appendingPathComponent("replacement.jsonl")
+    try! (text.split(separator: "\n").suffix(1).joined(separator: "\n") + "\n").write(to: replacement, atomically: false, encoding: .utf8)
+    _ = try! FileManager.default.replaceItemAt(first.url, withItemAt: replacement)
+    check("a file replaced by another shows", (try! first.load()).map(\.issue) == ["BUG-4"])
+
+    try! FileManager.default.removeItem(at: first.url)
+    check("a deleted file reads as empty", (try! first.load()).isEmpty)
+    try! first.append(lineRecord(7))
+    check("a new file after it is read", (try! first.load()).map(\.issue) == ["BUG-7"])
+}
+
+do {
+    // What scheduleProgressCheck did: the history of every work item in turn. 148 items and 700 records took 9.1 s without the cache.
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("lifecycle-cache-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let storage = FileTransitionStorage(projectRoot: folder)
+    for n in 1...700 { try! storage.append(lineRecord(n)) }
+    check("a 700-record log has 700 records", try! storage.load().count == 700)
+    let service = IssueTransitionService(storage: storage, statuses: MemoryStatusStore())
+    let started = Date()
+    for n in 1...148 { _ = service.history(.bug, "BUG-\(n)") }
+    let elapsed = Date().timeIntervalSince(started)
+    check("the history of 148 work items in a row takes well under 1.5 s (\(Int(elapsed * 1000)) ms)", elapsed < 1.5)
+}
+
 finish("transition log")

@@ -150,6 +150,21 @@ final class FileTransitionStorage: TransitionStorage {
     let url: URL
     private let lock = NSLock()
 
+    /// What identifies the file as it was read. An append changes its size and a rewrite its modification time or identity, so a
+    /// change by this app, another window or another process always shows.
+    private struct Signature: Equatable {
+        let size: Int64
+        let seconds: Int
+        let nanoseconds: Int
+        let inode: UInt64
+        let device: Int32
+    }
+
+    /// The records as last decoded, with the signature of the file they came from. Decoding every record (the ISO 8601 times above
+    /// all) takes tens of milliseconds, and the lifecycle code asks for the history of each work item in turn, so without this a
+    /// check of a project with 150 items re-read the whole log 150 times on the main thread (BUG-117).
+    private var cached: (signature: Signature, records: [TransitionRecord])?
+
     init(url: URL) { self.url = url }
 
     convenience init(projectRoot: URL) {
@@ -180,9 +195,18 @@ final class FileTransitionStorage: TransitionStorage {
         try JSONLinesFile.append(line, to: url)
     }
 
+    private static func signature(of url: URL) -> Signature? {
+        var info = stat()
+        guard stat(url.path, &info) == 0 else { return nil }
+        return Signature(size: Int64(info.st_size), seconds: info.st_mtimespec.tv_sec, nanoseconds: info.st_mtimespec.tv_nsec,
+                         inode: info.st_ino, device: info.st_dev)
+    }
+
     func load() throws -> [TransitionRecord] {
         lock.lock(); defer { lock.unlock() }
-        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        // Taken before the read: a write that lands in between leaves the cache one step behind the file, never ahead of it.
+        guard let signature = Self.signature(of: url) else { cached = nil; return [] }
+        if let cached, cached.signature == signature { return cached.records }
         let text = try String(contentsOf: url, encoding: .utf8)
         let formatter = Self.timeFormatter()
         let decoder = JSONDecoder()
@@ -193,7 +217,9 @@ final class FileTransitionStorage: TransitionStorage {
             }
             return date
         }
-        return text.split(separator: "\n").compactMap { try? decoder.decode(TransitionRecord.self, from: Data($0.utf8)) }
+        let records = text.split(separator: "\n").compactMap { try? decoder.decode(TransitionRecord.self, from: Data($0.utf8)) }
+        cached = (signature, records)
+        return records
     }
 }
 
