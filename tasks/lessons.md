@@ -1690,3 +1690,10 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
 
 - Boris on 5.47.0: "not scale... hard to see transactions", and then: which are the conditions of a transition, where does one see that it must be merged to the default branch, checked visually or automatically, what do the arrows give us? A state diagram that shows only from/to and the name of a step answers none of that. Show the trigger of each arrow (the event or evidence), who may fire it and what MarkView does by itself, next to the arrow, not on another screen.
 - A diagram has to use the room the window has: derive the zoom from the available width (and a height limit) and scale lengths, text and line widths together, instead of a fixed size with a maximum.
+
+
+## 2026-11-08 — a collection that is keyed later must be unique where it is built
+
+- BUG-114: a scan that walks overlapping folders returned one file twice, and a different module turned the list into a dictionary with `Dictionary(uniqueKeysWithValues:)`, which aborts the whole app on a repeated key. The bug was not where the trap is, but where the list is made.
+- When a list will be keyed by path or id, make the producer return unique items (track what it has read) and test it with inputs that overlap (nested folders, symlinks, a folder that holds the project), not only with the tidy layout.
+- A crash report is read before anything else: the faulting thread's top frames named the function in seconds, and showed the crash was not in the diagram code that was merged an hour earlier.

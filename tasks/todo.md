@@ -5044,3 +5044,12 @@ Boris, after the first look at 5.47.0 in the running app: "not scale... hard to 
 - [x] Pointing at a state or an arrow lights its path, as a click does.
 - Verified: `workflow-diagram-tests.sh`, `workflow-editor-layout-tests.sh` (real mouse events at the zoom the tab uses), `issue-lifecycle-tests.sh workflow`, Debug build, off-screen render at 1100 pt. Not hand-checked in the running app.
 - Open, from Boris's next message (the diagram is "not good enough"): it shows from/to and the name of a step, not WHY a step happens (the condition or event, who or what triggers it, what is automatic). The model has these (per arrow: what a person, an AI and MarkView need; per process: pull request or direct commit, checks, delivery event, who accepts) but they are on other screens. Proposal waits for Boris's answer.
+
+## BUG-114: MarkView crashed in operation discovery (2026-11-08)
+Boris: "BUG - Markview crashed!!!!" (crash report `MarkView-2026-11-08-194323.ips`, version 5.47.0). Branch `fix/bug-114-discovery-duplicate-files`, PR #334 (5.48.1), merged (440f97c). No release of its own.
+- Evidence first: the report is `EXC_BREAKPOINT` on a Swift concurrency worker, `Dictionary(uniqueKeysWithValues:)` in `ProjectOperationDiscoveryService.discover` (the source fingerprints). Not the Workflow diagram: the code is from 2026-11-06 and nothing in the trace touches it.
+- Root cause: `ProjectOperationDiscovery.scan` read a file once per granted folder, so folders that overlap (`../infra` and `../infra/scripts`, or a folder that holds the project) listed the same file twice and the repeated path aborted the app.
+- [x] `scan` skips a file it has already read (by real path), so `Inputs.files` is unique; the fingerprint code is unchanged.
+- [x] `project-operation-discovery-tests.sh` has a second document that names the nested folder: it fails on the old source (SIGTRAP at the uniqueness check) and passes now.
+- Verified: that test, Debug build. Not hand-checked: discovery on a real project with overlapping folders in the running app.
+- BUG-114 stays `fixing` until the common release (status rules want the release); 5.48.1 is not installed, the installed app is 5.47.0.
