@@ -5015,3 +5015,17 @@ One branch `fix/xray-and-review-batch` (PR #331, 5.46.0), one commit per bug, as
 - Verified: Debug build; the four suites above plus `project-change-tests.sh`. The full run of every harness was not repeated (Boris asked to skip it).
 - Not hand-checked in the running app: the date picker flow, the tab in a real window, "Explain changes" with a real assistant, the reporter's own project for BUG-111 (BQ-4/BQ-5 still open).
 - Decisions I made without asking: the date comparison opens the existing comparison view rather than a lens in the current X-Ray; the review became a tab; explanations are on request and let the assistant read the project read-only.
+
+## BUG-112: transitions as an editable state diagram (2026-11-08)
+Boris: the list of transition rows cannot be understood; draw a state diagram that can be edited (states, arrows, everything else). Branch `fix/bug-112-workflow-state-diagram`, one PR, minor bump (5.47.0); no release of its own (one common release at the end of the batch).
+
+Decisions (mine, nothing stored changes: the diagram is a view of the same `LifecycleRule` data, so `.dde/workflow/workflow.json` keeps its schema):
+- Native SwiftUI (`Canvas` for lanes and arrows, views for the states), not a WebView page: the Workflow tab is SwiftUI, the draft lives in `WorkflowEditorModel`, so no bridge message and no library is added.
+- Layout (pure, `Models/WorkflowDiagramLayout.swift`): one column ("lane") per status role (Not started, Active, Completed, Cancelled), states stacked in status order, lanes centred on each other. One rule = one arrow: a curve from every source to a junction in front of the target plus one arrowhead, so a rule with five sources reads as one step. A lane that a rule covers completely (the six specification stages that may move to each other, the cancellation from every status) is drawn as one tail from the lane frame / a bar on its edge ("any order") instead of 5-30 curves.
+- Editing: click a state (title, role, remove, the arrows into and out of it) or an arrow (the existing From / To / Kind / Person / AI / MarkView controls, now for the selected rule only); drag from a state to another to add an arrow (kind inferred from the roles); remove; add a state stays below the diagram. Used for the type tables and for a process's own transitions.
+- The list of rows is removed (no old code left); the source view stays the exact editor of the JSON.
+
+- [x] 1. Pure layout, hit testing, kind inference (`Models/WorkflowDiagramLayout.swift`) + standalone check `tools/tests/workflow-diagram-tests.sh`
+- [ ] 2. View (`Views/WorkflowDiagramView.swift`): canvas, state nodes, selection, drag-to-connect, inspector; `WorkflowTabView` uses it
+- [ ] 3. Layout test at 400/760/1100 pt, render the diagram off screen to a PNG and look at it
+- [ ] 4. Build, bump to 5.47.0, PR, merge; BUG-112 `fixed` once the evidence is there
