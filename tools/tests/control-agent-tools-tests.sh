@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/ControlAgentToolsTests.swift "$out/main.swift"
-swiftc -O -o "$out/control-agent-tools-tests" MarkView/Models/BrowserAgentTools.swift MarkView/Models/FeatureVocabulary.swift MarkView/Models/DeploymentAgentTools.swift MarkView/Models/DiscussionAgentTools.swift MarkView/Models/IssueListing.swift MarkView/Models/ProjectWorkflow.swift MarkView/Models/IssueLifecycle.swift MarkView/Models/IssueTransitionLog.swift MarkView/Models/IssueLifecycleContext.swift MarkView/Models/ProjectAgentTools.swift MarkView/Models/ControlAgentTools.swift "$out/main.swift"
+swiftc -O -o "$out/control-agent-tools-tests" MarkView/Models/BrowserAgentTools.swift MarkView/Models/FeatureVocabulary.swift MarkView/Models/DeploymentAgentTools.swift MarkView/Models/DiscussionAgentTools.swift MarkView/Models/IssueListing.swift MarkView/Models/ProjectWorkflow.swift MarkView/Models/IssueLifecycle.swift MarkView/Models/IssueTransitionLog.swift MarkView/Models/IssueLifecycleContext.swift MarkView/Models/WorkflowEvents.swift MarkView/Models/WorkflowDescription.swift MarkView/Models/ProjectAgentTools.swift MarkView/Models/ControlAgentTools.swift "$out/main.swift"
 # The control sockets live in one folder: a private one keeps a MarkView running on this Mac out of the checks.
 mkdir "$out/sockets"
 MARKVIEW_SOCKET_DIR="$out/sockets" "$out/control-agent-tools-tests"
