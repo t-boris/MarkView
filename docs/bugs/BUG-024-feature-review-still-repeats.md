@@ -2,7 +2,7 @@
 type: bug
 id: BUG-024
 title: Feature review still repeats after 4.0.0
-status: fixed
+status: done
 branch: fix/bug-024-review-repeats
 severity: high
 reporter: Boris Tsekinovsky

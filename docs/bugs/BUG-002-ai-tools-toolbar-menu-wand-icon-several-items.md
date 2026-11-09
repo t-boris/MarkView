@@ -2,7 +2,7 @@
 type: bug
 id: BUG-002
 title: "AI Tools toolbar menu (wand icon): several items do nothing and prompts arrive truncated in the AI terminal"
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-09-26

@@ -2,7 +2,7 @@
 type: feature
 id: themes-in-a-prototype-made-from-code
 title: Themes in a prototype made from code
-status: implemented
+status: done
 owner: Boris Tsekinovsky
 created: 2026-11-03
 provenance: Created by an AI agent through MarkView from Boris's question about broker-fabric themes in the Prototype Studio discussion, 2026-11-03

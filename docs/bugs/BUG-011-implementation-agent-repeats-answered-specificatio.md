@@ -2,7 +2,7 @@
 type: bug
 id: BUG-011
 title: Implementation agent repeats answered specification questions
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-09-28
@@ -29,7 +29,7 @@ questions:
     text: Пришлите путь к одной затронутой фиче или багу, повторный вопрос агента и файл, где уже был записан ответ.
     why: Это позволит проверить конкретный случай и выяснить, был ли ответ пропущен или сформулирован неоднозначно.
     status: answered
-    answer: "Same evidence as BQ-1 (24 handoff transcripts and 13 specs with duplicate question pairs); see Resolution."
+    answer: Same evidence as BQ-1 (24 handoff transcripts and 13 specs with duplicate question pairs); see Resolution.
 issue: "#52"
 ---
 
@@ -116,4 +116,3 @@ MarkView macOS app, Feature panel → Implement with AI. The user tried all avai
   records checked; after the answer the agent wrote it back (Q-002 answered, DEC-003); a fresh run then applied it
   and asked nothing about it; Codex also followed every record.
 - Not changed: the 13 existing specs keep their duplicate question pairs (owner's choice).
-

@@ -2,7 +2,7 @@
 type: bug
 id: BUG-114
 title: MarkView crashes during operation discovery when two referenced folders overlap
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-09

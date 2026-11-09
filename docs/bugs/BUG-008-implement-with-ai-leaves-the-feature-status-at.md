@@ -2,7 +2,7 @@
 type: bug
 id: BUG-008
 title: "\"Implement with AI\" leaves the feature status at \"review\" and doesn't record that implementation started"
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-09-27

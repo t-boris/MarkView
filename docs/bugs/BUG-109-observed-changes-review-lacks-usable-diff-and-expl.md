@@ -2,7 +2,7 @@
 type: bug
 id: BUG-109
 title: Observed changes review lacks usable diff and explanations
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-08

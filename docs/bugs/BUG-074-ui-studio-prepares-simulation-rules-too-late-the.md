@@ -2,7 +2,7 @@
 type: bug
 id: BUG-074
 title: "UI Studio prepares simulation rules too late: the app's own deadline fails the first request and preparations time out"
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

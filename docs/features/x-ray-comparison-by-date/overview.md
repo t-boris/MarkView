@@ -2,7 +2,7 @@
 type: feature
 id: x-ray-comparison-by-date
 title: X-Ray Comparison by Date
-status: implemented
+status: done
 owner: Boris Tsekinovsky
 created: 2026-11-08
 provenance: Created from the feature intake

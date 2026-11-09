@@ -2,7 +2,7 @@
 type: bug
 id: BUG-049
 title: Prototype generation fails on a narrated answer and on a shell too long to finish
-status: fixed
+status: done
 branch: fix/bug-049-prototype-shell-too-long
 severity: high
 reporter: Boris Tsekinovsky

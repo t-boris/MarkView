@@ -2,7 +2,7 @@
 type: bug
 id: BUG-046
 title: X-Ray / Code fails because a component "needs valid source evidence in one of its paths"
-status: fixed
+status: done
 branch: fix/bug-046-xray-evidence
 severity: high
 reporter: Boris Tsekinovsky

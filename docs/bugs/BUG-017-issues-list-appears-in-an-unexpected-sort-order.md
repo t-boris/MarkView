@@ -2,7 +2,7 @@
 type: bug
 id: BUG-017
 title: Issues list appears in an unexpected sort order
-status: fixed
+status: done
 branch: fix/bug-017-same-day-issue-order
 severity: medium
 reporter: Boris Tsekinovsky

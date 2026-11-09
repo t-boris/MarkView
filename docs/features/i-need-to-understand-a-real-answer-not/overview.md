@@ -2,7 +2,7 @@
 type: feature
 id: i-need-to-understand-a-real-answer-not
 title: "I Need to Understand: a real answer, not only X-Ray highlights"
-status: implemented
+status: done
 owner: Boris Tsekinovsky
 created: 2026-09-27
 provenance: Created from the feature intake

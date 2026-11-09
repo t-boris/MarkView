@@ -1,8 +1,8 @@
 ---
 type: bug
 id: BUG-025
-title: Copilot reports "MCP server was blocked by policy: markview-browser"
-status: fixed
+title: "Copilot reports \"MCP server was blocked by policy: markview-browser\""
+status: done
 branch: fix/bug-025-copilot-mcp-policy
 severity: medium
 reporter: Boris Tsekinovsky

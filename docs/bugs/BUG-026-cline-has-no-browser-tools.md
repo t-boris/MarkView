@@ -2,7 +2,7 @@
 type: bug
 id: BUG-026
 title: Cline says it has no browser control in this session
-status: fixed
+status: done
 branch: fix/bug-026-cline-browser-tools
 severity: medium
 reporter: Boris Tsekinovsky

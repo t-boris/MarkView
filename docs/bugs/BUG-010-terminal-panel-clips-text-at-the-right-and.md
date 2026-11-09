@@ -2,7 +2,7 @@
 type: bug
 id: BUG-010
 title: Terminal panel clips text at the right and bottom edges
-status: fixed
+status: done
 branch: fix/bug-010-terminal-panel-layout
 severity: medium
 reporter: Boris Tsekinovsky

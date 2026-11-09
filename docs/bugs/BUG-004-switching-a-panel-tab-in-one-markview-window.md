@@ -2,7 +2,7 @@
 type: bug
 id: BUG-004
 title: Switching a panel tab in one MarkView window switches the same tab in all other open windows
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-09-27

@@ -2,7 +2,7 @@
 type: bug
 id: BUG-063
 title: "Prototype from code of a Tailwind app is unstyled: the source CSS needs a Tailwind build that the prototype never runs"
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

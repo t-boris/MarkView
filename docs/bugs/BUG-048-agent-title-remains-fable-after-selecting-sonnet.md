@@ -2,7 +2,7 @@
 type: bug
 id: BUG-048
 title: Agent title remains Fable after selecting Sonnet
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-03

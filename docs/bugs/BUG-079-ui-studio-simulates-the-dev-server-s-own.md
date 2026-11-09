@@ -2,7 +2,7 @@
 type: bug
 id: BUG-079
 title: UI Studio simulates the dev server's own lazy-compilation request, and hides a page handler's error as "Script error."
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

@@ -2,7 +2,7 @@
 type: bug
 id: BUG-055
 title: Web app discovery does not find the StrikeDesk Electron app in broker-fabric
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-03

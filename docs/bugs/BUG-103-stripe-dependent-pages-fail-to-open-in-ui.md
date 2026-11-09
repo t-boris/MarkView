@@ -2,7 +2,7 @@
 type: bug
 id: BUG-103
 title: Stripe-dependent pages fail to open in UI Studio
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-07

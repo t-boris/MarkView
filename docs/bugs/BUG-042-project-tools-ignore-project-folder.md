@@ -2,7 +2,7 @@
 type: bug
 id: BUG-042
 title: Project tools write to the window's project and silently ignore a different project_folder
-status: fixed
+status: done
 branch: fix/bug-042-project-tools-ignore-project-folder
 severity: medium
 reporter: Boris Tsekinovsky

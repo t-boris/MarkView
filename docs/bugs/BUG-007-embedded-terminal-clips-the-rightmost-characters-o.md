@@ -2,7 +2,7 @@
 type: bug
 id: BUG-007
 title: Embedded terminal clips the rightmost characters of lines (Claude Code, Codex)
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-09-27

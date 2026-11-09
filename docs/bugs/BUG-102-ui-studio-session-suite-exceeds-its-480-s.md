@@ -2,7 +2,7 @@
 type: bug
 id: BUG-102
 title: UI Studio session suite exceeds its 480 s budget on the GitHub macOS runner
-status: fixed
+status: done
 branch: fix/ui-studio-bug-batch
 severity: medium
 reporter: Boris Tsekinovsky

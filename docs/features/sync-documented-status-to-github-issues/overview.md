@@ -2,7 +2,7 @@
 type: feature
 id: sync-documented-status-to-github-issues
 title: Sync documented status to GitHub issues
-status: implemented
+status: done
 owner: Boris Tsekinovsky
 created: 2026-09-28
 provenance: Created from the feature intake

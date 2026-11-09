@@ -2,7 +2,7 @@
 type: bug
 id: BUG-022
 title: DDE Settings changes the assistant for every project
-status: fixed
+status: done
 branch: fix/bug-022-settings-assistant-per-window
 severity: medium
 reporter: Boris Tsekinovsky

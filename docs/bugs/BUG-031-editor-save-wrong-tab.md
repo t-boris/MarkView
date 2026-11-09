@@ -2,7 +2,7 @@
 type: bug
 id: BUG-031
 title: Saving in the editor can overwrite another tab's file
-status: fixed
+status: done
 branch: fix/bug-031-editor-save-wrong-tab
 severity: high
 reporter: Boris Tsekinovsky

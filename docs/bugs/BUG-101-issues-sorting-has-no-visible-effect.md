@@ -2,7 +2,7 @@
 type: bug
 id: BUG-101
 title: Issues sorting has no visible effect
-status: closed
+status: done
 severity: medium
 questions:
   - id: BQ-1

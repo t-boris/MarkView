@@ -2,7 +2,7 @@
 type: bug
 id: BUG-107
 title: Observed changes comparison is too narrow
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-08

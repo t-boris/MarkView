@@ -2,7 +2,7 @@
 type: bug
 id: BUG-093
 title: "\"Move to another branch\" in the research map is an unlabelled icon with a clumsy dialog"
-status: fixed
+status: done
 severity: low
 reporter: Boris Tsekinovsky
 created: 2026-11-05

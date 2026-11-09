@@ -2,7 +2,7 @@
 type: bug
 id: BUG-094
 title: UI Studio comparison of two captures is too small to see anything
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-05

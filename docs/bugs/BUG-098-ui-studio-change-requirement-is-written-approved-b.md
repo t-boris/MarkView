@@ -2,7 +2,7 @@
 type: bug
 id: BUG-098
 title: UI Studio change requirement is written approved, but REQ-012 says it is marked implemented
-status: fixed
+status: done
 branch: fix/ui-studio-bug-batch
 severity: low
 reporter: Boris Tsekinovsky

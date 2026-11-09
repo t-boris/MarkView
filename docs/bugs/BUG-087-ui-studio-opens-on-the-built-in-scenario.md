@@ -2,7 +2,7 @@
 type: bug
 id: BUG-087
 title: UI Studio opens on the built-in scenario, so data the person asked the AI to add looks lost
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

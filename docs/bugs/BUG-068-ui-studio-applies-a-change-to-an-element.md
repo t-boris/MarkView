@@ -2,7 +2,7 @@
 type: bug
 id: BUG-068
 title: UI Studio applies a change to an element other than the selected one
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

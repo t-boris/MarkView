@@ -2,7 +2,7 @@
 type: bug
 id: BUG-041
 title: Lifecycle events of a deleted feature can reattach to a new feature with the same slug
-status: fixed
+status: done
 branch: fix/bug-041-lifecycle-reused-slug
 severity: low
 reporter: Boris Tsekinovsky

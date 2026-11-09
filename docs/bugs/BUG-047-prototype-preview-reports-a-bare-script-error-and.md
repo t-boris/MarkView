@@ -2,7 +2,7 @@
 type: bug
 id: BUG-047
 title: Prototype preview reports a bare "Script error." and the last stage fixes it blind
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-03

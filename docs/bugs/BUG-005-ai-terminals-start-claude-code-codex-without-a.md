@@ -2,7 +2,7 @@
 type: bug
 id: BUG-005
 title: AI terminals start Claude Code/Codex without a resume/continue flag, so the previous session is not restored
-status: fixed
+status: done
 branch: fix/ai-terminal-resume-full-access
 severity: medium
 reporter: Boris Tsekinovsky

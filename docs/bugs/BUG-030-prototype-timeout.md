@@ -2,7 +2,7 @@
 type: bug
 id: BUG-030
 title: Prototype generation is stopped by fixed stage deadlines
-status: fixed
+status: done
 branch: fix/bug-030-prototype-timeout
 severity: high
 reporter: Boris Tsekinovsky

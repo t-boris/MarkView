@@ -2,7 +2,7 @@
 type: bug
 id: BUG-021
 title: Choosing the assistant in one window changes it in every window
-status: fixed
+status: done
 branch: fix/bug-021-assistant-per-project
 severity: medium
 reporter: Boris Tsekinovsky

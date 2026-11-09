@@ -2,7 +2,7 @@
 type: bug
 id: BUG-106
 title: "Delivery evidence: the oldest commit of a shallow clone counts as code work (its files are the whole tree), so a documentation record blocks fixed"
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-07

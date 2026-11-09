@@ -2,7 +2,7 @@
 type: bug
 id: BUG-052
 title: Prototype from code translates the labels of the original interface
-status: fixed
+status: done
 branch: fix/bug-052-prototype-label-language
 severity: high
 reporter: Boris Tsekinovsky

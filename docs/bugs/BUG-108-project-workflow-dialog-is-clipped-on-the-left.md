@@ -2,7 +2,7 @@
 type: bug
 id: BUG-108
 title: Project workflow dialog is clipped on the left
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-08

@@ -2,7 +2,7 @@
 type: bug
 id: BUG-038
 title: PR X-Ray tab has no Deploy button and no project operations
-status: fixed
+status: done
 branch: docs/pr-xray-no-operations
 severity: low
 reporter: Boris Tsekinovsky

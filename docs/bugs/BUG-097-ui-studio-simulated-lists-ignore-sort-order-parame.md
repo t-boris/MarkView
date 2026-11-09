@@ -2,7 +2,7 @@
 type: bug
 id: BUG-097
 title: UI Studio simulated lists ignore sort/order parameters and text search (REQ-014 criterion 4)
-status: fixed
+status: done
 branch: fix/ui-studio-bug-batch
 severity: medium
 reporter: Boris Tsekinovsky

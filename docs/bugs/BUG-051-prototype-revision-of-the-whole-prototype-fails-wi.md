@@ -2,7 +2,7 @@
 type: bug
 id: BUG-051
 title: Prototype revision of the whole prototype fails with an empty answer
-status: fixed
+status: done
 branch: fix/bug-051-prototype-revise-whole
 severity: high
 reporter: Boris Tsekinovsky
@@ -71,4 +71,3 @@ language to write, and the original build chose Russian although `apps/strikedes
   once; the status value that `data.js` sets and `orders.js` compares stayed consistent.
 - Debug `xcodebuild`: build succeeded, app version 5.5.0.
 - Not verified: the full 45-file sweep on the strikedesk prototype (about 45 runs); the first one is Boris's.
-

@@ -2,7 +2,7 @@
 type: bug
 id: BUG-001
 title: "Terminal: clicking an https link does not open the browser; file paths are not clickable at all"
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-09-26

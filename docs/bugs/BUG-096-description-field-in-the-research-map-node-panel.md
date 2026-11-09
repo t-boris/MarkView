@@ -2,7 +2,7 @@
 type: bug
 id: BUG-096
 title: Description field in the research map node panel cannot be resized
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-05

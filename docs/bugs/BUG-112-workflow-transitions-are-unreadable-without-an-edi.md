@@ -2,7 +2,7 @@
 type: bug
 id: BUG-112
 title: Workflow transitions are unreadable without an editable state diagram
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-09

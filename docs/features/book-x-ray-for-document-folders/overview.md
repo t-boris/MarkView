@@ -2,7 +2,7 @@
 type: feature
 id: book-x-ray-for-document-folders
 title: Book X-Ray for document folders
-status: implemented
+status: done
 owner: Boris Tsekinovsky
 created: 2026-09-30
 provenance: Created from a Claude Code session (planning interview, four decisions)

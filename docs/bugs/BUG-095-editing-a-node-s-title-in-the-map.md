@@ -2,7 +2,7 @@
 type: bug
 id: BUG-095
 title: Editing a node's title in the map panel removes its number badge and icon
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-05

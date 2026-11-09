@@ -2,7 +2,7 @@
 type: bug
 id: BUG-013
 title: Implement with AI does not establish an implementation `/goal`
-status: fixed
+status: done
 branch: fix/issue-workflows
 severity: high
 reporter: Boris Tsekinovsky

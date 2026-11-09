@@ -2,7 +2,7 @@
 type: feature
 id: project-operations-deploy-install-restart-buttons-from-x
 title: "Project operations: Deploy / Install / Restart buttons from X-Ray Deployment"
-status: implemented
+status: done
 owner: Boris Tsekinovsky
 created: 2026-09-29
 provenance: Created from the quick feature intake
@@ -31,7 +31,7 @@ understanding_notes:
   Security: Секретами функция не управляет; ввод без эха передаётся процессу (DEC-007); показывается точная команда перед запуском.
   Analytics: Аналитика для этой функции не предусмотрена.
   Dependencies: Опирается на представление Deployment в X-Ray, сканер конфигурационных файлов и мост действий arch. Добавляется зависимость от разрешения на уведомления macOS.
-  Acceptance Criteria: "Все решения владельца продукта приняты; критерии приёмки записаны в требованиях REQ-001–REQ-019."
+  Acceptance Criteria: Все решения владельца продукта приняты; критерии приёмки записаны в требованиях REQ-001–REQ-019.
 questions_left: 0
 ---
 

@@ -2,7 +2,7 @@
 type: bug
 id: BUG-060
 title: "Prototype from code: the shell's root has no height, so the main widget (option chain) collapses and the repair round declines"
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-03

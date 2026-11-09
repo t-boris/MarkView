@@ -2,7 +2,7 @@
 type: bug
 id: BUG-088
 title: UI Studio signs the application out on every scenario switch
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

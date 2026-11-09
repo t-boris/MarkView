@@ -2,7 +2,7 @@
 type: bug
 id: BUG-023
 title: Feature review never converges
-status: fixed
+status: done
 branch: fix/bug-023-review-convergence
 severity: high
 reporter: Boris Tsekinovsky

@@ -2,7 +2,7 @@
 type: bug
 id: BUG-029
 title: GitHub Actions stays loading after gh has already exited
-status: fixed
+status: done
 branch: fix/bug-029-github-actions-loading
 severity: high
 reporter: Boris Tsekinovsky

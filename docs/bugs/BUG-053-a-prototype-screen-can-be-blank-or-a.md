@@ -2,7 +2,7 @@
 type: bug
 id: BUG-053
 title: A prototype screen can be blank or a stub and nothing reports it
-status: fixed
+status: done
 branch: fix/bug-053-prototype-blank-screens
 severity: high
 reporter: Boris Tsekinovsky

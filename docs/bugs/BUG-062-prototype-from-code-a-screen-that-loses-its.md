@@ -2,7 +2,7 @@
 type: bug
 id: BUG-062
 title: "Prototype from code: a screen that loses its content stays blank because the preview fix round declines a request spanning more than three files"
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-03

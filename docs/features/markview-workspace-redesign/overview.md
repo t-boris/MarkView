@@ -2,7 +2,7 @@
 type: feature
 id: markview-workspace-redesign
 title: MarkView Workspace Redesign
-status: verified
+status: done
 owner: Boris Tsekinovsky
 created: 2026-09-28
 provenance: Created from the feature intake

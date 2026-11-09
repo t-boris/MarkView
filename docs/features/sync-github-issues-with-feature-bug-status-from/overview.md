@@ -2,7 +2,7 @@
 type: feature
 id: sync-github-issues-with-feature-bug-status-from
 title: Sync GitHub Issues with Feature/Bug status from the Issues tab
-status: archived
+status: wont-do
 owner: Boris Tsekinovsky
 created: 2026-09-27
 provenance: Created from the feature intake

@@ -2,7 +2,7 @@
 type: bug
 id: BUG-045
 title: Prototype generation fails when the assistant's JSON answer is cut off
-status: fixed
+status: done
 branch: fix/bug-045-acp-cut-off-json
 severity: high
 reporter: Boris Tsekinovsky

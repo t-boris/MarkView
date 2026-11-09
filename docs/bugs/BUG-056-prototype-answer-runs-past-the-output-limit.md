@@ -2,7 +2,7 @@
 type: bug
 id: BUG-056
 title: Prototype generation and sync fail when Copilot runs past its output limit inside one prompt
-status: fixed
+status: done
 branch: fix/bug-056-prototype-output-limit
 severity: high
 reporter: Boris Tsekinovsky

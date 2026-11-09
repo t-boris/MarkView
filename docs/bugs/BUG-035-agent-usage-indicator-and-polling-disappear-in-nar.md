@@ -2,7 +2,7 @@
 type: bug
 id: BUG-035
 title: Agent usage indicator and polling disappear in narrow Agents panels
-status: fixed
+status: done
 branch: fix/bug-035-usage-indicator-narrow
 severity: medium
 reporter: Boris Tsekinovsky

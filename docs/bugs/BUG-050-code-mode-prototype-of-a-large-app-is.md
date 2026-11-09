@@ -2,7 +2,7 @@
 type: bug
 id: BUG-050
 title: Code-mode prototype of a large app is one generic screen, far from the original (broker-fabric StrikeDesk)
-status: fixed
+status: done
 branch: fix/bug-050-code-prototype-fidelity
 severity: high
 reporter: Boris Tsekinovsky

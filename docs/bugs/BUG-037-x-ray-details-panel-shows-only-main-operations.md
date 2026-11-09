@@ -2,7 +2,7 @@
 type: bug
 id: BUG-037
 title: X-Ray details panel shows only "Main operations" instead of listing every operation
-status: fixed
+status: done
 branch: fix/bug-037-operations-list-by-kind
 severity: low
 reporter: Boris Tsekinovsky

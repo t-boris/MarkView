@@ -2,7 +2,7 @@
 type: feature
 id: feature
 title: Общий размер шрифта
-status: verified
+status: done
 owner: Boris Tsekinovsky
 created: 2026-09-27
 provenance: Created from the feature intake

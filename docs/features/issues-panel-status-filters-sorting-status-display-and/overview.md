@@ -2,7 +2,7 @@
 type: feature
 id: issues-panel-status-filters-sorting-status-display-and
 title: "Issues panel: status filters, sorting, status display and resizable width"
-status: implemented
+status: done
 owner: Boris Tsekinovsky
 created: 2026-09-27
 provenance: Created from the feature intake

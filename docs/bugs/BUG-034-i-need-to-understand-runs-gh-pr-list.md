@@ -2,7 +2,7 @@
 type: bug
 id: BUG-034
 title: "\"I Need to Understand\" runs gh pr list while the GitHub integration is off"
-status: fixed
+status: done
 branch: fix/bug-034-understand-gh-opt-in
 severity: medium
 reporter: Boris Tsekinovsky

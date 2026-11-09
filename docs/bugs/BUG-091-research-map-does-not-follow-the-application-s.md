@@ -2,7 +2,7 @@
 type: bug
 id: BUG-091
 title: Research map does not follow the application's design
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-05

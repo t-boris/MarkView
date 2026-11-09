@@ -2,7 +2,7 @@
 type: bug
 id: BUG-111
 title: Logical X-Ray graph is stretched and hard to read
-status: closed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-08

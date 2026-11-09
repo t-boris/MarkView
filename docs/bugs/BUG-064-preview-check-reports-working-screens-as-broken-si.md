@@ -2,7 +2,7 @@
 type: bug
 id: BUG-064
 title: Preview check reports working screens as broken (sign-in gates, loader check), so the fix round rewrites screens that work
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

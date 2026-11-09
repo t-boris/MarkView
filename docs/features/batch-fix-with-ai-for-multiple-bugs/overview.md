@@ -2,7 +2,7 @@
 type: feature
 id: batch-fix-with-ai-for-multiple-bugs
 title: Batch "Fix with AI" for multiple bugs
-status: implemented
+status: done
 owner: Boris Tsekinovsky
 created: 2026-09-27
 provenance: Created from the feature intake

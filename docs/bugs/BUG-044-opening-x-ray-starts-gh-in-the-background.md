@@ -2,7 +2,7 @@
 type: bug
 id: BUG-044
 title: Opening X-Ray starts gh in the background while the GitHub integration is off
-status: fixed
+status: done
 branch: fix/bug-044-xray-gh-opt-in
 severity: medium
 reporter: Boris Tsekinovsky

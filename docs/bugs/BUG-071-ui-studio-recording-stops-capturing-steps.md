@@ -2,7 +2,7 @@
 type: bug
 id: BUG-071
 title: UI Studio recording stops capturing steps
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-04

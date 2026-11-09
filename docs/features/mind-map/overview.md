@@ -2,7 +2,7 @@
 type: feature
 id: mind-map
 title: Исследование через mind map
-status: implemented
+status: done
 owner: Boris Tsekinovsky
 created: 2026-11-04
 provenance: Created from the feature intake

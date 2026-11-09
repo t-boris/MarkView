@@ -2,7 +2,7 @@
 type: bug
 id: BUG-067
 title: UI Studio says "the application does not build" about a Next.js page that built and works
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

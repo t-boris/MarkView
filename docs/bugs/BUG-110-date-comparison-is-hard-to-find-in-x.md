@@ -2,7 +2,7 @@
 type: bug
 id: BUG-110
 title: Date comparison is hard to find in X-Ray
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-08

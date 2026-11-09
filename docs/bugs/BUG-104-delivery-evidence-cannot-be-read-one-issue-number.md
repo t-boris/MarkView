@@ -2,7 +2,7 @@
 type: bug
 id: BUG-104
 title: "Delivery evidence cannot be read: one issue number among the pull request numbers fails the whole GitHub query (\"pull request descriptions could not be read\")"
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-07

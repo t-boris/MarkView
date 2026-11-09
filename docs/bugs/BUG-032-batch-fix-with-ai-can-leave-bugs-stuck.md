@@ -2,7 +2,7 @@
 type: bug
 id: BUG-032
 title: Batch "Fix with AI" can leave bugs stuck in "fixing" when the prompt is not sent
-status: fixed
+status: done
 branch: fix/bug-032-batch-fix-stuck-fixing
 severity: medium
 reporter: Boris Tsekinovsky

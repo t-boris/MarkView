@@ -2,7 +2,7 @@
 type: bug
 id: BUG-040
 title: Book X-Ray never extracts reStructuredText hyperlinks
-status: fixed
+status: done
 branch: fix/bug-040-book-xray-rst-links
 severity: low
 reporter: Boris Tsekinovsky

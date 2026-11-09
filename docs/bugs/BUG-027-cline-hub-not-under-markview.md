@@ -2,7 +2,7 @@
 type: bug
 id: BUG-027
 title: Cline's background hub is not under MarkView, so its browser tools find no window
-status: fixed
+status: done
 branch: fix/bug-027-cline-hub-browser-tools
 severity: high
 reporter: Boris Tsekinovsky

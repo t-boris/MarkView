@@ -2,7 +2,7 @@
 type: bug
 id: BUG-012
 title: X-Ray Logical view scatters related components
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-09-28
@@ -12,7 +12,7 @@ questions:
     text: Какие именно компоненты или файлы на скриншоте должны быть рядом? Можно указать их названия или прислать путь к проекту.
     why: Это поможет отличить ошибку логической группировки от ошибки размещения уже сгруппированных узлов.
     status: answered
-    answer: "MarkView project, Logical view, folder MarkView/Models (73 files) — its files should form a compact group."
+    answer: MarkView project, Logical view, folder MarkView/Models (73 files) — its files should form a compact group.
   - id: BQ-2
     text: Когда появляется такой разброс?
     why: В эти моменты схема перестраивается разными путями; ответ сузит место поиска.
@@ -41,7 +41,7 @@ questions:
     text: Можете указать путь к проекту и название компонента, при раскрытии которого разброс повторяется?
     why: Это даст конкретный снимок X-Ray и узел для воспроизведения и проверки выбранного алгоритма раскладки.
     status: answered
-    answer: "/Users/boris/github.com/MarkView, folder MarkView/Models in its component (Logical view)."
+    answer: /Users/boris/github.com/MarkView, folder MarkView/Models in its component (Logical view).
 issue: "#58"
 ---
 
@@ -130,4 +130,3 @@ the flow layout. Grouping by meaning would be a separate feature.
   readable 11-row grid (~2:1) and again the same after collapse and re-expand; 2.26.1 scatters it over the canvas.
 - Not changed: grouping files by meaning inside a large folder (owner: a separate feature); links still draw over a
   box's title when many enter it (both builds).
-

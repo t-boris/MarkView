@@ -2,7 +2,7 @@
 type: bug
 id: BUG-003
 title: "Dictation in the New Bug sheet: mic turns red, but clicking it again inserts no text"
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-09-26

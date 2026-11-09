@@ -2,7 +2,7 @@
 type: bug
 id: BUG-015
 title: X-Ray file outlining times out after 300 seconds and reports a misleading read error
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-09-29

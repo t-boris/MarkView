@@ -2,7 +2,7 @@
 type: bug
 id: BUG-092
 title: Research map nodes cannot be collapsed or expanded
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-05

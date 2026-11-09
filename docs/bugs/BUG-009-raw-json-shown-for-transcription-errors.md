@@ -2,7 +2,7 @@
 type: bug
 id: BUG-009
 title: Raw JSON shown for transcription errors
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-09-27

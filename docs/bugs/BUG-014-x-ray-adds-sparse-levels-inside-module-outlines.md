@@ -2,7 +2,7 @@
 type: bug
 id: BUG-014
 title: X-Ray adds sparse levels inside module outlines
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-09-28

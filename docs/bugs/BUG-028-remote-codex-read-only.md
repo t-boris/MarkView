@@ -2,7 +2,7 @@
 type: bug
 id: BUG-028
 title: Remote Codex mistakes its home sandbox for work-project permissions
-status: fixed
+status: done
 branch: fix/bug-028-remote-file-routing
 severity: high
 reporter: Boris Tsekinovsky

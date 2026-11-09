@@ -2,7 +2,7 @@
 type: bug
 id: BUG-086
 title: UI Studio Select fails with "Script error." as soon as the pointer moves over the page
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

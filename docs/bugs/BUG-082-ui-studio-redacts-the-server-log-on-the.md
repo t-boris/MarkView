@@ -2,7 +2,7 @@
 type: bug
 id: BUG-082
 title: UI Studio redacts the server log on the main thread for every output chunk
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

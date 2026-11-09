@@ -2,7 +2,7 @@
 type: bug
 id: BUG-036
 title: Operations re-discovery overwrites user edits to fields other than command and working directory
-status: fixed
+status: done
 branch: fix/bug-036-operations-rediscovery-edits
 severity: medium
 reporter: Boris Tsekinovsky

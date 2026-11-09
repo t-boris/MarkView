@@ -2,7 +2,7 @@
 type: bug
 id: BUG-057
 title: "Prototype from code is translated to Russian: the global Output language (Russian) replaces the keep-the-source-language rule"
-status: fixed
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-03

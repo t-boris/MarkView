@@ -2,7 +2,7 @@
 type: bug
 id: BUG-016
 title: Add bug discussion and a Quick Feature intake path
-status: fixed
+status: done
 branch: fix/issue-workflows
 severity: medium
 reporter: Boris Tsekinovsky

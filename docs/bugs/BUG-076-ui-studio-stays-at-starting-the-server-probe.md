@@ -2,7 +2,7 @@
 type: bug
 id: BUG-076
 title: "UI Studio stays at Starting: the server probe renders the page and needs its whole body in under a second"
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

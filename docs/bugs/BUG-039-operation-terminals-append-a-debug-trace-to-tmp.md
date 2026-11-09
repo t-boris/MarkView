@@ -2,7 +2,7 @@
 type: bug
 id: BUG-039
 title: Operation terminals append a debug trace to /tmp/markview-ops-debug.log on every output chunk
-status: fixed
+status: done
 branch: fix/bug-039-operation-debug-trace
 severity: low
 reporter: Boris Tsekinovsky

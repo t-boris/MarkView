@@ -2,7 +2,7 @@
 type: bug
 id: BUG-099
 title: "UI Studio: toolbar button, Log button with filters and mapping progress were never checked in the running app (REQ-011 criteria 1-2, REQ-014 criterion 1)"
-status: closed
+status: done
 severity: low
 reporter: Boris Tsekinovsky
 created: 2026-11-05

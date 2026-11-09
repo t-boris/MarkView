@@ -2,7 +2,7 @@
 type: bug
 id: BUG-090
 title: UI Studio's list of the application's API is made by one assistant call and is empty when it times out
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

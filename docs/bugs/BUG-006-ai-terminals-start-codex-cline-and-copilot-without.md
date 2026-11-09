@@ -2,7 +2,7 @@
 type: bug
 id: BUG-006
 title: AI terminals start Codex, Cline and Copilot without full-access (skip-permissions) flags; only Claude Code bypasses prompts
-status: fixed
+status: done
 branch: fix/ai-terminal-resume-full-access
 severity: medium
 reporter: Boris Tsekinovsky

@@ -2,7 +2,7 @@
 type: bug
 id: BUG-019
 title: Completed AI progress cards accumulate in Tasks
-status: fixed
+status: done
 branch: fix/issue-workflows
 severity: medium
 reporter: Boris Tsekinovsky

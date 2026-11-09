@@ -2,7 +2,7 @@
 type: feature
 id: long-running-design-agent-planned-reviewed-tied-to
 title: "Long-running design agent: planned, reviewed, tied to a feature"
-status: archived
+status: wont-do
 owner: Boris Tsekinovsky
 created: 2026-11-05
 provenance: Created by an AI agent through MarkView from Boris, 2026-11-05 (goal message with a screenshot of the design agent)

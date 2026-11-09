@@ -2,7 +2,7 @@
 type: bug
 id: BUG-061
 title: Pictures in a Markdown file are not shown (README.md shows empty picture boxes)
-status: fixed
+status: done
 severity: critical
 reporter: Boris Tsekinovsky
 created: 2026-11-03

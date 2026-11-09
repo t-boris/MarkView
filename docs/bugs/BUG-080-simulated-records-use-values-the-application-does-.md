@@ -2,7 +2,7 @@
 type: bug
 id: BUG-080
 title: Simulated records use values the application does not know, and the page crashes (vivaa "draft" bundle status)
-status: fixed
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

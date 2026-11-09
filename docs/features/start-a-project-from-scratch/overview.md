@@ -2,7 +2,7 @@
 type: feature
 id: start-a-project-from-scratch
 title: Start a Project from Scratch
-status: implemented
+status: done
 owner: Boris Tsekinovsky
 created: 2026-09-27
 provenance: Created from the feature intake

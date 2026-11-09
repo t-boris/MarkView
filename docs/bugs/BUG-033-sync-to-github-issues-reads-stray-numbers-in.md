@@ -2,7 +2,7 @@
 type: bug
 id: BUG-033
 title: Sync to GitHub issues reads stray numbers in explicit fields as issue links
-status: fixed
+status: done
 branch: fix/bug-033-sync-stray-issue-numbers
 severity: medium
 reporter: Boris Tsekinovsky

@@ -2,7 +2,7 @@
 type: bug
 id: BUG-043
 title: Switching tabs discards text typed in the WYSIWYG view
-status: fixed
+status: done
 branch: fix/bug-043-wysiwyg-edits-lost-on-tab-switch
 severity: medium
 reporter: Boris Tsekinovsky

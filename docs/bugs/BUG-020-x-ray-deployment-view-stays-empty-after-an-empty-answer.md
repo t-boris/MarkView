@@ -2,7 +2,7 @@
 type: bug
 id: BUG-020
 title: X-Ray Deployment view stays empty after the assistant returns an empty map
-status: fixed
+status: done
 branch: fix/bug-020-empty-deployment
 severity: medium
 reporter: Boris Tsekinovsky

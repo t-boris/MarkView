@@ -2,7 +2,7 @@
 type: bug
 id: BUG-018
 title: Cannot attach or paste screenshots in bug follow-up
-status: fixed
+status: done
 branch: fix/issue-workflows
 severity: medium
 reporter: Boris Tsekinovsky

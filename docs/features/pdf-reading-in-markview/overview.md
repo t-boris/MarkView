@@ -2,7 +2,7 @@
 type: feature
 id: pdf-reading-in-markview
 title: PDF Reading in MarkView
-status: verified
+status: done
 delivery_status: blocked
 delivery_blocker: F-002
 owner: t-boris
