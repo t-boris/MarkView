@@ -28,7 +28,7 @@ Every investigated file is listed once, discovery finishes, and the app keeps ru
 
 ## Actual
 
-scan() lists a file under two granted folders twice; Dictionary(uniqueKeysWithValues:) in ProjectOperationDiscoveryService.swift:173 traps on the duplicate key and the app crashes (crash report MarkView-2026-11-08-194323.ips, thread 9: _assertionFailure -> _NativeDictionary.merge(trappingOnDuplicates:) -> Dictionary.init(uniqueKeysWithValues:) -> ProjectOperationDiscoveryService.discover -> ProjectOperationsStore.discover(nodes:)). Reproduced with a standalone harness: README mentioning ../infra and ../infra/scripts yields 3 files, 2 unique.
+scan() lists a file under two granted folders twice; Dictionary(uniqueKeysWithValues:) in ProjectOperationDiscoveryService.swift:173 traps on the duplicate key and the app crashes. Five crash reports with the identical stack (MarkView-2026-11-08-194323, 194716, 194941, 195200, 195446 .ips; thread: _assertionFailure -> _NativeDictionary.merge(trappingOnDuplicates:) -> Dictionary.init(uniqueKeysWithValues:) -> ProjectOperationDiscoveryService.discover -> ProjectOperationsStore.discover(nodes:)), each when Discover ran in the installed 5.47.0. Reproduced with a standalone harness (README naming ../infra and ../infra/scripts gives 3 files, 2 unique) and on the real project broker-fabric, where the granted folders ~/.broker-fabric and ~/.broker-fabric/recordings/... overlap and 8 files are listed twice.
 
 ## Environment
 
