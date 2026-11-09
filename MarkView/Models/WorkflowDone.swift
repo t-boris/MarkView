@@ -23,10 +23,17 @@ struct WorkflowDone: Equatable, Sendable {
     var sentence: String
     /// Where the Definition of Done and the process disagree.
     var warnings: [String]
+    /// Set when the process needs GitHub (a pull request, checks or a release) and GitHub is not connected: work cannot complete
+    /// under it, and the text says how to fix that (feature workflow-templates, REQ-004).
+    var githubWarning: String?
+    /// Set when the process needs nothing from GitHub: where the requirements are switched on and what they need.
+    var enableHint: String?
 
     /// `acceptanceStep` is false when the transitions have no step from one completed status to another: a flow whose only completed
     /// status is Done is finished by its delivery evidence, and nobody accepts anything afterwards.
-    static func make(_ variant: RuleVariant, definition: DefinitionOfDone?, acceptanceStep: Bool = true) -> WorkflowDone {
+    /// `githubEnabled` is whether GitHub is connected in Settings (`GitHubSettings.enabled`); the default is the cheerful case, so a
+    /// caller that does not know raises no warning.
+    static func make(_ variant: RuleVariant, definition: DefinitionOfDone?, acceptanceStep: Bool = true, githubEnabled: Bool = true) -> WorkflowDone {
         let pullRequest = variant.integration == .pullRequest
         let release: Mark
         switch variant.delivery {
@@ -48,8 +55,41 @@ struct WorkflowDone: Equatable, Sendable {
                  detail: !acceptanceStep ? "These transitions have no acceptance step"
                      : variant.acceptance == .humanOnly ? "Only a person accepts" : "A person accepts, or an AI with its evidence and every criterion ticked"),
         ]
+        let needs = githubNeeds(variant)
         return WorkflowDone(processID: variant.id, processName: variant.name, marks: marks, sentence: doneSentence(variant, acceptanceStep: acceptanceStep),
-                            warnings: definition.map { mismatches(variant, $0) } ?? [])
+                            warnings: definition.map { mismatches(variant, $0) } ?? [],
+                            githubWarning: needs.isEmpty || githubEnabled ? nil : githubWarning(variant, needs),
+                            enableHint: needs.isEmpty ? enableHint(variant) : nil)
+    }
+
+    // MARK: GitHub
+
+    /// What the process asks of GitHub, by the name of the thing and the control of the Processes page that switches it on or off.
+    struct GitHubNeed: Equatable, Sendable {
+        var what: String
+        var control: String
+    }
+
+    static func githubNeeds(_ variant: RuleVariant) -> [GitHubNeed] {
+        var needs: [GitHubNeed] = []
+        if variant.integration == .pullRequest { needs.append(GitHubNeed(what: "a merged pull request", control: "Reaches the branch")) }
+        if variant.checks { needs.append(GitHubNeed(what: "passing checks", control: "Checks must pass")) }
+        if variant.delivery == .githubRelease { needs.append(GitHubNeed(what: "a published GitHub release", control: "Delivery event")) }
+        return needs
+    }
+
+    private static func list(_ items: [String]) -> String {
+        items.count > 1 ? items.dropLast().joined(separator: ", ") + " and " + items[items.count - 1] : (items.first ?? "")
+    }
+
+    private static func githubWarning(_ variant: RuleVariant, _ needs: [GitHubNeed]) -> String {
+        "This process needs \(list(needs.map(\.what))) from GitHub, but GitHub is not connected, so work cannot be completed under it. "
+            + "Connect GitHub in Settings → GitHub, or switch the requirement off in Processes → \(variant.name): \(list(needs.map { "“" + $0.control + "”" }))."
+    }
+
+    private static func enableHint(_ variant: RuleVariant) -> String {
+        "Nothing here needs GitHub. To require a merged pull request, passing checks or a published release, open Processes → \(variant.name) "
+            + "and set “Reaches the branch”, “Checks must pass” and “Delivery event”; connect GitHub in Settings → GitHub first, or they cannot be judged."
     }
 
     private static func doneSentence(_ variant: RuleVariant, acceptanceStep: Bool) -> String {

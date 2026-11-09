@@ -74,5 +74,26 @@ check(WorkflowDone.steps(in: noAcceptance).acceptance == nil, "a flow without an
 let bugSteps = WorkflowDone.steps(in: standard.bug)
 check(bugSteps.delivery == "Fixing → Fixed" && bugSteps.acceptance == "Fixed → Closed", "bugs: Fixing → Fixed, then Fixed → Closed", "\(bugSteps)")
 
+// MARK: GitHub (feature workflow-templates, REQ-004)
+
+let strictOff = WorkflowDone.make(strict, definition: nil, githubEnabled: false)
+check(strictOff.githubWarning != nil, "a process that needs GitHub warns while GitHub is not connected")
+check(strictOff.githubWarning?.contains("a merged pull request, passing checks and a published GitHub release") == true, "…naming everything it needs", strictOff.githubWarning ?? "")
+check(strictOff.githubWarning?.contains("Settings → GitHub") == true && strictOff.githubWarning?.contains("“Reaches the branch”, “Checks must pass” and “Delivery event”") == true,
+      "…and both ways out: connect GitHub, or the controls that switch the requirements off", strictOff.githubWarning ?? "")
+check(WorkflowDone.make(strict, definition: nil, githubEnabled: true).githubWarning == nil, "no warning once GitHub is connected")
+check(WorkflowDone.make(strict, definition: nil).githubWarning == nil, "a caller that does not say whether GitHub is connected raises none")
+let checksOnly = RuleVariant(id: "checks", name: "Checks only", kind: .bug, integration: .directToMain, checks: true)
+check(WorkflowDone.make(checksOnly, definition: nil, githubEnabled: false).githubWarning?.contains("passing checks from GitHub") == true
+      && WorkflowDone.make(checksOnly, definition: nil, githubEnabled: false).githubWarning?.contains("“Checks must pass”") == true,
+      "only what is required is named")
+check(WorkflowDone.make(feature, definition: nil, githubEnabled: false).githubWarning == nil, "a process that needs nothing does not warn")
+check(WorkflowDone.make(confirmed, definition: nil, githubEnabled: false).githubWarning == nil, "a delivery event a person confirms needs no GitHub")
+check(WorkflowDone.githubNeeds(strict).map(\.control) == ["Reaches the branch", "Checks must pass", "Delivery event"], "each need names the control that switches it")
+
+check(featureDone.enableHint?.contains("Processes → Standard feature") == true && featureDone.enableHint?.contains("“Reaches the branch”, “Checks must pass” and “Delivery event”") == true
+      && featureDone.enableHint?.contains("Settings → GitHub") == true, "a process that needs nothing says where to switch the requirements on", featureDone.enableHint ?? "")
+check(strictDone.enableHint == nil && bugDone.enableHint == nil, "…and a process that already needs GitHub does not")
+
 print(failures == 0 ? "\nall passed" : "\n\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
