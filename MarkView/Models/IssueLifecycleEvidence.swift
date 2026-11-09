@@ -100,27 +100,39 @@ struct ProjectDeliveryPolicy {
     var pullRequestRequired: Bool
     var checksRequired: Bool
 
+    // The operator rules a project guide may declare. Only these are recognised, not a casual mention of direct commits or disabled CI.
+    private static let guideRequiresPullRequest = #"(?im)^[-*]?[ \t]*Never commit to main directly[^\n]*"#
+    private static let guideOpensPullRequest = #"(?i)open a pull request"#
+    private static let guideExplicitPullRequest = #"(?i)\bevery feature and bug fix goes through a pull request\b"#
+    private static let guideDirectCommits = #"(?ims)^##[ \t]+Commits? go straight to main[^\n]*\n(?:(?!^##[ \t]).)*commit directly to `?main`?"#
+    private static let guideCIOff = #"(?ims)^##[ \t]+CI is switched off[^\n]*\n(?:(?!^##[ \t]).)*do not wait for CI"#
+
+    private static func matches(_ guide: String, _ pattern: String) -> Bool { guide.range(of: pattern, options: .regularExpression) != nil }
+
     static func read(definition: Data?, guide: String?) -> ProjectDeliveryPolicy {
         let object = definition.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         let items = object?["items"] as? [[String: Any]] ?? []
         func mode(_ id: String) -> String? { items.first { $0["id"] as? String == id }?["mode"] as? String }
         var pr = mode("pr") != "skip"
         var ci = mode("ci") != "skip"
-        // A project may explicitly override its checklist in its guide. Only recognize a declared operator rule,
-        // not a casual mention of direct commits or disabled CI.
+        // A project may explicitly override its checklist in its guide.
         if let guide {
-            let requiresPR = #"(?im)^[-*]?[ \t]*Never commit to main directly[^\n]*"#
-            let explicitPR = #"(?i)\bevery feature and bug fix goes through a pull request\b"#
-            let mandatory = (guide.range(of: requiresPR, options: .regularExpression) != nil
-                && guide.range(of: #"(?i)open a pull request"#, options: .regularExpression) != nil)
-                || guide.range(of: explicitPR, options: .regularExpression) != nil
-            let direct = #"(?ims)^##[ \t]+Commits? go straight to main[^\n]*\n(?:(?!^##[ \t]).)*commit directly to `?main`?"#
-            let disabled = #"(?ims)^##[ \t]+CI is switched off[^\n]*\n(?:(?!^##[ \t]).)*do not wait for CI"#
+            let mandatory = (matches(guide, guideRequiresPullRequest) && matches(guide, guideOpensPullRequest)) || matches(guide, guideExplicitPullRequest)
             if mandatory { pr = true }
-            else if guide.range(of: direct, options: .regularExpression) != nil { pr = false }
-            if guide.range(of: disabled, options: .regularExpression) != nil { ci = false }
+            else if matches(guide, guideDirectCommits) { pr = false }
+            if matches(guide, guideCIOff) { ci = false }
         }
         return ProjectDeliveryPolicy(pullRequestRequired: pr, checksRequired: ci)
+    }
+
+    /// Whether the project itself said anything about delivery: it saved a Definition of Done (`read` then follows that checklist),
+    /// or its guide carries one of the operator rules above. A project that did neither has only the defaults of `read`, which ask for
+    /// a pull request and checks and so cannot work where GitHub is not connected (feature workflow-templates, DEC-004).
+    static func isDeclared(definition: Data?, guide: String?) -> Bool {
+        if definition != nil { return true }
+        guard let guide else { return false }
+        return matches(guide, guideRequiresPullRequest) && matches(guide, guideOpensPullRequest)
+            || matches(guide, guideExplicitPullRequest) || matches(guide, guideDirectCommits) || matches(guide, guideCIOff)
     }
 }
 

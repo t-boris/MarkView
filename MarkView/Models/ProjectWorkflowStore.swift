@@ -153,6 +153,18 @@ final class ProjectWorkflowStore: @unchecked Sendable {
                                                 checksRequired: policy.checksRequired, releaseRequired: release))
     }
 
+    /// What a project that starts empty gets (feature workflow-templates, DEC-002, DEC-004): the template the person chose for new
+    /// projects, as it was saved; else the Kanban flow. Kanban asks nothing of GitHub unless the project declared it: with no
+    /// Definition of Done and no rule in its guide, work reaches the default branch directly, with no checks and no release, so the
+    /// workflow works where GitHub and CI are not connected. A project that declared its delivery keeps it.
+    static func starting(definition: Data?, guide: String?, template: WorkflowTemplate?) -> ProjectWorkflow {
+        if let template { return template.applied(to: .standard) }
+        let base = ProjectDeliveryPolicy.isDeclared(definition: definition, guide: guide)
+            ? adopted(definition: definition, guide: guide)
+            : StandardWorkflow.make(bug: .init(pullRequestRequired: false, checksRequired: false, releaseRequired: false))
+        return WorkflowFlow.kanban.applied(to: base)
+    }
+
     /// True when the project has no feature folder in docs/features and no bug report in docs/bugs: nothing in it was written under a
     /// flow yet, so it can start on the default one for new projects.
     static func hasNoItems(in root: URL) -> Bool {
@@ -178,15 +190,16 @@ final class ProjectWorkflowStore: @unchecked Sendable {
     /// Writes the adopted standard workflow when the project has none, and returns what is in effect. A file that exists, damaged or
     /// not, is never replaced here.
     @discardableResult
-    func adoptIfMissing(projectRoot: URL) -> WorkflowLoad {
+    func adoptIfMissing(projectRoot: URL, newProjectTemplate: WorkflowTemplate? = nil) -> WorkflowLoad {
         lock.lock(); defer { lock.unlock() }
         let current = read()
         guard case .missing = current else { return current }
         let settings = Self.existingSettings(in: projectRoot)
-        var workflow = Self.adopted(definition: settings.definition, guide: settings.guide)
-        // A project that starts empty starts on a board (DEC-002); one that has features or bugs was written under the specification
-        // stages and keeps them. The processes stay those the project's own delivery settings gave.
-        if Self.hasNoItems(in: projectRoot) { workflow = WorkflowFlow.kanban.applied(to: workflow) }
+        // A project that starts empty starts on a board or on the template chosen for new projects; one that has features or bugs was
+        // written under the specification stages and keeps them, with the processes the project's own delivery settings gave.
+        var workflow = Self.hasNoItems(in: projectRoot)
+            ? Self.starting(definition: settings.definition, guide: settings.guide, template: newProjectTemplate)
+            : Self.adopted(definition: settings.definition, guide: settings.guide)
         workflow.revision = 1
         do {
             // The marker first: a file without its marker would leave the items that existed without their variant for good.

@@ -22,7 +22,7 @@ run() {  # name, checks file, extra sources...
 want=("$@"); [ ${#want[@]} -eq 0 ] && want=(workflow policy log evidence collector completion github context display store)
 for suite in "${want[@]}"; do
     case $suite in
-        workflow)   run workflow ProjectWorkflowChecks.swift "$M/IssueLifecycleEvidence.swift" "$M/WorkflowFlow.swift" "$M/ProjectWorkflowStore.swift" ;;
+        workflow)   run workflow ProjectWorkflowChecks.swift "$M/IssueLifecycleEvidence.swift" "$M/WorkflowFlow.swift" "$M/WorkflowTemplate.swift" "$M/ProjectWorkflowStore.swift" ;;
         policy)     run policy IssueLifecyclePolicyChecks.swift ;;
         log)        run log IssueTransitionLogChecks.swift "$M/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift ;;
         evidence)   run evidence IssueEvidenceChecks.swift "$M/IssueLifecycleEvidence.swift" ;;
