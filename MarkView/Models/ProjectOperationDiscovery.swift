@@ -60,10 +60,13 @@ enum ProjectOperationDiscovery {
         var rejected: [String] = []
         var externalBytes = 0
         var externalFiles = 0
+        // Granted folders may overlap (one named folder inside another, or a folder holding the project itself), so the same
+        // file can be reached more than once. Each real file is listed once: callers key their data by file path (BUG-114).
+        var readPaths: Set<String> = []
 
         func read(_ url: URL, external: Bool, folder: URL? = nil) {
             let resolved = canonical(url)
-            guard !isDenied(resolved) else { return }
+            guard !isDenied(resolved), !readPaths.contains(resolved.path) else { return }
             if external {
                 guard let folder, isInside(resolved, folder) else { return }
                 guard externalFiles < 200 && externalBytes < 2_000_000 else { return }
@@ -80,6 +83,7 @@ enum ProjectOperationDiscovery {
                 externalBytes += data.count
             }
             let location = external ? resolved.path : String(resolved.path.dropFirst(root.path.count + 1))
+            readPaths.insert(resolved.path)
             files.append(InputFile(location: location, text: text, external: external, url: resolved))
         }
 
