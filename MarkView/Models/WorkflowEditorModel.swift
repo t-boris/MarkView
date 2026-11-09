@@ -169,6 +169,13 @@ final class WorkflowEditorModel: ObservableObject {
         load(into: template.applied(to: draft), message: "The template “\(template.name)” is loaded into the draft: states, transitions and processes. Nothing is saved yet: check the Features, Bugs and Processes pages, then press Save. Work items whose status or process is not in this template will ask what replaces it.")
     }
 
+    /// Loads the workflow an assistant proposed into the draft as a whole (feature
+    /// assistants-confirm-delivery-with-evidence-and-propose-workflow, REQ-003). Like a flow or a template it stores nothing: Save checks
+    /// it, asks what replaces each status and process that work items use and the proposal lacks, and refuses it if the file moved on.
+    func apply(_ proposal: WorkflowProposal) {
+        load(into: proposal.workflow, message: "The proposal by \(proposal.proposedBy) is loaded into the draft: \u{201C}\(proposal.summary)\u{201D}. Nothing is saved yet: check the Features, Bugs and Processes pages, then press Save. “Reload from file” brings the current workflow back.")
+    }
+
     private func load(into workflow: ProjectWorkflow, message text: String) {
         draft = workflow
         page = .features

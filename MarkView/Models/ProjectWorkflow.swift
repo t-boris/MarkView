@@ -197,6 +197,9 @@ enum DeliveryEvent: Codable, Equatable, Sendable {
     /// An event outside GitHub that a person confirms ("deployed to production", "installed").
     case humanConfirmed(name: String)
 
+    /// The words `type` can be in a file (the guide for assistants lists them; the workflow suite checks that each one decodes).
+    static let typeNames = ["none", "github-release", "human-confirmed"]
+
     /// Whether the event is one that somebody confirms, not one MarkView reads from GitHub.
     var isConfirmedBySomeone: Bool {
         if case .humanConfirmed = self { return true }

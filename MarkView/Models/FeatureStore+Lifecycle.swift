@@ -30,6 +30,9 @@ final class IssueLifecycleCoordinator {
     private var mergedWatcher = MergedPullRequestWatcher()
     /// True while the step of an event is being made: that step raises no event of its own.
     private var makingEventStep = false
+    /// The workflow change an assistant proposed, held for the person to review in the Workflow tab; at most one, in memory only
+    /// (feature assistants-confirm-delivery-with-evidence-and-propose-workflow, DEC-001, DEC-005).
+    var workflowProposal: WorkflowProposal?
 
     init(store: FeatureStore) { self.store = store }
 
@@ -216,6 +219,8 @@ final class IssueLifecycleCoordinator {
             return .failure(.writeFailed(error.localizedDescription))
         }
         cached?.workflow = .loaded(saved)
+        // Any save moves the revision on, so a proposal made on the earlier one is outdated.
+        workflowProposal = nil
 
         var report = WorkflowSaveReport(workflow: saved)
         let outcome = carryOut(plan, workflow: saved, parts: parts)
@@ -224,6 +229,31 @@ final class IssueLifecycleCoordinator {
         report.failures = outcome.failures
         store.objectWillChange.send()
         return .success(report)
+    }
+
+    // MARK: - Workflow proposals
+
+    /// An assistant proposes a changed workflow. It is checked like a save, and kept for the person when it is sound and changes
+    /// something; the file and every work item stay as they are. A newer proposal replaces the one before it.
+    func proposeWorkflow(_ value: Any?, summary: String, by name: String) -> Result<WorkflowProposal, WorkflowProposalChecker.Refusal> {
+        guard store.root != nil else { return .failure(.init(problems: ["This window has no project folder open."])) }
+        let load = workflowLoad
+        guard load.isEditable else {
+            return .failure(.init(problems: [load.problem ?? "The workflow file of this project cannot be used, so it cannot be changed."]))
+        }
+        let result = WorkflowProposalChecker.evaluate(workflow: value, summary: summary, current: workflow, by: name)
+        if case .success(let proposal) = result {
+            workflowProposal = proposal
+            store.objectWillChange.send()
+        }
+        return result
+    }
+
+    /// The person does not want the proposal.
+    func dismissWorkflowProposal() {
+        guard workflowProposal != nil else { return }
+        workflowProposal = nil
+        store.objectWillChange.send()
     }
 
     struct ReplacementOutcome: Equatable {

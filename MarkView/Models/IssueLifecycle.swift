@@ -88,7 +88,7 @@ extension LifecycleCondition {
 
 /// What kind of step a transition is. Completion and cancellation are told apart so that closing a bug
 /// as a duplicate never counts as verified completion (DEC-010, DEC-013).
-enum TransitionKind: String, Codable, Sendable {
+enum TransitionKind: String, Codable, CaseIterable, Sendable {
     case spec           // moves between the specification stages
     case start          // implementing / fixing
     case completion     // implemented / fixed on delivery evidence
