@@ -8,6 +8,7 @@ reporter: Boris Tsekinovsky
 created: 2026-11-09
 provenance: Created by an AI agent through MarkView
 related: BUG-113
+updated: 2026-11-09
 ---
 
 # Workflow diagram does not say why a transition happens or what triggers it
@@ -33,3 +34,7 @@ The arrow label is the kind of step only. The conditions are in three small menu
 ## Environment
 
 MarkView 5.47.0 and 5.48.0, Workflow tab (Features, Bugs and Processes pages)
+
+## Resolution
+
+Every arrow of the Workflow diagram is now labelled with the step and who moves it (for example 'Completion · automatic', 'Acceptance · person or AI', 'Reopening · person'), and selecting an arrow opens a When / Who / Evidence card: what makes the step happen, one sentence per actor (a person, an AI through MarkView's project tools, MarkView by itself and on which event) and, for each process that follows the transitions, the evidence it requires, with the controls that change it (how work starts, how it reaches the default branch, checks, delivery event, who accepts). The wording is built from the rule's actor conditions and the processes (Models/WorkflowTransitionStory.swift); workflow.json is unchanged. 'automatic' is claimed only for events MarkView acts on by itself: a hand-off or attached session, complete delivery evidence, a regression report. Merged as PR #335 (5.49.0). Verified: workflow-story-tests.sh, workflow-diagram-tests.sh, issue-lifecycle-tests.sh workflow, workflow-editor-layout-tests.sh with real mouse events and off-screen renders, Debug build. Not hand-checked in the running app. Not done: new event kinds (a visual check as against an automatic one, custom events) change the stored format and wait for a decision.
