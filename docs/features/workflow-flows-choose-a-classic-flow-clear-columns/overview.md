@@ -2,7 +2,7 @@
 type: feature
 id: workflow-flows-choose-a-classic-flow-clear-columns
 title: "Workflow flows: choose a classic flow, clear columns, and a visible Done"
-status: implementing
+status: implemented
 owner: Boris Tsekinovsky
 created: 2026-11-09
 provenance: Created by an AI agent through MarkView from Boris, 2026-11-09, after BUG-115
