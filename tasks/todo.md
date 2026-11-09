@@ -5126,3 +5126,17 @@ Not in this change: a per-process "copy to bugs" action (DEC-001), syncing the f
 - Not checked in the running app (no visible test windows): typing in the Save popover, the delete confirmation, Reveal in Finder, a real new project adopting the chosen template.
 - Known gap: `readWorkflow` (adoption) already did file reads on the calling thread; it now also reads the templates folder (two small files). Moving adoption off the main thread is a separate change.
 - Open for Boris: DEC-003 (folder and file format) and DEC-004 (declared delivery rules win over the built-in default) are still `proposed`; new event kinds in workflow.json ("checked visually / automatically", "AI reports done through MCP") would change the stored format and are not started.
+
+## BUG-117: MarkView freezes and spins, the transition log is read once per issue on the main thread (2026-11-09)
+
+Boris: MarkView is constantly spinning and loading with only four windows open ("practically a show-stopper").
+
+Evidence (before any change): macOS wrote `cpu_resource` reports for MarkView 5.47.0, 5.49.0, 5.50.0 and 5.51.0 with the same heaviest stack: `ProjectToolRunner.run` -> `FeatureStore.reloadSync` -> `IssueLifecycleCoordinator.reconcileLocal` -> `scheduleProgressCheck` -> `assignedVariantID` -> `history` -> `IssueTransitionService.records` -> `FileTransitionStorage.load` -> `ISO8601DateFormatter` (ICU loads its date symbols per parse). An 8 s sample of the running 5.51.0 showed a busy main thread (layout, `syncLifecycleWithGit`, the 3 s poll) and none of the code from 5.50/5.51. Benchmark with the app's own code on a copy of the real log (695 records, 293 KB): one `load()` 61 ms; 148 in a row (one per work item) 9.1 s. `FeatureStore`, `IssueLifecycleCoordinator` and `ProjectToolRunner` are `@MainActor`, so every tool call of an assistant in any window (and every reload after a file change) blocks the UI that long, and the cost grows with the log (items x records).
+
+Root cause: `FileTransitionStorage.load()` decodes the whole file on every call and the lifecycle code calls it for each item.
+
+- [ ] 1. `FileTransitionStorage` keeps the decoded records with the signature of the file they came from (size, modification time to the nanosecond, inode, device), taken before the read; `load()` decodes again only when the signature changed; a missing file clears it. Append-only writes by this or another process/window change the size, so they are always seen.
+- [ ] 2. Checks in `IssueTransitionLogChecks.swift`: same result as a fresh read; another storage on the same file appends and the first sees it; the file rewritten with the same size and new content, truncated, deleted; 148 loads of a 700-record log stay under 1.5 s (before: 9 s).
+- [ ] 3. Run the lifecycle suites (log, completion, store, github, context), Debug build, `./bump-version.sh patch`, PR, merge. No release until Boris says.
+
+Not in this change (follow-ups to decide with Boris): a faster date parse for the one decode that still happens after each change of the log (needs a decision about files written in older formats); moving the tool-call path (`ProjectToolRunner.run` -> `reloadSync`: all features and bugs read synchronously) off the main thread; the per-window pollers (3 s fingerprint, 15 s project scan, 60 s git sync on the main thread).
