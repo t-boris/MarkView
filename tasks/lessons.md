@@ -1703,3 +1703,12 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
 
 - BUG-115: the workflow lets MarkView (the system actor) make a step, and the first version of the arrow labels called every such step "automatic". The standalone check against the standard workflow caught the bug rule that allows MarkView to cancel with cancellation evidence: nothing in the app makes it do that. A permission in a table is not an event the app acts on.
 - When a label or a sentence promises behaviour, tie it to the code that performs it (here: the hand-off, the delivery evidence and the regression report in `FeatureStore+Lifecycle`), name that place in a comment, and test it with a rule that is allowed but not performed.
+
+## 2026-11-09 — a flow that is only data still needs every hard-coded status name found
+
+- Workflow flows: the plan said "the specification steps (Explore, Review, hand-off) stay data only", but a grep for the status names showed `Feature.isPastExplore` (a fixed list idea/exploring/draft) gating the AI's requirement status, the guided flow and Finish Explore. On a Kanban project every feature would have counted as past Explore, so Explore would have been refused. "Data only" is true only after every place that compares a status id is checked.
+  Rule: before promising that a choice is data, grep the status literals (`"idea"`, `"exploring"`, `"draft"`, `"review"`, `"ready"`, `"open"`) and decide for each one what a flow without it does; put the rule in a pure function next to the flows and test it (`IssueLifecycleDefinition.isPastExplore`, `entryStatus`).
+- A decision that I wrote down before building (templates take their delivery settings from the Definition of Done) was wrong by the time the code existed: the adoption code deliberately keeps the feature process free of pull requests. When code and record disagree, fix the record through MarkView's tools and tell Boris, instead of bending the code to the old sentence.
+- A popover or list that is only a private view of a big view cannot be rendered on its own: make it its own `View` so the off-screen test can host it and the picture can be looked at.
+- Boards that generate many arrows collide their labels in the diagram (Kanban, Azure): the layout is crowded, not wrong; it is a layout limit to look at next, not something to hide by dropping transitions.
+

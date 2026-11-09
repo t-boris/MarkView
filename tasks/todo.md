@@ -5086,9 +5086,17 @@ Findings that shape the work:
 - `adoptIfMissing` writes the standard workflow for any project without a file; "new" = no file and no items.
 - `ProcessTemplate.transitions(definition, quick:)` already builds the rules from roles; it needs moves between several active statuses (In progress / In review).
 
-- [ ] 1. `WorkflowDoneSummary.swift`: per process, what Done means (steps, required or not) + mismatch with the Definition of Done; standalone check
-- [ ] 2. Diagram: lane titles, "Stage change", the Done block and warnings (DoD read off the main thread)
-- [ ] 3. `WorkflowFlowTemplate.swift`: the catalogue (MarkView, Kanban, Scrum, Linear, GitHub Projects, Azure DevOps Agile, Shape Up, Kanban + Bugzilla triage), rules from roles; every template validates
-- [ ] 4. "Flow" menu in the Workflow tab (applies to the draft; delivery settings from the Definition of Done read off the main thread)
-- [ ] 5. Entry status for new items; Kanban adoption for a project with no file and no items
-- [ ] 6. Layout test + renders, build, bump to 5.50.0, PR, merge
+- [x] 1. `WorkflowDone.swift`: per process, what Done means (steps, required or not) + mismatch with the Definition of Done; standalone check
+- [x] 2. Diagram: lane titles, "Stage change", the Done block and warnings (DoD read off the main thread)
+- [x] 3. `WorkflowFlow.swift`: the catalogue (MarkView, Kanban, Scrum, Linear, GitHub Projects, Azure DevOps Agile, Shape Up, Kanban + Bugzilla triage), rules from roles; every template validates
+- [x] 4. "Flow" picker in the Workflow tab (applies to the draft; delivery settings from the Definition of Done read off the main thread)
+- [x] 5. Entry status for new items; Kanban adoption for a project with no file and no items
+- [x] 6. Layout test + renders, build, bump to 5.50.0, PR, merge
+
+### Review: workflow flows (PR #336, merged, 5.50.0, not released yet)
+- Built: `WorkflowDone.swift` (what Done means, mismatch with the Definition of Done, delivery/acceptance steps), `WorkflowDonePanel.swift` (the block under the diagram), `WorkflowFlow.swift` (8 flows, rules generated from roles, `applied(to:)`, entry status, past-Explore rule), `WorkflowFlowPicker.swift`, lane titles and "Stage change" in the diagram, Kanban for new empty projects (`ProjectWorkflowStore.hasNoItems`), flow-aware new features (`entryFeatureStatus`, `isPastExplore`).
+- Checked: standalone suites for flows, Done, diagram, lifecycle workflow/policy/store/display; layout test loads every flow into the tab at 400 and 1100 pt and renders the picker; Debug build succeeds.
+- Changed from the plan: `applied(to:)` keeps the processes that follow their type (DEC-003 rewritten); `isPastExplore` became flow-aware (DEC-004); the picker is its own view.
+- Not checked in the running app (no visible test windows, and the running app is 5.49.0): the Flow popover, a real new feature in a Kanban project, a save that moves items to other statuses.
+- Known limit: boards with many arrows have colliding labels in the diagram.
+
