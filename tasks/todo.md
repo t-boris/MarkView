@@ -5051,5 +5051,6 @@ Boris: "BUG - Markview crashed!!!!" (crash report `MarkView-2026-11-08-194323.ip
 - Root cause: `ProjectOperationDiscovery.scan` read a file once per granted folder, so folders that overlap (`../infra` and `../infra/scripts`, or a folder that holds the project) listed the same file twice and the repeated path aborted the app.
 - [x] `scan` skips a file it has already read (by real path), so `Inputs.files` is unique; the fingerprint code is unchanged.
 - [x] `project-operation-discovery-tests.sh` has a second document that names the nested folder: it fails on the old source (SIGTRAP at the uniqueness check) and passes now.
-- Verified: that test, Debug build. Not hand-checked: discovery on a real project with overlapping folders in the running app.
+- Verified: that test, Debug build, and the old and the new `scan` run side by side on the open projects: broker-fabric (granted `~/.broker-fabric` and the recordings folders inside it) listed 8 files twice with the old source and none with the new one; the other projects had no duplicates. Not hand-checked: pressing Discover in the installed app.
+- The installed 5.47.0 crashed five times with this same stack (19:43, 19:47, 19:49, 19:52, 19:54), each time Discover ran; the fix is in 5.48.1, which is merged but not released or installed.
 - BUG-114 stays `fixing` until the common release (status rules want the release); 5.48.1 is not installed, the installed app is 5.47.0.
