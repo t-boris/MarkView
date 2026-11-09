@@ -1,3 +1,29 @@
+# Welcome screen: action tiles and animated backdrops (2026-11-09)
+
+Boris, /goal with a screenshot of "No File Open": more buttons than Open Terminal / New Feature / Open X-Ray / Open File, a more functional
+and much more attractive screen, and where there is no text or button, symbols that fall and change like the Matrix rain. Mid-work he added:
+several backgrounds to choose from (falling symbols, an aurora, running bugs, "pretty animated backgrounds"). Feature
+`welcome-screen-with-action-tiles-and-a-falling` (REQ-001..003, DEC-001, DEC-002). Branch `feat/welcome-screen-backdrops`, one PR, one version
+bump (minor, 5.53.0).
+
+## Plan
+- [ ] 1. Pure models (`Models/WelcomeBackdrop.swift`, `Models/WelcomeActions.swift`): the backdrop kinds and the stored choice (Shuffle resolves
+  to one of the animated ones); seeded scenes for Matrix rain (columns, strips, speeds), Aurora (blobs, rays), Bug swarm (paths, followers),
+  Network (nodes, edges, pulses); the action catalogue (ids, sections, hints, shortcuts, Git only in a repository).
+- [ ] 2. Layers (`Views/WelcomeBackdropView.swift`): an `NSViewRepresentable` whose view builds a CALayer tree from a scene and animates it
+  with Core Animation only (no timer); size/theme change rebuilds; Reduce Motion = no animations, the model's start positions; never answers
+  hit tests; restarts its animations when it moves to a window.
+- [ ] 3. The screen (`Views/WelcomeView.swift`): `WelcomeScreen` takes plain inputs and a slot for the resume list, so a test can host it; tile
+  grid in three sections, Background menu, the empty-window state in the same style. `ContentView.welcomeView` shrinks to the call (the old
+  buttons go).
+- [ ] 4. Tests: `tools/tests/welcome-screen-tests.sh` (models, catalogue, hosted screen at several widths, snapshots to look at with SNAPSHOT_DIR),
+  proven able to fail once.
+- [ ] 5. Look at every snapshot (4 backdrops x dark/light x project/empty window) and fix what is unreadable before the PR.
+- [ ] 6. Version 5.53.0, Debug build, PR, merge, signed release; status `implemented` after the release is published.
+
+## Not verifiable without the running app
+The motion itself (an off-screen render shows the start positions only) and the cost in WindowServer. Said plainly in the PR and the report.
+
 # BUG-108 follow-up: the workflow is configured inside the project, as processes (2026-11-08)
 
 Boris, after release 5.44.1: "did you only fix the window size? Where is it configured per project, inside MarkView, not in Settings? The
