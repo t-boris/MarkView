@@ -1750,4 +1750,10 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
 - The first picture decided the design: 5 and 4 tiles per group left holes in a 3-column grid, so the list grew by the actions the app really has (Quick Feature,
   I Need to Understand, New Research, Workflow). Look at the grid after the catalogue changes, not only at the colours.
 - The safety check blocks `rm -f $VAR/*`. Write snapshots to a fresh directory instead of clearing one, or use a literal absolute path.
+- A frame the render server would show can be drawn without a screen: `layer.presentation()?.render(in: context)` into a bitmap twice, 1.5 s apart, and compare
+  the pixels (4 backdrops changed by 0.7 to 6 %). Reading positions alone does not prove that the picture is not blank. Facing is checked the same way:
+  the presentation transform's angle against the direction the position moved (16 of 16 bugs).
+- Reduce Motion can be tested without System Settings: swap the `NSWorkspace.accessibilityDisplayShouldReduceMotion` getter for the run, post
+  `accessibilityDisplayOptionsDidChangeNotification`, and restore the getter afterwards. It showed the same layers with no animation, an identical picture 0.8 s
+  later, and the animations back when switched off.
 
