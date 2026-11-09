@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import ObjectiveC
 
 // The welcome screen (feature welcome-screen-with-action-tiles-and-a-falling): the scenes of the four backdrops and the list of actions as
 // plain values, the layers a scene becomes, and the shipping WelcomeScreen hosted off screen (a borderless window far outside the
@@ -292,7 +293,7 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
     for _ in 0..<5 { view.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 }
 
-@MainActor func host(project: String?, git: Bool, theme: AppTheme, size: NSSize, still: Bool, perform: @escaping (WelcomeActionID) -> Void = { _ in })
+@MainActor func host(project: String?, git: Bool, theme: AppTheme, accent: ThemeColor? = nil, size: NSSize, still: Bool, perform: @escaping (WelcomeActionID) -> Void = { _ in })
     -> (NSWindow, NSHostingView<AnyView>) {
     let screen = WelcomeScreen(projectName: project, isGitRepo: git, still: still, perform: perform) {
         if project != nil {
@@ -307,7 +308,7 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
             Text("Recent projects").font(.system(size: 13, weight: .semibold))
         }
     }
-    let hosting = NSHostingView(rootView: AnyView(screen.environment(\.palette, AppPalette(ThemePalette.make(theme)))))
+    let hosting = NSHostingView(rootView: AnyView(screen.environment(\.palette, AppPalette(ThemePalette.make(theme, accent: accent)))))
     let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.contentView = hosting
@@ -455,6 +456,166 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
     }
 }
 
+
+// MARK: - Frames Core Animation really composes
+
+/// The presentation layer tree (what the render server shows now, animations applied) drawn into a bitmap.
+@MainActor func presentationImage(_ root: CALayer, size: CGSize, background: NSColor) -> CGImage? {
+    guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+          let context = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    context.setFillColor(background.cgColor)
+    context.fill(CGRect(origin: .zero, size: size))
+    (root.presentation() ?? root).render(in: context)
+    return context.makeImage()
+}
+
+/// The share of pixels that differ between two pictures of the same size.
+func differingShare(_ a: CGImage, _ b: CGImage) -> Double {
+    let width = a.width, height = a.height
+    guard b.width == width, b.height == height, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return 0 }
+    func bytes(_ image: CGImage) -> [UInt8] {
+        var data = [UInt8](repeating: 0, count: width * height * 4)
+        data.withUnsafeMutableBytes { buffer in
+            let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: space,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            context?.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        return data
+    }
+    let first = bytes(a), second = bytes(b)
+    var differing = 0
+    for pixel in 0..<(width * height) where abs(Int(first[pixel * 4]) - Int(second[pixel * 4])) + abs(Int(first[pixel * 4 + 1]) - Int(second[pixel * 4 + 1]))
+        + abs(Int(first[pixel * 4 + 2]) - Int(second[pixel * 4 + 2])) > 24 { differing += 1 }
+    return Double(differing) / Double(width * height)
+}
+
+func savePNG(_ image: CGImage, _ name: String) {
+    guard let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"] else { return }
+    try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
+}
+
+func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
+    var difference = abs(a - b).truncatingRemainder(dividingBy: 2 * .pi)
+    if difference > .pi { difference = 2 * .pi - difference }
+    return difference
+}
+
+@MainActor func animatedFrameChecks() {
+    let size = NSSize(width: 1000, height: 800)
+    for backdrop in [WelcomeBackdrop.matrix, .bugs, .aurora, .network] {
+        UserDefaults.standard.set(backdrop.rawValue, forKey: WelcomeBackdrop.storageKey)
+        let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: size, still: false)
+        defer { window.close() }
+        settle(hosting)
+        guard let view = descendants(hosting).compactMap({ $0 as? BackdropHostView }).first, let root = view.layer else {
+            check(false, "frames \(backdrop.rawValue): the backdrop view exists"); continue
+        }
+        let background = NSColor(AppPalette(ThemePalette.make(.classicDark)).model.bg)
+        CATransaction.flush()
+        guard let early = presentationImage(root, size: view.bounds.size, background: background) else { check(false, "frames \(backdrop.rawValue): a frame can be drawn"); continue }
+        RunLoop.main.run(until: Date().addingTimeInterval(1.5))
+        CATransaction.flush()
+        guard let late = presentationImage(root, size: view.bounds.size, background: background) else { check(false, "frames \(backdrop.rawValue): a second frame can be drawn"); continue }
+        savePNG(early, "frame-\(backdrop.rawValue)-0.0s")
+        savePNG(late, "frame-\(backdrop.rawValue)-1.5s")
+        let share = differingShare(early, late)
+        check(share > 0.002, "frames \(backdrop.rawValue): the composed picture changes in 1.5 seconds (\(String(format: "%.1f", share * 100)) % of the pixels)")
+        let lit = differingShare(late, { () -> CGImage in
+            let context = CGContext(data: nil, width: late.width, height: late.height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.setFillColor(background.cgColor)
+            context.fill(CGRect(x: 0, y: 0, width: late.width, height: late.height))
+            return context.makeImage()!
+        }())
+        check(lit > 0.005, "frames \(backdrop.rawValue): the frame is not the empty background (\(String(format: "%.1f", lit * 100)) % drawn)")
+
+        if backdrop == .bugs {
+            // Facing: a bug's presentation transform must turn it to where its position moves.
+            func state() -> [(CGPoint, CGFloat)] {
+                CATransaction.flush()
+                return (root.sublayers ?? []).compactMap { layer in
+                    guard let presentation = layer.presentation() else { return nil }
+                    let t = presentation.transform
+                    return (presentation.position, atan2(t.m12, t.m11))
+                }
+            }
+            let before = state()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+            let after = state()
+            var aligned = 0, compared = 0
+            for (a, b) in zip(before, after) {
+                let dx = b.0.x - a.0.x, dy = b.0.y - a.0.y
+                guard hypot(dx, dy) > 3, hypot(dx, dy) < 60 else { continue }
+                compared += 1
+                if angleBetween(atan2(dy, dx), (a.1 + b.1) / 2) < 0.3 { aligned += 1 }
+            }
+            check(compared >= before.count * 7 / 10 && aligned == compared, "frames bugs: every bug in motion faces the way it moves (\(aligned) of \(compared), \(before.count) bugs)")
+        }
+        if backdrop == .matrix {
+            // The symbols change while a strip falls: a layer's picture is a different one a little later, and the same one a moment later.
+            func pictures() -> [CGImage?] { CATransaction.flush(); return (root.sublayers ?? []).map { $0.presentation()?.contents as! CGImage? } }
+            let start = pictures()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.04))
+            let blink = pictures()
+            var changedLater = Set<Int>()
+            var samples = [start]
+            for _ in 0..<6 {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.35))
+                samples.append(pictures())
+            }
+            for later in samples.dropFirst() { for (index, picture) in later.enumerated() where picture !== start[index] { changedLater.insert(index) } }
+            let sameSoon = zip(start, blink).filter { $0 === $1 }.count
+            check(sameSoon >= start.count * 8 / 10, "frames matrix: a strip keeps its symbols for a moment (\(sameSoon) of \(start.count) unchanged after 0.04 s)")
+            check(changedLater.count >= start.count * 9 / 10, "frames matrix: and its symbols change within 2.5 seconds (\(changedLater.count) of \(start.count) strips)")
+        }
+    }
+}
+
+/// Reduce Motion: with the system setting on, the screen must hold still; off again, it moves. The setting is read through
+/// NSWorkspace, so the check swaps that one getter for the length of the run and announces the change as the system does.
+@MainActor func reduceMotionChecks() {
+    UserDefaults.standard.set(WelcomeBackdrop.bugs.rawValue, forKey: WelcomeBackdrop.storageKey)
+    let selector = NSSelectorFromString("accessibilityDisplayShouldReduceMotion")
+    guard let method = class_getInstanceMethod(NSWorkspace.self, selector) else { check(false, "reduce motion: the system getter exists"); return }
+    let original = method_getImplementation(method)
+    var reduce = false
+    let replacement: @convention(block) (AnyObject) -> Bool = { _ in reduce }
+    method_setImplementation(method, imp_implementationWithBlock(replacement))
+    defer { method_setImplementation(method, original) }
+    let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: NSSize(width: 900, height: 700), still: false)
+    defer { window.close() }
+    settle(hosting)
+    guard let view = descendants(hosting).compactMap({ $0 as? BackdropHostView }).first, let root = view.layer else { check(false, "reduce motion: the backdrop view exists"); return }
+    func animated() -> Int { (root.sublayers ?? []).flatMap { [$0] + ($0.sublayers ?? []) }.filter { !($0.animationKeys() ?? []).isEmpty }.count }
+    check(!reduce && view.isAnimating && animated() > 0, "reduce motion off: the bugs are animated (\(animated()) layers)")
+    reduce = true
+    NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+    settle(hosting)
+    check(!view.isAnimating && animated() == 0 && !(root.sublayers ?? []).isEmpty, "reduce motion on: the same scene stands still, nothing is animated (\((root.sublayers ?? []).count) layers)")
+    let still = presentationImage(root, size: view.bounds.size, background: .black)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+    CATransaction.flush()
+    if let still, let later = presentationImage(root, size: view.bounds.size, background: .black) {
+        check(differingShare(still, later) == 0, "reduce motion on: two pictures 0.8 seconds apart are the same")
+    }
+    reduce = false
+    NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+    settle(hosting)
+    check(view.isAnimating && animated() > 0, "reduce motion off again: the bugs move again (\(animated()) layers)")
+}
+
+/// How the screen looks in Boris's theme as his screenshot shows it (dark, green accent), at the size of that window.
+@MainActor func borisThemeSnapshot() {
+    for backdrop in [WelcomeBackdrop.matrix, .aurora, .bugs, .network] {
+        UserDefaults.standard.set(backdrop.rawValue, forKey: WelcomeBackdrop.storageKey)
+        let (window, hosting) = host(project: "vivaa-internals", git: true, theme: .midnight, accent: ThemeColor(0x3FB950), size: NSSize(width: 1142, height: 1068), still: true)
+        settle(hosting)
+        snapshot(hosting, "boris-\(backdrop.rawValue)")
+        window.close()
+    }
+}
+
 choiceChecks()
 matrixChecks()
 auroraChecks()
@@ -469,6 +630,9 @@ MainActor.assumeIsolated {
     motionChecks()
     resizeChecks()
     tileChecks()
+    animatedFrameChecks()
+    reduceMotionChecks()
+    borisThemeSnapshot()
 }
 print(failures == 0 ? "\nall checks passed" : "\n\(failures) check(s) FAILED")
 exit(failures == 0 ? 0 : 1)
