@@ -22,6 +22,8 @@ struct WorkflowTransitionsEditor: View {
 
     @State private var selection: Selection?
     @State private var pull: Pull?
+    /// The state or arrow the pointer is over.
+    @State private var hover: Selection?
     /// The width the diagram may take; it is drawn at its natural size and scaled down when the window is narrower.
     @State private var available: CGFloat = 0
     @State private var newState = ""
@@ -161,49 +163,62 @@ struct WorkflowTransitionsEditor: View {
     }
 
     private var diagramView: some View {
-        let diagram = WorkflowDiagram(statuses: statuses, rules: rules, width: available > 0 ? available : 760)
-        let scale = available > 0 ? min(1, available / max(1, diagram.size.width)) : 1
-        let involved = involvedStates()
-        // The drawing is an overlay of an empty box that takes the width it is given: its natural width must not ask the tab for more
-        // room than the window has (the tab could then never be narrower than the diagram), so it is scaled to the box instead.
+        let width = available > 0 ? available : 760
+        // The diagram grows with the tab, and is cut down to fit a narrow one: every length, text size and line width follows the zoom.
+        let zoom = WorkflowDiagram.zoom(statuses: statuses, rules: rules, available: width)
+        let diagram = WorkflowDiagram(statuses: statuses, rules: rules, width: width, metrics: WorkflowDiagram.Metrics(zoom: zoom))
+        // What the pointer is over lights up as a selection does, so the path of a transition can be followed without a click.
+        let focus = hover ?? selection
+        let involved = involvedStates(focus)
+        // The drawing is an overlay of an empty box that takes the width it is given: its own width must not ask the tab for more
+        // room than the window has (the tab could then never be narrower than the diagram).
         return Color.clear
             .frame(maxWidth: .infinity)
-            .frame(height: diagram.size.height * scale)
+            .frame(height: diagram.size.height)
             .overlay(alignment: .topLeading) {
                 ZStack(alignment: .topLeading) {
-                    Canvas { context, _ in draw(&context, diagram) }
+                    Canvas { context, _ in draw(&context, diagram, focus: focus) }
                         .frame(width: diagram.size.width, height: diagram.size.height)
                         .contentShape(Rectangle())
                         .gesture(SpatialTapGesture().onEnded { tap in
-                            if let rule = diagram.rule(near: tap.location) { selection = .rule(rule) } else { selection = nil }
+                            if let rule = diagram.rule(near: tap.location, tolerance: 7 * zoom) { selection = .rule(rule) } else { selection = nil }
                         })
                     ForEach(diagram.nodes) { node in
-                        nodeView(node, involved: involved.contains(node.id), diagram: diagram)
+                        nodeView(node, involved: involved.contains(node.id), focused: focus == .state(node.id), diagram: diagram)
                     }
                 }
                 .frame(width: diagram.size.width, height: diagram.size.height, alignment: .topLeading)
                 .coordinateSpace(name: Self.space)
-                .scaleEffect(scale, anchor: .topLeading)
+                .onContinuousHover { phase in
+                    var next: Selection?
+                    if case .active(let point) = phase {
+                        if let node = diagram.node(at: point) { next = .state(node.id) }
+                        else if let rule = diagram.rule(near: point, tolerance: 7 * zoom) { next = .rule(rule) }
+                    }
+                    if hover != next { hover = next }
+                }
             }
     }
 
-    /// The states the selected transition starts from and ends at.
-    private func involvedStates() -> Set<String> {
-        guard case .rule(let index)? = selection, rules.indices.contains(index) else { return [] }
+    /// The states the focused transition starts from and ends at.
+    private func involvedStates(_ focus: Selection?) -> Set<String> {
+        guard case .rule(let index)? = focus, rules.indices.contains(index) else { return [] }
         return rules[index].from.union([rules[index].to])
     }
 
-    private func nodeView(_ node: WorkflowDiagram.Node, involved: Bool, diagram: WorkflowDiagram) -> some View {
+    private func nodeView(_ node: WorkflowDiagram.Node, involved: Bool, focused: Bool, diagram: WorkflowDiagram) -> some View {
+        let zoom = diagram.metrics.zoom
         let selected = selection == .state(node.id)
         let color = roleColor(node.role)
         let target = pull.flatMap { diagram.node(at: $0.at) }?.id == node.id && pull?.from != node.id
-        return Text(node.title).uiFont(size: 11, weight: .medium).lineLimit(1).truncationMode(.tail)
-            .padding(.horizontal, 8)
+        let lit = selected || target
+        return Text(node.title).uiFont(size: 11.5 * zoom, weight: .medium).lineLimit(1).truncationMode(.tail)
+            .padding(.horizontal, 8 * zoom)
             .frame(width: node.frame.width, height: node.frame.height)
-            .background(RoundedRectangle(cornerRadius: 6).fill(color.opacity(0.16)))
-            .background(RoundedRectangle(cornerRadius: 6).fill(palette.bg))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected || target ? palette.accent : (involved ? color : color.opacity(0.55)),
-                                                             lineWidth: selected || target ? 2 : 1))
+            .background(RoundedRectangle(cornerRadius: 6 * zoom).fill(color.opacity(0.18)))
+            .background(RoundedRectangle(cornerRadius: 6 * zoom).fill(palette.bg))
+            .overlay(RoundedRectangle(cornerRadius: 6 * zoom).stroke(lit ? palette.accent : (focused || involved ? color : color.opacity(0.55)),
+                                                                    lineWidth: (lit ? 2 : (focused || involved ? 1.6 : 1)) * max(1, zoom)))
             .contentShape(Rectangle())
             .onTapGesture { selection = .state(node.id) }
             .gesture(DragGesture(minimumDistance: 6, coordinateSpace: .named(Self.space))
@@ -222,47 +237,47 @@ struct WorkflowTransitionsEditor: View {
             .offset(x: node.frame.minX, y: node.frame.minY)
     }
 
-    private func draw(_ context: inout GraphicsContext, _ diagram: WorkflowDiagram) {
+    private func draw(_ context: inout GraphicsContext, _ diagram: WorkflowDiagram, focus: Selection?) {
+        let zoom = diagram.metrics.zoom
         for lane in diagram.lanes {
-            let frame = Path(roundedRect: lane.frame, cornerRadius: 8)
+            let frame = Path(roundedRect: lane.frame, cornerRadius: 8 * zoom)
             context.fill(frame, with: .color(palette.bgInput.opacity(0.55)))
             context.stroke(frame, with: .color(palette.border), lineWidth: 1)
-            context.draw(Text(lane.role.title).font(.system(size: 10, weight: .semibold)).foregroundColor(roleColor(lane.role)),
-                         at: CGPoint(x: lane.frame.minX + 10, y: 14), anchor: .leading)
+            context.draw(Text(lane.role.title).font(.system(size: 11.5 * zoom, weight: .semibold)).foregroundColor(roleColor(lane.role)),
+                         at: CGPoint(x: lane.frame.minX + 12 * zoom, y: 15 * zoom), anchor: .leading)
             if let bar = lane.bar {
                 let color = kindColor(lane.entryRules.first.flatMap { rules.indices.contains($0) ? rules[$0].kind : nil } ?? .spec)
                 var line = Path()
-                line.move(to: CGPoint(x: lane.frame.minX + 7, y: bar.lowerBound))
-                line.addLine(to: CGPoint(x: lane.frame.minX + 7, y: bar.upperBound))
-                context.stroke(line, with: .color(color.opacity(0.75)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                line.move(to: CGPoint(x: lane.frame.minX + diagram.metrics.barInset, y: bar.lowerBound))
+                line.addLine(to: CGPoint(x: lane.frame.minX + diagram.metrics.barInset, y: bar.upperBound))
+                context.stroke(line, with: .color(color.opacity(0.8)), style: StrokeStyle(lineWidth: 3.5 * zoom, lineCap: .round))
                 if lane.isClique {
-                    context.draw(Text("any order").font(.system(size: 9, weight: .medium)).foregroundColor(color),
-                                 at: CGPoint(x: lane.frame.maxX - 8, y: 14), anchor: .trailing)
+                    context.draw(Text("any order").font(.system(size: 10.5 * zoom, weight: .medium)).foregroundColor(color),
+                                 at: CGPoint(x: lane.frame.maxX - 10 * zoom, y: 15 * zoom), anchor: .trailing)
                 }
             }
         }
-        // The lit arrows are drawn last, over the others.
-        // Selecting a state lights the arrows into and out of it; selecting an arrow lights that one.
+        // Focusing a state lights the arrows into and out of it; focusing an arrow lights that one. The lit ones are drawn last, over the others.
         var lit: Set<Int> = []
-        switch selection {
+        switch focus {
         case .rule(let index)?: lit = [index]
         case .state(let id)?: lit = Set(rules.indices.filter { rules[$0].to == id || rules[$0].from.contains(id) })
         case nil: break
         }
         for arrow in diagram.arrows.sorted(by: { (lit.contains($0.rule) ? 1 : 0) < (lit.contains($1.rule) ? 1 : 0) }) {
-            drawArrow(&context, arrow, selected: lit.contains(arrow.rule), dimmed: !lit.isEmpty && !lit.contains(arrow.rule))
+            drawArrow(&context, arrow, zoom: zoom, selected: lit.contains(arrow.rule), dimmed: !lit.isEmpty && !lit.contains(arrow.rule))
         }
         if let pull, let from = diagram.nodes.first(where: { $0.id == pull.from }) {
             var line = Path()
             line.move(to: CGPoint(x: from.frame.midX, y: from.frame.midY))
             line.addLine(to: pull.at)
-            context.stroke(line, with: .color(palette.accent), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [5, 4]))
+            context.stroke(line, with: .color(palette.accent), style: StrokeStyle(lineWidth: 2 * zoom, lineCap: .round, dash: [5 * zoom, 4 * zoom]))
         }
     }
 
-    private func drawArrow(_ context: inout GraphicsContext, _ arrow: WorkflowDiagram.Arrow, selected: Bool, dimmed: Bool) {
-        let color = kindColor(arrow.kind).opacity(selected ? 1 : (dimmed ? 0.25 : 0.8))
-        let width: CGFloat = selected ? 2.6 : 1.4
+    private func drawArrow(_ context: inout GraphicsContext, _ arrow: WorkflowDiagram.Arrow, zoom: CGFloat, selected: Bool, dimmed: Bool) {
+        let color = kindColor(arrow.kind).opacity(selected ? 1 : (dimmed ? 0.2 : 0.85))
+        let width: CGFloat = (selected ? 3.4 : 2) * zoom
         for branch in arrow.branches {
             var path = Path()
             for tail in branch.tails { path.addLines(tail) }
@@ -271,17 +286,18 @@ struct WorkflowTransitionsEditor: View {
             let direction: CGFloat = branch.pointsRight ? 1 : -1
             var head = Path()
             head.move(to: branch.tip)
-            head.addLine(to: CGPoint(x: branch.tip.x - direction * 8, y: branch.tip.y - 4))
-            head.addLine(to: CGPoint(x: branch.tip.x - direction * 8, y: branch.tip.y + 4))
+            head.addLine(to: CGPoint(x: branch.tip.x - direction * 10 * zoom, y: branch.tip.y - 5 * zoom))
+            head.addLine(to: CGPoint(x: branch.tip.x - direction * 10 * zoom, y: branch.tip.y + 5 * zoom))
             head.closeSubpath()
             context.fill(head, with: .color(color))
             if !branch.isEntry {
                 // The name sits on a plate of the page's colour so that the curves that cross it do not cut it up.
-                let label = context.resolve(Text(arrow.kind.editorTitle).font(.system(size: 9, weight: selected ? .bold : .medium)).foregroundColor(color))
-                let size = label.measure(in: CGSize(width: 200, height: 20))
-                let origin = CGPoint(x: branch.pointsRight ? branch.tip.x - 4 - size.width : branch.tip.x + 4, y: branch.tip.y - 3 - size.height)
-                context.fill(Path(roundedRect: CGRect(origin: origin, size: size).insetBy(dx: -2, dy: -1), cornerRadius: 3),
-                             with: .color(palette.bg.opacity(0.85)))
+                let label = context.resolve(Text(arrow.kind.editorTitle).font(.system(size: 10.5 * zoom, weight: selected ? .bold : .medium)).foregroundColor(color))
+                let size = label.measure(in: CGSize(width: 240 * zoom, height: 24 * zoom))
+                let origin = CGPoint(x: branch.pointsRight ? branch.tip.x - 5 * zoom - size.width : branch.tip.x + 5 * zoom,
+                                     y: branch.tip.y - 4 * zoom - size.height)
+                context.fill(Path(roundedRect: CGRect(origin: origin, size: size).insetBy(dx: -3 * zoom, dy: -1.5 * zoom), cornerRadius: 3 * zoom),
+                             with: .color(palette.bg.opacity(0.88)))
                 context.draw(label, at: origin, anchor: .topLeading)
             }
         }
@@ -298,8 +314,8 @@ struct WorkflowTransitionsEditor: View {
             if rules.indices.contains(index) { ruleInspector(index) }
         case nil:
             Text(editor.page == .processes
-                 ? "Click an arrow to change it, or a state to see the arrows into and out of it. Drag from one state to another to add an arrow."
-                 : "Click a state to rename it or change its role, an arrow to change who may make the step and on what evidence. Drag from one state to another to add an arrow.")
+                 ? "Point at a state or an arrow to light its path. Click an arrow to change it, or a state to see the arrows into and out of it. Drag from one state to another to add an arrow."
+                 : "Point at a state or an arrow to light its path. Click a state to rename it or change its role, an arrow to change who may make the step and on what evidence. Drag from one state to another to add an arrow.")
                 .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
         }
     }
