@@ -109,6 +109,86 @@ check("a type without variants is refused", mentions(problems { $0.variants.remo
 check("a delivery event a person confirms needs a name", mentions(problems { $0.variants[1].delivery = .humanConfirmed(name: " ") }, "name of the delivery event"))
 check("an unsupported schema is refused", mentions(problems { $0.schema = 99 }, "schema 99"))
 
+// MARK: Who confirms a delivery event, and events on rules (feature assistants-confirm-delivery-with-evidence-and-propose-workflow)
+
+let oldText = Data(ProjectWorkflowStore.text(of: standard).utf8)
+check("the standard workflow writes neither confirmedBy nor an event",
+      !String(decoding: oldText, as: UTF8.self).contains("confirmedBy") && !String(decoding: oldText, as: UTF8.self).contains("\"event\""))
+check("a process without confirmedBy reads as a person only", standard.variants.allSatisfy { $0.confirmedBy == nil && $0.confirmer == .person })
+check("the delivery rules of a process carry who confirms", standard.variants[1].deliveryRules.confirmedBy == .person)
+
+var byAI = standard
+byAI.variants[1].delivery = .humanConfirmed(name: "installed")
+byAI.variants[1].confirmer = .personOrAI
+let byAIRound = try! JSONDecoder().decode(ProjectWorkflow.self, from: try! encoder.encode(byAI))
+check("a process that lets an AI confirm keeps it through JSON", byAIRound.variants[1].confirmer == .personOrAI && byAIRound == byAI)
+check("the confirmer reaches the delivery rules", byAIRound.variants[1].deliveryRules.confirmedBy == .personOrAI)
+check("the encoding uses the word person-or-ai", String(decoding: try! encoder.encode(byAI), as: UTF8.self).contains("\"confirmedBy\":\"person-or-ai\""))
+byAI.variants[1].confirmer = .person
+check("setting a person again clears the field, so the file is as it was", byAI.variants[1].confirmedBy == nil)
+check("the description of a process says an AI may confirm",
+      { var v = standard.variants[1]; v.delivery = .humanConfirmed(name: "installed"); v.confirmer = .personOrAI
+        return v.description.contains("confirmed by a person or an AI with evidence") }())
+check("an unknown confirmer does not decode", (try? JSONDecoder().decode(DeliveryConfirmer.self, from: Data(#""robot""#.utf8))) == nil)
+
+// Who may confirm now (DeliveryConfirmationPolicy)
+var installedRule = standard.variants[1]
+installedRule.delivery = .humanConfirmed(name: "Installed on mac")
+func refusal(_ actor: LifecycleActor, _ process: RuleVariant?, role: LifecycleRole? = .active, note: String = "checked") -> String? {
+    DeliveryConfirmationPolicy.refusal(issue: "BUG-001", actor: actor, process: process, status: "in-progress", role: role, note: note)
+}
+check("a person confirms under a process that wants a person", refusal(person, installedRule) == nil)
+check("an AI is refused under a process that wants a person, and is told what to ask for",
+      refusal(agent, installedRule)?.contains("lets only a person confirm") == true && refusal(agent, installedRule)?.contains("Who confirms") == true)
+installedRule.confirmer = .personOrAI
+check("an AI confirms under a process that lets an AI", refusal(agent, installedRule) == nil)
+check("a person still confirms under a process that lets an AI", refusal(person, installedRule) == nil)
+check("MarkView itself never confirms a delivery event", refusal(app, installedRule) != nil)
+check("a confirmation needs the work to be under way", refusal(agent, installedRule, role: .notStarted)?.contains("has not started") == true)
+check("a completed item can still be confirmed", refusal(agent, installedRule, role: .completed) == nil)
+check("a cancelled item cannot be confirmed", refusal(agent, installedRule, role: .cancelled) != nil)
+check("an AI's confirmation needs an evidence text", refusal(agent, installedRule, note: "  ")?.contains("evidence text is required") == true)
+check("a person's confirmation needs a note too", refusal(person, installedRule, note: "") != nil)
+check("a process without a confirmed event has nothing to confirm", refusal(agent, standard.variants[0])?.contains("nothing to confirm") == true)
+check("an item without a process has nothing to confirm", refusal(agent, nil)?.contains("nothing to confirm") == true)
+
+let eventRule = LifecycleRule(from: ["in-progress"], to: "in-review", kind: .spec, needs: [.human: [], .system: []], event: .workStarted)
+check("a rule without an event is unchanged", standard.feature.rules.allSatisfy { $0.event == nil })
+let eventRuleRound = try! JSONDecoder().decode(LifecycleRule.self, from: try! encoder.encode(eventRule))
+check("a rule keeps its event through JSON", eventRuleRound == eventRule && eventRuleRound.event == .workStarted)
+check("the event is written as its word", String(decoding: try! encoder.encode(eventRule), as: UTF8.self).contains("\"event\":\"work-started\""))
+check("a rule written by an older app reads without an event",
+      (try! JSONDecoder().decode(LifecycleRule.self, from: Data(#"{"from":["a"],"to":"b","kind":"spec","human":[]}"#.utf8))).event == nil)
+let futureRule = try! JSONDecoder().decode(LifecycleRule.self, from: Data(#"{"from":["a"],"to":"b","kind":"spec","system":[],"event":"teleported"}"#.utf8))
+check("an event this app does not know is kept as written, and is not known", futureRule.event?.rawValue == "teleported" && futureRule.event?.isKnown == false)
+check("an unknown event is written back unchanged", String(decoding: try! encoder.encode(futureRule), as: UTF8.self).contains("\"event\":\"teleported\""))
+check("every known event has a title and a meaning",
+      RuleEvent.known.allSatisfy { !$0.title.isEmpty && !$0.meaning.isEmpty && !$0.title.contains("happens") && !$0.meaning.contains("Not known") })
+check("the first events are the ones the app sees", RuleEvent.known.map(\.rawValue) == ["work-started", "investigation-finished", "pull-request-merged"])
+
+func withRule(_ rule: LifecycleRule, kind: IssueKind = .bug) -> [String] {
+    problems { w in
+        if kind == .bug { w.bug.rules.append(rule) } else { w.feature.rules.append(rule) }
+    }
+}
+// The standard bug statuses are open, fixing, fixed and closed; fixed > fixing is not a standard step, so a new rule can use it.
+let ruleOnEvent = LifecycleRule(from: ["fixed"], to: "fixing", kind: .spec, needs: [.human: [], .system: []], event: .workStarted)
+check("a rule on a known event with a system entry is valid", withRule(ruleOnEvent).isEmpty)
+check("a rule on an event without a system entry is refused",
+      mentions(withRule(LifecycleRule(from: ["fixed"], to: "fixing", kind: .spec, needs: [.human: []], event: .workStarted)), "does not let MarkView make the step"))
+check("a rule on an unknown event is refused and names the known ones",
+      mentions(withRule(LifecycleRule(from: ["fixed"], to: "fixing", kind: .spec, needs: [.system: []], event: RuleEvent(rawValue: "teleported"))), "does not know")
+      && mentions(withRule(LifecycleRule(from: ["fixed"], to: "fixing", kind: .spec, needs: [.system: []], event: RuleEvent(rawValue: "teleported"))), "pull-request-merged"))
+check("the investigation event is refused for features",
+      mentions(withRule(LifecycleRule(from: ["ready"], to: "idea", kind: .spec, needs: [.system: []], event: .investigationFinished), kind: .feature), "exists only for bugs"))
+check("the investigation event is accepted for bugs",
+      withRule(LifecycleRule(from: ["fixed"], to: "fixing", kind: .spec, needs: [.system: []], event: .investigationFinished), kind: .bug).isEmpty)
+check("an event on a process's own rules is checked like one on a type",
+      mentions(problems { w in
+          let kind = w.variants[1].kind
+          w.variants[1].rules = w.lifecycle(kind).rules + [LifecycleRule(from: ["fixed"], to: "fixing", kind: .spec, needs: [.human: []], event: .workStarted)]
+      }, "does not let MarkView make the step"))
+
 // MARK: Variants and templates
 
 let templateIDs = Dictionary(uniqueKeysWithValues: VariantTemplate.allCases.map { ($0, $0.variant(kind: .feature, id: $0.rawValue)) })

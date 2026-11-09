@@ -378,6 +378,65 @@ do {
     check("a reopening starts a new round, so the old confirmation no longer counts", history().deliveryConfirmation(event: "installed") == nil)
 }
 
+// An AI's confirmation of a delivery event (feature assistants-confirm-delivery-with-evidence-and-propose-workflow, REQ-001)
+do {
+    let rig = Rig("implementing")
+    let history = { rig.service.history(.feature, "f") }
+    check("a person cannot write through the AI path", rig.service.recordAIDeliveryConfirmation(.feature, "f", text: "ok", event: "installed", actor: boris) == nil)
+    check("MarkView cannot write through the AI path", rig.service.recordAIDeliveryConfirmation(.feature, "f", text: "ok", event: "installed", actor: LifecycleActor.system("MarkView")) == nil)
+    check("an empty text is no evidence", rig.service.recordAIDeliveryConfirmation(.feature, "f", text: "  ", event: "installed", actor: claude) == nil)
+    let written = rig.service.recordAIDeliveryConfirmation(.feature, "f", text: "  Version 5.52.0 installed, codesign valid  ", event: "installed", actor: claude, variant: "standard-feature", workflowRevision: 4)
+    check("an AI's confirmation is written with its actor, text and event",
+          written?.actor == claude && written?.reason == "Version 5.52.0 installed, codesign valid" && written?.target == "installed" && written?.humanEvidence == .delivery)
+    check("it does not count under a process that wants a person", history().deliveryConfirmation(event: "installed") == nil)
+    check("it does not count when the reader asks for a person explicitly", history().deliveryConfirmation(event: "installed", confirmer: .person) == nil)
+    check("it counts under a process that lets an AI confirm", history().deliveryConfirmation(event: "installed", confirmer: .personOrAI)?.actor == claude)
+    check("the evidence text is what the collector reads", history().deliveryConfirmation(event: "installed", confirmer: .personOrAI)?.reason == "Version 5.52.0 installed, codesign valid")
+    _ = rig.service.recordHumanEvidence(.feature, "f", evidence: .delivery, text: "Seen on the other Mac", event: "installed", actor: boris)
+    check("a person's later confirmation counts under either process", history().deliveryConfirmation(event: "installed")?.actor == boris
+          && history().deliveryConfirmation(event: "installed", confirmer: .personOrAI)?.actor == boris)
+    _ = rig.service.recordAIDeliveryConfirmation(.feature, "f", text: "Checked again", event: "installed", actor: claude)
+    check("under a process that wants a person, an AI's later record does not hide the person's earlier one",
+          history().deliveryConfirmation(event: "installed")?.actor == boris)
+    check("under a process that lets an AI confirm, the latest record wins", history().deliveryConfirmation(event: "installed", confirmer: .personOrAI)?.reason == "Checked again")
+    _ = rig.service.apply(request("implementing", "implemented", boris, reason: "delivered", force: true))
+    _ = rig.service.apply(request("implemented", "implementing", boris, reason: "regression found"))
+    check("a reopening ends an AI's confirmation too", history().deliveryConfirmation(event: "installed", confirmer: .personOrAI) == nil)
+}
+
+// The step of an event on a rule (REQ-004 of the feature assistants-confirm-delivery-with-evidence-and-propose-workflow): made by
+// MarkView under the rule's own conditions, once for the event and its cause.
+do {
+    var workflow = ProjectWorkflow.standard
+    workflow.feature.rules.append(LifecycleRule(from: ["implementing"], to: "review", kind: .spec, needs: [.system: []], event: .workStarted))
+    func eventStep(_ rig: Rig, cause: String, workflow: ProjectWorkflow, to: String = "review", from: String = "implementing") -> ApplyResult {
+        rig.service.apply(TransitionRequest(command: RuleEventPlanner.command(.workStarted, kind: .feature, issue: "f", cause: cause), kind: .feature,
+                                            issue: "f", from: from, to: to, actor: markview, reason: "After the event", workflow: workflow))
+    }
+    let rig = Rig("implementing")
+    check("MarkView makes the step of an event rule", eventStep(rig, cause: "c1", workflow: workflow).isApplied && rig.status() == "review")
+    check("the record is MarkView's, with the event in its reason", rig.service.history(.feature, "f").lastChange?.actor == markview
+          && rig.service.history(.feature, "f").lastChange?.reason == "After the event")
+    _ = rig.service.apply(request("review", "implementing", boris, reason: "back to work", force: true))
+    check("a person moves the item back", rig.status() == "implementing")
+    let again = eventStep(rig, cause: "c1", workflow: workflow)
+    check("the same event answers the same command and does not override the person", { if case .duplicate = again { return rig.status() == "implementing" } else { return false } }())
+    check("a new event with a new cause makes the step again", eventStep(rig, cause: "c2", workflow: workflow).isApplied && rig.status() == "review")
+
+    var closed = ProjectWorkflow.standard
+    closed.feature.rules.append(LifecycleRule(from: ["implementing"], to: "review", kind: .spec, needs: [.human: []], event: .workStarted))
+    let refused = Rig("implementing")
+    check("a rule without a system entry does not let MarkView make the step", eventStep(refused, cause: "c1", workflow: closed).isApplied == false && refused.status() == "implementing")
+
+    var conditional = ProjectWorkflow.standard
+    conditional.feature.rules.append(LifecycleRule(from: ["implementing"], to: "review", kind: .spec, needs: [.system: [.startEvidence]], event: .workStarted))
+    let unmet = Rig("implementing")
+    check("an event step still needs the conditions the rule asks of MarkView", eventStep(unmet, cause: "c1", workflow: conditional).isApplied == false && unmet.status() == "implementing")
+
+    let elsewhere = Rig("ready")
+    check("an item in another status than the step's is not moved", eventStep(elsewhere, cause: "c1", workflow: workflow).isApplied == false && elsewhere.status() == "ready")
+}
+
 do {
     var workflow = ProjectWorkflow.standard
     workflow.revision = 6

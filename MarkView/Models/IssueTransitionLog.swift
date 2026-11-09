@@ -296,13 +296,16 @@ struct IssueHistory: Equatable, Sendable {
         return records.enumerated().last { $0.offset > lastChange && $0.element.phase == .evidence && $0.element.humanEvidence == .start }?.element
     }
 
-    /// A person's confirmation of `event` in the current round of work: after the last reopening, or ever when it was not reopened.
-    func deliveryConfirmation(event: String) -> TransitionRecord? {
+    /// A confirmation of `event` in the current round of work: after the last reopening, or ever when it was not reopened. A person's
+    /// always counts; an AI's counts only when the process says so (`confirmer`), whatever the file holds, so a record written by
+    /// hand under a process that wants a person does not complete anything. MarkView's own records never confirm.
+    func deliveryConfirmation(event: String, confirmer: DeliveryConfirmer = .person) -> TransitionRecord? {
         let wanted = Self.normalizeEvent(event)
         let round = records.lastIndex { ($0.phase == .applied || $0.phase == .recovered) && $0.transitionKind == .reopen } ?? -1
         return records.enumerated().last {
             $0.offset > round && $0.element.phase == .evidence && $0.element.humanEvidence == .delivery
                 && Self.normalizeEvent($0.element.target ?? "") == wanted
+                && ($0.element.actor.kind == .human || ($0.element.actor.kind == .ai && confirmer == .personOrAI))
         }?.element
     }
 
@@ -586,8 +589,23 @@ final class IssueTransitionService: @unchecked Sendable {
     @discardableResult
     func recordHumanEvidence(_ kind: IssueKind, _ issue: String, evidence: TransitionRecord.HumanEvidenceKind, text: String, event: String? = nil,
                              actor: LifecycleActor, variant: String? = nil, workflowRevision: Int? = nil) -> TransitionRecord? {
+        guard actor.kind == .human else { return nil }
+        return appendEvidence(kind, issue, evidence: evidence, text: text, event: event, actor: actor, variant: variant, workflowRevision: workflowRevision)
+    }
+
+    /// An AI's confirmation of a delivery event, with the text of what it verified. Whether the process lets an AI confirm is decided
+    /// before this (`FeatureStore.confirmDelivery`) and again when the record is read (`IssueHistory.deliveryConfirmation`). A start
+    /// note stays a person's: only the delivery kind is open to an AI.
+    func recordAIDeliveryConfirmation(_ kind: IssueKind, _ issue: String, text: String, event: String, actor: LifecycleActor,
+                                      variant: String? = nil, workflowRevision: Int? = nil) -> TransitionRecord? {
+        guard actor.kind == .ai else { return nil }
+        return appendEvidence(kind, issue, evidence: .delivery, text: text, event: event, actor: actor, variant: variant, workflowRevision: workflowRevision)
+    }
+
+    private func appendEvidence(_ kind: IssueKind, _ issue: String, evidence: TransitionRecord.HumanEvidenceKind, text: String, event: String?,
+                                actor: LifecycleActor, variant: String?, workflowRevision: Int?) -> TransitionRecord? {
         let note = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard actor.kind == .human, !note.isEmpty else { return nil }
+        guard !note.isEmpty else { return nil }
         lock.lock(); defer { lock.unlock() }
         let history = IssueHistory(kind: kind, issue: issue, all: records())
         let record = TransitionRecord(phase: .evidence, command: "evidence:\(evidence.rawValue):\(kind.rawValue):\(issue):\(history.records.count)", kind: kind,

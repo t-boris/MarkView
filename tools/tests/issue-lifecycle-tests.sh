@@ -3,7 +3,7 @@
 # service, the delivery evidence, verified completion and reconciliation, the GitHub sync planner, the AI context and the
 # Lifecycle section's display model, and the project workflow they run on (docs/features/feature-3).
 # The app has no XCTest target: each suite is compiled on its own with a test main and run.
-#   tools/tests/issue-lifecycle-tests.sh [suite ...]      suites: workflow policy log evidence collector completion github context display store
+#   tools/tests/issue-lifecycle-tests.sh [suite ...]      suites: workflow events description proposal policy log evidence collector completion github context display store
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
@@ -19,12 +19,15 @@ run() {  # name, checks file, extra sources...
     "$out/$name"
 }
 
-want=("$@"); [ ${#want[@]} -eq 0 ] && want=(workflow policy log evidence collector completion github context display store)
+want=("$@"); [ ${#want[@]} -eq 0 ] && want=(workflow events description proposal policy log evidence collector completion github context display store)
 for suite in "${want[@]}"; do
     case $suite in
         workflow)   run workflow ProjectWorkflowChecks.swift "$M/IssueLifecycleEvidence.swift" "$M/WorkflowFlow.swift" "$M/WorkflowTemplate.swift" "$M/ProjectWorkflowStore.swift" ;;
+        events)     run events WorkflowEventChecks.swift "$M/WorkflowEvents.swift" ;;
+        description) run description WorkflowDescriptionChecks.swift "$M/WorkflowEvents.swift" "$M/WorkflowDescription.swift" ;;
+        proposal)   run proposal WorkflowProposalChecks.swift "$M/WorkflowEvents.swift" "$M/WorkflowDescription.swift" "$M/WorkflowProposal.swift" "$M/ProjectWorkflowStore.swift" "$M/IssueLifecycleEvidence.swift" "$M/WorkflowFlow.swift" "$M/WorkflowTemplate.swift" ;;
         policy)     run policy IssueLifecyclePolicyChecks.swift ;;
-        log)        run log IssueTransitionLogChecks.swift "$M/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift ;;
+        log)        run log IssueTransitionLogChecks.swift "$M/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/WorkflowEvents.swift" ;;
         evidence)   run evidence IssueEvidenceChecks.swift "$M/IssueLifecycleEvidence.swift" ;;
         collector) swiftc -parse-as-library -O -o "$out/collector" "${base[@]}" "$M/IssueLifecycleEvidence.swift" "$M/IssueEvidenceCollector.swift" tools/tests/IssueCollectorChecks.swift; "$out/collector" ;;
         completion) run completion IssueCompletionChecks.swift "$M/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/IssueCompletion.swift" "$M/IssueReconciler.swift" ;;

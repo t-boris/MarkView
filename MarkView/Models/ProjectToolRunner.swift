@@ -14,6 +14,8 @@ enum ProjectToolRunner {
             switch tool {
             case "markview_guide": return .init(text: ProjectAgentTools.guide(args["topic"] as? String, workflow: store.lifecycle.workflow))
             case "markview_project": return .init(text: project(store, root))
+            case "markview_get_workflow": return getWorkflow(store)
+            case "markview_propose_workflow": return try proposeWorkflow(store, args)
             case "markview_list_features": return .init(text: listFeatures(store, status: try ProjectAgentTools.text(args, "status")))
             case "markview_get_feature": return try getFeature(store, args)
             case "markview_list_bugs": return .init(text: listBugs(store, status: try ProjectAgentTools.text(args, "status")))
@@ -41,6 +43,35 @@ enum ProjectToolRunner {
             return .error(invalid.message)
         } catch {
             return .error(error.localizedDescription)
+        }
+    }
+
+    /// The workflow of the project, as the file and in words (feature assistants-confirm-delivery-with-evidence-and-propose-workflow, REQ-002).
+    private static func getWorkflow(_ store: FeatureStore) -> BrowserAgentTools.Reply {
+        let load = store.lifecycle.workflowLoad
+        guard load.isEditable else {
+            return .error((load.problem ?? "The workflow file of this project cannot be used.") + " It has to be repaired by the person before it can be read or changed.")
+        }
+        let workflow = store.lifecycle.workflow
+        var parts = [clip(WorkflowDescription.describe(workflow)),
+                     "The file (.dde/workflow/workflow.json), revision \(workflow.revision):\n" + ProjectWorkflowStore.text(of: workflow),
+                     "To change it, learn the format from markview_guide topic workflow-format, then send the whole changed workflow to markview_propose_workflow."]
+        if let waiting = store.lifecycle.workflowProposal {
+            parts.insert("A proposal by \(waiting.proposedBy) is already waiting for the person: \u{201C}\(waiting.summary)\u{201D}. A new proposal replaces it.", at: 0)
+        }
+        return .init(text: parts.joined(separator: "\n\n"))
+    }
+
+    /// An assistant proposes a changed workflow: checked, held for the person, never saved (REQ-003, DEC-001).
+    private static func proposeWorkflow(_ store: FeatureStore, _ args: [String: Any]) throws -> BrowserAgentTools.Reply {
+        let summary = try ProjectAgentTools.text(args, "summary", required: true)
+        let tool = try ProjectAgentTools.text(args, "tool")
+        switch store.lifecycle.proposeWorkflow(args["workflow"], summary: summary, by: tool.isEmpty ? "An assistant" : tool) {
+        case .failure(let refusal):
+            return .error("The proposal was not accepted; nothing was changed.\n" + refusal.problems.map { "- " + $0 }.joined(separator: "\n"))
+        case .success(let proposal):
+            let impact = store.lifecycle.workflowImpact(of: proposal.workflow)
+            return .init(text: clip(WorkflowProposalChecker.reply(proposal, needsReplacement: WorkflowProposalChecker.replacementLines(impact))))
         }
     }
 

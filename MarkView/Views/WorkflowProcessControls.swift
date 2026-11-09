@@ -60,6 +60,12 @@ struct WorkflowProcessControls: View {
             }
             if case .humanConfirmed = variant.delivery {
                 TextField("Event, for example: installed on the other Mac", text: eventName).textFieldStyle(.roundedBorder)
+                labeled("Who confirms") {
+                    Picker("", selection: Binding(get: { variant.confirmer }, set: { variant.confirmer = $0 })) {
+                        ForEach(DeliveryConfirmer.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                }
+                .help("A person only: the event is confirmed in the Lifecycle section of the item. A person, or an AI with evidence: an assistant that has verified it may confirm it through MarkView's project tools, with a text of what it verified.")
             }
         }
         if parts.contains(.acceptance) {
@@ -78,8 +84,8 @@ struct WorkflowProcessControls: View {
             }
         }, set: { kind in
             switch kind {
-            case .none: variant.delivery = .none
-            case .release: variant.delivery = .githubRelease
+            case .none: variant.delivery = .none; variant.confirmer = .person
+            case .release: variant.delivery = .githubRelease; variant.confirmer = .person
             case .person:
                 if case .humanConfirmed = variant.delivery { return }
                 variant.delivery = .humanConfirmed(name: "")

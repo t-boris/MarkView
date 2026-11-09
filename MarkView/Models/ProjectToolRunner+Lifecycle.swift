@@ -8,7 +8,7 @@ import Foundation
 enum LifecycleToolRunner {
     static func handles(_ tool: String, _ args: [String: Any]) -> Bool {
         switch tool {
-        case "markview_set_bug_status", "markview_issue_context", "markview_attach_issue": return true
+        case "markview_set_bug_status", "markview_issue_context", "markview_attach_issue", "markview_confirm_delivery": return true
         case "markview_set_status": return ((args["id"] as? String) ?? "").trimmingCharacters(in: .whitespaces).isEmpty
         default: return false
         }
@@ -24,6 +24,7 @@ enum LifecycleToolRunner {
             case "markview_set_bug_status": return try await setBugStatus(store, args)
             case "markview_issue_context": return try await context(store, args)
             case "markview_attach_issue": return try attach(store, args)
+            case "markview_confirm_delivery": return try await confirmDelivery(store, args)
             default: return .error("Unknown tool \(tool).")
             }
         } catch let invalid as ProjectAgentTools.Invalid {
@@ -107,6 +108,31 @@ enum LifecycleToolRunner {
             store.updateBug(bug.url) { front, _ in front.set("duplicate_of", original) }
         }
         return reply(result, issue: bug.key)
+    }
+
+    // MARK: - Delivery
+
+    /// An AI confirms the delivery event of the item's process with the evidence of what it verified. The process decides whether an AI
+    /// may (feature assistants-confirm-delivery-with-evidence-and-propose-workflow, REQ-001); the item is not moved here: MarkView
+    /// completes it when the rest of its delivery evidence is there, and the reply says whether that happened.
+    private static func confirmDelivery(_ store: FeatureStore, _ args: [String: Any]) async throws -> BrowserAgentTools.Reply {
+        let name = try ProjectAgentTools.text(args, "issue", required: true)
+        guard let target = resolve(store, name) else {
+            throw ProjectAgentTools.Invalid(message: "No feature or bug \"\(name)\" in this project.")
+        }
+        let evidence = try ProjectAgentTools.text(args, "evidence")
+        note(store, issue: target.issue, args)
+        switch store.lifecycle.confirmDelivery(target.kind, target.issue, note: evidence, by: actor(args)) {
+        case .refused(let reason):
+            return .error(reason)
+        case .confirmed(let event):
+            let completed = await store.lifecycle.completeFinishedWork(only: [(kind: target.kind, issue: target.issue)])
+            let status = store.lifecycle.storedStatus(target.kind, target.issue) ?? "unknown"
+            let outcome = completed.isEmpty
+                ? "\(target.issue) stays in \(status): the rest of its delivery evidence is not complete yet. Read markview_issue_context(issue: \"\(target.issue)\") for what is missing."
+                : "MarkView completed \(target.issue): it is now \(status)."
+            return .init(text: "Recorded your confirmation of \u{201C}\(event)\u{201D} for \(target.issue) with your evidence. " + outcome)
+        }
     }
 
     // MARK: - Context and sessions

@@ -25,6 +25,14 @@ final class IssueLifecycleCoordinator {
     /// When each item under way was last looked at for completion ("bug:BUG-012").
     private var lastProgressCheck: [String: Date] = [:]
     private static let progressInterval: TimeInterval = 300
+    /// Pull requests seen merged since MarkView started: the first look at an item records what is merged and raises nothing
+    /// (REQ-004).
+    private var mergedWatcher = MergedPullRequestWatcher()
+    /// True while the step of an event is being made: that step raises no event of its own.
+    private var makingEventStep = false
+    /// The workflow change an assistant proposed, held for the person to review in the Workflow tab; at most one, in memory only
+    /// (feature assistants-confirm-delivery-with-evidence-and-propose-workflow, DEC-001, DEC-005).
+    var workflowProposal: WorkflowProposal?
 
     init(store: FeatureStore) { self.store = store }
 
@@ -211,6 +219,8 @@ final class IssueLifecycleCoordinator {
             return .failure(.writeFailed(error.localizedDescription))
         }
         cached?.workflow = .loaded(saved)
+        // Any save moves the revision on, so a proposal made on the earlier one is outdated.
+        workflowProposal = nil
 
         var report = WorkflowSaveReport(workflow: saved)
         let outcome = carryOut(plan, workflow: saved, parts: parts)
@@ -219,6 +229,31 @@ final class IssueLifecycleCoordinator {
         report.failures = outcome.failures
         store.objectWillChange.send()
         return .success(report)
+    }
+
+    // MARK: - Workflow proposals
+
+    /// An assistant proposes a changed workflow. It is checked like a save, and kept for the person when it is sound and changes
+    /// something; the file and every work item stay as they are. A newer proposal replaces the one before it.
+    func proposeWorkflow(_ value: Any?, summary: String, by name: String) -> Result<WorkflowProposal, WorkflowProposalChecker.Refusal> {
+        guard store.root != nil else { return .failure(.init(problems: ["This window has no project folder open."])) }
+        let load = workflowLoad
+        guard load.isEditable else {
+            return .failure(.init(problems: [load.problem ?? "The workflow file of this project cannot be used, so it cannot be changed."]))
+        }
+        let result = WorkflowProposalChecker.evaluate(workflow: value, summary: summary, current: workflow, by: name)
+        if case .success(let proposal) = result {
+            workflowProposal = proposal
+            store.objectWillChange.send()
+        }
+        return result
+    }
+
+    /// The person does not want the proposal.
+    func dismissWorkflowProposal() {
+        guard workflowProposal != nil else { return }
+        workflowProposal = nil
+        store.objectWillChange.send()
     }
 
     struct ReplacementOutcome: Equatable {
@@ -323,7 +358,38 @@ final class IssueLifecycleCoordinator {
                                         variantID: parts.service.history(kind, issue).assignedVariant)
         let result = parts.service.apply(request)
         if result.reachedStatus { store.reloadSync(kind == .feature ? issue : nil) }
+        // A start of any kind (a hand-off, an agent, a person) is the event work-started.
+        if case .applied(let record) = result, record.transitionKind == .start {
+            fire(.workStarted, kind, issue, cause: record.command)
+        }
         return finish(result, surface: surface)
+    }
+
+    // MARK: - Events on rules
+
+    /// An event happened to an item: MarkView makes the step of the first rule of the item's process that names the event, starts at
+    /// the item's status and lets MarkView make it (feature assistants-confirm-delivery-with-evidence-and-propose-workflow, REQ-004,
+    /// DEC-006). The step is made as MarkView under the rule's own conditions, once for the event and its cause; an event that no
+    /// rule names, or that happens to an item in another status, changes nothing. Returns nil when no rule asks for a step.
+    @discardableResult
+    func fire(_ event: RuleEvent, _ kind: IssueKind, _ issue: String, cause: String) -> ApplyResult? {
+        guard parts != nil, !makingEventStep, let stored = storedStatus(kind, issue),
+              let rule = RuleEventPlanner.step(for: event, in: lifecycle(kind, of: issue), status: stored) else { return nil }
+        makingEventStep = true
+        defer { makingEventStep = false }
+        return transition(kind, issue, to: rule.to, actor: .system("MarkView"), reason: RuleEventPlanner.reason(event, rule: rule, cause: cause),
+                          from: stored, command: RuleEventPlanner.command(event, kind: kind, issue: issue, cause: cause), surface: false)
+    }
+
+    /// The pull requests of `units` that have been merged since the last look at the item raise pull-request-merged, one event each.
+    private func observeMergedPullRequests(_ kind: IssueKind, _ issue: String, units: [WorkUnit]) {
+        let merged = Set(units.compactMap { unit -> Int? in
+            guard case .pullRequest(let number) = unit.ref, unit.mergedAt != nil, unit.pullRequestVerified != false else { return nil }
+            return number
+        })
+        for number in mergedWatcher.newlyMerged(item: "\(kind.rawValue):\(issue)", merged: merged) {
+            fire(.pullRequestMerged, kind, issue, cause: "PR #\(number)")
+        }
     }
 
     private func finish(_ result: ApplyResult, surface: Bool) -> ApplyResult {
@@ -395,15 +461,40 @@ final class IssueLifecycleCoordinator {
         return transition(kind, issue, to: target, actor: actor, evidence: evidence, from: stored, surface: surface)
     }
 
-    /// A person confirms the delivery event the variant names ("installed", "deployed to production"). It is evidence; the
-    /// completion itself is still made by MarkView when the rest of the delivery is there (REQ-004, DEC-018).
+    /// What came of a confirmation of a delivery event.
+    enum DeliveryConfirmationResult: Equatable {
+        case confirmed(event: String)
+        /// The reason, written for whoever asked.
+        case refused(String)
+
+        var isConfirmed: Bool { if case .confirmed = self { return true } else { return false } }
+    }
+
+    /// A person, or an AI where the process lets one, confirms the delivery event the variant names ("installed", "deployed to
+    /// production"). It is evidence; the completion itself is still made by MarkView when the rest of the delivery is there
+    /// (REQ-004, DEC-018; feature assistants-confirm-delivery-with-evidence-and-propose-workflow, REQ-001, DEC-004). An AI is refused
+    /// when the process wants a person, and needs a text of what it verified.
     @discardableResult
-    func confirmDelivery(_ kind: IssueKind, _ issue: String, note: String, by actor: LifecycleActor) -> Bool {
-        guard let parts, let event = variant(kind, issue)?.deliveryRules.confirmedEventName else { return false }
-        let wrote = parts.service.recordHumanEvidence(kind, issue, evidence: .delivery, text: note, event: event, actor: actor,
-                                                      variant: variant(kind, issue)?.id, workflowRevision: workflow.revision) != nil
-        if wrote { store.objectWillChange.send() }
-        return wrote
+    func confirmDelivery(_ kind: IssueKind, _ issue: String, note: String, by actor: LifecycleActor) -> DeliveryConfirmationResult {
+        guard let parts, let stored = storedStatus(kind, issue) else { return .refused("\(issue) was not found in this project.") }
+        let process = variant(kind, issue)
+        if let reason = DeliveryConfirmationPolicy.refusal(issue: issue, actor: actor, process: process, status: stored,
+                                                          role: workflow.lifecycle(kind).role(of: stored), note: note) {
+            return .refused(reason)
+        }
+        // The policy has just found the process and its event; this only unwraps them.
+        guard let process, let event = process.deliveryRules.confirmedEventName else { return .refused("Nothing to confirm for \(issue).") }
+        let wrote: TransitionRecord?
+        if actor.kind == .ai {
+            wrote = parts.service.recordAIDeliveryConfirmation(kind, issue, text: note, event: event, actor: actor, variant: process.id,
+                                                               workflowRevision: workflow.revision)
+        } else {
+            wrote = parts.service.recordHumanEvidence(kind, issue, evidence: .delivery, text: note, event: event, actor: actor,
+                                                      variant: process.id, workflowRevision: workflow.revision)
+        }
+        guard wrote != nil else { return .refused("The confirmation could not be written to the history of \(issue).") }
+        store.objectWillChange.send()
+        return .confirmed(event: event)
     }
 
     /// The start evidence of an item: the earliest attached session, else a person's note when the variant accepts one.
@@ -484,16 +575,21 @@ final class IssueLifecycleCoordinator {
 
     /// Delivery evidence of an item now (DEC-007, DEC-012). Runs git and gh off the main thread.
     func deliveryVerdict(_ kind: IssueKind, _ issue: String) async -> DeliveryVerdict {
-        guard let root = store.root, let history = history(kind, issue) else { return .notCollected }
+        await deliveryObservation(kind, issue).verdict
+    }
+
+    /// The evidence and the work units it was judged on.
+    func deliveryObservation(_ kind: IssueKind, _ issue: String) async -> (verdict: DeliveryVerdict, work: [WorkUnit]) {
+        guard let root = store.root, let history = history(kind, issue) else { return (.notCollected, []) }
         let linked = numbers(kind, issue)
         let since = history.deliveryRoundStart
         let rules = (workflow.resolvedVariant(kind, assigned: history.assignedVariant) ?? workflow.resolvedVariant(kind, assigned: nil))?.deliveryRules
             ?? ProjectWorkflow.standard.resolvedVariant(kind, assigned: nil)!.deliveryRules
-        let confirmation = rules.confirmedEventName.flatMap { history.deliveryConfirmation(event: $0)?.reason }
+        let confirmation = rules.confirmedEventName.flatMap { history.deliveryConfirmation(event: $0, confirmer: rules.confirmedBy)?.reason }
         let subject = IssueEvidenceCollector.Subject(kind: kind, issue: issue, exclusiveNumbers: linked.own.subtracting(linked.others),
                                                      sharedNumbers: linked.own.intersection(linked.others), since: since,
                                                      rules: rules, eventConfirmation: confirmation)
-        return await IssueEvidenceCollector.collect(subject, root: root, githubEnabled: GitHubSettings.enabled)
+        return await IssueEvidenceCollector.collectObserving(subject, root: root, githubEnabled: GitHubSettings.enabled)
     }
 
     // MARK: - Reconciling what the files say with what the history says
@@ -557,9 +653,12 @@ final class IssueLifecycleCoordinator {
             let key = "\(target.kind.rawValue):\(target.issue)"
             if let last = lastProgressCheck[key], Date().timeIntervalSince(last) < minimumInterval { continue }
             lastProgressCheck[key] = Date()
-            let delivery = await deliveryVerdict(target.kind, target.issue)
+            let observed = await deliveryObservation(target.kind, target.issue)
+            let delivery = observed.verdict
+            // A pull request merged since the last look is an event, whether or not the rest of the delivery is there yet.
+            observeMergedPullRequests(target.kind, target.issue, units: observed.work)
             guard delivery.isComplete else { continue }
-            // The file may have changed while git and GitHub were read.
+            // The file may have changed while git and GitHub were read (or an event moved the item).
             guard let now = storedStatus(target.kind, target.issue), LifecycleVocabulary.normalize(now) == LifecycleVocabulary.normalize(status) else { continue }
             let step = parts.service.history(target.kind, target.issue).changes.count
             let result = transition(target.kind, target.issue, to: destination, actor: .system("MarkView"), evidence: LifecycleEvidence(delivery: delivery),

@@ -55,7 +55,8 @@ struct TransitionStory: Equatable, Sendable {
         let actors = [LifecycleActorKind.human, .ai, .system].map { line($0, rule) }
         let automatic = isAutomatic(rule)
         return TransitionStory(
-            trigger: triggerWords(for: rule.kind), label: labelWords(for: rule, automatic: automatic), automatic: automatic, actors: actors,
+            trigger: rule.event.map { "When \($0.title)" } ?? triggerWords(for: rule.kind), label: labelWords(for: rule, automatic: automatic),
+            automatic: automatic, actors: actors,
             parts: used,
             processes: processes.compactMap { variant in
                 let lines = processLines(variant, parts: used)
@@ -115,8 +116,10 @@ struct TransitionStory: Equatable, Sendable {
 
     /// True when MarkView moves the item by itself: its conditions are all events it watches for.
     static func isAutomatic(_ rule: LifecycleRule) -> Bool {
-        guard let needs = rule.needs[.system], !needs.isEmpty else { return false }
-        return needs.allSatisfy { event($0) != nil }
+        guard let needs = rule.needs[.system] else { return false }
+        // A rule that names an event is taken by MarkView when the event happens, whatever else it asks for that MarkView watches.
+        if rule.event != nil { return needs.allSatisfy { event($0) != nil } }
+        return !needs.isEmpty && needs.allSatisfy { event($0) != nil }
     }
 
     private static func list(_ items: [String]) -> String {
@@ -153,7 +156,9 @@ struct TransitionStory: Equatable, Sendable {
             text = needs.isEmpty ? base + "." : base + ", with \(needed)."
         case .system:
             if isAutomatic(rule) {
-                text = "Makes this step by itself as soon as " + list(needs.compactMap(event)) + "."
+                var moments = rule.event.map { ["\($0.title)"] } ?? []
+                moments += needs.compactMap(event)
+                text = "Makes this step by itself as soon as " + list(moments) + "."
             } else {
                 text = needs.isEmpty ? "May make this step." : "May make this step, with \(needed)."
             }
@@ -176,7 +181,8 @@ struct TransitionStory: Equatable, Sendable {
             case .none: lines.append("No delivery event")
             case .githubRelease: lines.append("A GitHub release that contains the work is published")
             case .humanConfirmed(let name):
-                lines.append(name.trimmingCharacters(in: .whitespaces).isEmpty ? "A person confirms the delivery event" : "A person confirms: \(name)")
+                let who = variant.confirmer == .personOrAI ? "A person, or an AI with its evidence, confirms" : "A person confirms"
+                lines.append(name.trimmingCharacters(in: .whitespaces).isEmpty ? "\(who) the delivery event" : "\(who): \(name)")
             }
         }
         if parts.contains(.acceptance) {

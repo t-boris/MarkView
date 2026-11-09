@@ -31,14 +31,21 @@ enum IssueEvidenceCollector {
     private static let releaseChecks = 6
 
     static func collect(_ subject: Subject, root: URL, githubEnabled: Bool) async -> DeliveryVerdict {
+        await collectObserving(subject, root: root, githubEnabled: githubEnabled).verdict
+    }
+
+    /// The verdict and the work units it was judged on (the units are empty when git could not be read), so that the app can see
+    /// which pull requests have been merged (event pull-request-merged, REQ-004 of the feature
+    /// assistants-confirm-delivery-with-evidence-and-propose-workflow).
+    static func collectObserving(_ subject: Subject, root: URL, githubEnabled: Bool) async -> (verdict: DeliveryVerdict, work: [WorkUnit]) {
         var sources: [EvidenceSource] = []
         guard let ref = await defaultBranch(root: root) else {
-            return DeliveryEvaluator.evaluate(DeliveryInput(sources: [.unavailable("git", "no default branch (origin/main or main) was found")],
-                                                            work: [], releaseRequired: false))
+            return (DeliveryEvaluator.evaluate(DeliveryInput(sources: [.unavailable("git", "no default branch (origin/main or main) was found")],
+                                                             work: [], releaseRequired: false)), [])
         }
         let log = await GitHubClient.execute(GitWorkLog.arguments(ref: ref, limit: logLimit) + ["--first-parent", "-m"], in: root, git: true, timeout: 30)
         guard log.status == 0 else {
-            return DeliveryEvaluator.evaluate(DeliveryInput(sources: [.unavailable("git", "git log failed")], work: [], releaseRequired: false))
+            return (DeliveryEvaluator.evaluate(DeliveryInput(sources: [.unavailable("git", "git log failed")], work: [], releaseRequired: false)), [])
         }
         var history = GitWorkLog.commits(from: log.stdout)
         let rules = subject.rules
@@ -111,9 +118,10 @@ enum IssueEvidenceCollector {
                 releases[item.ref] = await release(containing: item, among: all, client: client, root: root)
             }
         }
-        return DeliveryEvaluator.evaluate(DeliveryInput(sources: sources, work: work, releaseRequired: required, releases: releases, since: subject.since,
-                                                        pullRequestRequired: rules.pullRequestRequired, checksRequired: rules.checksRequired,
-                                                        confirmedEvent: rules.confirmedEventName, eventConfirmation: subject.eventConfirmation))
+        let verdict = DeliveryEvaluator.evaluate(DeliveryInput(sources: sources, work: work, releaseRequired: required, releases: releases, since: subject.since,
+                                                               pullRequestRequired: rules.pullRequestRequired, checksRequired: rules.checksRequired,
+                                                               confirmedEvent: rules.confirmedEventName, eventConfirmation: subject.eventConfirmation))
+        return (verdict, work)
     }
 
     // MARK: Git

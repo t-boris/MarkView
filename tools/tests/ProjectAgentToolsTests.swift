@@ -17,12 +17,12 @@ func check(_ condition: Bool, _ message: String, _ detail: String = "", line: In
 
 let tools = ProjectAgentTools.tools
 let names = tools.map(\.name)
-check(names.count == 36 && Set(names).count == 36, "thirty-six distinct tools", "\(names)")
+check(names.count == 39 && Set(names).count == 39, "thirty-nine distinct tools", "\(names)")
 check(names.allSatisfy { $0.hasPrefix("markview_") }, "every tool is prefixed")
 check(tools.allSatisfy { !$0.description.isEmpty && $0.required.allSatisfy { $0.isEmpty == false && tools.isEmpty == false } }, "every tool is described")
 check(tools.allSatisfy { tool in tool.required.allSatisfy { tool.properties[$0] != nil } }, "required arguments are declared")
-let readOnly: Set<String> = ["markview_guide", "markview_project", "markview_list_features", "markview_get_feature", "markview_list_bugs", "markview_get_bug", "markview_list_prototypes", "markview_get_prototype", "markview_issue_context", "markview_open_questions", "markview_discussions", "markview_get_discussion"]
-check(readOnly.isSubset(of: Set(names)) && names.count - readOnly.count == 24, "twelve readers, eighteen writers, six deployments tools")
+let readOnly: Set<String> = ["markview_guide", "markview_project", "markview_get_workflow", "markview_list_features", "markview_get_feature", "markview_list_bugs", "markview_get_bug", "markview_list_prototypes", "markview_get_prototype", "markview_issue_context", "markview_open_questions", "markview_discussions", "markview_get_discussion"]
+check(readOnly.isSubset(of: Set(names)) && names.count - readOnly.count == 26, "thirteen readers, twenty writers, six deployments tools")
 check(DiscussionAgentTools.names.count == 4 && DiscussionAgentTools.names.isSubset(of: Set(names)), "the discussions tools are among them")
 for name in ["markview_update_feature", "markview_update_object", "markview_answer_question", "markview_add_source", "markview_add_discussion_note", "markview_update_bug", "markview_answer_bug_question", "markview_link_issue"] {
     check(names.contains(name), "\(name) exists")
@@ -43,6 +43,31 @@ let setStatus = tools.first { $0.name == "markview_set_status" }!
 check(setStatus.properties["reason"] != nil && setStatus.properties["evidence"] != nil && setStatus.properties["session"] != nil && setStatus.properties["tool"] != nil, "set_status carries a reason, evidence and the caller's session")
 check(setBug.properties["reason"] != nil && setBug.properties["evidence"] != nil && setBug.properties["duplicate_of"] != nil, "set_bug_status carries a reason, evidence and the original of a duplicate")
 check(tools.first { $0.name == "markview_attach_issue" }!.required == ["issue"], "attaching a session names the issue")
+check(tools.first { $0.name == "markview_confirm_delivery" }!.required == ["issue", "evidence"], "confirming a delivery names the issue and the evidence")
+check(tools.first { $0.name == "markview_get_workflow" }!.required.isEmpty, "reading the workflow needs nothing")
+check(tools.first { $0.name == "markview_propose_workflow" }!.required == ["workflow", "summary"] && tools.first { $0.name == "markview_propose_workflow" }!.properties["workflow"]?["type"] as? String == "object",
+      "proposing a workflow needs the whole workflow as an object and a summary")
+check(!names.contains { $0.contains("save_workflow") || $0.contains("write_workflow") || $0.contains("set_workflow") || $0.contains("update_workflow") },
+      "there is no tool that writes the workflow")
+check(tools.first { $0.name == "markview_propose_workflow" }!.description.contains("You cannot save it"), "the proposal tool says that the assistant cannot save")
+check(ProjectAgentTools.guideTopics.contains("workflow-format") && ProjectAgentTools.guide("workflow-format") == WorkflowFormatGuide.text, "the workflow format has a guide topic")
+check(ProjectAgentTools.guide("workflow").contains("workflow-format") && ProjectAgentTools.guide("workflow").contains("markview_get_workflow"), "the feature workflow guide points to the workflow file")
+
+// Every assistant that MarkView can start gets the project tools registered (Connect Agents): the registration names it.
+let assistantsSource = (try? String(contentsOfFile: "MarkView/Models/AIAssistants.swift", encoding: .utf8)) ?? ""
+let registrationSource = (try? String(contentsOfFile: "MarkView/Models/AgentBrowserRegistration.swift", encoding: .utf8)) ?? ""
+let assistantNames: [String] = {
+    guard let start = assistantsSource.range(of: "enum CLITool: String, CaseIterable {"), let end = assistantsSource.range(of: "var displayName", range: start.upperBound..<assistantsSource.endIndex) else { return [] }
+    return assistantsSource[start.upperBound..<end.lowerBound].split(separator: "\n").compactMap { line in
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("case ") ? String(trimmed.dropFirst(5)) : nil
+    }
+}()
+check(assistantNames.count >= 5 && Set(assistantNames).isSuperset(of: ["claude", "codex", "cline", "copilot", "antigravity"]), "the assistants that MarkView knows are read from the code", "\(assistantNames)")
+for name in assistantNames {
+    check(registrationSource.contains("resolve(.\(name))"), "Connect Agents registers the MarkView tools for \(name)")
+}
+check(registrationSource.contains("Server(name: ProjectAgentTools.serverName") && registrationSource.contains("for server in servers"), "the project server is registered like the browser server, for every assistant in turn")
 check(tools.first { $0.name == "markview_create_bug" }!.properties["regression_of"] != nil && tools.first { $0.name == "markview_update_bug" }!.properties["regression_of"] != nil,
       "a bug report can name the work it is a regression of")
 check(tools.first { $0.name == "markview_create_bug" }!.properties["related"] != nil && tools.first { $0.name == "markview_create_feature" }!.properties["related"] != nil,
@@ -122,7 +147,7 @@ let initResult = initialize?["result"] as? [String: Any]
 check((initResult?["serverInfo"] as? [String: Any])?["name"] as? String == "markview", "the server is named markview")
 check((initResult?["instructions"] as? String)?.contains("markview_guide") == true, "instructions point to the guide")
 let list = BrowserAgentTools.handle(["jsonrpc": "2.0", "id": 2, "method": "tools/list"], profile: profile) { _, _ in .error("") }
-check((((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]])?.count ?? 0) == 36, "tools/list offers the project tools")
+check((((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]])?.count ?? 0) == 39, "tools/list offers the project tools")
 let offline = BrowserAgentTools.handle(["jsonrpc": "2.0", "id": 3, "method": "tools/list"], available: false, profile: profile) { _, _ in .error("") }
 check(((offline?["result"] as? [String: Any])?["tools"] as? [Any])?.isEmpty == true, "without the app: no tools")
 var reached = false
@@ -206,7 +231,7 @@ check(run(["--project-call", "markview_guide", "[1]"]).status == 2, "--project-c
 let app = spawnApp { tool in "reply to \(tool)" }
 let withApp = run(["--mcp-project"], input: rpc(1, "tools/list") + rpc(2, "tools/call", ["name": "markview_add_requirement", "arguments": ["feature": "f", "title": "T"]]))
 let withLines = withApp.out.split(separator: "\n")
-check(withLines.count == 2 && toolCount(withLines[0]) == 36, "with the app running the project tools are offered", withApp.out)
+check(withLines.count == 2 && toolCount(withLines[0]) == 39, "with the app running the project tools are offered", withApp.out)
 check(withLines.last?.contains("reply to markview_add_requirement") == true, "a tool call reaches the app and its reply comes back", withApp.out)
 let callWithApp = run(["--project-call", "markview_get_feature", "{\"feature\":\"orders\"}"])
 check(callWithApp.status == 0 && callWithApp.out.contains("reply to markview_get_feature"), "--project-call reaches the app", callWithApp.out)
@@ -239,7 +264,7 @@ func ask(_ id: Int) -> Int {
     guard let line = BrowserAgentTools.readLine(sOut.fileHandleForReading.fileDescriptor) else { return -2 }
     return toolCount(Substring(String(decoding: line, as: UTF8.self)))
 }
-check(ask(1) == 36, "while MarkView runs the tools are there")
+check(ask(1) == 39, "while MarkView runs the tools are there")
 fakeApp.terminate()
 fakeApp.waitUntilExit()
 check(ask(2) == 0, "when MarkView quits the tools disappear, without restarting the server")

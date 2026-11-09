@@ -53,6 +53,10 @@ struct WorkflowTabView: View {
             if let problem = load.problem {
                 Text(problem).uiFont(size: 11).foregroundColor(palette.red).fixedSize(horizontal: false, vertical: true)
             }
+            if let proposal = store.lifecycle.workflowProposal {
+                WorkflowProposalBanner(proposal: proposal, current: store.lifecycle.workflow, draftHasEdits: editor.isDirty,
+                                       review: { editor.apply(proposal) }, dismiss: { store.lifecycle.dismissWorkflowProposal() })
+            }
             if editor.mode == .visual {
                 HStack(spacing: 8) {
                     Text("Name").uiFont(size: 11)

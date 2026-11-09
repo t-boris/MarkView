@@ -522,6 +522,9 @@ extension FeatureAssistant {
             questions += Self.newBugQuestions(object, after: questions, limit: allowed)
             front["questions"] = questions.isEmpty ? nil : .list(questions.map(\.yaml))
         }
+        // The investigation produced its result: the event investigation-finished (REQ-004 of the feature
+        // assistants-confirm-delivery-with-evidence-and-propose-workflow). Each run is its own event.
+        store.lifecycle.fire(.investigationFinished, .bug, bug.key, cause: ISO8601DateFormatter().string(from: Date()))
     }
 
     private static func bugQuestionRule(limit: Int) -> String {

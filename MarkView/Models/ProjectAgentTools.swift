@@ -113,6 +113,19 @@ enum ProjectAgentTools {
               "session": ["type": "string", "description": "A label for this session; one is made up and returned when omitted"],
               "tool": ["type": "string", "description": "Your assistant's name, e.g. Claude Code"]],
              required: ["issue"]),
+        tool("markview_confirm_delivery", "Confirm the delivery event that the process of a feature or a bug names (for example \u{201C}Installed on mac\u{201D}) when you have verified it yourself, with the evidence of what you verified and how. Works only when the process lets an AI confirm (markview_issue_context says which event is waiting and who may confirm it); otherwise it is refused and the person confirms in the MarkView window. After it, MarkView completes the item itself when the rest of the delivery evidence is there; you do not set the status.",
+             ["issue": ["type": "string", "description": "Feature slug or BUG-007"],
+              "evidence": ["type": "string", "description": "What you verified and how, for example the installed version, the signature check and the running process. Required."],
+              "session": ["type": "string", "description": "Your session label, as given to markview_attach_issue"],
+              "tool": ["type": "string", "description": "Your assistant's name, for the history"]],
+             required: ["issue", "evidence"]),
+        tool("markview_get_workflow", "The workflow of this project: the statuses of features and bugs, the steps between them and who may make each (a person, an assistant, MarkView) with what evidence, the events after which MarkView takes a step itself, and the processes (how work is started, delivered and accepted). Returns the file as JSON and the same in words, with its revision. Read the guide topic workflow-format before you change it, then send the whole changed workflow to markview_propose_workflow.",
+             [:]),
+        tool("markview_propose_workflow", "Propose a change of the workflow when the person asked for one in words (for example that a bug moves to review by itself when its investigation finishes). Send the WHOLE workflow as markview_get_workflow returned it, changed, on the same revision. MarkView checks it like Save does and answers with every problem or with the differences in words. A sound proposal is only held in the person's window; they review it in the Workflow tab and press Save. You cannot save it and nothing changes until they do.",
+             ["workflow": ["type": "object", "description": "The whole workflow in the file format (guide topic workflow-format), with the revision you read"],
+              "summary": ["type": "string", "description": "One sentence: what the change is for"],
+              "tool": ["type": "string", "description": "Your assistant's name, shown to the person"]],
+             required: ["workflow", "summary"]),
         tool("markview_update_feature", "Change a feature's title, its idea text or its understanding. Status goes through markview_set_status.",
              ["feature": feature, "title": ["type": "string"], "idea": ["type": "string", "description": "Replaces the Idea section of the overview"],
               "understanding": ["type": "object", "description": "Dimension → known|partial|unknown|n/a"]],
@@ -163,7 +176,7 @@ enum ProjectAgentTools {
 
     // MARK: - Guide
 
-    static let guideTopics = ["overview", "feature", "requirement", "decision", "question", "bug", "prototype", "workflow", "process", "lifecycle", "deployments"]
+    static let guideTopics = ["overview", "feature", "requirement", "decision", "question", "bug", "prototype", "workflow", "workflow-format", "process", "lifecycle", "deployments"]
 
     /// `workflow` is the project's: the lifecycle guide names its statuses when they differ from the standard ones (feature-3).
     static func guide(_ topic: String?, workflow: ProjectWorkflow = .standard) -> String {
@@ -175,6 +188,7 @@ enum ProjectAgentTools {
         case "bug": return bugGuide
         case "prototype": return prototypeGuide
         case "workflow": return workflowGuide
+        case "workflow-format": return WorkflowFormatGuide.text
         case "process": return processGuide
         case "lifecycle": return IssueLifecycleContext.guidance(for: workflow)
         case "deployments": return deploymentsGuide
@@ -291,7 +305,9 @@ enum ProjectAgentTools {
     perspectives and the findings are resolved into the requirements) → Build (a plan of issues, then implementation by an \
     agent, with status, commits and pull requests tracked). Your part is usually to create or extend the specification and \
     to implement a ready feature; the app does Explore and Review. When you implement, treat approved requirements and \
-    accepted decisions as binding, and answered questions as settled.
+    accepted decisions as binding, and answered questions as settled. (This is how a feature is specified and built. The project's \
+    workflow of statuses and steps is another thing: read it with markview_get_workflow and learn its format from the guide topic \
+    workflow-format.)
     """
 
     /// How work on a MarkView project is done, as MarkView tracks it. The project's own rules (CLAUDE.md, AGENTS.md,

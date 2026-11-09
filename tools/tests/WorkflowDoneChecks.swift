@@ -38,6 +38,13 @@ let confirmedDone = WorkflowDone.make(confirmed, definition: nil)
 check(mark(confirmedDone, "Delivery event").detail == "A person confirms: installed on the other Mac" && confirmedDone.sentence.contains("a person's confirmation: installed on the other Mac"),
       "an event a person confirms is named", confirmedDone.sentence)
 
+var byAI = confirmed
+byAI.confirmer = .personOrAI
+let byAIDone = WorkflowDone.make(byAI, definition: nil)
+check(mark(byAIDone, "Delivery event").detail == "A person, or an AI with its evidence, confirms: installed on the other Mac"
+      && byAIDone.sentence.contains("a confirmation by a person or an AI with evidence: installed on the other Mac"),
+      "an event that an AI may confirm says so", byAIDone.sentence)
+
 // A flow whose only completed status is Done has no acceptance step.
 let noStep = WorkflowDone.make(feature, definition: nil, acceptanceStep: false)
 check(!mark(noStep, "Acceptance").required && noStep.sentence == "Done here means the work on the default branch.",
