@@ -46,7 +46,7 @@ enum ProjectAgentTools {
         tool("markview_project", "The project of this window: folder, number of features, bugs and prototypes."),
         tool("markview_list_features", "The features of the project: slug, title, status, readiness, counts.",
              ["status": ["type": "string", "description": "Only features with this status"]]),
-        tool("markview_get_feature", "One feature: header (owner, dates, GitHub issues, plan), readiness conditions, what is outdated or still to apply, overview and every requirement, decision, question and finding with id, title, status and links. With `id`, the full text of that object; with `full`, the text of all of them; with `section`, the implementation plan, the discussion log, the lifecycle events or the readiness details.",
+        tool("markview_get_feature", "One feature: header (owner, dates, GitHub issues, plan), readiness conditions, what is outdated or still to apply, overview and every requirement, decision, question and finding with id, title, status and links. With `id`, the full text of that object; with `full`, the text of all of them; with `section`, the implementation plan, the discussion log, the lifecycle history (the stays in each status, rounds, measured durations and data-quality notes, from the workflow journal) or the readiness details.",
              ["feature": feature, "id": ["type": "string", "description": "An object id such as REQ-003 or DEC-002"],
               "full": ["type": "boolean", "description": "Include the full text of every object"],
               "section": ["type": "string", "enum": ["plan", "discussion", "lifecycle", "readiness"]]], required: ["feature"]),

@@ -1,7 +1,7 @@
-# Git & GitHub, Terminal, Lifecycle Analytics, Agent Usage
+# Git & GitHub, Terminal, Cycle Time, Agent Usage
 
 Module group documentation for four subsystems that sit next to the editor: local Git and the
-opt-in GitHub integration, the embedded PTY terminal, the feature lifecycle event log, and the
+opt-in GitHub integration, the embedded PTY terminal, cycle time over the workflow journal with its delivery evidence, and the
 AI agent usage/quota tracker. Every statement below is traceable to the cited `path:line`
 (paths relative to the repository root; `MarkView/` prefix omitted for app sources, so
 `Models/GitClient.swift:5` means `MarkView/Models/GitClient.swift:5`).
@@ -17,7 +17,7 @@ Sibling module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 |---|---|---|---|---|
 | A. Git & GitHub | `WorkspaceManager.setUpGitHub` (`Models/WorkspaceManager.swift:3335`) | `GitClient`, `GitHubStore` per window | `gh` CLI → GitHub (opt-in) | UserDefaults only |
 | B. Terminal | `WorkspaceManager.openAITerminal` / `openTerminal` (`Models/WorkspaceManager.swift:3120`, `:3453`) | `TerminalSession` per terminal | none (child processes may) | pasted images in Caches |
-| C. Lifecycle | `FeatureStore` lifecycle methods (`Models/FeatureStore.swift:558-728`) | `LifecycleLog.shared` (app-wide) | GitHub only via the GitHub poll | `lifecycle-events.jsonl` |
+| C. Cycle time | `CycleTimeModel` over the workflow journal; evidence in `FeatureStore` | `LifecycleLog.shared` (app-wide) for evidence | GitHub only via the GitHub poll | `.dde/lifecycle/cycle-time.json`, `lifecycle-events.jsonl` |
 | D. Agent usage | `AgentUsageBar` (`Views/AgentUsageViews.swift:17`) | `AgentUsageTracker.shared` (app-wide) | Anthropic / ChatGPT usage endpoints | UserDefaults only |
 
 ---
@@ -583,185 +583,179 @@ Terminal sessions are not restored across launches; scrollback is 10 000 lines i
 
 ---
 
-## C. Lifecycle analytics
+## C. Cycle time and delivery evidence
 
 ### C.1 Purpose & responsibilities
 
-An append-only log of timestamped lifecycle events per feature, and cycle-time analytics
-between adjacent stages (spec: `docs/features/lifecycle-event-log-cycle-time-analytics/`).
-Events come from three sources:
+Cycle time is a **read-only projection of the workflow journal** (`.dde/lifecycle/transitions.jsonl`, written only by
+`IssueTransitionService`), so there is one record of state changes and a flow change cannot create events (spec:
+`docs/features/cycle-time-as-a-view-over-the-workflow/`). Three layers:
 
-- **In-app automatic** transitions observed in feature files: idea created, questions resolved,
-  spec ready, implementation finished (status), implementation started ("Implement with AI")
-  (`Models/FeatureStore.swift:227`, `:576-622`).
-- **External automatic** captures: local git commits on the default branch that mention the
-  feature (every ~60 s), and GitHub PR open/approve/CI/merge plus Actions CI of those commits
-  (on the GitHub poll only) (`Models/FeatureStore.swift:657-713`; `Models/LifecycleCapture.swift`).
-- **Manual marks** of non-automatic stages via a confirmation sheet (`Views/LifecycleViews.swift:104-201`).
+- **Status layer** (`Models/CycleTime.swift`): one item's journal records become *stays* in the statuses of the project's own
+  workflow, cut into *rounds* (a reopening starts a new round). The measures - waiting, cycle time, lead time, acceptance lag - read
+  only the **roles** of the statuses. A `baseline` (first look) or `replacement` (the workflow lost a status and a person chose
+  another) record is not an event, so such an item has no completion time from it; an `external` edit counts with a data-quality
+  mark. An item counts once per measure, in its latest round that has a value, and every missing value has a reason.
+- **Report** (`Models/CycleTimeReport.swift`): per kind, medians and the 85th percentile, pace (green/amber/red against the
+  project's own history, grey under 8 samples), a 30-day trend, a *Needs attention* list, time per status, rework, per-model
+  comparison (canonical model names, minimum 5 items) and the owner's corrections (`Measure since`, exclusions) stored in
+  `.dde/lifecycle/cycle-time.json`, never in the journal.
+- **Delivery evidence** (`Models/EvidenceTimings.swift`, `Models/LifecycleCapture.swift`, `Models/LifecycleLog.swift`): optional
+  per-Mac lines about a feature's delivery - handed to an AI (with the model), pull request opened and approved, CI queue and run,
+  merged to the default branch - stamped with GitHub's and git's own times, grouped per pull request or commit and filtered by the
+  item's process (a direct-to-the-default-branch process has no review row). Nothing here is derived from a change of status.
 
 ### C.2 Files
 
 | File | Role |
 |---|---|
-| `Models/LifecycleAnalytics.swift` | Stages, event model, steps, durations, statistics, formatting (Foundation only) |
+| `Models/CycleTime.swift` | Stays, rounds, measures, missing reasons, role resolution (`CycleRoles`), quality marks, `CycleFolder.fold` (Foundation only) |
+| `Models/CycleTimeReport.swift` | Distribution, pace, trend, attention, settings and their file, `CycleReport.make`, model-name canonicalisation (Foundation only) |
+| `Models/CycleTimeModel.swift` | `CycleTimeModel` (main actor: settings, reload off the main thread), `CycleTimeBuilder` (snapshot of the stores, agent-tool text) |
+| `Views/CycleTimeViews.swift` | `CycleTimeSheet` (summary, measure detail, item detail), `CycleTimeLink` in the feature and bug panels |
+| `Models/EvidenceTimings.swift` | `EvidenceStage`, `LifecycleEvent`, per-unit timelines (Foundation only) |
 | `Models/LifecycleCapture.swift` | `AgentModelProbe` (CLI session logs), `LifecycleGitHub` (GraphQL query + parser), `LifecycleGit` (commit log parsing, CI) |
-| `Models/LifecycleLog.swift` | `LifecycleLog.shared` JSONL store; `LifecycleModels` recent-model list |
-| `Views/LifecycleViews.swift` | `LifecycleSection` (feature header), `MarkStageSheet`, `CycleTimeSummarySheet` |
-| `Models/FeatureStore.swift:558-728` | Observation, recording, git/GitHub sync, default-branch lookup |
-| `tools/tests/lifecycle-tests.sh`, `LifecycleAnalyticsTests.swift` | Standalone `swiftc` test of Analytics + Capture |
+| `Models/LifecycleLog.swift` | `LifecycleLog.shared` JSONL evidence store (`deleteProject`), `LifecycleModels` |
+| `Models/FeatureStore.swift` | Evidence recording (`recordImplementationStarted`), git/GitHub sync, default-branch lookup |
+| `tools/tests/cycle-time-tests.sh`, `CycleTimeChecks.swift` | Standalone `swiftc` checks of all of the above except the views and the model |
 
 ### C.3 Key types
 
 | Type | Isolation | Notes |
 |---|---|---|
-| `LifecycleStage` | enum, Codable (`Models/LifecycleAnalytics.swift:7-38`) | `idea_created, questions_resolved, spec_ready, implementation_started, implementation_finished, review_done, ci_passed, merged_to_main, verified`; first three `isAutomatic` |
-| `LifecycleEvent` | Codable struct (`:45-59`) | `id, project, feature, stage, timestamp, actor, source, model?, note?` (note ≤ 500) |
-| `LifecycleStep` | (`:62-72`) | Adjacent stage pairs; `isAIStep` = starts at implementation started |
-| `LifecycleDuration` | (`:74-85`) | `missing`, `inconsistent`, `valid(seconds)` |
-| `LifecycleAnalytics` | pure (`:87-166`) | earliest start → latest end; median/mean/count; per-model stats for the AI step |
-| `LifecycleLog` | `@MainActor` singleton (`Models/LifecycleLog.swift:6-114`) | serial `queue` for file I/O; per-project `claim` |
-| `AgentModelProbe`, `LifecycleGitHub`, `LifecycleGit` | pure enums (`Models/LifecycleCapture.swift`) | |
+| `CycleStay`, `CycleRound`, `CycleItem` | value types | One item: stays (entered, left, cause, actor), rounds, marks, the refused request; `value(_:)` per measure |
+| `CycleCause` | enum | `firstSight`, `transition`, `replacement`, `outsideEdit`; only the last two kinds of real moves are events |
+| `CycleMetric`, `CycleMissing` | enums | waiting, cycle, lead, acceptance; why an item has no value |
+| `CycleQuality` | enum | Data-quality marks; never a pace colour |
+| `CycleRoles` | Sendable closures | Project workflow first, then the flows MarkView ships, then the words of the status |
+| `CycleSettings`, `CycleSettingsFile` | Codable | `since`, `excluded`; a damaged file is reported and left alone |
+| `CycleReport`, `CycleKindReport` | Sendable | Built off the main thread from a `CycleInput` |
+| `CycleTimeModel` | `@MainActor` | Reads journal and settings in a detached task; never writes the journal |
+| `EvidenceStage`, `LifecycleEvent` | Codable | Old raw values kept so older lines read; lines of the retired observer and manual marks are skipped |
+| `LifecycleLog` | `@MainActor` singleton | serial `queue` for file I/O; per-project `claim`; `deleteProject` after a confirmation |
 
 ### C.4 Internal interfaces
 
-- `FeatureStore.recordLifecycle(_:feature:source:model:note:at:)` → `LifecycleLog.shared.record`
-  (`Models/FeatureStore.swift:568-574`).
-- `LifecycleLog.claim(project, by:)` / `release` — the first live `FeatureStore` for a project
-  path records automatic events; others skip (several windows may show one folder)
-  (`Models/LifecycleLog.swift:104-113`; `Models/FeatureStore.swift:80`, `:587`, `:662`, `:698`).
-- `GitHubStore.onPoll` → `FeatureStore.syncLifecycle(with:)` (`Models/WorkspaceManager.swift:3339`).
-- `GitHubClient.lifecycleCaptures(numbers:)` and `ciPassed(commit:)` (`Models/GitHubClient.swift:465-477`).
-- `FeatureStore.lifecycleActor` = git `user.name`, else macOS full name/user name
-  (`Models/FeatureStore.swift:168-173`).
+- `CycleTimeBuilder.snapshot(of:)` copies items, workflow, journal service and this project's evidence on the main actor; the
+  report is built from the copy anywhere.
+- `ProjectToolRunner` `get_feature` section `lifecycle` returns `CycleItem.describe(now:)`: the item's stays, rounds, measures and
+  marks from the journal.
+- `LifecycleLog.claim(project, by:)` / `release` - the first live `FeatureStore` for a project path records evidence; others skip.
+- `GitHubStore.onPoll` → `FeatureStore.syncLifecycle(with:)` - the only path from the evidence log to GitHub.
+- `GitHubClient.lifecycleCaptures(numbers:)` and `ciPassed(commit:)`.
+- `FeatureStore.lifecycleActor` = git `user.name`, else macOS full name/user name.
 
 ### C.5 Runtime flows
 
 ```mermaid
 flowchart TD
+    J[(.dde/lifecycle/transitions.jsonl)] --> F[CycleFolder.fold: stays, rounds, marks]
+    W[project workflow: roles] --> F
+    F --> R[CycleReport.make: measures, pace, trend, attention]
+    S[(.dde/lifecycle/cycle-time.json)] --> R
+    R --> V[Cycle Time window]
     subgraph FeatureStore poll every 3 s
-      R[reloadIfChanged] --> O[observeLifecycle: compare snapshots]
-      O -->|questions 1+ → 0| QR[questions_resolved]
-      O -->|status ready / readiness 100| SR[spec_ready]
-      O -->|into implementing, no spec_ready| SR2[spec_ready 'Handed to implementation']
-      O -->|status implemented| IF[implementation_finished]
       T[tick % 20 ≈ 60 s] --> G[syncLifecycleWithGit: git log default branch -n 200]
       G -->|message names docs/features/slug or #issue| M[merged_to_main 'commit abc1234']
     end
-    subgraph GitHub poll — only when integration on
-      P[onPoll] --> S[syncLifecycle, at most once per idle interval]
-      S --> Q[gh api graphql: PRs that are / close the feature's issues]
-      Q --> C1[implementation_finished = PR createdAt]
-      Q --> C2[review_done = first APPROVED review]
+    subgraph GitHub poll - only when integration on
+      P[onPoll] --> Sy[syncLifecycle, at most once per idle interval]
+      Sy --> Q[gh api graphql: PRs that are / close the feature's issues]
+      Q --> C1[pull request opened = PR createdAt]
+      Q --> C2[approved = first APPROVED review]
       Q --> C3[ci_passed = rollup SUCCESS, last check time]
       Q --> C4[merged_to_main = mergedAt into default branch]
-      S --> CI[gh run list --commit sha → ci_passed for pending commits ≤ 7 days]
+      Sy --> CI[gh run list --commit sha → ci_passed for pending commits ≤ 7 days]
     end
     I[Implement with AI click] --> IS[implementation_started at click, model from CLI session log ≤ 15 min]
-    Man[Mark stage sheet] --> MM[manual event stamped now]
-    QR & SR & SR2 & IF & M & C1 & C2 & C3 & C4 & CI & IS & MM --> L[(lifecycle-events.jsonl)]
+    M & C1 & C2 & C3 & C4 & CI & IS --> L[(lifecycle-events.jsonl, per Mac)]
+    L --> E[EvidenceTimings.timeline per feature] --> V
 ```
 
 Details:
 
-1. **Targets**: only features with an `implementation_started` event are followed, from that
-   moment on (no backfill); issues = feature issues + plan issues + epic, max 40
-   (`Models/FeatureStore.swift:638-646`).
-2. **Dedup**: an automatic capture with the same stage and note (`PR #12`, `commit abc1234`) is
-   recorded once (`Models/FeatureStore.swift:648-655`).
-3. **GitHub query**: one GraphQL request per target with aliases `n<number>:
-   issueOrPullRequest(number:)`, `closedByPullRequestsReferences(first: 20, includeClosedPrs: true)`,
-   `reviews(states: APPROVED, first: 1)`, last commit `statusCheckRollup` with
-   `contexts(first: 100)`; `owner`/`name` passed as GraphQL variables
-   (`Models/LifecycleCapture.swift:90-101`; `Models/GitHubClient.swift:465-471`). Closed-unmerged
-   PRs are ignored (`Models/LifecycleCapture.swift:121`).
-4. **Model probe** for "implementation started": polls every 5 s for up to 15 min
-   (`Models/FeatureStore.swift:626-636`):
-   - Claude: `~/.claude/projects/<cwd with non-alphanumerics → "-">/*.jsonl`, first
-     `type == "assistant"` line with `timestamp >= since` and `message.model` not starting with `<`
-     (`Models/LifecycleCapture.swift:12-24`).
-   - Codex: `~/.codex/sessions/YYYY/MM/DD/*.jsonl` for the start day and today, `type ==
-     "turn_context"` lines whose `payload.cwd` matches, `payload.model` (`:27-48`).
-   - Fallback: model chosen for the tool, then configured default, then tool name (`Models/FeatureStore.swift:614-616`).
-5. **Durations**: earliest event of the start stage to latest of the end stage; skipped stages
-   are not bridged; negative → inconsistent; total = idea created → verified
-   (`Models/LifecycleAnalytics.swift:88-104`). Summary counts only valid durations and groups the
-   AI step by model ("Unknown model" when absent) (`:137-156`). Events of deleted/renamed features
-   are excluded from the summary (`Views/LifecycleViews.swift:211-214`).
+1. **No observer.** Nothing diffs statuses any more: a status change reaches the journal only through
+   `IssueTransitionService` (or is found later by `reconcileLocal` as an external edit), and the window reads it from there. A flow
+   change writes `replacement` records, which the projection never counts as a move.
+2. **Targets**: only features with an `implementation_started` evidence line are followed for GitHub and git, from that moment on
+   (no backfill); issues = feature issues + plan issues + epic, max 40.
+3. **Dedup**: a capture with the same stage and note (`PR #12`, `commit abc1234`) is recorded once.
+4. **GitHub query**: one GraphQL request per target with aliases `n<number>: issueOrPullRequest(number:)`,
+   `closedByPullRequestsReferences(first: 20, includeClosedPrs: true)`, `reviews(states: APPROVED, first: 1)`, last commit
+   `statusCheckRollup` with `contexts(first: 100)`; `owner`/`name` passed as GraphQL variables. Closed-unmerged PRs are ignored.
+5. **Model probe** for "implementation started" polls every 5 s for up to 15 min (Claude: `~/.claude/projects/<cwd>/*.jsonl`, first
+   assistant line since the click; Codex: `~/.codex/sessions/YYYY/MM/DD/*.jsonl` `turn_context` lines whose `cwd` matches); fallback:
+   the model chosen for the tool, then its configured default, then the tool name. Model names are brought to one spelling by
+   `CycleModelNames` before they are compared.
+6. **Durations** are defined by roles (`CycleMetric.definition`): waiting = creation or reopening → first active status; cycle =
+   first active → first completed in the same round; lead = creation → first completed; acceptance = first completed → accepting
+   move. An item that existed before MarkView first saw it (`created` date earlier than the first journal record's UTC day) has no
+   waiting or lead time; an item already active or completed at its first look has no cycle time. Evidence from before the item's
+   own journal began (a deleted feature that left lines under the same slug) is left out.
 
 ### C.6 Data model & persistence
 
 | Item | Format | Source |
 |---|---|---|
-| `~/Library/Application Support/MarkView/lifecycle-events.jsonl` | One JSON object per line, `JSONEncoder` with `.iso8601` dates and `.sortedKeys`; keys `actor, feature, id, model?, note?, project, source, stage, timestamp` | `Models/LifecycleLog.swift:23-24`, `:67-78` |
-| `lifecycle.models` | UserDefaults `[String]`, most recent first | `Models/LifecycleLog.swift:117-136` |
-| `feature.lifecycle.expanded` | Bool (AppStorage) | `Views/LifecycleViews.swift:25` |
+| `.dde/lifecycle/transitions.jsonl` | The workflow journal; read only here | `Models/IssueTransitionLog.swift` |
+| `.dde/lifecycle/cycle-time.json` | `{ "since": ISO date?, "excluded": [{ kind, issue, reason, at }] }`, written atomically; a damaged file is reported and ignored | `Models/CycleTimeReport.swift` (`CycleSettingsFile`) |
+| `~/Library/Application Support/MarkView/lifecycle-events.jsonl` | One JSON object per line, `.iso8601` dates, `.sortedKeys`; keys `actor, feature, id, model?, note?, project, source, stage, timestamp` | `Models/LifecycleLog.swift` |
+| `lifecycle.models` | UserDefaults `[String]`, most recent first | `Models/LifecycleLog.swift` (`LifecycleModels`) |
 
-`project` is the project root's absolute standardized path (`Models/FeatureStore.swift:561`).
-The file is shared by all windows and projects on the Mac and is never rewritten: no edit,
-void or delete API (`Models/LifecycleLog.swift:3-5`). Undecodable lines are skipped on load
-(`:45-51`).
+`project` is the project root's absolute standardized path. The evidence file is shared by all windows and projects on the Mac and
+only grows, except for `deleteProject`, which rewrites it without one project's lines after a confirmation in the window. Lines
+that do not decode, lines of stages that no longer exist (`idea_created`, `questions_resolved`, `spec_ready`, `verified`), lines
+written by the retired manual marks and "implementation finished" lines written by the retired observer (note `Status …`) are
+skipped on load and never read.
 
 ### C.7 Concurrency & threading
 
-- `LifecycleLog` is `@MainActor`; the initial read and every append run on the serial
-  `markview.lifecycle-log` queue (`Models/LifecycleLog.swift:15`, `:28-31`, `:76-83`). Events
-  recorded before the load completes stay after the loaded ones (`:26-30`).
-- Model probing runs in `Task.detached(priority: .utility)` and records back on `MainActor`
-  (`Models/FeatureStore.swift:615-621`).
-- Git/GitHub captures run in `Task {}` on the main actor; subprocesses go through
-  `GitHubClient.execute` on GCD (`Models/FeatureStore.swift:668-712`).
+- `CycleTimeModel` is `@MainActor`; the journal, the settings file and the fold run in `Task.detached` from a `CycleSnapshot` copied
+  on the main actor, and the finished report is published back. A reload that was overtaken by a newer one is dropped.
+- `LifecycleLog` is `@MainActor`; the initial read and every append or rewrite run on the serial `markview.lifecycle-log` queue.
+- Model probing runs in `Task.detached(priority: .utility)` and records back on `MainActor`. Git/GitHub captures run in `Task {}`;
+  subprocesses go through `GitHubClient.execute` on GCD.
 
 ### C.8 Error handling & edge cases
 
-- Write failures surface as `lastError`, shown in red in the feature header and cleared by tap
-  (`Models/LifecycleLog.swift:79-82`; `Views/LifecycleViews.swift:51-53`).
-- `record` refuses empty project/feature and manual marks of automatic stages
-  (`Models/LifecycleLog.swift:61`); automatic timestamps are clamped to now, manual ones are
-  always now (`:62`).
-- The mark sheet requires a model for "implementation started", caps notes at 500 chars and
-  warns about repeats and later stages already recorded (`Views/LifecycleViews.swift:126-183`).
-- Default branch: `origin/HEAD` (local copy if present), else `main`/`master`, else no git sync
-  (`Models/FeatureStore.swift:715-728`).
-- GitHub/CI failures are swallowed with `try?` (`Models/FeatureStore.swift:670`, `:687`).
+- Write failures of the evidence log surface as `LifecycleLog.lastError`; a settings save failure is shown in the window.
+- A settings file that cannot be read is shown as a notice, the statistics ignore it, and the corrections are disabled until it is
+  fixed or removed, so it is never overwritten.
+- Items the journal knows nothing about show "no history yet"; a project that does not record its lifecycle (a plain folder opened as
+  a viewer, a new-project draft) has no cycle-time window content.
+- A status the workflow does not know takes its role from the flows MarkView ships, then from its words; with none it counts as
+  waiting and is marked.
+- Default branch: `origin/HEAD` (local copy if present), else `main`/`master`, else no git sync.
+- GitHub/CI failures are swallowed with `try?`.
 
 ### C.9 Extension points / recipes
 
-- **New stage**: add a case to `LifecycleStage` in canonical order (`Models/LifecycleAnalytics.swift:7-17`);
-  steps are derived automatically (`:71`). Old log lines remain decodable; lines with an unknown
-  stage are skipped by older builds (`Models/LifecycleLog.swift:45`).
-- **New automatic capture**: produce `(stage, date, note)` and call `recordCapture` from the
-  claiming store so dedup and ownership apply (`Models/FeatureStore.swift:648-655`). Anything
-  that needs GitHub must hang off `syncLifecycle(with:)` so it stays behind the opt-in.
-- **Tests**: extend `tools/tests/LifecycleAnalyticsTests.swift`; run `tools/tests/lifecycle-tests.sh`
-  (compiles `LifecycleAnalytics.swift` + `LifecycleCapture.swift` only) — see
-  [build-release-testing](build-release-testing.md).
+- **New measure**: add a `CycleMetric` case, its `definition`, a branch in `CycleItem.value(_:in:)` and the check that proves it.
+- **New data-quality mark**: add a `CycleQuality` case with `title` and `explanation`, set it in `CycleFolder.fold` or
+  `CycleReport.make`.
+- **New evidence stage**: add a case to `EvidenceStage` (keep the raw values of old lines), produce `(stage, date, note)` and call
+  `recordCapture` from the claiming store so dedup and ownership apply. Anything that needs GitHub must hang off
+  `syncLifecycle(with:)` so it stays behind the opt-in.
+- **Tests**: extend `tools/tests/CycleTimeChecks.swift`; run `tools/tests/cycle-time-tests.sh`. The capture parsers are covered by
+  the GitHub scripts (`github-command-tests.sh` and others) - see [build-release-testing](build-release-testing.md).
 
 ### C.10 Risks, tech debt, oddities
 
-1. **No cross-process coordination.** Each MarkView process keeps its own in-memory copy and
-   `claim` table (`Models/LifecycleLog.swift:10`, `:18`); two running instances (e.g. an installed
-   app and a debug build on the same folder) both append and both record automatic captures, so
-   dedup (`Models/FeatureStore.swift:651`) cannot see the other's events.
-2. **Load race for dedup.** Captures checked before the initial async load finishes can be
-   recorded again (`Models/LifecycleLog.swift:28-31` vs `Models/FeatureStore.swift:650-655`).
-3. **Unbounded file**, read fully into memory at launch and filtered linearly on every
-   `events(project:feature:)` call, including from SwiftUI bodies (`Models/LifecycleLog.swift:36-51`;
-   `Views/LifecycleViews.swift:29`, `:213`).
-4. **Model probe cost.** `AgentModelProbe.lines(of:)` reads whole session logs into memory and
-   parses every line with `JSONSerialization` (`Models/LifecycleCapture.swift:66-71`), every 5 s
-   for up to 15 min (`Models/FeatureStore.swift:626-635`); Claude/Codex logs can be very large
-   (see `Models/AgentUsageLogs.swift:172`). `LifecycleGitHub.date` allocates two
-   `ISO8601DateFormatter`s per call (`Models/LifecycleCapture.swift:145-151`).
-5. **GraphQL cost.** Up to 40 aliases × 20 PRs × 100 check contexts per query, one query per
-   target feature each idle interval (`Models/FeatureStore.swift:644`, `:669-674`;
-   `Models/LifecycleCapture.swift:91-100`); no handling of GraphQL rate-limit errors (`try?`).
-6. **Two automatic "implementation finished" sources** (status → `implemented` and PR opened)
-   (`Models/FeatureStore.swift:596-598`; `Models/LifecycleCapture.swift:123-125`); with
-   earliest-start/latest-end semantics, repeated events stretch or shrink steps silently.
-7. **Sensitive data.** The log stores absolute project paths, git user names and free-text notes
-   in plain text (`Models/LifecycleLog.swift:67-69`).
-8. Git sync runs every ~60 s regardless of the GitHub setting (local `git log -n 200` only,
-   `Models/FeatureStore.swift:73`, `:697-713`).
+1. **No cross-process coordination.** Each MarkView process keeps its own in-memory copy and `claim` table; two running instances on
+   the same folder both append and both record captures, so dedup cannot see the other's lines.
+2. **Load race for dedup.** Captures checked before the initial async load finishes can be recorded again.
+3. **Unbounded evidence file**, read fully into memory at launch. The journal is read whole on every report build (cached by file
+   signature) and folded once per item; both are off the main thread.
+4. **Model probe cost.** `AgentModelProbe.lines(of:)` reads whole session logs into memory every 5 s for up to 15 min; Claude/Codex
+   logs can be very large. `LifecycleGitHub.date` allocates two `ISO8601DateFormatter`s per call.
+5. **GraphQL cost.** Up to 40 aliases × 20 PRs × 100 check contexts per query, one query per target feature each idle interval; no
+   handling of GraphQL rate-limit errors (`try?`).
+6. **Creation time is a heuristic.** The journal starts at MarkView's first look, so waiting and lead time exist only for items
+   whose `created` date is the UTC day of that look; older items are measured from their first real move.
+7. **Task size is not normalised** in the per-model comparison; it is shown with that caveat and a minimum of 5 items per model.
+8. **Bugs have no model.** Only features record the model of the AI that took them (the hand-off is recorded per feature).
+9. **Sensitive data.** The evidence file stores absolute project paths, git user names and free-text notes in plain text.
+10. Git sync runs every ~60 s regardless of the GitHub setting (local `git log -n 200` only).
 
 ---
 

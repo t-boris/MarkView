@@ -47,6 +47,15 @@ struct CycleStay: Equatable, Sendable {
     let forced: Bool
     let reason: String?
 
+    /// Who made the move, as a person reads it: "Boris", "Claude Code (AI)", "MarkView (system)".
+    var actorText: String {
+        switch actor.kind {
+        case .human: return actor.name
+        case .ai: return actor.name + " (AI)"
+        case .system: return actor.name + " (system)"
+        }
+    }
+
     /// The role the arithmetic uses: an unknown status counts as waiting, and is marked.
     var effectiveRole: LifecycleRole { role ?? .notStarted }
 
@@ -310,6 +319,50 @@ extension CycleItem {
     }
 }
 
+// MARK: - As text
+
+extension CycleItem {
+    private static func stamp(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: date)
+    }
+
+    private static func causeText(_ cause: CycleCause) -> String {
+        switch cause {
+        case .firstSight: return "first seen by MarkView"
+        case .transition(let kind): return kind.map { "transition (\($0.rawValue))" } ?? "transition"
+        case .replacement: return "replaced when the flow changed"
+        case .outsideEdit: return "edited outside MarkView"
+        }
+    }
+
+    /// The stays, rounds, measures and marks of the item, for an agent or a log.
+    func describe(now: Date) -> String {
+        guard !stays.isEmpty else { return "\(kind.rawValue) \(issue) — \(title)\nNo lifecycle history recorded yet." }
+        var lines = ["\(kind.rawValue) \(issue) — \(title)"]
+        if let current {
+            lines.append("Status: \(current.status) (\(current.role.map { "\($0)" } ?? "unknown role")) since \(Self.stamp(current.entered)), \(CycleFormat.duration(current.duration(now: now)))")
+        }
+        lines.append("Rounds: \(rounds.count)" + (reopens > 0 ? ", reopened \(reopens) time\(reopens == 1 ? "" : "s")" : ""))
+        lines.append("Stays:")
+        for stay in stays {
+            let left = stay.left.map { " → " + Self.stamp($0) } ?? " → now"
+            lines.append("- \(stay.status) \(Self.stamp(stay.entered))\(left), \(CycleFormat.duration(stay.duration(now: now))); entered by \(Self.causeText(stay.cause)), \(stay.actorText)" + (stay.forced ? ", forced" : ""))
+        }
+        let measures = CycleMetric.allCases.map { metric -> String in
+            switch value(metric) {
+            case .value(let seconds, _, let round): return "\(metric.title.lowercased()) \(CycleFormat.duration(seconds)) (round \(round + 1))"
+            case .missing(let reason): return "\(metric.title.lowercased()) — \(reason.title)"
+            }
+        }
+        lines.append("Measures: " + measures.joined(separator: "; "))
+        if !marks.isEmpty { lines.append("Data quality: " + marks.map(\.title).sorted().joined(separator: "; ")) }
+        if let blocked, let message = blocked.message { lines.append("Last request refused: \(message.split(separator: "\n").first.map(String.init) ?? message)") }
+        return lines.joined(separator: "\n")
+    }
+}
+
 // MARK: - Folding the journal
 
 /// What the app knows about an item besides its journal.
@@ -319,15 +372,22 @@ struct CycleItemInfo: Equatable, Sendable {
     let title: String
     /// The status stored in the item's file now.
     let status: String
-    /// The `created` date of the item's front matter (the start of that day); nil when it has none.
+    /// The `created` date of the item's front matter: the start of that day in UTC, the way MarkView writes it (FeatureStore.today);
+    /// nil when it has none.
     let created: Date?
 }
 
 enum CycleFolder {
+    /// `created` is a UTC date (FeatureStore.today), so the day of the first look is read the same way.
+    private static let utc: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        return calendar
+    }()
+
     /// The journal records of one item, folded into stays and rounds. `role` answers for any status string; the caller gives the
     /// project's workflow first and the flows MarkView knows after it, so that a status the workflow has dropped keeps its role.
-    static func fold(_ info: CycleItemInfo, records: [TransitionRecord], role: (String) -> LifecycleRole?, now: Date,
-                     calendar: Calendar = .current) -> CycleItem {
+    static func fold(_ info: CycleItemInfo, records: [TransitionRecord], role: (String) -> LifecycleRole?, now: Date) -> CycleItem {
         let history = IssueHistory(kind: info.kind, issue: info.issue, all: records)
         var marks: Set<CycleQuality> = []
 
@@ -368,7 +428,7 @@ enum CycleFolder {
         // The item was created at its first sight only when its `created` date is that very day (the date has no time of day);
         // an earlier date means the item waited unseen, and no date means nothing is known.
         var roundStart: Date? = nil
-        if let created = info.created, calendar.isDate(created, inSameDayAs: first.entered) { roundStart = first.entered }
+        if let created = info.created, utc.isDate(created, inSameDayAs: first.entered) { roundStart = first.entered }
         if roundStart == nil { marks.insert(.createdBeforeSight) }
 
         var rounds: [CycleRound] = []

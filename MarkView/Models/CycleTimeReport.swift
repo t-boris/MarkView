@@ -297,7 +297,6 @@ struct CycleInput: Sendable {
     /// Item key ("bug:BUG-001") → the normalised name of the model that worked on it.
     var models: [String: String] = [:]
     var now: Date
-    var calendar: Calendar = .current
 }
 
 struct CycleReport: Sendable {
@@ -311,16 +310,16 @@ struct CycleReport: Sendable {
         let grouped = Dictionary(grouping: input.records, by: { $0.kind.rawValue + ":" + $0.issue })
         var folded: [CycleItem] = input.items.map { info in
             CycleFolder.fold(info, records: grouped[info.kind.rawValue + ":" + info.issue] ?? [], role: { input.roles.role(info.kind, $0) },
-                             now: input.now, calendar: input.calendar)
+                             now: input.now)
         }
-        markBulk(&folded, calendar: input.calendar)
+        markBulk(&folded)
         for index in folded.indices where input.settings.isExcluded(folded[index].kind, folded[index].issue) { folded[index].marks.insert(.excluded) }
         return CycleReport(generated: input.now,
                            features: kindReport(.feature, folded, input), bugs: kindReport(.bug, folded, input))
     }
 
     /// Items created in the same minute as at least four others (an import): their creation time is the batch's.
-    private static func markBulk(_ items: inout [CycleItem], calendar: Calendar) {
+    private static func markBulk(_ items: inout [CycleItem]) {
         var minutes: [Date: [Int]] = [:]
         for (index, item) in items.enumerated() {
             guard let start = item.rounds.first?.start else { continue }
@@ -458,5 +457,52 @@ struct CycleReport: Sendable {
         return CycleKindReport(kind: kind, items: Dictionary(items.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first }), order: order, rows: rows,
                                statuses: statuses, open: open, attention: attention, counts: counts, rework: rework, models: models,
                                hasAcceptanceStep: acceptance)
+    }
+}
+
+// MARK: - Model names
+
+/// The name of an AI model as the tools write it, brought to one spelling so that `opus`, `claude-opus-5-5`, `Claude Opus 5.5` and
+/// `anthropic/claude-opus-5.5` are one row of the comparison (REQ-005). A name that is not a known family is kept as written.
+enum CycleModelNames {
+    private static let families = ["fable": "Fable", "opus": "Opus", "sonnet": "Sonnet", "haiku": "Haiku"]
+
+    struct Parsed: Equatable {
+        let family: String
+        /// "5.5"; nil for a bare family name such as `opus`.
+        let version: String?
+        var display: String { "Claude " + family + (version.map { " " + $0 } ?? "") }
+    }
+
+    static func parse(_ raw: String) -> Parsed? {
+        var text = raw.lowercased()
+        if let bracket = text.firstIndex(of: "[") { text = String(text[..<bracket]) }
+        if let slash = text.lastIndex(of: "/") { text = String(text[text.index(after: slash)...]) }
+        let tokens = text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+        guard let family = tokens.compactMap({ families[$0] }).first else { return nil }
+        // `claude`, a family, version numbers (a date such as 20251101 is not one) and nothing else.
+        let allowed = Set(["claude", "latest"] + families.keys)
+        let numbers = tokens.filter { $0.allSatisfy(\.isNumber) && $0.count <= 3 }
+        guard tokens.allSatisfy({ allowed.contains($0) || $0.allSatisfy(\.isNumber) }) else { return nil }
+        return Parsed(family: family, version: numbers.isEmpty ? nil : numbers.joined(separator: "."))
+    }
+
+    /// One display name per item. A bare family (`opus`) takes the version of its family when the project has exactly one.
+    static func resolve(_ raw: [String: String]) -> [String: String] {
+        let parsed = raw.mapValues { parse($0) }
+        var versions: [String: Set<String>] = [:]
+        for case let value? in parsed.values { if let version = value.version { versions[value.family, default: []].insert(version) } }
+        var result: [String: String] = [:]
+        for (key, name) in raw {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            guard let value = parsed[key] ?? nil else { result[key] = trimmed; continue }
+            if value.version == nil, let only = versions[value.family], only.count == 1, let version = only.first {
+                result[key] = Parsed(family: value.family, version: version).display
+            } else {
+                result[key] = value.display
+            }
+        }
+        return result
     }
 }

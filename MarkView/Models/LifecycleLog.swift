@@ -1,8 +1,9 @@
 import Foundation
 
-/// The lifecycle event log of this Mac (DEC-001): one append-only JSON-lines file in the app's
-/// Application Support folder, shared by every window. Events can only be added — there is no
-/// way to edit, void or delete one (DEC-005).
+/// The delivery-evidence log of this Mac: one JSON-lines file in the app's Application Support folder, shared by every window. It
+/// holds what GitHub and git showed about a feature's delivery (see EvidenceTimings.swift), never a change of status - the workflow
+/// journal is the one record of those. Lines are only appended; the one way to remove any is `deleteProject`, which the person
+/// confirms (feature cycle-time-as-a-view-over-the-workflow, DEC-001).
 @MainActor
 final class LifecycleLog: ObservableObject {
     static let shared = LifecycleLog()
@@ -33,46 +34,35 @@ final class LifecycleLog: ObservableObject {
 
     // MARK: Reading
 
-    // The log keeps every event ever recorded, including those of deleted features. Both readers
-    // below go through `LifecycleAnalytics.currentHistory`, so a feature that reuses the slug of a
-    // deleted one starts with its own `idea_created` and never inherits the older events (BUG-041).
-
-    /// The current history of every feature of a project, by feature slug.
-    func histories(project: String) -> [String: [LifecycleEvent]] {
-        LifecycleAnalytics.histories(events.filter { $0.project == project })
-    }
-
-    /// A feature's events, oldest first.
+    /// A feature's evidence, oldest first. The log keeps the lines of deleted features too; a feature that reuses a slug is told
+    /// apart by the time its own journal begins (`EvidenceTimings.timeline(since:)`).
     func events(project: String, feature: String) -> [LifecycleEvent] {
-        LifecycleAnalytics.currentHistory(events.filter { $0.project == project && $0.feature == feature })
-            .sorted { $0.timestamp < $1.timestamp }
+        events.filter { $0.project == project && $0.feature == feature }.sorted { $0.timestamp < $1.timestamp }
     }
 
-    /// Lines that do not decode (damaged, or a stage that does not exist) are skipped.
+    /// Lines that do not decode (damaged, or a stage that no longer exists), and lines that are not evidence (the retired observer,
+    /// manual marks), are skipped.
     nonisolated private static func read(_ url: URL) -> [LifecycleEvent] {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return text.split(separator: "\n").compactMap { try? decoder.decode(LifecycleEvent.self, from: Data($0.utf8)) }
+        return text.split(separator: "\n").compactMap { try? decoder.decode(LifecycleEvent.self, from: Data($0.utf8)) }.filter(\.isEvidence)
     }
 
     // MARK: Recording
 
-    /// Add an event stamped now. Manual marks of automatic stages are refused (DEC-013). An
-    /// automatic event may carry the time the transition happened (GitHub's merge time, the
-    /// click that handed a feature to the AI); manual marks are always stamped now (DEC-010).
+    /// Add an evidence line. The time is the moment the thing happened where it is known (GitHub's merge time, the click that handed
+    /// a feature to the AI), never later than now.
     @discardableResult
-    func record(_ stage: LifecycleStage, project: String, feature: String, actor: String,
-                source: LifecycleSource, model: String? = nil, note: String? = nil, at time: Date? = nil) -> LifecycleEvent? {
-        guard !project.isEmpty, !feature.isEmpty, source == .automatic || !stage.isAutomatic else { return nil }
-        let timestamp = source == .automatic ? min(time ?? Date(), Date()) : Date()
+    func record(_ stage: EvidenceStage, project: String, feature: String, actor: String,
+                model: String? = nil, note: String? = nil, at time: Date? = nil) -> LifecycleEvent? {
+        guard !project.isEmpty, !feature.isEmpty else { return nil }
         func cleaned(_ text: String?) -> String? {
             guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
             return text
         }
-        let event = LifecycleEvent(id: UUID(), project: project, feature: feature, stage: stage, timestamp: timestamp,
-                                   actor: actor, source: source, model: cleaned(model),
-                                   note: cleaned(note).map { String($0.prefix(LifecycleEvent.noteLimit)) })
+        let event = LifecycleEvent(id: UUID(), project: project, feature: feature, stage: stage, timestamp: min(time ?? Date(), Date()),
+                                   actor: actor, source: .automatic, model: cleaned(model), note: cleaned(note).map { String($0.prefix(500)) })
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
@@ -83,11 +73,34 @@ final class LifecycleLog: ObservableObject {
             do {
                 try Self.append(data + Data("\n".utf8), to: url)
             } catch {
-                let message = "Could not save the lifecycle event: \(error.localizedDescription)"
+                let message = "Could not save the delivery evidence: \(error.localizedDescription)"
                 Task { @MainActor in LifecycleLog.shared.lastError = message }
             }
         }
         return event
+    }
+
+    /// Removes every line of one project from this Mac's log (REQ-002): the file is rewritten without them, on the write queue so
+    /// that it cannot cross an append. Other projects' lines are kept as written; the workflow journal is not touched.
+    func deleteProject(_ project: String) {
+        guard !project.isEmpty else { return }
+        events.removeAll { $0.project == project }
+        let url = url
+        queue.async {
+            do {
+                guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let kept = text.split(separator: "\n").filter { line in
+                    guard let event = try? decoder.decode(LifecycleEvent.self, from: Data(line.utf8)) else { return true }
+                    return event.project != project
+                }
+                try (kept.map(String.init).joined(separator: "\n") + (kept.isEmpty ? "" : "\n")).write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                let message = "Could not delete the delivery evidence: \(error.localizedDescription)"
+                Task { @MainActor in LifecycleLog.shared.lastError = message }
+            }
+        }
     }
 
     nonisolated private static func append(_ data: Data, to url: URL) throws {
@@ -119,7 +132,7 @@ final class LifecycleLog: ObservableObject {
     }
 }
 
-/// AI model names used on this Mac, for the model field of manual marks (DEC-011).
+/// AI model names used on this Mac: the spelling already seen is reused, so one model is one name in the evidence.
 enum LifecycleModels {
     private static let key = "lifecycle.models"
 

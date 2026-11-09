@@ -37,7 +37,7 @@ func info(_ kind: IssueKind = .bug, _ issue: String = "B1", status: String = "do
 }
 
 func fold(_ item: CycleItemInfo, _ records: [TransitionRecord], roles: CycleRoles = roles, now: Date = at(1000)) -> CycleItem {
-    CycleFolder.fold(item, records: records, role: { roles.role(item.kind, $0) }, now: now, calendar: calendar)
+    CycleFolder.fold(item, records: records, role: { roles.role(item.kind, $0) }, now: now)
 }
 
 func hours(_ value: CycleValue) -> Double? { value.seconds.map { $0 / hour } }
@@ -60,6 +60,7 @@ do {
     let dwell = item.dwell(in: item.rounds[0]).map { "\($0.status)=\($0.seconds / hour)" }
     check("kanban: time in status counts only visits that began and ended by real moves", dwell == ["in-progress=3.0", "in-review=4.0"])
     check("kanban: the first look is not an event", item.stays[0].cause == .firstSight && !item.stays[0].dwellKnown)
+    check("kanban: who made a move reads as a person would say it", item.stays[0].actorText == "MarkView (system)" && item.stays[1].actorText == "boris")
 }
 
 // MARK: - An item that existed before MarkView first saw it
@@ -259,7 +260,7 @@ func finishedBug(_ id: String, wait: Double, work: Double, begin: Double = 0) ->
 func input(_ items: [(CycleItemInfo, [TransitionRecord])], settings: CycleSettings = .empty, now: Date = at(2000), models: [String: String] = [:]) -> CycleInput {
     CycleInput(items: items.map(\.0), records: items.flatMap(\.1), roles: roles,
                statusOrder: { kind in kanban.lifecycle(kind).statusIDs }, acceptanceStep: { _ in false }, acceptsFrom: { _, _ in false },
-               settings: settings, models: models, now: now, calendar: calendar)
+               settings: settings, models: models, now: now)
 }
 
 do {
@@ -282,6 +283,9 @@ do {
     check("report: the used items and the left-out ones add up to all of them", (report.row(.cycle)?.used ?? 0) + (report.row(.cycle)?.leftOut.reduce(0) { $0 + $1.keys.count } ?? 0) == 14)
     check("report: samples are longest first with their pace", report.row(.cycle)?.samples.first?.key == "bug:B10" && report.row(.cycle)?.samples.first?.pace == .bad
           && report.row(.cycle)?.samples.last?.pace == .good)
+    var same = true
+    for row in report.rows { for sample in row.samples { same = same && report.items[sample.key]?.value(row.metric).seconds == sample.seconds } }
+    check("report: the item detail shows the same number as the summary row", same && !report.rows.isEmpty)
     check("report: no acceptance row where the flow has no acceptance", report.row(.acceptance) == nil && report.hasAcceptanceStep == false)
     let inProgress = report.statuses.first { $0.status == "in-progress" }
     check("report: a status row knows how long visits last, and an open visit is not one of them", inProgress?.visits?.count == 10 && inProgress?.here == 3)
@@ -290,6 +294,8 @@ do {
     check("report: the backlog is not judged", report.open.first { $0.key == "bug:B23" }?.pace == .neutral)
     check("report: attention lists the red before the amber, with a sentence", report.attention.map(\.key) == ["bug:B20", "bug:B21"] && report.attention.first?.severity == .red
           && report.attention.first?.reasons.first?.contains("usually") == true)
+    let sum = report.counts.finished + report.counts.open + report.counts.cancelled + report.counts.finishedBeforeSight + report.counts.noHistory
+    check("report: every counted item is in exactly one state", sum == report.counts.inScope)
     check("report: counts", report.counts.total == 14 && report.counts.finished == 10 && report.counts.open == 4 && report.counts.bad == 1 && report.counts.slow == 1 && report.counts.good == 1)
 
     // Pace needs eight finished visits: seven give no colour at all.
@@ -357,7 +363,7 @@ do {
     let blocked = (info(.bug, "B91", status: "backlog"), [baseline(.bug, "B91", "backlog", at(0)), rec(.rejected, .bug, "B91", to: "done", at: at(2), message: "Delivery evidence is missing.\nMore text.")])
     let standardInput = CycleInput(items: [reopened.0, blocked.0], records: reopened.1 + blocked.1, roles: standardRoles,
                                    statusOrder: { ProjectWorkflow.standard.lifecycle($0).statusIDs }, acceptanceStep: { _ in true },
-                                   acceptsFrom: { _, _ in false }, settings: .empty, now: at(100), calendar: calendar)
+                                   acceptsFrom: { _, _ in false }, settings: .empty, now: at(100))
     let report = CycleReport.make(standardInput).bugs
     check("facts: reopened twice is red", report.attention.first { $0.key == "bug:B90" }?.severity == .red && report.attention.first { $0.key == "bug:B90" }?.reasons == ["reopened 2 times"])
     check("facts: a refused request is amber and quotes the first line", report.attention.first { $0.key == "bug:B91" }?.severity == .amber
@@ -386,7 +392,7 @@ do {
     ]))
     let waiting = CycleInput(items: items.map(\.0), records: items.flatMap(\.1), roles: standardRoles,
                              statusOrder: { ProjectWorkflow.standard.lifecycle($0).statusIDs }, acceptanceStep: { _ in true },
-                             acceptsFrom: { _, status in status == "implemented" }, settings: .empty, now: at(2 + 30), calendar: calendar)
+                             acceptsFrom: { _, status in status == "implemented" }, settings: .empty, now: at(2 + 30))
     let report = CycleReport.make(waiting).features
     check("acceptance: the lag is measured over the accepted ones", report.row(.acceptance)?.used == 10 && report.row(.acceptance)?.distribution?.p50 == 5.5 * hour)
     check("acceptance: one waiting far longer than usual is red", report.attention.first?.key == "feature:F20" && report.attention.first?.severity == .red
@@ -410,6 +416,61 @@ do {
     let byModel = CycleReport.make(input(items, models: models)).bugs.models
     check("models: the cycle time per model, most items first", byModel.map(\.model) == ["Claude Sonnet 5.5", "Claude Opus 5.5"] && byModel[0].distribution.count == 6 && byModel[1].distribution.count == 5)
     check("models: five items are enough to compare, four are not", byModel[0].tooFew == false && CycleModelRow(model: "x", distribution: CycleDistribution.make([1, 2, 3, 4])!).tooFew)
+}
+
+// MARK: - Model names
+
+do {
+    let names = ["a": "opus", "b": "claude-opus-5-5", "c": "Claude Opus 5.5", "d": "anthropic/claude-opus-5.5", "e": "claude-opus-5-5-20251101", "f": "claude-sonnet-5-5[1m]"]
+    let resolved = CycleModelNames.resolve(names)
+    check("model names: the spellings of one model are one row", Set(["a", "b", "c", "d", "e"].compactMap { resolved[$0] }) == ["Claude Opus 5.5"])
+    check("model names: another family stays another row", resolved["f"] == "Claude Sonnet 5.5")
+    check("model names: a bare family is not guessed when the project has two versions",
+          CycleModelNames.resolve(["a": "opus", "b": "claude-opus-5-5", "c": "claude-opus-4-1"])["a"] == "Claude Opus")
+    check("model names: an unknown name is kept as written", CycleModelNames.resolve(["a": " gpt-5.1-codex "])["a"] == "gpt-5.1-codex")
+    check("model names: an empty name is no model", CycleModelNames.resolve(["a": "  "])["a"] == nil)
+    check("model names: the older spelling with the version first", CycleModelNames.parse("claude-3-5-sonnet-latest")?.display == "Claude Sonnet 3.5")
+}
+
+// MARK: - Delivery evidence
+
+func event(_ stage: EvidenceStage, _ note: String?, at time: Date, model: String? = nil, source: LifecycleSource = .automatic) -> LifecycleEvent {
+    LifecycleEvent(id: UUID(), project: "/p", feature: "f", stage: stage, timestamp: time, actor: "boris", source: source, model: model, note: note)
+}
+
+do {
+    let events = [
+        event(.workStarted, "Implement with AI · Claude", at: at(0), model: "Claude Opus 5.5"),
+        event(.pullRequestOpened, "PR #7", at: at(2)),
+        event(.ciRequested, "PR #7", at: at(2.1)),
+        event(.ciStarted, "PR #7", at: at(2.2)),
+        event(.ciRequested, "PR #7 · re-run 2 of run 9", at: at(3)),
+        event(.ciPassed, "PR #7", at: at(4)),
+        event(.approved, "PR #7", at: at(5)),
+        event(.mergedToMain, "PR #7", at: at(6)),
+        event(.pullRequestOpened, "Status implemented", at: at(7)),
+        event(.approved, "PR #8", at: at(8), source: .manual),
+    ]
+    let pr = EvidenceTimings.timeline(events, directToMain: false)
+    check("evidence: the model is the one on the start event", pr.model == "Claude Opus 5.5" && pr.started == at(0))
+    check("evidence: lines of the retired observer and of manual marks are not read", pr.units.map(\.name) == ["PR #7"] && events.filter(\.isEvidence).count == 8)
+    let unit = pr.units[0]
+    check("evidence: a pull request process shows the opening, the approval and the merge, in time order",
+          unit.rows.map(\.stage) == [.pullRequestOpened, .ciRequested, .ciStarted, .ciPassed, .approved, .mergedToMain])
+    check("evidence: each row is timed from the one before, the first from the start", unit.rows.first?.since == 2 * hour && unit.rows.last?.since == hour)
+    check("evidence: CI queue, CI time and re-runs", abs((unit.queue ?? 0) - 0.1 * hour) < 1 && abs((unit.ciTime ?? 0) - 1.8 * hour) < 1 && unit.reruns == 1)
+    let direct = EvidenceTimings.timeline([
+        event(.workStarted, "Implement with AI", at: at(0)),
+        event(.mergedToMain, "commit abc1234", at: at(1)),
+        event(.pullRequestOpened, "commit abc1234", at: at(1.5)),
+        event(.ciRequested, "commit abc1234", at: at(1.1)),
+        event(.ciPassed, "commit abc1234", at: at(1.6)),
+    ], directToMain: true)
+    check("evidence: a direct process has no pull request or review row and CI may follow the merge",
+          direct.units.first?.rows.map(\.stage) == [.mergedToMain, .ciRequested, .ciPassed])
+    let reused = EvidenceTimings.timeline(events, directToMain: false, since: at(5.5))
+    check("evidence: lines recorded before the item existed are left out", reused.started == nil && reused.units.map(\.name) == ["PR #7"] && reused.units[0].rows.map(\.stage) == [.mergedToMain])
+    check("evidence: none gives an empty timeline", EvidenceTimings.timeline([], directToMain: false) == EvidenceTimeline(started: nil, model: nil, units: []))
 }
 
 // MARK: - Settings file
