@@ -260,9 +260,31 @@ struct WorkflowTransitionsEditor: View {
         case nil: break
         }
         for arrow in diagram.arrows.sorted(by: { (lit.contains($0.rule) ? 1 : 0) < (lit.contains($1.rule) ? 1 : 0) }) {
-            // The name of the step and who moves it ("Completion · automatic"), not the name of the step alone (BUG-115).
-            let label = rules.indices.contains(arrow.rule) ? TransitionStory.make(rules[arrow.rule], processes: []).label : arrow.kind.editorTitle
-            drawArrow(&context, arrow, label: label, zoom: zoom, selected: lit.contains(arrow.rule), dimmed: !lit.isEmpty && !lit.contains(arrow.rule))
+            drawArrow(&context, arrow, zoom: zoom, selected: lit.contains(arrow.rule), dimmed: !lit.isEmpty && !lit.contains(arrow.rule))
+        }
+        // The names last, over every line, each where the layout put it (BUG-116). The name of the step and who moves it
+        // ("Completion · automatic") is the one the story gives (BUG-115).
+        for label in diagram.labels {
+            let selected = lit.contains(label.rule)
+            let dimmed = !lit.isEmpty && !lit.contains(label.rule)
+            let kind = rules.indices.contains(label.rule) ? rules[label.rule].kind : TransitionKind.spec
+            let color = kindColor(kind).opacity(selected ? 1 : (dimmed ? 0.25 : 0.95))
+            let weight: Font.Weight = selected ? .bold : .medium
+            // A name on two lines is drawn a line at a time, each centred: a drawn Text has no alignment of its own.
+            let lines = label.text.components(separatedBy: "\n").map { line -> (text: GraphicsContext.ResolvedText, size: CGSize) in
+                let resolved = context.resolve(Text(line).font(.system(size: 10.5 * zoom, weight: weight)).foregroundColor(color))
+                return (resolved, resolved.measure(in: CGSize(width: 240 * zoom, height: 24 * zoom)))
+            }
+            let width = lines.map(\.size.width).max() ?? 0
+            let height = lines.reduce(CGFloat(0)) { $0 + $1.size.height }
+            // The name sits on a plate of the page's colour so that the curves that cross it do not cut it up.
+            let plate = CGRect(x: label.anchor.x - width / 2 - 3 * zoom, y: label.anchor.y - height / 2 - 1.5 * zoom, width: width + 6 * zoom, height: height + 3 * zoom)
+            context.fill(Path(roundedRect: plate, cornerRadius: 3 * zoom), with: .color(palette.bg.opacity(0.92)))
+            var top = label.anchor.y - height / 2
+            for line in lines {
+                context.draw(line.text, at: CGPoint(x: label.anchor.x, y: top), anchor: .top)
+                top += line.size.height
+            }
         }
         if let pull, let from = diagram.nodes.first(where: { $0.id == pull.from }) {
             var line = Path()
@@ -272,7 +294,7 @@ struct WorkflowTransitionsEditor: View {
         }
     }
 
-    private func drawArrow(_ context: inout GraphicsContext, _ arrow: WorkflowDiagram.Arrow, label text: String, zoom: CGFloat, selected: Bool, dimmed: Bool) {
+    private func drawArrow(_ context: inout GraphicsContext, _ arrow: WorkflowDiagram.Arrow, zoom: CGFloat, selected: Bool, dimmed: Bool) {
         let color = kindColor(arrow.kind).opacity(selected ? 1 : (dimmed ? 0.2 : 0.85))
         let width: CGFloat = (selected ? 3.4 : 2) * zoom
         for branch in arrow.branches {
@@ -287,16 +309,6 @@ struct WorkflowTransitionsEditor: View {
             head.addLine(to: CGPoint(x: branch.tip.x - direction * 10 * zoom, y: branch.tip.y + 5 * zoom))
             head.closeSubpath()
             context.fill(head, with: .color(color))
-            if !branch.isEntry {
-                // The name sits on a plate of the page's colour so that the curves that cross it do not cut it up.
-                let label = context.resolve(Text(text).font(.system(size: 10.5 * zoom, weight: selected ? .bold : .medium)).foregroundColor(color))
-                let size = label.measure(in: CGSize(width: 240 * zoom, height: 24 * zoom))
-                let origin = CGPoint(x: branch.pointsRight ? branch.tip.x - 5 * zoom - size.width : branch.tip.x + 5 * zoom,
-                                     y: branch.tip.y - 4 * zoom - size.height)
-                context.fill(Path(roundedRect: CGRect(origin: origin, size: size).insetBy(dx: -3 * zoom, dy: -1.5 * zoom), cornerRadius: 3 * zoom),
-                             with: .color(palette.bg.opacity(0.88)))
-                context.draw(label, at: origin, anchor: .topLeading)
-            }
         }
     }
 

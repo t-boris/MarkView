@@ -198,5 +198,50 @@ check(WorkflowDiagram.laneTitle(.active, statuses: feature.statuses, rules: feat
       && WorkflowDiagram.laneTitle(.cancelled, statuses: feature.statuses, rules: feature.rules) == "Cancelled", "active, completed and cancelled lanes are In progress, Done and Cancelled")
 check(TransitionKind.spec.editorTitle == "Stage change", "the step between stages is a 'Stage change', which also fits a flow without a specification")
 
+// MARK: Names of the arrows (BUG-116)
+
+var lifecycles: [(String, IssueLifecycleDefinition)] = [("standard feature", ProjectWorkflow.standard.feature), ("standard bug", ProjectWorkflow.standard.bug)]
+for flow in WorkflowFlow.catalogue where flow.id != "markview" {
+    lifecycles.append((flow.title + " features", flow.feature))
+    if flow.bugsDiffer { lifecycles.append((flow.title + " bugs", flow.bug)) }
+}
+for (name, definition) in lifecycles {
+    for width in [368, 640, 920] as [CGFloat] {
+        let drawn = WorkflowDiagram(statuses: definition.statuses, rules: definition.rules, width: width)
+        let bounds = CGRect(origin: .zero, size: drawn.size)
+        let branches = drawn.arrows.flatMap(\.branches).filter { !$0.isEntry }.count
+        var onNode = 0, together = 0, outside = 0, offLine = 0, onHead = 0
+        for (i, label) in drawn.labels.enumerated() {
+            if drawn.nodes.contains(where: { $0.frame.intersects(label.frame) }) { onNode += 1 }
+            if !bounds.contains(label.frame) { outside += 1 }
+            for other in drawn.labels[(i + 1)...] where other.frame.insetBy(dx: -3, dy: -3).intersects(label.frame) { together += 1 }
+            if drawn.arrows.contains(where: { $0.branches.contains { abs($0.tip.x - label.anchor.x) < 8 && abs($0.tip.y - label.anchor.y) < 8 } }) { onHead += 1 }
+            let line = drawn.arrows.first { $0.rule == label.rule }?.branches.flatMap { $0.tails + [$0.stub] }
+            // The anchor is a point of its own arrow: a point of a curve, or of a straight piece between two of its points.
+            let near = line?.contains { piece in
+                piece.indices.contains { j in
+                    j > 0 ? WorkflowDiagram.distance(from: label.anchor, toPolyline: [piece[j - 1], piece[j]]) < 0.5 : false
+                }
+            } ?? false
+            if !near { offLine += 1 }
+        }
+        check(drawn.labels.count == branches, "\(name) @ \(Int(width)): every branch of every arrow has its name", "\(drawn.labels.count) of \(branches)")
+        check(onNode == 0, "\(name) @ \(Int(width)): no name lies on a state", "\(onNode)")
+        check(together == 0, "\(name) @ \(Int(width)): no two names lie on or touch one another", "\(together)")
+        check(outside == 0, "\(name) @ \(Int(width)): every name is inside the drawing", "\(outside)")
+        check(offLine == 0, "\(name) @ \(Int(width)): every name is centred on its own arrow", "\(offLine)")
+        check(onHead == 0, "\(name) @ \(Int(width)): no name covers an arrowhead", "\(onHead)")
+    }
+}
+let sparse = WorkflowDiagram(statuses: ProjectWorkflow.standard.bug.statuses, rules: [], width: 920)
+let busy = WorkflowFlow.kanban.feature
+let kanbanDiagram = WorkflowDiagram(statuses: busy.statuses, rules: busy.rules, width: 920)
+let noRules = WorkflowDiagram(statuses: busy.statuses, rules: [], width: 920)
+check(kanbanDiagram.size.height > noRules.size.height + 60, "the same states are drawn taller when ten transitions run between them",
+      "\(Int(noRules.size.height)) → \(Int(kanbanDiagram.size.height))")
+check(sparse.labels.isEmpty, "a diagram without transitions has no names")
+check(kanbanDiagram.size.height >= 280, "Kanban gives its ten transitions room (\(Int(kanbanDiagram.size.height)) pt)")
+check(kanbanDiagram.size.height < 420, "…but not absurdly tall (Kanban, \(Int(kanbanDiagram.size.height)) pt)")
+
 print(failures == 0 ? "\nall passed" : "\n\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

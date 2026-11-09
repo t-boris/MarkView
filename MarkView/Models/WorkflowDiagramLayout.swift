@@ -93,9 +93,23 @@ struct WorkflowDiagram {
         var id: Int { rule }
     }
 
+    /// The name of one branch of an arrow ("Completion · automatic") and where it is drawn: centred on a point of the arrow, clear of
+    /// the other names, the states, the lane titles and the arrowheads (BUG-116).
+    struct Label: Equatable {
+        /// The index of the rule in the table.
+        let rule: Int
+        let text: String
+        /// The plate the name sits on.
+        let frame: CGRect
+        /// The point of the arrow it is centred on.
+        let anchor: CGPoint
+    }
+
     let lanes: [Lane]
     let nodes: [Node]
     let arrows: [Arrow]
+    /// One name for each branch of each arrow, except the short arrows from a lane's own bar.
+    let labels: [Label]
     /// Rules that cannot be drawn: no source, or a status the type does not have. They are still edited from the list under the diagram.
     let unattached: [Int]
     let size: CGSize
@@ -105,11 +119,12 @@ struct WorkflowDiagram {
         self = Self.build(statuses: statuses, rules: rules, width: width, m: metrics)
     }
 
-    private init(lanes: [Lane], nodes: [Node], arrows: [Arrow], unattached: [Int], size: CGSize, metrics: Metrics) {
+    private init(lanes: [Lane], nodes: [Node], arrows: [Arrow], labels: [Label] = [], unattached: [Int], size: CGSize, metrics: Metrics) {
         self.metrics = metrics
         self.lanes = lanes
         self.nodes = nodes
         self.arrows = arrows
+        self.labels = labels
         self.unattached = unattached
         self.size = size
     }
@@ -141,7 +156,7 @@ struct WorkflowDiagram {
         return best?.rule
     }
 
-    private static func distance(from p: CGPoint, toPolyline line: [CGPoint]) -> CGFloat {
+    static func distance(from p: CGPoint, toPolyline line: [CGPoint]) -> CGFloat {
         guard line.count > 1 else { return line.first.map { hypot($0.x - p.x, $0.y - p.y) } ?? .infinity }
         var best = CGFloat.infinity
         for i in 1..<line.count {
@@ -161,7 +176,41 @@ struct WorkflowDiagram {
     private struct End { let key: String; let side: Side; let slot: Int }
     private struct BranchPlan { var tails: [End]; var head: End; var entry: Bool }
 
-    private static func build(statuses all: [WorkflowStatus], rules: [LifecycleRule], width: CGFloat, m: Metrics) -> WorkflowDiagram {
+    /// The diagram with its arrows named. The lanes are as high as their states need; when the names of the arrows do not fit without
+    /// lying on one another, on a state or on an arrowhead, the states are spread further apart, a little at a time, until they do
+    /// (BUG-116): a flow with many transitions is taller than one with few.
+    private static func build(statuses: [WorkflowStatus], rules: [LifecycleRule], width: CGFloat, m: Metrics) -> WorkflowDiagram {
+        var growth: CGFloat = 0
+        var drawn = layout(statuses: statuses, rules: rules, width: width, m: m, growth: growth)
+        // Room for the arrows themselves: each named arrow gets a band of `arrowPitch` of the height, so that ten transitions between
+        // two rows of states are not squeezed into the height of two states.
+        let named = drawn.arrows.reduce(0) { $0 + $1.branches.filter { !$0.isEntry }.count }
+        let wanted = m.laneHeader + m.laneBottom + CGFloat(named) * arrowPitch * m.zoom
+        if drawn.size.height < wanted {
+            growth = wanted - drawn.size.height
+            drawn = layout(statuses: statuses, rules: rules, width: width, m: m, growth: growth)
+        }
+        var placed = placeLabels(on: drawn, rules: rules)
+        var attempts = 0
+        while placed.crowded, attempts < maxGrowthSteps {
+            attempts += 1
+            growth += growthStep * m.zoom
+            drawn = layout(statuses: statuses, rules: rules, width: width, m: m, growth: growth)
+            placed = placeLabels(on: drawn, rules: rules)
+        }
+        return WorkflowDiagram(lanes: drawn.lanes, nodes: drawn.nodes, arrows: drawn.arrows, labels: placed.labels, unattached: drawn.unattached,
+                               size: drawn.size, metrics: m)
+    }
+
+    /// How much taller the diagram gets at each try, at the basic size, and how many tries it has.
+    private static let growthStep: CGFloat = 10
+    private static let maxGrowthSteps = 24
+    /// The height each named arrow is given, at the basic size.
+    private static let arrowPitch: CGFloat = 26
+    /// The air kept around a name, at the basic size: two names never touch.
+    private static let labelMargin: CGFloat = 4
+
+    private static func layout(statuses all: [WorkflowStatus], rules: [LifecycleRule], width: CGFloat, m: Metrics, growth: CGFloat) -> WorkflowDiagram {
         var seen = Set<String>()
         let statuses = all.filter { seen.insert($0.id).inserted }
         let order: [LifecycleRole] = [.notStarted, .active, .completed, .cancelled]
@@ -235,7 +284,10 @@ struct WorkflowDiagram {
         let spare = width - rightMargin - laneCount * nodeWidth - totalPadding
         let gutter = roles.count > 1 ? min(m.maxGutter, max(m.gutter, spare / (laneCount - 1))) : m.gutter
         let tallest = roles.map { members[$0]?.count ?? 0 }.max() ?? 1
-        let content = CGFloat(tallest) * m.nodeHeight + CGFloat(tallest - 1) * m.nodeGap
+        // Growth spreads the states of the tallest lane further apart; when no lane has two states it only lets the lanes sit lower
+        // one after the other.
+        let gap = m.nodeGap + (tallest > 1 ? growth / CGFloat(tallest - 1) : 0)
+        let content = CGFloat(tallest) * m.nodeHeight + CGFloat(tallest - 1) * gap + (tallest > 1 ? 0 : growth)
         let laneHeight = m.laneHeader + content + m.laneBottom
         var rects: [String: CGRect] = [:]
         var nodes: [Node] = []
@@ -244,7 +296,7 @@ struct WorkflowDiagram {
             let list = members[role] ?? []
             let laneWidth = leftPadding(role) + nodeWidth + m.lanePadding
             rects["l:" + role.rawValue] = CGRect(x: x, y: 0, width: laneWidth, height: laneHeight)
-            let stack = CGFloat(list.count) * m.nodeHeight + CGFloat(list.count - 1) * m.nodeGap
+            let stack = CGFloat(list.count) * m.nodeHeight + CGFloat(list.count - 1) * gap
             // Each lane sits lower than the one before it, so the work reads from the top left to the bottom right and the arrows between
             // lanes are not drawn along one another (a lane's states all at the same height would put every arrow on one line).
             var y = m.laneHeader + (content - stack) * (roles.count > 1 ? CGFloat(laneNumber) / CGFloat(roles.count - 1) : 0.5)
@@ -252,7 +304,7 @@ struct WorkflowDiagram {
                 let frame = CGRect(x: x + leftPadding(role), y: y, width: nodeWidth, height: m.nodeHeight)
                 rects["n:" + status.id] = frame
                 nodes.append(Node(id: status.id, title: status.title, role: role, frame: frame))
-                y += m.nodeHeight + m.nodeGap
+                y += m.nodeHeight + gap
             }
             x += laneWidth + gutter
         }
@@ -301,6 +353,107 @@ struct WorkflowDiagram {
                         isClique: !ys.isEmpty && ys.count == (members[role] ?? []).count)
         }
         return WorkflowDiagram(lanes: lanes, nodes: nodes, arrows: arrows, unattached: unattached, size: size, metrics: m)
+    }
+
+    // MARK: Names of the arrows (BUG-116)
+
+    /// The plate of a name: the text is about `0.58 × its size` wide per character (an over-estimate on purpose: the view draws the
+    /// text itself, and a plate that is a little too large costs nothing), and a line high per line.
+    static func labelSize(_ text: String, zoom: CGFloat) -> CGSize {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let longest = lines.map(\.count).max() ?? 0
+        return CGSize(width: (CGFloat(longest) * 6.1 + 8) * zoom, height: (3 + 14 * CGFloat(lines.count)) * zoom)
+    }
+
+    /// A name on two lines, "Completion ·\nautomatic" → "Completion" over "automatic": half as wide, so it fits in the gap between
+    /// two lanes where the one-line name would lie on a state. nil for a name that has no second part.
+    static func twoLines(_ text: String) -> String? {
+        guard let split = text.range(of: " · ") else { return nil }
+        return text.replacingCharacters(in: split, with: "\n")
+    }
+
+    /// Where each branch of each arrow carries its name. A name is centred on a point of its own arrow, so it is clear which arrow it
+    /// names. Of the points that keep clear of the names already placed, the lane titles, the "any order" notes, the arrowheads and
+    /// the edge of the drawing, it takes one that also keeps clear of the states, and the one nearest the arrowhead among those.
+    /// `crowded` says that some name had no such point, so the caller makes the drawing taller and tries again.
+    private static func placeLabels(on diagram: WorkflowDiagram, rules: [LifecycleRule]) -> (labels: [Label], crowded: Bool) {
+        let zoom = diagram.metrics.zoom
+        let margin = labelMargin * zoom
+        let bounds = CGRect(origin: .zero, size: diagram.size)
+        var blocked: [CGRect] = diagram.lanes.map { CGRect(x: $0.frame.minX, y: 0, width: $0.frame.width, height: diagram.metrics.laneHeader) }
+        for lane in diagram.lanes where lane.isClique {
+            blocked.append(CGRect(x: lane.frame.maxX - 70 * zoom, y: lane.frame.maxY - 24 * zoom, width: 70 * zoom, height: 24 * zoom))
+        }
+        for arrow in diagram.arrows {
+            for branch in arrow.branches {
+                blocked.append(CGRect(x: branch.tip.x - 9 * zoom, y: branch.tip.y - 9 * zoom, width: 18 * zoom, height: 18 * zoom))
+            }
+        }
+        let nodeFrames = diagram.nodes.map { $0.frame.insetBy(dx: -2 * zoom, dy: -2 * zoom) }
+
+        /// The ways a name can be written, the one-line one first.
+        struct Pending { let rule: Int; let variants: [(text: String, size: CGSize)]; let tip: CGPoint; let points: [CGPoint] }
+        var pending: [Pending] = []
+        for arrow in diagram.arrows where rules.indices.contains(arrow.rule) {
+            let rule = rules[arrow.rule]
+            let text = TransitionStory.labelWords(for: rule, automatic: TransitionStory.isAutomatic(rule))
+            let variants = ([text] + [twoLines(text)].compactMap { $0 }).map { (text: $0, size: labelSize($0, zoom: zoom)) }
+            for branch in arrow.branches where !branch.isEntry {
+                var points: [CGPoint] = []
+                for line in [branch.stub] + branch.tails {
+                    guard line.count > 1 else { continue }
+                    if line.count == 2 {
+                        // The straight pieces are only their two ends; take points between them too.
+                        for i in 0...6 {
+                            let t = CGFloat(i) / 6
+                            points.append(CGPoint(x: line[0].x + (line[1].x - line[0].x) * t, y: line[0].y + (line[1].y - line[0].y) * t))
+                        }
+                    } else {
+                        points += line
+                    }
+                }
+                pending.append(Pending(rule: arrow.rule, variants: variants, tip: branch.tip, points: points))
+            }
+        }
+        // The names with the fewest places to go choose first.
+        pending.sort { ($0.points.count, $0.rule) < ($1.points.count, $1.rule) }
+
+        var placed: [Label] = []
+        var crowded = false
+        for item in pending {
+            var best: (label: Label, cost: CGFloat, clear: Bool)?
+            for (variant, written) in item.variants.enumerated() {
+                for point in item.points {
+                    let frame = CGRect(x: point.x - written.size.width / 2, y: point.y - written.size.height / 2,
+                                       width: written.size.width, height: written.size.height)
+                    guard bounds.contains(frame), !blocked.contains(where: { $0.intersects(frame) }), !placed.contains(where: { $0.frame.insetBy(dx: -margin, dy: -margin).intersects(frame) }) else { continue }
+                    var overlap: CGFloat = 0
+                    for node in nodeFrames where node.intersects(frame) {
+                        let common = node.intersection(frame)
+                        overlap += common.width * common.height
+                    }
+                    // Free of the states first, then the one-line name, then the point nearest the arrowhead.
+                    let cost = overlap * 1000 + CGFloat(variant) * 40 * zoom + hypot(point.x - item.tip.x, point.y - item.tip.y)
+                    if best == nil || cost < best!.cost {
+                        best = (Label(rule: item.rule, text: written.text, frame: frame, anchor: point), cost, overlap == 0)
+                    }
+                }
+            }
+            guard let chosen = best else {
+                crowded = true
+                // Nothing is free: the name goes at the arrowhead, as it always did, so that it is drawn at all.
+                let written = item.variants[0]
+                let frame = CGRect(x: item.tip.x - written.size.width / 2, y: item.tip.y - written.size.height - 4 * zoom,
+                                   width: written.size.width, height: written.size.height)
+                placed.append(Label(rule: item.rule, text: written.text, frame: frame, anchor: item.tip))
+                continue
+            }
+            if !chosen.clear { crowded = true }
+            placed.append(chosen.label)
+        }
+        // The names in the order of the rules, as the arrows are.
+        placed.sort { ($0.rule, $0.frame.minY, $0.frame.minX) < ($1.rule, $1.frame.minY, $1.frame.minX) }
+        return (placed, crowded)
     }
 
     private static func flatten(_ p0: CGPoint, _ c1: CGPoint, _ c2: CGPoint, _ p3: CGPoint, steps: Int = 18) -> [CGPoint] {
