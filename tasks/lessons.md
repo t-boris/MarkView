@@ -1729,3 +1729,9 @@ Boris saw BUG-117 still in `backlog` while I was already debugging and writing t
 ## For a slow or spinning app, read the system's own CPU reports first (2026-11-09, BUG-117)
 `/Library/Logs/DiagnosticReports/MarkView_*.cpu_resource.diag` (written by macOS when the app averages over 50% CPU) hold the heaviest stack, with function names, over minutes. One read gave the cause; a few-second `sample` showed only the generic display cycle. Order: cpu_resource reports (four of them, same stack across four versions), then `sample`, then a benchmark of the suspect with the app's own code on a copy of the real data. A loop over work items must never call something that re-reads or re-decodes a file.
 - While MarkView is the thing being diagnosed, every `markview_*` call of mine runs on its main thread: keep them few.
+
+## Do not give directions in the UI from a grep of the code (2026-11-09, BUG-116/117)
+I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle section of the bug panel. I had only found the button in `IssueLifecycleSection.swift`; I had not checked how it looks on screen (the section is collapsed behind a small grey LIFECYCLE line under the bug title) and he could not find it ("нету нигде").
+- A path through the UI that I have not seen is "according to the code, not checked on screen", said in those words, with the file it comes from.
+- When a step in the lifecycle needs the person, name the one control that surely exists (the status menu at the top right of the bug panel, which offers "change anyway with a reason") and offer the alternative of changing the rule, instead of a hidden button.
+- Say plainly, in the first sentence, why I cannot do the step myself (only a person can confirm a delivery event or force a status), not after a list of what I did.
