@@ -2,7 +2,7 @@
 type: feature
 id: cycle-time-as-a-view-over-the-workflow
 title: Cycle time as a view over the workflow
-status: in-progress
+status: in-review
 owner: Boris Tsekinovsky
 created: 2026-11-09
 provenance: Created by an AI agent through MarkView from Review docs/plans/2026-11-09-cycle-time-review.md, direction A approved by Boris on 2026-11-09
