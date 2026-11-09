@@ -209,7 +209,9 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
     }
 
     let feature = editor.draft.feature
-    let diagram = WorkflowDiagram(statuses: feature.statuses, rules: feature.rules, width: 920)
+    // The tab draws the diagram at the zoom that fits the 920 pt it is given.
+    let zoom = WorkflowDiagram.zoom(statuses: feature.statuses, rules: feature.rules, available: 920)
+    let diagram = WorkflowDiagram(statuses: feature.statuses, rules: feature.rules, width: 920, metrics: WorkflowDiagram.Metrics(zoom: zoom))
     let left: CGFloat = 16   // the tab's padding; the diagram is at its natural size in a 1100 pt tab
     let idea = diagram.nodes.first { $0.id == "idea" }!.frame
     guard let field = descendants(hosting).compactMap({ $0 as? NSTextField }).first(where: { ($0.placeholderString ?? "") == "new-status-id" }) else {

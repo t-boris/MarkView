@@ -17,24 +17,40 @@ import Foundation
 
 struct WorkflowDiagram {
     struct Metrics {
-        var nodeHeight: CGFloat = 26
-        var nodeGap: CGFloat = 10
+        var nodeHeight: CGFloat = 28
+        /// The vertical gap between the states of a lane: the curves between the lanes fan out in it.
+        var nodeGap: CGFloat = 22
         var lanePadding: CGFloat = 12
         /// The left padding of a lane that has a bar for entries from its own states.
         var entryPadding: CGFloat = 26
-        var laneHeader: CGFloat = 28
-        var laneBottom: CGFloat = 10
-        var gutter: CGFloat = 76
+        var laneHeader: CGFloat = 30
+        var laneBottom: CGFloat = 12
+        var gutter: CGFloat = 84
         /// Wider windows widen the gaps between the lanes, where the curves and their names need room, up to this.
-        var maxGutter: CGFloat = 170
+        var maxGutter: CGFloat = 190
         /// The straight last piece of an arrow, from its junction to the state.
-        var stub: CGFloat = 30
-        var minNodeWidth: CGFloat = 96
-        var maxNodeWidth: CGFloat = 150
+        var stub: CGFloat = 34
+        var minNodeWidth: CGFloat = 108
+        var maxNodeWidth: CGFloat = 168
         /// How far apart arrows that meet the same side of a state are.
         var slot: CGFloat = 10
         /// Room right of the last lane for the curves that leave and enter its states on that side, and for their names.
-        var rightMargin: CGFloat = 64
+        var rightMargin: CGFloat = 70
+        /// Where the bar of a lane's own entries stands, from the lane's left edge.
+        var barInset: CGFloat = 7
+        /// How many times larger than the basic size this is drawn: the lengths above already include it; drawing code that has
+        /// lengths of its own (text sizes, line widths) multiplies them by it.
+        var zoom: CGFloat = 1
+
+        init() {}
+
+        /// The metrics of a drawing `zoom` times as large: every length grows and nothing else changes.
+        init(zoom: CGFloat) {
+            nodeHeight *= zoom; nodeGap *= zoom; lanePadding *= zoom; entryPadding *= zoom; laneHeader *= zoom; laneBottom *= zoom
+            gutter *= zoom; maxGutter *= zoom; stub *= zoom; minNodeWidth *= zoom; maxNodeWidth *= zoom; slot *= zoom
+            rightMargin *= zoom; barInset *= zoom
+            self.zoom = zoom
+        }
     }
 
     struct Node: Identifiable, Equatable {
@@ -83,17 +99,28 @@ struct WorkflowDiagram {
     /// Rules that cannot be drawn: no source, or a status the type does not have. They are still edited from the list under the diagram.
     let unattached: [Int]
     let size: CGSize
+    let metrics: Metrics
 
     init(statuses: [WorkflowStatus], rules: [LifecycleRule], width: CGFloat, metrics: Metrics = Metrics()) {
         self = Self.build(statuses: statuses, rules: rules, width: width, m: metrics)
     }
 
-    private init(lanes: [Lane], nodes: [Node], arrows: [Arrow], unattached: [Int], size: CGSize) {
+    private init(lanes: [Lane], nodes: [Node], arrows: [Arrow], unattached: [Int], size: CGSize, metrics: Metrics) {
+        self.metrics = metrics
         self.lanes = lanes
         self.nodes = nodes
         self.arrows = arrows
         self.unattached = unattached
         self.size = size
+    }
+
+    /// How many times larger than the basic size the diagram is drawn in a tab `available` wide: as large as fits the width (and not
+    /// taller than `maxHeight`, or larger than `maxZoom` times), or smaller when the tab is narrower than the basic size.
+    static func zoom(statuses: [WorkflowStatus], rules: [LifecycleRule], available: CGFloat, maxHeight: CGFloat = 700, maxZoom: CGFloat = 2.2) -> CGFloat {
+        // Width 0 asks for the narrowest layout there is: the smallest states and gaps.
+        let basic = WorkflowDiagram(statuses: statuses, rules: rules, width: 0)
+        guard basic.size.width > 0, basic.size.height > 0 else { return 1 }
+        return max(0.4, min(available / basic.size.width, maxHeight / basic.size.height, maxZoom))
     }
 
     // MARK: Hit testing
@@ -141,7 +168,7 @@ struct WorkflowDiagram {
         var members: [LifecycleRole: [WorkflowStatus]] = [:]
         for status in statuses { members[status.role, default: []].append(status) }
         let roles = order.filter { !(members[$0] ?? []).isEmpty }
-        guard !roles.isEmpty else { return WorkflowDiagram(lanes: [], nodes: [], arrows: [], unattached: Array(rules.indices), size: .zero) }
+        guard !roles.isEmpty else { return WorkflowDiagram(lanes: [], nodes: [], arrows: [], unattached: Array(rules.indices), size: .zero, metrics: m) }
         var laneIndex: [LifecycleRole: Int] = [:]
         for (i, role) in roles.enumerated() { laneIndex[role] = i }
         var roleOf: [String: LifecycleRole] = [:]
@@ -198,12 +225,14 @@ struct WorkflowDiagram {
             plans.append((r, rule.kind, branches))
         }
 
-        // 2. Lanes and states.
+        // 2. Lanes and states. Room right of the last lane is kept only when an arrow meets a state of it on that side.
+        let lastStates = Set((members[roles[roles.count - 1]] ?? []).map { "n:" + $0.id })
+        let rightMargin = counts.keys.contains { $0.side == .right && lastStates.contains($0.key) } ? m.rightMargin : m.lanePadding
         func leftPadding(_ role: LifecycleRole) -> CGFloat { entries[role] == nil ? m.lanePadding : m.entryPadding }
         let totalPadding = roles.reduce(CGFloat(0)) { $0 + leftPadding($1) + m.lanePadding }
         let laneCount = CGFloat(roles.count)
-        let nodeWidth = min(m.maxNodeWidth, max(m.minNodeWidth, (width - m.rightMargin - (laneCount - 1) * m.gutter - totalPadding) / laneCount))
-        let spare = width - m.rightMargin - laneCount * nodeWidth - totalPadding
+        let nodeWidth = min(m.maxNodeWidth, max(m.minNodeWidth, (width - rightMargin - (laneCount - 1) * m.gutter - totalPadding) / laneCount))
+        let spare = width - rightMargin - laneCount * nodeWidth - totalPadding
         let gutter = roles.count > 1 ? min(m.maxGutter, max(m.gutter, spare / (laneCount - 1))) : m.gutter
         let tallest = roles.map { members[$0]?.count ?? 0 }.max() ?? 1
         let content = CGFloat(tallest) * m.nodeHeight + CGFloat(tallest - 1) * m.nodeGap
@@ -227,13 +256,13 @@ struct WorkflowDiagram {
             }
             x += laneWidth + gutter
         }
-        let size = CGSize(width: x - gutter + m.rightMargin, height: laneHeight + 2)
+        let size = CGSize(width: x - gutter + rightMargin, height: laneHeight + 2)
 
         // 3. Arrows.
         func point(_ end: End) -> CGPoint {
             let rect = rects[end.key] ?? .zero
             let n = max(1, counts[Slot(key: end.key, side: end.side)] ?? 1)
-            let step = min(m.slot, max(2, (rect.height - 6) / CGFloat(n)))
+            let step = min(m.slot, max(2 * m.zoom, (rect.height - 6 * m.zoom) / CGFloat(n)))
             return CGPoint(x: end.side == .left ? rect.minX : rect.maxX,
                            y: rect.midY + (CGFloat(end.slot) - CGFloat(n - 1) / 2) * step)
         }
@@ -245,7 +274,7 @@ struct WorkflowDiagram {
                 let tip = point(branch.head)
                 if branch.entry {
                     let role = nodes.first { "n:" + $0.id == branch.head.key }?.role ?? .notStarted
-                    let barX = (rects["l:" + role.rawValue]?.minX ?? 0) + 7
+                    let barX = (rects["l:" + role.rawValue]?.minX ?? 0) + m.barInset
                     let junction = CGPoint(x: barX, y: tip.y)
                     barYs[role, default: []].append(tip.y)
                     branches.append(Branch(tails: [], stub: [junction, tip], tip: tip, pointsRight: true, isEntry: true))
@@ -257,7 +286,7 @@ struct WorkflowDiagram {
                     let start = point(end)
                     let away: CGFloat = end.side == .right ? 1 : -1
                     let arrive: CGFloat = right ? 1 : -1
-                    let k = min(90, max(24, abs(junction.x - start.x) * 0.5))
+                    let k = min(90 * m.zoom, max(24 * m.zoom, abs(junction.x - start.x) * 0.5))
                     return flatten(start, CGPoint(x: start.x + away * k, y: start.y), CGPoint(x: junction.x - arrive * k, y: junction.y), junction)
                 }
                 branches.append(Branch(tails: tails, stub: [junction, tip], tip: tip, pointsRight: right, isEntry: false))
@@ -268,10 +297,10 @@ struct WorkflowDiagram {
         let lanes = roles.map { role -> Lane in
             let ys = barYs[role] ?? []
             return Lane(role: role, frame: rects["l:" + role.rawValue] ?? .zero, entryRules: (entries[role] ?? []).map(\.rule),
-                        bar: ys.isEmpty ? nil : ((ys.min() ?? 0) - 6)...((ys.max() ?? 0) + 6),
+                        bar: ys.isEmpty ? nil : ((ys.min() ?? 0) - 6 * m.zoom)...((ys.max() ?? 0) + 6 * m.zoom),
                         isClique: !ys.isEmpty && ys.count == (members[role] ?? []).count)
         }
-        return WorkflowDiagram(lanes: lanes, nodes: nodes, arrows: arrows, unattached: unattached, size: size)
+        return WorkflowDiagram(lanes: lanes, nodes: nodes, arrows: arrows, unattached: unattached, size: size, metrics: m)
     }
 
     private static func flatten(_ p0: CGPoint, _ c1: CGPoint, _ c2: CGPoint, _ p3: CGPoint, steps: Int = 18) -> [CGPoint] {

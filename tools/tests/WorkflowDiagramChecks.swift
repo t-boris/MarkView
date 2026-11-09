@@ -74,8 +74,12 @@ check(rightTips.count == 2 && Set(rightTips.map { Int($0.y.rounded()) }).count =
 let some = [LifecycleRule(from: ["idea", "draft", "review", "resolving", "exploring"], to: "ready", kind: .spec, needs: [.human: []])]
 let someDiagram = WorkflowDiagram(statuses: feature.statuses, rules: some, width: 920)
 check(someDiagram.lanes[0].bar != nil && !someDiagram.lanes[0].isClique, "a bar with an entry into one state only is not marked \"any order\"")
+// Room right of the last lane is kept when an arrow meets a state of it on that side (the bug workflow's acceptance, within its completed lane).
+let bugOnly = WorkflowDiagram(statuses: bug.statuses, rules: bug.rules, width: 760)
+let bugOutermost = bugOnly.nodes.map(\.frame.maxX).max() ?? 0
+check(bugOnly.size.width - bugOutermost >= 60, "there is room right of the last lane for the curves on that side (\(Int(bugOnly.size.width - bugOutermost)) pt)")
 let outermost = diagram.nodes.map(\.frame.maxX).max() ?? 0
-check(diagram.size.width - outermost >= 60, "there is room right of the last lane for the curves on that side (\(Int(diagram.size.width - outermost)) pt)")
+check(diagram.size.width - outermost < 30, "…and none where no arrow needs it (\(Int(diagram.size.width - outermost)) pt)")
 
 // A rule whose sources are on both sides of its target is two branches of one arrow.
 let mixed = [LifecycleRule(from: ["draft", "verified"], to: "implementing", kind: .spec, needs: [.human: []])]
@@ -97,12 +101,29 @@ let bugDiagram = WorkflowDiagram(statuses: bug.statuses, rules: bug.rules, width
 check(bugDiagram.lanes.map(\.role) == [.notStarted, .active, .completed], "a bug has three lanes, no cancelled one (closed is a completed status)",
       "\(bugDiagram.lanes.map(\.role))")
 check(bugDiagram.arrows.count == bug.rules.count && bugDiagram.lanes.allSatisfy { $0.bar == nil }, "its rules are all drawn, and none needs a bar")
-for width in [320, 400, 760, 1100] as [CGFloat] {
-    let d = WorkflowDiagram(statuses: feature.statuses, rules: feature.rules, width: width)
-    let narrowest = d.nodes.map(\.frame.width).min() ?? 0
-    check(narrowest >= 96 - 0.01 && narrowest <= 150 + 0.01 && (width < 800 || d.size.width <= width + 0.5),
-          "at \(Int(width)) pt a state is \(Int(narrowest)) pt wide and the diagram is \(Int(d.size.width)) pt")
+// The diagram grows with the tab and is cut down to fit a narrow one: the zoom is what makes it fit.
+for width in [320, 400, 760, 1100, 1500] as [CGFloat] {
+    let zoom = WorkflowDiagram.zoom(statuses: feature.statuses, rules: feature.rules, available: width)
+    let d = WorkflowDiagram(statuses: feature.statuses, rules: feature.rules, width: width, metrics: WorkflowDiagram.Metrics(zoom: zoom))
+    let widest = d.nodes.map(\.frame.width).max() ?? 0
+    check(zoom <= 0.4 + 0.001 || d.size.width <= width + 0.5, "at \(width) pt the zoom is \(String(format: "%.2f", zoom)) and the diagram is \(Int(d.size.width)) pt wide, \(Int(d.size.height)) tall")
+    check(widest <= 168 * zoom + 0.01 && d.nodes.allSatisfy { $0.frame.height == 28 * zoom }, "…its states are \(Int(widest)) pt wide and 28 zoom-lengths tall")
 }
+let small = WorkflowDiagram.zoom(statuses: feature.statuses, rules: feature.rules, available: 700)
+let large = WorkflowDiagram.zoom(statuses: feature.statuses, rules: feature.rules, available: 1400)
+let huge = WorkflowDiagram.zoom(statuses: feature.statuses, rules: feature.rules, available: 6000)
+check(small < 1 && large > 1.4 && large > small, "a wide tab draws the diagram larger than a narrow one (\(small) → \(large))")
+check(huge <= 2.2 + 0.001 && WorkflowDiagram(statuses: feature.statuses, rules: feature.rules, width: 6000, metrics: .init(zoom: huge)).size.height <= 700 + 0.5,
+      "…but never larger than 2.2 times or taller than 700 pt (\(huge))")
+let doubled = WorkflowDiagram(statuses: feature.statuses, rules: feature.rules, width: 1800, metrics: .init(zoom: 2))
+let basic = WorkflowDiagram(statuses: feature.statuses, rules: feature.rules, width: 900, metrics: .init())
+check(abs(doubled.nodes[0].frame.height - 2 * basic.nodes[0].frame.height) < 0.01
+      && abs(doubled.lanes[0].frame.height - 2 * basic.lanes[0].frame.height) < 0.01
+      && abs(doubled.arrows[0].branches[0].stub[0].x - doubled.arrows[0].branches[0].tip.x) > 1.9 * abs(basic.arrows[0].branches[0].stub[0].x - basic.arrows[0].branches[0].tip.x),
+      "every length of the drawing grows with the zoom: states, lanes, the last piece of an arrow")
+check(diagram.metrics.zoom == 1 && doubled.metrics.zoom == 2, "the diagram knows its zoom, for the text sizes and line widths drawn over it")
+let gaps = zip(basic.nodes.filter { $0.role == .notStarted }, basic.nodes.filter { $0.role == .notStarted }.dropFirst()).map { $1.frame.minY - $0.frame.maxY }
+check(gaps.allSatisfy { $0 >= 20 }, "the specification stages are at least 20 pt apart, where the curves fan out (\(gaps))")
 
 // MARK: The widest workflow
 
