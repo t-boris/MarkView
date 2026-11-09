@@ -2,7 +2,7 @@
 type: bug
 id: BUG-115
 title: Workflow diagram does not say why a transition happens or what triggers it
-status: fixing
+status: fixed
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-09
