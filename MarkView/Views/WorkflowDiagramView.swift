@@ -1,12 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// Which transition table the diagram edits: the one of a work-item type, or the own one of a process.
-enum WorkflowScope: Hashable {
-    case type(IssueKind)
-    case process(String)
-}
-
 /// The transitions of a type, or of a process with its own, as an editable state diagram (BUG-112). Every status is a state and every
 /// transition an arrow (the geometry is `WorkflowDiagram`); the diagram edits the draft of the Workflow tab and nothing else, so what
 /// is stored does not change. Click a state to rename it, give it another role or remove it, and to see the arrows into and out of
@@ -34,6 +28,7 @@ struct WorkflowTransitionsEditor: View {
             if ownsStates { addStateRow }
             legend
             diagramView
+            WorkflowDonePanel(editor: editor, scope: scope)
             inspector
             unattachedRules
             Button { addRule() } label: { Label("Add a transition", systemImage: "plus") }
@@ -243,7 +238,7 @@ struct WorkflowTransitionsEditor: View {
             let frame = Path(roundedRect: lane.frame, cornerRadius: 8 * zoom)
             context.fill(frame, with: .color(palette.bgInput.opacity(0.55)))
             context.stroke(frame, with: .color(palette.border), lineWidth: 1)
-            context.draw(Text(lane.role.title).font(.system(size: 11.5 * zoom, weight: .semibold)).foregroundColor(roleColor(lane.role)),
+            context.draw(Text(WorkflowDiagram.laneTitle(lane.role, statuses: statuses, rules: rules)).font(.system(size: 11.5 * zoom, weight: .semibold)).foregroundColor(roleColor(lane.role)),
                          at: CGPoint(x: lane.frame.minX + 12 * zoom, y: 15 * zoom), anchor: .leading)
             if let bar = lane.bar {
                 let color = kindColor(lane.entryRules.first.flatMap { rules.indices.contains($0) ? rules[$0].kind : nil } ?? .spec)
@@ -253,7 +248,7 @@ struct WorkflowTransitionsEditor: View {
                 context.stroke(line, with: .color(color.opacity(0.8)), style: StrokeStyle(lineWidth: 3.5 * zoom, lineCap: .round))
                 if lane.isClique {
                     context.draw(Text("any order").font(.system(size: 10.5 * zoom, weight: .medium)).foregroundColor(color),
-                                 at: CGPoint(x: lane.frame.maxX - 10 * zoom, y: 15 * zoom), anchor: .trailing)
+                                 at: CGPoint(x: lane.frame.maxX - 10 * zoom, y: lane.frame.maxY - 11 * zoom), anchor: .trailing)
                 }
             }
         }
@@ -376,20 +371,12 @@ struct WorkflowTransitionsEditor: View {
         return "\(rule.kind.editorTitle): \(from) → \(title(of: rule.to))"
     }
 
-    /// The processes whose evidence this transition table decides: those of a type that follow its transitions, or the process itself.
-    private var followers: [RuleVariant] {
-        switch scope {
-        case .type(let kind): return editor.draft.variants(for: kind).filter { $0.rules == nil }
-        case .process(let id): return editor.draft.variant(id).map { [$0] } ?? []
-        }
-    }
-
     /// The card of an arrow (BUG-115): where it goes, then when it happens, who may make it, and the evidence each process asks for,
     /// with the controls that change them.
     private func ruleInspector(_ index: Int) -> some View {
         let rule = ruleBinding(index)
         let from = "From: " + (rule.wrappedValue.from.isEmpty ? "none" : statuses.filter { rule.wrappedValue.from.contains($0.id) }.map(\.title).joined(separator: ", "))
-        let story = TransitionStory.make(rule.wrappedValue, processes: followers)
+        let story = TransitionStory.make(rule.wrappedValue, processes: editor.followers(of: scope))
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Menu {
@@ -442,11 +429,11 @@ struct WorkflowTransitionsEditor: View {
     private func evidence(_ story: TransitionStory) -> some View {
         if story.parts.isEmpty {
             Text("This step reads no setting of a process: only the conditions above.").uiFont(size: 10).foregroundColor(palette.textDim)
-        } else if followers.isEmpty {
+        } else if editor.followers(of: scope).isEmpty {
             Text("No process follows these transitions.").uiFont(size: 10).foregroundColor(palette.textDim)
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(followers) { process in
+                ForEach(editor.followers(of: scope)) { process in
                     VStack(alignment: .leading, spacing: 3) {
                         Text(process.name).uiFont(size: 10, weight: .semibold)
                         ForEach(story.processes.first { $0.id == process.id }?.lines ?? [], id: \.self) { line in

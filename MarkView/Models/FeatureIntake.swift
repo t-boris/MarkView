@@ -95,7 +95,8 @@ extension FeatureAssistant {
             body += "\n## Acceptance Criteria\n\n\(criteria)\n"
         }
         store.lifecycle.assignQuickFeatureProcess(slug)
-        store.moveFeature(slug, to: "ready", by: .system("Quick feature"))
+        // A board has no Ready of its own in every flow; where it has none the quick feature stays at the entry of the flow.
+        if store.lifecycle.workflow.feature.isKnown("ready") { store.moveFeature(slug, to: "ready", by: .system("Quick feature")) }
         _ = await ingest(.text(title: "Original request", text: dump, kind: "intake"), into: slug)
         for url in attachments { await ingest(.file(url), into: slug) }
         var issueRef = linkedIssue.map { "#\($0)" }

@@ -441,7 +441,7 @@ final class FeatureAssistant: ObservableObject {
         let criteria = (r["acceptance_criteria"] as? [String] ?? []).map { "- [ ] \($0)" }.joined(separator: "\n")
         let body = "## Statement\n\n\(r["statement"] as? String ?? "")\n\n## Acceptance Criteria\n\n\(criteria)\n"
         // After Explore, a requirement the resolution or a consolidation writes is approved at once.
-        let status = store.feature(slug)?.isPastExplore == true ? "approved" : "draft"
+        let status = store.feature(slug).map(store.isPastExplore) == true ? "approved" : "draft"
         return store.create(.requirement, in: slug, title: r["title"] as? String ?? "Requirement",
                             fields: [("status", .string(status)), ("req_type", .string(r["req_type"] as? String ?? "functional")),
                                      ("depends_on", .list([])), ("decisions", .list(decisions.map { .string($0) })),

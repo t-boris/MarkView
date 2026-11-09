@@ -274,7 +274,9 @@ enum ProjectToolRunner {
         let title = try ProjectAgentTools.text(args, "title", required: true)
         guard title.count <= 200 else { throw ProjectAgentTools.Invalid(message: "`title` is too long (200 characters at most).") }
         let idea = try ProjectAgentTools.text(args, "idea")
-        let status = try ProjectAgentTools.choice(args, "status", in: ProjectAgentTools.agentFeatureStatuses, default: idea.isEmpty ? "idea" : "exploring")
+        let requested = try ProjectAgentTools.choice(args, "status", in: ProjectAgentTools.agentFeatureStatuses, default: idea.isEmpty ? "idea" : "exploring")
+        // A project on a board has no idea or exploring stage: the feature starts where the board lets work wait (REQ-004).
+        let status = store.entryFeatureStatus(preferring: requested)
         var states: [String: String] = [:]
         if let given = args["understanding"] as? [String: Any] {
             for (dimension, value) in given {
