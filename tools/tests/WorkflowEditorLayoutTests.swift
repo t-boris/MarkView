@@ -172,7 +172,95 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
     }
 }
 
+/// BUG-112: the diagram answers the mouse. Real mouse events go to the window hosted off screen: a click on a state opens the
+/// state's inspector, a click on an arrow opens the transition's, and a drag from one state to another draws an arrow.
+@MainActor func interaction() {
+    let store = FeatureStore()
+    store.lifecycle.workflowLoad = .loaded(.standard)
+    let editor = WorkflowEditorModel()
+    editor.attach(to: store)
+    let hosting = NSHostingView(rootView: WorkflowTabView(store: store, editor: editor))
+    let size = NSSize(width: 1100, height: 1500)
+    let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = hosting
+    hosting.frame = NSRect(origin: .zero, size: size)
+    defer { window.close() }
+    // SwiftUI takes gestures only in a window that is on screen; this one is 20000 pt away from every display.
+    window.orderFrontRegardless()
+    settle(hosting)
+
+    func quick() {
+        for _ in 0..<2 { hosting.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    }
+    func send(_ type: NSEvent.EventType, _ p: CGPoint) {
+        let location = hosting.convert(NSPoint(x: p.x, y: p.y), to: nil)
+        guard let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                                             pressure: type == .leftMouseUp ? 0 : 1) else { return }
+        window.sendEvent(event)
+    }
+    func click(_ p: CGPoint) { send(.leftMouseDown, p); send(.leftMouseUp, p); quick() }
+    /// What the inspector below the diagram holds: a state's has a title field, a transition's has none but six menus and a button,
+    /// which SwiftUI gives one focus ring each (the menus are no NSPopUpButton).
+    func inspector() -> (fields: Int, controls: Int) {
+        let views = descendants(hosting)
+        return (views.filter { $0 is NSTextField }.count, views.filter { String(describing: type(of: $0)) == "_FocusRingView" }.count)
+    }
+
+    let feature = editor.draft.feature
+    let diagram = WorkflowDiagram(statuses: feature.statuses, rules: feature.rules, width: 920)
+    let left: CGFloat = 16   // the tab's padding; the diagram is at its natural size in a 1100 pt tab
+    let idea = diagram.nodes.first { $0.id == "idea" }!.frame
+    guard let field = descendants(hosting).compactMap({ $0 as? NSTextField }).first(where: { ($0.placeholderString ?? "") == "new-status-id" }) else {
+        check(false, "diagram: the add-a-state field is on screen"); return
+    }
+    let base = inspector()
+    let top = field.convert(field.bounds, to: hosting).maxY
+
+    // Find the diagram by clicking down the middle of the first state until the state opens.
+    var hit: CGFloat?
+    for y in stride(from: top, to: top + 300, by: 4) {
+        click(CGPoint(x: left + idea.midX, y: y))
+        if inspector().fields > base.fields { hit = y; break }
+    }
+    guard let found = hit else { check(false, "diagram: a click on a state opens its inspector"); return }
+    check(inspector().fields == base.fields + 1, "diagram: a click on a state opens its inspector (a title field)", "\(base) -> \(inspector())")
+    // The origin of the diagram: the first state's band starts within 4 pt above the first hit.
+    let origin = found - idea.minY - 2
+    func at(_ p: CGPoint) -> CGPoint { CGPoint(x: left + p.x, y: origin + p.y) }
+
+    click(at(CGPoint(x: diagram.lanes[1].frame.midX, y: 6)))
+    check(inspector().fields == base.fields && inspector().controls == base.controls, "diagram: a click on the empty lane closes the inspector", "\(inspector())")
+
+    let start = diagram.arrows.first { feature.rules[$0.rule].kind == .start }!
+    let stub = start.branches[0].stub
+    click(at(CGPoint(x: (stub[0].x + stub[1].x) / 2, y: stub[0].y)))
+    check(inspector().fields == base.fields && inspector().controls >= base.controls + 6,
+          "diagram: a click on an arrow opens its transition (from, to, kind, three actors)", "\(base) -> \(inspector())")
+
+    // A drag from a state to another draws an arrow: idea has no way to start the work yet.
+    click(at(CGPoint(x: diagram.lanes[1].frame.midX, y: 6)))
+    let before = editor.draft.feature.rules
+    let implementing = diagram.nodes.first { $0.id == "implementing" }!.frame
+    let from = at(CGPoint(x: idea.midX, y: idea.midY)), to = at(CGPoint(x: implementing.midX, y: implementing.midY))
+    send(.leftMouseDown, from)
+    for step in 1...8 {
+        let t = CGFloat(step) / 8
+        send(.leftMouseDragged, CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t))
+        quick()
+    }
+    send(.leftMouseUp, to)
+    quick()
+    let after = editor.draft.feature.rules
+    let startRule = after.first { $0.kind == .start && $0.to == "implementing" }
+    check(after.count == before.count && startRule?.from.contains("idea") == true,
+          "diagram: dragging from a state to another adds the arrow (idea now starts the work)", "\(startRule?.from.sorted() ?? [])")
+    check(inspector().fields == base.fields && inspector().controls >= base.controls + 6, "diagram: …and opens the transition it made", "\(inspector())")
+}
+
 @MainActor func run() {
+    interaction()
     for width in [400, 760, 1100] as [CGFloat] {
         measureTab("standard workflow", workflow: .standard, width: width)
         measureTab("with processes", workflow: withProcesses(.standard), width: width)

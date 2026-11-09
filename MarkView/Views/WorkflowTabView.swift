@@ -16,12 +16,6 @@ struct WorkflowTabView: View {
     private var editable: Bool { load.isEditable && store.root != nil }
     private var problems: [WorkflowProblem] { editor.draft.validate() }
 
-    /// Which transition table a row edits: the one of a type, or the own one of a process.
-    private enum Scope: Hashable {
-        case type(IssueKind)
-        case process(String)
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -109,227 +103,15 @@ struct WorkflowTabView: View {
         .padding(16)
     }
 
-    // MARK: Draft access
-
-    private static let blankRule = LifecycleRule(from: [], to: "", kind: .spec, needs: [:])
-
-    private func kind(of scope: Scope) -> IssueKind {
-        switch scope {
-        case .type(let kind): return kind
-        case .process(let id): return editor.draft.variant(id)?.kind ?? .feature
-        }
-    }
-
-    private func rules(of scope: Scope) -> [LifecycleRule] {
-        switch scope {
-        case .type(let kind): return editor.draft.lifecycle(kind).rules
-        case .process(let id): return editor.draft.variant(id)?.rules ?? []
-        }
-    }
-
-    private func setRules(_ rules: [LifecycleRule], of scope: Scope) {
-        switch scope {
-        case .type(let kind):
-            var current = editor.draft.lifecycle(kind)
-            current.rules = rules
-            editor.draft.setLifecycle(kind, current)
-        case .process(let id):
-            guard let index = editor.draft.variants.firstIndex(where: { $0.id == id }) else { return }
-            editor.draft.variants[index].rules = rules
-        }
-    }
-
-    // The rows are drawn from the draft while a row may just have been removed, so every binding checks its row still exists: a
-    // stale row reads a blank value and writes nothing instead of failing on an index that is gone.
-
-    private func ruleBinding(_ scope: Scope, _ index: Int) -> Binding<LifecycleRule> {
-        Binding(get: {
-            let all = rules(of: scope)
-            return all.indices.contains(index) ? all[index] : Self.blankRule
-        }, set: { value in
-            var all = rules(of: scope)
-            guard all.indices.contains(index) else { return }
-            all[index] = value
-            setRules(all, of: scope)
-        })
-    }
-
-    private func statusBinding(_ kind: IssueKind, _ id: String) -> Binding<WorkflowStatus> {
-        Binding(get: {
-            editor.draft.lifecycle(kind).statuses.first { $0.id == id } ?? WorkflowStatus(id: id, role: .notStarted)
-        }, set: { value in
-            var current = editor.draft.lifecycle(kind)
-            guard let index = current.statuses.firstIndex(where: { $0.id == id }) else { return }
-            current.statuses[index] = value
-            editor.draft.setLifecycle(kind, current)
-        })
-    }
-
-    // MARK: Statuses and transitions of a type
+    // MARK: States and transitions of a type
 
     private func lifecycleEditor(_ kind: IssueKind) -> some View {
-        let definition = editor.draft.lifecycle(kind)
-        return VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("Statuses", "The statuses every \(kind.rawValue) process shares. The role tells the rest of MarkView what a status means: completion, reopening, progress and GitHub follow roles, not names. A role alone never proves delivery.")
-            ForEach(definition.statuses) { status in
-                HStack(spacing: 8) {
-                    Text(status.id).uiFont(size: 11, design: .monospaced).lineLimit(1).truncationMode(.middle)
-                        .frame(minWidth: 60, idealWidth: 130, maxWidth: 130, alignment: .leading).help(status.id)
-                    TextField("Title", text: statusBinding(kind, status.id).title).textFieldStyle(.roundedBorder)
-                        .frame(minWidth: 80, idealWidth: 190, maxWidth: 260)
-                    Picker("", selection: statusBinding(kind, status.id).role) {
-                        ForEach(LifecycleRole.allCases, id: \.self) { Text($0.title).tag($0) }
-                    }
-                    .labelsHidden().frame(width: 120)
-                    Spacer(minLength: 0)
-                    Button { removeStatus(status.id, kind) } label: { Image(systemName: "trash") }
-                        .buttonStyle(.plain).help("Remove this status. Work items in it are moved to a status you choose when you save.")
-                }
-            }
-            HStack(spacing: 8) {
-                TextField("new-status-id", text: $editor.newStatus).textFieldStyle(.roundedBorder).frame(minWidth: 100, idealWidth: 190, maxWidth: 190)
-                Button("Add status") { addStatus(kind) }.controlSize(.small).disabled(IssueStatus.normalize(editor.newStatus).isEmpty)
-                Text("Lower-case words joined by hyphens. An id cannot be renamed: add the new one and remove the old one.")
-                    .uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
-            }
-            sectionTitle("Transitions", "Who may move an item from a status to another and what each must have, for the processes that follow the transitions of the type. A step no one is listed for is not offered; only a person can force it, with a reason.")
-            transitionRows(.type(kind))
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("States and transitions", "Each state is a status of every \(kind.rawValue) process, in the column of its role: the role tells the rest of MarkView what a status means (completion, reopening, progress and GitHub follow roles, not names; a role alone never proves delivery). Each arrow is a step someone may make, with what each of them must have, for the processes that follow the transitions of the type. A step no arrow offers is not offered; only a person can force it, with a reason.")
+            WorkflowTransitionsEditor(editor: editor, scope: .type(kind))
         }
     }
 
-    private func transitionRows(_ scope: Scope) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(0..<rules(of: scope).count, id: \.self) { index in
-                ruleRow(scope, index)
-            }
-            Button { addRule(scope) } label: { Label("Add a transition", systemImage: "plus") }
-                .buttonStyle(.plain).foregroundColor(palette.blue).uiFont(size: 11)
-        }
-    }
-
-    private func ruleRow(_ scope: Scope, _ index: Int) -> some View {
-        let rule = ruleBinding(scope, index)
-        let statuses = editor.draft.lifecycle(kind(of: scope)).statuses
-        let from = "From: " + (rule.wrappedValue.from.isEmpty ? "none" : rule.wrappedValue.from.sorted().joined(separator: ", "))
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Menu {
-                    ForEach(statuses) { status in
-                        Toggle(status.title, isOn: Binding(
-                            get: { rule.wrappedValue.from.contains(status.id) },
-                            set: { on in
-                                if on { rule.wrappedValue.from.insert(status.id) } else { rule.wrappedValue.from.remove(status.id) }
-                            }))
-                    }
-                } label: {
-                    Text(from).lineLimit(1).truncationMode(.tail)
-                }
-                .controlSize(.small)
-                // The menu takes what the row has left and truncates: a step that starts from every status (cancellation) names
-                // them all, and a label of that length once made the whole editor wider than its window (BUG-108).
-                .frame(minWidth: 50, maxWidth: .infinity, alignment: .leading)
-                .help(from)
-                Image(systemName: "arrow.right").foregroundColor(palette.textDim)
-                Picker("", selection: rule.to) { ForEach(statuses) { Text($0.title).tag($0.id) } }
-                    .labelsHidden().frame(minWidth: 80, maxWidth: 150)
-                Picker("", selection: rule.kind) {
-                    ForEach(Self.editableKinds, id: \.self) { Text(Self.kindTitle($0)).tag($0) }
-                }
-                .labelsHidden().frame(minWidth: 80, maxWidth: 130)
-                Button { removeRule(scope, index) } label: { Image(systemName: "trash") }
-                    .buttonStyle(.plain).help("Remove this transition")
-            }
-            HStack(spacing: 10) {
-                ForEach([LifecycleActorKind.human, .ai, .system], id: \.self) { actor in
-                    actorMenu(rule, actor).frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 6).fill(palette.bgInput))
-    }
-
-    private func actorMenu(_ rule: Binding<LifecycleRule>, _ actor: LifecycleActorKind) -> some View {
-        let needs = rule.wrappedValue.needs[actor]
-        let summary = Self.actorTitle(actor) + ": " + (needs.map { $0.isEmpty ? "nothing needed" : $0.map(\.words).joined(separator: ", ") } ?? "not allowed")
-        return Menu {
-            Toggle("May make this step", isOn: Binding(
-                get: { rule.wrappedValue.needs[actor] != nil },
-                set: { on in rule.wrappedValue.needs[actor] = on ? (rule.wrappedValue.needs[actor] ?? []) : nil }))
-            Divider()
-            ForEach(Self.editableConditions, id: \.self) { condition in
-                Toggle(condition.words, isOn: Binding(
-                    get: { rule.wrappedValue.needs[actor]?.contains(condition) == true },
-                    set: { on in
-                        var list = rule.wrappedValue.needs[actor] ?? []
-                        list.removeAll { $0 == condition }
-                        if on { list.append(condition) }
-                        rule.wrappedValue.needs[actor] = list
-                    }))
-                .disabled(needs == nil)
-            }
-        } label: {
-            Text(summary).lineLimit(1).truncationMode(.tail)
-        }
-        // The three actors share the row; a long list of conditions is cut with an ellipsis and read in full from the tooltip.
-        .controlSize(.small)
-        .help(summary)
-    }
-
-    private static let editableKinds: [TransitionKind] = [.spec, .start, .completion, .acceptance, .reopen, .rollback, .cancellation]
-    private static let editableConditions: [LifecycleCondition] = [.startEvidence, .deliveryEvidence, .acceptanceEvidence, .regressionEvidence,
-                                                                   .cancellationEvidence, .reason, .humanAcceptance]
-
-    private static func kindTitle(_ kind: TransitionKind) -> String {
-        switch kind {
-        case .spec: return "Specification"
-        case .start: return "Start"
-        case .completion: return "Completion"
-        case .acceptance: return "Acceptance"
-        case .reopen: return "Reopening"
-        case .rollback: return "Step back"
-        case .cancellation: return "Cancellation"
-        default: return kind.rawValue
-        }
-    }
-
-    private static func actorTitle(_ actor: LifecycleActorKind) -> String {
-        switch actor {
-        case .human: return "Person"
-        case .ai: return "AI"
-        case .system: return "MarkView"
-        }
-    }
-
-    private func addStatus(_ kind: IssueKind) {
-        let id = IssueStatus.normalize(editor.newStatus)
-        var current = editor.draft.lifecycle(kind)
-        guard !id.isEmpty, !current.isKnown(id) else { editor.message = "\(id) is already a status."; return }
-        current.statuses.append(WorkflowStatus(id: id, role: .notStarted))
-        editor.draft.setLifecycle(kind, current)
-        editor.newStatus = ""
-        editor.message = nil
-    }
-
-    private func removeStatus(_ id: String, _ kind: IssueKind) {
-        let dropped = editor.draft.removeStatus(id, kind: kind)
-        editor.message = dropped == 0 ? nil : "Removing \(id) also removed \(dropped) transition\(dropped == 1 ? "" : "s") that ended there or started only there."
-    }
-
-    private func removeRule(_ scope: Scope, _ index: Int) {
-        var all = rules(of: scope)
-        guard all.indices.contains(index) else { return }
-        all.remove(at: index)
-        setRules(all, of: scope)
-    }
-
-    private func addRule(_ scope: Scope) {
-        let statuses = editor.draft.lifecycle(kind(of: scope)).statuses
-        guard let first = statuses.first, let last = statuses.last else { return }
-        var all = rules(of: scope)
-        all.append(LifecycleRule(from: [first.id], to: last.id == first.id ? first.id : last.id, kind: .spec, needs: [.human: []]))
-        setRules(all, of: scope)
-    }
 
     // MARK: Processes
 
@@ -480,13 +262,13 @@ struct WorkflowTabView: View {
                 DisclosureGroup(isExpanded: Binding(get: { editor.expanded.contains(id) },
                                                     set: { if $0 { editor.expanded.insert(id) } else { editor.expanded.remove(id) } })) {
                     VStack(alignment: .leading, spacing: 8) {
-                        transitionRows(.process(id))
+                        WorkflowTransitionsEditor(editor: editor, scope: .process(id))
                         Button("Follow the transitions of the type again") { followType(id) }
                             .controlSize(.small).help("Drops the transitions of this process; it reads those of its type.")
                     }
                     .padding(.top, 6)
                 } label: {
-                    Text("Own transitions (\(rules(of: .process(id)).count))").uiFont(size: 11, weight: .medium)
+                    Text("Own transitions (\(editor.draft.variant(id)?.rules?.count ?? 0))").uiFont(size: 11, weight: .medium)
                 }
             } else {
                 HStack(spacing: 8) {
