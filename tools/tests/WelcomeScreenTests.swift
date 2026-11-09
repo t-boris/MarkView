@@ -616,6 +616,51 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
     }
 }
 
+// MARK: - The Background pill never sits on a tile
+
+/// The accessibility elements under a view, with their screen frames (SwiftUI builds the tree once an assistive client is assumed).
+@MainActor func accessibilityButtons(_ root: NSObject, depth: Int = 0) -> [(label: String, frame: NSRect)] {
+    // SwiftUI's accessibility nodes answer the NSAccessibility selectors without declaring the protocol, so they are asked by selector.
+    func value(_ object: NSObject, _ key: String) -> Any? { object.responds(to: Selector((key))) ? object.value(forKey: key) : nil }
+    guard depth < 16, let children = value(root, "accessibilityChildren") as? [NSObject] else { return [] }
+    var found: [(String, NSRect)] = []
+    for child in children {
+        let role = value(child, "accessibilityRole") as? String
+        let label = (value(child, "accessibilityLabel") as? String) ?? (value(child, "accessibilityTitle") as? String) ?? ""
+        if !label.isEmpty, role == NSAccessibility.Role.button.rawValue || role == NSAccessibility.Role.menuButton.rawValue || role == NSAccessibility.Role.popUpButton.rawValue,
+           let frame = value(child, "accessibilityFrame") as? NSValue {
+            found.append((label, frame.rectValue))
+        }
+        found += accessibilityButtons(child, depth: depth + 1)
+    }
+    return found
+}
+
+/// Found in the running app (5.53.0): in a pane narrower or shorter than the tile list, the pill pinned to the window's corner covered the last
+/// visible tile. It now sits beside the app icon inside the scrolled column.
+@MainActor func pillChecks() {
+    NSApp.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
+    UserDefaults.standard.set(WelcomeBackdrop.matrix.rawValue, forKey: WelcomeBackdrop.storageKey)
+    let titles = Set(WelcomeCatalogue.project(isGitRepo: true).flatMap { $0.actions.map(\.title) })
+    for size in [NSSize(width: 520, height: 520), NSSize(width: 620, height: 800), NSSize(width: 1000, height: 640), NSSize(width: 460, height: 900)] {
+        let (window, hosting) = host(project: "MarkView", git: true, theme: .classicDark, size: size, still: true)
+        settle(hosting, seconds: 0.3)
+        // SwiftUI builds its accessibility tree on the first question of an assistive client and fills it in over the next turns.
+        _ = accessibilityButtons(hosting)
+        settle(hosting, seconds: 0.4)
+        let buttons = accessibilityButtons(hosting)
+        let pill = buttons.first { $0.label.contains("Matrix Rain") }
+        let tiles = buttons.filter { titles.contains($0.label) }
+        check(pill != nil, "pill \(Int(size.width))x\(Int(size.height)): the Background pill is found in the accessibility tree")
+        check(tiles.count >= 4, "pill \(Int(size.width))x\(Int(size.height)): tiles are found too (\(tiles.count))")
+        if let pill {
+            let covered = tiles.filter { $0.frame.intersects(pill.frame.insetBy(dx: 1, dy: 1)) }.map(\.label)
+            check(covered.isEmpty, "pill \(Int(size.width))x\(Int(size.height)): the pill covers no tile (covers: \(covered))")
+        }
+        window.close()
+    }
+}
+
 choiceChecks()
 matrixChecks()
 auroraChecks()
@@ -630,6 +675,7 @@ MainActor.assumeIsolated {
     motionChecks()
     resizeChecks()
     tileChecks()
+    pillChecks()
     animatedFrameChecks()
     reduceMotionChecks()
     borisThemeSnapshot()

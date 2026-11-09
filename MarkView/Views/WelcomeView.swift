@@ -55,10 +55,12 @@ struct WelcomeScreen<Below: View>: View {
                     column
                         .padding(24)
                         .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                        // Beside the app icon, inside the scrolled column: a pill pinned to the window corner sat on the last row of
+                        // tiles whenever the column was taller than the window (found in the running app, 5.53.0).
+                        .overlay(alignment: .topTrailing) { backdropMenu.padding(.top, 24).padding(.trailing, 24) }
                 }
             }
         }
-        .overlay(alignment: .bottomTrailing) { backdropMenu.padding(12) }
         .clipped()
     }
 
