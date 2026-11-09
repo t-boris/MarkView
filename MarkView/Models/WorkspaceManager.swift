@@ -4602,6 +4602,9 @@ class WorkspaceManager: ObservableObject {
         if let file = outcome.file { openFile(file) }
     }
 
+    /// The item ("feature:slug", "bug:BUG-001") whose cycle time the window should open at; the window clears it when it closes.
+    @Published var cycleTimeItem: String?
+
     /// Opens feature `slug` in the Feature panel at `stage`, with its documents beside it.
     func showFeature(_ slug: String, stage: FeatureStage) {
         features.activeSlug = slug

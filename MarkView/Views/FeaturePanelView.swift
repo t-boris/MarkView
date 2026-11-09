@@ -246,7 +246,7 @@ struct FeaturePanelView: View {
                     }
                 }
             }
-            LifecycleSection(store: store, feature: feature)
+            CycleTimeLink(kind: .feature, issue: feature.slug)
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
         .background(palette.bg)
@@ -848,6 +848,7 @@ struct BugPanelView: View {
             }
             IssueLifecycleSection(store: store, kind: .bug, issue: bug.key, status: bug.status)
                 .id("lifecycle-bug-\(bug.key)")
+            CycleTimeLink(kind: .bug, issue: bug.key)
             PanelSection(title: "Investigation") {
                 if busy {
                     Working(text: checking ? "Checking whether the bug still exists on main…"

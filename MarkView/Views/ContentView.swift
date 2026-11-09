@@ -464,7 +464,7 @@ struct ContentView: View {
                     }
                     // In a narrow window it moves to the "…" menu so the bar keeps its room for the usage chips.
                     if !compact {
-                        headerButton("timer", help: "Project Cycle Time: how long features take from idea to release", width: controlWidth,
+                        headerButton("timer", help: "Project Cycle Time: how long features and bugs wait, take and finish, measured from the workflow", width: controlWidth,
                                      selected: showCycleTime) {
                             showCycleTime = true
                         }
@@ -519,9 +519,17 @@ struct ContentView: View {
         .frame(height: min(70, 44 * max(1, appFontScale)))
         .background(palette.bgSidebar)
         .overlay(alignment: .bottom) { Divider() }
-        .sheet(isPresented: $showCycleTime) {
-            CycleTimeSummarySheet(store: workspaceManager.features) { showCycleTime = false }
+        .sheet(isPresented: $showCycleTime, onDismiss: { workspaceManager.cycleTimeItem = nil }) {
+            CycleTimeSheet(store: workspaceManager.features, focus: workspaceManager.cycleTimeItem, open: { item in
+                showCycleTime = false
+                if item.kind == .feature {
+                    workspaceManager.showFeature(item.issue, stage: .explore)
+                } else if let bug = workspaceManager.features.bugs.first(where: { $0.key == item.issue }) {
+                    workspaceManager.openFile(bug.url)
+                }
+            }, close: { showCycleTime = false })
         }
+        .onChange(of: workspaceManager.cycleTimeItem) { item in if item != nil { showCycleTime = true } }
     }
 
     private var headerDivider: some View {

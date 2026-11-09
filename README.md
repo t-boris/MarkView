@@ -187,7 +187,7 @@ flowchart LR
 | Prototypes | `docs/prototypes/<name>/`; export ZIPs in `.dde/exports/prototypes/` |
 | Machine state: document search index, X-Ray caches, deployments, definition of done | `.dde/` in the project (regenerable) |
 | Shared operations (deploy, install…) | `.markview/operations.json` |
-| Lifecycle events (cycle time) | `~/Library/Application Support/MarkView/lifecycle-events.jsonl` (one append-only file per Mac) |
+| Cycle time | computed from `.dde/lifecycle/transitions.jsonl`; corrections (Measure since, exclusions) in `.dde/lifecycle/cycle-time.json`; delivery evidence in `~/Library/Application Support/MarkView/lifecycle-events.jsonl` (one file per Mac) |
 | Browser passwords | your login Keychain |
 
 ---
@@ -279,7 +279,7 @@ flowchart LR
     W --> B["Build: plan,<br/>issues, handoff"]
     P --> B
     B --> G["Agent in terminal:<br/>branch, commits, PR"]
-    G --> Y["Sync: issues closed,<br/>cycle time recorded"]
+    G --> Y["Sync: issues closed,<br/>delivery evidence recorded"]
 ```
 
 The **Issues** sidebar holds the project's features and bugs, with status filters, sorting by date or
@@ -327,10 +327,15 @@ plain Markdown.
   a one-line `/goal`, Copilot gets `/autopilot`, Cline and Antigravity get plain text); answered
   questions and accepted decisions are treated as requirements, not reopened. The handoff carries the
   project's [definition of done](#workspace).
-- **Lifecycle analytics** record 11 stages of a feature — from idea created to merged and verified — and
-  the **Cycle Time** button in the window's top bar shows the median and mean per step, per AI model, and where CI time goes. The
-  log is a per-Mac file, not part of the repository. Events from GitHub (pull request, review, CI)
-  follow a feature once its implementation has started, and need the GitHub integration.
+- **Cycle time** is read from the project's workflow, not recorded separately. The **Cycle Time** button in the window's top bar
+  shows, for features and bugs, how long items wait, take (first work to first completion) and live (creation to completion), the
+  time spent in each status, rework and acceptance lag where the flow has an acceptance step. It uses only the roles of your
+  workflow's statuses, so the standard, Kanban and custom flows are all measured, and a change of flow adds no events. Durations are
+  coloured against the project's own history (green at or under the median, amber up to the 85th percentile, red above, grey under
+  8 finished items), a *Needs attention* list says why in one sentence, every number opens into the items behind it and every item
+  into its stays. *Measure since*, *Exclude from statistics* and *Recompute* change the numbers without deleting anything. Pull
+  request, CI and merge times and the AI model of a feature are kept as optional evidence in a per-Mac file, not in the repository,
+  and follow a feature once its implementation has started (they need the GitHub integration).
 - **Sync** closes a GitHub issue once every feature and bug linked to it is done. It follows explicit
   links only, never reopens an issue and never edits your documents.
 
@@ -914,7 +919,7 @@ cd MarkView
   SQLite WebAssembly, Parquet, Arrow, Avro and spreadsheet readers) are rebuilt with
   `cd tools/web-vendor && npm ci && ./build.sh`.
 - There is no XCTest target; 96 focused standalone scripts live in `tools/tests/` (for example
-  `tools/tests/lifecycle-tests.sh`), each checking a pure module, mostly by compiling it with `swiftc`.
+  `tools/tests/cycle-time-tests.sh`), each checking a pure module, mostly by compiling it with `swiftc`.
 
 <details>
 <summary><b>Project layout</b></summary>
@@ -937,7 +942,7 @@ MarkView/
 │   ├── GitClient, GitHubClient / Store / Publisher, IssueSync        Git and GitHub (gh)
 │   ├── SemanticDatabase.swift        SQLite + FTS5 documents index (.dde/state.db)
 │   ├── ProjectSearch.swift           in-memory ⌘⇧K index
-│   ├── LifecycleAnalytics / LifecycleLog, DefinitionOfDone
+│   ├── CycleTime / CycleTimeReport / CycleTimeModel, EvidenceTimings, LifecycleLog, DefinitionOfDone
 │   ├── ProjectToolRunner, ControlToolRunner       the markview and markview-control MCP servers
 │   └── Remote/                       Remote Assistants (relay client)
 ├── Views/          ~50 SwiftUI files: ContentView, EditorView (WKWebView), FileTreeView,

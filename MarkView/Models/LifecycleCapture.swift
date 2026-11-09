@@ -88,7 +88,7 @@ enum AgentModelProbe {
 /// with GitHub's own times.
 enum LifecycleGitHub {
     struct Capture: Equatable, Sendable {
-        let stage: LifecycleStage
+        let stage: EvidenceStage
         let date: Date
         /// "PR #12": one event per stage and pull request.
         let note: String
@@ -121,11 +121,11 @@ enum LifecycleGitHub {
             guard state != "CLOSED" || merged != nil else { continue }
             let note = "PR #\(number)"
             if let opened = (pr["createdAt"] as? String).flatMap(date) {
-                result.append(Capture(stage: .implementationFinished, date: opened, note: note))
+                result.append(Capture(stage: .pullRequestOpened, date: opened, note: note))
             }
             let reviews = (pr["reviews"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
             if let approved = reviews.compactMap({ ($0["submittedAt"] as? String).flatMap(date) }).min() {
-                result.append(Capture(stage: .reviewDone, date: approved, note: note))
+                result.append(Capture(stage: .approved, date: approved, note: note))
             }
             let commits = (pr["commits"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
             if let rollup = (commits.last?["commit"] as? [String: Any])?["statusCheckRollup"] as? [String: Any],
@@ -252,7 +252,7 @@ enum LifecycleCICapture {
             guard let date = time(run, "startedAt") ?? time(run, "createdAt") else { continue }
             let id = (run["databaseId"] as? NSNumber)?.intValue ?? 0
             for n in 2...attempt(run) {
-                result.append(.init(stage: .ciRequested, date: date, note: "\(note)\(LifecycleCI.rerunMarker)\(n) of run \(id)"))
+                result.append(.init(stage: .ciRequested, date: date, note: "\(note)\(EvidenceTimings.rerunMarker)\(n) of run \(id)"))
             }
         }
         return result

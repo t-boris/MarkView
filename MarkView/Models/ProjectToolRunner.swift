@@ -132,10 +132,7 @@ enum ProjectToolRunner {
             let log = store.discussion(feature.slug, limit: outputLimit)
             return .init(text: log.isEmpty ? "No discussion log yet." : clip(log))
         case "lifecycle":
-            let events = store.lifecycleEvents(feature.slug)
-            return .init(text: events.isEmpty ? "No lifecycle events recorded." : clip(events.map {
-                "\($0.timestamp.formatted(.iso8601)) \($0.stage.rawValue) (\($0.source.rawValue), \($0.actor))" + ($0.note.map { " — \($0)" } ?? "")
-            }.joined(separator: "\n")))
+            return .init(text: clip(CycleTimeBuilder.describe(store, kind: .feature, issue: feature.slug)))
         case "readiness":
             return .init(text: readinessReport(feature))
         default: break

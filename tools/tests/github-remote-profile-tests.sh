@@ -8,7 +8,7 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 swiftc -parse-as-library -o "$out/github-remote-profile-tests" \
-    MarkView/Models/GitHubClient.swift MarkView/Models/LifecycleAnalytics.swift \
+    MarkView/Models/GitHubClient.swift MarkView/Models/EvidenceTimings.swift \
     MarkView/Models/LifecycleCapture.swift tools/tests/CLIToolLocatorStub.swift \
     tools/tests/GitHubRemoteProfileTests.swift
 "$out/github-remote-profile-tests"

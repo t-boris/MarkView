@@ -8,9 +8,7 @@ final class FeatureStore: ObservableObject {
     /// Features live with the documentation: docs/features/<slug>/.
     static let folderName = "docs/features"
 
-    @Published private(set) var features: [Feature] = [] {
-        didSet { observeLifecycle() }
-    }
+    @Published private(set) var features: [Feature] = []
     /// Bug reports in docs/bugs/.
     @Published private(set) var bugs: [BugReport] = []
     /// The project has docs/features/ (the Feature tab is shown only then).
@@ -47,11 +45,6 @@ final class FeatureStore: ObservableObject {
     /// Bumped by every write and reset: a background reload that started earlier is dropped.
     private var generation = 0
     private var gitUserName: String?
-    /// Status and open questions of each feature as last seen; nil until the first load, which
-    /// only records the baseline (no backfill, DEC-013).
-    private var lifecycleBaseline: [String: LifecycleSnapshot]?
-    /// Features whose next change is the app's own reset, not a lifecycle transition.
-    private var lifecycleQuiet: Set<String> = []
     /// Last look at GitHub for review, CI and merge events.
     private var lastLifecycleSync: Date?
     /// The AI side of the workspaces (explore, review, actions…).
@@ -105,8 +98,6 @@ final class FeatureStore: ObservableObject {
     func reset() {
         generation += 1
         if let project = lifecycleProject { LifecycleLog.shared.release(project, by: self) }
-        lifecycleBaseline = nil
-        lifecycleQuiet = []
         lastLifecycleSync = nil
         pollTask?.cancel()
         pollTask = nil
@@ -257,7 +248,6 @@ final class FeatureStore: ObservableObject {
             return nil
         }
         activeSlug = candidate
-        recordLifecycle(.ideaCreated, feature: candidate)
         reloadSync()
         return candidate
     }
@@ -468,9 +458,6 @@ final class FeatureStore: ObservableObject {
         let fm = FileManager.default
         let produced = FeatureObjectKind.allCases.filter { $0 != .source }.map { feature.folder.appendingPathComponent($0.folder) }
             + [feature.planURL.deletingLastPathComponent(), feature.discussionURL]
-        // Its questions go to the Trash: not "questions resolved".
-        lifecycleQuiet.insert(slug)
-        defer { lifecycleQuiet.remove(slug) }
         for url in produced where fm.fileExists(atPath: url.path) {
             do { try fm.trashItem(at: url, resultingItemURL: nil) } catch {
                 lastError = "Could not restart the feature: \(error.localizedDescription)"
@@ -687,57 +674,18 @@ final class FeatureStore: ObservableObject {
         return String(text.suffix(limit))
     }
 
-    // MARK: Lifecycle events (docs/features/lifecycle-event-log-cycle-time-analytics)
+    // MARK: Delivery evidence (feature cycle-time-as-a-view-over-the-workflow)
 
-    /// Events are keyed by the project root's absolute path (DEC-012).
-    /// False for a new-project draft: it is not a project yet, so no lifecycle events.
+    /// Evidence lines are keyed by the project root's absolute path.
+    /// False for a new-project draft: it is not a project yet, so no evidence.
     var recordsLifecycle = true
 
     var lifecycleProject: String? { recordsLifecycle ? root?.standardizedFileURL.path : nil }
 
+    /// The delivery evidence recorded on this Mac for a feature, oldest first.
     func lifecycleEvents(_ slug: String) -> [LifecycleEvent] {
         guard let project = lifecycleProject else { return [] }
         return LifecycleLog.shared.events(project: project, feature: slug)
-    }
-
-    @discardableResult
-    func recordLifecycle(_ stage: LifecycleStage, feature slug: String, source: LifecycleSource = .automatic,
-                         model: String? = nil, note: String? = nil, at time: Date? = nil) -> LifecycleEvent? {
-        guard let project = lifecycleProject else { return nil }
-        return LifecycleLog.shared.record(stage, project: project, feature: slug, actor: lifecycleActor,
-                                          source: source, model: model, note: note, at: time)
-    }
-
-    /// Compare every freshly read list with the last one (DEC-008). Changes made by the app and
-    /// in files (editor, git, the AI terminal) alike:
-    /// - open questions from ≥ 1 to 0 → "questions resolved";
-    /// - status into 'ready', or readiness reaching 100 % → "spec ready";
-    /// - status into implementation with no "spec ready" yet (Create issues goes there straight
-    ///   from review) → "spec ready", so the chain is not broken;
-    /// - status into 'implemented' → "implementation finished".
-    private func observeLifecycle() {
-        guard let project = lifecycleProject else { return }
-        let current = Dictionary(features.map { ($0.slug, LifecycleSnapshot($0)) }, uniquingKeysWith: { a, _ in a })
-        let workflow = lifecycle.workflow
-        defer { lifecycleBaseline = current }
-        guard let previous = lifecycleBaseline, LifecycleLog.shared.claim(project, by: self) else { return }
-        for (slug, now) in current where !lifecycleQuiet.contains(slug) {
-            guard let before = previous[slug] else { continue }  // new or renamed: no transition seen
-            if before.openQuestions > 0 && now.openQuestions == 0 { recordLifecycle(.questionsResolved, feature: slug) }
-            if (before.status != "ready" && now.status == "ready") || (before.readiness < 100 && now.readiness == 100) {
-                recordLifecycle(.specReady, feature: slug)
-            } else if !before.isImplementing(in: workflow) && now.isImplementing(in: workflow) {
-                recordSpecReadyIfMissing(slug)
-            }
-            if !before.isCompleted(in: workflow) && now.isCompleted(in: workflow) {
-                recordLifecycle(.implementationFinished, feature: slug, note: "Status \(now.status)")
-            }
-        }
-    }
-
-    private func recordSpecReadyIfMissing(_ slug: String) {
-        guard !lifecycleEvents(slug).contains(where: { $0.stage == .specReady }) else { return }
-        recordLifecycle(.specReady, feature: slug, note: "Handed to implementation")
     }
 
     /// The feature was handed to implementation by `tool` (an AI assistant, Create issues, UI Studio): a status before
@@ -754,13 +702,12 @@ final class FeatureStore: ObservableObject {
     /// answered with (`runningSince`), else the model it was started with or its configured default.
     func recordImplementationStarted(_ slug: String, tool: CLITool, directory: URL, runningSince: Date?) {
         guard let project = lifecycleProject else { return }
-        recordSpecReadyIfMissing(slug)
         let actor = lifecycleActor, started = Date()
         let fallback = AIAssistantPreferences.model(for: tool, project: root) ?? AIAssistantPreferences.configuredModel(for: tool)
         Task.detached(priority: .userInitiated) {
             let model = Self.answeredModel(tool, directory: directory, since: runningSince) ?? fallback ?? tool.displayName
             await MainActor.run {
-                LifecycleLog.shared.record(.implementationStarted, project: project, feature: slug, actor: actor, source: .automatic,
+                LifecycleLog.shared.record(.workStarted, project: project, feature: slug, actor: actor,
                                            model: LifecycleModels.use(model), note: "Implement with AI · \(tool.displayName)", at: started)
             }
         }
@@ -781,7 +728,7 @@ final class FeatureStore: ObservableObject {
     /// started" event, from that moment on (no backfill, DEC-013).
     private var lifecycleTargets: [(slug: String, folder: String, issues: [Int], since: Date)] {
         features.compactMap { feature in
-            guard let since = lifecycleEvents(feature.slug).first(where: { $0.stage == .implementationStarted })?.timestamp else { return nil }
+            guard let since = lifecycleEvents(feature.slug).first(where: { $0.stage == .workStarted })?.timestamp else { return nil }
             let issues = Set(feature.issueNumbers + feature.planIssues.compactMap(\.github) + [feature.epic].compactMap { $0 })
             return (feature.slug, relativePath(feature.folder), Array(issues.sorted().prefix(40)), since)
         }
@@ -789,11 +736,11 @@ final class FeatureStore: ObservableObject {
 
     /// Record an automatic capture once: the same stage with the same note (a pull request or a
     /// commit) is never recorded twice, also when two windows look.
-    private func recordCapture(_ stage: LifecycleStage, date: Date, note: String, feature slug: String, project: String, actor: String) {
+    private func recordCapture(_ stage: EvidenceStage, date: Date, note: String, feature slug: String, project: String, actor: String) {
         let seen = LifecycleLog.shared.events(project: project, feature: slug).contains {
-            $0.stage == stage && $0.source == .automatic && $0.note == note
+            $0.stage == stage && $0.note == note
         }
-        if !seen { LifecycleLog.shared.record(stage, project: project, feature: slug, actor: actor, source: .automatic, note: note, at: date) }
+        if !seen { LifecycleLog.shared.record(stage, project: project, feature: slug, actor: actor, note: note, at: date) }
     }
 
     /// Review, CI, pull requests and merges on GitHub, stamped with GitHub's times: pull requests
@@ -827,7 +774,7 @@ final class FeatureStore: ObservableObject {
                 let events = LifecycleLog.shared.events(project: project, feature: target.slug)
                 let passed = Set(events.filter { $0.stage == .ciPassed }.compactMap(\.note))
                 let pending = events.filter {
-                    $0.stage == .mergedToMain && $0.source == .automatic && $0.note?.hasPrefix("commit ") == true
+                    $0.stage == .mergedToMain && $0.note?.hasPrefix("commit ") == true
                         && !passed.contains($0.note ?? "") && $0.timestamp > Date().addingTimeInterval(-7 * 86_400)
                 }
                 for event in pending {
@@ -899,25 +846,4 @@ final class FeatureStore: ObservableObject {
         let path = url.standardizedFileURL.path
         return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path
     }
-}
-
-/// What lifecycle capture watches in a feature.
-struct LifecycleSnapshot: Equatable {
-    let status: String
-    let openQuestions: Int
-    let readiness: Int
-
-    init(_ feature: Feature) {
-        status = feature.status
-        openQuestions = feature.list(.question).filter { !$0.isClosed }.count
-        readiness = feature.isStructured ? feature.readiness : 0
-    }
-
-    /// Implementation started or done: the workflow gives the status the role active or completed.
-    func isImplementing(in workflow: ProjectWorkflow) -> Bool {
-        let role = workflow.role(.feature, IssueStatus.normalize(status))
-        return role == .active || role == .completed
-    }
-
-    func isCompleted(in workflow: ProjectWorkflow) -> Bool { workflow.isCompleted(.feature, IssueStatus.normalize(status)) }
 }

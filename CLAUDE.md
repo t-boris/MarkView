@@ -113,8 +113,8 @@ npm run build
 ```
 
 There is no automated test target yet. Pure modules can carry a standalone
-swiftc check under `tools/tests/` (e.g. `tools/tests/lifecycle-tests.sh` for the
-lifecycle duration rules in `Models/LifecycleAnalytics.swift`). Use the relevant
+swiftc check under `tools/tests/` (e.g. `tools/tests/cycle-time-tests.sh` for the
+cycle-time rules in `Models/CycleTime.swift`). Use the relevant
 fixtures and perform a focused manual check for behavior that compilation does
 not cover.
 
