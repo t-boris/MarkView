@@ -5230,3 +5230,18 @@ Still to do after Boris installs 5.52.0:
 - [ ] Look at the banner by asking an assistant for a change (for example: a bug moves to review when its investigation finishes) and pressing Review in the draft, then Save.
 - [ ] Follow-up: the hint texts of the lifecycle tool replies still say "implementing" and "fixing" instead of the project's statuses.
 
+
+## Proposal: Project Cycle Time review (2026-11-09) — waiting for Boris's decisions
+
+Full review: `docs/plans/2026-11-09-cycle-time-review.md`. Nothing below is started; section 9 of the review lists the decisions.
+
+Found on the real data (this Mac): `review_done` and `verified` were never recorded (0 of 2313 events), manual marks were used 6 times,
+the Kanban flow switch on 2026-11-09 12:52:59 wrote 33 false events (implementation median 997 h instead of 1.0 h, and the log cannot be
+corrected), earliest→latest inflates repeated work, per-model rows are split over 13 spellings of about 5 models, bugs are not measured.
+
+Plan if direction A (cycle time as a projection over the workflow journal) is approved:
+- [ ] Decisions 1–7 answered (direction, DEC-005, DEC-009, bugs, backfill, manual marks, thresholds)
+- [ ] Phase 1: status layer from `transitions.jsonl` for features and bugs (lead, cycle, waiting, time in each status, rework, acceptance lag); `replace`/`baseline` records are not events; measure-since, exclude item, recompute; delete `observeLifecycle`, the fixed stage chain and the Mark stage sheet
+- [ ] Phase 2: pace colours (P50/P85 of the project's own history, grey under 8 samples), facts, data-quality marks, Needs attention list, trend, dig-in (how the number is made → items → item timeline)
+- [ ] Phase 3: evidence layer chosen by the process variant (direct vs pull request), agent layer with model aliases and a sample-size limit, spikes: agent-active time, rebuild from git history
+- [ ] Each phase: standalone check under `tools/tests/` (run once with the fix switched off to see it fail), Debug build, look at the sheet in the real app with the invisible probe, version bump, PR
