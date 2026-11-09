@@ -9,5 +9,5 @@ trap 'rm -rf "$out"' EXIT
 M=MarkView/Models
 cp tools/tests/WorkflowDiagramChecks.swift "$out/main.swift"
 swiftc -O -o "$out/diagram" "$M/FeatureVocabulary.swift" "$M/IssueListing.swift" "$M/ProjectWorkflow.swift" "$M/IssueLifecycle.swift" \
-    "$M/WorkflowDiagramLayout.swift" "$out/main.swift"
+    "$M/WorkflowDiagramLayout.swift" "$M/WorkflowTransitionStory.swift" "$M/WorkflowFlow.swift" "$out/main.swift"
 "$out/diagram"
