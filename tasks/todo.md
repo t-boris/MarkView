@@ -5054,3 +5054,17 @@ Boris: "BUG - Markview crashed!!!!" (crash report `MarkView-2026-11-08-194323.ip
 - Verified: that test, Debug build, and the old and the new `scan` run side by side on the open projects: broker-fabric (granted `~/.broker-fabric` and the recordings folders inside it) listed 8 files twice with the old source and none with the new one; the other projects had no duplicates. Not hand-checked: pressing Discover in the installed app.
 - The installed 5.47.0 crashed five times with this same stack (19:43, 19:47, 19:49, 19:52, 19:54), each time Discover ran; the fix is in 5.48.1, which is merged but not released or installed.
 - BUG-114 stays `fixing` until the common release (status rules want the release); 5.48.1 is not installed, the installed app is 5.47.0.
+
+## BUG-115: the diagram says why a transition happens (2026-11-08)
+Boris: "proceed" to the proposal made after "what do the arrows give us? which are the conditions, where do we see that it must be merged, checked visually or automatically, and events must run automatically (an AI writes through MCP and the status changes)". Branch `fix/bug-115-transition-conditions-in-diagram`, one PR, minor bump.
+
+Decisions (mine; nothing stored changes, `workflow.json` keeps its schema):
+- Show and edit only what the workflow already stores: the actor conditions of each rule (`LifecycleRule.needs`) and the process settings (`RuleVariant`: start, integration, checks, delivery event, acceptance). New event kinds (a visual check as against an automatic one, custom events) change the file format and wait for Boris.
+- Pure `Models/WorkflowTransitionStory.swift`: for a rule and the processes that follow it, a trigger line, a label for the arrow, one sentence per actor (person / AI through the project tools / MarkView by itself, and on which event) and the process lines that matter for this step (derived from the conditions of the rule, so they follow edits). Standalone check `tools/tests/workflow-story-tests.sh`.
+- The arrow label names the step and who moves it ("Completion · automatic", "Acceptance · person or AI").
+- The rule inspector becomes a When / Who / Evidence card; the process controls (how the work reaches the branch, checks, delivery event, who accepts, how work starts) move out of `WorkflowTabView` into one shared view that both the Processes page and the card use (no copy left behind). On the Features / Bugs pages the card lists the processes that follow the type's transitions, each with its own controls; in a process it shows that process.
+
+- [ ] 1. `WorkflowTransitionStory.swift` + `workflow-story-tests.sh`
+- [ ] 2. `WorkflowProcessControls.swift` (shared controls), `WorkflowTabView` uses it
+- [ ] 3. Diagram: arrow labels from the story; rule inspector as the When / Who / Evidence card
+- [ ] 4. Layout test + off-screen render, look at it; build, bump, PR, merge
