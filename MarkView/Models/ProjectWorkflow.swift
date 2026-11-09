@@ -27,6 +27,57 @@ struct WorkflowStatus: Codable, Equatable, Identifiable, Sendable {
 
 // MARK: - Transition rules as data
 
+/// An event after which MarkView makes the step of a rule by itself (feature assistants-confirm-delivery-with-evidence-and-propose-workflow,
+/// REQ-004, DEC-006). The name is kept as written: a name this app does not know never fires and is reported by `validate()`, so a
+/// workflow written by a newer app cannot make an older one move items wrongly.
+struct RuleEvent: RawRepresentable, Codable, Hashable, Sendable {
+    let rawValue: String
+
+    init(rawValue: String) { self.rawValue = rawValue }
+
+    init(from decoder: Decoder) throws { rawValue = try decoder.singleValueContainer().decode(String.self) }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    /// A hand-off to an agent was accepted, or a session attached itself to the item.
+    static let workStarted = RuleEvent(rawValue: "work-started")
+    /// The investigation of a bug by the app produced its result.
+    static let investigationFinished = RuleEvent(rawValue: "investigation-finished")
+    /// GitHub shows a pull request for the item that was not there before (needs the GitHub integration).
+    static let pullRequestOpened = RuleEvent(rawValue: "pull-request-opened")
+    /// GitHub shows that a pull request of the item has been merged (needs the GitHub integration).
+    static let pullRequestMerged = RuleEvent(rawValue: "pull-request-merged")
+
+    static let known: [RuleEvent] = [.workStarted, .investigationFinished, .pullRequestOpened, .pullRequestMerged]
+
+    var isKnown: Bool { Self.known.contains(self) }
+
+    /// For the editor and the diagram: "work is started".
+    var title: String {
+        switch self {
+        case .workStarted: return "work is started"
+        case .investigationFinished: return "an investigation finishes"
+        case .pullRequestOpened: return "a pull request is opened"
+        case .pullRequestMerged: return "a pull request is merged"
+        default: return "\u{201C}\(rawValue)\u{201D} happens"
+        }
+    }
+
+    /// What the event means, for the agent guide.
+    var meaning: String {
+        switch self {
+        case .workStarted: return "A hand-off to an agent was accepted, or an agent session attached itself to the item."
+        case .investigationFinished: return "The investigation of a bug report by MarkView produced its result (bugs only)."
+        case .pullRequestOpened: return "GitHub shows a pull request of the item that was not seen before (needs the GitHub integration)."
+        case .pullRequestMerged: return "GitHub shows that a pull request of the item has been merged (needs the GitHub integration)."
+        default: return "Not known to this app: it never fires."
+        }
+    }
+}
+
 struct LifecycleRule: Codable, Equatable, Sendable {
     var from: Set<String>
     var to: String
@@ -34,18 +85,22 @@ struct LifecycleRule: Codable, Equatable, Sendable {
     /// Conditions each actor kind must meet. An actor kind that is absent may not make this transition by the rules: a person can
     /// force it, the others cannot.
     var needs: [LifecycleActorKind: [LifecycleCondition]]
+    /// The event after which MarkView makes this step itself, as the system actor under its conditions; nil = the step happens
+    /// only when somebody asks for it. The rule must have a `system` entry (REQ-004).
+    var event: RuleEvent?
 
-    init(from: Set<String>, to: String, kind: TransitionKind, needs: [LifecycleActorKind: [LifecycleCondition]]) {
+    init(from: Set<String>, to: String, kind: TransitionKind, needs: [LifecycleActorKind: [LifecycleCondition]], event: RuleEvent? = nil) {
         self.from = from
         self.to = to
         self.kind = kind
         self.needs = needs
+        self.event = event
     }
 
     /// A stable name for the editor and for messages: "draft+ready>implementing".
     var id: String { from.sorted().joined(separator: "+") + ">" + to }
 
-    private enum CodingKeys: String, CodingKey { case from, to, kind, human, ai, system }
+    private enum CodingKeys: String, CodingKey { case from, to, kind, human, ai, system, event }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -57,6 +112,7 @@ struct LifecycleRule: Codable, Equatable, Sendable {
         if let value = try container.decodeIfPresent([LifecycleCondition].self, forKey: .ai) { needs[.ai] = value }
         if let value = try container.decodeIfPresent([LifecycleCondition].self, forKey: .system) { needs[.system] = value }
         self.needs = needs
+        event = try container.decodeIfPresent(RuleEvent.self, forKey: .event)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -67,6 +123,7 @@ struct LifecycleRule: Codable, Equatable, Sendable {
         try container.encodeIfPresent(needs[.human], forKey: .human)
         try container.encodeIfPresent(needs[.ai], forKey: .ai)
         try container.encodeIfPresent(needs[.system], forKey: .system)
+        try container.encodeIfPresent(event, forKey: .event)
     }
 }
 
@@ -143,6 +200,12 @@ enum DeliveryEvent: Codable, Equatable, Sendable {
     /// An event outside GitHub that a person confirms ("deployed to production", "installed").
     case humanConfirmed(name: String)
 
+    /// Whether the event is one that somebody confirms, not one MarkView reads from GitHub.
+    var isConfirmedBySomeone: Bool {
+        if case .humanConfirmed = self { return true }
+        return false
+    }
+
     var title: String {
         switch self {
         case .none: return "No delivery event"
@@ -178,11 +241,22 @@ enum DeliveryEvent: Codable, Equatable, Sendable {
     }
 }
 
+/// Who may confirm the delivery event of a process when that event is not a GitHub release (DEC-004 of the feature
+/// assistants-confirm-delivery-with-evidence-and-propose-workflow). Absent in a file = a person only.
+enum DeliveryConfirmer: String, Codable, CaseIterable, Sendable {
+    case person
+    case personOrAI = "person-or-ai"
+
+    var title: String { self == .person ? "A person only" : "A person, or an AI with evidence" }
+}
+
 /// The delivery conditions of a variant: what the collector and the evaluator read (DEC-027).
 struct DeliveryRules: Equatable, Sendable {
     var integration: IntegrationPath
     var checksRequired: Bool
     var event: DeliveryEvent
+    /// Who may confirm `event` when it is confirmed by someone.
+    var confirmedBy: DeliveryConfirmer = .person
 
     var pullRequestRequired: Bool { integration == .pullRequest }
     var githubReleaseRequired: Bool { event == .githubRelease }
@@ -207,14 +281,16 @@ struct RuleVariant: Codable, Equatable, Identifiable, Sendable {
     var integration: IntegrationPath
     var checks: Bool
     var delivery: DeliveryEvent
+    /// Who may confirm a delivery event that is confirmed by someone; nil = a person only (the reading of every older file).
+    var confirmedBy: DeliveryConfirmer?
     var acceptance: AcceptanceMode
     var summary: String
     /// The transitions of this process; nil = those of its type.
     var rules: [LifecycleRule]?
 
     init(id: String, name: String, kind: IssueKind, start: StartEvidenceMode = .agentSession, integration: IntegrationPath,
-         checks: Bool, delivery: DeliveryEvent = .none, acceptance: AcceptanceMode = .aiWithEvidence, summary: String = "",
-         rules: [LifecycleRule]? = nil) {
+         checks: Bool, delivery: DeliveryEvent = .none, confirmedBy: DeliveryConfirmer? = nil, acceptance: AcceptanceMode = .aiWithEvidence,
+         summary: String = "", rules: [LifecycleRule]? = nil) {
         self.rules = rules
         self.id = id
         self.name = name
@@ -223,15 +299,26 @@ struct RuleVariant: Codable, Equatable, Identifiable, Sendable {
         self.integration = integration
         self.checks = checks
         self.delivery = delivery
+        self.confirmedBy = confirmedBy
         self.acceptance = acceptance
         self.summary = summary
     }
 
-    var deliveryRules: DeliveryRules { DeliveryRules(integration: integration, checksRequired: checks, event: delivery) }
+    /// Who may confirm the delivery event; a person unless the file says otherwise. Setting a person clears the field, so a file
+    /// that never needed it stays as it was.
+    var confirmer: DeliveryConfirmer {
+        get { confirmedBy ?? .person }
+        set { confirmedBy = newValue == .person ? nil : newValue }
+    }
+
+    var deliveryRules: DeliveryRules {
+        DeliveryRules(integration: integration, checksRequired: checks, event: delivery, confirmedBy: confirmer)
+    }
 
     /// One line for the editor, the history and the agent context.
     var description: String {
         var parts = [integration.title, checks ? "checks required" : "no checks", delivery.title.lowercased()]
+        if delivery.isConfirmedBySomeone, confirmer == .personOrAI { parts.append("confirmed by a person or an AI with evidence") }
         parts.append("start: " + (start == .agentSession ? "agent session" : "agent session or note"))
         parts.append("accepted by: " + (acceptance == .humanOnly ? "a person" : "a person or an AI with evidence"))
         if let rules { parts.append("its own \(rules.count) transition\(rules.count == 1 ? "" : "s")") }
@@ -600,6 +687,17 @@ extension ProjectWorkflow {
             for from in rule.from where !definition.isKnown(from) { add("A \(label) transition starts at \(from), which is not a \(kind) status.") }
             if !definition.isKnown(rule.to) { add("A \(label) transition ends at \(rule.to), which is not a \(kind) status.") }
             if rule.from.contains(rule.to) { add("A \(label) transition from \(rule.to) to itself changes nothing.") }
+            if let event = rule.event {
+                if !event.isKnown {
+                    add("The \(label) transition \(rule.id) names the event \u{201C}\(event.rawValue)\u{201D}, which this app does not know (known: \(RuleEvent.known.map(\.rawValue).joined(separator: ", "))).")
+                }
+                if rule.needs[.system] == nil {
+                    add("The \(label) transition \(rule.id) happens on an event but does not let MarkView make the step: give it a system entry.")
+                }
+                if event == .investigationFinished, kind != IssueKind.bug.rawValue {
+                    add("The event \u{201C}\(event.rawValue)\u{201D} exists only for bugs, so the \(label) transition \(rule.id) cannot use it.")
+                }
+            }
             if !seen.insert(rule.id).inserted { add("The \(label) transition \(rule.id) is listed twice.") }
             if rule.kind == .start, definition.role(of: rule.to) != .active {
                 add("The \(label) start transition to \(rule.to) must end in a status with the role \"Active\".")
