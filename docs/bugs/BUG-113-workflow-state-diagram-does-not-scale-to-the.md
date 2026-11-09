@@ -2,7 +2,7 @@
 type: bug
 id: BUG-113
 title: Workflow state diagram does not scale to the window and its transitions are hard to see
-status: fixing
+status: fixed
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-09
