@@ -28,6 +28,8 @@ bump (minor, 5.53.0).
 - Tile list grew from 13 to 17 after the first picture: with 5 and 4 tiles per group the 3-column grid had holes; groups of 6/6/4-5 read as a design.
 - Looked at 45 pictures (4 backdrops + Off x 3 themes x 3 window shapes); fixed from them: a blurred scrim that hid the aurora, hard-edged aurora rays,
   uneven tile heights, a content column stuck to the top.
+- Follow-up 5.53.1 (PR #343): driving the real app invisibly (tools/tests/app-probe) found the Background pill covering the last visible tile in a narrow pane;
+  moved into the scrolled column, regression check added (fails on 5.53.0). 16 of 17 tiles clicked in the real window, each opens what its toolbar/menu item opens.
 - Not checked by me: the motion on a real display and its WindowServer cost, a hand click on each tile in the running app, the Background menu, the choice
   surviving a restart, Reduce Motion switched in System Settings (the still path is covered at layer level). REQ criteria for those stay unticked.
 

@@ -1757,3 +1757,20 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
   `accessibilityDisplayOptionsDidChangeNotification`, and restore the getter afterwards. It showed the same layers with no animation, an identical picture 0.8 s
   later, and the animations back when switched off.
 
+## 2026-11-09 — drive the real app invisibly before saying "not checked in the app" (welcome screen, 5.53.1)
+
+- A hosted copy of one view is not the app: in the real window the welcome screen lives in a pane 400 to 630 pt wide, the tile list is taller than the pane,
+  and the Background pill pinned to the window corner sat on the last visible tile (Build & Deployment at 620x800). Three hosted-view runs and 525 checks
+  never saw it, because the hosted window was always taller than the column. Run the real app before the release, not after the hook asks.
+- It can be done without a window on the screen: `tools/tests/app-probe/` injects a small dylib (DYLD_INSERT_LIBRARIES works on the unsigned Debug build) into a COPY
+  of the Debug app with its own bundle id, an empty HOME (`HOME` and `CFFIXED_USER_HOME`) and its own `MARKVIEW_SOCKET_DIR`. Every NSWindow is created with alpha 0 and
+  `ignoresMouseEvents`, the activation policy is accessory, so nothing shows and no focus is taken. It snapshots, reads the accessibility tree (button labels
+  with frames), sends real mouse events through `sendEvent:` and samples presentation layers. The installed app and its data were not touched (checked: the real
+  Application Support folder holds nothing of the probe).
+- Gotchas met on the way: the app's children (indexer, MCP servers) inherit the injected library and its environment, so the probe must ignore processes whose
+  arguments start with `--` (one of them truncated the log); the app opens a folder only in the KEY window, and `makeKeyWindow` is enough without activating
+  the app; zsh does not split an unquoted variable (`set -- $spec` gave one word and a 0-size window); SwiftUI accessibility nodes answer the NSAccessibility
+  selectors without declaring the protocol, so ask by selector, not with `as? NSAccessibilityProtocol`.
+- A changed-pixel share is a weak "did the click do anything" signal (a toolbar highlight is 0.0 %): read the windows list (a sheet is a window of its own) and look.
+- Clicking a tile that opens a system panel (Open File, Open Folder) from a probe would show a window the probe cannot promise to hide: leave those to the code reading.
+
