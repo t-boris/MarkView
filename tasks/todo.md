@@ -5098,5 +5098,23 @@ Findings that shape the work:
 - Checked: standalone suites for flows, Done, diagram, lifecycle workflow/policy/store/display; layout test loads every flow into the tab at 400 and 1100 pt and renders the picker; Debug build succeeds.
 - Changed from the plan: `applied(to:)` keeps the processes that follow their type (DEC-003 rewritten); `isPastExplore` became flow-aware (DEC-004); the picker is its own view.
 - Not checked in the running app (no visible test windows, and the running app is 5.49.0): the Flow popover, a real new feature in a Kanban project, a save that moves items to other statuses.
-- Known limit: boards with many arrows have colliding labels in the diagram.
+- Known limit (not a limit, a defect: fixed by BUG-116, PR #337, 5.50.1): boards with many arrows had colliding labels and a diagram that was too low.
 
+## BUG-116: the diagram is too low for its transitions (2026-11-09)
+
+- [x] Lane height now depends on the number of named arrows as well as the states; names are placed on their own arrow clear of other names, states, lane titles and arrowheads (WorkflowDiagram.placeLabels), the view draws them
+- [x] Standalone checks over every catalogue flow at 368/640/920 pt (they fail with the growth off: 91 checks), renders of Kanban, Azure, Linear looked at, Debug build, 5.50.1, PR #337 merged
+
+## Feature workflow-templates-in-a-shared-folder-and-a (2026-11-09)
+
+Boris: a configured workflow must move to other projects as a template kept in a shared local folder; the default for new projects must work without GitHub or CI, with an instruction on how to switch them on. Answers: a template is the whole workflow (DEC-001); any saved template can be the default for new projects (DEC-002).
+
+- [ ] 1. `WorkflowTemplate.swift` (Foundation only): the template document (schema, id, name, note, savedAt, workflow), `WorkflowTemplateStore` over a folder (list with unusable files named, save with unique id, delete, default pointer `default.json`), `applied(to:)` keeping the project's revision, `matches(_:)`; standalone check `tools/tests/workflow-template-tests.sh`
+- [ ] 2. New-project adoption (`ProjectWorkflowStore.adoptIfMissing`): the chosen template, else Kanban whose processes require nothing unless the project declares otherwise (`ProjectDeliveryPolicy.isDeclared`); checks in `ProjectWorkflowChecks.swift`
+- [ ] 3. `WorkflowDone`: the GitHub warning (a process needs a pull request, checks or a GitHub release while GitHub is off) and the "how to switch them on" hint; Done panel shows both; checks in `WorkflowDoneChecks.swift`
+- [ ] 4. `WorkflowTemplateLibrary` (main-actor observable, file work off the main thread) shared by the Flow popover and Settings
+- [ ] 5. Flow popover: "Save as template…" and "My templates" with Use; `WorkflowEditorModel.apply(template)` and the Flow button label
+- [ ] 6. Settings > Workflow templates: list, Use for new projects, built-in default, Reveal in Finder, Delete, unusable files, the how-to-enable text
+- [ ] 7. Layout test and renders (popover with templates, the Done panel warning), Debug build, `./bump-version.sh minor`, PR, merge. No release until Boris says (one release for the batch)
+
+Not in this change: a per-process "copy to bugs" action (DEC-001), syncing the folder between Macs, new event kinds in workflow.json (open question for Boris).
