@@ -1678,3 +1678,10 @@ A 832 KB Markdown file with 253 Mermaid diagrams froze the editor page for 57 s.
 - Boris said on 2026-11-04 that CI is not waited for, and said it again on 2026-11-08 while I was polling the checks of a test-only PR: "I said you can merge without waiting for CI".
   Rule: after my own verification (suites, Debug build) open the PR, merge it at once (`gh pr merge --merge --delete-branch`), release and install; read the check results afterwards and report them.
   Never start an `until ... gh pr checks` wait loop before a merge. A rule from an older CLAUDE.md line or memory note ("wait for every check run") does not outrank a direct instruction from Boris.
+
+## 2026-11-08 — a drawing in a flexible container, and gestures in a test window
+
+- A fixed-size drawing placed inside a SwiftUI container sets the container's minimum width: the Workflow tab could not shrink below the diagram (792 pt instead of 400) because the diagram's natural width was both the thing being scaled and the width that decided the scale. Give the drawing an empty box that takes the width it is offered (`Color.clear.frame(maxWidth: .infinity)`), measure that, and draw scaled in an `overlay`.
+- Look at what a layout draws before calling it done: the geometry checks passed on a layout that put every arrow on one line and let curves leave the drawing. Render the real view off screen (`SNAPSHOT_DIR` in `workflow-editor-layout-tests.sh`) and read the picture.
+- SwiftUI gestures in a window hosted for a test need the window ordered in (`orderFrontRegardless()` on the one placed 20000 pt away from every display); `sendEvent` to a window that was never ordered in does nothing. SwiftUI menus and pickers are no `NSPopUpButton`: count the `_FocusRingView`s to tell what an inspector holds.
+

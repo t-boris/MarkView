@@ -5026,6 +5026,13 @@ Decisions (mine, nothing stored changes: the diagram is a view of the same `Life
 - The list of rows is removed (no old code left); the source view stays the exact editor of the JSON.
 
 - [x] 1. Pure layout, hit testing, kind inference (`Models/WorkflowDiagramLayout.swift`) + standalone check `tools/tests/workflow-diagram-tests.sh`
-- [ ] 2. View (`Views/WorkflowDiagramView.swift`): canvas, state nodes, selection, drag-to-connect, inspector; `WorkflowTabView` uses it
-- [ ] 3. Layout test at 400/760/1100 pt, render the diagram off screen to a PNG and look at it
-- [ ] 4. Build, bump to 5.47.0, PR, merge; BUG-112 `fixed` once the evidence is there
+- [x] 2. View (`Views/WorkflowDiagramView.swift`): canvas, state nodes, selection, drag-to-connect, inspector; `WorkflowTabView` uses it
+- [x] 3. Layout test at 400/760/1100 pt, render the diagram off screen to a PNG and look at it
+- [x] 4. Build, bump to 5.47.0, PR #332, merge (2db3753); BUG-112 stays `fixing`: MarkView wants delivery evidence (checks passed, release published), and the release waits for the end of the batch
+
+### Review (BUG-112, 2026-11-08)
+- Merged as PR #332 (5.47.0). Verified: `workflow-diagram-tests.sh` (geometry, hit testing, kind inference), `workflow-editor-layout-tests.sh` (400/760/1100 pt on every page, and real mouse events sent to the off-screen tab: a click on a state, a click on an arrow, a drag between two states), `issue-lifecycle-tests.sh workflow display`, Debug build. Looked at off-screen renders of the standard feature and bug workflows and of a process with its own transitions.
+- Layout, after looking at the renders: lanes by role, each lane lower than the one before it (a lane's states all at one height put every arrow on one line), gaps between lanes widen with the window, names of the steps on a plate of the page colour, a lane that a rule covers completely is one tail, the specification stages are entered from one bar ("any order" only when every state has an entry).
+- Not hand-checked in the running app: save after editing in the diagram, the inspector at a real window size, dragging with a trackpad. At 400 pt the diagram is scaled to about half, so its names are small.
+- Decisions I made without asking: native SwiftUI Canvas instead of a web page (no bridge, no library); the statuses list and the transition rows are replaced by the diagram and its inspector (the source view stays); dragging an arrow between two states joins the existing rule of the same kind into the same state instead of adding a duplicate; the head of an arrow cannot be dragged to another state yet (change it in the inspector).
+- BUG-112 is still `fixing` in MarkView: the status rules want the checks and the release. It becomes `fixed` after the common release.
