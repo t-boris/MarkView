@@ -37,6 +37,7 @@
 		0D1620D4F638BFBE26F57280 /* IncrementalCompiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CE23AFAF75C072899E5648F /* IncrementalCompiler.swift */; };
 		0ED25ED5BCFC0275EF437229 /* UIStudioPreviewHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6291D82348E4A264695D63 /* UIStudioPreviewHost.swift */; };
 		1024E357E18DFF4E233DC275 /* ProjectAgentTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89AF21E7EC037DF41CC973BB /* ProjectAgentTools.swift */; };
+		10A4C47515CDDAFD95074582 /* WorkflowTemplateLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4733EE4943A98D4C4C4B9C28 /* WorkflowTemplateLibrary.swift */; };
 		1125E0D20129EA6221EE49A3 /* WorkflowDone.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65D603D742D5409B8353FBB /* WorkflowDone.swift */; };
 		114407D9EFB092F23A6F9E12 /* BrowserPasswords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 007C5A3FE30FBBE5A71A6FA8 /* BrowserPasswords.swift */; };
 		11C3C1C4E28EB8CB51AB48F6 /* IssueSyncRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 297DFB300C5D61C4F3F7D68D /* IssueSyncRun.swift */; };
@@ -398,6 +399,7 @@
 		EB315F16B4603811DE1E360A /* UIStudioStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4290F1912EB67F6DD7EB9033 /* UIStudioStore.swift */; };
 		EB58444FAD0EC3A066EA5D96 /* BugBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C501ACCB7ED2B026E7B473E /* BugBatch.swift */; };
 		EBBC3870E229854BEDFFFEAB /* ResearchMapJobs.swift in Sources */ = {isa = PBXBuildFile; fileRef = B487E652BEE66C9746620C91 /* ResearchMapJobs.swift */; };
+		EBC18992AE03BE7A9FF77909 /* WorkflowTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 713A7BA330E95450C16AA739 /* WorkflowTemplate.swift */; };
 		ECD969D40C6C1A94488B600D /* HandoffViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E1DE65EEA6FFCA20C1BE20 /* HandoffViews.swift */; };
 		EDB3B2A3C50F91166FEA9DEB /* FeaturePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 779E8848F94EF650F4B206BD /* FeaturePanelView.swift */; };
 		EE15AC6DFBF5E8C537995A5F /* discussion.html in Resources */ = {isa = PBXBuildFile; fileRef = 35D0DD0A460F4B6F319D51D0 /* discussion.html */; };
@@ -418,6 +420,7 @@
 		F51DCF6FC060B59DEC100AF0 /* DatabaseExplorer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175983BAF7675BD2CB3EB938 /* DatabaseExplorer.swift */; };
 		F5A6B4994538AD8DB1534251 /* AgentBrowserRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DED21BC61360BE8D42222AB /* AgentBrowserRegistration.swift */; };
 		F5E36DB6F4BA9C780508F211 /* DDESettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41CD9CB6F1AB0F0EE1E1A77 /* DDESettingsView.swift */; };
+		F61A761791EEA18B91A7CADC /* WorkflowTemplatesSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 544AB857D874DF9DD402D220 /* WorkflowTemplatesSettings.swift */; };
 		F69C7136BBCF2382FC423260 /* BookPDFExportModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58204F3C068030E1598BED42 /* BookPDFExportModel.swift */; };
 		F71AD30EA5690CB0BA397664 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = B22463A74DBAA149985AFD0B /* README.md */; };
 		F90E29074E472035B10C3421 /* PrototypeTailwind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B6BEBAADD6CD8BA0A85088E /* PrototypeTailwind.swift */; };
@@ -562,6 +565,7 @@
 		45125D00F1E8300687141768 /* ImageSiblings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSiblings.swift; sourceTree = "<group>"; };
 		45DC630D21D2720ADBA52066 /* AIAssistantPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistantPickerView.swift; sourceTree = "<group>"; };
 		4653C8E20027A421BC4CCD92 /* prism-go.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-go.min.js"; sourceTree = "<group>"; };
+		4733EE4943A98D4C4C4B9C28 /* WorkflowTemplateLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowTemplateLibrary.swift; sourceTree = "<group>"; };
 		477DD53694435ADC874CA1A0 /* BugBasketView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugBasketView.swift; sourceTree = "<group>"; };
 		48C8A2BC6E7E6F820F6B3C5C /* UIStudioJSON.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioJSON.swift; sourceTree = "<group>"; };
 		4901BB46E719AF40B6110311 /* KaTeX_Main-BoldItalic.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Main-BoldItalic.woff2"; sourceTree = "<group>"; };
@@ -590,6 +594,7 @@
 		534BBEA6C51F184621BBDE91 /* StructuralIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuralIndexer.swift; sourceTree = "<group>"; };
 		53C304E1D9FFF3EB90464F91 /* markview-book.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "markview-book.css"; sourceTree = "<group>"; };
 		53EE48E0FB60C63546A10ED0 /* prism-json.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-json.min.js"; sourceTree = "<group>"; };
+		544AB857D874DF9DD402D220 /* WorkflowTemplatesSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowTemplatesSettings.swift; sourceTree = "<group>"; };
 		54B88089F2E7416767D42721 /* ProjectOperationDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperationDiscoveryService.swift; sourceTree = "<group>"; };
 		54D1DC6FF447AD40963D2AD5 /* BookPDFRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookPDFRenderer.swift; sourceTree = "<group>"; };
 		5512D54B1337F5917699C7D0 /* InsightModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightModels.swift; sourceTree = "<group>"; };
@@ -641,6 +646,7 @@
 		6ED484A68FCCB897811B8168 /* WindowTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTitle.swift; sourceTree = "<group>"; };
 		6F6EDEA395D89B943EAE23AF /* cytoscape.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = cytoscape.min.js; sourceTree = "<group>"; };
 		6F838E4C058CBCE7B35D7EBE /* PullRequestHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullRequestHistory.swift; sourceTree = "<group>"; };
+		713A7BA330E95450C16AA739 /* WorkflowTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowTemplate.swift; sourceTree = "<group>"; };
 		747C5366B2EBA397F5F91CF7 /* CodeExplainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeExplainer.swift; sourceTree = "<group>"; };
 		75EAFF59D525BADEE5D10341 /* prism.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = prism.min.js; sourceTree = "<group>"; };
 		75FC7940299CE6E834BFE230 /* InsightArchiveExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightArchiveExporter.swift; sourceTree = "<group>"; };
@@ -1166,6 +1172,8 @@
 				A65D603D742D5409B8353FBB /* WorkflowDone.swift */,
 				62C89643044A9925644D73BC /* WorkflowEditorModel.swift */,
 				ED3A5171E73A5AE15C8A979E /* WorkflowFlow.swift */,
+				713A7BA330E95450C16AA739 /* WorkflowTemplate.swift */,
+				4733EE4943A98D4C4C4B9C28 /* WorkflowTemplateLibrary.swift */,
 				EE1DFF07F339BAFE450407A7 /* WorkflowTransitionStory.swift */,
 				BDC9210ADC47CAF918764DB3 /* WorkspaceManager.swift */,
 				3F66D5EF3E31CCC33D408BA1 /* XRayCluster.swift */,
@@ -1246,6 +1254,7 @@
 				83713ABBC45576A41F1E8B61 /* WorkflowFlowPicker.swift */,
 				4476564C206A053C69214BEC /* WorkflowProcessControls.swift */,
 				E908A064B54D4D4B3B8EE6EE /* WorkflowTabView.swift */,
+				544AB857D874DF9DD402D220 /* WorkflowTemplatesSettings.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -1941,6 +1950,9 @@
 				6A0B6052B951279F88730338 /* WorkflowFlowPicker.swift in Sources */,
 				5291AF20A4AE320F5F9E7B2B /* WorkflowProcessControls.swift in Sources */,
 				3657B4C053502DBF309CF0D1 /* WorkflowTabView.swift in Sources */,
+				EBC18992AE03BE7A9FF77909 /* WorkflowTemplate.swift in Sources */,
+				10A4C47515CDDAFD95074582 /* WorkflowTemplateLibrary.swift in Sources */,
+				F61A761791EEA18B91A7CADC /* WorkflowTemplatesSettings.swift in Sources */,
 				328FC4CBEA1A2B0DAC2E2EF9 /* WorkflowTransitionStory.swift in Sources */,
 				EFD0357B1249A5D014B893E4 /* WorkspaceManager.swift in Sources */,
 				8509AB727B59B4DD5CD83A56 /* XRayCluster.swift in Sources */,
@@ -1989,7 +2001,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.50.1;
+				CURRENT_PROJECT_VERSION = 5.51.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -2004,7 +2016,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.50.1;
+				MARKETING_VERSION = 5.51.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -2068,7 +2080,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.50.1;
+				CURRENT_PROJECT_VERSION = 5.51.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -2089,7 +2101,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.50.1;
+				MARKETING_VERSION = 5.51.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

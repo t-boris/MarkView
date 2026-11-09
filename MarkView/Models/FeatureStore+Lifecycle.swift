@@ -63,7 +63,9 @@ final class IssueLifecycleCoordinator {
     /// opened as a viewer, gets no files.
     private func readWorkflow(_ workflowStore: ProjectWorkflowStore, root: URL) -> WorkflowLoad {
         let load = workflowStore.load()
-        if case .missing = load, store.recordsLifecycle { return workflowStore.adoptIfMissing(projectRoot: root) }
+        if case .missing = load, store.recordsLifecycle {
+            return workflowStore.adoptIfMissing(projectRoot: root, newProjectTemplate: WorkflowTemplateStore.shared.defaultTemplate())
+        }
         return load
     }
 

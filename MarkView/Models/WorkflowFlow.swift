@@ -48,8 +48,11 @@ struct WorkflowFlow: Identifiable, Equatable, Sendable {
 
     /// The states of a type from the first to the last, grouped by what they mean: "Backlog, Ready → In progress, In review → Done
     /// (dropped: Won't do)". It is what the picker shows, so a person sees the columns before choosing.
-    func outline(_ kind: IssueKind) -> String {
-        let statuses = lifecycle(kind).statuses
+    func outline(_ kind: IssueKind) -> String { Self.outline(lifecycle(kind)) }
+
+    /// The same for any lifecycle (a saved template's, too).
+    static func outline(_ definition: IssueLifecycleDefinition) -> String {
+        let statuses = definition.statuses
         func titles(_ role: LifecycleRole) -> String { statuses.filter { $0.role == role }.map(\.title).joined(separator: ", ") }
         var text = [LifecycleRole.notStarted, .active, .completed].map(titles).filter { !$0.isEmpty }.joined(separator: " → ")
         let dropped = titles(.cancelled)

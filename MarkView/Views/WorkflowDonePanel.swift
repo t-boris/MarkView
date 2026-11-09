@@ -8,6 +8,8 @@ struct WorkflowDonePanel: View {
     @Environment(\.palette) private var palette
     @ObservedObject var editor: WorkflowEditorModel
     let scope: WorkflowScope
+    /// Whether GitHub is connected; read live, so connecting it in Settings clears the warning without reopening the tab.
+    @AppStorage(GitHubSettings.enabledKey) private var githubEnabled = false
 
     private var kind: IssueKind {
         switch scope {
@@ -32,7 +34,7 @@ struct WorkflowDonePanel: View {
                 Text("No process follows these transitions, so nothing says what delivery needs.").uiFont(size: 10).foregroundColor(palette.textDim)
             }
             ForEach(processes) { process in
-                card(WorkflowDone.make(process, definition: editor.checklist, acceptanceStep: steps.acceptance != nil), steps: steps)
+                card(WorkflowDone.make(process, definition: editor.checklist, acceptanceStep: steps.acceptance != nil, githubEnabled: githubEnabled), steps: steps)
             }
         }
     }
@@ -45,6 +47,15 @@ struct WorkflowDonePanel: View {
             }
             Text(done.sentence).uiFont(size: 10.5).fixedSize(horizontal: false, vertical: true)
             Text(stepsLine(steps)).uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+            if let github = done.githubWarning {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9)).foregroundColor(palette.orange)
+                    Text(github).uiFont(size: 10).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if let hint = done.enableHint {
+                Text(hint).uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+            }
             ForEach(done.warnings, id: \.self) { warning in
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9)).foregroundColor(palette.orange)

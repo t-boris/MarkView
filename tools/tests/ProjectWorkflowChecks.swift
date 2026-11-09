@@ -345,6 +345,61 @@ check("empty docs/features and docs/bugs folders still start on Kanban", adopt {
 check("a stray file or hidden entry in them is not an item", adopt { file($0, "docs/features/README.md"); folder($0, "docs/features/.hidden"); file($0, "docs/bugs/notes.txt") }.name == "Kanban")
 check("a project with a feature keeps the standard processes and name", adopt { folder($0, "docs/features/some-feature") }.name == standard.name)
 
+// What a new project asks of GitHub, and the template chosen for new projects (feature workflow-templates, DEC-002, DEC-004).
+func needsNothing(_ workflow: ProjectWorkflow) -> Bool {
+    workflow.variants.allSatisfy { $0.integration == .directToMain && !$0.checks && $0.delivery == .none && !$0.deliveryRules.needsGitHub }
+}
+let fresh = adopt { folder($0, "docs/features"); folder($0, "docs/bugs") }
+check("a new project with nothing declared starts on Kanban whose processes ask nothing of GitHub", fresh.name == "Kanban" && needsNothing(fresh))
+check("…for features and for bugs, with the standard process ids", fresh.variants.map(\.id) == [StandardWorkflow.featureVariantID, StandardWorkflow.bugVariantID] && fresh.validate().isEmpty)
+let declaredPR = adopt { project in
+    folder(project, ".dde")
+    try! dod([("pr", "require"), ("ci", "require")]).write(to: project.appendingPathComponent(".dde/definition-of-done.json"))
+}
+check("a new project that saved a Definition of Done keeps what it declared", declaredPR.name == "Kanban" && declaredPR.variant(StandardWorkflow.bugVariantID)!.deliveryRules.pullRequestRequired
+      && declaredPR.variant(StandardWorkflow.bugVariantID)!.checks)
+let guidePR = adopt { project in
+    try! "# Guide\n\nEvery feature and bug fix goes through a pull request.\n".write(to: project.appendingPathComponent("CLAUDE.md"), atomically: true, encoding: .utf8)
+}
+check("a new project whose guide says every fix goes through a pull request keeps that", guidePR.variant(StandardWorkflow.bugVariantID)!.deliveryRules.pullRequestRequired)
+let casual = adopt { project in
+    try! "We sometimes commit directly to main and CI is slow.\n".write(to: project.appendingPathComponent("CLAUDE.md"), atomically: true, encoding: .utf8)
+}
+check("a casual mention in the guide is not a declaration", needsNothing(casual))
+check("a project that already has items keeps today's defaults: the bug process asks for a pull request and checks",
+      adopt { folder($0, "docs/features/some-feature") }.variant(StandardWorkflow.bugVariantID)!.deliveryRules.pullRequestRequired)
+check("isDeclared: no Definition of Done and no guide is nothing", !ProjectDeliveryPolicy.isDeclared(definition: nil, guide: nil) && !ProjectDeliveryPolicy.isDeclared(definition: nil, guide: "# Hello"))
+check("isDeclared: a saved Definition of Done is a declaration", ProjectDeliveryPolicy.isDeclared(definition: dod([]), guide: nil))
+check("isDeclared: CI switched off in the guide is a declaration",
+      ProjectDeliveryPolicy.isDeclared(definition: nil, guide: "## CI is switched off\n\nPlease do not wait for CI.\n"))
+
+var chosen = WorkflowFlow.scrum.applied(to: .standard)
+for index in chosen.variants.indices { chosen.variants[index].integration = .pullRequest; chosen.variants[index].checks = true; chosen.variants[index].delivery = .githubRelease }
+let template = WorkflowTemplate(id: "my-scrum", name: "My Scrum", note: "", savedAt: Date(timeIntervalSince1970: 1_800_000_000), workflow: chosen)
+func adoptWith(_ template: WorkflowTemplate?, prepare: (URL) -> Void) -> ProjectWorkflow {
+    let project = tempProject()
+    prepare(project)
+    guard case .loaded(let workflow) = ProjectWorkflowStore(projectRoot: project).adoptIfMissing(projectRoot: project, newProjectTemplate: template) else { fatalError("adoption did not load") }
+    return workflow
+}
+let fromTemplate = adoptWith(template) { _ in }
+check("a new project adopts the template chosen for new projects, whole", fromTemplate.name == "My Scrum" && fromTemplate.feature == chosen.feature && fromTemplate.bug == chosen.bug
+      && fromTemplate.variants == chosen.variants && fromTemplate.revision == 1 && fromTemplate.validate().isEmpty)
+check("…with the delivery settings it was saved with, even without GitHub", fromTemplate.variants.allSatisfy { $0.deliveryRules.needsGitHub })
+check("the template wins over the project's own Definition of Done: it is what the person chose",
+      adoptWith(template) { project in
+          folder(project, ".dde")
+          try! dod([("pr", "skip"), ("ci", "skip")]).write(to: project.appendingPathComponent(".dde/definition-of-done.json"))
+      }.variants == chosen.variants)
+check("a project that already has a feature is not changed by the chosen template", adoptWith(template) { folder($0, "docs/features/some-feature") }.feature == standard.feature)
+check("no chosen template: the Kanban default", adoptWith(nil) { _ in }.name == "Kanban")
+let existingRoot = tempProject()
+let existingStore = ProjectWorkflowStore(projectRoot: existingRoot)
+existingStore.adoptIfMissing(projectRoot: existingRoot)
+let existingFirst = existingStore.load()
+existingStore.adoptIfMissing(projectRoot: existingRoot, newProjectTemplate: template)
+check("a project that has a workflow file is never changed by the chosen template", existingStore.load() == existingFirst)
+
 // Work that survives an interruption: the adoption marker and the pending replacements.
 let adoptRoot = tempProject()
 let adoptStore = ProjectWorkflowStore(projectRoot: adoptRoot)

@@ -73,15 +73,19 @@ struct WorkflowTabView: View {
     // MARK: Flows
 
     @State private var choosingFlow = false
+    @ObservedObject private var library = WorkflowTemplateLibrary.shared
 
     private var flowButton: some View {
         Button { choosingFlow = true } label: {
-            Text("Flow: " + (editor.currentFlow?.title ?? "custom"))
+            Text("Flow: " + (editor.currentFlow?.title ?? library.template(matching: editor.draft)?.name ?? "custom"))
         }
         .controlSize(.small).disabled(!editable)
-        .help("Load a classic flow (Kanban, Scrum, …) into the draft. Nothing is saved until you press Save.")
+        .help("Load a classic flow (Kanban, Scrum, …) or one of your saved templates into the draft, or save this workflow as a template. Nothing is saved to the project until you press Save.")
+        .task { await library.reload() }
         .popover(isPresented: $choosingFlow, arrowEdge: .bottom) {
-            WorkflowFlowPicker(editor: editor) { flow in editor.apply(flow); choosingFlow = false }
+            WorkflowFlowPicker(editor: editor, library: library,
+                               choose: { flow in editor.apply(flow); choosingFlow = false },
+                               chooseTemplate: { template in editor.apply(template); choosingFlow = false })
         }
     }
 
