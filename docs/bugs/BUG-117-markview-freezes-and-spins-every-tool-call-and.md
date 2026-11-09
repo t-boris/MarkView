@@ -2,7 +2,7 @@
 type: bug
 id: BUG-117
 title: "MarkView freezes and spins: every tool call and reload reads the whole transition log once per issue, on the main thread"
-status: in-progress
+status: done
 severity: critical
 reporter: Boris Tsekinovsky
 created: 2026-11-09

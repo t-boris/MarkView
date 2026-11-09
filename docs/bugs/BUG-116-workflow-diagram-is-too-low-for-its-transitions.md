@@ -2,7 +2,7 @@
 type: bug
 id: BUG-116
 title: Workflow diagram is too low for its transitions and the arrow names overlap
-status: in-review
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-09
