@@ -2,7 +2,7 @@
 type: feature
 id: workflow-templates-in-a-shared-folder-and-a
 title: Workflow templates in a shared folder, and a default that works without GitHub
-status: backlog
+status: in-progress
 owner: Boris Tsekinovsky
 created: 2026-11-09
 provenance: Created by an AI agent through MarkView from Boris, 2026-11-09, message with a screenshot of the Workflow tab on the Kanban flow

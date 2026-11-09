@@ -5109,12 +5109,20 @@ Findings that shape the work:
 
 Boris: a configured workflow must move to other projects as a template kept in a shared local folder; the default for new projects must work without GitHub or CI, with an instruction on how to switch them on. Answers: a template is the whole workflow (DEC-001); any saved template can be the default for new projects (DEC-002).
 
-- [ ] 1. `WorkflowTemplate.swift` (Foundation only): the template document (schema, id, name, note, savedAt, workflow), `WorkflowTemplateStore` over a folder (list with unusable files named, save with unique id, delete, default pointer `default.json`), `applied(to:)` keeping the project's revision, `matches(_:)`; standalone check `tools/tests/workflow-template-tests.sh`
-- [ ] 2. New-project adoption (`ProjectWorkflowStore.adoptIfMissing`): the chosen template, else Kanban whose processes require nothing unless the project declares otherwise (`ProjectDeliveryPolicy.isDeclared`); checks in `ProjectWorkflowChecks.swift`
-- [ ] 3. `WorkflowDone`: the GitHub warning (a process needs a pull request, checks or a GitHub release while GitHub is off) and the "how to switch them on" hint; Done panel shows both; checks in `WorkflowDoneChecks.swift`
-- [ ] 4. `WorkflowTemplateLibrary` (main-actor observable, file work off the main thread) shared by the Flow popover and Settings
-- [ ] 5. Flow popover: "Save as template…" and "My templates" with Use; `WorkflowEditorModel.apply(template)` and the Flow button label
-- [ ] 6. Settings > Workflow templates: list, Use for new projects, built-in default, Reveal in Finder, Delete, unusable files, the how-to-enable text
-- [ ] 7. Layout test and renders (popover with templates, the Done panel warning), Debug build, `./bump-version.sh minor`, PR, merge. No release until Boris says (one release for the batch)
+- [x] 1. `WorkflowTemplate.swift` (Foundation only): the template document (schema, id, name, note, savedAt, workflow), `WorkflowTemplateStore` over a folder (list with unusable files named, save with unique id, delete, default pointer `default.json`), `applied(to:)` keeping the project's revision, `matches(_:)`; standalone check `tools/tests/workflow-template-tests.sh`
+- [x] 2. New-project adoption (`ProjectWorkflowStore.adoptIfMissing`): the chosen template, else Kanban whose processes require nothing unless the project declares otherwise (`ProjectDeliveryPolicy.isDeclared`); checks in `ProjectWorkflowChecks.swift`
+- [x] 3. `WorkflowDone`: the GitHub warning (a process needs a pull request, checks or a GitHub release while GitHub is off) and the "how to switch them on" hint; Done panel shows both; checks in `WorkflowDoneChecks.swift`
+- [x] 4. `WorkflowTemplateLibrary` (main-actor observable, file work off the main thread) shared by the Flow popover and Settings
+- [x] 5. Flow popover: "Save as template…" and "My templates" with Use; `WorkflowEditorModel.apply(template)` and the Flow button label
+- [x] 6. Settings > Workflow templates: list, Use for new projects, built-in default, Reveal in Finder, Delete, unusable files, the how-to-enable text
+- [x] 7. Layout test and renders (popover with templates, the Done panel warning), Debug build, `./bump-version.sh minor`, PR, merge. No release until Boris says (one release for the batch)
 
 Not in this change: a per-process "copy to bugs" action (DEC-001), syncing the folder between Macs, new event kinds in workflow.json (open question for Boris).
+
+### Review: workflow templates (PR #338, merged, 5.51.0, not released yet)
+- Built: `WorkflowTemplate.swift` (document + folder store + `default.json` pointer, unusable files named and left alone), `WorkflowTemplateLibrary.swift` (main-actor list; every file read/write off the main thread), `WorkflowTemplatesSettings.swift` (Settings), the Flow popover with "Save as template…" and "My templates", `WorkflowEditorModel.apply(template)`, `ProjectWorkflowStore.starting` and `ProjectDeliveryPolicy.isDeclared` (new-project default), the GitHub warning and the "how to switch it on" hint in `WorkflowDone`/the Done panel.
+- Checked: `workflow-template-tests.sh` (new), the lifecycle workflow suite (new-project adoption; a mutation of `isDeclared` fails three checks), `workflow-done-tests.sh`, flow/diagram/story suites, the off-screen layout test with the picker, the Settings section and the Done panel rendered and looked at; Debug build.
+- Found on the way: `workflow-flow-tests.sh` had stopped compiling when BUG-116 gave the diagram layout a dependency on `WorkflowTransitionStory.swift`; fixed in the same PR. Lesson: when a module gains a dependency, grep every `tools/tests/*.sh` that compiles it before the PR.
+- Not checked in the running app (no visible test windows): typing in the Save popover, the delete confirmation, Reveal in Finder, a real new project adopting the chosen template.
+- Known gap: `readWorkflow` (adoption) already did file reads on the calling thread; it now also reads the templates folder (two small files). Moving adoption off the main thread is a separate change.
+- Open for Boris: DEC-003 (folder and file format) and DEC-004 (declared delivery rules win over the built-in default) are still `proposed`; new event kinds in workflow.json ("checked visually / automatically", "AI reports done through MCP") would change the stored format and are not started.
