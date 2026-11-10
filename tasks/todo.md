@@ -6,17 +6,31 @@ window-specific or project-specific": switching a tab in one window must not mov
 One PR per item, ONE release at the end of the batch (Boris, 2026-11-08).
 
 ## Plan
-- [ ] 1. BUG-120, branch `fix/bug-120-welcome-per-window-backdrop`, 5.55.1: the background is `PanelLayout.welcomeBackdrop` (per window, saved in the
+- [x] 1. BUG-120 (PR #349, 5.55.1), branch `fix/bug-120-welcome-per-window-backdrop`, 5.55.1: the background is `PanelLayout.welcomeBackdrop` (per window, saved in the
   window session, UserDefaults only as the starting value); `WelcomeScreen` takes a binding; checks: window-session round trip, two hosted windows with two
   backgrounds; DEC-002 and REQ-002 corrected (they said "one app-wide preference").
-- [ ] 2. QA tile (`feat/welcome-qa-tile`): `WelcomeActionID.qa` in Build & Run after Workflow, opens `openQA()`, shows ⌘8; REQ-001 and the catalogue check updated.
-- [ ] 3. Header (`feat/header-declutter`), approved by Boris with two answers: (a) two groups: ONE "AI" menu (assistant, model, X-Ray model, AI tools; the wand
+- [x] 2. QA tile (PR #350, 5.56.0; `feat/welcome-qa-tile`): `WelcomeActionID.qa` in Build & Run after Workflow, opens `openQA()`, shows ⌘8; REQ-001 and the catalogue check updated.
+- [x] 3. Header (PR #351, 5.57.0; `feat/header-declutter`), approved by Boris with two answers: (a) two groups: ONE "AI" menu (assistant, model, X-Ray model, AI tools; the wand
   menu and the second picker go away) and ONE "Project" menu (Deployments, Workflow, End-to-End QA, Cycle Time; their icons go away and the compact-mode
   special cases with them); icons stay for Contents, Discussions, UI Studio, Browser, Search, New, Theme; (b) the project pill shows the name only (the window
   title has the version). `Operations` section of the old AI tools menu is dropped (the Project menu replaces it).
-- [ ] 4. Window-specific state: audit every shared `@AppStorage` / `UserDefaults` / singleton that one window's user changes and another window shows
+- [x] 4. Window-specific state (PR #352, 5.58.0; `fix/window-specific-state`): audit every shared `@AppStorage` / `UserDefaults` / singleton that one window's user changes and another window shows
   (read-only sub-agent running); list the findings to Boris, convert what he approves, one PR per group.
 - [ ] 5. Lessons and memory (`tasks/lessons.md`), one release from a clean worktree of `origin/main`, remove my worktree.
+
+### Review (window-state PR #352)
+- Done in code: `WindowUIState` + `@WindowStorage` (Search mode, Contents info, terminal prompts, UI Studio / Prototype widths and toggles, slideshow interval,
+  GitHub viewers' text size, Files view/filters, left and right pane widths), the editor page's own text size / X-Ray details / code-notes widths
+  (`EditorWindowPrefs`), window-addressed notifications, per-window one-off AI filter, per-window operations console, excluded folders by full path, a model
+  reported by a running assistant changes only its project.
+- Verified: `tools/tests/window-ui-state-tests.sh` (new, incl. two real web views and two hosted windows), session / file-browser / project-AI-choice / welcome /
+  PDF harnesses, and the real app through the invisible probe with two project windows (Search mode: Documents in one window, the other shows Project; the 5.56.0
+  build shows Documents in both).
+- Not checked by hand: panel widths across two windows, the editor text size slider in two windows, Export PDF with two windows, the operations console with two
+  windows on one folder.
+- Left global on purpose (Settings): interface text scale, `ai.customFilters`, `fileTree.sortField/sortAscending` (one per window, starting value only).
+- Open question for Boris: BUG-048 used to make a model switched inside a session the default of every project with no choice of its own; it is now that project's
+  only (one line in `AIAssistantPreferences.remember` to restore).
 
 # Welcome screen: action tiles and animated backdrops (2026-11-09)
 

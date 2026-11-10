@@ -1822,3 +1822,13 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
   A `static var` or a `.shared` singleton may hold data and caches, not what a window shows.
 - Check before adding a view: `grep -n "@AppStorage\|UserDefaults.standard" <file>`; for each hit ask "if two windows are open, should this follow the other one?".
   The legitimate global ones are Settings: API keys, CLI paths, output language, feature toggles.
+- How it was fixed (5.58.0, PR #352): `WindowUIState` / `@WindowStorage` is the `@AppStorage` replacement for window state (per-window dictionary in the
+  environment, saved in the window session, UserDefaults only a snapshot taken when the window is created). Use it, do not add a new `@AppStorage` for UI state.
+  Things a plain `@AppStorage` swap does not cover: web pages share one `localStorage` (the editor page now answers its four window-level keys from the
+  window's own copy, `EditorWindowPrefs`); a store shared per project folder needs a presenter so only the window that started an action shows its console;
+  window-scoped notifications use `NotificationCenter.post(_:for:)` and `Notification.isFor`.
+- Two testing lessons from this fix: (1) the first test of "another window keeps its value" failed because a window that had not yet READ a key took the live
+  UserDefaults value when it first did (a panel opened later); the snapshot at window creation fixed it, so a test must read the key in the second window AFTER
+  the first window changed it, not only before. (2) In the app probe `pick <n>` is a zero-based index into the visible windows; my first two-window run drove
+  the same window twice and looked like a pass. Look at the project name in each snapshot before trusting a two-window comparison, and run the same script on
+  the previous build to see the leak it should catch.
