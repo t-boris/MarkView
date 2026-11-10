@@ -1784,3 +1784,15 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
 - A changed-pixel share is a weak "did the click do anything" signal (a toolbar highlight is 0.0 %): read the windows list (a sheet is a window of its own) and look.
 - Clicking a tile that opens a system panel (Open File, Open Folder) from a probe would show a window the probe cannot promise to hide: leave those to the code reading.
 
+
+## A probe must never make the app read a Keychain item (end-to-end-qa, 2026-11-10)
+
+- What happened: to try a QA run with a saved login I created a Keychain item with `security add-internet-password -A` and let the invisible probe app read it.
+  The probe is an unsigned copy with its own bundle id, so the system asked "MarkViewProbe wants to use your confidential information" — a SecurityAgent window
+  that is NOT hidden by the probe's alpha-0 trick, and the app's main thread waited behind it (`sample`: `SecItemCopyMatching` → `SecurityServer decrypt` →
+  `mach_msg` on thread 0). It sat on Boris's real screen for several minutes until I closed it (`kill` the SecurityAgent process) and deleted the item.
+- Two lessons: (1) A probe may read attributes (`BrowserPasswordStore.all()`), never a secret's data — leave password paths to the code reading and the pure
+  tests (`QACredentials`). (2) Any Keychain read belongs off the main thread (CLAUDE.md: never block the main thread): the same `SecItemCopyMatching` blocked
+  the app's main thread for as long as the prompt was open. `QAWebDriverFactory` now reads the password in a detached task.
+- `PROBE_AI=1` (tools/tests/app-probe/run.sh) lets the AI command line sign in from the empty HOME: it needs `~/.claude.json`, `~/.claude` and `~/Library/Keychains`
+  linked in. It shares the Keychain, so use it only on checks whose app code reads no saved password.
