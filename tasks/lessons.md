@@ -1,5 +1,15 @@
 # Lessons
 
+## A feature that runs something needs a decision about what the person SEES while it runs (End-to-End QA, 2026-11-09)
+
+- The End-to-End QA plan reviewed "key pages" after a run. Boris then said what he expected: the scenario plays, every step is named, and
+  beneath it a feed shows each finding as it appears, with a screenshot and advice (clicks and scrolls counted, a missing or needless button,
+  an extra stage, layout and fonts). I had planned the analysis but never asked when and how he would watch it, and had not said that
+  nothing in S0-S3 looked at screenshots or counted interactions.
+- Rule: when a feature executes something over time, write down at the start what is measured at every step, what is shown while it runs and
+  where results appear, not only the final report. When a stage ends, say in one line what the person can already see and what is still
+  missing, so a gap like this is visible before he has to ask.
+
 ## A report's "Original description" is the request; the validity check's summary is not (BUG-108 follow-up, 5.45.0)
 
 - BUG-108 said "починить обрезку", and ALSO, in the same original text, that project configuration must live inside the project, not in the
