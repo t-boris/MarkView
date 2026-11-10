@@ -28,6 +28,7 @@
 		07AA9E8BD7921C0FE49408F8 /* PrototypeShellStructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC27A7ECE02BDB6EE3D62893 /* PrototypeShellStructure.swift */; };
 		082A811D6B13DF6C68B7F418 /* XRaySearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E10D6ADB4ADB8D0AE4BC89E /* XRaySearch.swift */; };
 		087E2B5A15B08AB1F15CD054 /* CycleTimeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE3AA3CE442BA3B163881A1 /* CycleTimeModel.swift */; };
+		08B8F63E9D781DFD3300A038 /* QANativeAccessibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E78CAD403B18B205EB5232E /* QANativeAccessibility.swift */; };
 		08EDD6A0B641F332F4C0D18E /* markview-research-map-layout.js in Resources */ = {isa = PBXBuildFile; fileRef = AA2CA37BE6C93E0C73995455 /* markview-research-map-layout.js */; };
 		09159E4A3BC906A91A79C319 /* prism-css.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 6779BE82AF1FEBCC63597CDC /* prism-css.min.js */; };
 		097D04C553ABB64ACED3CAF9 /* XRayDigest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60EBF634DBCC210E31CDDF84 /* XRayDigest.swift */; };
@@ -46,6 +47,7 @@
 		1125E0D20129EA6221EE49A3 /* WorkflowDone.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65D603D742D5409B8353FBB /* WorkflowDone.swift */; };
 		114407D9EFB092F23A6F9E12 /* BrowserPasswords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 007C5A3FE30FBBE5A71A6FA8 /* BrowserPasswords.swift */; };
 		11C3C1C4E28EB8CB51AB48F6 /* IssueSyncRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 297DFB300C5D61C4F3F7D68D /* IssueSyncRun.swift */; };
+		1322824EFF0B6DE396D173B2 /* QANativeActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB59453E1DB3C08D9B9344BB /* QANativeActor.swift */; };
 		13930BD202A1F632A683E466 /* StructuralIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 534BBEA6C51F184621BBDE91 /* StructuralIndexer.swift */; };
 		14DD672AB65415DCCECC7245 /* DocumentFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 659CD2D529EC42B2A426EAAC /* DocumentFiles.swift */; };
 		154E375918D7240F90F0B49F /* SearchPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEBBA8DD1B02E66BC2AFAC6 /* SearchPanelView.swift */; };
@@ -69,6 +71,7 @@
 		21C3DF680F0AC024445812FC /* markview-discussion.js in Resources */ = {isa = PBXBuildFile; fileRef = A054546375B560E45B265A02 /* markview-discussion.js */; };
 		21F2D81534518FADBD10AFE2 /* QARunArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A3539042C8DF4A3A708693 /* QARunArchive.swift */; };
 		21FF5F26DEDCF7BA72BC7314 /* UIStudioEnvironmentMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE76C2ADB908748CA265A52 /* UIStudioEnvironmentMapper.swift */; };
+		229757D6B7C6C6E20D027D20 /* QANativeCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43B45147F81395B566F5E350 /* QANativeCapture.swift */; };
 		232FD1AED8C125EA9BAEAB2A /* BrowserSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF2A565576699E172D2ADE1 /* BrowserSession.swift */; };
 		24A5F71CED74B803814EF7F6 /* CloudServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 221F39018C2CA8AA7FA32473 /* CloudServices.swift */; };
 		24CA3B7AAECDBF270D956080 /* ImportanceRater.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8AEF205A13BAE60E2DC57A7 /* ImportanceRater.swift */; };
@@ -112,6 +115,7 @@
 		3974CB91F607E87654A03E6F /* KaTeX_Main-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = FA0D993DC9B6612A4012A73F /* KaTeX_Main-Regular.woff2 */; };
 		3A43CF8E02C2DF872B9AE1CC /* RemoteConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0FDF0218260B5BA3F8CABD2 /* RemoteConnectionsView.swift */; };
 		3A7797858C429A08562B496E /* FeatureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DE180277E01B9DBC61C4110 /* FeatureModels.swift */; };
+		3A8553BD0417A4C3DED64762 /* QARunCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40EC4D0B33F766DF89989E1 /* QARunCleanup.swift */; };
 		3C66B42CE08BE7AD585AC81A /* BrowserElementPick.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1BAC4896C73C835E150997 /* BrowserElementPick.swift */; };
 		3D26245935F584FAE724710E /* EditorDocumentRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AF52C251F7D6ADAE2EE8DED /* EditorDocumentRouting.swift */; };
 		3D61655E00D985F83F3745AB /* prism-typescript.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 9E66DDC9C3E486A4C1201D62 /* prism-typescript.min.js */; };
@@ -232,6 +236,7 @@
 		6FB910979981EED49A926F3F /* ConflictPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEC026508553C50ACDA4C8E3 /* ConflictPrompt.swift */; };
 		7285247806416EF104B87B80 /* QAGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55FEAEC5DE537EF6BC479D3A /* QAGate.swift */; };
 		730F23C5B6F4B2F9CC919D04 /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ADCB63E2DE221E14BDFEC7C /* TabBarView.swift */; };
+		74421F227DDFABBFB9F463CE /* QANativePermissionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C09F7CEBCE9717896EDDD7 /* QANativePermissionsView.swift */; };
 		74509776B2E78308C373196C /* WikiLinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 237DD0835DF06F9CC7A08573 /* WikiLinkResolver.swift */; };
 		7520B7671FB1C71B40EC8211 /* RemoteConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A29090EAC22CD958E5209927 /* RemoteConnectionState.swift */; };
 		76A3C4055647AC8EE0D50BFE /* prism-json.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 53EE48E0FB60C63546A10ED0 /* prism-json.min.js */; };
@@ -240,6 +245,7 @@
 		776FEA1861EAEFBF60D2630B /* FeatureIntake.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3B487FDAD156AA6D3704A2D /* FeatureIntake.swift */; };
 		7791028ABE7C45E999883813 /* QARunViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10E4370A98A5B1B660C9C42 /* QARunViews.swift */; };
 		7793396F1E2AD46E05AEC4DE /* PanelLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85A5D63235ACB47FEA0FF70C /* PanelLayout.swift */; };
+		78052AF1D55F402DB095B492 /* QANativeTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = 713EE985556D42A0799F6D5E /* QANativeTree.swift */; };
 		784D447C4CCF49DBB8C35126 /* prism-python.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 09BA6E56886771C6F8CC0A4A /* prism-python.min.js */; };
 		7942C7F4CF455563208150A1 /* LifecycleStatusChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = 058C1D9A87ABFF23F7C02515 /* LifecycleStatusChange.swift */; };
 		7A3232D368417A275B24DB31 /* WelcomeActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 513F6F29F8CDE62ED212FBFD /* WelcomeActions.swift */; };
@@ -395,6 +401,7 @@
 		D1FD3981C2CD020AFB417F1D /* PrototypeScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 509E5F08CB6B710DC2F0A4B1 /* PrototypeScreenshots.swift */; };
 		D27B170992C1798ACAFC3080 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0052CFE2D3165B88302550CA /* WelcomeView.swift */; };
 		D32D8185BF1D195E5B68D903 /* HandoffPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0014EBC9E004A6161D90A834 /* HandoffPrompt.swift */; };
+		D395B2E4D6CAC52E1B0FD3B1 /* QALanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B805455800D605FF49948BEF /* QALanguage.swift */; };
 		D3B9E35C99623877CD79BE13 /* IssueReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226F0597A71AE84E53BAA337 /* IssueReconciler.swift */; };
 		D40D607EDA753D4E0873C3A8 /* ProjectChangeReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85C85E2BEE8759104FBAE2CE /* ProjectChangeReview.swift */; };
 		D473D076B8CDB69362293780 /* QAModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3323DFCCDF2491C10061C8C /* QAModel.swift */; };
@@ -425,6 +432,7 @@
 		E038D9416B2960E5EA79CC20 /* SelectionActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F4B562671D5CF6D08403DAE /* SelectionActionBar.swift */; };
 		E076CC8F70521A2CA157D1B1 /* MANIFEST.md in Resources */ = {isa = PBXBuildFile; fileRef = EECF6F51B2E65D4EF42C5C8F /* MANIFEST.md */; };
 		E161A7454C9233FFD975F710 /* UIStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15F3C39CF6E64AB9AA1EDA1B /* UIStudioView.swift */; };
+		E2CE0EB3D3C7C08360E404CF /* QARunRetention.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17D1BEADAB5A6E90B4D5724 /* QARunRetention.swift */; };
 		E3658E0C993163F1E9CD85C4 /* codemirror.bundle.js in Resources */ = {isa = PBXBuildFile; fileRef = F9700BEC91B54521286648B4 /* codemirror.bundle.js */; };
 		E37B57F00EDBD629DF3E4065 /* UIStudioSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3E5C37B252C850C8583ED83 /* UIStudioSession.swift */; };
 		E4180A4A4BFB984356C01CEC /* RemoteChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1ED1471F59C8FDD227A510 /* RemoteChannel.swift */; };
@@ -460,6 +468,7 @@
 		F43E5960AFAD3590DE4669AA /* LinkedFolders.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA5D1BB0D677AB3259D0471 /* LinkedFolders.swift */; };
 		F47ADC8FE5FF5F2CF43F842D /* ResearchMapImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 621553CD6AE189CE8A403253 /* ResearchMapImages.swift */; };
 		F4E8E20ACAFF5B15F70E79AC /* AppFontScale.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4B5A603D8B6885145771D0A /* AppFontScale.swift */; };
+		F509836BF4F5E7C8ECA5FF99 /* QANativeFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E9FB0D7D752EC0B14DA0019 /* QANativeFactory.swift */; };
 		F51DCF6FC060B59DEC100AF0 /* DatabaseExplorer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175983BAF7675BD2CB3EB938 /* DatabaseExplorer.swift */; };
 		F5A6B4994538AD8DB1534251 /* AgentBrowserRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DED21BC61360BE8D42222AB /* AgentBrowserRegistration.swift */; };
 		F5E36DB6F4BA9C780508F211 /* DDESettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41CD9CB6F1AB0F0EE1E1A77 /* DDESettingsView.swift */; };
@@ -517,6 +526,7 @@
 		0D54B115714DE50CAF6CDA0F /* UIStudioRedaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioRedaction.swift; sourceTree = "<group>"; };
 		0D57F87F4A8D759C0EF2BB08 /* QARunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QARunner.swift; sourceTree = "<group>"; };
 		0E76C72A6A93F68BADFA3EFE /* markview-research-map.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map.js"; sourceTree = "<group>"; };
+		0E78CAD403B18B205EB5232E /* QANativeAccessibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QANativeAccessibility.swift; sourceTree = "<group>"; };
 		0ED15DDB619C352BEA2D90F4 /* IssueSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueSync.swift; sourceTree = "<group>"; };
 		1024FF456031B1D1BC834778 /* BookBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookBuilder.swift; sourceTree = "<group>"; };
 		1063B9D7CDA3A8ED21222035 /* UIStudioRealtimePrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioRealtimePrompts.swift; sourceTree = "<group>"; };
@@ -552,6 +562,7 @@
 		1F60ECCDB3C2E43001DA9567 /* tailwind-browser.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "tailwind-browser.js"; sourceTree = "<group>"; };
 		1FE056A3F4F31CCD6B594D3D /* IssueCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueCompletion.swift; sourceTree = "<group>"; };
 		208F3A1A41768480AD365DC2 /* BugBasket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugBasket.swift; sourceTree = "<group>"; };
+		20C09F7CEBCE9717896EDDD7 /* QANativePermissionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QANativePermissionsView.swift; sourceTree = "<group>"; };
 		22188BA397123474A73BE844 /* ExcludedFolders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExcludedFolders.swift; sourceTree = "<group>"; };
 		221F39018C2CA8AA7FA32473 /* CloudServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudServices.swift; sourceTree = "<group>"; };
 		223D8243369C4F080D0ECC84 /* markdown-it-container.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markdown-it-container.min.js"; sourceTree = "<group>"; };
@@ -581,6 +592,7 @@
 		2CE23AFAF75C072899E5648F /* IncrementalCompiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncrementalCompiler.swift; sourceTree = "<group>"; };
 		2D2ABE405832861ECB534048 /* katex.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = katex.min.js; sourceTree = "<group>"; };
 		2DDC0BA825074D867C9D7697 /* OutputLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputLanguage.swift; sourceTree = "<group>"; };
+		2E9FB0D7D752EC0B14DA0019 /* QANativeFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QANativeFactory.swift; sourceTree = "<group>"; };
 		2EB46759349C74CBC6AA73CF /* KaTeX_SansSerif-Bold.woff2 */ = {isa = PBXFileReference; path = "KaTeX_SansSerif-Bold.woff2"; sourceTree = "<group>"; };
 		31031C9C0DD0A49B59264431 /* IssueLifecycleEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueLifecycleEvidence.swift; sourceTree = "<group>"; };
 		316A83CA88604AE6241AEEF5 /* QAAttachments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAAttachments.swift; sourceTree = "<group>"; };
@@ -620,6 +632,7 @@
 		4290F1912EB67F6DD7EB9033 /* UIStudioStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioStore.swift; sourceTree = "<group>"; };
 		437E30B3E5F2185484ADA2D6 /* UIStudioSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioSelection.swift; sourceTree = "<group>"; };
 		43880FB3F93C0C307561B6E5 /* PrototypeHandoffRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeHandoffRun.swift; sourceTree = "<group>"; };
+		43B45147F81395B566F5E350 /* QANativeCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QANativeCapture.swift; sourceTree = "<group>"; };
 		43F98342E7F3820A62C4E015 /* AIAssistants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistants.swift; sourceTree = "<group>"; };
 		440AF91F7109BA8A660AAEDA /* PrototypeBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeBaseline.swift; sourceTree = "<group>"; };
 		4476564C206A053C69214BEC /* WorkflowProcessControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowProcessControls.swift; sourceTree = "<group>"; };
@@ -715,6 +728,7 @@
 		6F6EDEA395D89B943EAE23AF /* cytoscape.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = cytoscape.min.js; sourceTree = "<group>"; };
 		6F838E4C058CBCE7B35D7EBE /* PullRequestHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullRequestHistory.swift; sourceTree = "<group>"; };
 		713A7BA330E95450C16AA739 /* WorkflowTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowTemplate.swift; sourceTree = "<group>"; };
+		713EE985556D42A0799F6D5E /* QANativeTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QANativeTree.swift; sourceTree = "<group>"; };
 		742C86DB2E06D30F04526A63 /* QABugs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QABugs.swift; sourceTree = "<group>"; };
 		747C5366B2EBA397F5F91CF7 /* CodeExplainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeExplainer.swift; sourceTree = "<group>"; };
 		75EAFF59D525BADEE5D10341 /* prism.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = prism.min.js; sourceTree = "<group>"; };
@@ -835,6 +849,7 @@
 		B5FE2B5578EB5A351D1AC228 /* EmbeddingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingClient.swift; sourceTree = "<group>"; };
 		B6B0748CACE05B758D369F89 /* ArchitectureModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureModel.swift; sourceTree = "<group>"; };
 		B7A94AF6F62E56BA9F174E2E /* EditorWindowPrefs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorWindowPrefs.swift; sourceTree = "<group>"; };
+		B805455800D605FF49948BEF /* QALanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QALanguage.swift; sourceTree = "<group>"; };
 		B899AF32F819BB9FA6CA770F /* markview-web-only.mjs */ = {isa = PBXFileReference; path = "markview-web-only.mjs"; sourceTree = "<group>"; };
 		B89F1284B57A1B17703A148F /* WorkflowProposal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowProposal.swift; sourceTree = "<group>"; };
 		B9352C3EC3E8CCF2B38B41AF /* AgentActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivity.swift; sourceTree = "<group>"; };
@@ -854,6 +869,7 @@
 		C0E8670B2DD2EE667B3BDF94 /* PTYWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYWriter.swift; sourceTree = "<group>"; };
 		C10E4370A98A5B1B660C9C42 /* QARunViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QARunViews.swift; sourceTree = "<group>"; };
 		C1352CCA937A85BB9BD45E31 /* ImageAttachmentViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageAttachmentViews.swift; sourceTree = "<group>"; };
+		C17D1BEADAB5A6E90B4D5724 /* QARunRetention.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QARunRetention.swift; sourceTree = "<group>"; };
 		C1816FF9F2B5D0B46742FD13 /* PrototypeSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeSchemeHandler.swift; sourceTree = "<group>"; };
 		C18592F11080A421A6A1EC86 /* ListSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListSelection.swift; sourceTree = "<group>"; };
 		C1D927D442B92D66E708016C /* DeploymentLogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentLogs.swift; sourceTree = "<group>"; };
@@ -932,6 +948,7 @@
 		EA8528AC59F5DF6B456427AB /* PrototypeFeatureWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeFeatureWriter.swift; sourceTree = "<group>"; };
 		EA88118ECF6D4FADB320FA0B /* GitHubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubViews.swift; sourceTree = "<group>"; };
 		EA8DF6857E5E8CBFBDCAB042 /* RemoteProviderConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteProviderConfiguration.swift; sourceTree = "<group>"; };
+		EB59453E1DB3C08D9B9344BB /* QANativeActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QANativeActor.swift; sourceTree = "<group>"; };
 		EBBC3BCA498B63EB02AAD0C3 /* KaTeX_Fraktur-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Fraktur-Regular.woff2"; sourceTree = "<group>"; };
 		EBF852F0FD6018D2E711401C /* PrototypeAI+Handoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PrototypeAI+Handoff.swift"; sourceTree = "<group>"; };
 		EC1C0A804E69DC5393170AEF /* WindowUIState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowUIState.swift; sourceTree = "<group>"; };
@@ -956,6 +973,7 @@
 		F21E96FB5400057E1B7290BB /* MarkViewDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MarkViewDebug.entitlements; sourceTree = "<group>"; };
 		F3352D93C2368769940952CA /* QAVideoWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAVideoWriter.swift; sourceTree = "<group>"; };
 		F3E5C37B252C850C8583ED83 /* UIStudioSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioSession.swift; sourceTree = "<group>"; };
+		F40EC4D0B33F766DF89989E1 /* QARunCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QARunCleanup.swift; sourceTree = "<group>"; };
 		F43C1666D920639C5EE347C0 /* prism-diff-highlight.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "prism-diff-highlight.css"; sourceTree = "<group>"; };
 		F4700050C38EAE4C47A81DF3 /* AICallLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICallLog.swift; sourceTree = "<group>"; };
 		F4755545E00CAA90E990A42E /* PDFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExporter.swift; sourceTree = "<group>"; };
@@ -1219,15 +1237,23 @@
 				FE435E3B14E793F9ECF7A958 /* QAGeneration.swift */,
 				1D558DCC55368F2BE1A3B6F8 /* QAGenerator.swift */,
 				96084ABA742E8FA2AE114701 /* QAGraphLayout.swift */,
+				B805455800D605FF49948BEF /* QALanguage.swift */,
 				A3323DFCCDF2491C10061C8C /* QAModel.swift */,
+				0E78CAD403B18B205EB5232E /* QANativeAccessibility.swift */,
+				EB59453E1DB3C08D9B9344BB /* QANativeActor.swift */,
+				43B45147F81395B566F5E350 /* QANativeCapture.swift */,
+				2E9FB0D7D752EC0B14DA0019 /* QANativeFactory.swift */,
+				713EE985556D42A0799F6D5E /* QANativeTree.swift */,
 				E10AB314CA9B3FD3A9A58668 /* QAPageEvidence.swift */,
 				BB11D14E6C7D38C077EA5F76 /* QAPlan.swift */,
 				4C962D2FF69ED9F7B8FC0246 /* QAReview.swift */,
 				9C0F0778AC373BF137EF446E /* QARun.swift */,
 				11A3539042C8DF4A3A708693 /* QARunArchive.swift */,
 				B51DE8014E6E4B9D5269BD52 /* QARunAssistant.swift */,
+				F40EC4D0B33F766DF89989E1 /* QARunCleanup.swift */,
 				7D46002722875833F7A19B74 /* QARunModel.swift */,
 				0D57F87F4A8D759C0EF2BB08 /* QARunner.swift */,
+				C17D1BEADAB5A6E90B4D5724 /* QARunRetention.swift */,
 				57195BF70E262DF4C8B69EC4 /* QAScenario.swift */,
 				90FCA2443C336463EAA203D9 /* QAScenarioEdit.swift */,
 				00D71797461F43394D99C212 /* QAStore.swift */,
@@ -1373,6 +1399,7 @@
 				2663026CFBB201AA64A26D4C /* PrototypeCreatorSheet.swift */,
 				901ED09E28D33F6F03D15605 /* PrototypeHandoffDraftView.swift */,
 				392E7835EA61B16C2B0E7E47 /* PrototypeStudioView.swift */,
+				20C09F7CEBCE9717896EDDD7 /* QANativePermissionsView.swift */,
 				1A5ACB41B09A7CAA9487E146 /* QARunReportViews.swift */,
 				C10E4370A98A5B1B660C9C42 /* QARunViews.swift */,
 				A30641E2E975FB73B547CA90 /* QAViews.swift */,
@@ -2013,15 +2040,24 @@
 				2794E092F9203F798EECD669 /* QAGeneration.swift in Sources */,
 				0B7AE7B244602C6E7C35AC8D /* QAGenerator.swift in Sources */,
 				D8B21AE6CF9269564BC7A004 /* QAGraphLayout.swift in Sources */,
+				D395B2E4D6CAC52E1B0FD3B1 /* QALanguage.swift in Sources */,
 				D473D076B8CDB69362293780 /* QAModel.swift in Sources */,
+				08B8F63E9D781DFD3300A038 /* QANativeAccessibility.swift in Sources */,
+				1322824EFF0B6DE396D173B2 /* QANativeActor.swift in Sources */,
+				229757D6B7C6C6E20D027D20 /* QANativeCapture.swift in Sources */,
+				F509836BF4F5E7C8ECA5FF99 /* QANativeFactory.swift in Sources */,
+				74421F227DDFABBFB9F463CE /* QANativePermissionsView.swift in Sources */,
+				78052AF1D55F402DB095B492 /* QANativeTree.swift in Sources */,
 				FF7B7975E6E5BB57226F4446 /* QAPageEvidence.swift in Sources */,
 				3D9F7C1BE6A07DE7E8BFAF39 /* QAPlan.swift in Sources */,
 				B18CF619098763A533B8FA36 /* QAReview.swift in Sources */,
 				FF99949FBDA0BB735F226A9B /* QARun.swift in Sources */,
 				21F2D81534518FADBD10AFE2 /* QARunArchive.swift in Sources */,
 				03CC33F577463F4CDCCA922A /* QARunAssistant.swift in Sources */,
+				3A8553BD0417A4C3DED64762 /* QARunCleanup.swift in Sources */,
 				395EC0951639484409583553 /* QARunModel.swift in Sources */,
 				E6D7BF0EF4ED57F0D831693B /* QARunReportViews.swift in Sources */,
+				E2CE0EB3D3C7C08360E404CF /* QARunRetention.swift in Sources */,
 				7791028ABE7C45E999883813 /* QARunViews.swift in Sources */,
 				E5ED77DE6531880AA6E5FF7E /* QARunner.swift in Sources */,
 				CF7A26CEDC4BBB7CAD24A3D5 /* QAScenario.swift in Sources */,
@@ -2193,7 +2229,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.61.1;
+				CURRENT_PROJECT_VERSION = 5.62.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -2208,7 +2244,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.61.1;
+				MARKETING_VERSION = 5.62.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -2272,7 +2308,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.61.1;
+				CURRENT_PROJECT_VERSION = 5.62.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -2293,7 +2329,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.61.1;
+				MARKETING_VERSION = 5.62.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

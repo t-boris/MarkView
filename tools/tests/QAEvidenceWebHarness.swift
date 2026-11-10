@@ -1,9 +1,12 @@
-// The script that measures a page for the step-by-step review (QAPageEvidence.script, feature end-to-end-qa REQ-008), run in a real
+// The script that measures a page for the step-by-step review (QAPageEvidence.script, feature end-to-end-qa REQ-008, REQ-007), run in a real
 // WKWebView against small fixture pages: tiny text, weak contrast, clipped content, small click targets, a page wider than the window,
-// controls with no name, skipped headings, and the guarantee that nothing a person typed ever leaves the page.
+// controls with no name, skipped headings, the timing of the page's requests, the controls automation could only find by position, and the
+// guarantee that nothing a person typed, and no query string, ever leaves the page.
 // Compiled with Models/QAPageEvidence.swift by tools/tests/qa-evidence-web-tests.sh. The window is never shown: an accessory app, a
-// borderless window far off screen with alpha 0 that is never ordered front.
+// borderless window far off screen with alpha 0 that is never ordered front. The requests go to a small server on the loopback interface
+// that lives as long as the test (WebKit times the requests of http pages only, and it needs one that can answer late).
 import AppKit
+import Network
 import WebKit
 
 // A hung page must not hang the test run: print every line at once and stop with the last step reached.
@@ -62,6 +65,24 @@ final class Page: NSObject, WKNavigationDelegate {
         return loaded && navigationError == nil
     }
 
+    func load(url: URL) -> Bool {
+        loaded = false
+        navigationError = nil
+        web.load(URLRequest(url: url))
+        spin(20) { loaded }
+        return loaded && navigationError == nil
+    }
+
+    /// Waits until a JavaScript expression is true in the page.
+    func waitFor(_ expression: String, timeout: TimeInterval = 20) -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end {
+            if (eval(expression).value as? Bool) == true { return true }
+            spin(0.05)
+        }
+        return false
+    }
+
     func eval(_ script: String, timeout: TimeInterval = 20) -> (value: Any?, error: String?) {
         var done = false
         var value: Any?
@@ -76,6 +97,84 @@ final class Page: NSObject, WKNavigationDelegate {
     }
 }
 
+/// An HTTP server on 127.0.0.1 with a free port. `/page/<name>` answers with the HTML registered under that name; any other address answers
+/// `{"ok":true}`, after `delay` milliseconds when the query string has `delay=<n>`.
+final class FixtureServer {
+    private let queue = DispatchQueue(label: "qa-fixture-server")
+    private let lock = NSLock()
+    private var pages: [String: String] = [:]
+    private var listener: NWListener?
+    private var listening = false
+    private(set) var port: UInt16 = 0
+
+    /// True when the server is accepting connections; false when it could not start.
+    func start() -> Bool {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
+        guard let listener = try? NWListener(using: parameters) else { return false }
+        self.listener = listener
+        var failed = false
+        listener.stateUpdateHandler = { [self] state in
+            lock.lock(); defer { lock.unlock() }
+            switch state {
+            case .ready: port = listener.port?.rawValue ?? 0; listening = port != 0
+            case .failed, .cancelled: failed = true
+            default: break
+            }
+        }
+        listener.newConnectionHandler = { [self] connection in
+            connection.start(queue: queue)
+            receive(connection, Data())
+        }
+        listener.start(queue: queue)
+        spin(10) { lock.lock(); defer { lock.unlock() }; return listening || failed }
+        lock.lock(); defer { lock.unlock() }
+        return listening
+    }
+
+    func register(_ name: String, html: String) {
+        lock.lock(); pages[name] = html; lock.unlock()
+    }
+
+    func address(_ path: String) -> URL { URL(string: "http://127.0.0.1:\(port)\(path)")! }
+
+    private func receive(_ connection: NWConnection, _ received: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [self] data, _, isComplete, error in
+            var request = received
+            if let data { request.append(data) }
+            if request.range(of: Data("\r\n\r\n".utf8)) != nil {
+                respond(connection, to: String(decoding: request, as: UTF8.self))
+            } else if error != nil || isComplete {
+                connection.cancel()
+            } else {
+                receive(connection, request)
+            }
+        }
+    }
+
+    private func respond(_ connection: NWConnection, to request: String) {
+        let target = request.split(separator: " ", maxSplits: 2).dropFirst().first.map(String.init) ?? "/"
+        let parts = target.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        let route = String(parts[0].split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)[0])
+        let query = parts.count > 1 ? String(parts[1]).split(separator: "#")[0] : ""
+        let delay = query.split(separator: "&").compactMap { pair -> Int? in
+            let kv = pair.split(separator: "=", maxSplits: 1)
+            return kv.count == 2 && kv[0] == "delay" ? Int(kv[1]) : nil
+        }.first ?? 0
+        var body = "{\"ok\":true}", type = "application/json"
+        if route.hasPrefix("/page/") {
+            lock.lock(); body = pages[String(route.dropFirst(6))] ?? ""; lock.unlock()
+            type = "text/html; charset=utf-8"
+        }
+        let payload = Data(body.utf8)
+        let head = "HTTP/1.1 200 OK\r\nContent-Type: \(type)\r\nContent-Length: \(payload.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+        queue.asyncAfter(deadline: .now() + .milliseconds(delay)) {
+            connection.send(content: Data(head.utf8) + payload, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in connection.cancel() })
+        }
+    }
+}
+
+let server = FixtureServer()
 let page = Page()
 
 struct Measured {
@@ -97,6 +196,24 @@ func measure(_ step: String, body: String, bodyStyle: String = "", before: Strin
         let result = page.eval(before)
         check("\(step): the page was prepared", result.error == nil, result.error ?? "")
     }
+    let start = Date()
+    let result = page.eval(QAPageEvidence.script)
+    let seconds = Date().timeIntervalSince(start)
+    let raw = result.value as? String ?? ""
+    check("\(step): the script returns a JSON string", result.error == nil && !raw.isEmpty, result.error ?? String(describing: result.value))
+    return Measured(raw: raw, evidence: QAPageEvidence.parse(raw), seconds: seconds)
+}
+
+/// Serves a fixture page from the loopback server, waits until its own script says it is done (`window.qaDone`), and runs the measuring script.
+func measureServed(_ step: String, name: String, script: String) -> Measured {
+    lastStep = step
+    server.register(name, html: """
+    <!doctype html><html><head><meta charset="utf-8"><title>Fixture</title>
+    <style>body{margin:8px;font:16px/1.4 Helvetica,Arial,sans-serif;color:#111;background:#fff}</style></head>
+    <body><h1>Orders</h1><p>Ordinary paragraph text.</p><script>window.qaDone = false; \(script)</script></body></html>
+    """)
+    check("\(step): the served page loads", page.load(url: server.address("/page/\(name)")), page.navigationError ?? "")
+    check("\(step): the page's requests finished", page.waitFor("window.qaDone === true"))
     let start = Date()
     let result = page.eval(QAPageEvidence.script)
     let seconds = Date().timeIntervalSince(start)
@@ -318,12 +435,115 @@ do {
     check("typed values: the visible text of the page still is", e?.smallText.samples.first?.hasPrefix("p \"Visible text only\" 9px @") == true, secret.raw)
 }
 
+// MARK: - Request timings
+
+check("request timings: the fixture server is listening on the loopback interface", server.start(), "the server did not start")
+do {
+    let timed = measureServed("request timings", name: "timed", script: """
+    var legacy = new Promise(function (resolve) {
+      var x = new XMLHttpRequest();
+      x.open('GET', '/api/legacy;jsessionid=ABC123?delay=250&user=alice');
+      x.onloadend = resolve;
+      x.send();
+    });
+    Promise.all([fetch('/api/orders?delay=450&token=hunter2-SECRET#frag'), fetch('/api/fast'), legacy]).then(function () { window.qaDone = true; });
+    """)
+    let e = timed.evidence
+    let slowest = e?.slowestRequests ?? []
+    check("request timings: the document and the three requests are counted", e?.requestCount == 4, timed.raw)
+    check("request timings: the slowest request is named by its path alone, with what started it and how long it took",
+          slowest.first?.path == "/api/orders" && slowest.first?.initiator == "fetch" && (400...5000).contains(slowest.first?.milliseconds ?? 0), timed.raw)
+    check("request timings: the next one is the old-style request, without its session parameter",
+          slowest.count >= 2 && slowest[1].path == "/api/legacy" && slowest[1].initiator == "xmlhttprequest" && (200...5000).contains(slowest[1].milliseconds), timed.raw)
+    check("request timings: slowest first, at most three, none under 50 ms",
+          slowest.count <= QAPageEvidence.maxRequests && slowest.map(\.milliseconds) == slowest.map(\.milliseconds).sorted(by: >) && slowest.allSatisfy { $0.milliseconds >= 50 }, timed.raw)
+    check("request timings: no query string, fragment, session parameter or value of a query leaves the page",
+          ["hunter2", "SECRET", "alice", "ABC123", "jsessionid", "frag", "delay", "token", "?", "#"].allSatisfy { !timed.raw.contains($0) }, timed.raw)
+    check("request timings: slow requests are facts, not defects: the page is still clean and its summary empty", e?.isClean == true && e?.summary.isEmpty == true, timed.raw)
+    check("request timings: the summary names the count and the slowest", e?.timingSummary.hasPrefix("4 requests timed; slowest: /api/orders (fetch) ") == true, e?.timingSummary ?? "")
+
+    let many = measureServed("many requests", name: "many", script: """
+    Promise.all(['one', 'two', 'three', 'four', 'five'].map(function (n, i) { return fetch('/slow/' + n + '?delay=' + (100 * (i + 1))); }))
+      .then(function () { window.qaDone = true; });
+    """)
+    check("many requests: all are counted, only the three slowest are named, in order",
+          many.evidence?.requestCount == 6 && many.evidence?.slowestRequests.map(\.path) == ["/slow/five", "/slow/four", "/slow/three"], many.raw)
+
+    let quick = measureServed("quick requests", name: "quick", script: "fetch('/api/fast').then(function () { window.qaDone = true; });")
+    check("quick requests: nothing under 50 ms is named, and the summary says so",
+          quick.evidence?.requestCount == 2 && quick.evidence?.slowestRequests.isEmpty == true && quick.evidence?.timingSummary == "2 requests timed, none took 50 ms or more", quick.raw)
+}
+
+// MARK: - Controls automation could only find by position
+
+do {
+    let identified = measure("identifiers", body: """
+    <button style="width:60px;height:30px">Save</button>
+    <button id="export" style="width:30px;height:30px"></button>
+    <button data-testid="menu" style="width:30px;height:30px"></button>
+    <button data-test="a" style="width:30px;height:30px"></button>
+    <button data-qa="b" style="width:30px;height:30px"></button>
+    <button data-cy="c" style="width:30px;height:30px"></button>
+    <input type="text" name="q" style="height:30px">
+    <button aria-label="Close" style="width:30px;height:30px"></button>
+    <a href="/orders" style="display:inline-block;padding:10px">Orders</a>
+    <input type="hidden" name="csrf">
+    <a name="top" style="display:inline-block;width:30px;height:30px"></a>
+    <div role="button" style="width:60px;height:30px">Run</div>
+    <select aria-label="Sort" style="height:30px"><option>One</option></select>
+    <button style="display:none"></button>
+    <label>Email <input type="email" style="height:30px"></label>
+    <input type="text" placeholder="Search" style="height:30px">
+    <button style="width:30px;height:30px"><svg width="16" height="16"><path d="M0 0h16v16H0z"/></svg></button>
+    <a href="/pic" style="display:inline-block;padding:10px"><img alt="" width="16" height="16" src="\(tinyGif)"></a>
+    <input type="text" style="height:30px">
+    <div role="button" style="width:30px;height:30px"></div>
+    <span role="link" style="display:inline-block;width:30px;height:30px"></span>
+    <textarea style="height:40px;width:100px"></textarea>
+    <select style="height:30px"><option>One</option></select>
+    """)
+    let e = identified.evidence
+    check("identifiers: the seven controls with no id, name, test attribute, aria-label or text label are counted among twenty", e?.withoutStableId.count == 7 && e?.interactiveControls == 20, identified.raw)
+    check("identifiers: the samples are the first five, by tag and place, in page order",
+          e?.withoutStableId.samples.count == 5 && e?.withoutStableId.samples.map { $0.split(separator: " ")[0] } == ["button", "a", "input[text]", "div", "span"], identified.raw)
+    check("identifiers: a control with only an id, a name or a test attribute is unlabeled but identifiable, so the two tallies differ", e?.unlabeledControls.count == 13, identified.raw)
+    check("identifiers: they are facts, not defects: nothing else is flagged", e?.smallText.count == 0 && e?.lowContrast.count == 0 && e?.clipped.count == 0, identified.raw)
+    check("identifiers: the summary says how many of how many", e?.automationSummary.hasPrefix("Buttons, links and fields: 20; with no id, name, test attribute") == true
+          && e?.automationSummary.contains("by position: 7 (e.g. button @") == true, e?.automationSummary ?? "")
+
+    let allNamed = measure("every control identified", body: "<button id=\"a\" style=\"width:30px;height:30px\"></button><a href=\"/x\" style=\"display:inline-block;padding:10px\">Home</a>")
+    check("identifiers: a page whose controls all have an id or a label has none to report",
+          allNamed.evidence?.withoutStableId.count == 0 && allNamed.evidence?.interactiveControls == 2
+              && allNamed.evidence?.automationSummary == "Buttons, links and fields: 2; every one has an id, a name, a test attribute or a label", allNamed.raw)
+    let none = measure("no controls", body: "<p>Just text.</p>")
+    check("identifiers: a page with no controls says nothing about them", none.evidence?.interactiveControls == 0 && none.evidence?.automationSummary.isEmpty == true, none.raw)
+
+    let typed = measure("typed values in unidentified fields", body: """
+    <input type="password" style="width:60px;height:30px">
+    <input type="text" style="width:60px;height:30px" value="prefilled-attribute-secret">
+    <textarea style="width:60px;height:30px">default-text-in-textarea</textarea>
+    <select style="width:60px;height:30px"><option>option-text-secret</option></select>
+    """, before: """
+    var fields = document.querySelectorAll('input,textarea');
+    fields[0].value = 'hunter2-TYPED'; fields[1].value = 'alice@example.com-TYPED'; fields[2].value = 'typed-in-textarea';
+    """)
+    let leaks = ["hunter2", "alice@example", "prefilled-attribute-secret", "default-text-in-textarea", "typed-in-textarea", "option-text-secret", "TYPED"]
+    check("identifiers: the typed and default values of fields are not in the result", leaks.allSatisfy { !typed.raw.contains($0) }, typed.raw)
+    check("identifiers: the fields themselves are counted, by tag and type",
+          typed.evidence?.withoutStableId.count == 4 && typed.evidence?.withoutStableId.samples.map { $0.split(separator: " ")[0] } == ["input[password]", "input[text]", "textarea", "select"], typed.raw)
+}
+
 // MARK: - Many offenders, a measurement that fails
 
 do {
     let many = measure("many offenders", body: (1...200).map { "<p style=\"font-size:9px\">Small paragraph \($0)</p>" }.joined())
     check("many offenders: every one is counted but only five are described", many.evidence?.smallText.count == 200 && many.evidence?.smallText.samples.count == 5, many.raw)
     check("many offenders: the answer stays small and quick", many.raw.utf8.count < 3000 && many.seconds < 5, "\(many.raw.utf8.count) bytes, \(many.seconds) s")
+
+    let controls = measure("many controls", body: (1...300).map { _ in "<button style=\"width:30px;height:30px\"><svg width=\"8\" height=\"8\"><path d=\"M0 0h8v8H0z\"/></svg></button>" }.joined())
+    check("many controls: every one with no id or label is counted but only five are described",
+          controls.evidence?.withoutStableId.count == 300 && controls.evidence?.interactiveControls == 300 && controls.evidence?.withoutStableId.samples.count == 5, controls.raw)
+    check("many controls: the answer stays small and quick", controls.raw.utf8.count < 3000 && controls.seconds < 5, "\(controls.raw.utf8.count) bytes, \(controls.seconds) s")
 
     let broken = measure("failing measurement", body: "<p>Text</p>", before: "window.getComputedStyle = function () { throw new Error('blocked'); }; 'ready'")
     check("failing measurement: the script says it failed instead of reporting a clean page", broken.raw.contains("\"failed\":true"), broken.raw)

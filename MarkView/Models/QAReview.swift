@@ -27,6 +27,8 @@ struct QAReviewInput {
     /// True when this is the screen the step ended on; false when it was shown while the step was still being carried out, before its
     /// last action, so what the step does is not on it yet.
     var endOfStep = true
+    /// The name of the language the scenario is written in (`QALanguage`); the findings are asked for in it. Nil keeps the general wording.
+    var language: String? = nil
 }
 
 enum QAReview {
@@ -155,12 +157,22 @@ enum QAReview {
             if input.branchEffort.milliseconds > 0 { times.append("the branch so far \(durationText(input.branchEffort.milliseconds))") }
             if let load = input.evidence?.loadMilliseconds { times.append("page load \(durationText(load))") }
             speed += times.isEmpty ? " No times were measured for this screen." : " Measured times: " + times.joined(separator: ", ") + "."
-            lines += [speed, ""]
+            lines.append(speed)
+            if let timing = input.evidence?.timingSummary, !timing.isEmpty {
+                lines.append("Request timings, MEASURED by the browser for this page since it loaded (do not recount or estimate them): \(timing).")
+            }
+            lines.append("")
         }
         if input.app.profile.assessesAutomation {
-            lines += ["Automation readiness (this application must be ready for automation): point out buttons, fields and links that have no stable identifier or clear "
-                      + "label (visible text or an accessible name), addresses that are not predictable, actions that cannot be repeated safely, and results that can "
-                      + "only be read by guessing (no confirmation text, no status). The measurements below list controls with no accessible name.", ""]
+            lines.append("Automation readiness (this application must be ready for automation): point out buttons, fields and links that have no stable identifier or clear "
+                         + "label (visible text or an accessible name), addresses that are not predictable, actions that cannot be repeated safely, and results that can "
+                         + "only be read by guessing (no confirmation text, no status). The measurements below list controls with no accessible name. "
+                         + "In every finding about automation, name the requirement it concerns from the list above.")
+            if let identifiers = input.evidence?.automationSummary, !identifiers.isEmpty {
+                lines.append("Identifiers, MEASURED in the page (do not recount them): \(identifiers). "
+                             + "Judge the rest yourself from the screenshot and the page text: predictable addresses, actions that can be repeated safely, results that can be read without guessing.")
+            }
+            lines.append("")
         }
 
         if let evidence = input.evidence {
@@ -201,7 +213,9 @@ enum QAReview {
         lines.append("- Controls or information that are missing here, and controls that are superfluous.")
         lines.append("- Extra steps: screens, confirmations or inputs the person does not need, judged against the measured effort.")
         lines.append("- Defects: things that do not work (an error shown, a control that does nothing, wrong data, overlapping or broken elements). Set isDefect to true for them.")
-        if let node = input.node {
+        if let language = input.language {
+            lines.append("Write the findings in \(language), the language of the scenario, whatever language the application is in. Return them as the structured answer.")
+        } else if let node = input.node {
             lines.append("Write the findings in the language the step titles are written in (for example: \"\(oneLine(node.title, 80))\"). Return them as the structured answer.")
         } else {
             lines.append("Write the findings in the language of the page text. Return them as the structured answer.")

@@ -176,7 +176,9 @@ final class QAModel: ObservableObject {
 
     /// Starts the check of the chosen branches. Only an approved plan runs; the run takes its own copy of the scenario and the approval.
     func startRun() {
-        guard let current, current.appKind == .web, let plan, let gate, let root, gate.canPrepare, !run.isRunning else { return }
+        guard let current, let plan, let gate, let root, gate.canPrepare, !run.isRunning else { return }
+        // A native check drives and watches another application, which the system has to allow first (the Run panel says what is missing).
+        if current.appKind == .nativeMacOS && QANativePermissions.current != .granted { return }
         flush()
         run.start(scenario: current, plan: plan, gate: gate, root: root)
     }

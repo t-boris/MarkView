@@ -5455,3 +5455,39 @@ dismissed as a wrong `pick`.
 - [x] Verified in the probe: three pictures in a row keep {1280, 892}, the third opens on "3 of 3".
 - [x] Lesson written (tasks/lessons.md): an odd snapshot of a window I just opened is a finding; test open-twice paths.
 - [ ] Boris to check the viewer in the installed 5.61.1 (not installed yet).
+
+# End-to-End QA: finish the feature (2026-11-10)
+
+Boris: "bring the requirements and decisions in order AND finish the feature". Feature status set to `in-progress` (it had been reopened to `ready` by the BUG-124 regression report).
+Answers (2026-11-10): Q-009 = A (one application type per scenario, DEC-007 stays); Q-010 = A (keep the newest 5 runs per scenario plus every run a filed bug
+points to, delete the rest when a run starts, "Delete run" and "Delete all runs of this scenario" in the Run panel); the assistant may approve REQ-006..009 and accept
+DEC-013..015 and DEC-017..022 once their text matches DEC-023 and what was built. New idea from Boris, recorded as Q-011 (not built): an HTTP/REST service as a third
+application type. Delivery as before: straight to `main`, no branches, one version bump and one release at the end, nothing installed without his word.
+
+- [x] 1. Spec: Q-009/Q-010 answered; REQ-016 and DEC-025 added; DEC-013..015 and DEC-017..022 and REQ-002..009 rewritten to match DEC-023 and the code; REQ-006..009 approved and DEC-013..015, DEC-017..022 accepted (Boris said yes); criteria ticked where a suite or a live run proves them (the rest listed below).
+- [x] 2. Native player (S8, DEC-008/012/017): `QANativeActor`, `QANativeAccessibility`, `QANativeCapture`, `QANativeTree`, `QANativeDriverFactory` with the permissions model.
+- [x] 3. Run cleanup (REQ-016): `QARunRetention` (pure rule), `QARunCleanup`, `QAStore.deleteRun(s)`, automatic prune at run start, "Delete run" and "Delete all runs of this scenario".
+- [x] 4. Integration: native address from the bundle identifier, "window" prompts for native, factory by the scenario's kind, the Run panel shows the Accessibility / Screen Recording status.
+- [x] 5. Checks: all QA suites pass (`qa-tests`, `qa-native-tests` with its live part and two players, `qa-retention-tests`, `qa-review-tests`, `qa-bugs-tests`, `qa-video-tests`); Debug build; live runs in the invisible probe with the real assistant (below).
+- [ ] 6. Docs (module doc, README, lessons), `./bump-version.sh minor`, commit to main, release once, feature to `in-review`.
+
+## Review: End-to-End QA finished (5.62.0)
+Live, in the invisible probe with the real Claude CLI:
+- Native: `Tests/Fixtures/qa-native-demo` through a scenario with a main line and a wrong-password branch: both passed, English narration, 5 and 3 steps, a video per branch
+  (1.0-1.7 MB), 12-13 review findings with pictures. A check made false on purpose (the greeting names Bob) came out `failed` with the reason, and filed BUG-001 with the steps,
+  the outcome and four frames. Two players of one application ran in two instances with their own state, in turns (`liveTwoPlayers`).
+- Web: the garden-request scenario on a local site with a test account: passed in 20 s, English narration, video, 14 findings.
+- Cleanup: with eight old runs on disk, starting a run left the four newest and the new one. The runs list and the confirmation alert open; the alert's buttons are a system
+  sheet the probe cannot press, so the actual deletion by hand is covered by `qa-retention-tests` only.
+Found and fixed on the way:
+- The probe made the launched application's windows transparent (the application inherited `DYLD_INSERT_LIBRARIES`): `mvprobe.m` now acts only in the MarkView process (lesson written).
+- Narration and findings came back in random languages: `QALanguage` names the scenario's language in the step and review prompts (REQ-009, DEC-022), checked in four live runs.
+Not done, left open on purpose:
+- REQ-009 criterion 1: a run with recording off does not say so in its report. REQ-007 criterion 6: a finding names its application, not the requirement. REQ-006 criteria 4
+  and 5: no live run of three applications and five players, and the generator's use of named applications is only checked with a made-up assistant. REQ-016 criterion 2:
+  the confirmation text with the count and size was not read in the live app.
+- The step cache (DEC-013 said it, the text now says it is not built) and Q-011 (an HTTP service type, open).
+- The first run after the install deletes the backlog of old runs that no bug names (by design, REQ-016).
+- Not hand-checked in the installed app: the Accessibility and Screen Recording grant flow (a Debug build loses the grants on each rebuild; a signed build keeps them).
+
+Not in this release: Q-009 mixing, Q-011 HTTP service type.

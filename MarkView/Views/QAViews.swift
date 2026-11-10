@@ -1003,6 +1003,7 @@ struct QARunPanel: View {
     @ObservedObject private var run: QARunModel
     let scenario: QAScenario
     @State private var acknowledged = false
+    @State private var permissions = QANativePermissions.current
 
     init(model: QAModel, scenario: QAScenario) {
         self.model = model
@@ -1129,13 +1130,14 @@ struct QARunPanel: View {
                 }
                 .help("After a step the assistant looks at the screen and says what could be better: layout, fonts, missing or superfluous controls, extra stages")
                 if scenario.appKind == .nativeMacOS {
-                    Text("Checking a native macOS application is not available yet: this version runs web applications. The scenario can still be written and edited.")
-                        .uiFont(size: 10.5).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
-                } else if run.isRunning {
+                    QANativePermissionsView(status: permissions, refresh: { permissions = QANativePermissions.current })
+                }
+                if run.isRunning {
                     Button("Show the run") { run.show() }
                 } else {
                     HStack {
                         Button("Start the check") { run.show(); model.startRun() }.buttonStyle(.borderedProminent)
+                            .disabled(scenario.appKind == .nativeMacOS && permissions != .granted)
                         if run.phase == .finished && run.scenario?.id == scenario.id {
                             Button("Show the last run") { run.show() }
                         }

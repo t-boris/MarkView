@@ -344,12 +344,15 @@ plain Markdown.
   (steps are buttons, drag from one step to another to connect them) and keeps as a project asset. You choose the
   branches to check, the environment (local, dev, production) and a saved browser login for each player, and approve the
   plan; production also needs you to acknowledge the steps that change data. Each chosen branch then runs as a separate
-  check in MarkView's own browser, each player in a browser of their own, driven by your Claude Code or Codex. You watch the
-  players side by side with a live feed of what is done and why. A video with subtitles saying what, where and why is
+  check, each player in a browser of their own in MarkView, or, for a native macOS application, in an instance of the
+  installed application that MarkView launches and operates through Accessibility (you grant Accessibility and Screen
+  Recording once in System Settings), driven by your Claude Code or Codex. You watch the players side by side with a live
+  feed of what is done and why. A video with subtitles saying what, where and why is
   recorded (on by default, switchable off). Every new screen is reviewed like a person using the application would
   (layout, fonts, missing or superfluous controls, extra steps) with the measured clicks, fields, scrolls and time, and
   each branch ends with what it cost a person. A check that failed, was blocked or was interrupted, and every defect the
-  review finds, becomes a bug. Native macOS applications are not run yet. Details:
+  review finds, becomes a bug. Old runs are cleaned up: the newest five per scenario and every run a bug names are kept.
+  One scenario checks one type of application, web or native. Details:
   [end-to-end-qa](docs/architecture/modules/end-to-end-qa.md).
 
 **Bugs** get the same care: *New Bug* writes a structured report (and optionally a GitHub

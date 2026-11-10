@@ -1,9 +1,11 @@
 import Foundation
 
-// End-to-End QA (feature end-to-end-qa, REQ-008): what the runner measures on a web page, in the page itself, as evidence for the step-by-step
-// review. The assistant sees the screenshot; these numbers tell it what the picture cannot (a font of 9 px, a contrast of 1.9:1, a button
-// without a name). Foundation only; the script is checked in a real WKWebView by tools/tests/qa-evidence-web-tests.sh and the reading and
-// the summary by tools/tests/qa-review-tests.sh.
+// End-to-End QA (feature end-to-end-qa, REQ-008, REQ-007): what the runner measures on a web page, in the page itself, as evidence for the
+// step-by-step review. The assistant sees the screenshot; these numbers tell it what the picture cannot (a font of 9 px, a contrast of
+// 1.9:1, a button without a name). Two more kinds of fact serve an administration application: how long the page's requests took, and how
+// many of its controls automation could only find by position. They are facts, not defects: they never make a page unclean. Foundation
+// only; the script is checked in a real WKWebView by tools/tests/qa-evidence-web-tests.sh and the reading and the summaries by
+// tools/tests/qa-review-tests.sh.
 
 struct QAPageEvidence: Codable, Equatable {
     /// How many elements showed one kind of problem, and a few of them described briefly.
@@ -31,11 +33,34 @@ struct QAPageEvidence: Codable, Equatable {
     var horizontalScrollPixels = 0
     /// The page's own load time as the browser reports it; nil when it reports none.
     var loadMilliseconds: Int? = nil
+    /// How many requests the browser timed for the page: the document and what it loaded or fetched since (the browser keeps the first 250).
+    var requestCount = 0
+    /// The slowest of those requests, slowest first: at most `maxRequests`, none faster than `slowRequestMilliseconds`.
+    var slowestRequests: [Request] = []
+    /// Buttons, links and fields with no id, name, test attribute (data-testid, data-test, data-qa, data-cy), aria-label or text label:
+    /// automation could only find them by their position.
+    var withoutStableId = Tally()
+    /// How many buttons, links and fields the page has, whatever they are named: what `withoutStableId` is a part of.
+    var interactiveControls = 0
+
+    /// One request, as the browser timed it. The address never carries a query string or a fragment.
+    struct Request: Codable, Equatable {
+        /// The path of the address, for example `/api/orders`.
+        var path: String
+        /// What started it as the browser names it: `navigation` for the document itself, `fetch`, `xmlhttprequest`, `script`, `img`, `css`...
+        var initiator: String
+        var milliseconds: Int
+    }
 
     static let maxSamples = 5
     /// A sample is at most this long when it is read back, whatever the page sent.
     static let sampleLimit = 120
+    static let maxRequests = 3
+    /// A request faster than this is not worth naming.
+    static let slowRequestMilliseconds = 50
 
+    /// Whether no visual or structural problem was flagged. Slow requests and controls without an identifier are facts for the review of an
+    /// administration application, not problems of the page, and do not count here.
     var isClean: Bool {
         horizontalScrollPixels == 0 && [smallText, lowContrast, clipped, smallTargets, beyondRightEdge, unlabeledControls, skippedHeadings].allSatisfy { $0.count == 0 }
     }
@@ -65,6 +90,24 @@ struct QAPageEvidence: Codable, Equatable {
         return lines.joined(separator: "\n")
     }
 
+    /// One line for the prompt on how long the page's requests took; empty when the browser timed none. For example
+    /// `14 requests timed; slowest: /api/orders (fetch) 1240 ms; /static/app.js (script) 310 ms`.
+    var timingSummary: String {
+        guard requestCount > 0 else { return "" }
+        let timed = "\(requestCount) \(requestCount == 1 ? "request" : "requests") timed"
+        if slowestRequests.isEmpty { return "\(timed), none took \(QAPageEvidence.slowRequestMilliseconds) ms or more" }
+        return timed + "; slowest: " + slowestRequests.map { "\($0.path) (\($0.initiator)) \($0.milliseconds) ms" }.joined(separator: "; ")
+    }
+
+    /// One line for the prompt on how many controls automation could only find by position; empty when the page has no controls.
+    var automationSummary: String {
+        guard interactiveControls > 0 else { return "" }
+        let total = "Buttons, links and fields: \(interactiveControls)"
+        guard withoutStableId.count > 0 else { return total + "; every one has an id, a name, a test attribute or a label" }
+        let samples = withoutStableId.samples.isEmpty ? "" : " (e.g. " + withoutStableId.samples.joined(separator: "; ") + ")"
+        return total + "; with no id, name, test attribute (data-testid, data-test, data-qa, data-cy), aria-label or text label, so automation could only find them by position: \(withoutStableId.count)\(samples)"
+    }
+
     // MARK: Reading the answer
 
     /// What the script returned: its JSON text (what `evaluateJavaScript` gives back) or the object already read. Nil when it is not the
@@ -85,19 +128,30 @@ struct QAPageEvidence: Codable, Equatable {
             guard let number = value as? NSNumber else { return nil }
             return Int(Swift.max(0, Swift.min(number.doubleValue, max)))
         }
+        func short(_ value: Any?) -> String? {
+            guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            return text.count > sampleLimit ? String(text.prefix(sampleLimit - 1)) + "…" : text
+        }
         func tally(_ key: String) -> Tally {
             guard let object = root[key] as? [String: Any] else { return Tally() }
-            let samples = ((object["samples"] as? [Any]) ?? []).compactMap { item -> String? in
-                guard let text = (item as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
-                return text.count > sampleLimit ? String(text.prefix(sampleLimit - 1)) + "…" : text
-            }.prefix(maxSamples)
+            let samples = ((object["samples"] as? [Any]) ?? []).compactMap(short).prefix(maxSamples)
             return Tally(count: Swift.max(whole(object["count"], max: 1_000_000) ?? 0, samples.count), samples: Array(samples))
         }
+        // A request is kept by its path alone: whatever follows a "?" or a "#" is cut here as well, whatever the page sent.
+        let slowest = ((root["slowestRequests"] as? [Any]) ?? []).compactMap { item -> Request? in
+            guard let object = item as? [String: Any], let milliseconds = whole(object["milliseconds"], max: 3_600_000),
+                  let address = object["path"] as? String,
+                  let path = short(String(address.prefix { $0 != "?" && $0 != "#" })) else { return nil }
+            return Request(path: path, initiator: short(object["initiator"]) ?? "other", milliseconds: milliseconds)
+        }.prefix(maxRequests)
+        let withoutStableId = tally("withoutStableId")
         return QAPageEvidence(
             smallText: tally("smallText"), lowContrast: tally("lowContrast"), clipped: tally("clipped"), smallTargets: tally("smallTargets"),
             beyondRightEdge: tally("beyondRightEdge"), unlabeledControls: tally("unlabeledControls"), skippedHeadings: tally("skippedHeadings"),
             horizontalScrollPixels: whole(root["horizontalScrollPixels"], max: 100_000) ?? 0,
-            loadMilliseconds: whole(root["loadMilliseconds"], max: 3_600_000).flatMap { $0 > 0 ? $0 : nil })
+            loadMilliseconds: whole(root["loadMilliseconds"], max: 3_600_000).flatMap { $0 > 0 ? $0 : nil },
+            requestCount: Swift.max(whole(root["requestCount"], max: 100_000) ?? 0, slowest.count), slowestRequests: Array(slowest),
+            withoutStableId: withoutStableId, interactiveControls: Swift.max(whole(root["interactiveControls"], max: 1_000_000) ?? 0, withoutStableId.count))
     }
 
     // MARK: The measuring script
@@ -106,19 +160,25 @@ struct QAPageEvidence: Codable, Equatable {
     /// It reads layout and computed styles only. It never reads, tests or returns what a person typed: no `value` of any field, no text of
     /// a field or a text area; a sample is the element's tag (and the type of a field), a short visible text taken from the page's own text
     /// nodes outside fields, numbers, and the element's place on the page. Everything is capped (4000 elements, 5 samples, 40 characters).
+    /// Of a request it reads the path only (no query string, fragment or ";parameter"), what started it and how long it took.
     static let script = #"""
     (function () {
-      var MAX_SAMPLES = 5, MAX_ELEMENTS = 4000, MAX_TEXT = 40;
+      var MAX_SAMPLES = 5, MAX_ELEMENTS = 4000, MAX_TEXT = 40, MAX_PATH = 80;
+      var MAX_REQUESTS = \#(maxRequests), SLOW_REQUEST_MS = \#(slowRequestMilliseconds);
       var doc = document, root = doc.documentElement, body = doc.body;
       var NO_TEXT = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1, INPUT: 1, TEXTAREA: 1, SELECT: 1, OPTION: 1 };
       var CONTROLS = 'a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=switch],[role=tab],[role=menuitem],[onclick]';
       var NAMED = 'a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=switch],[role=tab],[role=menuitem]';
+      var INTERACTIVE = 'a[href],button,input,select,textarea,[role=button],[role=link]';
+      // What lets automation find a control without counting its position. An aria-label, a title and every text label are in hasName().
+      var HOOKS = ['id', 'name', 'data-testid', 'data-test', 'data-qa', 'data-cy'];
       var out = {
         qaPageEvidence: 1, failed: false,
         smallText: { count: 0, samples: [] }, lowContrast: { count: 0, samples: [] }, clipped: { count: 0, samples: [] },
         smallTargets: { count: 0, samples: [] }, beyondRightEdge: { count: 0, samples: [] },
         unlabeledControls: { count: 0, samples: [] }, skippedHeadings: { count: 0, samples: [] },
-        horizontalScrollPixels: 0, loadMilliseconds: null
+        horizontalScrollPixels: 0, loadMilliseconds: null,
+        requestCount: 0, slowestRequests: [], withoutStableId: { count: 0, samples: [] }, interactiveControls: 0
       };
       var cache = new Map();
 
@@ -272,6 +332,34 @@ struct QAPageEvidence: Codable, Equatable {
         return nameFromContent(el);
       }
 
+      // Can automation find the control by something other than its place on the page?
+      function hasStableId(el) {
+        for (var a = 0; a < HOOKS.length; a++) if (filled(el.getAttribute(HOOKS[a]))) return true;
+        return hasName(el);
+      }
+
+      // The path of a request's address: no query string, no fragment and no ";parameter" (a session id can sit there).
+      function requestPath(address) {
+        var path;
+        try { path = new URL(address, location.href).pathname; } catch (e) { path = String(address).split(/[?#]/)[0]; }
+        path = path.replace(/;[^\/]*/g, '') || '/';
+        return path.length > MAX_PATH ? path.slice(0, MAX_PATH - 1) + '…' : path;
+      }
+      // The document and every request the page made since, as the browser timed them. The document's time is the time it took to arrive,
+      // not the page's load (that is loadMilliseconds).
+      function measureRequests() {
+        if (!performance.getEntriesByType) return;
+        var timed = [], nav = performance.getEntriesByType('navigation')[0], loaded = performance.getEntriesByType('resource');
+        if (nav) timed.push({ path: requestPath(nav.name), initiator: 'navigation', milliseconds: Math.round(nav.responseEnd) });
+        for (var q = 0; q < loaded.length; q++) {
+          var initiator = /^[a-z]{1,20}$/.test(loaded[q].initiatorType) ? loaded[q].initiatorType : 'other';
+          timed.push({ path: requestPath(loaded[q].name), initiator: initiator, milliseconds: Math.round(loaded[q].duration) });
+        }
+        out.requestCount = timed.length;
+        out.slowestRequests = timed.filter(function (t) { return t.milliseconds >= SLOW_REQUEST_MS; })
+          .sort(function (a, b) { return b.milliseconds - a.milliseconds; }).slice(0, MAX_REQUESTS);
+      }
+
       function bigEnough(rect) { return r1(rect.width) >= 24 && r1(rect.height) >= 24; }
 
       function measure() {
@@ -312,6 +400,11 @@ struct QAPageEvidence: Codable, Equatable {
           }
 
           if (el.matches(NAMED) && !(el.tagName === 'INPUT' && el.type === 'hidden') && !hasName(el)) note('unlabeledControls', el, '');
+
+          if (el.matches(INTERACTIVE) && !(el.tagName === 'INPUT' && el.type === 'hidden')) {
+            out.interactiveControls += 1;
+            if (!hasStableId(el)) note('withoutStableId', el, '');
+          }
         }
 
         var heads = body.querySelectorAll('h1,h2,h3,h4,h5,h6,[role=heading]'), previous = 0;
@@ -328,10 +421,31 @@ struct QAPageEvidence: Codable, Equatable {
         if (nav) ms = nav.loadEventEnd > 0 ? nav.loadEventEnd : nav.domContentLoadedEventEnd;
         else if (performance.timing && performance.timing.loadEventEnd > 0) ms = performance.timing.loadEventEnd - performance.timing.navigationStart;
         if (ms > 0) out.loadMilliseconds = Math.round(ms);
+        measureRequests();
       }
 
       try { if (body) measure(); } catch (e) { out.failed = true; }
       return JSON.stringify(out);
     })()
     """#
+}
+
+extension QAPageEvidence {
+    /// Reads what was stored by an earlier version too: the request timings and the identifier tally did not exist then, and are none.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        smallText = try container.decode(Tally.self, forKey: .smallText)
+        lowContrast = try container.decode(Tally.self, forKey: .lowContrast)
+        clipped = try container.decode(Tally.self, forKey: .clipped)
+        smallTargets = try container.decode(Tally.self, forKey: .smallTargets)
+        beyondRightEdge = try container.decode(Tally.self, forKey: .beyondRightEdge)
+        unlabeledControls = try container.decode(Tally.self, forKey: .unlabeledControls)
+        skippedHeadings = try container.decode(Tally.self, forKey: .skippedHeadings)
+        horizontalScrollPixels = try container.decode(Int.self, forKey: .horizontalScrollPixels)
+        loadMilliseconds = try container.decodeIfPresent(Int.self, forKey: .loadMilliseconds)
+        requestCount = try container.decodeIfPresent(Int.self, forKey: .requestCount) ?? 0
+        slowestRequests = try container.decodeIfPresent([Request].self, forKey: .slowestRequests) ?? []
+        withoutStableId = try container.decodeIfPresent(Tally.self, forKey: .withoutStableId) ?? Tally()
+        interactiveControls = try container.decodeIfPresent(Int.self, forKey: .interactiveControls) ?? 0
+    }
 }

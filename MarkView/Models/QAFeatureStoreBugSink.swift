@@ -20,6 +20,11 @@ struct QAFeatureStoreBugSink: QABugSink {
         return try await Task.detached(priority: .userInitiated) { try QABugIndex.filedBugs(in: folder, keys: wanted) }.value
     }
 
+    func allFiledKeys() async throws -> [String] {
+        guard let folder = await store.bugsFolder else { throw Failure(message: "This window has no project folder open.") }
+        return try await Task.detached(priority: .userInitiated) { try QABugIndex.allKeys(in: folder) }.value
+    }
+
     func createBug(_ report: QABugReport) async throws -> String {
         guard let status = await store.bugStatus(role: .notStarted) else {
             throw Failure(message: "This project's bug workflow has no status with the role \"Not started\", so a new bug has no status to start in.")

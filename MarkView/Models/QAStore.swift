@@ -6,6 +6,24 @@ import Foundation
 
 enum QAStoreError: Error, Equatable {
     case badID(String)
+    /// The folder of a run leads out of `.dde/qa/runs/` (a link to somewhere else).
+    case outsideRuns(String)
+}
+
+extension QAStoreError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .badID(let id): return "\"\(id)\" is not a run or scenario id."
+        case .outsideRuns(let id): return "The folder of run \(id) leads out of the runs folder."
+        }
+    }
+}
+
+/// What deleting runs did: the folders removed, and the runs that could not be removed with the reason of the first.
+struct QARunDeletion: Equatable {
+    var deleted = 0
+    var failed = 0
+    var firstFailure: String?
 }
 
 /// A file in the scenarios folder that could not be used, kept as it is and reported.
@@ -151,5 +169,56 @@ enum QAStore {
     static func loadRuns(_ root: URL) -> [QARunRecord] {
         let folders = (try? FileManager.default.contentsOfDirectory(at: runsFolder(root), includingPropertiesForKeys: nil)) ?? []
         return folders.compactMap { load(QARunRecord.self, from: $0.appendingPathComponent("run.json")) }.sorted { $0.startedAt > $1.startedAt }
+    }
+
+    // MARK: Deleting runs (Q-010)
+
+    /// The folder of a run, when it is there and really inside `runs/`. An id that is not a plain run id is refused, and so is a folder
+    /// that is a link leading out of `runs/`. Nil when there is no such folder.
+    private static func containedRunFolder(_ root: URL, runID: String) throws -> URL? {
+        guard safeID(runID) == runID else { throw QAStoreError.badID(runID) }
+        let folder = runFolder(root, runID: runID)
+        guard (try? FileManager.default.attributesOfItem(atPath: folder.path)) != nil else { return nil }
+        let inside = runsFolder(root).resolvingSymlinksInPath().path + "/"
+        guard folder.resolvingSymlinksInPath().path.hasPrefix(inside) else { throw QAStoreError.outsideRuns(runID) }
+        return folder
+    }
+
+    /// Removes a run from the disk (its `run.json`, frames and recordings), not to the Trash: the point is to free the space. True when the
+    /// folder was removed, false when there was none.
+    @discardableResult
+    static func deleteRun(_ root: URL, runID: String) throws -> Bool {
+        guard let folder = try containedRunFolder(root, runID: runID) else { return false }
+        try FileManager.default.removeItem(at: folder)
+        return true
+    }
+
+    /// Deletes each run; one that cannot be deleted is counted and the others still go.
+    static func deleteRuns(_ root: URL, runIDs: [String]) -> QARunDeletion {
+        var result = QARunDeletion()
+        for id in runIDs {
+            do {
+                if try deleteRun(root, runID: id) { result.deleted += 1 }
+            } catch {
+                result.failed += 1
+                if result.firstFailure == nil { result.firstFailure = "\(id): \(error.localizedDescription)" }
+            }
+        }
+        return result
+    }
+
+    /// The bytes in the files of these runs. A run that is not there, or is refused, counts for nothing.
+    static func sizeOfRuns(_ root: URL, runIDs: [String]) -> Int64 {
+        let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
+        var total: Int64 = 0
+        for id in runIDs {
+            guard let folder = try? containedRunFolder(root, runID: id),
+                  let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys) else { continue }
+            while let file = walker.nextObject() as? URL {
+                guard let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
+                total += Int64(values.fileSize ?? 0)
+            }
+        }
+        return total
     }
 }

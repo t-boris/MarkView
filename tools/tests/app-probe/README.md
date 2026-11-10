@@ -41,6 +41,6 @@ One step per line, run on the main queue (`#` starts a comment). Output goes to 
 ## Safety
 
 Every `NSWindow` is created with alpha 0 and `ignoresMouseEvents`, the activation policy is accessory, `HOME` is empty,
-`MARKVIEW_SOCKET_DIR` is its own, and a watchdog exits after 90 s. Child processes of the app (indexer, MCP servers) are not probed.
+`MARKVIEW_SOCKET_DIR` is its own, and a watchdog exits after 90 s. Child processes of the app (indexer, MCP servers) and the applications it launches (the QA native player's application) are not probed.
 Do not click a tile that opens a system panel (Open File, Open Folder): a panel is a window the probe cannot promise to hide.
 Keychain items are shared with the installed app; avoid features that read them (browser passwords, database connections).

@@ -196,12 +196,21 @@ final class QARunModel: ObservableObject {
 
         let runID = QAStore.newRunID(at: Date())
         self.runID = runID
+        // The older runs of this scenario that the retention rule gives up are deleted in the background (Q-010); the new run is never one.
+        Task.detached(priority: .utility) { [filer = self.bugFiler, scenarioID = scenario.id] in
+            await QARunCleanup.prune(root: root, scenarioID: scenarioID, runInProgress: runID, filer: filer)
+        }
         let (events, continuation) = AsyncStream.makeStream(of: QARunEvent.self)
         let sink = QAEventSink(continuation)
         let assistant = QACLIAssistant(project: root)
         self.sink = sink
         self.assistant = assistant
-        let runner = QARunner(scenario: scenario, plan: plan, gate: gate, factory: QAWebDriverFactory(), assistant: assistant, runID: runID,
+        let factory: QADriverFactory
+        switch scenario.appKind {
+        case .web: factory = QAWebDriverFactory()
+        case .nativeMacOS: factory = QANativeDriverFactory()
+        }
+        let runner = QARunner(scenario: scenario, plan: plan, gate: gate, factory: factory, assistant: assistant, runID: runID,
                               confirm: { [weak self] confirmation in await self?.ask(confirmation) ?? false }, observer: sink)
 
         let (queue, jobsContinuation) = AsyncStream.makeStream(of: ReviewJob.self)
@@ -430,7 +439,7 @@ final class QARunModel: ObservableObject {
         let actorName = screen.actor.flatMap { id in scenario.actors.first { $0.id == id }?.name } ?? "the user"
         let input = QAReviewInput(app: app, node: node, actorName: actorName, screenAddress: screen.observation.address, screenTitle: screen.observation.title,
                                   snapshot: screen.observation.snapshot, effort: screen.stepEffort, branchEffort: screen.branchEffort, evidence: screen.evidence,
-                                  alreadyReported: findings.map(\.title), endOfStep: job.endOfStep)
+                                  alreadyReported: findings.map(\.title), endOfStep: job.endOfStep, language: QALanguage.name(of: scenario))
         let folder = QAStore.runFolder(root, runID: runID)
         let relative = "frames/\(job.number).png"
         let file = folder.appendingPathComponent(relative)

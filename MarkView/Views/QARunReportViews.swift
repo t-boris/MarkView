@@ -266,12 +266,27 @@ struct QAFindingTriageBar: View {
 
 // MARK: - The runs of a scenario
 
-/// A scenario's earlier runs on the Run tab: when, how each branch ended, how many findings are still unmarked.
+/// A scenario's earlier runs on the Run tab: when, how each branch ended, how many findings are still unmarked. A run can be deleted, or
+/// all of them; the person is asked first, with what goes and whether a filed bug names it (Q-010). A run that has not ended is not listed
+/// for deletion, and a run in progress has no record on disk yet, so neither can be deleted from here.
 struct QARunsList: View {
     @Environment(\.palette) private var palette
     @ObservedObject var archive: QARunArchive
     let scenarioID: String
     let phase: QARunModel.Phase
+
+    /// What the person is asked before runs are deleted.
+    private struct DeleteQuestion: Identifiable {
+        let id = UUID()
+        var title: String
+        var action: String
+        var plan: QARunCleanup.Plan
+    }
+
+    @State private var question: DeleteQuestion?
+    /// True while the size of the runs is worked out or they are being deleted.
+    @State private var busy = false
+    @State private var problem: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -281,23 +296,87 @@ struct QARunsList: View {
                 Text("None yet. A finished run is kept here with its findings.").uiFont(size: 10.5).foregroundColor(palette.textDim)
             }
             ForEach(archive.runs.prefix(30), id: \.id) { run in
-                Button { archive.open(run.id) } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(run.startedAt.formatted(date: .abbreviated, time: .shortened)).uiFont(size: 11, weight: .medium)
-                            Text(summary(run)).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(2).multilineTextAlignment(.leading)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Button { archive.open(run.id) } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(run.startedAt.formatted(date: .abbreviated, time: .shortened)).uiFont(size: 11, weight: .medium)
+                                Text(summary(run)).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(2).multilineTextAlignment(.leading)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").uiFont(size: 10).foregroundColor(palette.textDim)
                         }
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right").uiFont(size: 10).foregroundColor(palette.textDim)
+                        .contentShape(Rectangle())
                     }
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    if run.finishedAt != nil {
+                        Button { ask([run.id], title: "Delete the run of \(run.startedAt.formatted(date: .abbreviated, time: .shortened))?", action: "Delete run") } label: {
+                            Image(systemName: "trash").uiFont(size: 10.5)
+                        }
+                        .buttonStyle(.borderless).foregroundColor(palette.textDim)
+                        .disabled(busy).help("Delete run").accessibilityLabel("Delete run")
+                    }
                 }
-                .buttonStyle(.plain)
+            }
+            if let problem { Text(problem).uiFont(size: 10.5).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true) }
+            if !endedRuns.isEmpty {
+                Button("Delete all runs of this scenario…") {
+                    ask(endedRuns.map(\.id), title: "Delete \(endedRuns.count == 1 ? "the run" : "all \(endedRuns.count) runs") of this scenario?", action: endedRuns.count == 1 ? "Delete run" : "Delete all runs")
+                }
+                .buttonStyle(.link).uiFont(size: 10.5).disabled(busy)
             }
         }
         .onAppear { archive.reload(scenarioID: scenarioID) }
         .onChange(of: scenarioID) { archive.reload(scenarioID: $0) }
         .onChange(of: phase) { if $0 == .finished { archive.reload(scenarioID: scenarioID) } }
+        .confirmationDialog(question?.title ?? "", isPresented: Binding(get: { question != nil }, set: { if !$0 { question = nil } }), titleVisibility: .visible, presenting: question) { asked in
+            Button(asked.action, role: .destructive) { delete(asked) }
+            Button("Cancel", role: .cancel) {}
+        } message: { asked in
+            Text(message(asked.plan))
+        }
+    }
+
+    /// The runs that can be deleted: those that have ended.
+    private var endedRuns: [QARunRecord] { archive.runs.filter { $0.finishedAt != nil } }
+
+    /// Works out what deleting `ids` removes, off the main thread, then asks.
+    @MainActor private func ask(_ ids: [String], title: String, action: String) {
+        guard let root = archive.root, !ids.isEmpty, !busy else { return }
+        busy = true
+        problem = nil
+        Task {
+            let plan = await QARunCleanup.plan(deleting: ids, root: root, filer: archive.bugFiler)
+            question = DeleteQuestion(title: title, action: action, plan: plan)
+            busy = false
+        }
+    }
+
+    @MainActor private func delete(_ asked: DeleteQuestion) {
+        guard let root = archive.root, !busy else { return }
+        busy = true
+        Task {
+            let result = await QARunCleanup.delete(asked.plan, root: root)
+            archive.reload(scenarioID: scenarioID)
+            if result.failed > 0 {
+                problem = "\(result.failed) of \(asked.plan.runIDs.count) \(asked.plan.runIDs.count == 1 ? "run" : "runs") could not be deleted. " + (result.firstFailure ?? "")
+            }
+            busy = false
+        }
+    }
+
+    /// What the dialog says under its title: how much goes, that it goes for good, and whether a filed bug names any of the runs.
+    private func message(_ plan: QARunCleanup.Plan) -> String {
+        let size = ByteCountFormatter.string(fromByteCount: plan.bytes, countStyle: .file)
+        let count = plan.runIDs.count
+        var parts = ["The recording and the screenshots of \(count == 1 ? "this run" : "these \(count) runs") (\(size)) are deleted from this Mac, not moved to the Trash."]
+        if !plan.namedByBugs.isEmpty {
+            let named = plan.namedByBugs.count
+            parts.append(count == 1 ? "A filed bug names this run: the video it points to will be gone."
+                                    : "\(named) of them \(named == 1 ? "is" : "are") named by filed bugs: the videos those bugs point to will be gone.")
+        }
+        if !plan.bugsChecked { parts.append("The bug reports could not be read, so it is not known whether a bug names \(count == 1 ? "this run" : "any of them").") }
+        return parts.joined(separator: " ")
     }
 
     private func summary(_ run: QARunRecord) -> String {

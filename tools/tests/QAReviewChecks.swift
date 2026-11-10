@@ -110,6 +110,12 @@ do {
     check("prompt: the answer is in the language of the step titles, shown by an example", prompt.contains("language the step titles are written in (for example: \"Approve the request\")"))
     let russian = QANode(id: "n1", kind: .check, title: "Заявка одобрена", detail: "Статус изменился")
     check("prompt: a scenario in another language shows its own step title as the example", QAReview.prompt(input(userApp, node: russian)).contains("(for example: \"Заявка одобрена\")"))
+    var named = input(userApp, node: russian)
+    named.language = "Russian"
+    check("prompt: a named language is asked for outright, with no example", QAReview.prompt(named).contains("Write the findings in Russian, the language of the scenario, whatever language the application is in.") && !QAReview.prompt(named).contains("(for example:"))
+    var namedFree = input(userApp, node: nil)
+    namedFree.language = "English"
+    check("prompt: a named language also covers a screen with no step", QAReview.prompt(namedFree).contains("Write the findings in English, the language of the scenario"))
     let free = QAReview.prompt(input(userApp, node: nil))
     check("prompt: a screen with no step says so and takes the language of the page text", free.contains("Step just performed: none") && free.contains("language of the page text"))
 
@@ -134,6 +140,43 @@ do {
     check("prompt: the evidence is in it as hints", withEvidence.contains("hints; confirm them on the screenshot") && withEvidence.contains("Elements with text smaller than 12 px: 3 (e.g. p \"Fine print\" 9px @10,40)"))
     check("prompt: clean evidence says nothing was flagged", QAReview.prompt(input(userApp, evidence: QAPageEvidence())).contains("nothing was flagged"))
     check("prompt: without evidence it says no measurements exist", QAReview.prompt(input(userApp)).contains("No measurements of the page structure are available"))
+
+    // Request timings and identifiers (REQ-007): measured facts, in the prompt of an application judged on speed and ready for automation only
+    var facts = QAPageEvidence(loadMilliseconds: 840)
+    facts.requestCount = 14
+    facts.slowestRequests = [.init(path: "/api/orders", initiator: "fetch", milliseconds: 1240), .init(path: "/static/app.js", initiator: "script", milliseconds: 310)]
+    facts.withoutStableId = QAPageEvidence.Tally(count: 3, samples: ["button @8,100", "a @40,100"])
+    facts.interactiveControls = 24
+    let measuredPrompt = QAReview.prompt(input(adminApp, evidence: facts))
+    let promptLines = measuredPrompt.components(separatedBy: "\n")
+    let timingLine = "Request timings, MEASURED by the browser for this page since it loaded (do not recount or estimate them): 14 requests timed; slowest: /api/orders (fetch) 1240 ms; /static/app.js (script) 310 ms."
+    check("prompt: an administration application is given the measured request timings, said to be measured", measuredPrompt.contains(timingLine))
+    check("prompt: ... right after the line with the page load", promptLines.firstIndex { $0.hasPrefix("Speed (") }.map { promptLines[$0 + 1] == timingLine && promptLines[$0].hasSuffix("page load 840 ms.") } == true)
+    check("prompt: ... and the measured tally of controls with no stable identifier, said to be measured",
+          measuredPrompt.contains("Identifiers, MEASURED in the page (do not recount them): Buttons, links and fields: 24; with no id, name, test attribute (data-testid, data-test, data-qa, data-cy), aria-label or text label, so automation could only find them by position: 3 (e.g. button @8,100; a @40,100)."))
+    check("prompt: the AI is still asked to judge the rest, and to name the requirement in every finding about automation",
+          measuredPrompt.contains("Judge the rest yourself from the screenshot and the page text: predictable addresses, actions that can be repeated safely, results that can be read without guessing.")
+              && measuredPrompt.contains("In every finding about automation, name the requirement it concerns from the list above."))
+    check("prompt: the measured lines come after the requirements they are judged by", measuredPrompt.range(of: "Every list can be exported to CSV.")!.upperBound < measuredPrompt.range(of: "Identifiers, MEASURED")!.lowerBound)
+    var quick = facts
+    quick.slowestRequests = []
+    check("prompt: with no request over 50 ms the prompt says so", QAReview.prompt(input(adminApp, evidence: quick)).contains("14 requests timed, none took 50 ms or more."))
+    check("prompt: with the page load only, an administration application gets neither measured line (nothing is invented)",
+          !prompt.contains("Request timings, MEASURED") && !prompt.contains("Identifiers, MEASURED") && !QAReview.prompt(input(adminApp)).contains("MEASURED by the browser"))
+    var tidy = facts
+    tidy.withoutStableId = QAPageEvidence.Tally()
+    check("prompt: when every control has an id or a label the prompt says that",
+          QAReview.prompt(input(adminApp, evidence: tidy)).contains("Buttons, links and fields: 24; every one has an id, a name, a test attribute or a label."))
+    for app in [userApp, customApp] {
+        let plain = QAReview.prompt(input(app, evidence: QAPageEvidence(loadMilliseconds: 840)))
+        let other = QAReview.prompt(input(app, evidence: facts))
+        check("prompt: \(app.profile.rawValue) does not get request timings or the identifier tally, and its prompt is the same as without them",
+              other == plain && !other.contains("MEASURED by the browser") && !other.contains("Identifiers, MEASURED") && !other.contains("/api/orders") && !other.contains("name the requirement"))
+    }
+    let sneaky = QAPageEvidence.parse("{\"qaPageEvidence\":1,\"requestCount\":2,\"slowestRequests\":[{\"path\":\"/api/orders?token=SECRET-123&user=alice#frag\",\"initiator\":\"fetch\",\"milliseconds\":900},{\"path\":\"/api/export#SECRET-456\",\"initiator\":\"xmlhttprequest\",\"milliseconds\":500}]}")
+    let sneakyPrompt = QAReview.prompt(input(adminApp, evidence: sneaky))
+    check("prompt: a query string or a fragment sent by the page never reaches the prompt",
+          sneakyPrompt.contains("/api/orders (fetch) 900 ms; /api/export (xmlhttprequest) 500 ms") && !sneakyPrompt.contains("SECRET") && !sneakyPrompt.contains("alice") && !sneakyPrompt.contains("?token") && !sneakyPrompt.contains("#frag"))
 
     // The page text
     let long = String(repeating: "abcdefghij", count: 700)
@@ -261,12 +304,18 @@ do {
         "smallTargets": tally(2, ["button 10x10px @20,300"]), "beyondRightEdge": tally(1, ["div right edge at 2008px @8,8"]),
         "unlabeledControls": tally(1, ["input[text] @8,100"]), "skippedHeadings": tally(1, ["h4 \"Details\" after h2 @8,200"]),
         "horizontalScrollPixels": 1008, "loadMilliseconds": 840,
+        "requestCount": 14, "interactiveControls": 24, "withoutStableId": tally(3, ["button @8,100", "a @40,100"]),
+        "slowestRequests": [["path": "/api/orders", "initiator": "fetch", "milliseconds": 1240], ["path": "/static/app.js", "initiator": "script", "milliseconds": 310]],
     ]
     let parsed = QAPageEvidence.parse(json(reply))
     check("evidence: the text the script returns is read", parsed != nil)
     check("evidence: counts and samples", parsed?.smallText.count == 3 && parsed?.smallText.samples == ["p \"Fine print\" 9px @10,40", "span \"x\" 8px @1,1"] && parsed?.lowContrast.count == 1
           && parsed?.smallTargets.count == 2 && parsed?.unlabeledControls.samples == ["input[text] @8,100"] && parsed?.skippedHeadings.count == 1 && parsed?.clipped == QAPageEvidence.Tally())
     check("evidence: sideways scrolling and the load time", parsed?.horizontalScrollPixels == 1008 && parsed?.beyondRightEdge.count == 1 && parsed?.loadMilliseconds == 840)
+    check("evidence: the request count and the slowest requests, in the order sent",
+          parsed?.requestCount == 14 && parsed?.slowestRequests == [.init(path: "/api/orders", initiator: "fetch", milliseconds: 1240), .init(path: "/static/app.js", initiator: "script", milliseconds: 310)])
+    check("evidence: the tally of controls with no stable identifier, out of all controls",
+          parsed?.withoutStableId.count == 3 && parsed?.withoutStableId.samples == ["button @8,100", "a @40,100"] && parsed?.interactiveControls == 24)
     check("evidence: the object already read is accepted too", QAPageEvidence.parse(reply) == parsed)
     check("evidence: it survives being stored and loaded", parsed.flatMap { try? JSONDecoder().decode(QAPageEvidence.self, from: JSONEncoder().encode($0)) } == parsed)
 
@@ -290,6 +339,58 @@ do {
     check("evidence: no load time and a negative width are nothing", tolerant?.loadMilliseconds == nil && tolerant?.horizontalScrollPixels == 0)
     check("evidence: a load time of zero is no load time", QAPageEvidence.parse(json(["qaPageEvidence": 1, "loadMilliseconds": 0]))?.loadMilliseconds == nil)
 
+    // Reading the new fields defensively
+    func request(_ path: Any, _ initiator: Any = "fetch", _ milliseconds: Any = 100) -> [String: Any] { ["path": path, "initiator": initiator, "milliseconds": milliseconds] }
+    let five = QAPageEvidence.parse(json(["qaPageEvidence": 1, "requestCount": 2, "slowestRequests": (1...5).map { request("/r\($0)", "fetch", 1000 - $0) }]))
+    check("evidence: at most three requests are kept, the first three, and the count is never below what was kept", five?.slowestRequests.map(\.path) == ["/r1", "/r2", "/r3"] && five?.requestCount == 3)
+    let rude = QAPageEvidence.parse(json(["qaPageEvidence": 1, "requestCount": 99_999_999, "interactiveControls": 99_999_999,
+                                          "slowestRequests": [request(5), request("   "), request("?only=a-query"), "text", ["path": "/no-time"], request(String(repeating: "p", count: 500)),
+                                                              request("/neg", "script", -7), request("/huge", "img", 99_999_999_999), request("/cut-by-the-cap")] as [Any]]))
+    check("evidence: a request with no readable path or time, or that is not an object, is skipped; the rest are kept in order up to three",
+          rude?.slowestRequests.map(\.path) == [String(repeating: "p", count: QAPageEvidence.sampleLimit - 1) + "…", "/neg", "/huge"])
+    check("evidence: a path is cut at the sample limit, a negative time is zero, an absurd time and count are capped",
+          rude?.slowestRequests.map(\.milliseconds) == [100, 0, 3_600_000] && rude?.requestCount == 100_000 && rude?.interactiveControls == 1_000_000)
+    let gaps = QAPageEvidence.parse(json(["qaPageEvidence": 1, "slowestRequests": [request("/a"), request("/b", NSNull())] as [Any]]))
+    check("evidence: an initiator of the wrong type is other", gaps?.slowestRequests.map(\.initiator) == ["fetch", "other"])
+    let mixed = QAPageEvidence.parse(json(["qaPageEvidence": 1, "slowestRequests": "many", "requestCount": "ten", "withoutStableId": "some", "interactiveControls": [1]]))
+    check("evidence: new fields of the wrong type are none", mixed == QAPageEvidence())
+    let fewer = QAPageEvidence.parse(json(["qaPageEvidence": 1, "interactiveControls": 1, "withoutStableId": tally(4, ["a", "b"])]))
+    check("evidence: there are never fewer controls than controls without an identifier", fewer?.withoutStableId.count == 4 && fewer?.interactiveControls == 4)
+    let manyIds = QAPageEvidence.parse(json(["qaPageEvidence": 1, "withoutStableId": tally(9, (1...8).map { "button @\($0),1" })]))
+    check("evidence: at most five samples of controls without an identifier", manyIds?.withoutStableId.count == 9 && manyIds?.withoutStableId.samples.count == 5)
+
+    // Stored by an earlier version: none of the new fields exist
+    let old = "{\"smallText\":{\"count\":1,\"samples\":[\"p 9px @1,1\"]},\"lowContrast\":{\"count\":0,\"samples\":[]},\"clipped\":{\"count\":0,\"samples\":[]},\"smallTargets\":{\"count\":0,\"samples\":[]},"
+        + "\"beyondRightEdge\":{\"count\":0,\"samples\":[]},\"unlabeledControls\":{\"count\":0,\"samples\":[]},\"skippedHeadings\":{\"count\":0,\"samples\":[]},\"horizontalScrollPixels\":0,\"loadMilliseconds\":840}"
+    let decodedOld = try? JSONDecoder().decode(QAPageEvidence.self, from: Data(old.utf8))
+    check("evidence: JSON stored before the request timings and the identifier tally existed still decodes, with none of them",
+          decodedOld != nil && decodedOld?.smallText.count == 1 && decodedOld?.loadMilliseconds == 840 && decodedOld?.requestCount == 0 && decodedOld?.slowestRequests.isEmpty == true
+              && decodedOld?.withoutStableId == QAPageEvidence.Tally() && decodedOld?.interactiveControls == 0 && decodedOld?.timingSummary.isEmpty == true && decodedOld?.automationSummary.isEmpty == true)
+    let oldNoLoad = old.replacingOccurrences(of: ",\"loadMilliseconds\":840", with: "")
+    check("evidence: ... and so does JSON with no load time either", (try? JSONDecoder().decode(QAPageEvidence.self, from: Data(oldNoLoad.utf8)))?.loadMilliseconds == nil)
+    check("evidence: JSON of an old version missing an old field is still refused", (try? JSONDecoder().decode(QAPageEvidence.self, from: Data(old.replacingOccurrences(of: "\"clipped\":{\"count\":0,\"samples\":[]},", with: "").utf8))) == nil)
+
+    // Facts, not defects
+    var busy = QAPageEvidence()
+    busy.requestCount = 500
+    busy.slowestRequests = [.init(path: "/api/orders", initiator: "fetch", milliseconds: 9000)]
+    busy.withoutStableId = QAPageEvidence.Tally(count: 40, samples: ["button @8,8"])
+    busy.interactiveControls = 40
+    check("evidence: slow requests and controls without an identifier do not make a page unclean, and the summary of problems stays empty", busy.isClean && busy.summary.isEmpty)
+    check("evidence: ... while the page's real problems still do", { var flaggedToo = busy; flaggedToo.smallText = QAPageEvidence.Tally(count: 1, samples: []); return !flaggedToo.isClean && flaggedToo.summary.hasPrefix("- Elements with text smaller than 12 px: 1") }())
+
+    // The two summaries
+    check("timing summary: none for a page whose requests were not timed", QAPageEvidence().timingSummary.isEmpty && QAPageEvidence(loadMilliseconds: 800).timingSummary.isEmpty)
+    check("timing summary: the count, then the slowest first", parsed?.timingSummary == "14 requests timed; slowest: /api/orders (fetch) 1240 ms; /static/app.js (script) 310 ms")
+    check("timing summary: one request, and none worth naming",
+          QAPageEvidence(requestCount: 1).timingSummary == "1 request timed, none took 50 ms or more" && QAPageEvidence(requestCount: 7).timingSummary == "7 requests timed, none took 50 ms or more")
+    check("automation summary: none for a page with no controls", QAPageEvidence().automationSummary.isEmpty)
+    check("automation summary: how many of how many, with the samples",
+          parsed?.automationSummary == "Buttons, links and fields: 24; with no id, name, test attribute (data-testid, data-test, data-qa, data-cy), aria-label or text label, so automation could only find them by position: 3 (e.g. button @8,100; a @40,100)")
+    check("automation summary: every control identified, and a count without samples",
+          QAPageEvidence(interactiveControls: 2).automationSummary == "Buttons, links and fields: 2; every one has an id, a name, a test attribute or a label"
+              && QAPageEvidence(withoutStableId: QAPageEvidence.Tally(count: 2, samples: []), interactiveControls: 5).automationSummary.hasSuffix("by position: 2"))
+
     check("evidence: a clean page has an empty summary", QAPageEvidence().summary.isEmpty && QAPageEvidence().isClean && QAPageEvidence(loadMilliseconds: 900).summary.isEmpty)
     let lines = parsed?.summary.components(separatedBy: "\n") ?? []
     check("evidence: one line for each kind of problem, with the count and the samples, in a fixed order",
@@ -303,6 +404,9 @@ do {
     let script = QAPageEvidence.script
     check("evidence script: an immediately invoked function that returns JSON", script.hasPrefix("(function") && script.hasSuffix("})()") && script.contains("JSON.stringify(out)"))
     check("evidence script: it never reads what a person typed", !script.contains(".value") && !script.contains("innerHTML") && !script.contains("outerHTML") && !script.contains("innerText"))
+    check("evidence script: it reads the timings of the requests, keeps their path alone, and shares the limits with the reader",
+          script.contains("performance.getEntriesByType('resource')") && script.contains(".pathname") && script.contains("MAX_REQUESTS = 3") && script.contains("SLOW_REQUEST_MS = 50")
+              && !script.contains("location.search") && !script.contains(".search") && !script.contains(".hash"))
 }
 
 finish("QA review")

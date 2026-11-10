@@ -856,9 +856,9 @@ do {
     func answer(_ move: String, narration: String = "n", reason: String = "", block: String = "", action: [String: Any]? = nil) -> [String: Any] {
         ["move": move, "narration": narration, "action": action ?? ["kind": "none"], "reason": reason, "blockReason": block]
     }
-    func parsed(_ value: Any?, http: Bool = false) -> QADecision? { try? QAStepPrompt.parse(value, allowsHTTP: http) }
-    func fails(_ value: Any?, http: Bool = false) -> QAStepPrompt.ParseError? {
-        do { _ = try QAStepPrompt.parse(value, allowsHTTP: http); return nil } catch { return error as? QAStepPrompt.ParseError }
+    func parsed(_ value: Any?, http: Bool = false, kind: QAAppKind = .web) -> QADecision? { try? QAStepPrompt.parse(value, kind: kind, allowsHTTP: http) }
+    func fails(_ value: Any?, http: Bool = false, kind: QAAppKind = .web) -> QAStepPrompt.ParseError? {
+        do { _ = try QAStepPrompt.parse(value, kind: kind, allowsHTTP: http); return nil } catch { return error as? QAStepPrompt.ParseError }
     }
 
     check("step answer: an action is read with its narration", parsed(answer("act", narration: "Clicking Pay to send the order", action: ["kind": "click", "ref": "e12"]))
@@ -898,18 +898,46 @@ do {
     let task = QAStepTask(id: "n2", kind: .act, title: "Pay with a valid card", detail: "Use the test card", actorName: "Buyer", appName: "Shop")
     let page = QAObservation(address: "http://localhost:3000/cart", title: "Cart", snapshot: "[e1] button \"Pay\"\nTotal 12")
     let history = (1...9).map { QAHistoryItem(narration: "n", action: "click [e\($0)]", result: "ok \($0)") }
-    let text = QAStepPrompt.prompt(task: task, goal: "A buyer pays", history: history, observation: page)
+    let text = QAStepPrompt.prompt(kind: .web, task: task, goal: "A buyer pays", history: history, observation: page)
     check("step prompt: the goal, the application, the player, the step and its details", ["A buyer pays", "Shop", "Buyer", "Pay with a valid card", "Use the test card"].allSatisfy(text.contains))
     check("step prompt: the page", text.contains("http://localhost:3000/cart") && text.contains("Title: Cart") && text.contains("[e1] button \"Pay\""))
     check("step prompt: the last six actions only, with what came of them", text.contains("click [e9] → ok 9") && text.contains("click [e4] → ok 4") && !text.contains("click [e3] → ok 3"))
-    check("step prompt: the assistant is not told it has a budget of actions", !text.contains("left for this step") && !QAStepPrompt.systemPrompt().contains("actions left"))
-    check("step prompt: no history, no history heading", !QAStepPrompt.prompt(task: task, goal: "g", history: [], observation: page).contains("What you did so far"))
-    check("step prompt: a check is told to change nothing", QAStepPrompt.prompt(task: QAStepTask(id: "n3", kind: .verify, title: "t", detail: "", actorName: "B", appName: "S"), goal: "g", history: [], observation: page).contains("do not change anything"))
-    check("step prompt: requests are allowed only for preparation", text.contains("may not use http") && QAStepPrompt.prompt(task: QAStepTask(id: "s", kind: .act, title: "t", detail: "", actorName: "B", appName: "S", allowsHTTP: true), goal: "g", history: [], observation: page).contains("you may use http"))
+    check("step prompt: the assistant is not told it has a budget of actions", !text.contains("left for this step") && !QAStepPrompt.systemPrompt(.web).contains("actions left"))
+    check("step prompt: no history, no history heading", !QAStepPrompt.prompt(kind: .web, task: task, goal: "g", history: [], observation: page).contains("What you did so far"))
+    check("step prompt: a check is told to change nothing", QAStepPrompt.prompt(kind: .web, task: QAStepTask(id: "n3", kind: .verify, title: "t", detail: "", actorName: "B", appName: "S"), goal: "g", history: [], observation: page).contains("do not change anything"))
+    check("step prompt: requests are allowed only for preparation", text.contains("may not use http") && QAStepPrompt.prompt(kind: .web, task: QAStepTask(id: "s", kind: .act, title: "t", detail: "", actorName: "B", appName: "S", allowsHTTP: true), goal: "g", history: [], observation: page).contains("you may use http"))
     let long = QAObservation(address: "a", title: "t", snapshot: String(repeating: "x", count: 20_000))
-    let cut = QAStepPrompt.prompt(task: task, goal: "g", history: [], observation: long)
+    let cut = QAStepPrompt.prompt(kind: .web, task: task, goal: "g", history: [], observation: long)
     check("step prompt: a long page is cut and says so", cut.count < 9000 && cut.contains("the page continues"))
-    check("step prompt: the system prompt keeps passwords away from the assistant", QAStepPrompt.systemPrompt().contains("{{password}}") && QAStepPrompt.systemPrompt().contains("Never type, guess or write a real password"))
+    check("step prompt: the system prompt keeps passwords away from the assistant", QAStepPrompt.systemPrompt(.web).contains("{{password}}") && QAStepPrompt.systemPrompt(.web).contains("Never type, guess or write a real password"))
+
+    // A native application
+    let window = QAObservation(address: "app://com.example.shop/Cart", title: "Cart", snapshot: "[e1] button \"Pay\"\nTotal 12")
+    let nativeText = QAStepPrompt.prompt(kind: .nativeMacOS, task: task, goal: "A buyer pays", history: [], observation: window)
+    check("native step prompt: the window, not a page, and no address", nativeText.contains("Window now:") && nativeText.contains("Title: Cart") && !nativeText.contains("Address:") && !nativeText.contains("app://"))
+    check("step prompt: no language named, no language line", !text.contains("Narration language"))
+    let named = QAStepPrompt.prompt(kind: .web, task: task, goal: "g", history: [], observation: page, language: "Russian")
+    check("step prompt: a named language is asked for outright", named.contains("Narration language: Russian, the language of this scenario. Write the narration in it, whatever language the application is in."))
+    check("native step prompt: a named language is asked for too", QAStepPrompt.prompt(kind: .nativeMacOS, task: task, goal: "g", history: [], observation: window, language: "English").contains("Narration language: English"))
+    check("language: an English scenario is English", QALanguage.name(ofText: "Sign in to the demo app. A tester signs in to the demo application and chooses a role. Look at the sign-in window.") == "English")
+    check("language: a Russian scenario is Russian", QALanguage.name(ofText: "Войти в демонстрационное приложение. Тестировщик входит в приложение и выбирает роль. Посмотреть на окно входа.") == "Russian")
+    check("language: a Spanish scenario is Spanish", QALanguage.name(ofText: "Iniciar sesión en la aplicación de demostración. El probador inicia sesión y elige un rol.") == "Spanish")
+    check("language: nothing to go by names nothing", QALanguage.name(ofText: "") == nil && QALanguage.name(ofText: "  \n ") == nil)
+    var spanishIds = shop()
+    spanishIds.id = "es-12"
+    check("language: the scenario's own texts decide, not its id", QALanguage.name(of: spanishIds) == "English")
+    check("native step prompt: a long window is cut and says so", QAStepPrompt.prompt(kind: .nativeMacOS, task: task, goal: "g", history: [], observation: long).contains("the window continues"))
+    check("native step prompt: its own system prompt names the application and the shortcuts", QAStepPrompt.systemPrompt(.nativeMacOS).contains("native macOS application") && QAStepPrompt.systemPrompt(.nativeMacOS).contains("cmd+n"))
+    check("native step prompt: it offers no browser actions", !QAStepPrompt.systemPrompt(.nativeMacOS).contains("navigate") && !QAStepPrompt.systemPrompt(.nativeMacOS).contains("http"))
+    check("native step prompt: it keeps passwords away from the assistant", QAStepPrompt.systemPrompt(.nativeMacOS).contains("{{password}}") && QAStepPrompt.systemPrompt(.nativeMacOS).contains("Never type, guess or write a real password"))
+    check("native step answer: opening an address is refused", fails(answer("act", action: ["kind": "navigate", "url": "http://x"]), kind: .nativeMacOS) == .notAllowed(.navigate))
+    check("native step answer: so is a request, even in preparation", fails(answer("act", action: ["kind": "http", "url": "/x"]), http: true, kind: .nativeMacOS) == .notAllowed(.http))
+    check("native step answer: a click, a fill and a shortcut are read as on the web", parsed(answer("act", action: ["kind": "key", "text": "cmd+n"]), kind: .nativeMacOS)?.move == .act(QAAction(kind: .key, text: "cmd+n")))
+
+    // Where a player finds its application
+    let both = QALocation(url: "http://localhost:3000", application: QAApplication(bundleIdentifier: "com.example.shop", name: "Shop"))
+    check("location: a web scenario opens the address, a native one the bundle identifier", both.address(for: .web) == "http://localhost:3000" && both.address(for: .nativeMacOS) == "com.example.shop")
+    check("location: nothing chosen for the kind is no address", QALocation(url: "http://x").address(for: .nativeMacOS) == nil && QALocation(application: QAApplication(bundleIdentifier: "a.b", name: "A")).address(for: .web) == nil)
 
     // What a step costs
     var effort = QAEffort()
@@ -1009,6 +1037,7 @@ final class FakeFactory: QADriverFactory {
 final class ScriptedAssistant: QAAssistant {
     var script: [String: [[String: Any]]]
     var prompts: [String] = []
+    var systems: [String] = []
     var failure: Error?
     var cancelOnCall: Int?
     private var calls = 0
@@ -1016,6 +1045,7 @@ final class ScriptedAssistant: QAAssistant {
     func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any? {
         calls += 1
         prompts.append(prompt)
+        systems.append(system)
         if let failure { throw failure }
         if calls == cancelOnCall { withUnsafeCurrentTask { $0?.cancel() } }
         for title in script.keys where prompt.contains("): \(title)\n") {
@@ -1085,6 +1115,7 @@ do {
     let ok = run(script: okScript)
     let passed = ok.result
     check("run: a branch whose steps all hold passes", passed?.verdict.outcome == .passed && ok.record.isFinished && ok.record.results.count == 1)
+    check("run: the scenario's language is named in every step prompt", !ok.assistant.prompts.isEmpty && ok.assistant.prompts.allSatisfy { $0.contains("Narration language: English") })
     check("run: every step was met, in order", passed?.nodesMet == ["n1", "n2", "n3", "n4", "n5"])
     check("run: what the person would have done is counted: two clicks, one field, one page load", passed?.effort.clicks == 2 && passed?.effort.fills == 1 && passed?.effort.loads == 1 && passed?.effort.keys == 0 && passed?.effort.scrolls == 0)
     check("run: each step has its own count", passed?.steps.map(\.node) == ["n1", "n2", "n3", "n4", "n5"] && passed?.steps[0].effort.clicks == 1 && passed?.steps[1].effort.fills == 1 && passed?.steps[1].effort.clicks == 1 && passed?.steps[2].effort.interactions == 0)
@@ -1098,6 +1129,27 @@ do {
     check("run: the buyer signs in and the seller gets an account before the steps", ok.assistant.prompts.first?.contains("Sign in as Buyer") == true && ok.assistant.prompts.contains { $0.contains("Create a new test account for Seller") })
     check("run: a check is told to change nothing, an action is not", ok.assistant.prompts.first { $0.contains("): Confirmation is shown\n") }?.contains("a check: do not change anything") == true && ok.assistant.prompts.first { $0.contains("): Pay with a valid card\n") }?.contains("an action") == true)
     check("run: the sign-in is told to use placeholders, never real values", ok.assistant.prompts.first?.contains("{{username}} and {{password}}") == true)
+
+    // A native macOS scenario runs through the same loop, with the application's own words
+    let nativeShop = changed(local) { scenario in
+        scenario.appKind = .nativeMacOS
+        scenario.targets = [QATarget(id: "local", kind: .local, name: "Local",
+                                     locations: ["shop": QALocation(application: QAApplication(bundleIdentifier: "com.example.shop", name: "Shop"))])]
+        scenario.actors[0].login = nil
+    }
+    let native = run(scenario: nativeShop, script: okScript.merging(["Open the order list": [move("key", text: "cmd+o"), finished()]]) { _, new in new }, saved: [])
+    check("native run: a branch whose steps all hold passes", native.result?.verdict.outcome == .passed && native.result?.nodesMet == ["n1", "n2", "n3", "n4", "n5"])
+    check("native run: each player's application is opened by its bundle identifier", native.factory.drivers.count == 2 && native.factory.drivers.allSatisfy { $0.opened == ["com.example.shop"] && $0.request.address == "com.example.shop" })
+    check("native run: the assistant is told it drives a native application and sees a window, not a page", native.assistant.systems.allSatisfy { $0.contains("native macOS application") } && native.assistant.prompts.allSatisfy { $0.contains("Window now:") && !$0.contains("Page now:") })
+    check("native run: a browser action is not accepted, the turn is asked again", {
+        let asked = run(scenario: nativeShop, script: ["Add a product to the cart": [move("navigate", url: "http://x"), move("click", "e1"), finished()]], saved: [])
+        return asked.factory.driver("buyer")?.performed.map(\.kind) == [.click] && asked.result?.verdict.outcome == .passed
+    }())
+    check("native run: an environment with no application for it says where the problem is", {
+        let missing = changed(nativeShop) { $0.targets[0].locations["shop"] = QALocation(url: "http://localhost:3000") }
+        return !missing.problems().isEmpty
+    }())
+    check("web run: still opens the web address and tells the assistant about a browser", ok.assistant.systems.allSatisfy { $0.contains("web application") } && ok.assistant.prompts.allSatisfy { $0.contains("Page now:") })
 
     // What is told
     let lines = ok.record.timeline

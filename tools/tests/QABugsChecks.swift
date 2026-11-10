@@ -128,6 +128,11 @@ actor FakeSink: QABugSink {
         return found
     }
 
+    func allFiledKeys() async throws -> [String] {
+        if failLookup { throw SinkFailure(message: "the folder is locked") }
+        return (Array(preexisting.keys) + Array(ids.keys)).sorted()
+    }
+
     private(set) var triaged: [(key: String, change: QABugTriageChange)] = []
 
     func applyTriage(key: String, _ change: QABugTriageChange) async throws -> QABugTriageOutcome {
@@ -154,6 +159,8 @@ actor DiskSink: QABugSink {
     func bugFolder() async -> URL? { folder }
 
     func filedBugs(forKeys keys: [String]) async throws -> [String: String] { try QABugIndex.filedBugs(in: folder, keys: Set(keys)) }
+
+    func allFiledKeys() async throws -> [String] { try QABugIndex.allKeys(in: folder) }
 
     func applyTriage(key: String, _ change: QABugTriageChange) async throws -> QABugTriageOutcome {
         guard let file = try QABugIndex.file(forKey: key, in: folder) else { return .noReport }

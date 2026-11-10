@@ -30,7 +30,7 @@ struct QADriverRequest {
     /// Nil for the session that prepares data and is nobody's.
     var actor: QAActor?
     var app: QAApp
-    /// Where the application is, in the chosen environment.
+    /// Where the application is, in the chosen environment: a web address, or the bundle identifier of the installed application.
     var address: String
     var login: QALoginReference?
 }
@@ -110,6 +110,8 @@ final class QARunner {
     private weak var observer: QARunObserver?
     private let now: () -> Date
     private let config: Config
+    /// The language the scenario is written in, named once; the assistant is asked to narrate in it (REQ-009).
+    private let language: String?
 
     private var startedAt = Date()
     private var timeline: [QATimelineEntry] = []
@@ -129,6 +131,7 @@ final class QARunner {
         self.observer = observer
         self.now = now
         self.config = config
+        self.language = QALanguage.name(of: scenario)
     }
 
     // MARK: The run
@@ -361,10 +364,10 @@ final class QARunner {
 
             let decision: QADecision
             do {
-                let answer = try await assistant.decide(system: QAStepPrompt.systemPrompt(),
-                                                        prompt: QAStepPrompt.prompt(task: task, goal: scenario.goal, history: history, observation: observation),
+                let answer = try await assistant.decide(system: QAStepPrompt.systemPrompt(scenario.appKind),
+                                                        prompt: QAStepPrompt.prompt(kind: scenario.appKind, task: task, goal: scenario.goal, history: history, observation: observation, language: language),
                                                         schema: QAStepPrompt.schema)
-                decision = try QAStepPrompt.parse(answer, allowsHTTP: task.allowsHTTP)
+                decision = try QAStepPrompt.parse(answer, kind: scenario.appKind, allowsHTTP: task.allowsHTTP)
             } catch is CancellationError {
                 return .interrupted
             } catch is QAStepPrompt.ParseError {
@@ -419,7 +422,7 @@ final class QARunner {
     private func session(for actor: QAActor?, app: QAApp) async throws -> QAActorDriver {
         let key = actor?.id ?? "setup"
         if let existing = drivers[key] { return existing }
-        guard let address = plan.target?.locations[app.id]?.url else { throw QARunnerError.noAddress(app.name) }
+        guard let address = plan.target?.locations[app.id]?.address(for: scenario.appKind) else { throw QARunnerError.noAddress(app.name) }
         let created = try await factory.makeDriver(QADriverRequest(actor: actor, app: app, address: address, login: actor?.login))
         drivers[key] = created
         do { try await created.open(address) } catch {
@@ -475,7 +478,7 @@ enum QARunnerError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noAddress(let app): return "The environment has no address for \(app)."
+        case .noAddress(let app): return "The environment does not say where \(app) runs."
         }
     }
 }

@@ -29,6 +29,8 @@ protocol QABugSink: Sendable {
     /// For each of `keys` that a report already names (front matter `qa_key`): the id of that report. Throws when the reports cannot be
     /// read, so that nothing is filed that might already be there.
     func filedBugs(forKeys keys: [String]) async throws -> [String: String]
+    /// The `qa_key` of every report that has one: which runs the reports name (QARunRetention). Throws when the reports cannot be read.
+    func allFiledKeys() async throws -> [String]
     /// Writes the report with the status a new bug starts in; returns its id.
     func createBug(_ report: QABugReport) async throws -> String
     /// Carries the person's mark of a finding to the report filed under `key`, if there is one (REQ-015).
@@ -68,14 +70,8 @@ enum QABugIndex {
     /// reads it). A folder that does not exist has no reports. A file that cannot be read is skipped.
     static func filedBugs(in folder: URL, keys: Set<String>) throws -> [String: String] {
         guard !keys.isEmpty else { return [:] }
-        var isFolder: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isFolder) else { return [:] }
-        guard isFolder.boolValue else { throw Failure(message: "\(folder.lastPathComponent) is not a folder.") }
-        let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension.lowercased() == "md" && $0.lastPathComponent.lowercased() != "readme.md" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
         var found: [String: String] = [:]
-        for file in files {
+        for file in try reportFiles(in: folder) {
             guard let head = head(of: file), head.contains(keyField) else { continue }
             let front = FrontMatter.split(head).0
             let key = front.string(keyField)
@@ -89,17 +85,31 @@ enum QABugIndex {
     /// The file of the report that names `key` in its front matter; nil when there is none.
     static func file(forKey key: String, in folder: URL) throws -> URL? {
         guard !key.isEmpty else { return nil }
-        var isFolder: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isFolder) else { return nil }
-        guard isFolder.boolValue else { throw Failure(message: "\(folder.lastPathComponent) is not a folder.") }
-        let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension.lowercased() == "md" && $0.lastPathComponent.lowercased() != "readme.md" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        for file in files {
+        for file in try reportFiles(in: folder) {
             guard let head = head(of: file), head.contains(keyField) else { continue }
             if FrontMatter.split(head).0.string(keyField) == key { return file }
         }
         return nil
+    }
+
+    /// The `qa_key` of every report in `folder` that names one, in file-name order. A folder that does not exist has no reports. A file
+    /// that cannot be read is skipped.
+    static func allKeys(in folder: URL) throws -> [String] {
+        try reportFiles(in: folder).compactMap { file in
+            guard let head = head(of: file), head.contains(keyField) else { return nil }
+            let key = FrontMatter.split(head).0.string(keyField)
+            return key.isEmpty ? nil : key
+        }
+    }
+
+    /// The report files of `folder` in file-name order; none when the folder does not exist.
+    private static func reportFiles(in folder: URL) throws -> [URL] {
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isFolder) else { return [] }
+        guard isFolder.boolValue else { throw Failure(message: "\(folder.lastPathComponent) is not a folder.") }
+        return try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension.lowercased() == "md" && $0.lastPathComponent.lowercased() != "readme.md" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
     private static func head(of file: URL) -> String? {
@@ -163,6 +173,14 @@ actor QABugFiler {
             }
         }
         return results
+    }
+
+    /// The `qa_key` of every filed report (see `QABugSink.allFiledKeys`). Runs after the filing in progress, if any, so that a report
+    /// being written is counted.
+    func allFiledKeys() async throws -> [String] {
+        await acquire()
+        defer { release() }
+        return try await sink.allFiledKeys()
     }
 
     /// Carries a mark of a finding to its bug report (see `QABugSink.applyTriage`). Runs after the filing in progress, if any.

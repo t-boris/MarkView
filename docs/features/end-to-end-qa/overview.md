@@ -2,7 +2,7 @@
 type: feature
 id: end-to-end-qa
 title: End-to-End QA
-status: ready
+status: in-progress
 owner: Boris Tsekinovsky
 created: 2026-11-09
 provenance: Created from the feature intake
@@ -11,13 +11,13 @@ understanding:
   Target Users: partial
   Primary Workflow: known
   Permissions: known
-  Failure Scenarios: partial
-  Data Model: partial
+  Failure Scenarios: known
+  Data Model: known
   Notifications: n/a
-  Security: partial
+  Security: known
   Analytics: n/a
-  Dependencies: partial
-  Acceptance Criteria: partial
+  Dependencies: known
+  Acceptance Criteria: known
 understanding_notes:
   Problem: "Известна цель: объединить подготовку, выполнение и результаты end-to-end проверки."
   Target Users: Первый выпуск охватывает веб-приложения и нативные приложения macOS; отдельные категории пользователей не определены.

@@ -101,8 +101,14 @@ enum QAStepPrompt {
     static let maxSnapshot = 8000
     static let maxHistory = 6
 
-    static func systemPrompt() -> String {
-        """
+    static func systemPrompt(_ kind: QAAppKind) -> String {
+        switch kind {
+        case .web: return webSystemPrompt
+        case .nativeMacOS: return nativeSystemPrompt
+        }
+    }
+
+    private static let webSystemPrompt = """
         You carry out one step of an end-to-end test of a web application, in a browser, as a careful person would. Every turn you are shown the current page as text: its address, its title, its interactive elements (each with a reference such as [e12], its role and its name) and its text. You answer with exactly one move.
 
         Moves:
@@ -119,25 +125,50 @@ enum QAStepPrompt {
         - narration is one short sentence in the language of the step title: what you do now, which control or field it is (by the name a person sees) and why. It is shown as a subtitle. For done and notMet, narration says what you saw.
         - Fill only the fields the step needs. Prefer the plain, visible way a person would take.
         """
-    }
 
-    static func prompt(task: QAStepTask, goal: String, history: [QAHistoryItem], observation: QAObservation) -> String {
+    private static let nativeSystemPrompt = """
+        You carry out one step of an end-to-end test of a native macOS application, with the mouse and the keyboard, as a careful person would. Every turn you are shown the application's window as text: the window title, its controls (each with a reference such as [e12], its role and its name), its text, and the entries of the menu bar written "Menu > Item" (they have references too). You answer with exactly one move.
+
+        Moves:
+        - act: one action in the application. Actions: click (ref: a button, checkbox, radio button, tab, row or menu item), fill (ref, text: a text field), select (ref, text: the item of a pop-up button or combo box), scroll (direction up or down), key (text: a key or a shortcut such as Enter, Tab, Escape or cmd+n), wait (amount in milliseconds, only while the application is still busy).
+        - done: the step is complete, or, for a check, the expectation holds on the window you see.
+        - notMet: for a check, the expectation does not hold. Say what you see instead in reason. Use this only when the window really shows something different; if the application is still busy or you have not looked everywhere, act first.
+        - blocked: you cannot go on (the control is not there, the sign-in was refused, an error dialog). Say why in reason and choose blockReason: elementNotFound, loginFailed or other.
+
+        Rules:
+        - Use only elements you were shown. Never invent a reference. The references are numbered afresh at every turn.
+        - For a check, do not change anything: look, scroll if needed, then answer done or notMet.
+        - To sign in, type the placeholders {{username}} and {{password}} where the credentials go. Never type, guess or write a real password. The value of a secure field is never shown to you.
+        - Do not repeat an action that already had its effect. If the previous action did not change the window, try another way or answer blocked.
+        - narration is one short sentence in the language of the step title: what you do now, which control or field it is (by the name a person sees) and why. It is shown as a subtitle. For done and notMet, narration says what you saw.
+        - Fill only the fields the step needs. Prefer the plain, visible way a person would take. A dialog or sheet that opened must be dealt with before the window behind it.
+        """
+
+    /// `language` is the name of the language the scenario is written in (`QALanguage`); the narration is asked for in it, whatever language the screen is in.
+    static func prompt(kind: QAAppKind, task: QAStepTask, goal: String, history: [QAHistoryItem], observation: QAObservation, language: String? = nil) -> String {
         var lines: [String] = []
         lines.append("Scenario goal: \(goal)")
         lines.append("Application: \(task.appName). Player: \(task.actorName).")
         lines.append("Step (\(task.kind == .verify ? "a check: do not change anything" : "an action")): \(task.title)")
         if !task.detail.isEmpty { lines.append("Details: \(task.detail)") }
         lines.append(task.allowsHTTP ? "This is preparation: you may use http requests to the application's own address as well as the page." : "You may not use http for this step.")
+        if let language { lines.append("Narration language: \(language), the language of this scenario. Write the narration in it, whatever language the application is in.") }
         if !history.isEmpty {
             lines.append("")
             lines.append("What you did so far in this step:")
             for item in history.suffix(maxHistory) { lines.append("- \(item.action) → \(item.result)") }
         }
         lines.append("")
-        lines.append("Page now:")
-        lines.append("Address: \(observation.address)")
-        lines.append("Title: \(observation.title)")
-        let snapshot = observation.snapshot.count > maxSnapshot ? String(observation.snapshot.prefix(maxSnapshot)) + "\n[… the page continues]" : observation.snapshot
+        switch kind {
+        case .web:
+            lines.append("Page now:")
+            lines.append("Address: \(observation.address)")
+            lines.append("Title: \(observation.title)")
+        case .nativeMacOS:
+            lines.append("Window now:")
+            lines.append("Title: \(observation.title)")
+        }
+        let snapshot = observation.snapshot.count > maxSnapshot ? String(observation.snapshot.prefix(maxSnapshot)) + "\n[… the \(kind == .web ? "page" : "window") continues]" : observation.snapshot
         lines.append(snapshot)
         return lines.joined(separator: "\n")
     }
@@ -180,7 +211,7 @@ enum QAStepPrompt {
 
     /// Reads the assistant's answer. An action that cannot be carried out as written (a click with no element, an http request the task
     /// does not allow) is an error, so the turn is asked again rather than guessed at.
-    static func parse(_ structured: Any?, allowsHTTP: Bool) throws -> QADecision {
+    static func parse(_ structured: Any?, kind appKind: QAAppKind, allowsHTTP: Bool) throws -> QADecision {
         guard let object = structured as? [String: Any] else { throw ParseError.notAnObject }
         func text(_ value: Any?) -> String { (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
         let narration = String(text(object["narration"]).prefix(300))
@@ -201,11 +232,12 @@ enum QAStepPrompt {
                 if action.ref.isEmpty { throw ParseError.missingRef(kind) }
                 if kind == .select && action.text.isEmpty { throw ParseError.missingText(kind) }
             case .navigate:
+                guard appKind == .web else { throw ParseError.notAllowed(kind) }
                 if action.url.isEmpty { throw ParseError.missingURL(kind) }
             case .key:
                 if action.text.isEmpty { throw ParseError.missingText(kind) }
             case .http:
-                guard allowsHTTP else { throw ParseError.notAllowed(kind) }
+                guard allowsHTTP, appKind == .web else { throw ParseError.notAllowed(kind) }
                 if action.url.isEmpty { throw ParseError.missingURL(kind) }
                 if action.method.isEmpty { action.method = "GET" }
             case .scroll, .wait: break

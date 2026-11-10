@@ -65,3 +65,15 @@ DEC-010 written into REQ-003, REQ-005.
 ### AI updated the requirements · 2026-11-09
 
 DEC-011 written into REQ-002, REQ-003.
+
+### Answer to Q-009 · 2026-11-10
+
+Are the several applications of one scenario always the same type (all web or all native macOS), or does a flow need to cross both, for exam
+
+A: all applications of one scenario are of the same type (all web or all native macOS); web and native flows are separate scenarios and DEC-007 stays. Boris, 2026-11-10.
+
+### Answer to Q-010 · 2026-11-10
+
+How are the recorded run videos and frames cleaned up as runs pile up?
+
+A: keep the newest 5 runs per scenario and every run that a filed bug points to; delete the others automatically when a new run starts; add "Delete run" and "Delete all runs of this scenario" in the Run panel. Boris, 2026-11-10.

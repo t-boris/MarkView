@@ -24,6 +24,14 @@ struct QAApplication: Codable, Equatable {
 struct QALocation: Codable, Equatable {
     var url: String? = nil
     var application: QAApplication? = nil
+
+    /// What a player opens for this kind of application: the web address, or the bundle identifier of the installed application.
+    func address(for kind: QAAppKind) -> String? {
+        switch kind {
+        case .web: return url
+        case .nativeMacOS: return application?.bundleIdentifier
+        }
+    }
 }
 
 /// An environment a check can run in (local, development, production) and, for each application of the scenario, where it runs there

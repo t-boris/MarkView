@@ -1884,3 +1884,18 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
 - Rule 3: never replace `NSWindow.contentViewController` of a window the person may have resized; keep one hosting controller and swap its `rootView` (with a new `.id`).
 - Check: the probe's `windows` step prints each window's frame; the viewer is the third visible window (`pick 2`) in a run without players. Fixture: `proj-triage` (two seeded runs).
 - Also: `pick` is 0-based over the visible windows in creation order; a run with players adds one.
+
+## An application the app launches inherits the app's environment, so the probe hid its windows too (2026-11-10)
+- What happened: in the first live native QA run through the probe, every picture of the player's window was fully transparent (all zero bytes) although the same capture
+  code gave a real picture in a plain process and in the standalone suite. `ps eww` on the launched fixture showed `DYLD_INSERT_LIBRARIES=mvprobe.dylib`: Launch Services
+  gave the fixture the probe's environment, and the probe library made its windows alpha 0 (and would have run the script in it).
+- Rule 1: when a picture of another process's window is blank, look at that process's own environment and window state first (`ps eww -p <pid>`, capture it from
+  outside with a second process) before suspecting permissions or the capture code. Two pictures from two processes tell which side is wrong.
+- Rule 2: a test harness injected through the environment must gate itself to its own process (`getprogname()`), not only exclude known child processes. Fixed in
+  `tools/tests/app-probe/mvprobe.m`.
+
+## Name the language, do not ask for "the language of the step" (2026-11-10)
+- What happened: narration and review findings of real runs came back in Spanish, French or Russian for English scenarios ("in the language of the step title" was in the
+  prompt, even with an example). The assistant's own settings and the page text pull the answer elsewhere.
+- Rule: a language requirement that must hold is stated by name, worked out from the scenario's own texts by a deterministic recogniser (`QALanguage`), and checked on the
+  real assistant in more than one run; the general wording stays as the fallback when no language is clear.

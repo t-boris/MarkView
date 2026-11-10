@@ -315,6 +315,9 @@ __attribute__((constructor)) static void Init(void) {
     if (!script || !out) return;
     // Child processes of the app (the indexer, MCP servers) inherit the environment: only the GUI process is probed.
     for (NSString *a in [NSProcessInfo processInfo].arguments) if ([a hasPrefix:@"--"]) return;
+    // So do the applications it launches (the QA native player starts an application of its own, through Launch Services, with this environment):
+    // their windows must stay visible to the player's pictures and they must not run the script.
+    if (strcmp(getprogname(), "MarkView") != 0) return;
     OutDir = [NSString stringWithUTF8String:out];
     [[NSFileManager defaultManager] createDirectoryAtPath:OutDir withIntermediateDirectories:YES attributes:nil error:nil];
     LogF = fopen([[OutDir stringByAppendingPathComponent:@"log.txt"] UTF8String], "w");
