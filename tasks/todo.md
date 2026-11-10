@@ -21,10 +21,17 @@ Borderline (material the AI reads, or a prompt handed to an agent): source notes
 Definition-of-done custom instruction (`DefinitionOfDoneView:80`), QA node detail and application requirements (`QAViews:529`, `:646`).
 Not AI input, left alone: GitHub comments and issue bodies, SQL editor, filters, names, paths, deployment fields, the Markdown editor (out of scope since REQ-001).
 
-## Plan (awaiting Boris's approval of scope)
+## Decisions (Boris, 2026-11-10)
+- Mic on all 9 AI fields; ONE shared component, existing hand-written copies migrate to it (no old code left); "From Project…" picker for files plus "Add Files…" and ⌘V in New scenario.
+- Mid-audit addition: QA has no copy at all (scenario list menu has only Delete; inspector only Add step / Delete). Boris: scenarios are often alike, "cloning would suit".
+  Chosen: **Duplicate scenario** (list context menu and editor button) and **"Based on…"** in New scenario (an existing scenario goes to the assistant as the starting point, the person says what changes).
+  Not chosen: duplicating a single step or a branch, copying steps between scenarios.
+
+## Plan
 - [ ] 1. One shared component for the pattern every site repeats by hand (`DictationController` + `DictationButton` + `DictationStatusView` + cancel on disappear): a mic overlay/modifier that takes the text binding and the focus flag. Migrate the existing copies to it (no old code left).
 - [ ] 2. Mic on the new sites (the approved list above), each with the status line and Esc cancel.
-- [ ] 3. QA New scenario: `IntakeTextEditor` instead of `TextEditor` (⌘V images, drop files), attachment strip, "Add Files…" and a project-file picker; `QAGenerationRequest.attachments` -> images to `CLICompletion.Request.images`, other files named in the prompt; files outside the project are copied under `.dde/qa/` so the CLI may read them (the folder is git-ignored) and removed after the run.
+- [ ] 3. QA New scenario: `IntakeTextEditor` instead of `TextEditor` (⌘V images, drop files), one shared attachment bar (strip, "Add Files…", "From Project…" searchable picker) also used by the intake sheet and New Project, "Based on…" picker; `QAGenerationRequest.attachments` -> images to `CLICompletion.Request.images`, other files named in the prompt; files outside the project are copied under `.dde/qa/` so the CLI may read them (the folder is git-ignored) and removed after the run.
+- [ ] 3b. Duplicate scenario: `QAScenario.duplicate` (new id from the title, "(copy)", fresh dates; runs and approval are not copied), `QAModel.duplicate`, row context menu and editor button; the copy opens at once.
 - [ ] 4. Tests: harness for the shared insertion and the attachment staging; two-window check that one window's recording does not touch another's; hosted sheet snapshot; invisible probe on the real New scenario sheet.
 - [ ] 5. Feature record: new question/decision and requirement in `voice-input-for-text-prompts` (scope widened; REQ-001 and DEC-002 are outdated since 4.64.0 shows the mic without a key), docs (`docs/architecture`), lesson.
 - [ ] 6. Branch `feat/voice-and-files-on-ai-inputs`, minor bump (5.59.0), PR, merge, ONE release at the end of the batch.
