@@ -2,7 +2,7 @@
 type: bug
 id: BUG-123
 title: QA run is blocked after 12 actions in a step that was making progress
-status: in-review
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-10

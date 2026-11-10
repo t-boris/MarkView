@@ -2,7 +2,7 @@
 type: bug
 id: BUG-124
 title: QA picture viewer collapses to a tiny window when a second picture is opened
-status: in-review
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-10
