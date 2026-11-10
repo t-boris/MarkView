@@ -1874,10 +1874,13 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
 - Check: the fixture used here is a 40-line Python site (sign-up, catalog, request form with required fields) under the session scratchpad; the probe steps are
   `approve`, `Start the check`, `It is done, go on` through `clicklabel`; read `.dde/qa/runs/*/run.json` for the verdict and the timeline.
 
-## A probe's window index is not a count of what you see (2026-11-10)
-- What happened: in the live QA run the first look at the enlarged picture came back as a blank 1280x800 image, because `pick 2` selected an off-screen helper window
-  instead of the viewer; it looked like a broken viewer.
-- Rule: before judging a screenshot from the probe, run `windows` and read which index is the window you mean (`pick` is 0-based over the visible windows in creation order,
-  and a run that opens a player adds one). A blank or wrong-size image is a wrong pick until the window list says otherwise.
-- Check: the viewer opened by `QAViewer` is the last visible `NSWindow` with a title; `pick 3` was right in the live run, `pick 2` in the run without players.
-
+## An odd snapshot of a window I just opened is a finding, not a wrong pick (2026-11-10)
+- What happened: in the live QA run of 5.61.0 two snapshots looked wrong: a blank 1280x800 image and a 249x42 image of the viewer after a second picture was opened.
+  I explained both away as `pick` selecting the wrong window and shipped. The 249x42 one was real: opening a second picture replaced the viewer's content controller and
+  AppKit shrank the window to that controller's initial size (BUG-124, found by Boris right after the install).
+- Rule 1: when a snapshot of the thing I am testing is blank or tiny, run `windows` and read the frame of that exact window before deciding it is a wrong pick. A
+  frame like {249, 74} is a collapsed window, not a mis-selected one.
+- Rule 2: test every UI path twice in a row (open, then open again while it is still open), not only the first open. Reusing a window with a new content is a separate path.
+- Rule 3: never replace `NSWindow.contentViewController` of a window the person may have resized; keep one hosting controller and swap its `rootView` (with a new `.id`).
+- Check: the probe's `windows` step prints each window's frame; the viewer is the third visible window (`pick 2`) in a run without players. Fixture: `proj-triage` (two seeded runs).
+- Also: `pick` is 0-based over the visible windows in creation order; a run with players adds one.

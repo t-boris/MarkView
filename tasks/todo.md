@@ -5444,3 +5444,14 @@ hidden by the probe). One live run on the fixture site with the real assistant: 
 finished live run is saved to run.json, and the run appears under "Earlier runs".
 Not checked by hand: the workaround box (a popover with a text field; the probe has no typing step), full-screen mode of the viewer, the mark of a finding whose bug was
 never filed, and a project whose bug workflow has no cancelling step (covered by the harness only).
+
+## BUG-124 (5.61.1): the picture viewer collapses when a second picture is opened
+Boris, right after installing 5.61.0: "the preview opens collapsed, with zero height and a very small width". Reproduced in the invisible probe on the seeded run: first click
+gives a 1280x892 window, a second click while it is open gives {249, 74}. The same collapse was in the live-run snapshot of 5.61.0 (viewer2 249x42), which I had
+dismissed as a wrong `pick`.
+- [x] Root cause: `QAViewer.show` replaced `window.contentViewController` with a new `NSHostingController`; AppKit resizes a window to the new controller's initial view size.
+- [x] Fix: keep one hosting controller and swap its `rootView` (new `.id`, so the viewer starts on the clicked picture); a minimised viewer is deminiaturised instead of a
+  second window being made.
+- [x] Verified in the probe: three pictures in a row keep {1280, 892}, the third opens on "3 of 3".
+- [x] Lesson written (tasks/lessons.md): an odd snapshot of a window I just opened is a finding; test open-twice paths.
+- [ ] Boris to check the viewer in the installed 5.61.1 (not installed yet).
