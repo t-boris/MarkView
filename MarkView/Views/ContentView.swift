@@ -234,7 +234,7 @@ struct ContentView: View {
             guard workspaceManager.openTabs.indices.contains(index) else { return }
             let tab = workspaceManager.openTabs[index]
             switch tab.kind {
-            case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .changeReview, .terminal, .browser, .data, .prototype, .uiStudio:
+            case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .changeReview, .terminal, .browser, .data, .prototype, .uiStudio, .qa:
                 lastFilesTab = tab.id
                 workspaceManager.layout.workspaceArea = .files
                 if case .file = tab.kind,
@@ -458,6 +458,13 @@ struct ContentView: View {
                             workspaceManager.openWorkflow()
                         }
                     }
+                    // In a narrow window it moves to the "…" menu (Operations → End-to-End QA…), like Workflow above.
+                    if !compact {
+                        headerButton("checklist.checked", help: "End-to-End QA (⌘8): scenarios written from a goal, edited as a graph and checked branch by branch", width: controlWidth,
+                                     selected: { if case .qa? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                            workspaceManager.openQA()
+                        }
+                    }
                     headerButton("bubble.left.and.text.bubble.right", help: "Discussions (⌃⌘I): think an idea through before it is a feature", width: controlWidth,
                                  selected: { if case .discussions? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openDiscussions()
@@ -663,6 +670,9 @@ struct ContentView: View {
                     } else if case .workflow = activeTab.kind {
                         WorkflowTabView(store: workspaceManager.features, editor: workspaceManager.workflowEditor)
                             .id(activeTab.id)
+                    } else if case .qa = activeTab.kind {
+                        QATabView(model: workspaceManager.qa)
+                            .id(activeTab.id)
                     } else if case .changeReview = activeTab.kind {
                         ProjectChangeReviewTab(review: changeReview)
                             .environmentObject(workspaceManager)
@@ -714,7 +724,7 @@ struct ContentView: View {
                 workspaceManager.activeTabIndex = index
             } else if let index = workspaceManager.openTabs.firstIndex(where: { tab in
                 switch tab.kind {
-                case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .changeReview, .terminal, .browser, .prototype, .uiStudio: return true
+                case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .changeReview, .terminal, .browser, .prototype, .uiStudio, .qa: return true
                 default: return false
                 }
             }) {
@@ -1156,6 +1166,8 @@ struct AIToolsMenu: View {
                 Button("Discussions…") { workspaceManager.openDiscussions() }
                     .disabled(workspaceManager.rootNode == nil)
                 Button("Workflow…") { workspaceManager.openWorkflow() }
+                    .disabled(workspaceManager.rootNode == nil)
+                Button("End-to-End QA…") { workspaceManager.openQA() }
                     .disabled(workspaceManager.rootNode == nil)
             }
             Section("Analysis") {

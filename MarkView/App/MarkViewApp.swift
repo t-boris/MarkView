@@ -379,6 +379,12 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut("7", modifiers: [.command])
                 .disabled(activeWorkspaceHasFolder != true)
+
+                Button("End-to-End QA") {
+                    activeWorkspace?.openQA()
+                }
+                .keyboardShortcut("8", modifiers: [.command])
+                .disabled(activeWorkspaceHasFolder != true)
             }
 
             CommandGroup(after: .appSettings) {

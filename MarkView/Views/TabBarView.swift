@@ -80,6 +80,7 @@ struct TabBarView: View {
         case .browser: return "globe"
         case .prototype: return "rectangle.on.rectangle.angled"
         case .uiStudio: return "macwindow.and.cursorarrow"
+        case .qa: return "checklist.checked"
         case .data:
             switch tab.fileType {
             case .log: return "list.bullet.rectangle"

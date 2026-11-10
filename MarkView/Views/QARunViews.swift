@@ -1,0 +1,211 @@
+import AppKit
+import SwiftUI
+
+// End-to-End QA (feature end-to-end-qa, REQ-003, REQ-008, REQ-009): the run on screen. The players are side by side, each as its page looks
+// now; beneath them is the live feed of what is being done and why (the same lines the video carries as subtitles) and of what the review
+// finds, with a picture of the screen it is about; the end of every branch shows what it cost a person.
+
+struct QALiveRunView: View {
+    @Environment(\.palette) private var palette
+    @ObservedObject var run: QARunModel
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            statusBar
+            Divider()
+            if let question = run.question {
+                confirmation(question)
+                Divider()
+            }
+            players
+            Divider()
+            feed
+            if !run.results.isEmpty {
+                Divider()
+                results
+            }
+        }
+        .background(palette.bg)
+    }
+
+    // MARK: Status
+
+    private var statusBar: some View {
+        HStack(spacing: 8) {
+            if run.isRunning {
+                ProgressView().controlSize(.small)
+                Text(statusText).uiFont(size: 11.5, weight: .medium).lineLimit(1)
+                Spacer()
+                Button(role: .destructive) { run.stop() } label: { Label("Stop", systemImage: "stop.fill") }.uiFont(size: 11)
+            } else {
+                Image(systemName: "flag.checkered").foregroundColor(palette.textDim)
+                Text(finishedText).uiFont(size: 11.5, weight: .medium).lineLimit(2)
+                Spacer()
+                Button("Back to the scenario", action: onClose).uiFont(size: 11)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+    }
+
+    private var statusText: String {
+        guard let branch = run.currentBranch else { return "Starting…" }
+        let label = run.labels[branch] ?? branch
+        let number = run.results.count + 1
+        return "Branch \(min(number, max(run.branchCount, 1))) of \(run.branchCount): \(label)"
+    }
+
+    private var finishedText: String {
+        let counts = Dictionary(grouping: run.results, by: { $0.verdict.outcome }).mapValues(\.count)
+        let parts = [QAOutcome.passed, .failed, .blocked, .interrupted, .uncovered].compactMap { outcome in counts[outcome].map { "\($0) \(outcome.label.lowercased())" } }
+        var text = parts.isEmpty ? "The run ended" : parts.joined(separator: " · ")
+        if let cost = run.costUSD { text += String(format: " · $%.2f", cost) }
+        return text
+    }
+
+    private func confirmation(_ question: QAConfirmation) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("This needs your yes", systemImage: "hand.raised.fill").uiFont(size: 11.5, weight: .semibold).foregroundColor(palette.orange)
+            Text(question.title).uiFont(size: 11.5, weight: .medium)
+            if !question.reason.isEmpty { Text(question.reason).uiFont(size: 10.5).foregroundColor(palette.textDim) }
+            HStack {
+                Button("Yes, do it") { run.reply(true) }.buttonStyle(.borderedProminent)
+                Button("No, skip this check") { run.reply(false) }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(palette.orange.opacity(0.12))
+    }
+
+    // MARK: Players
+
+    private var players: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: 10) {
+                ForEach(run.players) { player in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "person.fill").uiFont(size: 10).foregroundColor(palette.textDim)
+                            Text(player.name).uiFont(size: 11, weight: .semibold)
+                            Spacer(minLength: 0)
+                        }
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.35))
+                            if let picture = player.picture {
+                                Image(nsImage: picture).resizable().aspectRatio(contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 5))
+                            } else {
+                                Text("Waiting").uiFont(size: 10.5).foregroundColor(palette.textDim)
+                            }
+                        }
+                        .aspectRatio(1280.0 / 800.0, contentMode: .fit)
+                        Text(player.title.isEmpty ? player.address : player.title).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1)
+                    }
+                    .frame(width: players2(run.players.count))
+                }
+            }
+            .padding(10)
+        }
+        .frame(height: 210)
+    }
+
+    private func players2(_ count: Int) -> CGFloat { count <= 1 ? 320 : 260 }
+
+    // MARK: The feed
+
+    private var feed: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 6) {
+                    if run.feed.isEmpty { Text("Nothing has happened yet.").uiFont(size: 11).foregroundColor(palette.textDim).padding(10) }
+                    ForEach(run.feed) { item in
+                        row(item).id(item.id)
+                    }
+                }
+                .padding(10)
+            }
+            .onChange(of: run.feed.count) { _ in
+                if let last = run.feed.last { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(last.id, anchor: .bottom) } }
+            }
+        }
+    }
+
+    private func row(_ item: QARunModel.FeedItem) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(clock(item.time)).uiFont(size: 10).foregroundColor(palette.textDim).monospacedDigit().frame(width: 38, alignment: .trailing)
+            Image(systemName: icon(item)).uiFont(size: 10.5).foregroundColor(color(item)).frame(width: 14)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.text).uiFont(size: 11.5, weight: item.kind == .result || item.finding != nil ? .semibold : .regular).fixedSize(horizontal: false, vertical: true)
+                if let finding = item.finding {
+                    Text(finding.detail).uiFont(size: 10.5).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+                    if !finding.proposal.isEmpty {
+                        Text("Better: " + finding.proposal).uiFont(size: 10.5).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+            if let picture = item.picture, item.kind != .preparation {
+                Image(nsImage: picture).resizable().aspectRatio(contentMode: .fit).frame(width: 96)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(palette.textDim.opacity(0.3)))
+            }
+        }
+    }
+
+    private func icon(_ item: QARunModel.FeedItem) -> String {
+        if let finding = item.finding { return finding.isDefect ? "exclamationmark.bubble.fill" : "lightbulb.fill" }
+        switch item.kind {
+        case .preparation: return "gearshape"
+        case .action: return "cursorarrow.click"
+        case .observation: return "eye"
+        case .result: return "flag.fill"
+        }
+    }
+
+    private func color(_ item: QARunModel.FeedItem) -> Color {
+        if let finding = item.finding { return finding.isDefect ? palette.red : palette.orange }
+        return item.kind == .result ? palette.green : palette.textDim
+    }
+
+    private func clock(_ seconds: Double) -> String {
+        let whole = Int(seconds.rounded())
+        return String(format: "%d:%02d", whole / 60, whole % 60)
+    }
+
+    // MARK: The end of every branch
+
+    private var results: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(run.results) { result in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(result.verdict.outcome.label).uiFont(size: 10.5, weight: .semibold).foregroundColor(.white)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Capsule().fill(tint(result.verdict.outcome)))
+                        Text(run.labels[result.branch] ?? result.branch).uiFont(size: 11.5, weight: .medium).lineLimit(1)
+                        Spacer(minLength: 0)
+                        if let video = run.videos[result.branch] {
+                            Button { NSWorkspace.shared.open(video) } label: { Label("Video", systemImage: "play.rectangle") }
+                                .buttonStyle(.borderless).uiFont(size: 10.5)
+                        }
+                    }
+                    Text(result.verdict.reason).uiFont(size: 10.5).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+                    Text(run.effortSummary(result)).uiFont(size: 10.5).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if let notice = run.notice { Text(notice).uiFont(size: 10.5).foregroundColor(palette.orange) }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(palette.bgSidebar)
+    }
+
+    private func tint(_ outcome: QAOutcome) -> Color {
+        switch outcome {
+        case .passed: return palette.green
+        case .failed: return palette.red
+        case .blocked, .interrupted: return palette.orange
+        case .uncovered: return palette.textDim
+        }
+    }
+}

@@ -143,8 +143,13 @@ final class BrowserSession: NSObject, ObservableObject {
     static var pickScriptURL = Bundle.main.url(forResource: "markview-pick-element", withExtension: "js",
                                                subdirectory: "Editor/vendor/js")
 
-    init(url: URL?) {
+    /// Where the page keeps its cookies and storage; nil is the browser's shared store. A QA player gets a store of its own
+    /// (`.nonPersistent()`), so players never share a sign-in.
+    private let dataStore: WKWebsiteDataStore?
+
+    init(url: URL?, dataStore: WKWebsiteDataStore? = nil) {
         self.url = url
+        self.dataStore = dataStore
         super.init()
     }
 
@@ -158,6 +163,7 @@ final class BrowserSession: NSObject, ObservableObject {
 
     private func makeWebView() -> BrowserWebView {
         let configuration = WKWebViewConfiguration()
+        if let dataStore { configuration.websiteDataStore = dataStore }
         configuration.preferences.isElementFullscreenEnabled = true
         // Sign-in pages (Google) refuse an embedded browser that does not name itself a Safari.
         configuration.applicationNameForUserAgent = "Version/17.0 Safari/605.1.15"

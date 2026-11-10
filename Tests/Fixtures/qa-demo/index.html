@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Approval Desk</title>
+<style>
+  body { font: 15px/1.4 -apple-system, system-ui, sans-serif; margin: 2rem auto; max-width: 42rem; padding: 0 1rem; color: #1d1d1f; }
+  h1 { font-size: 1.4rem; } form { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0; }
+  input, button { font: inherit; padding: .4rem .6rem; } table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: .4rem; border-bottom: 1px solid #ddd; } .status { font-weight: 600; }
+  .status.approved { color: #1a7f37; } .status.rejected { color: #c62828; } .error { color: #c62828; min-height: 1.4em; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<h1>Approval Desk</h1>
+
+<section id="login">
+  <form id="login-form" aria-label="Sign in">
+    <label>User name <input id="user" name="user" autocomplete="username"></label>
+    <label>Password <input id="password" name="password" type="password" autocomplete="current-password"></label>
+    <button type="submit">Sign in</button>
+  </form>
+  <p id="login-error" class="error" role="alert"></p>
+</section>
+
+<section id="desk" class="hidden">
+  <p>Signed in as <strong id="who"></strong> (<span id="role"></span>). Payout account: <code id="iban"></code>
+     <button id="logout" type="button">Sign out</button></p>
+
+  <form id="new-form" class="hidden" aria-label="New request">
+    <label>Title <input id="title" name="title"></label>
+    <label>Amount <input id="amount" name="amount" type="number" step="0.01"></label>
+    <button type="submit">Submit request</button>
+  </form>
+  <p id="desk-error" class="error" role="alert"></p>
+
+  <table>
+    <thead><tr><th>#</th><th>Title</th><th>Amount</th><th>Status</th><th></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</section>
+
+<script>
+const $ = id => document.getElementById(id);
+let me = null;
+
+async function api(path, body) {
+  const options = body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+  const response = await fetch(path, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  return data;
+}
+
+async function refresh() {
+  try {
+    me = await api('/api/me');
+  } catch (e) {
+    me = null;
+  }
+  $('login').classList.toggle('hidden', !!me);
+  $('desk').classList.toggle('hidden', !me);
+  if (!me) return;
+  $('who').textContent = me.user; $('role').textContent = me.role; $('iban').textContent = me.iban;
+  $('new-form').classList.toggle('hidden', me.role !== 'requester');
+  const rows = await api('/api/requests');
+  $('rows').replaceChildren(...rows.map(r => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${r.id}</td><td></td><td>${r.amount.toFixed(2)}</td><td><span class="status ${r.status}">${r.status}</span></td><td></td>`;
+    tr.children[1].textContent = r.title;
+    if (me.role === 'approver' && r.status === 'pending') {
+      for (const [label, decision] of [['Approve', 'approve'], ['Reject', 'reject']]) {
+        const button = document.createElement('button');
+        button.textContent = label;
+        button.addEventListener('click', async () => { await act(() => api(`/api/requests/${r.id}/decision`, { decision })); });
+        tr.children[4].append(button);
+      }
+    }
+    return tr;
+  }));
+}
+
+async function act(work) {
+  $('desk-error').textContent = '';
+  try { await work(); } catch (e) { $('desk-error').textContent = e.message; }
+  await refresh();
+}
+
+$('login-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  $('login-error').textContent = '';
+  try { await api('/api/login', { user: $('user').value, password: $('password').value }); $('password').value = ''; }
+  catch (e) { $('login-error').textContent = e.message; }
+  await refresh();
+});
+$('new-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  await act(() => api('/api/requests', { title: $('title').value, amount: $('amount').value }));
+  $('title').value = ''; $('amount').value = '';
+});
+$('logout').addEventListener('click', async () => { document.cookie = 'session=; Max-Age=0; Path=/'; await refresh(); });
+setInterval(() => { if (me) refresh(); }, 2000);
+refresh();
+</script>
+</body>
+</html>
