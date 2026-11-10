@@ -1,3 +1,23 @@
+# Crowded header, per-window welcome screen, QA tile, window-specific state (2026-11-10)
+
+Boris, same session, in this order: (1) a screenshot of the top bar: "too crowded, fix it"; (2) the welcome screen's background switches in every
+window, each window needs its own; (3) End-to-End QA as a tile on the welcome screen; (4) "apart from the splash screen, everything else must be
+window-specific or project-specific": switching a tab in one window must not move another window; colours and the rest the same.
+One PR per item, ONE release at the end of the batch (Boris, 2026-11-08).
+
+## Plan
+- [ ] 1. BUG-120, branch `fix/bug-120-welcome-per-window-backdrop`, 5.55.1: the background is `PanelLayout.welcomeBackdrop` (per window, saved in the
+  window session, UserDefaults only as the starting value); `WelcomeScreen` takes a binding; checks: window-session round trip, two hosted windows with two
+  backgrounds; DEC-002 and REQ-002 corrected (they said "one app-wide preference").
+- [ ] 2. QA tile (`feat/welcome-qa-tile`): `WelcomeActionID.qa` in Build & Run after Workflow, opens `openQA()`, shows ⌘8; REQ-001 and the catalogue check updated.
+- [ ] 3. Header (`feat/header-declutter`), approved by Boris with two answers: (a) two groups: ONE "AI" menu (assistant, model, X-Ray model, AI tools; the wand
+  menu and the second picker go away) and ONE "Project" menu (Deployments, Workflow, End-to-End QA, Cycle Time; their icons go away and the compact-mode
+  special cases with them); icons stay for Contents, Discussions, UI Studio, Browser, Search, New, Theme; (b) the project pill shows the name only (the window
+  title has the version). `Operations` section of the old AI tools menu is dropped (the Project menu replaces it).
+- [ ] 4. Window-specific state: audit every shared `@AppStorage` / `UserDefaults` / singleton that one window's user changes and another window shows
+  (read-only sub-agent running); list the findings to Boris, convert what he approves, one PR per group.
+- [ ] 5. Lessons and memory (`tasks/lessons.md`), one release from a clean worktree of `origin/main`, remove my worktree.
+
 # Welcome screen: action tiles and animated backdrops (2026-11-09)
 
 Boris, /goal with a screenshot of "No File Open": more buttons than Open Terminal / New Feature / Open X-Ray / Open File, a more functional
