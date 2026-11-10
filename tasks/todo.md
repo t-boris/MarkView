@@ -5250,9 +5250,9 @@ Review: `docs/plans/2026-11-09-cycle-time-review.md`. Feature record: `docs/feat
 - Found while looking at the real render: the sheet needs its own `palette.bg` (without it the light text vanishes on the system's light sheet background), the actor must be printed as a person would say it, and a counts line that does not add up to the total looks wrong.
 - Not hand-checked in the running installed app: the Measure since date popover, the Delete evidence confirmation, the link line in the feature and bug panels.
 
-## Feature end-to-end-qa: End-to-End QA (2026-11-09) — PLAN, waiting for Boris's approval
+## Feature end-to-end-qa: End-to-End QA (2026-11-09) — IN PROGRESS on `feat/end-to-end-qa` (worktree `MarkView-qa`)
 
-Spec: `docs/features/end-to-end-qa/` (REQ-001..005, DEC-001..011, plan I-1..I-6, GitHub #345). Session `agent-37e6d4e1` is attached; status stays `ready` until the plan is approved, then `in-progress`.
+Spec: `docs/features/end-to-end-qa/` (REQ-001..007, DEC-001..020, Q-001..009, plan I-1..I-6, GitHub #345). Session `agent-37e6d4e1` is attached. Boris started the development on 2026-11-09 and answered A and B below; one PR and one release for the whole feature. Later in the same session he added: one product has several applications (for example 3) and several players (for example 5), and each application is reviewed against its own requirements (REQ-006, REQ-007, DEC-018, DEC-019).
 
 ### What exists (read-only research, 2026-11-09)
 
@@ -5269,7 +5269,7 @@ Spec: `docs/features/end-to-end-qa/` (REQ-001..005, DEC-001..011, plan I-1..I-6,
 - D1 Code: Foundation-only models and rules (`QAScenario`, `QARun`, outcomes, `QAMaterialPolicy`, production gate, `QAStore`) with standalone checks in `tools/tests/qa-tests.sh` and a mutation check as in `cycle-time-tests.sh`; then generator, runner, actor host, recorder, analysis, bugs, `Views/QAViews.swift`, `markview-qa.js`.
 - D2 Storage: scenarios `.markview/qa/scenarios/<id>.json` (a reusable project asset, Studio precedent); project policy `.markview/qa/policy.json` (patterns only); runs `.dde/qa/runs/<run-id>/` (run.json, masked frames, video, evidence) with a self-writing `*` `.gitignore`. Credentials never go to files: a scenario holds an actor name and a login reference (host + username) into the Keychain store.
 - D3 Generation: `CLICompletion` with `jsonSchema`, validate and retry, off the main thread, progress in `AIToolJobs`. Output: action / check / alternative / failure nodes, edges with conditions, per-node "changes data" flag, per-branch condition (how to establish it, how to verify it).
-- D4 Editor: a new tab kind `.qa` (wired like `openWorkflow`); Cytoscape + ELK graph in a new `markview-qa.js`, document owned by Swift, `qa` bridge actions (add, update, delete, connect, select path). Select branches to run; edits persist at once.
+- D4 Editor (revised, DEC-020): a new tab kind `.qa` (wired like `openWorkflow`); native SwiftUI over the pure layered layout `QAGraphLayout`, not Cytoscape/JS, so there is no bridge and the shipping editor is untouched. Steps are buttons, drag from a step to another connects them, the list of branches has a checkbox each, edits persist at once (`QAModel`, 0.5 s after the last edit and when the tab goes away). The tab adapts to the width of the centre area.
 - D5 Run engine: the selected branches are separate checks, each from the prepared baseline. Per action node a bounded observe-act loop: the AI gets the masked page snapshot, the node and its expected check and returns one browser tool call or done/blocked; expected checks are verified by DOM assertions plus the AI's reading of the masked screenshot; resolved steps are cached so a re-run can replay without the AI. Outcomes: passed, failed (expected check not met), blocked (cannot proceed: baseline, login, element not found within budget, launch failure), interrupted (user stop, crash, revoked permission), uncovered (branch condition not achieved, branch not executed).
 - D6 Web actors: `BrowserSession` gets an optional data store (default unchanged); each actor uses `.nonPersistent()` (`WKWebsiteDataStore(forIdentifier:)` needs macOS 14). The run view mounts every actor's web view side by side, so nothing switches the visible tab and `takeSnapshot` works; probes mount them in an invisible window. A run-level gate owns the approval record (scenario + preparation), the production data-changing confirmation (on production an action is confirmed unless it is marked read-only) and Stop. Branch conditions: network delay/error injected by a document-start script, verified by the script's own log of the intercepted request; data conditions by preparation steps; not achieved means uncovered.
 - D7 Sensitive material: one choke point prepares everything that is saved or leaves the Mac (video frames, screenshots and snapshot text sent to the AI, bug pictures). Default deny per page/screen; password fields always masked; user patterns and selectors. Fail closed: if masking cannot be applied the item is dropped and the run says "not captured". Web masks in the page before `takeSnapshot`; native masks secure fields and user regions from AX frames before encoding. The existing `browser_screenshot` agent tool is not changed.
@@ -5278,17 +5278,20 @@ Spec: `docs/features/end-to-end-qa/` (REQ-001..005, DEC-001..011, plan I-1..I-6,
 - D10 Analysis and bugs: key pages/screens the policy allows go masked to the AI with a schema (UI/UX findings and possible bugs); each detected bug and each failed, blocked or interrupted check becomes one bug through `FeatureStore.createBug` (workflow not-started status, mapped severity, outcome in the title and in a `qa_outcome` field, masked key frames beside the bug like UI Studio tracking, video as a local path because `.dde/` is not committed). One bug per check per run, as specified; de-duplication across re-runs is a possible follow-up.
 - D11 Permissions: Screen Recording and Accessibility use the dictation pattern (status row, explanation, "Open System Settings" deep link). Native and recording verification needs a locally signed Developer ID build, because Debug builds lose the grants on every rebuild.
 
-### Open questions for Boris
+- D12 Applications and review profiles (DEC-018, DEC-019): a scenario lists its applications (at most 6) and players (at most 10); a player belongs to an application and a step may name another; an environment maps each application to its address or installed app. Each application has a profile: user-facing (attractive, production-ready, holds attention), administration (fast, optimal, ready for automation) or custom, with editable requirement text. During a web run the runner records page-load and request timings per step and signals of automation readiness (stable identifiers, labelled controls, predictable addresses) for administration applications; the review of an application receives its requirement text plus that evidence, and every finding and bug names the application and the requirement. All applications of one scenario are of one type (DEC-007) unless Q-009 is answered otherwise.
 
-- A. Native multi-actor model (DEC-007 left it unspecified): one app instance per actor taking turns (recommended), or one instance with actors as accounts that sign in and out in turn.
-- B. Delivery: one PR and one release for the whole feature (recommended, as with the prototype series), or web first and native as a second PR.
+### Questions for Boris (answered)
+
+- A. Native multi-actor model: one app instance per actor taking turns (DEC-012, accepted).
+- B. Delivery: one PR and one release for the whole feature.
+- Open: Q-009, whether one scenario may mix web and native applications (recommended: no).
 
 ### Stages (tick when done and checked)
 
-- [ ] S0 Worktree `MarkView-qa` on `feat/end-to-end-qa` from up-to-date `origin/main`; feature `in-progress`; DEC-012.. recorded for the approved design choices
-- [ ] S1 Models, rules, store, standalone checks (I-1, I-2, I-4 core): graph validation, path selection, outcome rules (uncovered, blocked vs failed vs interrupted, baseline failure and launch failure never completed), production gate, policy fail-closed, store round trip
-- [ ] S2 Generation and editor tab (I-1): goal in, graph out, edit, select branches, persists, reopens
-- [ ] S3 Targets, actors, credentials, approval, branch conditions (I-2)
+- [x] S0 Worktree `MarkView-qa` on `feat/end-to-end-qa` from up-to-date `origin/main`; feature `in-progress`; DEC-012.. recorded for the approved design choices
+- [x] S1 Models, rules, store, standalone checks (I-1, I-2 core): graph validation, path selection, outcome rules (uncovered, blocked vs failed vs interrupted, baseline failure and launch failure never completed), store round trip; fixture app `Tests/Fixtures/qa-demo` (two users, shared server state, a switchable bug). The production gate moved to S3 and the policy to S4, where their screens are
+- [x] S2 Generation and editor tab (I-1): goal in, graph out, edit, select branches, persists, reopens; several applications and players with review profiles. Verified: 225 standalone checks, 36 mutations all caught, a real `claude` generation (25 steps, 8 branches), the real app in an invisible window (list, graph, step selection, narrow and wide layout, sheet). Not verified: a generation from the sheet inside the app (the probe cannot type), drag-to-connect with a real mouse
+- [ ] S3 Targets, actors, credentials, approval, the production gate, branch conditions (I-2)
 - [ ] S4 Material policy UI and the masking choke point (I-4) — before any run sends page material to the AI
 - [ ] S5 Web runner: isolated actors, run view, outcomes (I-3 web)
 - [ ] S6 Web recording with masking (I-5)
