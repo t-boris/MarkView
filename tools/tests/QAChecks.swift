@@ -371,7 +371,7 @@ do {
     let schema = QAGeneration.schema
     let props = schema["properties"] as? [String: Any] ?? [:]
     let nodeProps = ((props["nodes"] as? [String: Any])?["items"] as? [String: Any])?["properties"] as? [String: Any] ?? [:]
-    check("generation: the schema is valid JSON with the five parts", JSONSerialization.isValidJSONObject(schema) && Set(props.keys) == ["title", "actors", "start", "nodes", "edges"])
+    check("generation: the schema is valid JSON with its parts", JSONSerialization.isValidJSONObject(schema) && Set(props.keys) == ["title", "baselineEstablish", "baselineVerify", "actors", "start", "nodes", "edges"])
     check("generation: the schema offers the node kinds the model knows", ((nodeProps["kind"] as? [String: Any])?["enum"] as? [String]) == QANodeKind.allCases.map(\.rawValue))
     check("generation: ... and the condition kinds, or none", ((nodeProps["conditionKind"] as? [String: Any])?["enum"] as? [String]) == [""] + QAConditionKind.allCases.map(\.rawValue))
     check("generation: the schema has a property for each field the reader uses", Set(nodeProps.keys).isSuperset(of: ["id", "kind", "title", "detail", "actor", "changesData", "conditionKind", "conditionEstablish", "conditionVerify", "faultUrlPattern", "faultMode", "faultStatus", "faultMilliseconds"]))
@@ -603,6 +603,22 @@ do {
     check("generation: more players than allowed are cut and reported", QAGeneration.parse(multi(actors: eleven, nodes: [node("n1", "action", "p0")]), request: request).parseProblems.contains { $0.contains("at most") })
 }
 
+// MARK: - The baseline in generation
+
+do {
+    let request = QAGenerationRequest(goal: "g", appKind: .web, apps: [QAApp(id: "app", name: "App")], now: now)
+    var withBaseline = answer(title: "T")
+    withBaseline["baselineEstablish"] = "POST /api/reset"
+    withBaseline["baselineVerify"] = "GET /api/requests is empty"
+    let parsed = QAGeneration.parse(withBaseline, request: request)
+    check("generation: the baseline the AI wrote is kept", parsed.scenario.baseline == QACondition(kind: .state, establish: "POST /api/reset", verify: "GET /api/requests is empty"))
+    check("generation: no baseline when it wrote none", QAGeneration.parse(answer(title: "T"), request: request).scenario.baseline == nil)
+    var half = answer(title: "T")
+    half["baselineEstablish"] = "POST /api/reset"
+    check("generation: a baseline with no way to verify it is a problem to give back", QAGeneration.parse(half, request: request).problems.contains { $0.kind == .incompleteCondition && $0.subject == "baseline" })
+    check("generation: the AI is told about the baseline", QAGeneration.systemPrompt(.web).contains("baselineEstablish"))
+}
+
 // MARK: - The layout never lets steps overlap, whatever the graph
 
 do {
@@ -706,6 +722,122 @@ do {
         return try await task.value
     }
     check("generator: a stopped generation does not ask again", { if case .failure(let error) = stopped { return error is CancellationError } else { return false } }())
+}
+
+// MARK: - The plan of a run and its gate (QAPlanner, QAGate)
+
+do {
+    let buyer = QALoginReference(host: "shop.example.com", username: "buyer@example.com")
+    let localBuyer = QALoginReference(host: "localhost", username: "buyer")
+    var all = shop()
+    all.selectAllBranches()
+    let main = "n1>n2>n3>n4>n5", slow = "n1>n2>f1>c2", declined = "n1>a1>c1"
+    var localAll = changed(all) { $0.actors[0].login = localBuyer }
+
+    func plan(_ scenario: QAScenario, _ target: String? = "local", saved: Set<QALoginReference> = [buyer, localBuyer]) -> QAExecutionPlan {
+        QAPlanner.make(scenario, targetID: target, savedLogins: saved)
+    }
+    func ids(_ steps: [QAPreparationStep]) -> Set<String> { Set(steps.map(\.id)) }
+    func problems(_ plan: QAExecutionPlan) -> Set<QAPlanProblem.Kind> { Set(plan.problems.map(\.kind)) }
+
+    // The plan
+    let local = plan(localAll)
+    check("plan: three branches against a local environment can be approved", local.canBeApproved && local.problems.filter(\.blocks).isEmpty && Set(local.branches.map(\.id)) == [main, slow, declined])
+    check("plan: the players the branches use sign in or get a test account", ids(local.preparation).isSuperset(of: ["login:buyer", "account:seller"]))
+    check("plan: each condition is a step of its branch; a network fault is brought about by the run itself",
+          ids(local.preparation).isSuperset(of: ["condition:\(slow):f1", "condition:\(declined):a1"]) &&
+          local.preparation.first { $0.id == "condition:\(slow):f1" }?.automated == true && local.preparation.first { $0.id == "condition:\(declined):a1" }?.automated == false)
+    check("plan: a delay does not change data, a data condition may", local.preparation.first { $0.id == "condition:\(slow):f1" }?.changesData == .no && local.preparation.first { $0.id == "condition:\(declined):a1" }?.changesData == .unknown)
+    check("plan: a created account changes data, a sign-in does not", local.preparation.first { $0.id == "account:seller" }?.changesData == .yes && local.preparation.first { $0.id == "login:buyer" }?.changesData == .no)
+    check("plan: nothing needs a yes of its own outside production", local.confirmations.isEmpty && !local.isProduction)
+    var declinedOnly = localAll
+    declinedOnly.clearSelection(); declinedOnly.setSelected(declined, true)
+    check("plan: only the players of the chosen branches are prepared", !ids(plan(declinedOnly).preparation).contains("account:seller") && ids(plan(declinedOnly).preparation).contains("login:buyer"))
+
+    // Production
+    let production = plan(all, "prod")
+    check("plan: production is approvable once its logins match", production.isProduction && production.canBeApproved)
+    check("plan: on production every action that may change data needs a yes, a check never does, a read-only action neither",
+          Set(production.confirmations.map(\.id)) == ["account:seller", "condition:\(declined):a1", "node:n2", "node:a1", "node:f1"])
+    check("plan: a confirmation says why", production.confirmations.allSatisfy { !$0.reason.isEmpty && !$0.title.isEmpty })
+    check("plan: a baseline reset on production needs a yes for each branch", Set(plan(changed(all) { $0.baseline = QACondition(kind: .state, establish: "Reset", verify: "Empty") }, "prod").confirmations.map(\.id)).isSuperset(of: ["baseline:\(main)", "baseline:\(slow)", "baseline:\(declined)"]))
+
+    // What blocks and what only warns
+    check("plan: no environment chosen", problems(plan(localAll, nil)).contains(.noTarget) && !plan(localAll, nil).canBeApproved)
+    check("plan: an environment that is not in the scenario", problems(plan(localAll, "ghost")).contains(.unknownTarget) && !plan(localAll, "ghost").canBeApproved)
+    check("plan: a scenario without environments", problems(plan(changed(localAll) { $0.targets = [] })).contains(.noTarget))
+    check("plan: no branch chosen", problems(plan(changed(localAll) { $0.clearSelection() })).contains(.noBranch) && !plan(changed(localAll) { $0.clearSelection() }).canBeApproved)
+    check("plan: a saved login is required", problems(plan(localAll, saved: [])).contains(.loginNotSaved) && !plan(localAll, saved: []).canBeApproved)
+    check("plan: a login of another host is refused", problems(plan(all)).contains(.loginHostMismatch) && !plan(all).canBeApproved)
+    check("plan: the host is compared as the browser's passwords do", !problems(plan(changed(all) { $0.actors[0].login = QALoginReference(host: "WWW.Shop.Example.com", username: "buyer@example.com") }, "prod", saved: [QALoginReference(host: "WWW.Shop.Example.com", username: "buyer@example.com")])).contains(.loginHostMismatch))
+    let anonymous = plan(changed(localAll) { $0.actors[1].createTestAccount = false })
+    check("plan: a player without access only warns", problems(anonymous).contains(.actorWithoutAccess) && anonymous.canBeApproved && anonymous.problems.first { $0.kind == .actorWithoutAccess }?.blocks == false)
+    check("plan: an unfinished environment that was not chosen does not block", changed(localAll) { $0.targets[1].locations["shop"]?.url = "nonsense" }.problems().contains { $0.kind == .incompleteTarget } && plan(changed(localAll) { $0.targets[1].locations["shop"]?.url = "nonsense" }).canBeApproved)
+    check("plan: the chosen one does block", problems(plan(changed(localAll) { $0.targets[0].locations["shop"]?.url = "nonsense" })).contains(.targetIncomplete) && !plan(changed(localAll) { $0.targets[0].locations["shop"]?.url = "nonsense" }).canBeApproved)
+    check("plan: an unsound scenario blocks", problems(plan(changed(localAll) { $0.edges.removeAll { $0.to == "n5" } })).contains(.scenarioUnsound) && !plan(changed(localAll) { $0.edges.removeAll { $0.to == "n5" } }).canBeApproved)
+    check("plan: checks that change data with no baseline only warn, and only when there are several", problems(local).contains(.noBaseline) && local.canBeApproved && !problems(plan(declinedOnly)).contains(.noBaseline))
+    let withBaseline = plan(changed(localAll) { $0.baseline = QACondition(kind: .state, establish: "Reset the demo data", verify: "No requests") })
+    check("plan: a baseline is a step of each branch and ends the warning", !problems(withBaseline).contains(.noBaseline) && ids(withBaseline.preparation).isSuperset(of: ["baseline:\(main)", "baseline:\(slow)", "baseline:\(declined)"]))
+    check("plan: an unfinished baseline is a problem of the scenario", changed(localAll) { $0.baseline = QACondition(kind: .state, establish: "", verify: "x") }.problems().contains { $0.kind == .incompleteCondition && $0.subject == "baseline" })
+    check("plan: a baseline is kept in the file", (try? QAStore.decoder.decode(QAScenario.self, from: QAStore.encoder.encode(changed(localAll) { $0.baseline = QACondition(kind: .state, establish: "a", verify: "b") })))?.baseline?.establish == "a")
+
+    // The fingerprint
+    let base = local.fingerprint
+    func fp(_ change: (inout QAScenario) -> Void, _ target: String? = "local") -> String { plan(changed(localAll, change), target).fingerprint }
+    check("fingerprint: the same plan has the same one", plan(localAll).fingerprint == base && base.count == 64)
+    check("fingerprint: a step's text decides what the run does", fp { $0.nodes[0].detail = "Open the other shop" } != base)
+    check("fingerprint: whether a step changes data", fp { $0.nodes[0].changesData = .yes } != base)
+    check("fingerprint: a new step", fp { _ = $0.addNode(.action, title: "More", after: "n5") } != base)
+    check("fingerprint: a connection", fp { $0.disconnect("n1", "a1") } != base)
+    check("fingerprint: who signs in", fp { $0.actors[0].login?.username = "other" } != base)
+    check("fingerprint: the chosen branches", fp { $0.setSelected(slow, false) } != base)
+    check("fingerprint: where the chosen environment is", fp { $0.targets[0].locations["shop"]?.url = "http://localhost:3999" } != base)
+    check("fingerprint: the baseline", fp { $0.baseline = QACondition(kind: .state, establish: "Reset", verify: "Empty") } != base)
+    check("fingerprint: the condition of a branch", fp { $0.nodes[7].condition?.fault?.milliseconds = 9000 } != base)
+    check("fingerprint: a title is only a label", fp { $0.nodes[0].title = "Another title" } == base)
+    check("fingerprint: so are the goal, the name of a player and the review text", fp { $0.goal = "Something else"; $0.title = "Else"; $0.actors[0].name = "Someone"; $0.apps[0].requirements = "New text" } == base)
+    check("fingerprint: another environment does not count", fp { $0.targets[1].locations["shop"]?.url = "https://other.example.com" } == base)
+    check("fingerprint: nor does the date", fp { $0.updated = now.addingTimeInterval(9999) } == base)
+    check("fingerprint: nor the order the branches were chosen in", plan(changed(localAll) { $0.selected = Array($0.selected.reversed()) }).fingerprint == base)
+    check("fingerprint: another environment is another plan", plan(localAll, "prod").fingerprint != base)
+
+    // The gate
+    var gate = QAGate(plan: local)
+    check("gate: nothing is allowed before the approval", gate.state == .needsApproval && !gate.canPrepare && gate.decision(for: "login:buyer") == .refused("The plan is not approved."))
+    var unsound = QAGate(plan: plan(localAll, nil))
+    check("gate: a plan with blocking problems cannot be approved", !unsound.approve(acknowledgedProduction: true) && unsound.state == .needsApproval && !unsound.canPrepare)
+    check("gate: approval opens preparation and records when", gate.approve(acknowledgedProduction: false, at: now) && gate.canPrepare && gate.approvedAt == now && gate.approvedFingerprint == base)
+    check("gate: outside production everything is then allowed", gate.decision(for: "login:buyer") == .allowed && gate.decision(for: "node:n2") == .allowed && gate.decision(for: "account:seller") == .allowed)
+
+    var prod = QAGate(plan: production)
+    check("gate: a production plan is not approved without the person acknowledging it", !prod.approve(acknowledgedProduction: false) && prod.state == .needsApproval && prod.approve(acknowledgedProduction: true) && prod.canPrepare)
+    if case .needsConfirmation(let first) = prod.decision(for: "node:n2") { check("gate: an action that changes data waits for a yes", first.id == "node:n2") } else { check("gate: an action that changes data waits for a yes", false) }
+    check("gate: a read-only action and a check do not", prod.decision(for: "node:n1") == .allowed && prod.decision(for: "node:n3") == .allowed)
+    prod.confirm("node:n2")
+    check("gate: a yes is for that one thing", prod.decision(for: "node:n2") == .allowed && { if case .needsConfirmation = prod.decision(for: "node:a1") { return true } else { return false } }())
+    prod.confirm("node:bogus")
+    check("gate: a yes to something that is not asked is ignored", !prod.confirmed.contains("node:bogus"))
+    prod.confirmAllRemaining()
+    check("gate: one answer to the whole list", production.confirmations.allSatisfy { prod.decision(for: $0.id) == .allowed })
+
+    // A change after the approval
+    var edited = QAGate(plan: production)
+    edited.approve(acknowledgedProduction: true); edited.confirm("node:n2")
+    edited.update(plan: plan(changed(all) { $0.nodes[1].detail = "Pay with the real card" }, "prod"))
+    check("gate: a plan that changed has to be approved again, and the earlier yes is forgotten", edited.state == .needsApproval && !edited.canPrepare && edited.confirmed.isEmpty && edited.approvedAt == nil && edited.decision(for: "node:n2") == .refused("The plan is not approved."))
+    var relabelled = QAGate(plan: production)
+    relabelled.approve(acknowledgedProduction: true); relabelled.confirm("node:n2")
+    relabelled.update(plan: plan(changed(all) { $0.nodes[1].title = "Pay by card" }, "prod"))
+    check("gate: a new title is not a new plan", relabelled.canPrepare && relabelled.confirmed == ["node:n2"] && relabelled.plan.confirmations.first { $0.id == "node:n2" }?.title == "Pay by card")
+    edited.update(plan: production)
+    check("gate: the old plan back does not bring the old approval back", edited.state == .needsApproval)
+
+    // Stop
+    var stopped = QAGate(plan: local)
+    stopped.approve(acknowledgedProduction: false)
+    stopped.stop()
+    check("gate: a stopped run allows nothing", stopped.isStopped && !stopped.canPrepare && stopped.decision(for: "login:buyer") == .refused("The run was stopped."))
+    check("gate: and cannot be approved or revived", !stopped.approve(acknowledgedProduction: true) && { stopped.update(plan: plan(localAll)); stopped.confirmAllRemaining(); return stopped.isStopped }())
 }
 
 finish("QA")

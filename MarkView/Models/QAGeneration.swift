@@ -61,6 +61,8 @@ enum QAGeneration {
         ])
         return object([
             "title": string(),
+            "baselineEstablish": string(),
+            "baselineVerify": string(),
             "actors": ["type": "array", "items": object(["id": string(), "name": string(), "app": string(), "createTestAccount": ["type": "boolean"]])],
             "start": string(),
             "nodes": ["type": "array", "items": node],
@@ -107,6 +109,9 @@ enum QAGeneration {
         - condition (conditionKind, conditionEstablish, conditionVerify): only for an alternative or a failure that needs the application to be \
         brought into a particular situation. conditionEstablish says how, conditionVerify says how to confirm it holds before the branch runs. \
         Leave the condition fields empty (conditionKind "", other strings empty, numbers 0) where there is none.
+        - baselineEstablish / baselineVerify: the checks are run one after another and each starts from the same state. When the steps change \
+        data, say how the application is brought back to that state (for example a reset call, a seed script, deleting the records the steps \
+        created) in baselineEstablish, and how to confirm it in baselineVerify. Leave both empty when no reset is needed.
         - Cover the realistic variations of the goal: wrong or missing input, rights, errors, slow answers, what the other actor sees. A typical \
         scenario has 8 to 25 steps. Do not pad it.
         - Base the scenario on the real application. If you can read its files, look at its screens, routes, roles and messages and use them; \
@@ -169,6 +174,10 @@ enum QAGeneration {
         func number(_ value: Any?) -> Int { (value as? NSNumber)?.intValue ?? 0 }
 
         scenario.title = text(root["title"])
+        let baselineEstablish = text(root["baselineEstablish"]), baselineVerify = text(root["baselineVerify"])
+        if !baselineEstablish.isEmpty || !baselineVerify.isEmpty {
+            scenario.baseline = QACondition(kind: .state, establish: baselineEstablish, verify: baselineVerify)
+        }
         let start = text(root["start"])
         scenario.start = start.isEmpty ? nil : start
 

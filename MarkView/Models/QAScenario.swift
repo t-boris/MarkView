@@ -94,7 +94,7 @@ struct QAApp: Codable, Equatable, Identifiable {
 }
 
 /// A saved login in the macOS Keychain store of the browser (host and user name). A scenario never holds a password (DEC-014).
-struct QALoginReference: Codable, Equatable {
+struct QALoginReference: Codable, Equatable, Hashable {
     var host: String
     var username: String
 }
@@ -230,6 +230,9 @@ struct QAScenario: Codable, Equatable, Identifiable {
     var apps: [QAApp] = []
     var targets: [QATarget] = []
     var actors: [QAActor] = []
+    /// How the application is brought to the state every selected check starts from, and how that is confirmed (REQ-003). Nil means the
+    /// application as it is once the players have signed in.
+    var baseline: QACondition? = nil
     var nodes: [QANode] = []
     var edges: [QAEdge] = []
     var start: String? = nil
@@ -362,6 +365,8 @@ struct QAScenario: Codable, Equatable, Identifiable {
             if let app = node.app, self.app(app) == nil { add(.unknownApp, node.id, "Step \(node.id) names the unknown application \(app).") }
             if let condition = node.condition { found.append(contentsOf: QAScenario.conditionProblems(condition, node: node.id)) }
         }
+
+        if let baseline { found.append(contentsOf: QAScenario.conditionProblems(baseline, node: "baseline")) }
 
         var seenApps = Set<String>()
         for app in apps {

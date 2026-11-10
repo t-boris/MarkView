@@ -23,12 +23,31 @@ final class QAModel: ObservableObject {
     @Published private(set) var phase: Phase = .idle
     /// A line about what the last generation or save did, shown until the next action.
     @Published private(set) var notice: String?
+    /// The environment the person chose to check; nil until they choose (or the scenario has one).
+    @Published var targetID: String? { didSet { refreshGate() } }
+    /// The logins the browser's password store holds (never the passwords), to choose a player's login from.
+    @Published private(set) var savedLogins: [SavedLogin] = []
+    /// The approval of the current plan. Nil until the person approves; it never outlives a change to the plan (DEC-002).
+    @Published private(set) var gate: QAGate?
 
     private var saveTask: Task<Void, Never>?
     private var generation: Task<Void, Never>?
     private let saveDelay: UInt64 = 500_000_000
 
     var problems: [QAProblem] { current?.problems() ?? [] }
+
+    /// What a run of the chosen branches against the chosen environment would do, as the scenario is now.
+    var plan: QAExecutionPlan? {
+        guard let current else { return nil }
+        return QAPlanner.make(current, targetID: effectiveTargetID, savedLogins: Set(savedLogins.map { QALoginReference(host: $0.host, username: $0.username) }))
+    }
+
+    /// The chosen environment, or the only one there is.
+    var effectiveTargetID: String? {
+        guard let current else { return nil }
+        if let targetID, current.target(targetID) != nil { return targetID }
+        return current.targets.count == 1 ? current.targets[0].id : nil
+    }
     var isGenerating: Bool { if case .generating = phase { return true } else { return false } }
 
     // MARK: Project
@@ -46,6 +65,8 @@ final class QAModel: ObservableObject {
         selectedEdge = nil
         phase = .idle
         notice = nil
+        targetID = nil
+        gate = nil
         reload()
     }
 
@@ -71,6 +92,8 @@ final class QAModel: ObservableObject {
         selectedEdge = nil
         lit = nil
         notice = nil
+        targetID = nil
+        gate = nil
     }
 
     func close() {
@@ -78,6 +101,8 @@ final class QAModel: ObservableObject {
         current = nil
         selectedNode = nil
         selectedEdge = nil
+        targetID = nil
+        gate = nil
     }
 
     /// Adds a scenario to the project and opens it.
@@ -86,6 +111,8 @@ final class QAModel: ObservableObject {
         current = scenario
         selectedNode = nil
         selectedEdge = nil
+        targetID = nil
+        gate = nil
         upsert(scenario)
         save(scenario)
     }
@@ -109,6 +136,34 @@ final class QAModel: ObservableObject {
         current = scenario
         upsert(scenario)
         saveSoon()
+        refreshGate()
+    }
+
+    // MARK: Approval (DEC-002)
+
+    /// Gives the approval the plan as it is now: a plan that is no longer the one approved loses the approval.
+    private func refreshGate() {
+        guard var gate, let plan else { self.gate = nil; return }
+        gate.update(plan: plan)
+        self.gate = gate
+    }
+
+    /// Approves the plan as shown. On production the person has acknowledged the list of actions that change data.
+    func approve(acknowledgedProduction: Bool) {
+        guard let plan else { return }
+        var next = QAGate(plan: plan)
+        guard next.approve(acknowledgedProduction: acknowledgedProduction) else { return }
+        gate = next
+    }
+
+    func withdrawApproval() { gate = nil }
+
+    /// Reads the saved logins (user names and hosts only) off the main thread.
+    func loadSavedLogins() {
+        Task { [weak self] in
+            let logins = await Task.detached(priority: .utility) { BrowserPasswordStore.shared.all() }.value
+            self?.savedLogins = logins
+        }
     }
 
     private func upsert(_ scenario: QAScenario) {

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // End-to-End QA (feature end-to-end-qa): the scenario list, the graph editor and the generation sheet. The graph is native SwiftUI over
 // QAGraphLayout (a pure layered layout), so it needs no bridge to the web editor. Every edit goes through QAModel, which saves it.
@@ -122,12 +123,13 @@ struct QATabView: View {
 
 // MARK: - The editor
 
+enum QAPanel: Hashable { case branches, step, setup, run }
+
 struct QAEditorView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var model: QAModel
     let wide: Bool
-    private enum Panel: Hashable { case branches, step, setup }
-    @State private var panel: Panel = .branches
+    @State private var panel: QAPanel = .branches
 
     var body: some View {
         if let scenario = model.current {
@@ -142,25 +144,36 @@ struct QAEditorView: View {
                             QABranchList(model: model, scenario: scenario).frame(height: 190)
                         }
                         .frame(minWidth: 380)
-                        QAInspector(model: model, scenario: scenario, part: .all).frame(minWidth: 280, idealWidth: 320, maxWidth: 420)
+                        VStack(spacing: 0) {
+                            Picker("", selection: Binding(get: { panel == .branches ? .step : panel }, set: { panel = $0 })) {
+                                Text("Step").tag(QAPanel.step)
+                                Text("Setup").tag(QAPanel.setup)
+                                Text("Run").tag(QAPanel.run)
+                            }
+                            .pickerStyle(.segmented).labelsHidden().padding(.horizontal, 10).padding(.vertical, 6)
+                            QAInspector(model: model, scenario: scenario, panel: panel == .branches ? .step : panel)
+                        }
+                        .frame(minWidth: 280, idealWidth: 320, maxWidth: 420)
                     }
                 } else {
-                    QAGraphCanvas(model: model, scenario: scenario)
-                    Divider()
-                    Picker("", selection: $panel) {
-                        Text("Branches").tag(Panel.branches)
-                        Text("Step").tag(Panel.step)
-                        Text("Applications and players").tag(Panel.setup)
-                    }
-                    .pickerStyle(.segmented).labelsHidden().padding(.horizontal, 10).padding(.vertical, 6)
-                    Group {
-                        switch panel {
-                        case .branches: QABranchList(model: model, scenario: scenario)
-                        case .step: QAInspector(model: model, scenario: scenario, part: .step)
-                        case .setup: QAInspector(model: model, scenario: scenario, part: .setup)
+                    // The graph and the panel under it share the height; the person drags the divider to give either more.
+                    VSplitView {
+                        QAGraphCanvas(model: model, scenario: scenario).frame(minHeight: 180)
+                        VStack(spacing: 0) {
+                            Picker("", selection: $panel) {
+                                Text("Branches").tag(QAPanel.branches)
+                                Text("Step").tag(QAPanel.step)
+                                Text("Setup").tag(QAPanel.setup)
+                                Text("Run").tag(QAPanel.run)
+                            }
+                            .pickerStyle(.segmented).labelsHidden().padding(.horizontal, 10).padding(.vertical, 6)
+                            switch panel {
+                            case .branches: QABranchList(model: model, scenario: scenario)
+                            case .step, .setup, .run: QAInspector(model: model, scenario: scenario, panel: panel)
+                            }
                         }
+                        .frame(minHeight: 160, idealHeight: 320)
                     }
-                    .frame(height: 250)
                 }
             }
             .onChange(of: model.selectedNode) { if $0 != nil { panel = .step } }
@@ -461,24 +474,29 @@ struct QAInspector: View {
     let scenario: QAScenario
     @State private var showApps = true
     @State private var showPlayers = true
-    enum Part { case all, step, setup }
-    let part: Part
+    @State private var showEnvironments = true
+    @State private var showBaseline = false
+    let panel: QAPanel
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                if part != .setup {
+                switch panel {
+                case .step, .branches:
                     if let id = model.selectedNode, let node = scenario.node(id) {
                         nodeSection(node)
                     } else if let edge = model.selectedEdge {
                         edgeSection(edge)
-                    } else if part == .step {
+                    } else {
                         Text("Select a step or a connection in the graph to edit it.").uiFont(size: 11).foregroundColor(palette.textDim)
                     }
-                }
-                if part != .step {
+                case .setup:
                     DisclosureGroup(isExpanded: $showApps) { appsSection.padding(.top, 6) } label: { heading("Applications (\(scenario.apps.count))") }
                     DisclosureGroup(isExpanded: $showPlayers) { actorsSection.padding(.top, 6) } label: { heading("Players (\(scenario.actors.count))") }
+                    DisclosureGroup(isExpanded: $showEnvironments) { environmentsSection.padding(.top, 6) } label: { heading("Environments (\(scenario.targets.count))") }
+                    DisclosureGroup(isExpanded: $showBaseline) { baselineSection.padding(.top, 6) } label: { heading("Baseline") }
+                case .run:
+                    QARunPanel(model: model, scenario: scenario)
                 }
             }
             .padding(12)
@@ -626,30 +644,186 @@ struct QAInspector: View {
     }
 
     private var actorsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Spacer()
                 Button { addActor() } label: { Label("Add player", systemImage: "plus") }.buttonStyle(.borderless).uiFont(size: 11)
                     .disabled(scenario.actors.count >= QAGeneration.maxActors)
             }
             ForEach(scenario.actors) { actor in
-                HStack {
-                    TextField("Name", text: Binding(get: { actor.name }, set: { value in model.edit { s in if let i = s.actors.firstIndex(where: { $0.id == actor.id }) { s.actors[i].name = value } } }))
-                        .textFieldStyle(.roundedBorder)
-                    if scenario.apps.count > 1 {
-                        Picker("", selection: Binding(get: { actor.app ?? "" }, set: { value in model.edit { s in if let i = s.actors.firstIndex(where: { $0.id == actor.id }) { s.actors[i].app = value.isEmpty ? nil : value } } })) {
-                            Text("—").tag("")
-                            ForEach(scenario.apps) { Text($0.name).tag($0.id) }
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        TextField("Name", text: Binding(get: { actor.name }, set: { value in model.edit { s in if let i = s.actors.firstIndex(where: { $0.id == actor.id }) { s.actors[i].name = value } } }))
+                            .textFieldStyle(.roundedBorder)
+                        if scenario.apps.count > 1 {
+                            Picker("", selection: Binding(get: { actor.app ?? "" }, set: { value in model.edit { s in if let i = s.actors.firstIndex(where: { $0.id == actor.id }) { s.actors[i].app = value.isEmpty ? nil : value } } })) {
+                                Text("—").tag("")
+                                ForEach(scenario.apps) { Text($0.name).tag($0.id) }
+                            }
+                            .labelsHidden().frame(width: 130)
+                            .help("The application this player uses")
                         }
-                        .labelsHidden().frame(width: 130)
-                        .help("The application this player uses")
+                        Button { removeActor(actor.id) } label: { Image(systemName: "minus.circle") }.buttonStyle(.borderless)
+                            .disabled(scenario.nodes.contains { $0.actor == actor.id })
+                            .help(scenario.nodes.contains { $0.actor == actor.id } ? "This player has steps" : "Remove this player")
                     }
-                    Button { removeActor(actor.id) } label: { Image(systemName: "minus.circle") }.buttonStyle(.borderless)
-                        .disabled(scenario.nodes.contains { $0.actor == actor.id })
-                        .help(scenario.nodes.contains { $0.actor == actor.id } ? "This player has steps" : "Remove this player")
+                    HStack(spacing: 8) {
+                        loginMenu(actor)
+                        Toggle("Test account", isOn: Binding(get: { actor.createTestAccount }, set: { value in model.edit { s in if let i = s.actors.firstIndex(where: { $0.id == actor.id }) { s.actors[i].createTestAccount = value } } }))
+                            .toggleStyle(.checkbox).uiFont(size: 10.5)
+                            .help("Create an account that exists only for this test, instead of signing in with a saved login")
+                            .disabled(actor.login != nil)
+                    }
                 }
             }
+            Text("A login is chosen from the passwords the browser saved. Passwords are never copied into the scenario.").uiFont(size: 10).foregroundColor(palette.textDim)
         }
+        .onAppear { model.loadSavedLogins() }
+    }
+
+    private func loginMenu(_ actor: QAActor) -> some View {
+        let current = actor.login
+        return Menu {
+            Button("No login") { setLogin(actor.id, nil) }
+            if model.savedLogins.isEmpty {
+                Text("No saved logins yet")
+            }
+            ForEach(model.savedLogins) { login in
+                Button("\(login.username.isEmpty ? "(no user name)" : login.username) — \(login.host)") { setLogin(actor.id, QALoginReference(host: login.host, username: login.username)) }
+            }
+        } label: {
+            Label(current.map { "\($0.username) — \($0.host)" } ?? "No login", systemImage: "key")
+                .uiFont(size: 10.5).lineLimit(1)
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+        .help("The saved login this player signs in with")
+    }
+
+    private func setLogin(_ id: String, _ login: QALoginReference?) {
+        model.edit { s in
+            guard let i = s.actors.firstIndex(where: { $0.id == id }) else { return }
+            s.actors[i].login = login
+            if login != nil { s.actors[i].createTestAccount = false }
+            s.updated = Date()
+        }
+    }
+
+    // Environments
+
+    private var environmentsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Spacer()
+                Menu {
+                    Button("Local") { addEnvironment(.local) }
+                    Button("Development") { addEnvironment(.development) }
+                    Button("Production") { addEnvironment(.production) }
+                } label: { Label("Add environment", systemImage: "plus") }
+                    .menuStyle(.borderlessButton).fixedSize().uiFont(size: 11)
+            }
+            if scenario.targets.isEmpty {
+                Text("Say where the applications run: on this Mac, on a development server or in production.").uiFont(size: 10.5).foregroundColor(palette.textDim)
+            }
+            ForEach(scenario.targets) { target in
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        TextField("Name", text: Binding(get: { target.name }, set: { value in editTarget(target.id) { $0.name = value } })).textFieldStyle(.roundedBorder)
+                        Picker("", selection: Binding(get: { target.kind }, set: { value in editTarget(target.id) { $0.kind = value } })) {
+                            Text("Local").tag(QATargetKind.local)
+                            Text("Development").tag(QATargetKind.development)
+                            Text("Production").tag(QATargetKind.production)
+                        }
+                        .labelsHidden().frame(width: 130)
+                        Button { removeEnvironment(target.id) } label: { Image(systemName: "minus.circle") }.buttonStyle(.borderless).help("Remove this environment")
+                    }
+                    if target.kind == .production {
+                        Label("Actions that change data need your confirmation", systemImage: "exclamationmark.shield").uiFont(size: 10).foregroundColor(palette.orange)
+                    }
+                    ForEach(scenario.apps) { app in
+                        locationRow(target, app)
+                    }
+                }
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 6).fill(palette.bgInput.opacity(0.5)))
+            }
+        }
+    }
+
+    @ViewBuilder private func locationRow(_ target: QATarget, _ app: QAApp) -> some View {
+        let location = target.locations[app.id]
+        HStack(spacing: 6) {
+            if scenario.apps.count > 1 { Text(app.name).uiFont(size: 10.5).foregroundColor(palette.textDim).frame(width: 90, alignment: .leading).lineLimit(1) }
+            if scenario.appKind == .web {
+                TextField("https://…", text: Binding(get: { location?.url ?? "" }, set: { value in
+                    editTarget(target.id) { $0.locations[app.id] = QALocation(url: value.isEmpty ? nil : value) }
+                })).textFieldStyle(.roundedBorder)
+            } else {
+                Button { chooseApplication(target.id, app.id) } label: {
+                    Label(location?.application.map { "\($0.name) (\($0.bundleIdentifier))" } ?? "Choose an installed application…", systemImage: "app.dashed").uiFont(size: 10.5).lineLimit(1)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    private func addEnvironment(_ kind: QATargetKind) {
+        model.edit { s in
+            let base = kind.rawValue
+            var id = base, number = 2
+            while s.targets.contains(where: { $0.id == id }) { id = base + String(number); number += 1 }
+            var target = QATarget(id: id, kind: kind, name: kind == .local ? "Local" : (kind == .development ? "Development" : "Production"))
+            if s.appKind == .web && kind == .local { for app in s.apps { target.locations[app.id] = QALocation(url: "http://localhost:3000") } }
+            s.targets.append(target)
+            s.updated = Date()
+        }
+    }
+
+    private func removeEnvironment(_ id: String) {
+        model.edit { s in
+            s.targets.removeAll { $0.id == id }
+            s.updated = Date()
+        }
+    }
+
+    private func editTarget(_ id: String, _ change: (inout QATarget) -> Void) {
+        model.edit { s in
+            guard let i = s.targets.firstIndex(where: { $0.id == id }) else { return }
+            change(&s.targets[i])
+            s.updated = Date()
+        }
+    }
+
+    /// A native application is chosen from the installed ones; MarkView launches it for each check (DEC-008).
+    private func chooseApplication(_ target: String, _ app: String) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose the installed application to check"
+        guard panel.runModal() == .OK, let url = panel.url, let bundle = Bundle(url: url), let identifier = bundle.bundleIdentifier else { return }
+        let name = (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String) ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
+            ?? FileManager.default.displayName(atPath: url.path)
+        editTarget(target) { $0.locations[app] = QALocation(application: QAApplication(bundleIdentifier: identifier, name: name)) }
+    }
+
+    // Baseline
+
+    private var baselineSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("The checks run one after another and each starts from the same state. Say how the application is brought back to it, and how to tell that it is.")
+                .uiFont(size: 10.5).foregroundColor(palette.textDim)
+            Toggle("Restore a baseline before each check", isOn: Binding(get: { scenario.baseline != nil }, set: { on in
+                model.edit { s in s.baseline = on ? QACondition(kind: .state, establish: "", verify: "") : nil; s.updated = Date() }
+            }))
+            if let baseline = scenario.baseline {
+                TextField("How to restore it", text: Binding(get: { baseline.establish }, set: { value in model.edit { s in s.baseline?.establish = value; s.updated = Date() } }), axis: .vertical)
+                    .textFieldStyle(.roundedBorder).lineLimit(1...3)
+                TextField("How to confirm it", text: Binding(get: { baseline.verify }, set: { value in model.edit { s in s.baseline?.verify = value; s.updated = Date() } }), axis: .vertical)
+                    .textFieldStyle(.roundedBorder).lineLimit(1...3)
+            }
+        }
+        .uiFont(size: 11)
     }
 
     private func addApp() {
@@ -699,6 +873,121 @@ private extension QANode {
         let current = self[keyPath: keyPath]
         return Binding(get: { model.current?.node(id)?[keyPath: keyPath] ?? current },
                        set: { value in model.edit { $0.update(node: id) { $0[keyPath: keyPath] = value } } })
+    }
+}
+
+// MARK: - The run: what would be done, and the approval
+
+struct QARunPanel: View {
+    @Environment(\.palette) private var palette
+    @ObservedObject var model: QAModel
+    let scenario: QAScenario
+    @State private var acknowledged = false
+
+    var body: some View {
+        let plan = model.plan
+        VStack(alignment: .leading, spacing: 12) {
+            environment
+            if let plan {
+                summary(plan)
+                if !plan.problems.isEmpty { problems(plan) }
+                if !plan.preparation.isEmpty { preparation(plan) }
+                if plan.isProduction && !plan.confirmations.isEmpty { production(plan) }
+                approval(plan)
+            }
+        }
+        .onChange(of: plan?.fingerprint) { _ in acknowledged = false }
+    }
+
+    private var environment: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Environment to check").uiFont(size: 11.5, weight: .semibold)
+            if scenario.targets.isEmpty {
+                Text("Add an environment in Setup first.").uiFont(size: 11).foregroundColor(palette.textDim)
+            } else {
+                Picker("", selection: Binding(get: { model.effectiveTargetID ?? "" }, set: { model.targetID = $0.isEmpty ? nil : $0 })) {
+                    if model.effectiveTargetID == nil { Text("Choose…").tag("") }
+                    ForEach(scenario.targets) { target in Text("\(target.name) (\(target.kind.rawValue))").tag(target.id) }
+                }
+                .labelsHidden()
+            }
+        }
+    }
+
+    private func summary(_ plan: QAExecutionPlan) -> some View {
+        let count = plan.branches.count
+        return Text("\(count) \(count == 1 ? "branch" : "branches") chosen · \(plan.preparation.count) \(plan.preparation.count == 1 ? "step" : "steps") of preparation")
+            .uiFont(size: 11).foregroundColor(palette.textDim)
+    }
+
+    private func problems(_ plan: QAExecutionPlan) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(plan.problems.enumerated()), id: \.offset) { _, problem in
+                Label { Text(problem.message).uiFont(size: 10.5).fixedSize(horizontal: false, vertical: true) } icon: {
+                    Image(systemName: problem.blocks ? "xmark.octagon.fill" : "exclamationmark.triangle.fill").foregroundColor(problem.blocks ? palette.red : palette.orange)
+                }
+            }
+        }
+    }
+
+    private func preparation(_ plan: QAExecutionPlan) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Before the checks").uiFont(size: 11.5, weight: .semibold)
+            ForEach(plan.preparation) { step in
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: icon(step.kind)).foregroundColor(palette.textDim).frame(width: 14)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(step.title).uiFont(size: 11)
+                        if !step.detail.isEmpty { Text(step.detail).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(3) }
+                        if step.automated { Text("MarkView brings this about itself").uiFont(size: 10).foregroundColor(palette.textDim) }
+                    }
+                    Spacer(minLength: 0)
+                    if step.changesData != .no { Text(step.changesData == .yes ? "changes data" : "may change data").uiFont(size: 9.5).foregroundColor(palette.orange) }
+                }
+            }
+        }
+    }
+
+    private func production(_ plan: QAExecutionPlan) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Production", systemImage: "exclamationmark.shield.fill").uiFont(size: 11.5, weight: .semibold).foregroundColor(palette.red)
+            Text("These \(plan.confirmations.count) actions may change data on production. Each one asks for your yes when the run reaches it.")
+                .uiFont(size: 10.5).fixedSize(horizontal: false, vertical: true)
+            ForEach(plan.confirmations) { item in
+                Text("• \(item.title) — \(item.reason)").uiFont(size: 10.5).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+            }
+            Toggle("I understand and accept that these actions may change data on production", isOn: $acknowledged)
+                .toggleStyle(.checkbox).uiFont(size: 10.5)
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 6).fill(palette.red.opacity(0.1)))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(palette.red.opacity(0.5)))
+    }
+
+    @ViewBuilder private func approval(_ plan: QAExecutionPlan) -> some View {
+        if let gate = model.gate, gate.canPrepare, let at = gate.approvedAt {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Approved \(at.formatted(date: .omitted, time: .shortened))", systemImage: "checkmark.seal.fill").uiFont(size: 11.5, weight: .semibold).foregroundColor(palette.green)
+                Text("Any change to the steps, players, environment or chosen branches takes the approval back.").uiFont(size: 10.5).foregroundColor(palette.textDim)
+                Button("Withdraw approval") { model.withdrawApproval() }.uiFont(size: 11)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                Button("Approve preparation and scenario") { model.approve(acknowledgedProduction: acknowledged) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!plan.canBeApproved || (plan.isProduction && !plan.confirmations.isEmpty && !acknowledged))
+                Text("Nothing is prepared and nothing is run before you approve.").uiFont(size: 10.5).foregroundColor(palette.textDim)
+            }
+        }
+    }
+
+    private func icon(_ kind: QAPreparationStep.Kind) -> String {
+        switch kind {
+        case .login: return "person.crop.circle.badge.checkmark"
+        case .createAccount: return "person.crop.circle.badge.plus"
+        case .baseline: return "arrow.counterclockwise"
+        case .condition: return "bolt.horizontal"
+        }
     }
 }
 

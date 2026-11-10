@@ -110,6 +110,7 @@
 		3C66B42CE08BE7AD585AC81A /* BrowserElementPick.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1BAC4896C73C835E150997 /* BrowserElementPick.swift */; };
 		3D26245935F584FAE724710E /* EditorDocumentRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AF52C251F7D6ADAE2EE8DED /* EditorDocumentRouting.swift */; };
 		3D61655E00D985F83F3745AB /* prism-typescript.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 9E66DDC9C3E486A4C1201D62 /* prism-typescript.min.js */; };
+		3D9F7C1BE6A07DE7E8BFAF39 /* QAPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB11D14E6C7D38C077EA5F76 /* QAPlan.swift */; };
 		3DC296B31EDCAB6213546C20 /* KaTeX_Main-Italic.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = EC54928AB02E62BBA0C8C709 /* KaTeX_Main-Italic.woff2 */; };
 		3E76683E13C010C82D63FBC1 /* DefinitionOfDoneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56712FFC082BC0126119C1DC /* DefinitionOfDoneView.swift */; };
 		3F1214BEB25E69D8AE45FCCF /* FeatureStore+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18CA7300F34D65A853A42613 /* FeatureStore+Lifecycle.swift */; };
@@ -221,6 +222,7 @@
 		6DE4C29D60E2575CF5D4CCD9 /* OutputLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DDC0BA825074D867C9D7697 /* OutputLanguage.swift */; };
 		6E8629CB6F865A9F4A9817A6 /* TerminalBrowserBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FA9A072A34C2A6381C48622 /* TerminalBrowserBridge.swift */; };
 		6FB910979981EED49A926F3F /* ConflictPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEC026508553C50ACDA4C8E3 /* ConflictPrompt.swift */; };
+		7285247806416EF104B87B80 /* QAGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55FEAEC5DE537EF6BC479D3A /* QAGate.swift */; };
 		730F23C5B6F4B2F9CC919D04 /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ADCB63E2DE221E14BDFEC7C /* TabBarView.swift */; };
 		74509776B2E78308C373196C /* WikiLinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 237DD0835DF06F9CC7A08573 /* WikiLinkResolver.swift */; };
 		7520B7671FB1C71B40EC8211 /* RemoteConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A29090EAC22CD958E5209927 /* RemoteConnectionState.swift */; };
@@ -628,6 +630,7 @@
 		5512D54B1337F5917699C7D0 /* InsightModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightModels.swift; sourceTree = "<group>"; };
 		551E5B9F47FAC2B7CC6D2AEE /* IssueLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueLifecycle.swift; sourceTree = "<group>"; };
 		556AB9035BEE3C05957DCF70 /* DeploymentPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentPrompt.swift; sourceTree = "<group>"; };
+		55FEAEC5DE537EF6BC479D3A /* QAGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAGate.swift; sourceTree = "<group>"; };
 		56712FFC082BC0126119C1DC /* DefinitionOfDoneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DefinitionOfDoneView.swift; sourceTree = "<group>"; };
 		57161F0EEBCA49DC3B68FE77 /* DeploymentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentsView.swift; sourceTree = "<group>"; };
 		57195BF70E262DF4C8B69EC4 /* QAScenario.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAScenario.swift; sourceTree = "<group>"; };
@@ -793,6 +796,7 @@
 		B9352C3EC3E8CCF2B38B41AF /* AgentActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivity.swift; sourceTree = "<group>"; };
 		BA6120BA85CB715E5E810134 /* PrototypeReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeReference.swift; sourceTree = "<group>"; };
 		BA8F968A66CC85F478E65280 /* ProjectColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectColor.swift; sourceTree = "<group>"; };
+		BB11D14E6C7D38C077EA5F76 /* QAPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAPlan.swift; sourceTree = "<group>"; };
 		BC5216E2466E79A0507BEAE8 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		BC7E31914169E263C7E43C35 /* IssueGitHubSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueGitHubSync.swift; sourceTree = "<group>"; };
 		BCE051A679B2C439D859FF03 /* PrototypeFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeFiles.swift; sourceTree = "<group>"; };
@@ -1151,10 +1155,12 @@
 				3C5186158816AE816A500A12 /* ProviderHints.swift */,
 				C0E8670B2DD2EE667B3BDF94 /* PTYWriter.swift */,
 				6F838E4C058CBCE7B35D7EBE /* PullRequestHistory.swift */,
+				55FEAEC5DE537EF6BC479D3A /* QAGate.swift */,
 				FE435E3B14E793F9ECF7A958 /* QAGeneration.swift */,
 				1D558DCC55368F2BE1A3B6F8 /* QAGenerator.swift */,
 				96084ABA742E8FA2AE114701 /* QAGraphLayout.swift */,
 				A3323DFCCDF2491C10061C8C /* QAModel.swift */,
+				BB11D14E6C7D38C077EA5F76 /* QAPlan.swift */,
 				9C0F0778AC373BF137EF446E /* QARun.swift */,
 				57195BF70E262DF4C8B69EC4 /* QAScenario.swift */,
 				90FCA2443C336463EAA203D9 /* QAScenarioEdit.swift */,
@@ -1917,10 +1923,12 @@
 				7D2B4968C8583F5E067B1DBD /* PrototypeThemes.swift in Sources */,
 				CB8A7A969D11FF1E22842A89 /* ProviderHints.swift in Sources */,
 				403752237A1578BBC18C4654 /* PullRequestHistory.swift in Sources */,
+				7285247806416EF104B87B80 /* QAGate.swift in Sources */,
 				2794E092F9203F798EECD669 /* QAGeneration.swift in Sources */,
 				0B7AE7B244602C6E7C35AC8D /* QAGenerator.swift in Sources */,
 				D8B21AE6CF9269564BC7A004 /* QAGraphLayout.swift in Sources */,
 				D473D076B8CDB69362293780 /* QAModel.swift in Sources */,
+				3D9F7C1BE6A07DE7E8BFAF39 /* QAPlan.swift in Sources */,
 				FF99949FBDA0BB735F226A9B /* QARun.swift in Sources */,
 				CF7A26CEDC4BBB7CAD24A3D5 /* QAScenario.swift in Sources */,
 				DD6A29657B7E4CC7281A193B /* QAScenarioEdit.swift in Sources */,
