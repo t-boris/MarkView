@@ -108,7 +108,7 @@ struct WelcomeScreen<Below: View>: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .halo(palette.bg)
-            Text(projectName == nil ? "Open a project to begin" : "No file is open. Pick where to start.")
+            Text(projectName == nil ? "Open a project to begin" : "Pick where to start.")
                 .uiFont(size: 13)
                 .foregroundColor(palette.textDim)
                 .halo(palette.bg)

@@ -833,7 +833,7 @@ struct ContentView: View {
 
     // MARK: - Welcome View
 
-    /// The screen of a window with no file open: action tiles over an animated backdrop (`WelcomeScreen`). What each tile does is
+    /// The pinned welcome tab: action tiles over an animated backdrop (`WelcomeScreen`). What each tile does is
     /// decided here, with the same calls as the menus and the search commands.
     private var welcomeView: some View {
         WelcomeScreen(projectName: workspaceManager.rootNode.map { WindowTitle.folderName(of: $0.url) },

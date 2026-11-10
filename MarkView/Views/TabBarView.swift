@@ -12,6 +12,7 @@ struct TabBarView: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            homeTab
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 0) {
@@ -40,6 +41,28 @@ struct TabBarView: View {
         .frame(height: 24)
         .background(palette.bg)
         .overlay(Rectangle().frame(height: 1).foregroundColor(palette.border), alignment: .bottom)
+    }
+
+    /// The welcome screen stays pinned even when the other tabs scroll or close.
+    private var homeTab: some View {
+        let selected = workspaceManager.activeTabIndex == -1
+        return Button {
+            workspaceManager.activeTabIndex = -1
+            workspaceManager.layout.workspaceArea = .files
+            workspaceManager.showCenter = true
+        } label: {
+            Image(systemName: selected ? "house.fill" : "house")
+                .uiFont(size: 11)
+                .foregroundColor(selected ? palette.blue : palette.textDim)
+                .frame(width: 32, height: 24)
+                .background(selected ? palette.bgSidebar : palette.bg)
+                .overlay(Rectangle().frame(height: 2).foregroundColor(selected ? palette.blue : .clear), alignment: .top)
+                .overlay(Rectangle().frame(width: 1).foregroundColor(palette.border), alignment: .trailing)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Welcome")
+        .accessibilityLabel("Welcome")
     }
 
     /// Every open tab, also those scrolled out of sight.
