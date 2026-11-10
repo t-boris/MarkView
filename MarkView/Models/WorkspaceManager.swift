@@ -446,6 +446,8 @@ class WorkspaceManager: ObservableObject {
     let deployments = DeploymentStore()
     /// The state of the Workflow tab: the draft being edited survives a switch to another tab.
     let workflowEditor = WorkflowEditorModel()
+    /// End-to-End QA: the scenarios of the project and the one being edited.
+    let qa = QAModel()
     /// Questions asked before there is a feature, answered as pages (the Discussions tab).
     let discussions = DiscussionStore()
     private var discussionTask: Task<Void, Never>?
@@ -1127,6 +1129,7 @@ class WorkspaceManager: ObservableObject {
             case .deployments: saved = .deployments
             case .discussions: saved = .discussions
             case .workflow: saved = .workflow
+            case .qa: saved = .qa
             case .changeReview: saved = .changeReview
             case .data: saved = .data(tab.url)
             case .github(let item): saved = .github(item)
@@ -1190,6 +1193,7 @@ class WorkspaceManager: ObservableObject {
             case .deployments: openDeployments()
             case .discussions: openDiscussions()
             case .workflow: openWorkflow()
+            case .qa: openQA()
             case .changeReview: openChangeReview()
             case .image(let url), .pdf(let url), .data(let url), .archive(let url):
                 if url.isFileURL, fm.fileExists(atPath: url.path) { openFile(url) }
@@ -4993,6 +4997,22 @@ class WorkspaceManager: ObservableObject {
         }
         var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-workflow"), content: "", originalContent: "")
         tab.kind = .workflow
+        layout.workspaceArea = .files
+        showCenter = true
+        tabsStore.appendTab(tab, activate: true)
+    }
+
+    /// The End-to-End QA tab: scenarios of this project, written from a goal and edited as a graph. The scenarios live in
+    /// `.markview/qa/scenarios` (project assets), so the tab only shows them.
+    func openQA() {
+        guard let root = rootNode?.url else { return }
+        hostWindow?.makeKeyAndOrderFront(nil)
+        qa.attach(root: root)
+        for index in openTabs.indices {
+            if case .qa = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
+        }
+        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-qa"), content: "", originalContent: "")
+        tab.kind = .qa
         layout.workspaceArea = .files
         showCenter = true
         tabsStore.appendTab(tab, activate: true)

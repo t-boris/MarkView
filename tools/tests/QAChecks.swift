@@ -8,9 +8,10 @@ let now = Date(timeIntervalSince1970: 1_790_000_000)
 func shop() -> QAScenario {
     QAScenario(
         id: "checkout", title: "Checkout with a card", goal: "A buyer pays and the seller sees the order", appKind: .web,
+        apps: [QAApp(id: "shop", name: "Shop")],
         targets: [
-            QATarget(id: "local", kind: .local, name: "Local", url: "http://localhost:3000"),
-            QATarget(id: "prod", kind: .production, name: "Production", url: "https://shop.example.com"),
+            QATarget(id: "local", kind: .local, name: "Local", locations: ["shop": QALocation(url: "http://localhost:3000")]),
+            QATarget(id: "prod", kind: .production, name: "Production", locations: ["shop": QALocation(url: "https://shop.example.com")]),
         ],
         actors: [
             QAActor(id: "buyer", name: "Buyer", login: QALoginReference(host: "shop.example.com", username: "buyer@example.com")),
@@ -46,6 +47,19 @@ func changed(_ scenario: QAScenario, _ change: (inout QAScenario) -> Void) -> QA
 
 func kinds(_ scenario: QAScenario) -> Set<QAProblem.Kind> { Set(scenario.problems().map(\.kind)) }
 
+/// Twelve forks that each close again: 37 steps and 4096 lines from the start.
+let ladder: QAScenario = {
+    var ladder = QAScenario(id: "ladder", title: "Ladder", goal: "g", appKind: .web, apps: [QAApp(id: "app", name: "App")], actors: [QAActor(id: "a", name: "A")], start: "s", created: now, updated: now)
+    ladder.nodes.append(QANode(id: "s", kind: .action, title: "start"))
+    var previous = "s"
+    for i in 0..<12 {
+        for name in ["x\(i)", "y\(i)", "j\(i)"] { ladder.nodes.append(QANode(id: name, kind: .action, title: name)) }
+        ladder.edges += [QAEdge(from: previous, to: "x\(i)"), QAEdge(from: previous, to: "y\(i)"), QAEdge(from: "x\(i)", to: "j\(i)"), QAEdge(from: "y\(i)", to: "j\(i)")]
+        previous = "j\(i)"
+    }
+    return ladder
+}()
+
 let main = "n1>n2>n3>n4>n5", slow = "n1>n2>f1>c2", declined = "n1>a1>c1"
 
 // MARK: - Branches
@@ -69,14 +83,6 @@ do {
     let doubled = changed(scenario) { $0.edges.append(QAEdge(from: "n1", to: "n2")) }
     check("branches: a connection written twice makes one branch", doubled.enumerateBranches().branches.map(\.id) == [main, slow, declined])
 
-    var ladder = QAScenario(id: "ladder", title: "Ladder", goal: "g", appKind: .web, actors: [QAActor(id: "a", name: "A")], start: "s", created: now, updated: now)
-    ladder.nodes.append(QANode(id: "s", kind: .action, title: "start"))
-    var previous = "s"
-    for i in 0..<12 {
-        for name in ["x\(i)", "y\(i)", "j\(i)"] { ladder.nodes.append(QANode(id: name, kind: .action, title: name)) }
-        ladder.edges += [QAEdge(from: previous, to: "x\(i)"), QAEdge(from: previous, to: "y\(i)"), QAEdge(from: "x\(i)", to: "j\(i)"), QAEdge(from: "y\(i)", to: "j\(i)")]
-        previous = "j\(i)"
-    }
     let cut = ladder.enumerateBranches(limit: 500)
     check("branches: a scenario with thousands of lines is cut at the limit and says so", cut.branches.count == 500 && cut.truncated)
     check("branches: a limit that is not reached cuts nothing", shop().enumerateBranches(limit: 3).truncated == false && shop().enumerateBranches(limit: 2).truncated)
@@ -100,7 +106,7 @@ do {
 do {
     check("problems: a duplicate step id", kinds(changed(shop()) { $0.nodes.append($0.nodes[0]) }).contains(.duplicateNode))
     check("problems: an id that is not a plain id", kinds(changed(shop()) { $0.nodes[0].id = "n 1" }).contains(.badID))
-    check("problems: an id with the branch separator", !QAScenario.isValidNodeID("a>b") && QAScenario.isValidNodeID("step_1-a"))
+    check("problems: an id with the branch separator", !QAScenario.isValidID("a>b") && QAScenario.isValidID("step_1-a"))
     check("problems: no start", kinds(changed(shop()) { $0.start = nil }) == [.missingStart])
     check("problems: a start that is not a step", kinds(changed(shop()) { $0.start = "zz" }).contains(.missingStart))
     check("problems: a connection to an unknown step", kinds(changed(shop()) { $0.edges.append(QAEdge(from: "n5", to: "zz")) }) == [.unknownNode])
@@ -119,13 +125,13 @@ do {
     check("problems: a delay with no time", kinds(changed(shop()) { $0.nodes[7].condition?.fault?.milliseconds = 0 }) == [.incompleteCondition])
     check("problems: a status answer needs a real status", kinds(changed(shop()) { $0.nodes[7].condition?.fault = QAFault(urlPattern: "/api", mode: .status, status: 42) }) == [.incompleteCondition])
     check("problems: no target", kinds(changed(shop()) { $0.targets = [] }) == [.noTarget])
-    check("problems: a web target needs an http address", kinds(changed(shop()) { $0.targets[0].url = "localhost:3000" }) == [.incompleteTarget] && kinds(changed(shop()) { $0.targets[0].url = nil }) == [.incompleteTarget])
-    check("problems: a web target may not be a file address", kinds(changed(shop()) { $0.targets[0].url = "file:///etc/passwd" }) == [.incompleteTarget])
-    check("problems: a web target may not use another protocol", kinds(changed(shop()) { $0.targets[0].url = "ftp://shop.example.com" }) == [.incompleteTarget])
-    let native = changed(shop()) { $0.appKind = .nativeMacOS; $0.targets = [QATarget(id: "app", kind: .local, name: "Notes", application: QAApplication(bundleIdentifier: "com.example.Notes", name: "Notes"))] }
+    check("problems: a web target needs an http address", kinds(changed(shop()) { $0.targets[0].locations["shop"]?.url = "localhost:3000" }) == [.incompleteTarget] && kinds(changed(shop()) { $0.targets[0].locations["shop"]?.url = nil }) == [.incompleteTarget])
+    check("problems: a web target may not be a file address", kinds(changed(shop()) { $0.targets[0].locations["shop"]?.url = "file:///etc/passwd" }) == [.incompleteTarget])
+    check("problems: a web target may not use another protocol", kinds(changed(shop()) { $0.targets[0].locations["shop"]?.url = "ftp://shop.example.com" }) == [.incompleteTarget])
+    let native = changed(shop()) { $0.appKind = .nativeMacOS; $0.targets = [QATarget(id: "app", kind: .local, name: "Notes", locations: ["shop": QALocation(application: QAApplication(bundleIdentifier: "com.example.Notes", name: "Notes"))])] }
     check("problems: a native scenario with an installed application has none", native.problems().isEmpty)
-    check("problems: a native target needs an application", kinds(changed(native) { $0.targets[0].application = nil }) == [.incompleteTarget])
-    check("problems: a native target needs a bundle identifier", kinds(changed(native) { $0.targets[0].application?.bundleIdentifier = "" }) == [.incompleteTarget])
+    check("problems: a native target needs an application", kinds(changed(native) { $0.targets[0].locations["shop"]?.application = nil }) == [.incompleteTarget])
+    check("problems: a native target needs a bundle identifier", kinds(changed(native) { $0.targets[0].locations["shop"]?.application?.bundleIdentifier = "" }) == [.incompleteTarget])
 
     let loop = changed(shop()) { $0.edges.append(QAEdge(from: "n3", to: "n1")) }
     check("problems: a branch that loops back is reported", kinds(loop) == [.cycle])
@@ -282,6 +288,424 @@ do {
         QAStore.prepareLocalFolder(root)
         check("store: an edited ignore file is not overwritten", (try? String(contentsOf: QAStore.localFolder(root).appendingPathComponent(".gitignore"), encoding: .utf8)) == "# mine\n")
     } catch { check("store: runs saved (\(error))", false) }
+}
+
+// MARK: - Generation: what the AI wrote
+
+func answer(nodes: [[String: Any]]? = nil, edges: [[String: Any]]? = nil, actors: [[String: Any]]? = nil, title: String = "Pay an order") -> [String: Any] {
+    func node(_ id: String, _ kind: String, _ title: String, detail: String = "", actor: String = "buyer", changes: String = "no", condition: [String: Any] = [:]) -> [String: Any] {
+        var item: [String: Any] = ["id": id, "kind": kind, "title": title, "detail": detail, "actor": actor, "changesData": changes, "conditionKind": "",
+                                   "conditionEstablish": "", "conditionVerify": "", "faultUrlPattern": "", "faultMode": "", "faultStatus": 0, "faultMilliseconds": 0]
+        for (key, value) in condition { item[key] = value }
+        return item
+    }
+    return [
+        "title": title, "start": "n1",
+        "actors": actors ?? [["id": "buyer", "name": "Buyer", "createTestAccount": false], ["id": "seller", "name": "Seller", "createTestAccount": true]],
+        "nodes": nodes ?? [
+            node("n1", "action", "Pay", detail: "Pay the order", changes: "yes"),
+            node("n2", "check", "Paid", detail: "The order shows as paid"),
+            node("f1", "failure", "Slow payment", detail: "Payment is slow", condition: ["conditionKind": "delay", "conditionEstablish": "Delay /api/pay", "conditionVerify": "The delayed request was seen",
+                                                                                   "faultUrlPattern": "/api/pay", "faultMode": "delay", "faultMilliseconds": 5000]),
+            node("c1", "check", "Waiting shown", detail: "A waiting indicator is shown"),
+        ],
+        "edges": edges ?? [["from": "n1", "to": "n2", "label": ""], ["from": "n1", "to": "f1", "label": "slow"], ["from": "f1", "to": "c1", "label": ""]],
+    ]
+}
+
+do {
+    let request = QAGenerationRequest(goal: "A buyer pays an order", appKind: .web,
+                                      targets: [QATarget(id: "local", kind: .local, name: "Local", locations: ["app": QALocation(url: "http://localhost:8765")])], now: now)
+    let result = QAGeneration.parse(answer(), request: request)
+    check("generation: a well-formed answer is a clean scenario", result.isClean && result.scenario.problems().isEmpty)
+    check("generation: the title, steps, connections and actors are read",
+          result.scenario.title == "Pay an order" && result.scenario.nodes.map(\.id) == ["n1", "n2", "f1", "c1"] && result.scenario.edges.count == 3 && result.scenario.actors.map(\.id) == ["buyer", "seller"])
+    check("generation: the goal and the targets are the person's, not the AI's", result.scenario.goal == "A buyer pays an order" && result.scenario.targets == request.targets)
+    check("generation: an empty label is no label, a label is kept", result.scenario.edges[0].label == nil && result.scenario.edges[1].label == "slow")
+    check("generation: an empty actor means no actor and a data change is read", result.scenario.node("n1")?.changesData == QADataChange.yes && result.scenario.node("n1")?.actor == "buyer")
+    check("generation: a network condition is read with its fault",
+          result.scenario.node("f1")?.condition == QACondition(kind: .delay, establish: "Delay /api/pay", verify: "The delayed request was seen", fault: QAFault(urlPattern: "/api/pay", mode: .delay, status: nil, milliseconds: 5000)))
+    check("generation: no condition kind means no condition", result.scenario.node("n1")?.condition == nil)
+    check("generation: the scenario id comes from the title and is not one in use", result.scenario.id == "pay-an-order")
+    check("generation: ... or is made unique", QAGeneration.parse(answer(), request: QAGenerationRequest(goal: "g", appKind: .web, existingIDs: ["pay-an-order"], now: now)).scenario.id == "pay-an-order-2")
+    check("generation: a missing target is not the AI's to fix", QAGeneration.parse(answer(), request: QAGenerationRequest(goal: "g", appKind: .web, now: now)).isClean)
+
+    let strange = QAGeneration.parse(answer(nodes: [["id": "n1", "kind": "teleport", "title": "x", "detail": "", "actor": "", "changesData": "no", "conditionKind": "", "conditionEstablish": "", "conditionVerify": "", "faultUrlPattern": "", "faultMode": "", "faultStatus": 0, "faultMilliseconds": 0]], edges: []), request: request)
+    check("generation: a step of an unknown kind is reported and left out", strange.parseProblems.contains { $0.contains("teleport") } && strange.scenario.nodes.isEmpty)
+    check("generation: ... and the scenario without it cannot run", !strange.isClean && strange.problems.contains { $0.kind == .missingStart })
+
+    var badData = answer()
+    var nodes = badData["nodes"] as! [[String: Any]]
+    nodes[0]["changesData"] = "maybe"
+    nodes[2]["faultMode"] = "explode"
+    nodes[3]["conditionKind"] = "weather"
+    badData["nodes"] = nodes
+    let bad = QAGeneration.parse(badData, request: request)
+    check("generation: a data change, a fault mode and a condition kind that are not known are each reported",
+          bad.parseProblems.count == 3 && bad.parseProblems.contains { $0.contains("changesData") } && bad.parseProblems.contains { $0.contains("faultMode") } && bad.parseProblems.contains { $0.contains("weather") })
+
+    check("generation: an answer that is not an object is reported", QAGeneration.parse("nonsense", request: request).parseProblems == ["The answer is not a scenario object.", "The scenario has no title."])
+    check("generation: nothing at all is reported too", !QAGeneration.parse(nil, request: request).isClean)
+    check("generation: a missing title falls back to the goal", QAGeneration.parse(answer(title: ""), request: request).scenario.title == "A buyer pays an order" && !QAGeneration.parse(answer(title: ""), request: request).isClean)
+    check("generation: an actor id that is not plain is reported", QAGeneration.parse(answer(actors: [["id": "the buyer", "name": "B", "createTestAccount": false]]), request: request).parseProblems.contains { $0.contains("the buyer") })
+
+    let duplicated = QAGeneration.parse(answer(edges: [["from": "n1", "to": "zz", "label": ""]]), request: request)
+    check("generation: what makes the scenario unrunnable is listed with the reason", duplicated.problems.contains { $0.kind == .unknownNode } && duplicated.messages.contains { $0.contains("zz") })
+
+    var many = (0..<(QAGeneration.maxNodes + 1)).map { i -> [String: Any] in
+        ["id": "s\(i)", "kind": "action", "title": "t", "detail": "", "actor": "buyer", "changesData": "no", "conditionKind": "", "conditionEstablish": "", "conditionVerify": "",
+         "faultUrlPattern": "", "faultMode": "", "faultStatus": 0, "faultMilliseconds": 0]
+    }
+    let big = QAGeneration.parse(answer(nodes: many, edges: []), request: request)
+    check("generation: more steps than allowed are cut and reported", big.scenario.nodes.count == QAGeneration.maxNodes && big.parseProblems.contains { $0.contains("at most") })
+    many.removeAll()
+
+    let retry = QAGeneration.retryPrompt(base: "BASE", previous: "{\"title\":\"x\"}", result: duplicated)
+    check("generation: a second try carries the request, the earlier answer and each problem", retry.hasPrefix("BASE") && retry.contains("{\"title\":\"x\"}") && retry.contains("- ") && retry.contains("zz"))
+    check("generation: the prompt carries the goal and the targets", QAGeneration.prompt(request).contains("A buyer pays an order") && QAGeneration.prompt(request).contains("http://localhost:8765"))
+    check("generation: the prompt names the users the person gave",
+          QAGeneration.prompt(QAGenerationRequest(goal: "g", appKind: .web, actorNames: ["buyer", "seller"], now: now)).contains("buyer, seller"))
+    check("generation: a web prompt allows network faults, a native one does not",
+          QAGeneration.systemPrompt(.web).contains("networkFault") && !QAGeneration.systemPrompt(.nativeMacOS).contains("networkFault") && QAGeneration.systemPrompt(.nativeMacOS).contains("native macOS"))
+
+    let schema = QAGeneration.schema
+    let props = schema["properties"] as? [String: Any] ?? [:]
+    let nodeProps = ((props["nodes"] as? [String: Any])?["items"] as? [String: Any])?["properties"] as? [String: Any] ?? [:]
+    check("generation: the schema is valid JSON with the five parts", JSONSerialization.isValidJSONObject(schema) && Set(props.keys) == ["title", "actors", "start", "nodes", "edges"])
+    check("generation: the schema offers the node kinds the model knows", ((nodeProps["kind"] as? [String: Any])?["enum"] as? [String]) == QANodeKind.allCases.map(\.rawValue))
+    check("generation: ... and the condition kinds, or none", ((nodeProps["conditionKind"] as? [String: Any])?["enum"] as? [String]) == [""] + QAConditionKind.allCases.map(\.rawValue))
+    check("generation: the schema has a property for each field the reader uses", Set(nodeProps.keys).isSuperset(of: ["id", "kind", "title", "detail", "actor", "changesData", "conditionKind", "conditionEstablish", "conditionVerify", "faultUrlPattern", "faultMode", "faultStatus", "faultMilliseconds"]))
+}
+
+// MARK: - Editing a scenario
+
+do {
+    let t1 = now.addingTimeInterval(60), t2 = now.addingTimeInterval(120)
+    var scenario = shop()
+    check("edit: a new step gets the next free id of its kind", scenario.freshNodeID(prefix: "n") == "n6" && scenario.freshNodeID(prefix: "a") == "a2" && scenario.freshNodeID(prefix: "x") == "x1")
+    let added = scenario.addNode(.action, title: "Log out", after: "n5", at: t1)
+    check("edit: a step is added after a step and connected from it", added == "n6" && scenario.edges.last == QAEdge(from: "n5", to: "n6") && scenario.node("n6")?.title == "Log out")
+    check("edit: ... it belongs to the actor of the step before it", scenario.node("n6")?.actor == "seller")
+    check("edit: ... and the change is stamped", scenario.updated == t1 && scenario.problems().isEmpty)
+    check("edit: a step added after a step with lines out of it is a fork", changed(shop()) { $0.addNode(.alternative, title: "Empty cart", after: "n1", label: "empty") }.enumerateBranches().branches.count == 4)
+    check("edit: an unknown parent adds nothing", changed(shop()) { _ = $0.addNode(.action, title: "x", after: "zz") } == shop())
+    check("edit: a step with no parent is refused in a scenario that has steps", changed(shop()) { _ = $0.addNode(.action, title: "x", after: nil) } == shop())
+    var empty = QAScenario(id: "e", title: "E", goal: "g", appKind: .web, actors: [QAActor(id: "a", name: "A")], created: now, updated: now)
+    let first = empty.addNode(.action, title: "Open", after: nil)
+    check("edit: the first step of an empty scenario is its start, for the only actor", first == "n1" && empty.start == "n1" && empty.node("n1")?.actor == "a")
+
+    var inserted = changed(shop()) { $0.selected = [main, declined] }
+    let middle = inserted.insertNode(.check, title: "Cart shows one item", between: "n1", and: "n2", at: t2)
+    check("edit: a step is put on a connection", middle == "c3" && inserted.edges.contains(QAEdge(from: "n1", to: "c3")) && inserted.edges.contains(QAEdge(from: "c3", to: "n2")) && !inserted.edges.contains(QAEdge(from: "n1", to: "n2")))
+    check("edit: ... the selected branches over that connection run over the new step", inserted.selected == ["n1>c3>n2>n3>n4>n5", declined] && inserted.selectedBranches().gone.isEmpty)
+    check("edit: ... the branches are still three, and the new check waits for its expectation", inserted.enumerateBranches().branches.count == 3 && kinds(inserted) == [.missingExpectation])
+    check("edit: a connection that is not there takes no step", changed(shop()) { _ = $0.insertNode(.check, title: "x", between: "n1", and: "n5") } == shop())
+
+    var removed = changed(shop()) { $0.selected = [main] }
+    removed.removeNode("n3", reconnect: true, at: t1)
+    check("edit: taking a step out of a line joins the steps around it", removed.edges.contains(QAEdge(from: "n2", to: "n4")) && removed.node("n3") == nil && removed.problems().isEmpty)
+    check("edit: ... and the selected branch stays selected without it", removed.selected == ["n1>n2>n4>n5"] && removed.selectedBranches().gone.isEmpty)
+    var cut = changed(shop()) { $0.selected = [main] }
+    cut.removeNode("n3", reconnect: false)
+    check("edit: without joining, the steps after it are left unreachable", kinds(cut).contains(.unreachableNode) && cut.selected.isEmpty)
+    var noStart = shop()
+    noStart.removeNode("n1", reconnect: false)
+    check("edit: removing the start moves it to the next step", noStart.start == "n2")
+    var gone = changed(shop()) { $0.selected = [declined] }
+    gone.removeNode("a1", reconnect: false)
+    check("edit: removing the step of a selected branch drops that branch from the selection", gone.selected.isEmpty && !gone.problems().contains { $0.kind == .selectionGone })
+    check("edit: a step that is not there changes nothing", changed(shop()) { $0.removeNode("zz", reconnect: true) } == shop())
+
+    var renamed = shop()
+    renamed.update(node: "n1", at: t2) { $0.title = "Add two products"; $0.changesData = .yes }
+    check("edit: a step is changed and the change is stamped", renamed.node("n1")?.title == "Add two products" && renamed.node("n1")?.changesData == QADataChange.yes && renamed.updated == t2)
+
+    var joined = shop()
+    check("connect: two steps are joined", joined.connect("c2", "n3", label: "recovers") && joined.edges.last == QAEdge(from: "c2", to: "n3", label: "recovers"))
+    check("connect: ... two lines meeting make more branches, not a loop", joined.problems().isEmpty && joined.enumerateBranches().branches.count == 3)
+    check("connect: not twice", !joined.connect("c2", "n3"))
+    func connects(_ from: String, _ to: String) -> Bool { var copy = shop(); return copy.connect(from, to) }
+    check("connect: not a step to itself", !connects("n1", "n1"))
+    check("connect: not an unknown step", !connects("n1", "zz") && !connects("zz", "n1"))
+    var looped = shop()
+    check("connect: not a connection that leads a line back to itself", !looped.connect("n5", "n1") && looped == shop())
+
+    var cutLine = changed(shop()) { $0.selected = [slow, main] }
+    cutLine.disconnect("f1", "c2", at: t1)
+    check("connect: a connection is removed and the branches that ran over it leave the selection", !cutLine.edges.contains(QAEdge(from: "f1", to: "c2")) && cutLine.selected == [main] && cutLine.updated == t1)
+    check("connect: removing a connection that is not there changes nothing", changed(shop()) { $0.disconnect("n1", "n5") } == shop())
+    var labelled = shop()
+    labelled.setLabel("  pays  ", from: "n1", to: "n2")
+    check("connect: a label is trimmed", labelled.edges.first { $0.from == "n1" && $0.to == "n2" }?.label == "pays")
+    labelled.setLabel("  ", from: "n1", to: "n2")
+    check("connect: an empty label is no label", labelled.edges.first { $0.from == "n1" && $0.to == "n2" }?.label == nil)
+
+    var chosen = shop()
+    chosen.setSelected(slow, true, at: t1)
+    chosen.setSelected(slow, true)
+    chosen.setSelected("n1>zz", true)
+    check("select: an existing branch is chosen once, one that does not exist is not", chosen.selected == [slow] && chosen.updated == t1)
+    chosen.setSelected(slow, false)
+    check("select: a branch is dropped", chosen.selected.isEmpty)
+    chosen.selectAllBranches()
+    check("select: all branches", chosen.selected == [main, slow, declined])
+    chosen.clearSelection()
+    check("select: none", chosen.selected.isEmpty)
+    var repeated = changed(shop()) { $0.selected = [slow, slow, "n1>zz", main] }
+    repeated.pruneSelection()
+    check("select: pruning keeps the order and drops repeats and branches that are gone", repeated.selected == [slow, main])
+}
+
+// MARK: - Where the steps are drawn
+
+do {
+    let layout = QAGraphLayout.make(shop())
+    func column(_ id: String) -> Int? { layout.node(id)?.column }
+    func row(_ id: String) -> Int? { layout.node(id)?.row }
+    check("layout: each step is in the column of the longest line to it", ["n1", "n2", "n3", "n4", "n5"].map(column) == [0, 1, 2, 3, 4] && column("a1") == 1 && column("c1") == 2 && column("f1") == 2 && column("c2") == 3)
+    check("layout: the main line is the top row", ["n1", "n2", "n3", "n4", "n5"].allSatisfy { row($0) == 0 })
+    check("layout: a fork continues on a row of its own", row("f1") == 1 && row("c2") == 1 && row("a1") == 2 && row("c1") == 2)
+    let frames = layout.nodes.map(\.frame)
+    check("layout: no two steps overlap", frames.indices.allSatisfy { i in frames.indices.allSatisfy { j in i == j || !frames[i].intersects(frames[j]) } })
+    check("layout: every step is inside the drawing", frames.allSatisfy { CGRect(origin: .zero, size: layout.size).contains($0) })
+    check("layout: every connection is drawn once", layout.edges.count == 8 && Set(layout.edges.map(\.id)).count == 8)
+    check("layout: a connection leaves the right side of a step and enters the left side of the next",
+          layout.edges.allSatisfy { edge in
+              guard let from = layout.node(edge.from), let to = layout.node(edge.to) else { return false }
+              return edge.curve.first == CGPoint(x: from.frame.maxX, y: from.frame.midY) && edge.curve.last == CGPoint(x: to.frame.minX, y: to.frame.midY)
+          })
+    check("layout: a click finds the step under it", layout.node(at: CGPoint(x: layout.node("n2")!.frame.midX, y: layout.node("n2")!.frame.midY))?.id == "n2" && layout.node(at: .zero) == nil)
+    let wire = layout.edges.first { $0.id == "n1>a1" }!
+    check("layout: a click finds the connection near it", layout.edge(near: wire.labelPoint)?.id == "n1>a1" && layout.edge(near: CGPoint(x: -500, y: -500)) == nil)
+    check("layout: it is the same every time", QAGraphLayout.make(shop()).nodes == layout.nodes && QAGraphLayout.make(shop()).edges == layout.edges)
+
+    let withLoose = QAGraphLayout.make(changed(shop()) { $0.nodes.append(QANode(id: "lonely", kind: .action, title: "Lonely", actor: "buyer")) })
+    let reachedBottom = withLoose.nodes.filter { !$0.loose }.map(\.frame.maxY).max() ?? 0
+    check("layout: a step nothing leads to is kept below the graph", withLoose.node("lonely")?.loose == true && (withLoose.node("lonely")?.frame.minY ?? 0) > reachedBottom && withLoose.nodes.count == 10)
+
+    let loop = QAGraphLayout.make(changed(shop()) { $0.edges.append(QAEdge(from: "n3", to: "n1")) })
+    check("layout: a loop does not stop the layout and its step is still placed", loop.nodes.count == 9 && column("n3") == 2 && loop.edges.count == 9)
+    let back = loop.edges.first { $0.id == "n3>n1" }!
+    check("layout: a connection back is drawn under the steps, from the bottom of one to the bottom of the other",
+          back.curve.first?.y == loop.node("n3")!.frame.maxY && back.curve.last?.y == loop.node("n1")!.frame.maxY)
+
+    let joined = QAGraphLayout.make(changed(shop()) { $0.connect("c2", "n4") })
+    check("layout: a step reached by two lines is in the column of the longer one", joined.node("n4")?.column == 4 && joined.node("n5")?.column == 5)
+
+    let ladderLayout = QAGraphLayout.make(ladder)
+    let ladderFrames = ladderLayout.nodes.map(\.frame)
+    check("layout: a scenario of dozens of steps is laid out without overlaps", ladderLayout.nodes.count == 37 && ladderFrames.indices.allSatisfy { i in ladderFrames.indices.allSatisfy { j in i == j || !ladderFrames[i].intersects(ladderFrames[j]) } })
+    let none = QAGraphLayout.make(QAScenario(id: "e", title: "E", goal: "g", appKind: .web, created: now, updated: now))
+    check("layout: an empty scenario has nothing to draw", none.nodes.isEmpty && none.edges.isEmpty && none.size.width > 0)
+}
+
+// MARK: - Several applications and players (DEC-018, DEC-019)
+
+/// Three web applications and five players: a shop for customers, a back office for staff and a partner portal.
+func platform() -> QAScenario {
+    var scenario = shop()
+    scenario.id = "platform"
+    scenario.apps = [
+        QAApp(id: "shop", name: "Shop", profile: .userFacing),
+        QAApp(id: "backoffice", name: "Back office", profile: .administration),
+        QAApp(id: "partner", name: "Partner portal", profile: .custom, requirements: "Partners see only their own orders."),
+    ]
+    scenario.actors = [
+        QAActor(id: "buyer", name: "Buyer", app: "shop"),
+        QAActor(id: "seller", name: "Seller", app: "backoffice"),
+        QAActor(id: "admin", name: "Admin", app: "backoffice"),
+        QAActor(id: "courier", name: "Courier", app: "partner"),
+        QAActor(id: "support", name: "Support", app: "backoffice"),
+    ]
+    scenario.targets = [QATarget(id: "local", kind: .local, name: "Local", locations: [
+        "shop": QALocation(url: "http://localhost:3000"), "backoffice": QALocation(url: "http://localhost:3001"), "partner": QALocation(url: "http://localhost:3002"),
+    ])]
+    scenario.nodes[4].app = "shop"   // n5: the seller checks the order in the shop, not in their own application
+    return scenario
+}
+
+do {
+    let scenario = platform()
+    check("apps: three applications and five players make a scenario with no problems", scenario.problems().isEmpty && scenario.apps.count == 3 && scenario.actors.count == 5)
+    check("apps: a step happens in its actor's application", scenario.appID(of: scenario.node("n1")!) == "shop" && scenario.appID(of: scenario.node("n4")!) == "backoffice")
+    check("apps: a step may name another application than its actor's", scenario.appID(of: scenario.node("n5")!) == "shop")
+    check("apps: the applications of a branch, in order of first appearance", scenario.apps(in: QABranch(nodes: ["n1", "n2", "n3", "n4", "n5"])) == ["shop", "backoffice"] && scenario.apps(in: QABranch(nodes: ["n1", "a1", "c1"])) == ["shop"])
+    check("apps: with one application no step needs to name it", shop().nodes.allSatisfy { shop().appID(of: $0) == "shop" })
+    check("apps: a step added after a seller's step is the seller's, in the seller's application",
+          { var copy = scenario; let id = copy.addNode(.action, title: "Ship", after: "n4")!; return copy.appID(of: copy.node(id)!) == "backoffice" }())
+    check("apps: the round trip keeps them", (try? QAStore.decoder.decode(QAScenario.self, from: QAStore.encoder.encode(scenario))) == scenario)
+
+    check("apps: a player who does not say which application they use is a problem when there are several", kinds(changed(scenario) { $0.actors[0].app = nil }) == [.ambiguousApp])
+    check("apps: ... named once, for the player, not for each step", changed(scenario) { $0.actors[0].app = nil }.problems().count == 1)
+    check("apps: ... but not for a player with no step of their own", kinds(changed(scenario) { $0.actors[0].app = nil; $0.nodes.removeAll { $0.actor == "buyer" }; $0.edges = []; $0.start = "n4" }).contains(.ambiguousApp) == false)
+    check("apps: a player of an unknown application", kinds(changed(scenario) { $0.actors[1].app = "ghost" }) == [.unknownApp])
+    check("apps: a step in an unknown application", kinds(changed(scenario) { $0.nodes[4].app = "ghost" }) == [.unknownApp])
+    check("apps: two applications with one id", kinds(changed(scenario) { $0.apps.append($0.apps[0]) }) == [.duplicateApp])
+    check("apps: an application id that is not plain", kinds(changed(scenario) { $0.apps[2].id = "partner portal"; $0.actors[3].app = "partner portal"; $0.targets[0].locations["partner portal"] = $0.targets[0].locations["partner"] }) == [.badID])
+    check("apps: no application at all", kinds(changed(shop()) { $0.apps = [] }).contains(.noApp))
+    check("apps: an environment that does not say where an application runs", kinds(changed(scenario) { $0.targets[0].locations["partner"] = nil }) == [.incompleteTarget])
+    check("apps: ... and which application it is", changed(scenario) { $0.targets[0].locations["partner"] = nil }.problems().first?.message.contains("Partner portal") == true)
+    check("apps: an address of the wrong kind in one of them", kinds(changed(scenario) { $0.targets[0].locations["backoffice"]?.url = "ftp://admin.example.com" }) == [.incompleteTarget])
+    check("apps: a place for an application that is not listed is ignored", changed(scenario) { $0.targets[0].locations["old"] = QALocation(url: "http://old") }.problems().isEmpty)
+    let nativeSet = changed(scenario) {
+        $0.appKind = .nativeMacOS
+        $0.targets = [QATarget(id: "mac", kind: .local, name: "Mac", locations: ["shop": QALocation(application: QAApplication(bundleIdentifier: "com.example.Shop", name: "Shop")),
+                                                                              "backoffice": QALocation(application: QAApplication(bundleIdentifier: "com.example.Admin", name: "Admin")),
+                                                                              "partner": QALocation(application: QAApplication(bundleIdentifier: "com.example.Partner", name: "Partner"))])]
+    }
+    check("apps: native applications are located by installed application, one per application", nativeSet.problems().isEmpty && kinds(changed(nativeSet) { $0.targets[0].locations["partner"]?.application = nil }) == [.incompleteTarget])
+
+    check("profiles: a user-facing application is reviewed for looks, readiness and attention",
+          QAReviewProfile.userFacing.presetRequirements.contains("Attractive") && QAReviewProfile.userFacing.presetRequirements.contains("Production-ready") && QAReviewProfile.userFacing.presetRequirements.contains("Holds attention"))
+    check("profiles: an administration application is reviewed for speed, economy and automation",
+          QAReviewProfile.administration.presetRequirements.contains("Fast") && QAReviewProfile.administration.presetRequirements.contains("Optimal") && QAReviewProfile.administration.presetRequirements.contains("Ready for automation"))
+    check("profiles: the presets differ and a custom application starts empty", QAReviewProfile.userFacing.presetRequirements != QAReviewProfile.administration.presetRequirements && QAReviewProfile.custom.presetRequirements.isEmpty)
+    check("profiles: an application with no text of its own is reviewed against its profile", scenario.app("shop")?.effectiveRequirements == QAReviewProfile.userFacing.presetRequirements && scenario.app("backoffice")?.effectiveRequirements == QAReviewProfile.administration.presetRequirements)
+    check("profiles: the person's text replaces the preset", scenario.app("partner")?.effectiveRequirements == "Partners see only their own orders." && QAApp(id: "x", name: "X", profile: .administration, requirements: "  Mine  ").effectiveRequirements == "Mine")
+    check("profiles: speed is measured and automation readiness collected for an administration application only",
+          QAReviewProfile.allCases.filter(\.measuresSpeed) == [.administration] && QAReviewProfile.allCases.filter(\.assessesAutomation) == [.administration])
+}
+
+// MARK: - Several applications in generation
+
+do {
+    let apps = platform().apps
+    let request = QAGenerationRequest(goal: "An order travels from the shop to the partner", appKind: .web, apps: apps, targets: platform().targets, now: now)
+    let prompt = QAGeneration.prompt(request)
+    check("generation: the prompt lists each application with what it is judged as", prompt.contains("shop: Shop [user-facing]") && prompt.contains("backoffice: Back office [administration]") && prompt.contains("partner: Partner portal [custom]"))
+    check("generation: ... and where each runs in each environment", prompt.contains("shop at http://localhost:3000; backoffice at http://localhost:3001; partner at http://localhost:3002"))
+    check("generation: the system prompt tells the AI to bind players to applications", QAGeneration.systemPrompt(.web).contains("`app`"))
+
+    func node(_ id: String, _ kind: String, _ actor: String, app: String = "", detail: String = "d") -> [String: Any] {
+        ["id": id, "kind": kind, "title": id, "detail": detail, "actor": actor, "app": app, "changesData": "no", "conditionKind": "", "conditionEstablish": "", "conditionVerify": "",
+         "faultUrlPattern": "", "faultMode": "", "faultStatus": 0, "faultMilliseconds": 0]
+    }
+    func multi(actors: [[String: Any]]? = nil, nodes: [[String: Any]]? = nil) -> [String: Any] {
+        ["title": "Order travels", "start": "n1",
+         "actors": actors ?? [["id": "buyer", "name": "Buyer", "app": "shop", "createTestAccount": false], ["id": "seller", "name": "Seller", "app": "backoffice", "createTestAccount": false],
+                              ["id": "courier", "name": "Courier", "app": "partner", "createTestAccount": false]],
+         "nodes": nodes ?? [node("n1", "action", "buyer"), node("n2", "action", "seller"), node("n3", "check", "courier"), node("n4", "check", "seller", app: "shop")],
+         "edges": [["from": "n1", "to": "n2", "label": ""], ["from": "n2", "to": "n3", "label": ""], ["from": "n3", "to": "n4", "label": ""]]]
+    }
+    let result = QAGeneration.parse(multi(), request: request)
+    check("generation: players and steps keep the applications the AI gave them", result.isClean && result.scenario.actors.map(\.app) == ["shop", "backoffice", "partner"] && result.scenario.node("n4")?.app == "shop")
+    check("generation: the applications are the person's, not the AI's", result.scenario.apps == apps)
+    check("generation: with none named there is one application", QAGeneration.parse(multi(), request: QAGenerationRequest(goal: "g", appKind: .web, now: now)).scenario.apps == [QAApp(id: "app", name: "Application")])
+    let wrong = QAGeneration.parse(multi(actors: [["id": "buyer", "name": "Buyer", "app": "kiosk", "createTestAccount": false]], nodes: [node("n1", "action", "buyer")]), request: request)
+    check("generation: an application the AI invented is a problem to give back", wrong.problems.contains { $0.kind == .unknownApp } && wrong.messages.contains { $0.contains("kiosk") })
+    let silent = QAGeneration.parse(multi(actors: [["id": "buyer", "name": "Buyer", "app": "", "createTestAccount": false]], nodes: [node("n1", "action", "buyer")]), request: request)
+    check("generation: a player with no application among several is a problem to give back", silent.problems.contains { $0.kind == .ambiguousApp })
+    let schemaProps = QAGeneration.schema["properties"] as? [String: Any] ?? [:]
+    let actorProps = ((schemaProps["actors"] as? [String: Any])?["items"] as? [String: Any])?["properties"] as? [String: Any] ?? [:]
+    let nodeProps = ((schemaProps["nodes"] as? [String: Any])?["items"] as? [String: Any])?["properties"] as? [String: Any] ?? [:]
+    check("generation: the schema has an application for a player and for a step", actorProps["app"] != nil && nodeProps["app"] != nil)
+    let eleven = (0..<(QAGeneration.maxActors + 1)).map { ["id": "p\($0)", "name": "P", "app": "shop", "createTestAccount": false] as [String: Any] }
+    check("generation: more players than allowed are cut and reported", QAGeneration.parse(multi(actors: eleven, nodes: [node("n1", "action", "p0")]), request: request).parseProblems.contains { $0.contains("at most") })
+}
+
+// MARK: - The layout never lets steps overlap, whatever the graph
+
+do {
+    var seed: UInt64 = 20_261_109
+    func next(_ bound: Int) -> Int { seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407; return Int((seed >> 33) % UInt64(bound)) }
+    var failuresFound = 0, graphs = 0
+    for _ in 0..<400 {
+        let count = 6 + next(25)
+        var scenario = QAScenario(id: "r", title: "R", goal: "g", appKind: .web, apps: [QAApp(id: "app", name: "App")], actors: [QAActor(id: "a", name: "A")], start: "s0", created: now, updated: now)
+        scenario.nodes = (0..<count).map { QANode(id: "s\($0)", kind: .action, title: "s\($0)") }
+        for i in 1..<count {
+            scenario.edges.append(QAEdge(from: "s\(next(i))", to: "s\(i)"))
+            if next(3) == 0 { scenario.edges.append(QAEdge(from: "s\(next(i))", to: "s\(i)")) }
+            if next(4) == 0 && i + 1 < count { scenario.edges.append(QAEdge(from: "s\(i)", to: "s\(i + 1 + next(count - i - 1))")) }
+            if next(12) == 0 { scenario.edges.append(QAEdge(from: "s\(i)", to: "s\(next(i))")) }   // now and then a loop back
+        }
+        let layout = QAGraphLayout.make(scenario)
+        let frames = layout.nodes.map(\.frame)
+        let overlap = frames.indices.contains { i in frames.indices.contains { j in i != j && frames[i].intersects(frames[j]) } }
+        if overlap || layout.nodes.count != count { failuresFound += 1 }
+        graphs += 1
+    }
+    check("layout: 400 random graphs with merges, long jumps and loops are laid out whole and without overlaps", failuresFound == 0 && graphs == 400)
+}
+
+// MARK: - The tries to get a scenario right (QAGenerator)
+
+func runAsync<T>(_ body: @escaping () async throws -> T) -> Result<T, Error> {
+    let done = DispatchSemaphore(value: 0)
+    var outcome: Result<T, Error> = .failure(CancellationError())
+    Task { do { outcome = .success(try await body()) } catch { outcome = .failure(error) }; done.signal() }
+    done.wait()
+    return outcome
+}
+
+func answerNode(_ id: String, _ kind: String, _ actor: String) -> [String: Any] {
+    ["id": id, "kind": kind, "title": id, "detail": "d", "actor": actor, "app": "", "changesData": "no", "conditionKind": "", "conditionEstablish": "", "conditionVerify": "",
+     "faultUrlPattern": "", "faultMode": "", "faultStatus": 0, "faultMilliseconds": 0]
+}
+
+/// An answer the assistant could give; `actor` is the one the steps use, so a wrong one makes the scenario unsound.
+func answer(title: String, actor: String = "a") -> [String: Any] {
+    ["title": title, "start": "n1", "actors": [["id": "a", "name": "A", "app": "", "createTestAccount": false]],
+     "nodes": [answerNode("n1", "action", actor), answerNode("n2", "check", actor)], "edges": [["from": "n1", "to": "n2", "label": ""]]]
+}
+
+final class FakeAssistant {
+    var prompts: [String] = []
+    var answers: [(structured: Any?, costUSD: Double?)]
+    init(_ answers: [(structured: Any?, costUSD: Double?)]) { self.answers = answers }
+    func complete(_ prompt: String) async throws -> QAGenerator.Answer {
+        prompts.append(prompt)
+        let next = answers.isEmpty ? (structured: nil as Any?, costUSD: nil as Double?) : answers.removeFirst()
+        return QAGenerator.Answer(structured: next.structured, costUSD: next.costUSD)
+    }
+}
+
+do {
+    let request = QAGenerationRequest(goal: "g", appKind: .web, apps: [QAApp(id: "app", name: "App")], now: now)
+    func run(_ assistant: FakeAssistant, attempts: Int = 3, seen: ((Int) -> Void)? = nil) -> Result<QAGenerator.Outcome, Error> {
+        runAsync { try await QAGenerator.generate(request, maxAttempts: attempts, onAttempt: seen, complete: assistant.complete) }
+    }
+
+    let good = FakeAssistant([(answer(title: "First"), 0.1)])
+    let first = try? run(good).get()
+    check("generator: a whole answer is taken at the first try", first?.attempts == 1 && first?.remaining.isEmpty == true && good.prompts.count == 1 && first?.scenario.title == "First")
+    check("generator: the first prompt is the one made for the request", good.prompts.first == QAGeneration.prompt(request))
+
+    let fixed = FakeAssistant([(answer(title: "Bad", actor: "ghost"), 0.1), (answer(title: "Good"), 0.2)])
+    var seen: [Int] = []
+    let second = try? run(fixed, seen: { seen.append($0) }).get()
+    check("generator: an unsound answer is asked for again", second?.attempts == 2 && second?.scenario.title == "Good" && second?.remaining.isEmpty == true && seen == [1, 2])
+    check("generator: the retry carries the problems and the earlier answer", fixed.prompts.count == 2 && fixed.prompts[1].contains("ghost") && fixed.prompts[1].contains("\"title\":\"Bad\"") && fixed.prompts[1].hasPrefix(QAGeneration.prompt(request)))
+    check("generator: what the tries cost is added up", abs((second?.costUSD ?? 0) - 0.3) < 0.000_001)
+
+    let never = FakeAssistant([(answer(title: "One", actor: "ghost"), nil), (answer(title: "Two", actor: "ghost"), nil), (answer(title: "Three", actor: "ghost"), nil), (answer(title: "Four"), nil)])
+    let gaveUp = try? run(never).get()
+    check("generator: after the last try the last scenario comes back with what is wrong", gaveUp?.attempts == 3 && never.prompts.count == 3 && gaveUp?.scenario.title == "Three" && gaveUp?.remaining.isEmpty == false)
+    check("generator: no cost is reported when the assistant reports none", gaveUp?.costUSD == nil)
+
+    let silent = FakeAssistant([(nil, nil), (answer(title: "Later"), nil)])
+    let afterSilence = try? run(silent).get()
+    check("generator: an answer with nothing in it is asked for again", afterSilence?.attempts == 2 && afterSilence?.scenario.title == "Later")
+
+    let once = FakeAssistant([(answer(title: "Bad", actor: "ghost"), nil), (answer(title: "Good"), nil)])
+    let single = try? run(once, attempts: 1).get()
+    check("generator: one try is one call", single?.attempts == 1 && once.prompts.count == 1 && single?.remaining.isEmpty == false)
+    let none = FakeAssistant([(answer(title: "Good"), nil)])
+    check("generator: no tries at all still asks once", (try? run(none, attempts: 0).get())?.attempts == 1 && none.prompts.count == 1)
+
+    struct Broken: Error {}
+    let failing = runAsync { try await QAGenerator.generate(request, complete: { _ in throw Broken() }) }
+    check("generator: an error of the assistant is passed on", { if case .failure(let error) = failing { return error is Broken } else { return false } }())
+
+    let stopped = runAsync { () async throws -> QAGenerator.Outcome in
+        let task = Task { () async throws -> QAGenerator.Outcome in
+            while !Task.isCancelled { await Task.yield() }   // runs only once it was stopped, so the stop reaches the loop itself
+            return try await QAGenerator.generate(request, complete: { _ in QAGenerator.Answer(structured: answer(title: "Never"), costUSD: nil) })
+        }
+        task.cancel()
+        return try await task.value
+    }
+    check("generator: a stopped generation does not ask again", { if case .failure(let error) = stopped { return error is CancellationError } else { return false } }())
 }
 
 finish("QA")

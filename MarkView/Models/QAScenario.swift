@@ -20,13 +20,77 @@ struct QAApplication: Codable, Equatable {
     var name: String
 }
 
-/// Where a check runs: a web address for a web scenario, an installed application for a native one.
+/// Where one application runs in one environment: a web address for a web scenario, an installed application for a native one.
+struct QALocation: Codable, Equatable {
+    var url: String? = nil
+    var application: QAApplication? = nil
+}
+
+/// An environment a check can run in (local, development, production) and, for each application of the scenario, where it runs there
+/// (DEC-018). The key is the application's id.
 struct QATarget: Codable, Equatable, Identifiable {
     var id: String
     var kind: QATargetKind
     var name: String
-    var url: String? = nil
-    var application: QAApplication? = nil
+    var locations: [String: QALocation] = [:]
+}
+
+/// What an application is judged by (DEC-019).
+enum QAReviewProfile: String, Codable, CaseIterable {
+    /// A product people choose to use: it has to look right and hold their attention.
+    case userFacing
+    /// A working tool for staff: it has to be fast, economical to operate and ready for automation.
+    case administration
+    /// Only the requirement text the person wrote.
+    case custom
+
+    var title: String {
+        switch self {
+        case .userFacing: return "User-facing"
+        case .administration: return "Administration"
+        case .custom: return "Custom"
+        }
+    }
+
+    /// The text a new application of this profile starts with; the person edits it.
+    var presetRequirements: String {
+        switch self {
+        case .userFacing:
+            return """
+            - Attractive: a clear visual hierarchy, consistent spacing, type and colour, and a polished first impression.
+            - Production-ready: no placeholder text, broken layout, raw error messages or unfinished states; the empty, loading and error states are designed.
+            - Holds attention: the main action of each screen is obvious, the wording is clear and inviting, and nothing distracts from the task.
+            """
+        case .administration:
+            return """
+            - Fast: pages and actions answer quickly; slow steps are named with their measured times.
+            - Optimal: the common tasks take few steps, lists can be filtered, sorted and acted on in bulk, and nothing has to be done twice.
+            - Ready for automation: controls have stable identifiers and labels, addresses are predictable, actions can be repeated safely, and results are visible without guessing.
+            """
+        case .custom:
+            return ""
+        }
+    }
+
+    /// Whether the run measures step timings for an application of this profile as evidence for the review.
+    var measuresSpeed: Bool { self == .administration }
+    /// Whether the run collects the signals of automation readiness (identifiers, labels, addresses).
+    var assessesAutomation: Bool { self == .administration }
+}
+
+/// One application of the product under test. A scenario lists the applications its players use (a user application, an
+/// administration application, a partner application); each is reviewed against its own requirements (REQ-007).
+struct QAApp: Codable, Equatable, Identifiable {
+    var id: String
+    var name: String
+    var profile: QAReviewProfile = .userFacing
+    /// What this application is reviewed against. Empty means the profile's preset.
+    var requirements: String = ""
+
+    var effectiveRequirements: String {
+        let own = requirements.trimmingCharacters(in: .whitespacesAndNewlines)
+        return own.isEmpty ? profile.presetRequirements : own
+    }
 }
 
 /// A saved login in the macOS Keychain store of the browser (host and user name). A scenario never holds a password (DEC-014).
@@ -38,6 +102,8 @@ struct QALoginReference: Codable, Equatable {
 struct QAActor: Codable, Equatable, Identifiable {
     var id: String
     var name: String
+    /// The application this player uses, unless a step says otherwise.
+    var app: String? = nil
     var login: QALoginReference? = nil
     /// Preparation creates a test account for this actor where the target allows it (REQ-002).
     var createTestAccount: Bool = false
@@ -99,6 +165,8 @@ struct QANode: Codable, Equatable, Identifiable {
     /// The instruction for an action, the expectation for a check, the reason for an alternative or a failure.
     var detail: String = ""
     var actor: String? = nil
+    /// The application the step happens in, when it is not the actor's own.
+    var app: String? = nil
     var changesData: QADataChange = .unknown
     var condition: QACondition? = nil
 }
@@ -126,6 +194,10 @@ struct QAProblem: Equatable {
         case badID
         case duplicateNode
         case duplicateActor
+        case noApp
+        case duplicateApp
+        case unknownApp
+        case ambiguousApp
         case emptyTitle
         case missingExpectation
         case missingStart
@@ -155,6 +227,7 @@ struct QAScenario: Codable, Equatable, Identifiable {
     var goal: String
     /// One scenario targets one kind of application; web and native are never mixed (DEC-007).
     var appKind: QAAppKind
+    var apps: [QAApp] = []
     var targets: [QATarget] = []
     var actors: [QAActor] = []
     var nodes: [QANode] = []
@@ -175,6 +248,24 @@ struct QAScenario: Codable, Equatable, Identifiable {
     func actorID(of node: QANode) -> String? {
         if let actor = node.actor { return actor }
         return actors.count == 1 ? actors[0].id : nil
+    }
+
+    /// The application a step happens in: its own, else its actor's, else the only application there is.
+    func appID(of node: QANode) -> String? {
+        if let app = node.app { return app }
+        if let actor = actorID(of: node), let app = actors.first(where: { $0.id == actor })?.app { return app }
+        return apps.count == 1 ? apps[0].id : nil
+    }
+
+    func app(_ id: String) -> QAApp? { apps.first { $0.id == id } }
+
+    /// The applications a branch uses, in order of first appearance.
+    func apps(in branch: QABranch) -> [String] {
+        var seen: [String] = []
+        for id in branch.nodes {
+            if let node = node(id), let app = appID(of: node), !seen.contains(app) { seen.append(app) }
+        }
+        return seen
     }
 
     // MARK: Branches
@@ -246,7 +337,8 @@ struct QAScenario: Codable, Equatable, Identifiable {
 
     // MARK: Problems
 
-    static func isValidNodeID(_ id: String) -> Bool {
+    /// An id of a step, an actor or an application: plain letters, digits, - and _.
+    static func isValidID(_ id: String) -> Bool {
         !id.isEmpty && id.count <= 40 && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
     }
 
@@ -257,7 +349,7 @@ struct QAScenario: Codable, Equatable, Identifiable {
 
         var seenNodes = Set<String>()
         for node in nodes {
-            if !QAScenario.isValidNodeID(node.id) { add(.badID, node.id, "Step id \"\(node.id)\" may use only letters, digits, - and _.") }
+            if !QAScenario.isValidID(node.id) { add(.badID, node.id, "Step id \"\(node.id)\" may use only letters, digits, - and _.") }
             if !seenNodes.insert(node.id).inserted { add(.duplicateNode, node.id, "Two steps share the id \(node.id).") }
             if node.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { add(.emptyTitle, node.id, "Step \(node.id) has no title.") }
             if node.kind == .check && node.detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -267,7 +359,21 @@ struct QAScenario: Codable, Equatable, Identifiable {
             if (node.kind == .action || node.kind == .check) && node.actor == nil && actors.count > 1 {
                 add(.ambiguousActor, node.id, "Step \(node.id) does not say which of the \(actors.count) actors does it.")
             }
+            if let app = node.app, self.app(app) == nil { add(.unknownApp, node.id, "Step \(node.id) names the unknown application \(app).") }
             if let condition = node.condition { found.append(contentsOf: QAScenario.conditionProblems(condition, node: node.id)) }
+        }
+
+        var seenApps = Set<String>()
+        for app in apps {
+            if !QAScenario.isValidID(app.id) { add(.badID, app.id, "Application id \"\(app.id)\" may use only letters, digits, - and _.") }
+            if !seenApps.insert(app.id).inserted { add(.duplicateApp, app.id, "Two applications share the id \(app.id).") }
+        }
+        if apps.isEmpty { add(.noApp, id, "The scenario has no application.") }
+        for actor in actors {
+            if let app = actor.app, self.app(app) == nil { add(.unknownApp, actor.id, "Actor \(actor.id) uses the unknown application \(app).") }
+            if actor.app == nil && apps.count > 1 && nodes.contains(where: { $0.actor == actor.id && $0.app == nil }) {
+                add(.ambiguousApp, actor.id, "Actor \(actor.id) does not say which of the \(apps.count) applications they use.")
+            }
         }
 
         var seenActors = Set<String>()
@@ -292,7 +398,7 @@ struct QAScenario: Codable, Equatable, Identifiable {
         if let loop = firstCycleNode() { add(.cycle, loop, "The steps lead back to \(loop); a branch must not loop.") }
 
         if targets.isEmpty { add(.noTarget, id, "The scenario has no target.") }
-        for target in targets { found.append(contentsOf: QAScenario.targetProblems(target, appKind: appKind)) }
+        for target in targets { found.append(contentsOf: QAScenario.targetProblems(target, apps: apps, appKind: appKind)) }
 
         let all = enumerateBranches()
         if !all.truncated {
@@ -318,18 +424,26 @@ struct QAScenario: Codable, Equatable, Identifiable {
         return found
     }
 
-    private static func targetProblems(_ target: QATarget, appKind: QAAppKind) -> [QAProblem] {
-        func problem(_ message: String) -> [QAProblem] { [QAProblem(kind: .incompleteTarget, subject: target.id, message: message)] }
-        switch appKind {
-        case .web:
-            guard let text = target.url, let url = URL(string: text), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
-                  let host = url.host, !host.isEmpty else {
-                return problem("The target \(target.name) needs an http or https address.")
+    private static func targetProblems(_ target: QATarget, apps: [QAApp], appKind: QAAppKind) -> [QAProblem] {
+        var found: [QAProblem] = []
+        for app in apps {
+            func problem(_ message: String) { found.append(QAProblem(kind: .incompleteTarget, subject: target.id, message: message)) }
+            guard let location = target.locations[app.id] else {
+                problem("The target \(target.name) does not say where \(app.name) runs.")
+                continue
             }
-        case .nativeMacOS:
-            if (target.application?.bundleIdentifier ?? "").isEmpty { return problem("The target \(target.name) needs an installed application.") }
+            switch appKind {
+            case .web:
+                guard let text = location.url, let url = URL(string: text), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+                      let host = url.host, !host.isEmpty else {
+                    problem("\(app.name) in the target \(target.name) needs an http or https address.")
+                    continue
+                }
+            case .nativeMacOS:
+                if (location.application?.bundleIdentifier ?? "").isEmpty { problem("\(app.name) in the target \(target.name) needs an installed application.") }
+            }
         }
-        return []
+        return found
     }
 
     /// A step that is on a loop, or nil. Depth-first over every step, not only those reachable from the start.
