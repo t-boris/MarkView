@@ -5410,3 +5410,18 @@ Spec: `docs/features/end-to-end-qa/` (REQ-001..007, DEC-001..020, Q-001..009, pl
 - Verified: five standalone suites (qa-tests, qa-video, qa-review, qa-evidence-web, qa-bugs) pass; Debug build with the CLAUDE.md command; a real run in an invisible probe window against `Tests/Fixtures/qa-demo` with the real Claude CLI (sign-in and a request filled in, Russian narration, effort counts, video, findings, a failing check filed as a bug with pictures and its own video path).
 - Found in the live runs and fixed: Run panel said a saved login was missing; the probe could not sign the AI CLI in (links in `PROBE_AI`); a Keychain read on the main thread blocked the app behind a system prompt (now a detached task; lesson recorded); the review treated a mid-step screen as the finished step and reported a missing result as a defect (screens are now marked "in progress" / "ended the step"); the review repeated itself (already-reported titles are in the prompt); a finding's time was the end of the review, not the screen (now the screen's time); a login the player has no value for typed the placeholder itself (now refused).
 - Not done: native macOS players (S8); not hand-checked in the installed app; the mutation run on the final runner code was started after the merge (see the follow-up note below if it left survivors).
+
+# End-to-End QA: look closer, mark the findings (2026-11-10)
+
+Boris, after 5.60.1: (1) the players' live pictures and the feed's screenshots cannot be enlarged or opened, which gets in the way; (2) QA files bugs by itself,
+which is good, but each finding should be markable: a bug confirmed, a note marked read, "not a bug", "there is a workaround". Answers (AskUserQuestion):
+marks live on the finding AND in the bug (the bug in docs/bugs stays the source of truth); add a list of past runs so marks work after a restart.
+
+## Plan
+- [ ] 1. Model: `QATriageState` (confirmed, notABug, workaround, seen, dismissed) + `QAFinding.triage / triageNote / triagedAt` (optional, old run.json still loads); pure `QATriage` (which marks a finding offers: a defect gets confirmed / notABug / workaround, a note or suggestion gets seen / dismissed; which marks need a text).
+- [ ] 2. Bug side: `QABugTriage` maps a mark to the bug found by `qa_key` — confirmed: `ready_to_fix`; notABug: the project's cancelling status with the reason as evidence; workaround: a "Workaround" section in the report; seen/dismissed: no bug. The sink gets `applyTriage`, the FeatureStore sink does it through `updateBug` / the lifecycle.
+- [ ] 3. Run file: `QARunTriage.apply` loads run.json, sets the mark, saves (off the main thread); the live run model and the archive both use it.
+- [ ] 4. Viewer: `QAImageViewer` (sheet, fit / actual size, ← → through the run's pictures, Esc); a player's picture opens it live (follows the page), a feed thumbnail opens that screenshot with its finding text.
+- [ ] 5. Finding rows: one shared row with the marks (chips, a note field for workaround / not a bug, undo), in the live feed and in the archive.
+- [ ] 6. Runs list on the Run tab (`QAStore.loadRuns`, newest first, outcome per branch, findings still unmarked) and a run report opened from it (results, findings with frames read from the run folder, video button, marks, viewer).
+- [ ] 7. Checks in `tools/tests` for 1–3 (old file decodes, options, mapping, fake sink); app probe for 4–6 (invisible, real app); build; 5.61.0 (minor); one release; lessons.
