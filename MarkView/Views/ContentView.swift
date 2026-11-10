@@ -882,6 +882,7 @@ struct ContentView: View {
             workspaceManager.layout.workSection = .git
         case .deployments: workspaceManager.openDeployments()
         case .workflow: workspaceManager.openWorkflow()
+        case .qa: workspaceManager.openQA()
         case .uiStudio: workspaceManager.openUIStudio()
         case .browser: _ = workspaceManager.openBrowser(nil)
         case .openFolder: openFolder()
