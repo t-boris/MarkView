@@ -2,7 +2,7 @@
 type: bug
 id: BUG-120
 title: Welcome screen background is shared by every window
-status: in-progress
+status: in-review
 severity: low
 reporter: Boris Tsekinovsky
 created: 2026-11-10
