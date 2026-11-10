@@ -39,7 +39,7 @@ What it does **not** own. It calls into these, but the logic lives in sibling mo
 | Path | Role |
 |---|---|
 | `MarkView/App/MarkViewApp.swift` | `@main` entry (`DDEAppEntry`), headless indexer runner, `MarkViewApp` scene and menus, app delegate, external-open queue, notification names, unused `MarkdownDocument` and `MarkViewApplication` |
-| `MarkView/Views/ContentView.swift` | Window root: three-pane `HSplitView`, toolbar, welcome screen, drop target, open-request draining, last-folder restore, `AssistantToolbarMenu`, `AIToolsMenu` |
+| `MarkView/Views/ContentView.swift` | Window root: three-pane `HSplitView`, toolbar, welcome screen, drop target, open-request draining, last-folder restore, `AIToolbarMenu`, `AIToolsMenuItems` |
 | `MarkView/Models/WorkspaceManager.swift` (3766 lines) | `WorkspaceFileTreeStore`, `WorkspaceTabsStore`, `WorkspaceAITool`, `WorkspaceManager` (workspace state, tab operations, bridge-action dispatch, translation, Insight export, terminals, GitHub glue, AI prompts) |
 | `MarkView/Models/FileNode.swift` | `FileNode` tree node, `FileTreeSortField` / `FileTreeSortOrder` |
 | `MarkView/Models/DocumentState.swift` | `FileType` (extension to viewer/language map), `HeadingItem`, `TabKind`, `GitHubItem`, `OpenTab` |
@@ -95,11 +95,11 @@ Menu commands (`:215-297`):
 - Owns `@StateObject WorkspaceManager` (one per window) (`:27`). It publishes the manager to menus through `.focusedSceneValue` (`:152-153`).
 - Layout: `LeftPanelView` (defined in `FeatureNavigatorView.swift`, switching between Files and Issues) | `TabBarView` + `EditorView` with overlays for terminal, image and GitHub tabs, then `DiagnosticsBarView`, or `welcomeView` | `TOCView` (`:35-87`).
 - `EditorView` stays mounted under terminal, image and GitHub overlays (`:54-69`).
-- Toolbar: panel toggles, X-Ray, intake menu (`IntakeKind`), `AssistantToolbarMenu`, `AIToolsMenu`, theme toggle (`:88-140`).
+- Toolbar: panel toggles, project pill (the name only), intake menu (`IntakeKind`), the Project tools menu (Build & Deployment, Workflow, End-to-End QA, Cycle Time), `AIToolbarMenu` (assistant, model, X-Ray model, AI tools), theme toggle (`:88-140`).
 - `drainPendingOpens(trigger:)` takes the whole `MarkViewApp.pendingOpenURLs` queue only when the host window is key, or is the frontmost visible window while none is key (`:219-236`).
 - `restoreLastFolder()` runs once per launch. It waits 0.6 s and skips if anything was opened meanwhile (`:201-214`).
-- `AssistantToolbarMenu` (`:387-457`): `@AppStorage` for the backend, per-tool model and per-tool X-Ray model. It loads model options off the main thread with `Task.detached` and fetches ACP models on first use.
-- `AIToolsMenu` (`:460-489`): diagram tools open the Graph Creator. Analysis tools go to `runAITool` or `startRecursiveInsight`.
+- `AIToolbarMenu` (the one AI menu of the toolbar: assistant, model, X-Ray model and the AI tools as submenus): `@AppStorage` for the backend, per-tool model and per-tool X-Ray model. It loads model options off the main thread with `Task.detached` and fetches ACP models on first use.
+- `AIToolsMenuItems` (the Diagrams, Prototype and Analysis submenus of the AI menu): diagram tools open the Graph Creator. Analysis tools go to `runAITool` or `startRecursiveInsight`.
 
 ### 3.3 Workspace model (`MarkView/Models/WorkspaceManager.swift`)
 
@@ -376,14 +376,14 @@ window opens and writes each change back only to seed the next window and relaun
 | `<repo>/.gitignore` | appended anchored entries | `FileTreeView.swift:529-550` |
 | user files | UTF-8 text, atomic write | `saveFile` `:2748`; new file `# <name>` template `FileTreeView.swift:570-572` |
 
-Caches in memory: `OpenTab.content`, `headings` and `blocks` per tab; `openFileDates` (`:344`); `folderXRays`; `terminalTabs`; `AssistantToolbarMenu.options`.
+Caches in memory: `OpenTab.content`, `headings` and `blocks` per tab; `openFileDates` (`:344`); `folderXRays`; `terminalTabs`; `AIToolbarMenu.catalog`.
 
 ## 7. Concurrency and threading
 
 - `WorkspaceManager`, both stores, `WindowTheme` and `ImageCanvasController` are `@MainActor`. `FileNode` is not isolated. It is built and mutated (`restoreExpansionState`) inside `Task.detached`, then published to the main actor (`WorkspaceManager.swift:179-189`). That works only because the new tree is not shared until it is published. `FileNode` is not `Sendable`.
 - Work moved **off main**: `buildTree` (`:468,180`), `looksLikeCodeProject` (`:486`), the wikilink search (`:1306`), the `navOpen` suffix search (`:971`), image file read (`ImageViewerView.swift:99`), model option load (`ContentView.swift:444`), the structural index (a separate **process**).
 - **Synchronous work on main** (possible beachball on large trees or slow disks):
-  - `hasMarkdownFiles` is a full recursive enumeration when the folder has no `.md`. It is evaluated during `AIToolsMenu` rendering (`WorkspaceManager.swift:605-628`, `ContentView.swift:481`).
+  - `hasMarkdownFiles` is a full recursive enumeration when the folder has no `.md`. It is evaluated during `AIToolsMenuItems` rendering (`WorkspaceManager.swift:605-628`, `ContentView.swift:481`).
   - `scanMarkdownFiles` in `startRecursiveInsight` (`:2131`).
   - The `excludeFolder` enumeration plus per-file SQLite calls (`:639-649`).
   - The `resolveWorkspaceFileURL` fallback enumeration (`:3754-3762`) and `WorkspaceSearchView.findFile` (`TOCView.swift:184-185`).
@@ -431,7 +431,7 @@ Caches in memory: `OpenTab.content`, `headings` and `blocks` per tab; `openFileD
 - **Add a bridge action handled by the workspace**: add a `case` in `handleArchitectureAction` or `handleCodeAction` and validate every payload field there. Then update the JS sender and `EditorView`'s message routing together (CLAUDE.md rule). Keep paths inside root with the `hasPrefix(root + "/")` pattern.
 - **Add a persisted layout or setting key**: per-window state (which tab or section a panel shows) goes into `PanelLayout` or follows the `didSet` + `init` restore pattern (`WorkspaceManager.swift:319-324,409-415`). Use `@AppStorage` only for app-wide preferences that every window should share (BUG-004). Add the key to the table in section 6. A rename of an existing key is a **major** bump (CLAUDE.md "Versioning").
 - **Add something under `.dde/`**: create it lazily in the owning store. If it is user-visible metadata, make sure `metadataItems()` still covers it; anything under `.dde` is covered. A layout change is a major bump.
-- **Add an AI Tools entry**: add a `WorkspaceAITool` case and prompt text in `aiPrompt(for:)` (`:3519-3726`), plus a button in `AIToolsMenu` (`ContentView.swift:460-489`).
+- **Add an AI Tools entry**: add a `WorkspaceAITool` case and prompt text in `aiPrompt(for:)` (`:3519-3726`), plus a button in `AIToolsMenuItems` (`ContentView.swift:460-489`).
 - **Add a file type**: update `FileType.supportedExtensions` / `codeExtensions` (`DocumentState.swift:18-23,77-123`), `Info.plist` `CFBundleDocumentTypes`, and, if needed, `FileTreeView.fileIcon`. `FileNode.loadChildren` and `FileTreeView` both filter with `FileType.isOpenable`.
 
 ## 10. Risks, tech debt and oddities
