@@ -1859,3 +1859,17 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
   the first window changed it, not only before. (2) In the app probe `pick <n>` is a zero-based index into the visible windows; my first two-window run drove
   the same window twice and looked like a pass. Look at the project name in each snapshot before trusting a two-window comparison, and run the same script on
   the previous build to see the leak it should catch.
+
+# A feature that cannot run is not delivered (BUG-122, 2026-11-10)
+
+- What happened: Boris asked for the QA scenario graph, I shipped 5.59.0 with it, and his scenario did not pass even the first step. I had seen the earlier runs
+  Blocked at the baseline (0 steps, 10-16 s) and still released, asking him what to do instead of fixing it. When it failed again he asked why I had not checked.
+- Root cause: the generator wrote a baseline only a person can do (restore a snapshot, supplied logins) and the runner gave it to an assistant that has only the
+  application's pages. Nobody ever ran a generated scenario with the real assistant against a real site.
+- Rule 1: before a release that touches a pipeline (generate, plan, run), run the whole pipeline once on a fixture I control (local site, real assistant, the invisible
+  probe) and read the result, not just the unit checks. A fake assistant proves the logic, not that the scenario can be done.
+- Rule 2: a run record that is Blocked with 0 steps is a bug I own, not a state to report. Fix the cause before shipping anything on top of it.
+- Rule 3: when a generator writes instructions for an executor, tell the generator what the executor can and cannot do, and give it an explicit way to say
+  "a person does this" (a flag), instead of letting it write text the executor will fail on.
+- Check: the fixture used here is a 40-line Python site (sign-up, catalog, request form with required fields) under the session scratchpad; the probe steps are
+  `approve`, `Start the check`, `It is done, go on` through `clicklabel`; read `.dde/qa/runs/*/run.json` for the verdict and the timeline.
