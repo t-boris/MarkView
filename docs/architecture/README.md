@@ -31,6 +31,7 @@ Feature specs and bug reports produced *by* the app live in [`docs/features`](..
 | [Editor & bridge](./modules/editor-and-bridge.md) | WKWebView editor, `markview-*.js`, **bridge message catalog**, PDF export, vendored JS, `EditorWeb` status |
 | [AI assistants & dictation](./modules/ai-assistants-and-dictation.md) | Claude/Codex/Cline/Copilot integration, prompts, Explain, code navigation, embeddings, Whisper |
 | [Feature workflow](./modules/feature-workflow.md) | Feature/bug intake, AI rounds, on-disk spec schema (REQ/DEC/Q/F/SRC, BUG) |
+| [End-to-End QA](./modules/end-to-end-qa.md) | Scenarios, web runner and players, video with subtitles, UX review, bug filing |
 | [Architecture & X-Ray](./modules/architecture-and-xray.md) | Repo scanner, component graph, AI grouping, Cytoscape map, PR X-Ray |
 | [Semantic index & Insight](./modules/semantic-index-and-insight.md) | SQLite schema, structural indexer, GraphRAG prompt assembly, Recursive Insight |
 | [Git, GitHub, terminal, lifecycle, usage](./modules/git-github-terminal-lifecycle-usage.md) | VCS panel, `gh` integration, PTY terminal and links, lifecycle analytics, quota tracker |

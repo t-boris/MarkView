@@ -5250,7 +5250,7 @@ Review: `docs/plans/2026-11-09-cycle-time-review.md`. Feature record: `docs/feat
 - Found while looking at the real render: the sheet needs its own `palette.bg` (without it the light text vanishes on the system's light sheet background), the actor must be printed as a person would say it, and a counts line that does not add up to the total looks wrong.
 - Not hand-checked in the running installed app: the Measure since date popover, the Delete evidence confirmation, the link line in the feature and bug panels.
 
-## Feature end-to-end-qa: End-to-End QA (2026-11-09) — IN PROGRESS on `feat/end-to-end-qa` (worktree `MarkView-qa`)
+## Feature end-to-end-qa: End-to-End QA (2026-11-09) — WEB RELEASED in 5.55.0 (PR #347); native macOS (S8) follows
 
 Spec: `docs/features/end-to-end-qa/` (REQ-001..007, DEC-001..020, Q-001..009, plan I-1..I-6, GitHub #345). Session `agent-37e6d4e1` is attached. Boris started the development on 2026-11-09 and answered A and B below; one PR and one release for the whole feature. Later in the same session he added: one product has several applications (for example 3) and several players (for example 5), and each application is reviewed against its own requirements (REQ-006, REQ-007, DEC-018, DEC-019).
 
@@ -5295,13 +5295,13 @@ Spec: `docs/features/end-to-end-qa/` (REQ-001..007, DEC-001..020, Q-001..009, pl
 - [x] S0 Worktree `MarkView-qa` on `feat/end-to-end-qa` from up-to-date `origin/main`; feature `in-progress`; DEC-012.. recorded for the approved design choices
 - [x] S1 Models, rules, store, standalone checks (I-1, I-2 core): graph validation, path selection, outcome rules (uncovered, blocked vs failed vs interrupted, baseline failure and launch failure never completed), store round trip; fixture app `Tests/Fixtures/qa-demo` (two users, shared server state, a switchable bug). The production gate moved to S3 and the policy to S4, where their screens are
 - [x] S2 Generation and editor tab (I-1): goal in, graph out, edit, select branches, persists, reopens; several applications and players with review profiles. Verified: 225 standalone checks, 36 mutations all caught, a real `claude` generation (25 steps, 8 branches), the real app in an invisible window (list, graph, step selection, narrow and wide layout, sheet). Not verified: a generation from the sheet inside the app (the probe cannot type), drag-to-connect with a real mouse
-- [ ] S3 Targets, actors, credentials, approval, the production gate, branch conditions (I-2)
+- [x] S3 Targets, actors, credentials, approval, the production gate, branch conditions (I-2)
 - [x] S4 dropped: no masking and no page policy (DEC-023, Boris 2026-11-09)
-- [ ] S5 Web runner: isolated actors, run view, outcomes (I-3 web); every action carries the AI's one-line reason (what, where, why) for the subtitles and the feed; counts every interaction (clicks, fields, scrolls, page loads, screen changes, time) per step and branch, and keeps one screen state per step (REQ-008); the run view has the live feed under the actors
-- [ ] S6 Web recording (I-5); recording on by default and switchable off per run; frames at step boundaries so a feed entry can show its moment; a subtitle band below the picture (REQ-009, DEC-022)
-- [ ] S7 Analysis and bug creation (I-6): per-application review of key pages, plus the step-by-step UX review (REQ-008, DEC-021): in-page measurements, screenshot to the AI, findings with a proposed improvement into the live feed, per-branch effort summary, bugs for defects
-- [ ] S8 Native macOS: launch, AX driver, `SCStream` recording, native analysis (I-3, I-5, I-6 native)
-- [ ] S9 Verify, docs (README, `docs/architecture/modules/`, `CLAUDE.md` map), `./bump-version.sh minor`, PR, merge, `./release.sh --publish`, remove the worktree
+- [x] S5 Web runner: isolated actors, run view, outcomes (I-3 web); every action carries the AI's one-line reason (what, where, why) for the subtitles and the feed; counts every interaction (clicks, fields, scrolls, page loads, screen changes, time) per step and branch, and keeps one screen state per step (REQ-008); the run view has the live feed under the actors
+- [x] S6 Web recording (I-5); recording on by default and switchable off per run; frames at step boundaries so a feed entry can show its moment; a subtitle band below the picture (REQ-009, DEC-022)
+- [x] S7 Analysis and bug creation (I-6): per-application review of key pages, plus the step-by-step UX review (REQ-008, DEC-021): in-page measurements, screenshot to the AI, findings with a proposed improvement into the live feed, per-branch effort summary, bugs for defects
+- [ ] S8 (deferred to the next release; Boris wanted the web path as soon as possible, 2026-11-10) Native macOS: launch, AX driver, `SCStream` recording, native analysis (I-3, I-5, I-6 native)
+- [x] S9 (web part) Verify, docs (README, `docs/architecture/modules/`, `CLAUDE.md` map), `./bump-version.sh minor`, PR, merge, `./release.sh --publish`, remove the worktree
 
 ### Verification plan
 
@@ -5316,3 +5316,10 @@ Spec: `docs/features/end-to-end-qa/` (REQ-001..007, DEC-001..020, Q-001..009, pl
 - AI observe-act loop is slow and costs tokens (one CLI call per step); the step cache is the mitigation.
 - Accessibility is thin for SwiftUI and custom-drawn apps; background clicks are ignored by SwiftUI, so native actors act in turns with the target frontmost.
 - `.markview/` and `.dde/` are ignored in this repo, so scenarios are not shared through git here and a bug's video path works only on the Mac that ran it.
+
+### Review (2026-11-10, web part, 5.55.0)
+
+- Shipped in PR #347: runner, web players, credentials placeholders, video with subtitles (one file per branch), per-screen UX review with measured effort, idempotent bug filing; the Run panel refuses native macOS scenarios with a message.
+- Verified: five standalone suites (qa-tests, qa-video, qa-review, qa-evidence-web, qa-bugs) pass; Debug build with the CLAUDE.md command; a real run in an invisible probe window against `Tests/Fixtures/qa-demo` with the real Claude CLI (sign-in and a request filled in, Russian narration, effort counts, video, findings, a failing check filed as a bug with pictures and its own video path).
+- Found in the live runs and fixed: Run panel said a saved login was missing; the probe could not sign the AI CLI in (links in `PROBE_AI`); a Keychain read on the main thread blocked the app behind a system prompt (now a detached task; lesson recorded); the review treated a mid-step screen as the finished step and reported a missing result as a defect (screens are now marked "in progress" / "ended the step"); the review repeated itself (already-reported titles are in the prompt); a finding's time was the end of the review, not the screen (now the screen's time); a login the player has no value for typed the placeholder itself (now refused).
+- Not done: native macOS players (S8); not hand-checked in the installed app; the mutation run on the final runner code was started after the merge (see the follow-up note below if it left survivors).

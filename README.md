@@ -188,6 +188,8 @@ flowchart LR
 | Machine state: document search index, X-Ray caches, deployments, definition of done | `.dde/` in the project (regenerable) |
 | Shared operations (deploy, install…) | `.markview/operations.json` |
 | Cycle time | computed from `.dde/lifecycle/transitions.jsonl`; corrections (Measure since, exclusions) in `.dde/lifecycle/cycle-time.json`; delivery evidence in `~/Library/Application Support/MarkView/lifecycle-events.jsonl` (one file per Mac) |
+| QA scenarios | `.markview/qa/scenarios/<id>.json` (a project asset; holds a login name and host, never a password) |
+| QA runs | `.dde/qa/runs/<run-id>/`: `run.json`, `frames/`, one `branch-N.mp4` per branch |
 | Browser passwords | your login Keychain |
 
 ---
@@ -338,6 +340,17 @@ plain Markdown.
   and follow a feature once its implementation has started (they need the GitHub integration).
 - **Sync** closes a GitHub issue once every feature and bug linked to it is done. It follows explicit
   links only, never reopens an issue and never edits your documents.
+- **End-to-End QA** (the checklist button in the window's top bar, ⌘8, or *Operations → End-to-End QA…*) turns a goal into a branching scenario that you edit visually
+  (steps are buttons, drag from one step to another to connect them) and keeps as a project asset. You choose the
+  branches to check, the environment (local, dev, production) and a saved browser login for each player, and approve the
+  plan; production also needs you to acknowledge the steps that change data. Each chosen branch then runs as a separate
+  check in MarkView's own browser, each player in a browser of their own, driven by your Claude Code or Codex. You watch the
+  players side by side with a live feed of what is done and why. A video with subtitles saying what, where and why is
+  recorded (on by default, switchable off). Every new screen is reviewed like a person using the application would
+  (layout, fonts, missing or superfluous controls, extra steps) with the measured clicks, fields, scrolls and time, and
+  each branch ends with what it cost a person. A check that failed, was blocked or was interrupted, and every defect the
+  review finds, becomes a bug. Native macOS applications are not run yet. Details:
+  [end-to-end-qa](docs/architecture/modules/end-to-end-qa.md).
 
 **Bugs** get the same care: *New Bug* writes a structured report (and optionally a GitHub
 issue), *Investigate* asks up to three focused questions, and the **bug basket** fixes two or more bugs
