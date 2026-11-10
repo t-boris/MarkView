@@ -5469,7 +5469,7 @@ application type. Delivery as before: straight to `main`, no branches, one versi
 - [x] 3. Run cleanup (REQ-016): `QARunRetention` (pure rule), `QARunCleanup`, `QAStore.deleteRun(s)`, automatic prune at run start, "Delete run" and "Delete all runs of this scenario".
 - [x] 4. Integration: native address from the bundle identifier, "window" prompts for native, factory by the scenario's kind, the Run panel shows the Accessibility / Screen Recording status.
 - [x] 5. Checks: all QA suites pass (`qa-tests`, `qa-native-tests` with its live part and two players, `qa-retention-tests`, `qa-review-tests`, `qa-bugs-tests`, `qa-video-tests`); Debug build; live runs in the invisible probe with the real assistant (below).
-- [ ] 6. Docs (module doc, README, lessons), `./bump-version.sh minor`, commit to main, release once, feature to `in-review`.
+- [x] 6. Docs (module doc, README, lessons), `./bump-version.sh minor` (5.62.0), commit c16f0e6 to main, one release v5.62.0 (signed, notarized, stapled DMG, Latest), feature to `in-review`.
 
 ## Review: End-to-End QA finished (5.62.0)
 Live, in the invisible probe with the real Claude CLI:
