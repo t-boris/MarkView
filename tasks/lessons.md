@@ -1,5 +1,14 @@
 # Lessons
 
+## The invisible probe cannot drive non-button gestures; say so instead of reporting a feature as checked (2026-11-10)
+
+- `tools/tests/app-probe` keeps the app inactive on purpose. Synthetic mouse events then reach SwiftUI Buttons (click, and a drag that starts on one) but not other gestures
+  (a `DragGesture` on empty space got nothing). A standalone lab (`NSHostingView` in an alpha-0 window, same view structure, events sent with `window.sendEvent`) showed the
+  gesture works once the app is activated. I lost an hour moving gesture code around before building the lab.
+- Rules: before changing gesture code because "the probe saw nothing", rebuild the view in a lab with the app activated; never activate the real app or the probe (it takes
+  Boris's keyboard focus); and in the review list a gesture, wheel or pinch as "not driven in the real app" when only the lab saw it.
+- The probe now has `cmdkey`, `drag`, `clicklabel <label>` (layout independent: the pane widths change from run to run, so fixed click coordinates are flaky) and `hit x y`.
+
 ## A progress line must handle every kind of event the assistant can emit, and an unknown one must still move the clock (QA New scenario, 2026-11-10)
 
 - Boris: after "Write scenario" the sheet showed only "Starting the assistant" for minutes, "either a bug or a serious problem with progress". The Codex process was alive
