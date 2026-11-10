@@ -153,6 +153,10 @@ struct QACondition: Codable, Equatable {
     var establish: String
     var verify: String
     var fault: QAFault? = nil
+    /// A person brings this about before the check (restoring a snapshot, seeding a database, anything the application's own pages cannot do);
+    /// MarkView asks them to confirm it and does not try itself. Absent in older files.
+    var manual: Bool? = nil
+    var isManual: Bool { manual == true && kind != .networkFault && kind != .delay }
 
     /// A fault injected into the actor's own page leaves nothing in the target; any other condition may.
     var changesData: QADataChange { kind == .networkFault || kind == .delay ? .no : .unknown }
@@ -417,7 +421,8 @@ struct QAScenario: Codable, Equatable, Identifiable {
         var found: [QAProblem] = []
         func add(_ message: String) { found.append(QAProblem(kind: .incompleteCondition, subject: node, message: message)) }
         if condition.establish.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { add("The condition of \(node) does not say how it is established.") }
-        if condition.verify.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { add("The condition of \(node) does not say how it is verified.") }
+        // What a person does themselves is confirmed by their word, so it needs no way to verify it.
+        if !condition.isManual && condition.verify.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { add("The condition of \(node) does not say how it is verified.") }
         if condition.kind == .networkFault || condition.kind == .delay {
             guard let fault = condition.fault, !fault.urlPattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 add("The network condition of \(node) names no request to disturb.")

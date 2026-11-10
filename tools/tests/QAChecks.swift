@@ -371,7 +371,7 @@ do {
     let schema = QAGeneration.schema
     let props = schema["properties"] as? [String: Any] ?? [:]
     let nodeProps = ((props["nodes"] as? [String: Any])?["items"] as? [String: Any])?["properties"] as? [String: Any] ?? [:]
-    check("generation: the schema is valid JSON with its parts", JSONSerialization.isValidJSONObject(schema) && Set(props.keys) == ["title", "baselineEstablish", "baselineVerify", "actors", "start", "nodes", "edges"])
+    check("generation: the schema is valid JSON with its parts", JSONSerialization.isValidJSONObject(schema) && Set(props.keys) == ["title", "baselineEstablish", "baselineVerify", "baselineManual", "actors", "start", "nodes", "edges"])
     check("generation: the schema offers the node kinds the model knows", ((nodeProps["kind"] as? [String: Any])?["enum"] as? [String]) == QANodeKind.allCases.map(\.rawValue))
     check("generation: ... and the condition kinds, or none", ((nodeProps["conditionKind"] as? [String: Any])?["enum"] as? [String]) == [""] + QAConditionKind.allCases.map(\.rawValue))
     check("generation: the schema has a property for each field the reader uses", Set(nodeProps.keys).isSuperset(of: ["id", "kind", "title", "detail", "actor", "changesData", "conditionKind", "conditionEstablish", "conditionVerify", "faultUrlPattern", "faultMode", "faultStatus", "faultMilliseconds"]))
@@ -617,6 +617,10 @@ do {
     half["baselineEstablish"] = "POST /api/reset"
     check("generation: a baseline with no way to verify it is a problem to give back", QAGeneration.parse(half, request: request).problems.contains { $0.kind == .incompleteCondition && $0.subject == "baseline" })
     check("generation: the AI is told about the baseline", QAGeneration.systemPrompt(.web).contains("baselineEstablish"))
+    var manualAnswer = answer(title: "T"); manualAnswer["baselineEstablish"] = "Restore the snapshot"; manualAnswer["baselineManual"] = true
+    let manualParsed = QAGeneration.parse(manualAnswer, request: request)
+    check("manual: the generator may say a baseline is the person's own, and then needs no way to verify it", manualParsed.scenario.baseline?.manual == true && manualParsed.problems.allSatisfy { $0.kind != .incompleteCondition })
+    check("manual: and the generator is told what the pages can and cannot do", QAGeneration.systemPrompt(.web).contains("cannot restore a snapshot") && QAGeneration.systemPrompt(.web).contains("createTestAccount true starts with no account"))
 }
 
 // MARK: - The layout never lets steps overlap, whatever the graph
@@ -1173,7 +1177,28 @@ do {
     check("run: a baseline that cannot even open the application is a launch failure, not an unestablished baseline",
           unopened.result?.verdict.outcome == .blocked && unopened.result?.verdict.blockReason == .launchFailed && !unopened.assistant.asked("Add a product to the cart"))
     let lost = run(scenario: withBaseline, script: ["Restore the baseline": [stuck("The server is down", "other")]])
-    check("run: a baseline that cannot be restored blocks the check", lost.result?.verdict.blockReason == .baselineNotEstablished && lost.result?.verdict.reason == "The server is down")
+    check("run: a baseline that cannot be restored blocks the check", lost.result?.verdict.blockReason == .baselineNotEstablished && lost.result?.verdict.reason.hasPrefix("The server is down") == true && lost.result?.verdict.reason.contains("I restore it myself") == true)
+    // A baseline only a person can bring about (a snapshot restore): the run asks them and does not hand it to the page assistant.
+    let manualBaseline = changed(local) { $0.baseline = QACondition(kind: .state, establish: "Restore the approved snapshot of the test environment", verify: "", manual: true) }
+    let manualPlan = QAPlanner.make({ var s = manualBaseline; s.clearSelection(); s.setSelected(mainLine, true); return s }(), targetID: "local", savedLogins: [localBuyer])
+    check("manual: the plan lists the baseline as the person's own step and asks for their word on every target, local too",
+          manualPlan.preparation.first { $0.id == "baseline:\(mainLine)" }?.manual == true && manualPlan.confirmations.first { $0.id == "baseline:\(mainLine)" }?.manual == true && manualPlan.target?.kind == .local)
+    check("manual: a baseline the pages can restore needs no word on a local environment", QAPlanner.make({ var s = withBaseline; s.clearSelection(); s.setSelected(mainLine, true); return s }(), targetID: "local", savedLogins: [localBuyer]).confirmations.isEmpty)
+    check("manual: a manual baseline needs no way to verify it, a page baseline still does", manualBaseline.problems().allSatisfy { $0.kind != .incompleteCondition } && !changed(manualBaseline) { $0.baseline?.manual = nil }.problems().filter { $0.kind == .incompleteCondition }.isEmpty)
+    check("manual: the flag is part of what an approval covers", QAPlanner.fingerprint(manualBaseline, target: nil, branches: []) != QAPlanner.fingerprint(changed(manualBaseline) { $0.baseline?.manual = nil }, target: nil, branches: []))
+    check("manual: a file written before the flag existed still loads", (try? QAStore.decoder.decode(QAScenario.self, from: QAStore.encoder.encode(withBaseline)))?.baseline?.manual == nil
+          && (try? JSONDecoder().decode(QACondition.self, from: Data(#"{"kind":"state","establish":"a","verify":"b"}"#.utf8)))?.isManual == false)
+    let manualRun = run(scenario: manualBaseline, script: okScript)
+    check("manual: the person is asked first and the run goes on when they say it is done", manualRun.asked == ["baseline:\(mainLine)"] && manualRun.result?.verdict.outcome == .passed)
+    check("manual: the page assistant is never asked to restore it", !manualRun.assistant.asked("Restore the baseline") && !manualRun.assistant.asked("Confirm: restore the baseline") && !manualRun.assistant.prompts.contains { $0.contains("Restore the approved snapshot") })
+    check("manual: the timeline says the person did it", manualRun.record.timeline.contains { $0.kind == .preparation && $0.text.hasPrefix("Baseline restored by the person") })
+    let manualDeclined = run(scenario: manualBaseline, script: okScript, confirm: false)
+    check("manual: when they say no, the check is blocked before any step", manualDeclined.result?.verdict.outcome == .blocked && manualDeclined.result?.nodesMet.isEmpty == true && !manualDeclined.assistant.asked("Add a product to the cart"))
+    let manualCondition = changed(local) { s in
+        s.nodes[s.nodes.firstIndex { $0.id == "f1" }!].condition = QACondition(kind: .state, establish: "Switch the payment gateway to its failing mode", verify: "", manual: true)
+    }
+    let manualConditionRun = run(scenario: manualCondition, branches: [slow], script: [:])
+    check("manual: a condition only a person can set is asked, not tried by the page assistant", manualConditionRun.asked.contains("condition:\(slow):f1") && !manualConditionRun.assistant.prompts.contains { $0.contains("failing mode") })
     let refusedLogin = run(script: ["Sign in as Buyer": [stuck("The password was refused", "loginFailed")]])
     check("run: a refused sign-in blocks the check before any step", refusedLogin.result?.verdict.blockReason == .loginFailed && refusedLogin.result?.verdict.outcome == .blocked && !refusedLogin.assistant.asked("Add a product to the cart"))
     let noAccount = run(script: ["Create a new test account for Seller and sign in": [stuck("Sign-up is closed", "other")]])

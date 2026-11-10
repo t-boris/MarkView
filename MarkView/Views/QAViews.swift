@@ -636,7 +636,11 @@ struct QAInspector: View {
                     Text("Network fault").tag(QAConditionKind.networkFault)
                     Text("Delay").tag(QAConditionKind.delay)
                 }
-                Text("How to set it up").uiFont(size: 10.5).foregroundColor(palette.textDim)
+                if condition.kind == .state || condition.kind == .data {
+                    Toggle("I set it up myself", isOn: Binding(get: { condition.manual == true }, set: { on in changeCondition(node.id) { $0.manual = on ? true : nil } }))
+                        .help("For what the application's pages cannot do: the run asks you to do it before the check and does not try itself")
+                }
+                Text(condition.manual == true ? "What you do" : "How to set it up").uiFont(size: 10.5).foregroundColor(palette.textDim)
                 TextField("Establish", text: Binding(get: { condition.establish }, set: { value in changeCondition(node.id) { $0.establish = value } }), axis: .vertical)
                     .textFieldStyle(.roundedBorder).lineLimit(1...3)
                 Text("How to confirm it holds").uiFont(size: 10.5).foregroundColor(palette.textDim)
@@ -926,7 +930,9 @@ struct QAInspector: View {
                 model.edit { s in s.baseline = on ? QACondition(kind: .state, establish: "", verify: "") : nil; s.updated = Date() }
             }))
             if let baseline = scenario.baseline {
-                TextField("How to restore it", text: Binding(get: { baseline.establish }, set: { value in model.edit { s in s.baseline?.establish = value; s.updated = Date() } }), axis: .vertical)
+                Toggle("I restore it myself", isOn: Binding(get: { baseline.manual == true }, set: { on in model.edit { s in s.baseline?.manual = on ? true : nil; s.updated = Date() } }))
+                    .help("For what the application's pages cannot do (restoring a snapshot, seeding a database): the run asks you to do it before each check and does not try itself")
+                TextField(baseline.manual == true ? "What you do to restore it" : "How to restore it", text: Binding(get: { baseline.establish }, set: { value in model.edit { s in s.baseline?.establish = value; s.updated = Date() } }), axis: .vertical)
                     .textFieldStyle(.roundedBorder).lineLimit(1...3)
                 TextField("How to confirm it", text: Binding(get: { baseline.verify }, set: { value in model.edit { s in s.baseline?.verify = value; s.updated = Date() } }), axis: .vertical)
                     .textFieldStyle(.roundedBorder).lineLimit(1...3)
@@ -1060,7 +1066,8 @@ struct QARunPanel: View {
                         if step.automated { Text("MarkView brings this about itself").uiFont(size: 10).foregroundColor(palette.textDim) }
                     }
                     Spacer(minLength: 0)
-                    if step.changesData != .no { Text(step.changesData == .yes ? "changes data" : "may change data").uiFont(size: 9.5).foregroundColor(palette.orange) }
+                    if step.manual { Text("you do this").uiFont(size: 9.5).foregroundColor(palette.blue) }
+                    else if step.changesData != .no { Text(step.changesData == .yes ? "changes data" : "may change data").uiFont(size: 9.5).foregroundColor(palette.orange) }
                 }
             }
         }

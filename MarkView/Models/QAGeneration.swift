@@ -60,6 +60,7 @@ enum QAGeneration {
             "conditionKind": choice([""] + QAConditionKind.allCases.map(\.rawValue)),
             "conditionEstablish": string(),
             "conditionVerify": string(),
+            "conditionManual": ["type": "boolean"],
             "faultUrlPattern": string(),
             "faultMode": choice(["", "fail", "delay", "status"]),
             "faultStatus": integer(),
@@ -69,6 +70,7 @@ enum QAGeneration {
             "title": string(),
             "baselineEstablish": string(),
             "baselineVerify": string(),
+            "baselineManual": ["type": "boolean"],
             "actors": ["type": "array", "items": object(["id": string(), "name": string(), "app": string(), "createTestAccount": ["type": "boolean"]])],
             "start": string(),
             "nodes": ["type": "array", "items": node],
@@ -112,12 +114,20 @@ enum QAGeneration {
         Cover the flows between the applications: what one player does in one application and what another player sees in another.
         - changesData: yes when the step creates, changes or deletes data in the application (submitting a form, paying, approving), no when it only \
         reads or navigates, unknown when you cannot tell.
-        - condition (conditionKind, conditionEstablish, conditionVerify): only for an alternative or a failure that needs the application to be \
-        brought into a particular situation. conditionEstablish says how, conditionVerify says how to confirm it holds before the branch runs. \
-        Leave the condition fields empty (conditionKind "", other strings empty, numbers 0) where there is none.
-        - baselineEstablish / baselineVerify: the checks are run one after another and each starts from the same state. When the steps change \
-        data, say how the application is brought back to that state (for example a reset call, a seed script, deleting the records the steps \
-        created) in baselineEstablish, and how to confirm it in baselineVerify. Leave both empty when no reset is needed.
+        - condition (conditionKind, conditionEstablish, conditionVerify, conditionManual): only for an alternative or a failure that needs the \
+        application to be brought into a particular situation. conditionEstablish says how, conditionVerify says how to confirm it holds before \
+        the branch runs. Leave the condition fields empty (conditionKind "", other strings empty, numbers 0, conditionManual false) where there is none.
+        - What does the work: the assistant that runs the checks has only the application's own pages, like a person with a browser. It can click, \
+        fill forms, sign up, sign in and delete things the pages let it delete. It cannot restore a snapshot, run a script or an API call of its own, \
+        reach a database or an operator tool, or change the environment. So a condition or a baseline is written for the pages only when the pages \
+        can do it. When it needs anything else, set conditionManual / baselineManual to true and write the establish text as the instruction for \
+        the person, who is asked to do it and say when it is done before each check. Do not write a manual baseline or condition for something the \
+        scenario can avoid: prefer steps that work with whatever data exists, or that create their own data through the pages.
+        - baselineEstablish / baselineVerify / baselineManual: the checks are run one after another and each starts from the same state. When the \
+        steps change data and the pages can bring the application back (for example deleting the records the steps created), say how in \
+        baselineEstablish and how to confirm it in baselineVerify. Leave both empty, and baselineManual false, when no reset is needed or when \
+        a reset would need more than the pages. An actor with createTestAccount true starts with no account: the run creates it through the \
+        application's own sign-up, so never describe an existing account, a seeded environment or supplied logins for that actor.
         - Cover the realistic variations of the goal: wrong or missing input, rights, errors, slow answers, what the other actor sees. A typical \
         scenario has 8 to 25 steps. Do not pad it.
         - Base the scenario on the real application. If you can read its files, look at its screens, routes, roles and messages and use them; \
@@ -192,7 +202,7 @@ enum QAGeneration {
         scenario.title = text(root["title"])
         let baselineEstablish = text(root["baselineEstablish"]), baselineVerify = text(root["baselineVerify"])
         if !baselineEstablish.isEmpty || !baselineVerify.isEmpty {
-            scenario.baseline = QACondition(kind: .state, establish: baselineEstablish, verify: baselineVerify)
+            scenario.baseline = QACondition(kind: .state, establish: baselineEstablish, verify: baselineVerify, manual: root["baselineManual"] as? Bool == true ? true : nil)
         }
         let start = text(root["start"])
         scenario.start = start.isEmpty ? nil : start
@@ -225,7 +235,8 @@ enum QAGeneration {
             let conditionKind = text(item["conditionKind"])
             if !conditionKind.isEmpty {
                 if let kind = QAConditionKind(rawValue: conditionKind) {
-                    var condition = QACondition(kind: kind, establish: text(item["conditionEstablish"]), verify: text(item["conditionVerify"]))
+                    var condition = QACondition(kind: kind, establish: text(item["conditionEstablish"]), verify: text(item["conditionVerify"]),
+                                                manual: item["conditionManual"] as? Bool == true ? true : nil)
                     let pattern = text(item["faultUrlPattern"])
                     if !pattern.isEmpty {
                         let modeText = text(item["faultMode"])

@@ -65,11 +65,11 @@ struct QALiveRunView: View {
 
     private func confirmation(_ question: QAConfirmation) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label("This needs your yes", systemImage: "hand.raised.fill").uiFont(size: 11.5, weight: .semibold).foregroundColor(palette.orange)
+            Label(question.manual ? "This is for you to do" : "This needs your yes", systemImage: "hand.raised.fill").uiFont(size: 11.5, weight: .semibold).foregroundColor(palette.orange)
             Text(question.title).uiFont(size: 11.5, weight: .medium)
             if !question.reason.isEmpty { Text(question.reason).uiFont(size: 10.5).foregroundColor(palette.textDim) }
             HStack {
-                Button("Yes, do it") { run.reply(true) }.buttonStyle(.borderedProminent)
+                Button(question.manual ? "It is done, go on" : "Yes, do it") { run.reply(true) }.buttonStyle(.borderedProminent)
                 Button("No, skip this check") { run.reply(false) }
             }
         }

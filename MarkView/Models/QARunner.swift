@@ -187,13 +187,20 @@ final class QARunner {
                 machine.apply(.baselineFailed(.approvalMissing, refusal))
                 return result()
             }
-            let app = firstApp(of: branch)
-            note(branch, nil, nil, .preparation, "Restoring the baseline: \(baseline.establish)")
-            let outcome = await runSetup(branch, app: app, establish: baseline.establish, verify: baseline.verify, title: "Restore the baseline")
-            if case .interrupted = outcome { machine.apply(.interrupted(.stoppedByUser, "Stopped by the person.")); return result() }
-            if let failure = failure(of: outcome) {
-                machine.apply(.baselineFailed(failure.reason == .launchFailed ? .launchFailed : .baselineNotEstablished, failure.message))
-                return result()
+            if baseline.isManual {
+                // The person said it is done (`permit` above); the assistant only has the application's pages and cannot restore a snapshot.
+                note(branch, nil, nil, .preparation, "Baseline restored by the person: \(baseline.establish)")
+            } else {
+                let app = firstApp(of: branch)
+                note(branch, nil, nil, .preparation, "Restoring the baseline: \(baseline.establish)")
+                let outcome = await runSetup(branch, app: app, establish: baseline.establish, verify: baseline.verify, title: "Restore the baseline")
+                if case .interrupted = outcome { machine.apply(.interrupted(.stoppedByUser, "Stopped by the person.")); return result() }
+                if let failure = failure(of: outcome) {
+                    // The assistant has only the application's pages: when the baseline needs more, the person has to do it (or drop the baseline).
+                    let hint = failure.reason == .launchFailed ? "" : " If only a person can bring this about, switch on \"I restore it myself\" under Baseline in Setup; if it is not needed, switch the baseline off."
+                    machine.apply(.baselineFailed(failure.reason == .launchFailed ? .launchFailed : .baselineNotEstablished, failure.message + hint))
+                    return result()
+                }
             }
         }
         for actorID in scenario.actors(in: branch) {
@@ -245,6 +252,8 @@ final class QARunner {
                 }
                 armed.append(actorID)
                 note(branch, nodeID, actorID, .preparation, condition.establish)
+            } else if condition.isManual {
+                note(branch, nodeID, nil, .preparation, "Set up by the person: \(condition.establish)")
             } else {
                 let app = scenario.node(nodeID).flatMap { scenario.app(scenario.appID(of: $0) ?? "") } ?? firstApp(of: branch)
                 note(branch, nodeID, nil, .preparation, condition.establish)

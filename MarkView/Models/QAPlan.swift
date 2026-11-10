@@ -27,6 +27,8 @@ struct QAPreparationStep: Equatable, Identifiable {
     /// True when the run brings the condition about itself (a network fault or a delay is injected into the page); false when it is
     /// brought about by following the written instructions.
     var automated: Bool = false
+    /// True when a person brings it about before the check and confirms it; the run does not try (`QACondition.manual`).
+    var manual: Bool = false
 }
 
 /// Something that stops the plan from being approved, or only deserves a look.
@@ -48,11 +50,13 @@ struct QAPlanProblem: Equatable {
     var blocks: Bool
 }
 
-/// A step that changes data on production and so needs a yes of its own.
+/// A step that needs a yes of its own: it changes data on production, or a person has to do it first.
 struct QAConfirmation: Equatable, Identifiable {
     var id: String
     var title: String
     var reason: String
+    /// The person does this themselves and says when it is done; the run then goes on without doing it.
+    var manual: Bool = false
 }
 
 struct QAExecutionPlan: Equatable {
@@ -136,8 +140,9 @@ enum QAPlanner {
         let changesData = branches.contains { branch in branch.nodes.contains { id in scenario.node(id).map { $0.kind != .check && $0.changesData != .no } ?? false } }
         if let baseline = scenario.baseline {
             for branch in branches {
-                preparation.append(QAPreparationStep(id: "baseline:\(branch.id)", kind: .baseline, title: "Bring the application to its baseline",
-                                                     detail: baseline.establish, branch: branch.id, changesData: .yes))
+                preparation.append(QAPreparationStep(id: "baseline:\(branch.id)", kind: .baseline,
+                                                     title: baseline.isManual ? "You bring the application to its baseline" : "Bring the application to its baseline",
+                                                     detail: baseline.establish, branch: branch.id, changesData: .yes, manual: baseline.isManual))
             }
         } else if branches.count > 1 && changesData {
             problem(.noBaseline, scenario.id, "The checks change data and the scenario does not say how to restore the baseline between them: a check starts from what the one before left.", blocks: false)
@@ -146,14 +151,20 @@ enum QAPlanner {
             for (node, condition) in scenario.conditions(of: branch) {
                 let automated = condition.kind == .networkFault || condition.kind == .delay
                 preparation.append(QAPreparationStep(id: "condition:\(branch.id):\(node)", kind: .condition, title: scenario.node(node)?.title ?? node,
-                                                     detail: condition.establish, branch: branch.id, node: node, changesData: condition.changesData, automated: automated))
+                                                     detail: condition.establish, branch: branch.id, node: node, changesData: condition.changesData, automated: automated,
+                                                     manual: condition.isManual))
             }
         }
 
         // What needs a yes of its own on production.
         var confirmations: [QAConfirmation] = []
+        // What a person has to do first is confirmed on every target: the run cannot do it and must not pretend it did.
+        for step in preparation where step.manual {
+            confirmations.append(QAConfirmation(id: step.id, title: "\(step.title): \(step.detail)", reason: "MarkView cannot do this through the application's pages. Do it yourself, then say it is done.",
+                                                manual: true))
+        }
         if target?.kind == .production {
-            for step in preparation where step.changesData != .no {
+            for step in preparation where step.changesData != .no && !step.manual {
                 confirmations.append(QAConfirmation(id: step.id, title: step.title,
                                                     reason: step.changesData == .yes ? "It changes data on production." : "It may change data on production."))
             }
