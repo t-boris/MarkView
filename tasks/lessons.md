@@ -1802,3 +1802,23 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
 - A Monitor written as `until ! pgrep -f "qa-mutate.py"; do sleep 5; done` never ended, because the monitor's own shell has the pattern in its command line; `pkill -f "qa-mutate.py"` in a Bash call killed the very shell that ran it (exit 144).
 - Wait by PID instead (`while kill -0 <pid>`), or tail the output file for a final marker. To stop a process, kill the PID you started it with.
 - A long background script that reads a worktree must not outlive that worktree: removing `MarkView-qa` crashed the mutation run that still pointed at it. Remove worktrees only after the background work is done.
+
+## 2026-11-10 — UI state belongs to a window or a project, never to a shared `@AppStorage` (welcome background, BUG-120)
+
+- What happened: the welcome screen's background was one `@AppStorage("welcomeBackdrop")`, so choosing it in one window changed every window. Boris:
+  "apart from the splash screen, everything else must be window-specific or project-specific", and named the same symptom for tabs and colours. A
+  read-only audit then found the same class in about twenty places: live `@AppStorage` keys (`search.panelMode`, `contents.infoExpanded`, the PROMPTS bar,
+  UI Studio and Prototype Studio widths, `editorTextSizeMirror`), a `static var` filter (`ImportanceRater.temporaryFilter`), one `ProjectOperationsStore` per
+  folder whose `panelVisible` opens the console in every window of that folder, and `NotificationCenter` posts with no window attached
+  (`.scrollToHeading`, `.scrollToText`, `.exportPDFRequested`).
+- Why it slipped through: I copied the convenience of `@AppStorage` for a new view without asking who else observes the key. `@AppStorage` with the same key
+  in two windows is live: a write in one re-renders the other. The first per-window fix (`PanelLayout`, BUG-004) had solved this for tabs, and the rule was in its
+  doc comment, but a later view did not look there.
+- Rule 1: a value one window's user changes and another window could show (a tab, a panel, an expanded section, a width, a filter, a sort order, a
+  selection) lives in an object that the window owns (`PanelLayout` or the view's own store). UserDefaults gets the value only as the STARTING value of the next
+  window and for relaunch; no view observes that key. Save it with the window session so a relaunch gives each window its own.
+- Rule 2: what describes the project itself (excluded folders, AI filters, colours) is keyed by the project's full path, never by its folder name.
+- Rule 3: a `NotificationCenter` post that acts on one window carries that window (`object:` = the workspace) and every observer ignores the others.
+  A `static var` or a `.shared` singleton may hold data and caches, not what a window shows.
+- Check before adding a view: `grep -n "@AppStorage\|UserDefaults.standard" <file>`; for each hit ask "if two windows are open, should this follow the other one?".
+  The legitimate global ones are Settings: API keys, CLI paths, output language, feature toggles.
