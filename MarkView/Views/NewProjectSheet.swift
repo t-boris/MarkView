@@ -119,31 +119,21 @@ struct NewProjectSheet: View {
     // MARK: 1 Idea (REQ-001)
 
     private var ideaStep: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Describe what you want to build — a sentence is enough. MarkView asks what it needs to know, you confirm the brief, and only then is a project folder created. GitHub is optional.")
-                .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
-            IntakeTextEditor(text: $idea, focused: $editorFocused, attach: { urls in
-                attachments += urls.filter { !attachments.contains($0) }
-            }, failed: { flow.error = $0 })
-                .frame(minHeight: 220)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(palette.border, lineWidth: 1))
-            if !attachments.isEmpty {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 6) {
-                        ForEach(attachments, id: \.self) { url in
-                            HStack(spacing: 2) {
-                                IntakeAttachmentThumbnail(url: url)
-                                Text(url.lastPathComponent).uiFont(.caption).lineLimit(1)
-                                Button(action: { attachments.removeAll { $0 == url } }) { Image(systemName: "xmark.circle.fill") }
-                                    .buttonStyle(.plain).foregroundColor(palette.textDim)
-                            }
-                            .padding(.horizontal, 5).padding(.vertical, 2).background(palette.bgInput).cornerRadius(4)
-                        }
-                    }
-                }
+        DictationInput(text: $idea, isFocused: { editorFocused }) { voice in
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Describe what you want to build — a sentence is enough. MarkView asks what it needs to know, you confirm the brief, and only then is a project folder created. GitHub is optional.")
+                    .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+                IntakeTextEditor(text: $idea, focused: $editorFocused, attach: { urls in
+                    attachments += urls.filter { !attachments.contains($0) }
+                }, failed: { flow.error = $0 })
+                    .frame(minHeight: 220)
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(voice.isRecording ? palette.red : palette.border, lineWidth: voice.isRecording ? 2 : 1))
+                    .overlay(alignment: .bottomTrailing) { voice.mic().padding(6) }
+                voice.status
+                IntakeAttachmentBar(attachments: $attachments, projectRoot: nil)
+                Text("The draft is kept on this Mac until the project is created; you can continue it later from the welcome screen.")
+                    .uiFont(.caption2).foregroundColor(palette.textDim)
             }
-            Text("The draft is kept on this Mac until the project is created; you can continue it later from the welcome screen.")
-                .uiFont(.caption2).foregroundColor(palette.textDim)
         }
     }
 

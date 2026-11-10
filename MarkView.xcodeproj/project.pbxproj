@@ -177,6 +177,7 @@
 		5D816BB3AF275CF0801D77B5 /* DictationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF62FDEADD2FAE576E0E24D /* DictationViews.swift */; };
 		5DBCD266044E10383F40D0E9 /* FileTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A28452C289DFE5AEBFA6D3D /* FileTransfer.swift */; };
 		5DE70A75F9FD2FF271E22FBB /* IntakeTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA781698B8CEDAAB7EE8028A /* IntakeTextEditor.swift */; };
+		86425959048DDA0805B1D761 /* IntakeAttachmentBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E44DE55E922A6B416DFDFF4B /* IntakeAttachmentBar.swift */; };
 		5DFF37E3D46A41A390BC554B /* markview-insight-helpers.js in Resources */ = {isa = PBXBuildFile; fileRef = CDFBAEE90C4DF2A5A9B2CC83 /* markview-insight-helpers.js */; };
 		5E06E11F7C45A6F0ED032ABA /* data.bundle.js in Resources */ = {isa = PBXBuildFile; fileRef = 77905597C531DFE78D2D11EC /* data.bundle.js */; };
 		5E108A9945E568EC0607EF13 /* RemoteCodexContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C770376BAF8D7725F4E23661 /* RemoteCodexContext.swift */; };
@@ -411,6 +412,7 @@
 		DCB91AFB6ECAD91E5A2A5DBC /* BrowserDownloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F3720D5BC18F678F2F42FB /* BrowserDownloads.swift */; };
 		DD340657514D81847227AF12 /* DiscussionThreadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC22FD03EF5D15C8F08F0491 /* DiscussionThreadView.swift */; };
 		DD6A29657B7E4CC7281A193B /* QAScenarioEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90FCA2443C336463EAA203D9 /* QAScenarioEdit.swift */; };
+		9E3BA7904BFF34728009A95B /* QAAttachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18CCC36AE652BFC4CB778C46 /* QAAttachments.swift */; };
 		DE8C79F0949DBC49CE793975 /* CodeExplainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 747C5366B2EBA397F5F91CF7 /* CodeExplainer.swift */; };
 		DE90B95905D50E8BE2A58C9B /* KaTeX_SansSerif-Italic.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0BE4C0AC709F37DFC849F5F9 /* KaTeX_SansSerif-Italic.woff2 */; };
 		DEBC14EFC1E9833BB0FD111B /* DocumentFileSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08D9CF1EF8614080AAF298EE /* DocumentFileSchemeHandler.swift */; };
@@ -758,6 +760,7 @@
 		8EEBBA8DD1B02E66BC2AFAC6 /* SearchPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchPanelView.swift; sourceTree = "<group>"; };
 		901ED09E28D33F6F03D15605 /* PrototypeHandoffDraftView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeHandoffDraftView.swift; sourceTree = "<group>"; };
 		90FCA2443C336463EAA203D9 /* QAScenarioEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAScenarioEdit.swift; sourceTree = "<group>"; };
+		18CCC36AE652BFC4CB778C46 /* QAAttachments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAAttachments.swift; sourceTree = "<group>"; };
 		912140EE22AFCD2CE3BDFE87 /* ProjectOperationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperationsView.swift; sourceTree = "<group>"; };
 		9373C4D827475F2C25EDED31 /* WindowTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTheme.swift; sourceTree = "<group>"; };
 		946974C4B6B73B5095F86BE1 /* QAFeatureStoreBugSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAFeatureStoreBugSink.swift; sourceTree = "<group>"; };
@@ -796,6 +799,7 @@
 		AA0B17502A10EDBEA695CFD4 /* BrowserControlServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserControlServer.swift; sourceTree = "<group>"; };
 		AA2CA37BE6C93E0C73995455 /* markview-research-map-layout.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map-layout.js"; sourceTree = "<group>"; };
 		AA781698B8CEDAAB7EE8028A /* IntakeTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntakeTextEditor.swift; sourceTree = "<group>"; };
+		E44DE55E922A6B416DFDFF4B /* IntakeAttachmentBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntakeAttachmentBar.swift; sourceTree = "<group>"; };
 		AAA5D1BB0D677AB3259D0471 /* LinkedFolders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkedFolders.swift; sourceTree = "<group>"; };
 		AB72A74E7D7E4D5BC095F9FF /* WorkflowDescription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowDescription.swift; sourceTree = "<group>"; };
 		ACC3096F5958199C147B4B2C /* GraphCreatorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphCreatorSheet.swift; sourceTree = "<group>"; };
@@ -1214,6 +1218,7 @@
 				0D57F87F4A8D759C0EF2BB08 /* QARunner.swift */,
 				57195BF70E262DF4C8B69EC4 /* QAScenario.swift */,
 				90FCA2443C336463EAA203D9 /* QAScenarioEdit.swift */,
+				18CCC36AE652BFC4CB778C46 /* QAAttachments.swift */,
 				00D71797461F43394D99C212 /* QAStore.swift */,
 				F3352D93C2368769940952CA /* QAVideoWriter.swift */,
 				DC7A1A132DEAF268C60F70CA /* QAWebActor.swift */,
@@ -1343,6 +1348,7 @@
 				C1352CCA937A85BB9BD45E31 /* ImageAttachmentViews.swift */,
 				65C20CCECAE81DAC301D96C3 /* ImageViewerView.swift */,
 				AA781698B8CEDAAB7EE8028A /* IntakeTextEditor.swift */,
+				E44DE55E922A6B416DFDFF4B /* IntakeAttachmentBar.swift */,
 				DDDD2DE8F80A834F0FEA6CD3 /* IssueLifecycleSection.swift */,
 				64EBEB12B8498F7BDC5D0ADD /* IssueSyncViews.swift */,
 				058C1D9A87ABFF23F7C02515 /* LifecycleStatusChange.swift */,
@@ -1901,6 +1907,7 @@
 				5BBA465181633BD39D541176 /* InsightModels.swift in Sources */,
 				7D223FBDDCD276E94DF609A8 /* InsightSession.swift in Sources */,
 				5DE70A75F9FD2FF271E22FBB /* IntakeTextEditor.swift in Sources */,
+				86425959048DDA0805B1D761 /* IntakeAttachmentBar.swift in Sources */,
 				FB62124564D1276197F2D552 /* IssueCompletion.swift in Sources */,
 				A7C1FE25C40EDF044121316E /* IssueEvidenceCollector.swift in Sources */,
 				02044E5B00D534734886BB62 /* IssueGitHubSync.swift in Sources */,
@@ -2002,6 +2009,7 @@
 				E5ED77DE6531880AA6E5FF7E /* QARunner.swift in Sources */,
 				CF7A26CEDC4BBB7CAD24A3D5 /* QAScenario.swift in Sources */,
 				DD6A29657B7E4CC7281A193B /* QAScenarioEdit.swift in Sources */,
+				9E3BA7904BFF34728009A95B /* QAAttachments.swift in Sources */,
 				0CCC032B9600AD6CB0206242 /* QAStore.swift in Sources */,
 				D97476FD8AA623E1C09DEBB1 /* QAVideoWriter.swift in Sources */,
 				D9CE97A6173FC86C6BEFA7A6 /* QAViews.swift in Sources */,
@@ -2169,7 +2177,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.58.0;
+				CURRENT_PROJECT_VERSION = 5.59.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -2184,7 +2192,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.58.0;
+				MARKETING_VERSION = 5.59.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -2248,7 +2256,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.58.0;
+				CURRENT_PROJECT_VERSION = 5.59.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -2269,7 +2277,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.58.0;
+				MARKETING_VERSION = 5.59.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

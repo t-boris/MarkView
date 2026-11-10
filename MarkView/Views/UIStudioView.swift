@@ -14,7 +14,6 @@ struct UIStudioView: View {
     @State private var panel: Panel = .element
     @State private var draft = ""
     @FocusState private var draftFocused: Bool
-    @StateObject private var dictation = DictationController()
     @WindowStorage("uiStudioSelectionExpanded") private var selectionExpanded = true
     @State private var showingTrust = false
     @State private var effectiveScale = 1.0
@@ -584,6 +583,7 @@ struct UIStudioView: View {
     }
 
     private var composer: some View {
+        DictationInput(text: $draft, isFocused: { draftFocused }) { voice in
         VStack(alignment: .leading, spacing: 6) {
             ImageAttachmentStrip(attachments: $session.attachments)
             TextEditor(text: $draft)
@@ -591,7 +591,7 @@ struct UIStudioView: View {
                 .scrollContentBackground(.hidden).background(palette.bgInput).cornerRadius(4)
                 .focused($draftFocused)
                 .takesImageAttachments($session.attachments, text: $draft)
-            DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
+            voice.status
             HStack {
                 Button("Clear") { session.clearConversation() }
                     .disabled(session.conversation.isEmpty || session.busy != nil)
@@ -602,9 +602,7 @@ struct UIStudioView: View {
                           + "and the turn says which. A new scenario and a code change can both be undone.")
                 Spacer()
                 ImageAttachmentMenu(attachments: $session.attachments)
-                DictationButton(dictation: dictation) { transcript, window in
-                    DictationInsertion.insert(transcript, window: window, fieldFocused: draftFocused, text: &draft)
-                }
+                voice.mic()
                 Button("Send") {
                     // Only a question of this conversation is answered; one from before Clear is not. With one request box, only
                     // the latest turn's question is: a request sent after another turn is a request of its own (DEC-010).
@@ -626,7 +624,7 @@ struct UIStudioView: View {
             .controlSize(.small)
         }
         .padding(8)
-        .onDisappear { dictation.cancel() }
+        }
     }
 
     /// A request needs a text or at least one image.

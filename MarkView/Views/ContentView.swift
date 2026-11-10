@@ -350,6 +350,9 @@ struct ContentView: View {
         }
         // One for the whole window: `@WindowStorage` in any view below reads this window's own values.
         .environmentObject(workspaceManager.windowUI)
+        .environment(\.openDictationSettings, { [weak workspaceManager] in
+            Task { @MainActor in DDESettingsWindow.show(workspace: workspaceManager) }
+        })
         .navigationTitle(WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName))
         .background(WindowAccessor(window: $hostWindow))
         .onChange(of: workspaceManager.rootNode?.url) { _ in updateWindowIdentity() }

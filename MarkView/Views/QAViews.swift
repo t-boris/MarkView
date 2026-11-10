@@ -10,6 +10,8 @@ struct QATabView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var model: QAModel
     @State private var showGenerate = false
+    /// The scenario the New scenario sheet starts from when it was opened from a scenario's menu.
+    @State private var generateBase: String?
     @State private var confirmDelete: String?
 
     /// Below this width the list is not shown beside the editor: the centre area of a window shares its width with the side panels.
@@ -34,8 +36,8 @@ struct QATabView: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .background(palette.bg)
-        .sheet(isPresented: $showGenerate) {
-            QAGenerateSheet(model: model, isPresented: $showGenerate)
+        .sheet(isPresented: $showGenerate, onDismiss: { generateBase = nil }) {
+            QAGenerateSheet(model: model, isPresented: $showGenerate, baseID: generateBase)
         }
         .onDisappear { model.flush() }
     }
@@ -106,7 +108,12 @@ struct QATabView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contextMenu { Button("Delete…", role: .destructive) { confirmDelete = scenario.id } }
+        .contextMenu {
+            Button("Duplicate") { model.duplicate(scenario.id) }
+            Button("New Scenario Based on This…") { generateBase = scenario.id; showGenerate = true }
+            Divider()
+            Button("Delete…", role: .destructive) { confirmDelete = scenario.id }
+        }
     }
 
     private var placeholder: some View {
@@ -200,6 +207,10 @@ struct QAEditorView: View {
                 TextField("Title", text: Binding(get: { scenario.title }, set: { value in model.edit { $0.title = value } }))
                     .textFieldStyle(.plain).uiFont(size: 15, weight: .semibold)
                 Spacer()
+                Button { model.duplicate(scenario.id) } label: { Image(systemName: "plus.square.on.square") }
+                    .buttonStyle(.borderless)
+                    .help("Duplicate this scenario: the copy opens at once and the original stays as it is")
+                    .accessibilityLabel("Duplicate this scenario")
                 Picker("", selection: Binding(get: { scenario.appKind }, set: { value in model.edit { $0.appKind = value } })) {
                     Text("Web").tag(QAAppKind.web)
                     Text("macOS app").tag(QAAppKind.nativeMacOS)
@@ -236,9 +247,18 @@ struct QAGraphCanvas: View {
     @State private var pull: (from: String, at: CGPoint)?
     /// nil fits the whole graph into the area; a number is the scale the person chose.
     @State private var zoom: CGFloat?
+    /// Where the graph's top-left corner is, from the margin: moved by dragging the background and by zooming around the cursor.
+    @State private var pan: CGSize = .zero
+    /// The pan a background drag started from; nil while no drag runs, and for a drag that began on a step (that one connects steps).
+    @State private var dragBase: CGSize?
+    @State private var dragIgnored = false
+    /// The area the graph is shown in, for the buttons that zoom around its centre.
+    @State private var viewport: CGSize = .zero
 
     private static let space = "qa-graph"
-    private static let zoomRange: ClosedRange<CGFloat> = 0.3...1.6
+    private static let viewportSpace = "qa-viewport"
+    private static let margin: CGFloat = 6
+    private static let zoomRange: ClosedRange<CGFloat> = 0.1...2.5
 
     var body: some View {
         let layout = QAGraphLayout.make(scenario)
@@ -247,39 +267,78 @@ struct QAGraphCanvas: View {
             toolbar
             Divider()
             GeometryReader { geometry in
-                let fit = max(Self.zoomRange.lowerBound, min(1, (geometry.size.width - 12) / max(1, layout.size.width), (geometry.size.height - 12) / max(1, layout.size.height)))
-                // Fitting shrinks the graph to the area but never below a size that can be read; a bigger graph scrolls.
-                let scale = zoom ?? max(0.6, fit)
-                ScrollView([.horizontal, .vertical]) {
-                    ZStack(alignment: .topLeading) {
-                        Canvas { context, _ in draw(&context, layout, lit: lit) }
-                            .frame(width: layout.size.width, height: layout.size.height)
-                            .contentShape(Rectangle())
-                            .gesture(SpatialTapGesture().onEnded { tap in
-                                if let node = layout.node(at: tap.location) { model.selectedNode = node.id; model.selectedEdge = nil }
-                                else if let edge = layout.edge(near: tap.location) {
-                                    model.selectedEdge = QAEdge(from: edge.from, to: edge.to, label: edge.label); model.selectedNode = nil
-                                } else { model.selectedNode = nil; model.selectedEdge = nil }
-                            })
-                        ForEach(layout.nodes) { node in nodeView(node, layout: layout, lit: lit) }
-                    }
-                    .frame(width: layout.size.width, height: layout.size.height, alignment: .topLeading)
-                    .coordinateSpace(name: Self.space)
-                    .scaleEffect(scale, anchor: .topLeading)
-                    .frame(width: layout.size.width * scale, height: layout.size.height * scale, alignment: .topLeading)
-                    .padding(6)
+                let scale = zoom ?? fitScale(layout, in: geometry.size)
+                ZStack(alignment: .topLeading) {
+                    Canvas { context, _ in draw(&context, layout, lit: lit) }
+                        .frame(width: layout.size.width, height: layout.size.height)
+                        .contentShape(Rectangle())
+                        .gesture(SpatialTapGesture().onEnded { tap in
+                            if let node = layout.node(at: tap.location) { model.selectedNode = node.id; model.selectedEdge = nil }
+                            else if let edge = layout.edge(near: tap.location) {
+                                model.selectedEdge = QAEdge(from: edge.from, to: edge.to, label: edge.label); model.selectedNode = nil
+                            } else { model.selectedNode = nil; model.selectedEdge = nil }
+                        })
+                    ForEach(layout.nodes) { node in nodeView(node, layout: layout, lit: lit) }
                 }
-                .overlay(alignment: .bottomTrailing) { zoomControls(scale: scale) }
+                .frame(width: layout.size.width, height: layout.size.height, alignment: .topLeading)
+                .coordinateSpace(name: Self.space)
+                .scaleEffect(scale, anchor: .topLeading)
+                .offset(x: Self.margin + pan.width, y: Self.margin + pan.height)
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+                .clipped()
+                .contentShape(Rectangle())
+                .coordinateSpace(name: Self.viewportSpace)
+                // Dragging the background moves the graph; a drag that starts on a step connects it to another step instead.
+                .simultaneousGesture(DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.viewportSpace))
+                    .onChanged { value in
+                        if dragBase == nil {
+                            let start = CGPoint(x: (value.startLocation.x - Self.margin - pan.width) / scale,
+                                                y: (value.startLocation.y - Self.margin - pan.height) / scale)
+                            dragIgnored = layout.node(at: start) != nil
+                            dragBase = pan
+                            if !dragIgnored, zoom == nil { zoom = scale }
+                        }
+                        guard !dragIgnored, let base = dragBase else { return }
+                        pan = CGSize(width: base.width + value.translation.width, height: base.height + value.translation.height)
+                    }
+                    .onEnded { _ in dragBase = nil; dragIgnored = false })
+                .background(QAGraphWheel(
+                    onZoom: { point, factor in zoom(by: factor, around: point, scale: zoom ?? fitScale(layout, in: geometry.size)) },
+                    onPan: { dx, dy in
+                        if zoom == nil { zoom = fitScale(layout, in: geometry.size) }
+                        pan = CGSize(width: pan.width + dx, height: pan.height + dy)
+                    }))
+                .overlay(alignment: .bottomTrailing) { zoomControls(scale: scale, layout: layout) }
+                .onAppear { viewport = geometry.size }
+                .onChange(of: geometry.size) { viewport = $0 }
+                // Another scenario starts fitted, not where the last one was moved to.
+                .onChange(of: scenario.id) { _ in zoom = nil; pan = .zero }
             }
             .background(palette.bg)
         }
     }
 
-    private func zoomControls(scale: CGFloat) -> some View {
-        HStack(spacing: 2) {
-            Button { zoom = max(Self.zoomRange.lowerBound, scale - 0.15) } label: { Image(systemName: "minus") }.help("Zoom out")
-            Button { zoom = nil } label: { Text("\(Int((scale * 100).rounded()))%").frame(minWidth: 34) }.help("Fit the whole graph")
-            Button { zoom = min(Self.zoomRange.upperBound, scale + 0.15) } label: { Image(systemName: "plus") }.help("Zoom in")
+    /// The scale at which the whole graph is in the area, never above 1.
+    private func fitScale(_ layout: QAGraphLayout, in size: CGSize) -> CGFloat {
+        let width = (size.width - 2 * Self.margin) / max(1, layout.size.width)
+        let height = (size.height - 2 * Self.margin) / max(1, layout.size.height)
+        return max(Self.zoomRange.lowerBound, min(1, width, height))
+    }
+
+    /// Changes the scale and keeps the point of the graph under `point` (in the area's own coordinates) where it is.
+    private func zoom(by factor: CGFloat, around point: CGPoint, scale: CGFloat) {
+        let target = min(max(scale * factor, Self.zoomRange.lowerBound), Self.zoomRange.upperBound)
+        let graphPoint = CGPoint(x: (point.x - Self.margin - pan.width) / scale, y: (point.y - Self.margin - pan.height) / scale)
+        zoom = target
+        pan = CGSize(width: point.x - Self.margin - graphPoint.x * target, height: point.y - Self.margin - graphPoint.y * target)
+    }
+
+    private func zoomControls(scale: CGFloat, layout: QAGraphLayout) -> some View {
+        let centre = CGPoint(x: viewport.width / 2, y: viewport.height / 2)
+        return HStack(spacing: 2) {
+            Button { zoom(by: 1 / 1.25, around: centre, scale: scale) } label: { Image(systemName: "minus") }.help("Zoom out")
+            Button { zoom = nil; pan = .zero } label: { Text("\(Int((scale * 100).rounded()))%").frame(minWidth: 34) }.help("Fit the whole graph")
+            Button { zoom(by: 1.25, around: centre, scale: scale) } label: { Image(systemName: "plus") }.help("Zoom in")
         }
         .buttonStyle(.borderless).uiFont(size: 10.5)
         .padding(.horizontal, 6).padding(.vertical, 3)
@@ -307,7 +366,7 @@ struct QAGraphCanvas: View {
                 .help("Delete the selected step or connection")
             Spacer()
             ViewThatFits(in: .horizontal) {
-                Text("Drag from one step to another to connect them").uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1).fixedSize()
+                Text("Wheel zooms · drag the background to move · drag from one step to another to connect them").uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1).fixedSize()
                 EmptyView()
             }
         }
@@ -1050,17 +1109,59 @@ struct QAGenerateSheet: View {
     @ObservedObject var model: QAModel
     @Binding var isPresented: Bool
     @State private var goal = ""
+    @State private var editorFocused = false
+    @State private var attachments: [URL] = []
+    @State private var problem: String?
+    /// The scenario the new one starts from; nil writes one from nothing.
+    @State private var baseID: String?
     @State private var kind: QAAppKind = .web
     @State private var apps: [QAApp] = [QAApp(id: "app1", name: "")]
     @State private var players = ""
 
+    init(model: QAModel, isPresented: Binding<Bool>, baseID: String? = nil) {
+        self.model = model
+        _isPresented = isPresented
+        _baseID = State(initialValue: baseID)
+        if let base = model.scenarios.first(where: { $0.id == baseID }) {
+            _kind = State(initialValue: base.appKind)
+            _apps = State(initialValue: base.apps.isEmpty ? [QAApp(id: "app1", name: "")] : base.apps)
+            _players = State(initialValue: base.actors.map(\.name).joined(separator: ", "))
+        }
+    }
+
+    private var base: QAScenario? { model.scenarios.first { $0.id == baseID } }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("New scenario").uiFont(size: 15, weight: .semibold)
-            Text("What should a person be able to do? Say who takes part and which applications are involved. The assistant writes the steps, the alternatives and the failures.")
+            if !model.scenarios.isEmpty {
+                Picker("Based on", selection: $baseID) {
+                    Text("Nothing: write it from the goal").tag(String?.none)
+                    ForEach(model.scenarios) { scenario in
+                        Text(scenario.title.isEmpty ? scenario.id : scenario.title).tag(Optional(scenario.id))
+                    }
+                }
+                .onChange(of: baseID) { _ in useBase() }
+                .help("Start from a scenario that is alike: the assistant keeps it and changes what you write below")
+            }
+            Text(base == nil
+                 ? "What should a person be able to do? Say who takes part and which applications are involved. The assistant writes the steps, the alternatives and the failures."
+                 : "What should be different from “\(base?.title ?? "")”? The assistant keeps its steps and changes what you write here. The original stays as it is.")
                 .uiFont(size: 11.5).foregroundColor(palette.textDim)
-            TextEditor(text: $goal).uiFont(size: 12).frame(height: 90)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(palette.border))
+            DictationInput(text: $goal, isFocused: { editorFocused }) { voice in
+                VStack(alignment: .leading, spacing: 4) {
+                    IntakeTextEditor(text: $goal, focused: $editorFocused, attach: { urls in
+                        attachments += urls.filter { !attachments.contains($0) }
+                    }, failed: { problem = $0 })
+                        .frame(height: 110)
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(voice.isRecording ? palette.red : palette.border, lineWidth: voice.isRecording ? 2 : 1))
+                        .overlay(alignment: .bottomTrailing) { voice.mic().padding(6) }
+                    voice.status
+                }
+            }
+            IntakeAttachmentBar(attachments: $attachments, projectRoot: model.root,
+                                hint: "screens, designs, specifications: paste images with ⌘V or drop files")
+            if let problem { Text(problem).uiFont(size: 11).foregroundColor(palette.red).textSelection(.enabled) }
             Picker("Applications are", selection: $kind) {
                 Text("Web").tag(QAAppKind.web)
                 Text("Native macOS").tag(QAAppKind.nativeMacOS)
@@ -1113,9 +1214,18 @@ struct QAGenerateSheet: View {
     @ViewBuilder private var progress: some View {
         switch model.phase {
         case .generating(let attempt, let activity):
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("\(attempt > 1 ? "Try \(attempt): " : "")\(activity)").uiFont(size: 11).foregroundColor(palette.textDim)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    // The clock runs even when the assistant says nothing for a while.
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let seconds = model.generationStarted.map { max(0, context.date.timeIntervalSince($0)) } ?? 0
+                        Text("\(attempt > 1 ? "Try \(attempt): " : "")\(activity) · \(DictationStatusView.clock(seconds))")
+                            .uiFont(size: 11).foregroundColor(palette.textDim)
+                    }
+                }
+                Text("The assistant reads the project and the attached files first; a scenario takes a few minutes. Cancel stops it.")
+                    .uiFont(size: 10).foregroundColor(palette.textDim)
             }
         case .failed(let message):
             Label(message, systemImage: "xmark.octagon.fill").uiFont(size: 11).foregroundColor(palette.red)
@@ -1140,6 +1250,79 @@ struct QAGenerateSheet: View {
         }
         let names = players.split(whereSeparator: { $0 == "," || $0 == "\n" }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         started = true
-        model.generate(QAGenerationRequest(goal: goal.trimmingCharacters(in: .whitespacesAndNewlines), appKind: kind, apps: named, actorNames: names, now: Date()))
+        var request = QAGenerationRequest(goal: goal.trimmingCharacters(in: .whitespacesAndNewlines), appKind: kind, apps: named, actorNames: names, now: Date())
+        request.base = base
+        request.targets = base?.targets ?? []
+        request.attachments = attachments
+        model.generate(request)
+    }
+
+    /// Choosing a scenario to start from takes its kind, applications and players, which the person can still change.
+    private func useBase() {
+        guard let base else { return }
+        kind = base.appKind
+        apps = base.apps.isEmpty ? [QAApp(id: "app1", name: "")] : base.apps
+        players = base.actors.map(\.name).joined(separator: ", ")
+    }
+}
+
+
+/// Wheel, trackpad scroll and pinch over the graph: the wheel zooms around the cursor, ⇧+wheel moves the graph and a pinch zooms (as in the
+/// canvas and image viewers). The view takes no clicks; it listens to the scroll events that fall inside it.
+private struct QAGraphWheel: NSViewRepresentable {
+    var onZoom: (CGPoint, CGFloat) -> Void
+    var onPan: (CGFloat, CGFloat) -> Void
+
+    func makeNSView(context: Context) -> QAGraphWheelView {
+        let view = QAGraphWheelView()
+        view.onZoom = onZoom
+        view.onPan = onPan
+        return view
+    }
+
+    func updateNSView(_ view: QAGraphWheelView, context: Context) {
+        view.onZoom = onZoom
+        view.onPan = onPan
+    }
+}
+
+final class QAGraphWheelView: NSView {
+    var onZoom: ((CGPoint, CGFloat) -> Void)?
+    var onPan: ((CGFloat, CGFloat) -> Void)?
+    private var monitor: Any?
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        guard window != nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify]) { [weak self] event in
+            self?.handle(event) ?? event
+        }
+    }
+
+    deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
+
+    private func handle(_ event: NSEvent) -> NSEvent? {
+        guard let window, event.window === window else { return event }
+        let point = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(point) else { return event }
+        if event.type == .magnify {
+            onZoom?(point, 1 + event.magnification)
+            return nil
+        }
+        let precise = event.hasPreciseScrollingDeltas
+        if event.modifierFlags.contains(.shift) {
+            let step: CGFloat = precise ? 1 : 12
+            onPan?(event.scrollingDeltaX * step, event.scrollingDeltaY * step)
+            return nil
+        }
+        let delta = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.scrollingDeltaX
+        guard delta != 0 else { return nil }
+        onZoom?(point, exp(delta * (precise ? 0.01 : 0.08)))
+        return nil
     }
 }

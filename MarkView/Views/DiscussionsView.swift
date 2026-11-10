@@ -10,7 +10,6 @@ struct DiscussionsView: View {
     @State private var newTitle = ""
     @State private var question = ""
     @FocusState private var questionFocused: Bool
-    @StateObject private var dictation = DictationController()
     @State private var newItem = ""
     @State private var newKind: DiscussionItem.Kind = .question
     @State private var confirmDelete: Discussion?
@@ -144,34 +143,33 @@ struct DiscussionsView: View {
     }
 
     private func composer(_ discussion: Discussion) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let error = store.lastError {
-                Text(error).uiFont(size: 11).foregroundColor(.red).textSelection(.enabled)
-            }
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField("Ask, or press the microphone and talk…", text: $question, axis: .vertical)
-                    .textFieldStyle(.plain).uiFont(size: 12).lineLimit(1...6)
-                    .focused($questionFocused)
-                    .onSubmit { send(discussion) }
-                    .disabled(store.asking != nil)
-                DictationButton(dictation: dictation) { transcript, window in
-                    DictationInsertion.insert(transcript, window: window, fieldFocused: questionFocused, text: &question)
+        DictationInput(text: $question, isFocused: { questionFocused }, resetOn: discussion.slug) { voice in
+            VStack(alignment: .leading, spacing: 6) {
+                if let error = store.lastError {
+                    Text(error).uiFont(size: 11).foregroundColor(.red).textSelection(.enabled)
                 }
-                if store.asking == discussion.slug {
-                    Button { workspaceManager.stopDiscussion() } label: { Image(systemName: "stop.circle.fill").uiFont(size: 18).foregroundColor(palette.orange) }
-                        .buttonStyle(.plain).help("Stop the answer")
-                } else {
-                    Button { send(discussion) } label: { Image(systemName: "arrow.up.circle.fill").uiFont(size: 18).foregroundColor(palette.blue) }
-                        .buttonStyle(.plain).disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.asking != nil)
-                        .help("Send (↩)")
+                HStack(alignment: .bottom, spacing: 8) {
+                    TextField("Ask, or press the microphone and talk…", text: $question, axis: .vertical)
+                        .textFieldStyle(.plain).uiFont(size: 12).lineLimit(1...6)
+                        .focused($questionFocused)
+                        .onSubmit { send(discussion) }
+                        .disabled(store.asking != nil)
+                    voice.mic()
+                    if store.asking == discussion.slug {
+                        Button { workspaceManager.stopDiscussion() } label: { Image(systemName: "stop.circle.fill").uiFont(size: 18).foregroundColor(palette.orange) }
+                            .buttonStyle(.plain).help("Stop the answer")
+                    } else {
+                        Button { send(discussion) } label: { Image(systemName: "arrow.up.circle.fill").uiFont(size: 18).foregroundColor(palette.blue) }
+                            .buttonStyle(.plain).disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.asking != nil)
+                            .help("Send (↩)")
+                    }
                 }
+                .padding(8).background(palette.bgInput).cornerRadius(8)
+                voice.status
             }
-            .padding(8).background(palette.bgInput).cornerRadius(8)
-            DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
+            .padding(12)
+            .onChange(of: discussion.slug) { _ in question = "" }
         }
-        .padding(12)
-        .onChange(of: discussion.slug) { _ in dictation.cancel(); question = "" }
-        .onDisappear { dictation.cancel() }
     }
 
     private func send(_ discussion: Discussion) {

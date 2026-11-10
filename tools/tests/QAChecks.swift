@@ -1248,4 +1248,74 @@ do {
     check("machine: and then nothing more is taken", machine.nodesMet == ["n1"] && machine.ignored.count == 1)
 }
 
+// Copying a scenario, starting one from another, and the material attached to a new one
+do {
+    let original = shop()
+    let at = Date(timeIntervalSince1970: 2_000_000_000)
+    let copy = original.duplicated(existingIDs: [original.id], at: at)
+    check("copy: a new id, a title that says it is a copy, fresh dates", copy.id != original.id && copy.title == original.title + " (copy)" && copy.created == at && copy.updated == at)
+    check("copy: the same steps, connections, players, applications and chosen branches", copy.nodes == original.nodes && copy.edges == original.edges && copy.actors == original.actors && copy.apps == original.apps && copy.selected == original.selected && copy.start == original.start)
+    check("copy: it is a valid scenario of its own", copy.problems().isEmpty)
+    let second = original.duplicated(existingIDs: [original.id, copy.id])
+    check("copy: copying twice never reuses an id", second.id != copy.id && second.id != original.id)
+    var untitled = original
+    untitled.title = ""
+    check("copy: a scenario without a title is named after its id", untitled.duplicated(existingIDs: []).title == untitled.id + " (copy)")
+
+    let plain = QAGenerationRequest(goal: "Buy a ticket", appKind: .web)
+    check("prompt: without a base or files it is the goal as before", !QAGeneration.prompt(plain).contains("Base scenario") && !QAGeneration.prompt(plain).contains("Material the person attached") && QAGeneration.prompt(plain).hasPrefix("Goal of the test:\nBuy a ticket"))
+    var based = plain
+    based.base = original
+    let basedPrompt = QAGeneration.prompt(based)
+    check("prompt: a base scenario is given whole, and the goal is what changes", basedPrompt.contains("Base scenario") && basedPrompt.contains(original.nodes[0].id) && basedPrompt.contains("what changes compared with the base scenario") && !basedPrompt.hasPrefix("Goal of the test:"))
+    var withFiles = plain
+    withFiles.attachmentPaths = ["docs/screens/cart.png", ".dde/qa/inputs/x/1-spec.pdf"]
+    let filesPrompt = QAGeneration.prompt(withFiles)
+    check("prompt: attached files are listed by path for the assistant to read", filesPrompt.contains("- docs/screens/cart.png") && filesPrompt.contains("- .dde/qa/inputs/x/1-spec.pdf"))
+
+    let fm = FileManager.default
+    let sandbox = fm.temporaryDirectory.appendingPathComponent("qa-attach-" + UUID().uuidString, isDirectory: true)
+    let project = sandbox.appendingPathComponent("project", isDirectory: true)
+    let elsewhere = sandbox.appendingPathComponent("elsewhere", isDirectory: true)
+    try? fm.createDirectory(at: project.appendingPathComponent("docs"), withIntermediateDirectories: true)
+    try? fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: sandbox) }
+    let inside = project.appendingPathComponent("docs/spec.md")
+    let insideImage = project.appendingPathComponent("docs/cart.png")
+    let outsideImage = elsewhere.appendingPathComponent("pasted:image.PNG")
+    let outsideNote = elsewhere.appendingPathComponent(".notes.txt")
+    for file in [inside, insideImage, outsideImage, outsideNote] { try? Data("x".utf8).write(to: file) }
+
+    let staged = try? QAAttachments.stage([inside, insideImage, outsideImage, outsideNote, inside], root: project, id: "run 1")
+    check("files: a file of the project is named by its path and is not copied, a repeated one counts once", staged?.paths.prefix(2) == ["docs/spec.md", "docs/cart.png"] && staged?.paths.count == 4)
+    check("files: a file from outside is copied under .dde/qa/inputs and named relative to the project", staged?.paths[2].hasPrefix(".dde/qa/inputs/run-1/3-") == true && staged?.paths[3].hasPrefix(".dde/qa/inputs/run-1/4-") == true && staged?.copies != nil)
+    check("files: the copy has a plain name (no colon, no leading dot) and its content", staged?.paths[2].hasSuffix("pasted-image.PNG") == true && staged?.paths[3].hasSuffix("4-notes.txt") == true && staged.flatMap { try? String(contentsOf: project.appendingPathComponent($0.paths[2])) } == "x")
+    check("files: images are told apart by extension, in any case, and are absolute under the project", staged?.images.count == 2 && staged?.images.allSatisfy { $0.path.hasPrefix(project.standardizedFileURL.resolvingSymlinksInPath().path + "/") } == true)
+    check("files: the local QA folder ignores the copies in Git", fm.fileExists(atPath: project.appendingPathComponent(".dde/qa/.gitignore").path))
+    if let staged { QAAttachments.discard(staged) }
+    check("files: after the run the copies are gone and the project's own files stay", !fm.fileExists(atPath: project.appendingPathComponent(".dde/qa/inputs/run-1").path) && fm.fileExists(atPath: inside.path))
+
+    let many = (0...QAAttachments.maxFiles).map { elsewhere.appendingPathComponent("f\($0).txt") }
+    many.forEach { try? Data("x".utf8).write(to: $0) }
+    var refusal: QAAttachments.Failure?
+    do { _ = try QAAttachments.stage(many, root: project, id: "many") } catch { refusal = error as? QAAttachments.Failure }
+    check("files: more than the limit is refused", refusal == .tooMany(QAAttachments.maxFiles))
+
+    let big = elsewhere.appendingPathComponent("big.bin")
+    fm.createFile(atPath: big.path, contents: nil)
+    if let handle = try? FileHandle(forWritingTo: big) { try? handle.truncate(atOffset: UInt64(QAAttachments.maxBytes + 1)); try? handle.close() }
+    refusal = nil
+    do { _ = try QAAttachments.stage([outsideNote, big], root: project, id: "big") } catch { refusal = error as? QAAttachments.Failure }
+    check("files: a file from outside that is too large is refused, and the copies made before it are removed", refusal == .tooLarge("big.bin") && !fm.fileExists(atPath: project.appendingPathComponent(".dde/qa/inputs/big").path))
+
+    refusal = nil
+    do { _ = try QAAttachments.stage([elsewhere], root: project, id: "dir") } catch { refusal = error as? QAAttachments.Failure }
+    check("files: a folder from outside is refused", refusal == .notAFile("elsewhere"))
+    check("files: a folder of the project is named by its path", (try? QAAttachments.stage([project.appendingPathComponent("docs")], root: project, id: "docs"))?.paths == ["docs"])
+    refusal = nil
+    do { _ = try QAAttachments.stage([elsewhere.appendingPathComponent("missing.png")], root: project, id: "missing") } catch { refusal = error as? QAAttachments.Failure }
+    check("files: a file that is not there is refused with its name", refusal == .unreadable("missing.png"))
+    check("files: the refusals say what is wrong in words", QAAttachments.Failure.tooLarge("big.bin").errorDescription?.contains("big.bin") == true)
+}
+
 finish("QA")

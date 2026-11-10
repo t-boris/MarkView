@@ -16,6 +16,12 @@ struct QAGenerationRequest {
     /// Ids of the scenarios that already exist, so the new one gets its own.
     var existingIDs: Set<String> = []
     var now: Date = Date()
+    /// The scenario the new one starts from ("Based on"): the goal then says what changes.
+    var base: QAScenario? = nil
+    /// Files the person attached, as chosen. The model turns them into `attachmentPaths` before the prompt is written.
+    var attachments: [URL] = []
+    /// The attached files as paths relative to the project folder, images included.
+    var attachmentPaths: [String] = []
 }
 
 struct QAGenerationResult {
@@ -121,7 +127,17 @@ enum QAGeneration {
     }
 
     static func prompt(_ request: QAGenerationRequest) -> String {
-        var lines = ["Goal of the test:", request.goal.trimmingCharacters(in: .whitespacesAndNewlines), ""]
+        var lines = [request.base == nil ? "Goal of the test:" : "What the new scenario must do, or what changes compared with the base scenario:",
+                     request.goal.trimmingCharacters(in: .whitespacesAndNewlines), ""]
+        if let base = request.base, let json = try? QAStore.encoder.encode(base), let text = String(data: json, encoding: .utf8) {
+            lines += ["Base scenario (the person wants a similar one). Keep its structure, steps and wording wherever the goal does not change them,",
+                      "and change what the goal asks for. Return a whole new scenario, not a patch:", text, ""]
+        }
+        if !request.attachmentPaths.isEmpty {
+            lines.append("Material the person attached (read each file with your tools; images are screens or designs of the product):")
+            lines += request.attachmentPaths.map { "- " + $0 }
+            lines.append("")
+        }
         if request.apps.count > 0 {
             lines.append("Applications of the product (id, name, what it is judged as):")
             for app in request.apps { lines.append("- \(app.id): \(app.name) [\(app.profile.title.lowercased())]") }

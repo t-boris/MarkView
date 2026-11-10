@@ -264,6 +264,7 @@ private struct EnvironmentDetail: View {
     @State private var logFilter = ""
     @State private var trusting: (lines: [String], fingerprints: [String])?
     @State private var question = ""
+    @FocusState private var questionFocused: Bool
 
     private var state: DeploymentStore.State { store.states[env.id] ?? DeploymentStore.State() }
 
@@ -516,14 +517,21 @@ private struct EnvironmentDetail: View {
                 Image(systemName: "sparkles").foregroundColor(palette.purple)
                 Text("ASK THE AI ABOUT THIS ENVIRONMENT").uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim)
             }
-            HStack {
-                TextField("e.g. Why is it slow? Is the database fine? What failed in the last hour?", text: $question)
-                    .textFieldStyle(.roundedBorder).onSubmit { ask(question) }
-                Button("Ask") { ask(question) }.disabled(question.trimmingCharacters(in: .whitespaces).isEmpty)
-                    .help("MarkView looks, reads the logs and the assistant answers here")
-                Button { askInAgents(question) } label: { Image(systemName: "terminal") }
-                    .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty)
-                    .help("Ask in the Agents tab instead: the assistant there can run more commands (changes ask you first)")
+            DictationInput(text: $question, isFocused: { questionFocused }, resetOn: env.id) { voice in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        TextField("e.g. Why is it slow? Is the database fine? What failed in the last hour?", text: $question)
+                            .textFieldStyle(.roundedBorder).onSubmit { ask(question) }
+                            .focused($questionFocused)
+                        voice.mic()
+                        Button("Ask") { ask(question) }.disabled(question.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .help("MarkView looks, reads the logs and the assistant answers here")
+                        Button { askInAgents(question) } label: { Image(systemName: "terminal") }
+                            .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .help("Ask in the Agents tab instead: the assistant there can run more commands (changes ask you first)")
+                    }
+                    voice.status
+                }
             }
             HStack(spacing: 6) {
                 ForEach(quickQuestions, id: \.self) { q in

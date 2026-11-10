@@ -7,6 +7,8 @@ struct DictationButton: View {
     @Environment(\.palette) private var palette
     @ObservedObject var dictation: DictationController
     var prominent = false
+    /// A smaller mic for a one-line field in a dense panel.
+    var compact = false
     /// The transcript and the window the mic was clicked in (the field's window).
     let insert: (String, NSWindow?) -> Void
 
@@ -20,9 +22,9 @@ struct DictationButton: View {
                 }
                 if prominent { Text(title).uiFont(size: 12, weight: .medium) }
             }
-            .uiFont(size: 13)
+            .uiFont(size: compact ? 11 : 13)
             .foregroundColor(dictation.isRecording || dictation.phase == .starting ? palette.red : prominent ? .primary : .secondary)
-            .frame(width: prominent ? nil : 24, height: 24)
+            .frame(width: prominent ? nil : compact ? 18 : 24, height: compact ? 18 : 24)
             .padding(.horizontal, prominent ? 10 : 0)
             .padding(.vertical, prominent ? 3 : 0)
             .background(RoundedRectangle(cornerRadius: prominent ? 6 : 12).fill(palette.bgInput))
@@ -124,6 +126,71 @@ struct DictationStatusView: View {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
             NSWorkspace.shared.open(url)
         }
+    }
+}
+
+/// Opens DDE Settings for the window that shows a dictation field (its key, model or language needs a fix). ContentView sets it
+/// for its window, so a sheet or panel needs no workspace of its own; outside any window the settings open without a project.
+private struct OpenDictationSettingsKey: EnvironmentKey {
+    static let defaultValue: () -> Void = { Task { @MainActor in DDESettingsWindow.show(workspace: nil) } }
+}
+
+extension EnvironmentValues {
+    var openDictationSettings: () -> Void {
+        get { self[OpenDictationSettingsKey.self] }
+        set { self[OpenDictationSettingsKey.self] = newValue }
+    }
+}
+
+/// What a field needs to offer voice input: the mic, the status line and whether a recording runs.
+@MainActor
+struct DictationParts {
+    fileprivate let dictation: DictationController
+    fileprivate let insert: (String, NSWindow?) -> Void
+    fileprivate let openSettings: () -> Void
+
+    func mic(prominent: Bool = false, compact: Bool = false) -> DictationButton {
+        DictationButton(dictation: dictation, prominent: prominent, compact: compact, insert: insert)
+    }
+
+    /// The line under the field: recording time, transcribing, or what went wrong.
+    var status: DictationStatusView { DictationStatusView(dictation: dictation, openSettings: openSettings) }
+
+    var isRecording: Bool { dictation.isRecording }
+
+    /// Starting, recording or transcribing: a sheet keeps its buttons from sending half-dictated text.
+    var isActive: Bool { dictation.isActive }
+
+    /// Drops a recording in progress without inserting anything (Esc).
+    func cancel() { dictation.cancel() }
+}
+
+/// Voice input for one text field. It owns the recording (so it ends with the field), puts the transcript at the cursor of `text`,
+/// and hands the mic and the status line to `content` to place. Every field that takes text for the assistant uses it:
+///
+///     DictationInput(text: $goal, isFocused: { goalFocused }) { voice in
+///         VStack { editor.overlay(alignment: .bottomTrailing) { voice.mic().padding(6) }; voice.status }
+///     }
+struct DictationInput<Content: View>: View {
+    @Environment(\.openDictationSettings) private var openSettings
+    @StateObject private var dictation = DictationController()
+    @Binding var text: String
+    /// Whether the field has the keyboard focus; read when a transcript arrives, to insert at the cursor.
+    let isFocused: () -> Bool
+    /// A recording in progress is dropped when this changes: the field now shows something else.
+    var resetOn: AnyHashable = 0
+    @ViewBuilder let content: (DictationParts) -> Content
+
+    var body: some View {
+        content(DictationParts(dictation: dictation, insert: insert, openSettings: openSettings))
+            .onDisappear { dictation.cancel() }
+            .onChange(of: resetOn) { _ in dictation.cancel() }
+    }
+
+    private func insert(_ transcript: String, window: NSWindow?) {
+        var value = text
+        DictationInsertion.insert(transcript, window: window, fieldFocused: isFocused(), text: &value)
+        text = value
     }
 }
 

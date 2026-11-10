@@ -152,6 +152,7 @@ struct ResearchFollowUpSheet: View {
     @ObservedObject var research: ResearchJobs
     @Environment(\.dismiss) private var dismiss
     @State private var question = ""
+    @FocusState private var questionFocused: Bool
     @State private var retry: Bool
     private let retryTarget: ResearchDocument.Section?
 
@@ -189,10 +190,17 @@ struct ResearchFollowUpSheet: View {
             } else {
                 Text("The AI reads the document as it is saved (with your edits) and appends its answer as a new dated section.")
                     .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
-                TextEditor(text: $question)
-                    .uiFont(size: 13)
-                    .frame(minWidth: 520, minHeight: 160)
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(palette.border, lineWidth: 1))
+                DictationInput(text: $question, isFocused: { questionFocused }) { voice in
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextEditor(text: $question)
+                            .uiFont(size: 13)
+                            .focused($questionFocused)
+                            .frame(minWidth: 520, minHeight: 160)
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(voice.isRecording ? palette.red : palette.border, lineWidth: voice.isRecording ? 2 : 1))
+                            .overlay(alignment: .bottomTrailing) { voice.mic().padding(6) }
+                        voice.status
+                    }
+                }
             }
             WebSearchToggle(root: root)
             HStack {

@@ -15,6 +15,7 @@ struct PrototypeCreatorSheet: View {
     @State private var sources: [String] = []
     @State private var title = ""
     @State private var brief = ""
+    @FocusState private var briefFocused: Bool
     /// Code mode: the web apps detected inside the selected scope; nil while detection runs.
     @State private var detected: [PrototypeAI.CodeScope.App]?
     /// Code mode: the web-interface files of the selected scope, by name; nil while detection runs.
@@ -67,9 +68,16 @@ struct PrototypeCreatorSheet: View {
             }
 
             GroupBox(isCode ? "What should the preview focus on?" : "What should the prototype show?") {
-                TextEditor(text: $brief)
-                    .uiFont(size: 12).frame(height: 90).scrollContentBackground(.hidden)
-                    .padding(2)
+                DictationInput(text: $brief, isFocused: { briefFocused }) { voice in
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextEditor(text: $brief)
+                            .uiFont(size: 12).frame(height: 90).scrollContentBackground(.hidden)
+                            .focused($briefFocused)
+                            .padding(2)
+                            .overlay(alignment: .bottomTrailing) { voice.mic().padding(4) }
+                        voice.status
+                    }
+                }
             }
             Text(isCode ? "Optional: the screens or flows that matter most, what to leave out."
                         : "Optional: the audience, the flows that matter most, what to leave out.")

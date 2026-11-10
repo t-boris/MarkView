@@ -5,6 +5,19 @@ import Foundation
 // its own by tools/tests/qa-tests.sh.
 
 extension QAScenario {
+    // MARK: Copy
+
+    /// The same scenario as a new one: its own id and title ("<title> (copy)"), the same players, applications, environments, steps and
+    /// chosen branches. Runs and the approval belong to the scenario they were made for and do not come along.
+    func duplicated(existingIDs: Set<String>, at time: Date = Date()) -> QAScenario {
+        var copy = self
+        copy.title = (title.isEmpty ? id : title) + " (copy)"
+        copy.id = QAStore.newScenarioID(title: copy.title, existing: existingIDs)
+        copy.created = time
+        copy.updated = time
+        return copy
+    }
+
     // MARK: Ids
 
     /// An id for a new step that no step uses: the prefix and the next free number (n7, a3, ...).

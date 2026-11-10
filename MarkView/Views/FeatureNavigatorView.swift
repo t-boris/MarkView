@@ -679,7 +679,6 @@ struct IntakeSheet: View {
     @State private var outputPath = ""
     @State private var outputPathEdited = false
     /// Voice input for the text; lives as long as the sheet — closing it discards a recording.
-    @StateObject private var dictation = DictationController()
     @State private var editorFocused = false
 
     init(request: IntakeRequest, workspaceManager: WorkspaceManager) {
@@ -696,15 +695,14 @@ struct IntakeSheet: View {
     }
 
     var body: some View {
+        DictationInput(text: $text, isFocused: { editorFocused }) { voice in
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: icon).foregroundColor(palette.blue)
                 Text(kind.title).uiFont(.headline)
                 Spacer()
                 if kind == .understand || kind == .research {
-                    DictationButton(dictation: dictation, prominent: true) { transcript, window in
-                        DictationInsertion.insert(transcript, window: window, fieldFocused: editorFocused, text: &text)
-                    }
+                    voice.mic(prominent: true)
                 }
             }
             Text(kind.prompt).uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
@@ -712,13 +710,10 @@ struct IntakeSheet: View {
                 attachments += urls.filter { !attachments.contains($0) }
             }, failed: { failed = $0 })
                 .frame(minWidth: 560, minHeight: 260)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(editorBorder, lineWidth: dropping || dictation.isRecording ? 2 : 1))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(editorBorder(recording: voice.isRecording), lineWidth: dropping || voice.isRecording ? 2 : 1))
                 .overlay(alignment: .bottomTrailing) {
                     if kind != .understand, kind != .research {
-                        DictationButton(dictation: dictation) { transcript, window in
-                            DictationInsertion.insert(transcript, window: window, fieldFocused: editorFocused, text: &text)
-                        }
-                        .padding(6)
+                        voice.mic().padding(6)
                     }
                 }
                 .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
@@ -729,7 +724,7 @@ struct IntakeSheet: View {
                     }
                     return true
                 }
-            DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
+            voice.status
             if kind == .research, let root = workspaceManager.rootNode?.url {
                 ResearchIntakeOptions(root: root, targets: $targets, outputPath: $outputPath, outputPathEdited: $outputPathEdited)
             }
@@ -751,24 +746,7 @@ struct IntakeSheet: View {
                     Spacer()
                 }
             }
-            HStack(spacing: 6) {
-                Button("Add Files…") { chooseFiles() }
-                Text("or paste images with ⌘V").uiFont(.caption).foregroundColor(palette.textDim)
-            }
-            ScrollView(.horizontal) {
-            HStack(spacing: 6) {
-                ForEach(attachments, id: \.self) { url in
-                    HStack(spacing: 2) {
-                        IntakeAttachmentThumbnail(url: url)
-                        Text(url.lastPathComponent).uiFont(.caption).lineLimit(1)
-                        Button(action: { attachments.removeAll { $0 == url } }) { Image(systemName: "xmark.circle.fill") }
-                            .buttonStyle(.plain).foregroundColor(palette.textDim)
-                    }
-                    .padding(.horizontal, 5).padding(.vertical, 2).background(palette.bgInput).cornerRadius(4)
-                }
-                Spacer()
-            }
-            }
+            IntakeAttachmentBar(attachments: $attachments, projectRoot: workspaceManager.rootNode?.url)
             Text(footnote).uiFont(.caption2).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             if let failed { Text(failed).uiFont(.caption).foregroundColor(.red).textSelection(.enabled) }
             HStack {
@@ -784,13 +762,13 @@ struct IntakeSheet: View {
                 }
                 Spacer()
                 // Esc cancels a dictation first; the next Esc closes the sheet.
-                Button(dictation.isActive ? "Cancel Dictation" : "Cancel") {
-                    if dictation.isActive { dictation.cancel() } else { dismiss() }
+                Button(voice.isActive ? "Cancel Dictation" : "Cancel") {
+                    if voice.isActive { voice.cancel() } else { dismiss() }
                 }
-                .keyboardShortcut(.cancelAction).disabled(working && !dictation.isActive)
+                .keyboardShortcut(.cancelAction).disabled(working && !voice.isActive)
                 Button(kind == .understand ? "Show in X-Ray" : kind == .research ? "Start Research" : "Create") { submit() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(working || loadingSource || dictation.isActive || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(working || loadingSource || voice.isActive || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(16)
@@ -801,12 +779,12 @@ struct IntakeSheet: View {
                 outputPath = Self.suggestedPath(for: newText, root: workspaceManager.rootNode?.url)
             }
         }
-        .onDisappear { dictation.cancel() }
+        }
     }
 
-    private var editorBorder: Color {
+    private func editorBorder(recording: Bool) -> Color {
         if dropping { return palette.blue }
-        return dictation.isRecording ? palette.red : palette.border
+        return recording ? palette.red : palette.border
     }
 
     /// The issue or pull request the sheet was opened from: its text becomes the material.
@@ -900,14 +878,6 @@ struct IntakeSheet: View {
         case .understand: return "The answer opens at the top of the X-Ray right panel, with What, Why, How and Origin sections. Sources reveal the evidence in X-Ray or open it. Save as research keeps the answer in docs/research; nothing is saved automatically."
         case .research: return "Opens a mind map at once and fills it from the centre outwards while the assistant works in the background (progress and Cancel under the editor). Every finding on a node is labelled project fact, external fact, AI inference or open assumption, with file paths and URLs. The map is saved as a Markdown file; attachments are copied to docs/research/assets/."
         }
-    }
-
-    private func chooseFiles() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        guard panel.runModal() == .OK else { return }
-        attachments += panel.urls
     }
 
     /// docs/research/<date>-<slug>.md for the question, with a free numeric suffix (DEC-006).

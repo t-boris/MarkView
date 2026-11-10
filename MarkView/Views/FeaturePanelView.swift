@@ -402,38 +402,35 @@ struct ResultCard: View {
 struct DiscussionInput: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
-    @EnvironmentObject private var workspaceManager: WorkspaceManager
     @ObservedObject var store: FeatureStore
     let feature: Feature
     @State private var text = ""
-    @StateObject private var dictation = DictationController()
     @FocusState private var textFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            Divider().background(palette.border)
-            HStack(alignment: .bottom, spacing: 6) {
-                TextField("Discuss this feature…", text: $text, axis: .vertical)
-                    .textFieldStyle(.plain).uiFont(size: 11).lineLimit(1...5)
-                    .focused($textFocused)
-                    .onSubmit(send)
-                DictationButton(dictation: dictation) { transcript, window in
-                    DictationInsertion.insert(transcript, window: window, fieldFocused: textFocused, text: &text)
+        DictationInput(text: $text, isFocused: { textFocused }, resetOn: feature.slug) { voice in
+            VStack(spacing: 0) {
+                Divider().background(palette.border)
+                HStack(alignment: .bottom, spacing: 6) {
+                    TextField("Discuss this feature…", text: $text, axis: .vertical)
+                        .textFieldStyle(.plain).uiFont(size: 11).lineLimit(1...5)
+                        .focused($textFocused)
+                        .onSubmit(send)
+                    voice.mic()
+                    if assistant.isRunning("chat:" + feature.slug) {
+                        ProgressView().scaleEffect(0.45).frame(width: 14, height: 14)
+                    } else {
+                        Button(action: send) { Image(systemName: "arrow.up.circle.fill").uiFont(size: 15).foregroundColor(palette.blue) }
+                            .buttonStyle(.plain).disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
                 }
-                if assistant.isRunning("chat:" + feature.slug) {
-                    ProgressView().scaleEffect(0.45).frame(width: 14, height: 14)
-                } else {
-                    Button(action: send) { Image(systemName: "arrow.up.circle.fill").uiFont(size: 15).foregroundColor(palette.blue) }
-                        .buttonStyle(.plain).disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
+                .padding(8)
+                .background(palette.bgInput)
+                voice.status
+                    .padding(.horizontal, 8)
             }
-            .padding(8)
-            .background(palette.bgInput)
-            DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
-                .padding(.horizontal, 8)
+            .onChange(of: feature.slug) { _ in text = "" }
         }
-        .onDisappear { dictation.cancel() }
-        .onChange(of: feature.slug) { _ in dictation.cancel(); text = "" }
     }
 
     private func send() {
@@ -675,6 +672,7 @@ struct QuestionCard: View {
     var busy = false
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var own = ""
+    @FocusState private var ownFocused: Bool
     @State private var showDetails = false
 
     private var working: Bool {
@@ -736,14 +734,23 @@ struct QuestionCard: View {
             choice(selected: isOwn, enabled: !working, tappable: false) {
                 if !isOwn { selection = own.isEmpty ? nil : .text(own) }
             } label: {
-                TextField(options.isEmpty ? "Your answer…" : "Or answer in your own words…", text: $own)
-                    .textFieldStyle(.plain).uiFont(size: 10)
-                    .padding(4).background(palette.bgInput).cornerRadius(3)
-                    .disabled(working)
-                    .onChange(of: own) { text in
-                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !trimmed.isEmpty { selection = .text(trimmed) } else if isOwn { selection = nil }
+                DictationInput(text: $own, isFocused: { ownFocused }) { voice in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 4) {
+                            TextField(options.isEmpty ? "Your answer…" : "Or answer in your own words…", text: $own)
+                                .textFieldStyle(.plain).uiFont(size: 10)
+                                .focused($ownFocused)
+                            voice.mic(compact: true)
+                        }
+                        .padding(4).background(palette.bgInput).cornerRadius(3)
+                        .disabled(working)
+                        .onChange(of: own) { text in
+                            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !trimmed.isEmpty { selection = .text(trimmed) } else if isOwn { selection = nil }
+                        }
+                        voice.status
                     }
+                }
             }
             choice(selected: selection == .ai, enabled: !working) {
                 selection = .ai
@@ -922,6 +929,7 @@ struct BugDiscussionInput: View {
     @State private var failed: String?
 
     var body: some View {
+        DictationInput(text: $text, isFocused: { focused }, resetOn: bug.url) { voice in
         VStack(alignment: .leading, spacing: 5) {
             IntakeTextEditor(text: $text, focused: $focused, attach: { add($0) }, failed: { failed = $0 })
                 .frame(height: 72)
@@ -930,6 +938,7 @@ struct BugDiscussionInput: View {
                 Text("Discuss this bug; paste a screenshot with ⌘V")
                     .uiFont(size: 10).foregroundColor(palette.textDim)
                 Spacer()
+                voice.mic()
                 if assistant.isRunning("discuss:bug:" + bug.key) || assistant.isRunning("validity:bug:" + bug.key) {
                     ProgressView().scaleEffect(0.45).frame(width: 14, height: 14)
                 } else {
@@ -938,10 +947,12 @@ struct BugDiscussionInput: View {
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty)
                 }
             }
+            voice.status
             if let failed { Text(failed).uiFont(size: 10).foregroundColor(.red) }
         }
         .padding(8).background(palette.bgInput)
         .onChange(of: bug.url) { _ in text = ""; attachments = []; failed = nil }
+        }
     }
 
     private func add(_ urls: [URL]) { attachments += urls.filter { !attachments.contains($0) } }
@@ -1023,10 +1034,16 @@ struct BugQuestionCard: View {
                     }
                     SmallButton(title: "I don't know") { send("") }
                 }
-                IntakeTextEditor(text: $answer, focused: $focused,
-                                 attach: { urls in attachments += urls.filter { !attachments.contains($0) } },
-                                 failed: { failed = $0 })
-                    .frame(height: 64)
+                DictationInput(text: $answer, isFocused: { focused }, resetOn: question.id) { voice in
+                    VStack(alignment: .leading, spacing: 4) {
+                        IntakeTextEditor(text: $answer, focused: $focused,
+                                         attach: { urls in attachments += urls.filter { !attachments.contains($0) } },
+                                         failed: { failed = $0 })
+                            .frame(height: 64)
+                            .overlay(alignment: .bottomTrailing) { voice.mic().padding(4) }
+                        voice.status
+                    }
+                }
                 BugAttachmentControls(attachments: $attachments, failed: $failed)
                 if let failed { Text(failed).uiFont(size: 10).foregroundColor(.red) }
                 SmallButton(title: "Answer", action: submit)

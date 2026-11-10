@@ -10,7 +10,6 @@ struct PrototypeStudioView: View {
     @ObservedObject var session: PrototypeSession
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var draft = ""
-    @StateObject private var dictation = DictationController()
     @WindowStorage("prototypeChatWidth") private var chatWidth = 340.0
     /// What Point sends about the element: its HTML, or its HTML and a screenshot of it.
     @WindowStorage("prototypePickScreenshot") private var pickScreenshot = true
@@ -45,7 +44,6 @@ struct PrototypeStudioView: View {
             conversation.frame(width: chatWidth)
         }
         .background(palette.bg)
-        .onDisappear { dictation.cancel() }
         .onAppear { if !session.hasSite && !session.isBusy && session.manifest.version == 0 { session.generate() } }
         // A prototype saved before themes were recorded gets its record from the copied stylesheets when it is opened; one saved before
         // MarkView owned the page structure gets the structure (BUG-060).
@@ -604,6 +602,7 @@ struct PrototypeStudioView: View {
     }
 
     private var composer: some View {
+        DictationInput(text: $draft, isFocused: { draftFocused }) { voice in
         VStack(alignment: .leading, spacing: 6) {
             targetRow
             if let pick = session.pick {
@@ -655,12 +654,10 @@ struct PrototypeStudioView: View {
                     .takesImageAttachments($session.attachments, text: $draft)
                 ImageAttachmentMenu(attachments: $session.attachments)
                     .disabled(!session.hasSite || session.isBusy)
-                DictationButton(dictation: dictation) { transcript, window in
-                    DictationInsertion.insert(transcript, window: window, fieldFocused: draftFocused, text: &draft)
-                }
-                .padding(.top, 2)
+                voice.mic()
+                    .padding(.top, 2)
             }
-            DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
+            voice.status
             HStack {
                 Button {
                     session.approveAndExport()
@@ -686,6 +683,7 @@ struct PrototypeStudioView: View {
             draft = text
             session.restoredDraft = nil
             draftFocused = true
+        }
         }
     }
 

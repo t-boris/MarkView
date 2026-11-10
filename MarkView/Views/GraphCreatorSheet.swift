@@ -10,6 +10,7 @@ struct GraphCreatorSheet: View {
     @State private var selectedFiles: Set<String> = []
     @State private var diagramType = "architecture"
     @State private var customPrompt = ""
+    @FocusState private var promptFocused: Bool
 
     private let diagramTypes = [
         ("architecture", "System Architecture", "C4 component diagram showing all systems, services, databases and their connections"),
@@ -80,10 +81,17 @@ struct GraphCreatorSheet: View {
             // Custom prompt
             if diagramType == "custom" {
                 GroupBox("Custom Prompt") {
-                    TextEditor(text: $customPrompt)
-                        .uiFont(size: 12)
-                        .frame(minHeight: 60)
-                        .padding(4)
+                    DictationInput(text: $customPrompt, isFocused: { promptFocused }) { voice in
+                        VStack(alignment: .leading, spacing: 4) {
+                            TextEditor(text: $customPrompt)
+                                .uiFont(size: 12)
+                                .focused($promptFocused)
+                                .frame(minHeight: 60)
+                                .padding(4)
+                                .overlay(alignment: .bottomTrailing) { voice.mic().padding(4) }
+                            voice.status
+                        }
+                    }
                 }
             }
 

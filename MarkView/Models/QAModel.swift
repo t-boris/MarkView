@@ -14,6 +14,8 @@ final class QAModel: ObservableObject {
 
     @Published private(set) var root: URL?
     @Published private(set) var scenarios: [QAScenario] = []
+    /// When the assistant was asked to write the scenario; the sheet shows how long it has been working.
+    @Published private(set) var generationStarted: Date?
     @Published private(set) var unreadable: [QAUnreadable] = []
     @Published private(set) var current: QAScenario?
     @Published var selectedNode: String?
@@ -120,6 +122,13 @@ final class QAModel: ObservableObject {
         save(scenario)
     }
 
+    /// Makes a copy of a scenario and opens it: the copy is a scenario of its own, ready to be changed.
+    func duplicate(_ id: String) {
+        flush()
+        guard let source = current?.id == id ? current : scenarios.first(where: { $0.id == id }) else { return }
+        add(source.duplicated(existingIDs: existingIDs))
+    }
+
     func delete(_ id: String) {
         guard let root else { return }
         if current?.id == id { current = nil; saveTask?.cancel(); saveTask = nil }
@@ -221,16 +230,27 @@ final class QAModel: ObservableObject {
         var request = request
         request.existingIDs = existingIDs
         notice = nil
-        phase = .generating(attempt: 1, activity: "Starting the assistant")
+        generationStarted = Date()
+        phase = .generating(attempt: 1, activity: request.attachments.isEmpty ? "Starting the assistant" : "Preparing the attached files")
+        let inputsID = QAStore.newRunID(at: request.now)
         generation = Task { [weak self] in
+            var staged = QAAttachments.Staged()
+            defer { QAAttachments.discard(staged) }
             do {
+                if !request.attachments.isEmpty {
+                    let files = request.attachments
+                    // Copying files is disk work: not on the main thread.
+                    staged = try await Task.detached { try QAAttachments.stage(files, root: root, id: inputsID) }.value
+                    request.attachmentPaths = staged.paths
+                }
+                let images = staged.images
                 let outcome = try await QAGenerator.generate(
                     request,
                     onAttempt: { attempt in Task { @MainActor in self?.setAttempt(attempt) } },
                     complete: { prompt in
                         let result = try await CLICompletion.run(
                             CLICompletion.Request(project: root, prompt: prompt, systemPrompt: QAGeneration.systemPrompt(request.appKind),
-                                                  jsonSchema: QAGeneration.schema, readableFolder: root, timeout: 420, label: "qa-generate"),
+                                                  jsonSchema: QAGeneration.schema, readableFolder: root, timeout: 420, images: images, label: "qa-generate"),
                             onActivity: { activity in Task { @MainActor in self?.setActivity(activity) } })
                         return QAGenerator.Answer(structured: result.structured, costUSD: result.costUSD)
                     })
@@ -254,16 +274,27 @@ final class QAModel: ObservableObject {
     }
 
     private func setActivity(_ activity: CLICompletion.Activity) {
-        guard case .generating(let attempt, _) = phase else { return }
-        let text: String
-        switch activity {
-        case .read(let path): text = "Reading " + (path as NSString).lastPathComponent
-        case .search(let pattern): text = "Searching for " + pattern
-        case .thinking: text = "Thinking it through"
-        case .writing(let count): text = "Writing the scenario (\(count) characters)"
-        default: return
-        }
+        guard case .generating(let attempt, _) = phase, let text = Self.progressText(for: activity) else { return }
         phase = .generating(attempt: attempt, activity: text)
+    }
+
+    /// What the person is told the assistant is doing. Every kind of activity has words: Codex reads files by running shell commands, and an
+    /// assistant whose commands were dropped here looked stuck on "Starting the assistant" for the whole run.
+    nonisolated static func progressText(for activity: CLICompletion.Activity) -> String? {
+        func short(_ text: String, _ limit: Int = 70) -> String {
+            let line = text.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? text
+            return line.count > limit ? String(line.prefix(limit)) + "…" : line
+        }
+        switch activity {
+        case .read(let path): return "Reading " + (path as NSString).lastPathComponent
+        case .search(let pattern): return "Searching for " + short(pattern)
+        case .run(let command): return command.isEmpty ? "Working in the project" : "Running " + short(command)
+        case .webSearch(let query): return "Searching the web for " + short(query)
+        case .webFetch(let url): return "Reading " + (URL(string: url)?.host ?? short(url))
+        case .thinking: return "Thinking it through"
+        case .writing(let count): return "Writing the scenario (\(count) characters)"
+        case .answerDelta: return nil
+        }
     }
 
     private func finishGeneration(_ outcome: QAGenerator.Outcome) {
