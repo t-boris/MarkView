@@ -1796,3 +1796,9 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
   the app's main thread for as long as the prompt was open. `QAWebDriverFactory` now reads the password in a detached task.
 - `PROBE_AI=1` (tools/tests/app-probe/run.sh) lets the AI command line sign in from the empty HOME: it needs `~/.claude.json`, `~/.claude` and `~/Library/Keychains`
   linked in. It shares the Keychain, so use it only on checks whose app code reads no saved password.
+
+## `pgrep -f` / `pkill -f` match their own command line (end-to-end-qa, 2026-11-10)
+
+- A Monitor written as `until ! pgrep -f "qa-mutate.py"; do sleep 5; done` never ended, because the monitor's own shell has the pattern in its command line; `pkill -f "qa-mutate.py"` in a Bash call killed the very shell that ran it (exit 144).
+- Wait by PID instead (`while kill -0 <pid>`), or tail the output file for a final marker. To stop a process, kill the PID you started it with.
+- A long background script that reads a worktree must not outlive that worktree: removing `MarkView-qa` crashed the mutation run that still pointed at it. Remove worktrees only after the background work is done.
