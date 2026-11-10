@@ -2,7 +2,7 @@
 type: feature
 id: end-to-end-qa
 title: End-to-End QA
-status: in-progress
+status: done
 owner: Boris Tsekinovsky
 created: 2026-11-09
 provenance: Created from the feature intake
