@@ -1,5 +1,23 @@
 # Lessons
 
+## A progress line must handle every kind of event the assistant can emit, and an unknown one must still move the clock (QA New scenario, 2026-11-10)
+
+- Boris: after "Write scenario" the sheet showed only "Starting the assistant" for minutes, "either a bug or a serious problem with progress". The Codex process was alive
+  (`ps` showed a `codex exec` child of the app, about 0.3% CPU, waiting for the model). `QAModel.setActivity` kept read, search, thinking and writing and dropped everything
+  else; Codex reads files by running shell commands (`.run`), so no text was ever produced. I had written the mapping for the Claude events and never run the other tool.
+- Rules: (1) when a feature shows live progress from `CLICompletion.Activity`, map every case (read, search, run, webSearch, webFetch, thinking, writing, answerDelta) and
+  test with both assistants; (2) always show an elapsed clock, so "nothing changed for a minute" is visible as work still running and not as a freeze;
+  (3) before telling the person it is stuck, look at the process (`ps`, then `/usr/bin/sample` if it is the app) instead of guessing.
+
+## One shared component beats nine copies of the same wiring (voice input, 2026-11-10)
+
+- The dictation pattern (controller, button, status line, insert at the cursor, cancel on disappear) existed as five hand-written copies; Boris found a sixth field without it only
+  because he used it. A new AI text field now takes `DictationInput` and, for material, `IntakeAttachmentBar`; no field builds its own controller.
+- Hosts of a field do not all have `workspaceManager` as an environment object (sheets, panels), so a component must not require it: an environment key set once at the window
+  root (`openDictationSettings`) does the job.
+- When a request is "check that X is everywhere", grep every place text goes to the assistant (`TextEditor`, `TextField`, `IntakeTextEditor`, `CLICompletion.Request`) and list
+  them with file and line before changing anything; the audit found nine more.
+
 ## A feature that runs something needs a decision about what the person SEES while it runs (End-to-End QA, 2026-11-09)
 
 - The End-to-End QA plan reviewed "key pages" after a run. Boris then said what he expected: the scenario plays, every step is named, and

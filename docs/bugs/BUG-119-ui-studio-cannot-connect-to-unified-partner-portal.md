@@ -2,7 +2,7 @@
 type: bug
 id: BUG-119
 title: UI Studio cannot connect to unified-partner-portal on localhost:3000
-status: fixing
+status: done
 severity: high
 reporter: t-boris
 created: 2026-11-09
