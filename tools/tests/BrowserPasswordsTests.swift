@@ -14,6 +14,11 @@ func check(_ name: String, _ ok: Bool) {
 // Hosts and eligibility.
 check("host drops www and case", PasswordRules.host(of: URL(string: "https://WWW.Example.com/login")) == "example.com")
 check("host of nothing", PasswordRules.host(of: nil) == nil)
+check("typed bare host", PasswordRules.host(fromInput: "Dev.Example.com") == "dev.example.com")
+check("typed host with port", PasswordRules.host(fromInput: " localhost:3000 ") == "localhost")
+check("typed address", PasswordRules.host(fromInput: "https://www.example.com/login?x=1") == "example.com")
+check("typed nothing", PasswordRules.host(fromInput: "  ") == nil)
+check("typed spaces inside", PasswordRules.host(fromInput: "not a site") == nil)
 check("https eligible", PasswordRules.isEligible(scheme: "https", host: "example.com"))
 check("http remote not eligible", !PasswordRules.isEligible(scheme: "http", host: "example.com"))
 check("http localhost eligible", PasswordRules.isEligible(scheme: "http", host: "localhost"))

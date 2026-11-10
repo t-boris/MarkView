@@ -185,6 +185,14 @@ final class QAModel: ObservableObject {
         }
     }
 
+    /// Saves a login in the browser's Keychain store (the one a scenario's login reference points into) off the main thread and refreshes the list.
+    /// False when the Keychain refused it. The password is held only for the call.
+    func saveLogin(host: String, username: String, password: String) async -> Bool {
+        let saved = await Task.detached(priority: .userInitiated) { BrowserPasswordStore.shared.save(host: host, username: username, password: password) }.value
+        if saved { savedLogins = await Task.detached(priority: .utility) { BrowserPasswordStore.shared.all() }.value }
+        return saved
+    }
+
     private func upsert(_ scenario: QAScenario) {
         if let index = scenarios.firstIndex(where: { $0.id == scenario.id }) { scenarios[index] = scenario } else {
             scenarios.append(scenario)

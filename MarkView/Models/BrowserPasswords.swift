@@ -89,6 +89,13 @@ enum PasswordRules {
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
+    /// The host a person typed for a login: a bare name (`dev.example.com`), a name with a port or a whole address; nil when no host is in it.
+    static func host(fromInput text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return host(of: URL(string: trimmed.contains("://") ? trimmed : "https://" + trimmed))
+    }
+
     /// Passwords are only saved and filled on https pages and on this machine's own servers.
     static func isEligible(scheme: String, host: String) -> Bool {
         let scheme = scheme.lowercased()

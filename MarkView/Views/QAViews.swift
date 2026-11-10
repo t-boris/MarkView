@@ -130,14 +130,15 @@ struct QATabView: View {
 
 // MARK: - The editor
 
-enum QAPanel: Hashable { case branches, step, setup, run }
+enum QAPanel: String, Hashable, WindowUIStorable { case branches, step, setup, run }
 
 struct QAEditorView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var model: QAModel
     @ObservedObject private var run: QARunModel
     let wide: Bool
-    @State private var panel: QAPanel = .branches
+    /// Which part of the inspector is open. It belongs to the window and survives a switch to another tab of the window and back.
+    @WindowStorage("qa.panel") private var panel = QAPanel.branches
 
     init(model: QAModel, wide: Bool) {
         self.model = model
@@ -256,7 +257,6 @@ struct QAGraphCanvas: View {
     @State private var viewport: CGSize = .zero
 
     private static let space = "qa-graph"
-    private static let viewportSpace = "qa-viewport"
     private static let margin: CGFloat = 6
     private static let zoomRange: ClosedRange<CGFloat> = 0.1...2.5
 
@@ -271,13 +271,6 @@ struct QAGraphCanvas: View {
                 ZStack(alignment: .topLeading) {
                     Canvas { context, _ in draw(&context, layout, lit: lit) }
                         .frame(width: layout.size.width, height: layout.size.height)
-                        .contentShape(Rectangle())
-                        .gesture(SpatialTapGesture().onEnded { tap in
-                            if let node = layout.node(at: tap.location) { model.selectedNode = node.id; model.selectedEdge = nil }
-                            else if let edge = layout.edge(near: tap.location) {
-                                model.selectedEdge = QAEdge(from: edge.from, to: edge.to, label: edge.label); model.selectedNode = nil
-                            } else { model.selectedNode = nil; model.selectedEdge = nil }
-                        })
                     ForEach(layout.nodes) { node in nodeView(node, layout: layout, lit: lit) }
                 }
                 .frame(width: layout.size.width, height: layout.size.height, alignment: .topLeading)
@@ -287,21 +280,27 @@ struct QAGraphCanvas: View {
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
                 .clipped()
                 .contentShape(Rectangle())
-                .coordinateSpace(name: Self.viewportSpace)
-                // Dragging the background moves the graph; a drag that starts on a step connects it to another step instead.
-                .simultaneousGesture(DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.viewportSpace))
+                // One gesture for the whole area: a press that hardly moves is a click (select a step or a connection, or nothing), and a drag that
+                // starts on empty space moves the graph. A drag that starts on a step connects it to another step instead (see `nodeView`).
+                .simultaneousGesture(DragGesture(minimumDistance: 0, coordinateSpace: .local)
                     .onChanged { value in
                         if dragBase == nil {
-                            let start = CGPoint(x: (value.startLocation.x - Self.margin - pan.width) / scale,
-                                                y: (value.startLocation.y - Self.margin - pan.height) / scale)
-                            dragIgnored = layout.node(at: start) != nil
+                            dragIgnored = layout.node(at: graphPoint(value.startLocation, scale: scale)) != nil
                             dragBase = pan
-                            if !dragIgnored, zoom == nil { zoom = scale }
                         }
-                        guard !dragIgnored, let base = dragBase else { return }
+                        guard !dragIgnored, let base = dragBase, hypot(value.translation.width, value.translation.height) >= 4 else { return }
+                        if zoom == nil { zoom = scale }
                         pan = CGSize(width: base.width + value.translation.width, height: base.height + value.translation.height)
                     }
-                    .onEnded { _ in dragBase = nil; dragIgnored = false })
+                    .onEnded { value in
+                        defer { dragBase = nil; dragIgnored = false }
+                        guard hypot(value.translation.width, value.translation.height) < 4 else { return }
+                        let point = graphPoint(value.location, scale: scale)
+                        if let node = layout.node(at: point) { model.selectedNode = node.id; model.selectedEdge = nil }
+                        else if let edge = layout.edge(near: point) {
+                            model.selectedEdge = QAEdge(from: edge.from, to: edge.to, label: edge.label); model.selectedNode = nil
+                        } else { model.selectedNode = nil; model.selectedEdge = nil }
+                    })
                 .background(QAGraphWheel(
                     onZoom: { point, factor in zoom(by: factor, around: point, scale: zoom ?? fitScale(layout, in: geometry.size)) },
                     onPan: { dx, dy in
@@ -323,6 +322,11 @@ struct QAGraphCanvas: View {
         let width = (size.width - 2 * Self.margin) / max(1, layout.size.width)
         let height = (size.height - 2 * Self.margin) / max(1, layout.size.height)
         return max(Self.zoomRange.lowerBound, min(1, width, height))
+    }
+
+    /// A point of the area in the graph's own coordinates.
+    private func graphPoint(_ point: CGPoint, scale: CGFloat) -> CGPoint {
+        CGPoint(x: (point.x - Self.margin - pan.width) / scale, y: (point.y - Self.margin - pan.height) / scale)
     }
 
     /// Changes the scale and keeps the point of the graph under `point` (in the area's own coordinates) where it is.
@@ -540,11 +544,13 @@ struct QAInspector: View {
     @Environment(\.palette) private var palette
     @ObservedObject var model: QAModel
     let scenario: QAScenario
-    @State private var showApps = true
-    @State private var showPlayers = true
-    @State private var showEnvironments = true
-    @State private var showBaseline = false
+    @WindowStorage("qa.showApps") private var showApps = true
+    @WindowStorage("qa.showPlayers") private var showPlayers = true
+    @WindowStorage("qa.showEnvironments") private var showEnvironments = true
+    @WindowStorage("qa.showBaseline") private var showBaseline = false
     let panel: QAPanel
+    /// The sign-in being added for a player; one at a time.
+    @State private var loginDraft: QALoginDraft?
 
     var body: some View {
         ScrollView {
@@ -737,6 +743,18 @@ struct QAInspector: View {
                     }
                     HStack(spacing: 8) {
                         loginMenu(actor)
+                            .popover(isPresented: Binding(get: { loginDraft?.actor == actor.id }, set: { if !$0 { loginDraft = nil } }), arrowEdge: .bottom) {
+                                if let draft = loginDraft {
+                                    QALoginForm(draft: draft, onCancel: { loginDraft = nil }) { host, username, password in
+                                        let saved = await model.saveLogin(host: host, username: username, password: password)
+                                        if saved {
+                                            setLogin(actor.id, QALoginReference(host: host, username: username))
+                                            loginDraft = nil
+                                        }
+                                        return saved
+                                    }
+                                }
+                            }
                         Toggle("Test account", isOn: Binding(get: { actor.createTestAccount }, set: { value in model.edit { s in if let i = s.actors.firstIndex(where: { $0.id == actor.id }) { s.actors[i].createTestAccount = value } } }))
                             .toggleStyle(.checkbox).uiFont(size: 10.5)
                             .help("Create an account that exists only for this test, instead of signing in with a saved login")
@@ -744,21 +762,44 @@ struct QAInspector: View {
                     }
                 }
             }
-            Text("A login is chosen from the passwords the browser saved. Passwords are never copied into the scenario.").uiFont(size: 10).foregroundColor(palette.textDim)
+            Text("A login is chosen from the passwords the browser saved, or added here: it is saved in the macOS Keychain, the same place. Passwords are never copied into the scenario.")
+                .uiFont(size: 10).foregroundColor(palette.textDim)
         }
         .onAppear { model.loadSavedLogins() }
     }
 
+    /// The hosts the player's application runs on, from the addresses of the environments.
+    private func hosts(of actor: QAActor) -> [String] {
+        let appID = actor.app ?? scenario.apps.first?.id
+        var seen: [String] = []
+        for target in scenario.targets {
+            let urls = appID.flatMap { target.locations[$0]?.url }.map { [$0] } ?? target.locations.values.compactMap(\.url)
+            for url in urls {
+                if let host = PasswordRules.host(fromInput: url), !seen.contains(host) { seen.append(host) }
+            }
+        }
+        return seen
+    }
+
     private func loginMenu(_ actor: QAActor) -> some View {
         let current = actor.login
+        let own = hosts(of: actor)
+        // The logins of this player's own hosts first, then the rest of what the browser saved.
+        let mine = model.savedLogins.filter { own.contains($0.host) }
+        let others = model.savedLogins.filter { !own.contains($0.host) }
+        func item(_ login: SavedLogin) -> some View {
+            Button("\(login.username.isEmpty ? "(no user name)" : login.username) — \(login.host)") { setLogin(actor.id, QALoginReference(host: login.host, username: login.username)) }
+        }
         return Menu {
             Button("No login") { setLogin(actor.id, nil) }
+            Button("Add login…") { loginDraft = QALoginDraft(actor: actor.id, host: own.first ?? "") }
+            Divider()
             if model.savedLogins.isEmpty {
                 Text("No saved logins yet")
             }
-            ForEach(model.savedLogins) { login in
-                Button("\(login.username.isEmpty ? "(no user name)" : login.username) — \(login.host)") { setLogin(actor.id, QALoginReference(host: login.host, username: login.username)) }
-            }
+            ForEach(mine) { item($0) }
+            if !mine.isEmpty && !others.isEmpty { Divider() }
+            ForEach(others) { item($0) }
         } label: {
             Label(current.map { "\($0.username) — \($0.host)" } ?? "No login", systemImage: "key")
                 .uiFont(size: 10.5).lineLimit(1)
@@ -1324,5 +1365,68 @@ final class QAGraphWheelView: NSView {
         guard delta != 0 else { return nil }
         onZoom?(point, exp(delta * (precise ? 0.01 : 0.08)))
         return nil
+    }
+}
+
+
+// MARK: - Adding a login
+
+/// A sign-in being typed for a player. The password is held in memory only until it is saved or the form is closed.
+struct QALoginDraft: Identifiable, Equatable {
+    let id = UUID()
+    var actor: String
+    var host: String
+    var username = ""
+    var password = ""
+}
+
+/// Host, user name and password of a login. It saves into the browser's Keychain store through `save`; a scenario keeps only host and user name.
+struct QALoginForm: View {
+    @Environment(\.palette) private var palette
+    @State var draft: QALoginDraft
+    let onCancel: () -> Void
+    /// Returns false when the Keychain refused the login.
+    let save: (String, String, String) async -> Bool
+    @State private var saving = false
+    @State private var failed = false
+
+    private var host: String? { PasswordRules.host(fromInput: draft.host) }
+    private var valid: Bool { host != nil && !draft.username.isEmpty && !draft.password.isEmpty }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Add a login").uiFont(size: 12, weight: .semibold)
+            TextField("Site, e.g. dev.example.com", text: $draft.host).textFieldStyle(.roundedBorder)
+            TextField("User name", text: $draft.username).textFieldStyle(.roundedBorder).textContentType(.username)
+            SecureField("Password", text: $draft.password).textFieldStyle(.roundedBorder).textContentType(.password)
+            if !draft.host.isEmpty, host == nil {
+                Text("That is not a site address.").uiFont(size: 10).foregroundColor(palette.red)
+            }
+            if failed {
+                Text("The Keychain did not accept this login.").uiFont(size: 10).foregroundColor(palette.red)
+            }
+            Text("Saved in the macOS Keychain with the browser's passwords. The scenario keeps only the site and the user name.")
+                .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel).keyboardShortcut(.cancelAction)
+                Button("Save") { submit() }
+                    .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+                    .disabled(!valid || saving)
+            }
+        }
+        .padding(12)
+        .frame(width: 300)
+    }
+
+    private func submit() {
+        guard let host, valid else { return }
+        saving = true; failed = false
+        let username = draft.username, password = draft.password
+        Task {
+            let saved = await save(host, username, password)
+            saving = false
+            failed = !saved
+        }
     }
 }

@@ -32,6 +32,9 @@ One step per line, run on the main queue (`#` starts a comment). Output goes to 
 | `motion begin` / `motion end` | how many backdrop layers moved between the two, and the backdrop's hit test |
 | `ax` | accessibility tree: every button with its frame in window coordinates (top-left origin) |
 | `move x y` / `click x y` | real mouse events through `sendEvent:` |
+| `clicklabel <label>` | clicks the first element whose accessibility label or title is `<label>` (independent of the layout) |
+| `drag x1 y1 x2 y2` | mouse down, five drags, mouse up (content coordinates, top-left origin) |
+| `cmdkey <char>` | presses ⌘<char> in the picked window (menu and `.keyboardShortcut` equivalents) |
 | `windows` | every window: class, title, visibility, sheets, modal window |
 | `quit` | exit |
 

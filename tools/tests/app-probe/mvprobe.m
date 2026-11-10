@@ -106,6 +106,27 @@ static NSArray<NSValue *> *Positions(CALayer *root) {
     return a;
 }
 
+/// The centre (window content coordinates, top-left origin) of the first accessibility element whose label or title is `name`; NO when there is none.
+static BOOL FindAX(id el, NSWindow *w, NSString *name, int depth, int *count, CGPoint *centre) {
+    if (depth > 14 || *count > 1500) return NO;
+    NSArray *kids = [el respondsToSelector:@selector(accessibilityChildren)] ? [el accessibilityChildren] : nil;
+    for (id k in kids) {
+        (*count)++;
+        // SwiftUI hands out attributed strings for some labels.
+        id label = [k respondsToSelector:@selector(accessibilityLabel)] ? [k accessibilityLabel] : nil;
+        id title = [k respondsToSelector:@selector(accessibilityTitle)] ? [k accessibilityTitle] : nil;
+        if ([label isKindOfClass:NSAttributedString.class]) label = [label string];
+        if ([title isKindOfClass:NSAttributedString.class]) title = [title string];
+        if ([label isEqual:name] || [title isEqual:name]) {
+            NSRect wf = [w convertRectFromScreen:[k accessibilityFrame]];
+            *centre = CGPointMake(NSMidX(wf), w.contentView.bounds.size.height - NSMidY(wf));
+            return YES;
+        }
+        if (FindAX(k, w, name, depth + 1, count, centre)) return YES;
+    }
+    return NO;
+}
+
 static NSArray<NSValue *> *MotionBefore;
 static NSView *MotionView;
 
@@ -205,6 +226,65 @@ static void RunNext(void) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.08 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ ClickAt(w, x, y, NO); });
         }
         delay = 0.2;
+    } else if ([cmd isEqualToString:@"hit"]) {
+        // `hit x y`: the view AppKit's hit test finds at that point and its superview chain.
+        if (w) {
+            NSView *cv = w.contentView;
+            NSPoint pt = [cv convertPoint:NSMakePoint(p[1].doubleValue, cv.isFlipped ? p[2].doubleValue : cv.bounds.size.height - p[2].doubleValue) toView:nil];
+            NSView *v = [w.contentView.superview hitTest:[w.contentView.superview convertPoint:pt fromView:nil]];
+            NSMutableArray *chain = [NSMutableArray array];
+            for (NSView *x = v; x && chain.count < 8; x = x.superview) [chain addObject:NSStringFromClass([x class])];
+            L(@"hit %@,%@ -> %@", p[1], p[2], [chain componentsJoinedByString:@" < "]);
+        }
+    } else if ([cmd isEqualToString:@"clicklabel"]) {
+        // `clicklabel End-to-End QA`: clicks the first element with that accessibility label or title, wherever the layout put it.
+        NSString *name = [[line substringFromIndex:11] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (w) {
+            [NSApp accessibilitySetValue:@YES forAttribute:@"AXEnhancedUserInterface"];
+            int n = 0; CGPoint c = CGPointZero;
+            if (FindAX(w.contentView, w, name, 0, &n, &c)) {
+                L(@"clicklabel %@ at %.0f,%.0f", name, c.x, c.y);
+                MoveTo(w, c.x, c.y);
+                ClickAt(w, c.x, c.y, YES);
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.08 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ ClickAt(w, c.x, c.y, NO); });
+            } else L(@"clicklabel %@: not found", name);
+        }
+        delay = 0.5;
+    } else if ([cmd isEqualToString:@"cmdkey"]) {
+        // `cmdkey 8` presses ⌘8 in the picked window (menu and .keyboardShortcut equivalents).
+        if (w && p.count > 1) {
+            NSString *c = p[1];
+            NSEvent *e = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand
+                                         timestamp:[NSProcessInfo processInfo].systemUptime windowNumber:w.windowNumber context:nil
+                                        characters:c charactersIgnoringModifiers:c isARepeat:NO keyCode:0];
+            // The main menu owns the key equivalents of `.keyboardShortcut` commands; an accessory-policy app does not route a key event to it by itself.
+            if (![NSApp.mainMenu performKeyEquivalent:e]) [NSApp sendEvent:e];
+        }
+        delay = 0.3;
+    } else if ([cmd isEqualToString:@"drag"]) {
+        // `drag x1 y1 x2 y2`: mouse down at the first point, five drags towards the second, mouse up (window content coordinates, top-left origin).
+        if (w && p.count > 4) {
+            CGFloat x1 = p[1].doubleValue, y1 = p[2].doubleValue, x2 = p[3].doubleValue, y2 = p[4].doubleValue;
+            NSView *cv = w.contentView;
+            NSPoint (^pt)(CGFloat, CGFloat) = ^NSPoint(CGFloat x, CGFloat yTop) {
+                return [cv convertPoint:NSMakePoint(x, cv.isFlipped ? yTop : cv.bounds.size.height - yTop) toView:nil];
+            };
+            void (^send)(NSEventType, CGFloat, CGFloat, CGFloat) = ^(NSEventType type, CGFloat x, CGFloat y, CGFloat pressure) {
+                NSEvent *e = [NSEvent mouseEventWithType:type location:pt(x, y) modifierFlags:0 timestamp:[NSProcessInfo processInfo].systemUptime
+                                            windowNumber:w.windowNumber context:nil eventNumber:0 clickCount:1 pressure:pressure];
+                [w sendEvent:e];
+            };
+            // The events are spread over the run loop: a SwiftUI drag gesture only sees them when each is delivered in its own turn.
+            MoveTo(w, x1, y1);
+            send(NSEventTypeLeftMouseDown, x1, y1, 1);
+            for (int i = 1; i <= 5; i++) {
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.06 * i * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    send(NSEventTypeLeftMouseDragged, x1 + (x2 - x1) * i / 5, y1 + (y2 - y1) * i / 5, 1);
+                });
+            }
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ send(NSEventTypeLeftMouseUp, x2, y2, 0); });
+        }
+        delay = 0.8;
     } else if ([cmd isEqualToString:@"windows"]) {
         for (NSWindow *x in NSApp.windows)
             L(@"window %@ title='%@' visible=%d alpha=%.1f sheet=%d frame=%@ attachedSheet=%@", NSStringFromClass([x class]), x.title, x.isVisible, x.alphaValue, x.isSheet,
