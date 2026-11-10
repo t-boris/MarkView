@@ -176,7 +176,7 @@ func catalogueChecks() {
     check(idsWith.contains(.git) && !idsWithout.contains(.git), "catalogue: Git only for a Git repository")
     check(Set(idsWith).subtracting(idsWithout) == [.git], "catalogue: Git is the only difference")
     check(withGit.allSatisfy { !$0.actions.isEmpty }, "catalogue: no empty section")
-    let expected: Set<WelcomeActionID> = [.terminal, .newFeature, .quickFeature, .newBug, .discussions, .tasks, .xray, .understand, .research, .search, .files, .openFile, .git, .deployments, .workflow, .uiStudio, .browser]
+    let expected: Set<WelcomeActionID> = [.terminal, .newFeature, .quickFeature, .newBug, .discussions, .tasks, .xray, .understand, .research, .search, .files, .openFile, .git, .deployments, .workflow, .qa, .uiStudio, .browser]
     check(Set(idsWith) == expected, "catalogue: the tiles REQ-001 names", "\(Set(idsWith).symmetricDifference(expected))")
     check(WelcomeCatalogue.emptyWindow.map(\.id) == [.openFolder, .openFile, .newProject], "catalogue: the window without a folder offers Open Folder, Open File, New Project")
     check(Set(idsWith).union(WelcomeCatalogue.emptyWindow.map(\.id)) == Set(WelcomeActionID.allCases), "catalogue: every action id is offered somewhere")

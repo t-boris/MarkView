@@ -6,7 +6,7 @@ enum WelcomeActionID: String, CaseIterable {
     // A window with a project
     case terminal, newFeature, quickFeature, newBug, discussions, tasks
     case xray, understand, research, search, files, openFile
-    case git, deployments, workflow, uiStudio, browser
+    case git, deployments, workflow, qa, uiStudio, browser
     // A window without a folder
     case openFolder, newProject
 }
@@ -54,6 +54,8 @@ enum WelcomeCatalogue {
             WelcomeAction(id: .deployments, title: "Build & Deployment", hint: "Where the project runs",
                           symbol: "server.rack", shortcut: "⌃⌘D"),
             WelcomeAction(id: .workflow, title: "Workflow", hint: "Statuses and processes of tasks", symbol: "flowchart", shortcut: nil),
+            WelcomeAction(id: .qa, title: "End-to-End QA", hint: "Scenarios checked branch by branch", symbol: "checklist.checked",
+                          shortcut: "⌘8"),
             WelcomeAction(id: .uiStudio, title: "UI Studio", hint: "Design and compare UI", symbol: "paintpalette", shortcut: "⌘7"),
             WelcomeAction(id: .browser, title: "Browser", hint: "Open a web page", symbol: "globe", shortcut: "⌘5"),
             WelcomeAction(id: .openFolder, title: "Open Folder…", hint: "Work on a project", symbol: "folder.badge.plus",
@@ -71,7 +73,7 @@ enum WelcomeCatalogue {
         let layout: [(WelcomeSection, [WelcomeActionID])] = [
             (.start, [.terminal, .newFeature, .quickFeature, .newBug, .discussions, .tasks]),
             (.explore, [.xray, .understand, .research, .search, .files, .openFile]),
-            (.run, (isGitRepo ? [.git] : []) + [.deployments, .workflow, .uiStudio, .browser])
+            (.run, (isGitRepo ? [.git] : []) + [.deployments, .workflow, .qa, .uiStudio, .browser])
         ]
         return layout.map { ($0.0, $0.1.map(action)) }
     }
