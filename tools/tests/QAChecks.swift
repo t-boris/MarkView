@@ -846,4 +846,398 @@ do {
     check("gate: a stopped run takes no yes either", stoppedProduction.confirmed.isEmpty && stoppedProduction.decision(for: "node:n2") == .refused("The run was stopped."))
 }
 
+// MARK: - What the assistant is asked and what it answers (QAStepPrompt, QAScreen)
+
+do {
+    func answer(_ move: String, narration: String = "n", reason: String = "", block: String = "", action: [String: Any]? = nil) -> [String: Any] {
+        ["move": move, "narration": narration, "action": action ?? ["kind": "none"], "reason": reason, "blockReason": block]
+    }
+    func parsed(_ value: Any?, http: Bool = false) -> QADecision? { try? QAStepPrompt.parse(value, allowsHTTP: http) }
+    func fails(_ value: Any?, http: Bool = false) -> QAStepPrompt.ParseError? {
+        do { _ = try QAStepPrompt.parse(value, allowsHTTP: http); return nil } catch { return error as? QAStepPrompt.ParseError }
+    }
+
+    check("step answer: an action is read with its narration", parsed(answer("act", narration: "Clicking Pay to send the order", action: ["kind": "click", "ref": "e12"]))
+          == QADecision(move: .act(QAAction(kind: .click, ref: "e12")), narration: "Clicking Pay to send the order"))
+    check("step answer: a reference written [e12] is e12", parsed(answer("act", action: ["kind": "click", "ref": "[e12]"]))?.move == .act(QAAction(kind: .click, ref: "e12")))
+    check("step answer: fill keeps the text as written, spaces included", parsed(answer("act", action: ["kind": "fill", "ref": "e2", "text": " 42 "]))?.move == .act(QAAction(kind: .fill, ref: "e2", text: " 42 ")))
+    check("step answer: done", parsed(answer("done", narration: "The order is shown"))?.move == .done)
+    check("step answer: not met carries what was seen", parsed(answer("notMet", reason: "No confirmation"))?.move == .notMet("No confirmation"))
+    check("step answer: not met with no reason says the narration", parsed(answer("notMet", narration: "Nothing shown"))?.move == .notMet("Nothing shown"))
+    check("step answer: blocked carries its reason", parsed(answer("blocked", reason: "Refused", block: "loginFailed"))?.move == .blocked(.loginFailed, "Refused"))
+    check("step answer: an unknown block reason is other", parsed(answer("blocked", reason: "x", block: "mystery"))?.move == .blocked(.other, "x"))
+    check("step answer: the assistant cannot claim the baseline was not established", parsed(answer("blocked", reason: "x", block: "baselineNotEstablished"))?.move == .blocked(.other, "x"))
+    check("step answer: narration is cut to 300 characters", (parsed(answer("done", narration: String(repeating: "x", count: 900)))?.narration.count ?? 0) == 300)
+    check("step answer: a click needs an element", fails(answer("act", action: ["kind": "click", "ref": ""])) == .missingRef(.click))
+    check("step answer: so does a fill", fails(answer("act", action: ["kind": "fill", "ref": "", "text": "x"])) == .missingRef(.fill))
+    check("step answer: a choice needs the option", fails(answer("act", action: ["kind": "select", "ref": "e1", "text": ""])) == .missingText(.select))
+    check("step answer: opening a page needs an address", fails(answer("act", action: ["kind": "navigate"])) == .missingURL(.navigate))
+    check("step answer: a key needs its name", fails(answer("act", action: ["kind": "key"])) == .missingText(.key))
+    check("step answer: an action that is none is no action", fails(answer("act", action: ["kind": "none"])) == .missingAction)
+    check("step answer: an act with no action is refused", fails(["move": "act", "narration": "n"]) == .missingAction)
+    check("step answer: a step may not send requests of its own", fails(answer("act", action: ["kind": "http", "url": "/api/reset"]), http: false) == .notAllowed(.http))
+    check("step answer: preparation may, and a request defaults to GET", parsed(answer("act", action: ["kind": "http", "url": "/api/reset"]), http: true)?.move == .act(QAAction(kind: .http, url: "/api/reset", method: "GET")))
+    check("step answer: a method is upper-cased", parsed(answer("act", action: ["kind": "http", "url": "/x", "method": "post"]), http: true)?.move == .act(QAAction(kind: .http, url: "/x", method: "POST")))
+    check("step answer: a wait is capped at 30 seconds", parsed(answer("act", action: ["kind": "wait", "amount": 900_000]))?.move == .act(QAAction(kind: .wait, amount: 30_000)))
+    check("step answer: an unknown move", fails(answer("dance")) == .unknownMove("dance"))
+    check("step answer: not an object", fails("done") == .notAnObject && fails(nil) == .notAnObject)
+
+    let schema = QAStepPrompt.schema
+    let properties = schema["properties"] as? [String: Any] ?? [:]
+    check("step answer: the schema is valid JSON with the five parts", JSONSerialization.isValidJSONObject(schema) && Set(properties.keys) == ["move", "narration", "action", "reason", "blockReason"])
+    check("step answer: every kind of action is offered", {
+        let kinds = (((properties["action"] as? [String: Any])?["properties"] as? [String: Any])?["kind"] as? [String: Any])?["enum"] as? [String] ?? []
+        return Set(kinds) == Set(["none"] + QAActionKind.allCases.map(\.rawValue))
+    }())
+
+    // The prompt
+    let task = QAStepTask(id: "n2", kind: .act, title: "Pay with a valid card", detail: "Use the test card", actorName: "Buyer", appName: "Shop")
+    let page = QAObservation(address: "http://localhost:3000/cart", title: "Cart", snapshot: "[e1] button \"Pay\"\nTotal 12")
+    let history = (1...9).map { QAHistoryItem(narration: "n", action: "click [e\($0)]", result: "ok \($0)") }
+    let text = QAStepPrompt.prompt(task: task, goal: "A buyer pays", history: history, observation: page, actionsLeft: 5)
+    check("step prompt: the goal, the application, the player, the step and its details", ["A buyer pays", "Shop", "Buyer", "Pay with a valid card", "Use the test card"].allSatisfy(text.contains))
+    check("step prompt: the page", text.contains("http://localhost:3000/cart") && text.contains("Title: Cart") && text.contains("[e1] button \"Pay\""))
+    check("step prompt: the last six actions only, with what came of them", text.contains("click [e9] → ok 9") && text.contains("click [e4] → ok 4") && !text.contains("click [e3] → ok 3"))
+    check("step prompt: how many actions are left", text.contains("5 actions left") && QAStepPrompt.prompt(task: task, goal: "g", history: [], observation: page, actionsLeft: 1).contains("1 action left"))
+    check("step prompt: no history, no history heading", !QAStepPrompt.prompt(task: task, goal: "g", history: [], observation: page, actionsLeft: 3).contains("What you did so far"))
+    check("step prompt: a check is told to change nothing", QAStepPrompt.prompt(task: QAStepTask(id: "n3", kind: .verify, title: "t", detail: "", actorName: "B", appName: "S"), goal: "g", history: [], observation: page, actionsLeft: 3).contains("do not change anything"))
+    check("step prompt: requests are allowed only for preparation", text.contains("may not use http") && QAStepPrompt.prompt(task: QAStepTask(id: "s", kind: .act, title: "t", detail: "", actorName: "B", appName: "S", allowsHTTP: true), goal: "g", history: [], observation: page, actionsLeft: 3).contains("you may use http"))
+    let long = QAObservation(address: "a", title: "t", snapshot: String(repeating: "x", count: 20_000))
+    let cut = QAStepPrompt.prompt(task: task, goal: "g", history: [], observation: long, actionsLeft: 3)
+    check("step prompt: a long page is cut and says so", cut.count < 9000 && cut.contains("the page continues"))
+    check("step prompt: the system prompt keeps passwords away from the assistant", QAStepPrompt.systemPrompt().contains("{{password}}") && QAStepPrompt.systemPrompt().contains("Never type, guess or write a real password"))
+
+    // What a step costs
+    var effort = QAEffort()
+    for (kind, expected) in [(QAActionKind.click, "clicks"), (.fill, "fills"), (.select, "fills"), (.scroll, "scrolls"), (.navigate, "loads"), (.key, "keys")] {
+        var one = QAEffort()
+        QAAction(kind: kind).addEffort(to: &one)
+        let counted = [one.clicks, one.fills, one.scrolls, one.loads, one.keys].reduce(0, +)
+        check("effort: \(kind.rawValue) is one \(expected)", counted == 1 && one.interactions == 1 && { switch expected { case "clicks": return one.clicks == 1; case "fills": return one.fills == 1; case "scrolls": return one.scrolls == 1; case "loads": return one.loads == 1; default: return one.keys == 1 } }())
+        QAAction(kind: kind).addEffort(to: &effort)
+    }
+    QAAction(kind: .wait).addEffort(to: &effort)
+    QAAction(kind: .http).addEffort(to: &effort)
+    check("effort: waiting and the runner's own requests cost a person nothing", effort.interactions == 6 && effort.clicks == 1 && effort.fills == 2)
+    check("effort: efforts add up", (QAEffort(clicks: 1, fills: 2, scrolls: 3, loads: 4, keys: 5, screens: 6, milliseconds: 7) + QAEffort(clicks: 10, milliseconds: 100))
+          == QAEffort(clicks: 11, fills: 2, scrolls: 3, loads: 4, keys: 5, screens: 6, milliseconds: 107))
+
+    // Which screen is this
+    let a = QAScreen.signature(address: "http://x/orders?page=2#top", snapshot: "[e1] button \"Open 3\"\nOrders 12")
+    check("screen: the same screen has the same signature whatever the numbers, the references and the query", a == QAScreen.signature(address: "http://x/orders?page=9", snapshot: "[e7] button \"Open 8\"\nOrders 40"))
+    check("screen: another address is another screen", a != QAScreen.signature(address: "http://x/cart", snapshot: "[e1] button \"Open 3\"\nOrders 12"))
+    check("screen: other content is another screen", a != QAScreen.signature(address: "http://x/orders", snapshot: "[e1] button \"Open 3\"\nOrders 12\nA new row"))
+}
+
+// MARK: - A player's sign-in (QACredentials)
+
+do {
+    let both = QACredentials(username: "alice", password: "alice-test-pass")
+    check("credentials: both placeholders are filled, wherever and as often as they stand", both.fill("{{username}}/{{password}} then {{username}} again") == "alice/alice-test-pass then alice again")
+    check("credentials: text with no placeholder is left alone", both.fill("Pay 12 EUR") == "Pay 12 EUR")
+    check("credentials: a placeholder of another name is left as written", both.fill("{{token}}") == "{{token}}")
+    check("credentials: without a password its placeholder stays, so nothing is made up", QACredentials(username: "alice", password: nil).fill("{{username}} {{password}}") == "alice {{password}}")
+    check("credentials: without a user name likewise", QACredentials(username: nil, password: "secret1").fill("{{username}} {{password}}") == "{{username}} secret1")
+    check("credentials: a password in the page's answer is scrubbed everywhere", both.scrub("typed alice-test-pass, echo alice-test-pass") == "typed \(QACredentials.mask), echo \(QACredentials.mask)")
+    check("credentials: the user name is not a secret", both.scrub("alice signed in") == "alice signed in")
+    check("credentials: a password shorter than three characters is not scrubbed (it would blot out words)", QACredentials(username: nil, password: "ab").scrub("about a table") == "about a table")
+    check("credentials: three characters are scrubbed", QACredentials(username: nil, password: "abc").scrub("xabcx") == "x\(QACredentials.mask)x")
+    check("credentials: no password, nothing to scrub", QACredentials(username: "a", password: nil).scrub("text") == "text" && QACredentials(username: nil, password: "").scrub("text") == "text")
+    check("credentials: a placeholder this player has no value for is reported, so it is never typed as it stands", QACredentials(username: "alice", password: nil).unfilled("{{username}} {{password}}") == ["{{password}}"] && QACredentials(username: nil, password: nil).unfilled("{{username}} {{password}}") == ["{{username}}", "{{password}}"])
+    check("credentials: nothing is unfilled when the player has both, or the text has no placeholder", both.unfilled("{{username}} {{password}}").isEmpty && QACredentials(username: nil, password: nil).unfilled("plain").isEmpty)
+    check("credentials: what was filled in never survives scrubbing", !both.scrub(both.fill("{{password}}")).contains("alice-test-pass"))
+}
+
+// MARK: - A run (QARunner), with a browser and an assistant made up for the check
+
+enum RunTestError: Error, LocalizedError {
+    case refused
+    var errorDescription: String? { "refused" }
+}
+
+final class FakeDriver: QAActorDriver {
+    let request: QADriverRequest
+    var opened: [String] = []
+    var performed: [QAAction] = []
+    var failing: Set<String> = []
+    var armed: [QAFault] = []
+    var hits = 0
+    var closed = false
+    var evidence: QAPageEvidence?
+    var measured = 0
+    private var changes = 0
+    init(_ request: QADriverRequest) { self.request = request }
+    func open(_ address: String) async throws { opened.append(address) }
+    func observe() async throws -> QAObservation {
+        QAObservation(address: request.address + "/page", title: "Page", snapshot: "view " + String(repeating: "x", count: changes + 1) + "\n[e1] button \"Go\"")
+    }
+    func perform(_ action: QAAction) async throws -> String {
+        if failing.contains(action.summary) { throw RunTestError.refused }
+        performed.append(action)
+        if action.kind != .http && action.kind != .wait { changes += 1 }
+        return "ok"
+    }
+    func screenshot() async -> Data? { Data([1, 2, 3]) }
+    func arm(_ fault: QAFault) async throws { armed.append(fault) }
+    func faultHits() async -> Int { hits }
+    func measure() async -> QAPageEvidence? { measured += 1; return evidence }
+    func close() async { closed = true }
+}
+
+final class FakeFactory: QADriverFactory {
+    var drivers: [FakeDriver] = []
+    var failFor: Set<String> = []
+    var failing: Set<String> = []
+    var hits = 0
+    var evidence: QAPageEvidence?
+    func makeDriver(_ request: QADriverRequest) async throws -> QAActorDriver {
+        if failFor.contains(request.actor?.id ?? "setup") { throw RunTestError.refused }
+        let driver = FakeDriver(request)
+        driver.failing = failing
+        driver.evidence = evidence
+        driver.hits = hits
+        drivers.append(driver)
+        return driver
+    }
+    func driver(_ actor: String?) -> FakeDriver? { drivers.first { $0.request.actor?.id == actor } }
+}
+
+final class ScriptedAssistant: QAAssistant {
+    var script: [String: [[String: Any]]]
+    var prompts: [String] = []
+    var failure: Error?
+    var cancelOnCall: Int?
+    private var calls = 0
+    init(_ script: [String: [[String: Any]]] = [:]) { self.script = script }
+    func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any? {
+        calls += 1
+        prompts.append(prompt)
+        if let failure { throw failure }
+        if calls == cancelOnCall { withUnsafeCurrentTask { $0?.cancel() } }
+        for title in script.keys where prompt.contains("): \(title)\n") {
+            if var queue = script[title], !queue.isEmpty { let next = queue.removeFirst(); script[title] = queue; return next }
+        }
+        return ["move": "done", "narration": "Done.", "action": ["kind": "none"], "reason": "", "blockReason": ""] as [String: Any]
+    }
+    func asked(_ title: String) -> Bool { prompts.contains { $0.contains("): \(title)\n") } }
+}
+
+final class Recorder: QARunObserver {
+    var events: [QARunEvent] = []
+    func handle(_ event: QARunEvent) { events.append(event) }
+    var narrations: [QATimelineEntry] { events.compactMap { if case .narration(let entry) = $0 { return entry } else { return nil } } }
+    var shown: [QAScreenEvent] { events.compactMap { if case .screen(let screen) = $0 { return screen } else { return nil } } }
+    var screens: [(isNew: Bool, png: Data?)] { shown.map { ($0.isNew, $0.png) } }
+}
+
+func move(_ kind: String, _ ref: String = "e1", text: String = "", url: String = "", method: String = "", _ narration: String = "Doing it") -> [String: Any] {
+    ["move": "act", "narration": narration, "action": ["kind": kind, "ref": ref, "text": text, "url": url, "method": method, "direction": "", "amount": 0], "reason": "", "blockReason": ""]
+}
+func finished(_ narration: String = "Done.") -> [String: Any] { ["move": "done", "narration": narration, "action": ["kind": "none"], "reason": "", "blockReason": ""] }
+func notMet(_ reason: String) -> [String: Any] { ["move": "notMet", "narration": "Looking", "action": ["kind": "none"], "reason": reason, "blockReason": ""] }
+func stuck(_ reason: String, _ block: String) -> [String: Any] { ["move": "blocked", "narration": "Stuck", "action": ["kind": "none"], "reason": reason, "blockReason": block] }
+
+do {
+    let mainLine = "n1>n2>n3>n4>n5", slow = "n1>n2>f1>c2", declined = "n1>a1>c1"
+    let localBuyer = QALoginReference(host: "localhost", username: "buyer")
+    let local = changed(shop()) { $0.actors[0].login = localBuyer }
+
+    struct Setup {
+        var record: QARunRecord
+        var factory: FakeFactory
+        var assistant: ScriptedAssistant
+        var recorder: Recorder
+        var asked: [String]
+        var gate: QAGate
+        var result: QACheckResult? { record.results.first }
+    }
+
+    func run(scenario: QAScenario = local, target: String = "local", branches: [String] = [mainLine], script: [String: [[String: Any]]] = [:],
+             saved: Set<QALoginReference> = [localBuyer], approve: Bool = true, confirm: Bool = true, config: QARunner.Config = QARunner.Config(),
+             prepare: (FakeFactory, ScriptedAssistant) -> Void = { _, _ in }) -> Setup {
+        var scenario = scenario
+        scenario.clearSelection()
+        for branch in branches { scenario.setSelected(branch, true) }
+        let plan = QAPlanner.make(scenario, targetID: target, savedLogins: saved)
+        var gate = QAGate(plan: plan)
+        if approve { gate.approve(acknowledgedProduction: true) }
+        let factory = FakeFactory(), assistant = ScriptedAssistant(script), recorder = Recorder()
+        prepare(factory, assistant)
+        var asked: [String] = []
+        var tick = 0.0
+        let runner = QARunner(scenario: scenario, plan: plan, gate: gate, factory: factory, assistant: assistant, runID: "r1",
+                              confirm: { confirmation in asked.append(confirmation.id); return confirm }, observer: recorder,
+                              now: { tick += 1; return now.addingTimeInterval(tick) }, config: config)
+        let record = (try? runAsync { await runner.run() }.get()) ?? QARunRecord(id: "lost", scenarioID: "", targetID: "", targetKind: .local, selected: [], startedAt: now)
+        return Setup(record: record, factory: factory, assistant: assistant, recorder: recorder, asked: asked, gate: runner.gate)
+    }
+
+    // A run that passes
+    let okScript: [String: [[String: Any]]] = [
+        "Add a product to the cart": [move("click", "e1"), finished("The product is in the cart")],
+        "Pay with a valid card": [move("fill", "e2", text: "4242"), move("click", "e3"), finished()],
+        "Open the order list": [move("navigate", url: "/orders"), finished()],
+    ]
+    let ok = run(script: okScript)
+    let passed = ok.result
+    check("run: a branch whose steps all hold passes", passed?.verdict.outcome == .passed && ok.record.isFinished && ok.record.results.count == 1)
+    check("run: every step was met, in order", passed?.nodesMet == ["n1", "n2", "n3", "n4", "n5"])
+    check("run: what the person would have done is counted: two clicks, one field, one page load", passed?.effort.clicks == 2 && passed?.effort.fills == 1 && passed?.effort.loads == 1 && passed?.effort.keys == 0 && passed?.effort.scrolls == 0)
+    check("run: each step has its own count", passed?.steps.map(\.node) == ["n1", "n2", "n3", "n4", "n5"] && passed?.steps[0].effort.clicks == 1 && passed?.steps[1].effort.fills == 1 && passed?.steps[1].effort.clicks == 1 && passed?.steps[2].effort.interactions == 0)
+    check("run: the branch's count is the sum of its steps", passed.map { result in result.steps.reduce(QAEffort()) { $0 + $1.effort }.interactions == result.effort.interactions && result.steps.reduce(0) { $0 + $1.effort.milliseconds } == result.effort.milliseconds } == true)
+    check("run: time is measured from the clock", (passed?.steps.allSatisfy { $0.effort.milliseconds > 0 && $0.effort.milliseconds % 1000 == 0 }) == true)
+    check("run: the screens a step reached are counted", (passed?.effort.screens ?? 0) >= 3)
+    check("run: the actor's driver got the actor's saved login, the other none", ok.factory.driver("buyer")?.request.login == localBuyer && ok.factory.driver("seller")?.request.login == nil)
+    check("run: each player has a session of its own, opened at the environment's address", ok.factory.drivers.count == 2 && ok.factory.drivers.allSatisfy { $0.opened == ["http://localhost:3000"] })
+    check("run: the sessions are closed when the branch ends", ok.factory.drivers.allSatisfy(\.closed))
+    check("run: actions reach the right session", ok.factory.driver("buyer")?.performed.map(\.kind) == [.click, .fill, .click] && ok.factory.driver("seller")?.performed.map(\.kind) == [.navigate])
+    check("run: the buyer signs in and the seller gets an account before the steps", ok.assistant.prompts.first?.contains("Sign in as Buyer") == true && ok.assistant.prompts.contains { $0.contains("Create a new test account for Seller") })
+    check("run: a check is told to change nothing, an action is not", ok.assistant.prompts.first { $0.contains("): Confirmation is shown\n") }?.contains("a check: do not change anything") == true && ok.assistant.prompts.first { $0.contains("): Pay with a valid card\n") }?.contains("an action") == true)
+    check("run: the sign-in is told to use placeholders, never real values", ok.assistant.prompts.first?.contains("{{username}} and {{password}}") == true)
+
+    // What is told
+    let lines = ok.record.timeline
+    check("run: the timeline is the story: preparation, actions, what was seen, the result", lines.first?.kind == .preparation && lines.contains { $0.kind == .action && $0.text.contains("Buyer: Doing it") } && lines.last?.kind == .result && lines.last?.text == "Passed: Every step and check held.")
+    check("run: every line has its place in time, in order", lines.map(\.id) == Array(1...lines.count) && zip(lines, lines.dropFirst()).allSatisfy { $0.time <= $1.time } && (lines.last?.time ?? 0) > (lines.first?.time ?? 0) && lines.allSatisfy { $0.branch == mainLine })
+    check("run: with two players a line says whose turn it is", lines.contains { $0.text.hasPrefix("Buyer: ") } && lines.contains { $0.text.hasPrefix("Seller: ") })
+    check("run: the run record carries the timeline", ok.record.timeline == ok.recorder.narrations)
+    check("run: a step with no narration is told in the action's own words", run(script: ["Add a product to the cart": [move("click", "e5", "")]]).record.timeline.contains { $0.text.contains("click [e5]") })
+    check("run: with one player no name is put in front", run(scenario: changed(local) { $0.actors = [$0.actors[0]]; $0.nodes[3].actor = "buyer"; $0.nodes[4].actor = "buyer" }, script: ["Add a product to the cart": [move("click", "e5", "Opening")]]).record.timeline.contains { $0.text == "Opening" })
+
+    let events = ok.recorder.events
+    check("run: the observer hears the run start, then the branch, then the steps, then the end", {
+        guard case .runStarted(let id, let branches)? = events.first, id == "r1", branches == [mainLine] else { return false }
+        guard case .runFinished(let record)? = events.last, record == ok.record else { return false }
+        let names = events.map { event -> String in switch event { case .branchStarted: return "branch"; case .nodeStarted: return "start"; case .nodeFinished: return "end"; case .branchFinished: return "done"; default: return "" } }.filter { !$0.isEmpty }
+        return names.first == "branch" && names.last == "done" && names.filter { $0 == "start" }.count == 5 && names.filter { $0 == "end" }.count == 5
+    }())
+    check("run: every turn shows the observer the page and a picture; the first look at a screen is new", ok.recorder.screens.count >= 8 && ok.recorder.screens.allSatisfy { $0.png == Data([1, 2, 3]) } && ok.recorder.screens.first?.isNew == true)
+    check("run: pictures can be left out", run(config: { var c = QARunner.Config(); c.captureFrames = false; return c }()).recorder.screens.allSatisfy { $0.png == nil })
+
+    // What the review is given with each new screen
+    var dirty = QAPageEvidence()
+    dirty.smallText = QAPageEvidence.Tally(count: 2, samples: ["p 9px"])
+    let measured = run(script: okScript, prepare: { factory, _ in factory.evidence = dirty })
+    let shownScreens = measured.recorder.shown
+    check("run: a new screen of a step comes with what was measured in the page", shownScreens.contains { $0.isNew && $0.node != nil && $0.evidence == dirty })
+    check("run: a screen that is not new is not measured again", shownScreens.filter { !$0.isNew }.allSatisfy { $0.evidence == nil })
+    check("run: preparation screens are not measured", shownScreens.filter { $0.node == nil }.allSatisfy { $0.evidence == nil })
+    check("run: each screen is told what its step has cost so far and what the branch has", shownScreens.contains { $0.node == "n2" && $0.stepEffort.clicks == 1 } && shownScreens.contains { $0.node == "n2" && $0.branchEffort.clicks > $0.stepEffort.clicks || $0.node == "n2" && $0.branchEffort.clicks == 1 })
+    check("run: the effort of the branch only grows", zip(shownScreens.filter { $0.node != nil }, shownScreens.filter { $0.node != nil }.dropFirst()).allSatisfy { $0.branchEffort.interactions <= $1.branchEffort.interactions })
+    var noMeasuring = QARunner.Config(); noMeasuring.measureScreens = false
+    check("run: measuring can be switched off", run(script: okScript, config: noMeasuring, prepare: { factory, _ in factory.evidence = dirty }).factory.drivers.allSatisfy { $0.measured == 0 })
+    check("run: and when on, every driver is asked", measured.factory.drivers.contains { $0.measured > 0 })
+    check("run: a driver that cannot measure gives no evidence", ok.recorder.shown.allSatisfy { $0.evidence == nil })
+
+    // A check that does not hold, a step that cannot be done
+    let failed = run(script: ["Confirmation is shown": [notMet("No confirmation, an error page is shown")]])
+    check("run: an expectation that does not hold fails the branch at that step", failed.result?.verdict.outcome == .failed && failed.result?.verdict.node == "n3" && failed.result?.verdict.reason == "No confirmation, an error page is shown")
+    check("run: the steps before it were met and the steps after it never ran", failed.result?.nodesMet == ["n1", "n2"] && !failed.assistant.asked("Open the order list") && !failed.assistant.asked("The order is listed"))
+    check("run: even a failed check shows its count", failed.result?.steps.map(\.node) == ["n1", "n2", "n3"])
+    let blocked = run(script: ["Pay with a valid card": [stuck("There is no pay button", "elementNotFound")]])
+    check("run: a step that cannot be done blocks the branch with the assistant's reason", blocked.result?.verdict.outcome == .blocked && blocked.result?.verdict.blockReason == .elementNotFound && blocked.result?.verdict.node == "n2" && blocked.result?.verdict.reason == "There is no pay button")
+    var small = QARunner.Config(); small.maxActionsPerStep = 3
+    let endless = run(script: ["Add a product to the cart": Array(repeating: move("click"), count: 10)], config: small)
+    check("run: a step that does not end is given up as blocked", endless.result?.verdict.blockReason == .stepBudgetExhausted && endless.result?.verdict.outcome == .blocked && endless.factory.driver("buyer")?.performed.count == 3)
+
+    // Actions that fail, answers that cannot be used
+    let giveUp = run(script: ["Add a product to the cart": Array(repeating: move("click", "e9"), count: 6)], prepare: { factory, _ in factory.failing = ["click [e9]"] })
+    check("run: an action that keeps failing blocks the step as an element that is not there", giveUp.result?.verdict.blockReason == .elementNotFound && giveUp.result?.verdict.node == "n1" && giveUp.result?.steps.first?.effort.clicks == 0 && giveUp.result?.verdict.reason.contains("failed 3 times") == true)
+    check("run: a screen that did not change is not new the second time", giveUp.recorder.screens.contains { !$0.isNew } && giveUp.recorder.screens.first?.isNew == true)
+    check("run: and the assistant was told each time it failed", giveUp.assistant.prompts.contains { $0.contains("click [e9] → failed: refused") })
+    let retried = run(script: ["Add a product to the cart": [move("click", "e9"), move("click", "e1"), finished()]], prepare: { factory, _ in factory.failing = ["click [e9]"] })
+    check("run: an action that failed once is not the end, and only the one that worked is counted", retried.result?.verdict.outcome == .passed && retried.result?.steps.first?.effort.clicks == 1)
+    let confused = run(script: ["Add a product to the cart": [["move": "dance"], ["move": "act", "narration": "x", "action": ["kind": "click", "ref": ""]], ["move": "dance"], finished()]])
+    check("run: answers that cannot be used are asked for again, a few times", confused.result?.verdict.blockReason == .other && confused.result?.verdict.reason == "The assistant's answers could not be used." && confused.result?.verdict.node == "n1")
+    let twice = run(script: ["Add a product to the cart": [["move": "dance"], ["move": "dance"], finished()]])
+    check("run: two such answers in a row are still forgiven", twice.result?.verdict.outcome == .passed)
+    let spread = run(script: ["Add a product to the cart": [["move": "dance"], move("click"), ["move": "dance"], move("click"), ["move": "dance"], finished()]])
+    check("run: a usable answer clears the count of unusable ones", spread.result?.verdict.outcome == .passed)
+    let slip = run(script: ["Add a product to the cart": [["move": "dance"], finished()]])
+    check("run: one such answer does not matter, and the assistant is told to answer again", slip.result?.verdict.outcome == .passed && slip.assistant.prompts.contains { $0.contains("(unusable answer)") })
+    let down = run(prepare: { _, assistant in assistant.failure = RunTestError.refused })
+    check("run: an assistant that does not answer blocks the check with why", down.result?.verdict.outcome == .blocked && down.result?.verdict.reason.contains("did not answer") == true)
+    let sneaky = run(script: ["Add a product to the cart": [move("http", url: "/api/reset", method: "POST"), move("http", url: "/api/reset", method: "POST"), move("http", url: "/api/reset", method: "POST")]])
+    check("run: a step of the scenario cannot send requests of its own", sneaky.result?.verdict.outcome == .blocked && sneaky.factory.drivers.allSatisfy { $0.performed.allSatisfy { $0.kind != .http } })
+
+    // Baseline, sign-in, launch
+    let withBaseline = changed(local) { $0.baseline = QACondition(kind: .state, establish: "POST /api/reset", verify: "GET /api/orders is empty") }
+    let reset = run(scenario: withBaseline, script: ["Restore the baseline": [move("http", url: "/api/reset", method: "POST"), finished()], "Confirm: restore the baseline": [finished()]])
+    check("run: the baseline is restored by a session of nobody's, with the person's words, before anything else", reset.factory.drivers.first?.request.actor == nil && reset.factory.drivers.first?.performed.map(\.kind) == [.http]
+          && reset.assistant.prompts.first?.contains("POST /api/reset") == true && reset.result?.verdict.outcome == .passed)
+    check("run: the baseline is confirmed with the person's other words", reset.assistant.prompts.contains { $0.contains("GET /api/orders is empty") })
+    check("run: preparation is not counted as the person's effort", reset.result?.effort.interactions == 0)
+    let unreset = run(scenario: withBaseline, script: ["Confirm: restore the baseline": [notMet("The list still has orders")]])
+    check("run: a baseline that is not confirmed blocks the check before any step", unreset.result?.verdict.outcome == .blocked && unreset.result?.verdict.blockReason == .baselineNotEstablished && !unreset.assistant.asked("Add a product to the cart") && unreset.result?.nodesMet.isEmpty == true)
+    let lost = run(scenario: withBaseline, script: ["Restore the baseline": [stuck("The server is down", "other")]])
+    check("run: a baseline that cannot be restored blocks the check", lost.result?.verdict.blockReason == .baselineNotEstablished && lost.result?.verdict.reason == "The server is down")
+    let refusedLogin = run(script: ["Sign in as Buyer": [stuck("The password was refused", "loginFailed")]])
+    check("run: a refused sign-in blocks the check before any step", refusedLogin.result?.verdict.blockReason == .loginFailed && refusedLogin.result?.verdict.outcome == .blocked && !refusedLogin.assistant.asked("Add a product to the cart"))
+    let noAccount = run(script: ["Create a new test account for Seller and sign in": [stuck("Sign-up is closed", "other")]])
+    check("run: an account that cannot be created blocks the check", noAccount.result?.verdict.outcome == .blocked && noAccount.result?.verdict.reason == "Sign-up is closed")
+    let noLaunch = run(prepare: { factory, _ in factory.failFor = ["buyer"] })
+    check("run: an application that cannot be opened blocks the check as a launch failure, never as a pass", noLaunch.result?.verdict.blockReason == .launchFailed && noLaunch.result?.verdict.outcome == .blocked && noLaunch.result?.nodesMet.isEmpty == true)
+    let noAddress = run(scenario: changed(local) { $0.targets[0].locations = [:] })
+    check("run: an environment with no address for the application blocks the check", noAddress.result?.verdict.outcome == .blocked)
+
+    // Conditions
+    let condition = run(branches: [declined], script: ["Bring about the condition": [move("http", url: "/api/decline-card", method: "POST"), finished()], "Confirm: bring about the condition": [finished()]])
+    check("run: a data condition is brought about by the person's words and then confirmed, before the steps", condition.result?.verdict.outcome == .passed
+          && condition.assistant.prompts.contains { $0.contains("Use the decline test card") } && condition.assistant.prompts.contains { $0.contains("The card field holds the decline test card") })
+    let unmet = run(branches: [declined], script: ["Confirm: bring about the condition": [notMet("The card field is empty")]])
+    check("run: a condition that is not achieved leaves the branch uncovered, and no step ran", unmet.result?.verdict.outcome == .uncovered && unmet.result?.verdict.reason == "The card field is empty" && unmet.result?.nodesMet.isEmpty == true && !unmet.assistant.asked("Decline message"))
+    let delayed = run(branches: [slow], prepare: { factory, _ in factory.hits = 1 })
+    check("run: a network fault is armed in the player's own session before the steps", delayed.factory.driver("buyer")?.armed == [QAFault(urlPattern: "/api/pay", mode: .delay, milliseconds: 8000)] && delayed.result?.verdict.outcome == .passed)
+    let unhit = run(branches: [slow], prepare: { factory, _ in factory.hits = 0 })
+    check("run: a fault that was never met leaves the branch uncovered, even though every step held", unhit.result?.verdict.outcome == .uncovered && unhit.result?.verdict.reason.contains("never met") == true && unhit.result?.nodesMet.count == 4)
+    let unhitAndFailed = run(branches: [slow], script: ["Waiting indicator": [notMet("No indicator")]], prepare: { factory, _ in factory.hits = 0 })
+    check("run: a step that fails is a failure, whether or not the fault was met", unhitAndFailed.result?.verdict.outcome == .failed)
+    check("run: a branch with no fault arms nothing", ok.factory.drivers.allSatisfy { $0.armed.isEmpty })
+
+    // Several branches, and a stop
+    let several = run(branches: [mainLine, declined, slow], script: ["Confirmation is shown": [notMet("No confirmation")]], prepare: { factory, _ in factory.hits = 1 })
+    check("run: each branch is a check of its own, with its own outcome", several.record.results.map(\.verdict.outcome) == [.failed, .passed, .passed] && several.record.isFinished && several.record.selected == [mainLine, declined, slow])
+    check("run: each branch starts from fresh sessions", several.factory.drivers.count == 5 && several.factory.drivers.allSatisfy(\.closed) && several.factory.drivers.allSatisfy { $0.opened.count == 1 })
+    check("run: the branches' counts are separate", several.record.results[0].steps.count == 3 && several.record.results[1].steps.count == 3)
+    let stopped = run(branches: [mainLine, declined, slow], prepare: { _, assistant in assistant.cancelOnCall = 4 })
+    check("run: stopping interrupts the branch in progress", stopped.record.results.first?.verdict.outcome == .interrupted && stopped.record.results.first?.verdict.interruption == .stoppedByUser)
+    check("run: and leaves the ones not started uncovered, never failed", stopped.record.results.dropFirst().allSatisfy { $0.verdict.outcome == .uncovered && $0.verdict.reason.contains("stopped") } && stopped.record.isFinished)
+    check("run: a stopped run still closes its sessions", stopped.factory.drivers.allSatisfy(\.closed))
+    check("run: interrupted checks make bugs, uncovered ones do not", stopped.record.bugResults.count == 1)
+
+    // The gate
+    let prodScenario = shop()
+    let prodBuyer = QALoginReference(host: "shop.example.com", username: "buyer@example.com")
+    let unapproved = run(scenario: prodScenario, target: "prod", saved: [prodBuyer], approve: false)
+    check("run: nothing is touched before the plan is approved", unapproved.result?.verdict.blockReason == .approvalMissing && unapproved.result?.verdict.outcome == .blocked && unapproved.factory.drivers.isEmpty && unapproved.assistant.prompts.isEmpty)
+    let production = run(scenario: prodScenario, target: "prod", saved: [prodBuyer])
+    check("run: on production each action that may change data waits for a yes, in order, and once", production.asked == ["account:seller", "node:n2"] && production.result?.verdict.outcome == .passed)
+    check("run: a yes is remembered by the gate", production.gate.confirmed == ["account:seller", "node:n2"])
+    let declinedYes = run(scenario: prodScenario, target: "prod", saved: [prodBuyer], confirm: false)
+    check("run: without the yes the check is blocked as unapproved, and the account was never created", declinedYes.result?.verdict.blockReason == .approvalMissing && declinedYes.factory.drivers.allSatisfy { $0.request.actor?.id != "seller" } && !declinedYes.assistant.prompts.contains { $0.contains("Create a new test account") })
+    check("run: a gate that was stopped refuses everything", { () -> Bool in
+        let plan = QAPlanner.make(changed(local) { $0.clearSelection(); $0.setSelected(mainLine, true) }, targetID: "local", savedLogins: [localBuyer])
+        var gate = QAGate(plan: plan)
+        gate.approve(acknowledgedProduction: true)
+        gate.stop()
+        let factory = FakeFactory()
+        let runner = QARunner(scenario: changed(local) { $0.clearSelection(); $0.setSelected(mainLine, true) }, plan: plan, gate: gate, factory: factory, assistant: ScriptedAssistant(), runID: "r2", confirm: { _ in true })
+        let record = try? runAsync { await runner.run() }.get()
+        return record?.results.first?.verdict.blockReason == .approvalMissing && factory.drivers.isEmpty
+    }())
+
+    // The record
+    let stored = try? QAStore.decoder.decode(QARunRecord.self, from: QAStore.encoder.encode(ok.record))
+    check("run: the record, its counts and its timeline survive being saved", stored == ok.record && stored?.results.first?.effort.clicks == 2 && stored?.timeline.isEmpty == false)
+
+    // The machine's late verdict
+    var machine = QACheckMachine(conditionRequired: false)
+    machine.apply(.baselineEstablished)
+    machine.apply(.nodeMet("n1"))
+    machine.apply(.conditionNotAchieved("The fault was never met"))
+    check("machine: a condition that cannot be confirmed before the steps may be found unmet after them", machine.verdict?.outcome == .uncovered && machine.nodesMet == ["n1"])
+    machine.apply(.nodeMet("n2"))
+    check("machine: and then nothing more is taken", machine.nodesMet == ["n1"] && machine.ignored.count == 1)
+}
+
 finish("QA")

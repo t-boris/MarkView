@@ -30,6 +30,9 @@ final class QAModel: ObservableObject {
     /// The approval of the current plan. Nil until the person approves; it never outlives a change to the plan (DEC-002).
     @Published private(set) var gate: QAGate?
 
+    /// The run in progress, or the last one (REQ-003). It outlives switching to another scenario.
+    let run = QARunModel()
+
     private var saveTask: Task<Void, Never>?
     private var generation: Task<Void, Never>?
     private let saveDelay: UInt64 = 500_000_000
@@ -157,6 +160,13 @@ final class QAModel: ObservableObject {
     }
 
     func withdrawApproval() { gate = nil }
+
+    /// Starts the check of the chosen branches. Only an approved plan runs; the run takes its own copy of the scenario and the approval.
+    func startRun() {
+        guard let current, current.appKind == .web, let plan, let gate, let root, gate.canPrepare, !run.isRunning else { return }
+        flush()
+        run.start(scenario: current, plan: plan, gate: gate, root: root)
+    }
 
     /// Reads the saved logins (user names and hosts only) off the main thread.
     func loadSavedLogins() {

@@ -119,7 +119,9 @@ struct QACheckMachine {
             finish(QACheckVerdict(outcome: .blocked, reason: message, blockReason: reason))
         case (.condition, .conditionVerified):
             phase = .execution
-        case (.condition, .conditionNotAchieved(let message)):
+        case (.condition, .conditionNotAchieved(let message)), (.execution, .conditionNotAchieved(let message)):
+            // An automated condition (a network fault) can only be confirmed once the steps have run: a fault that was never hit
+            // leaves the branch uncovered, however the steps went.
             finish(QACheckVerdict(outcome: .uncovered, reason: message))
         case (.execution, .nodeMet(let node)):
             nodesMet.append(node)
@@ -140,13 +142,42 @@ struct QACheckMachine {
     }
 }
 
+/// What one step cost a person, as the runner counted it (REQ-008).
+struct QAStepEffort: Codable, Equatable {
+    var node: String
+    var actor: String?
+    var effort: QAEffort
+}
+
 struct QACheckResult: Codable, Equatable, Identifiable {
     var branch: String
     var verdict: QACheckVerdict
     var nodesMet: [String] = []
     var startedAt: Date
     var finishedAt: Date
+    /// The whole branch, and each step of it that was started.
+    var effort = QAEffort()
+    var steps: [QAStepEffort] = []
     var id: String { branch }
+}
+
+/// One line of what happened, with the second it happened at: the subtitles of the video, the feed of the run view and the report.
+struct QATimelineEntry: Codable, Equatable, Identifiable {
+    enum Kind: String, Codable {
+        case preparation
+        case action
+        case observation
+        case result
+    }
+
+    var id: Int
+    /// Seconds from the start of the run.
+    var time: Double
+    var branch: String
+    var node: String?
+    var actor: String?
+    var kind: Kind
+    var text: String
 }
 
 /// One selected branch in a run's report: its outcome, or nil while it has not been checked.
@@ -169,6 +200,9 @@ struct QARunRecord: Codable, Equatable, Identifiable {
     var startedAt: Date
     var finishedAt: Date? = nil
     var results: [QACheckResult] = []
+    var timeline: [QATimelineEntry] = []
+    /// What the review found on the screens of the run: defects become bugs, the rest stays here as suggestions.
+    var findings: [QAFinding] = []
 
     /// Stores the result of a selected branch. A branch that was not selected, or already has its result, is refused.
     @discardableResult

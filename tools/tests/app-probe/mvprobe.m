@@ -258,5 +258,5 @@ __attribute__((constructor)) static void Init(void) {
         Later(1.0);
     }];
     // Whatever happens, the probe never outlives its script by more than a minute.
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 90 * NSEC_PER_SEC), dispatch_get_global_queue(0, 0), ^{ L(@"watchdog exit"); _exit(3); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (getenv("MV_PROBE_SECONDS") ? atoi(getenv("MV_PROBE_SECONDS")) : 90) * NSEC_PER_SEC), dispatch_get_global_queue(0, 0), ^{ L(@"watchdog exit"); _exit(3); });
 }

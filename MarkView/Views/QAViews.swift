@@ -128,15 +128,24 @@ enum QAPanel: Hashable { case branches, step, setup, run }
 struct QAEditorView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var model: QAModel
+    @ObservedObject private var run: QARunModel
     let wide: Bool
     @State private var panel: QAPanel = .branches
+
+    init(model: QAModel, wide: Bool) {
+        self.model = model
+        self.wide = wide
+        _run = ObservedObject(wrappedValue: model.run)
+    }
 
     var body: some View {
         if let scenario = model.current {
             VStack(spacing: 0) {
                 header(scenario)
                 Divider()
-                if wide {
+                if run.phase != .idle, run.scenario?.id == scenario.id, !run.dismissed {
+                    QALiveRunView(run: run) { run.dismiss() }
+                } else if wide {
                     HSplitView {
                         VStack(spacing: 0) {
                             QAGraphCanvas(model: model, scenario: scenario)
@@ -881,8 +890,15 @@ private extension QANode {
 struct QARunPanel: View {
     @Environment(\.palette) private var palette
     @ObservedObject var model: QAModel
+    @ObservedObject private var run: QARunModel
     let scenario: QAScenario
     @State private var acknowledged = false
+
+    init(model: QAModel, scenario: QAScenario) {
+        self.model = model
+        self.scenario = scenario
+        _run = ObservedObject(wrappedValue: model.run)
+    }
 
     var body: some View {
         let plan = model.plan
@@ -894,8 +910,10 @@ struct QARunPanel: View {
                 if !plan.preparation.isEmpty { preparation(plan) }
                 if plan.isProduction && !plan.confirmations.isEmpty { production(plan) }
                 approval(plan)
+                start
             }
         }
+        .onAppear { model.loadSavedLogins() }
         .onChange(of: plan?.fingerprint) { _ in acknowledged = false }
     }
 
@@ -977,6 +995,40 @@ struct QARunPanel: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!plan.canBeApproved || (plan.isProduction && !plan.confirmations.isEmpty && !acknowledged))
                 Text("Nothing is prepared and nothing is run before you approve.").uiFont(size: 10.5).foregroundColor(palette.textDim)
+            }
+        }
+    }
+
+    /// Starting the check, once the plan is approved: what to record and how closely to review the screens, then the button.
+    @ViewBuilder private var start: some View {
+        if let gate = model.gate, gate.canPrepare {
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Record a video with subtitles", isOn: Binding(get: { run.recordVideo }, set: { run.recordVideo = $0 }))
+                    .toggleStyle(.checkbox).uiFont(size: 11)
+                    .help("The video shows the players side by side; a band below says what is done, where and why")
+                HStack {
+                    Text("Review the screens").uiFont(size: 11)
+                    Spacer()
+                    Picker("", selection: Binding(get: { run.reviewDepth }, set: { run.reviewDepth = $0 })) {
+                        ForEach(QARunModel.ReviewDepth.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden().frame(width: 150)
+                }
+                .help("After a step the assistant looks at the screen and says what could be better: layout, fonts, missing or superfluous controls, extra stages")
+                if scenario.appKind == .nativeMacOS {
+                    Text("Checking a native macOS application is not available yet: this version runs web applications. The scenario can still be written and edited.")
+                        .uiFont(size: 10.5).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
+                } else if run.isRunning {
+                    Button("Show the run") { run.show() }
+                } else {
+                    HStack {
+                        Button("Start the check") { run.show(); model.startRun() }.buttonStyle(.borderedProminent)
+                        if run.phase == .finished && run.scenario?.id == scenario.id {
+                            Button("Show the last run") { run.show() }
+                        }
+                    }
+                }
             }
         }
     }
