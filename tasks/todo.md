@@ -1,3 +1,34 @@
+# Voice, images and files on every AI input (2026-11-10)
+
+Boris: "In the New scenario (End-to-End QA) there is no audio input. Check that there is audio input everywhere we type text for the AI." Then, mid-audit:
+"apart from audio there is no way to paste images, no way to add files from the project, or any other files. All of this is needed for the scenario."
+The earlier feature `voice-input-for-text-prompts` limited dictation to the intake sheet (Q-002, REQ-001: "other text inputs are out of scope"); this widens it.
+
+## Audit (read-only, done)
+Already have the mic: terminals (AI terminal and session terminals), Discussions composer, feature "Discuss this feature" bar (`FeaturePanelView:409`), intake sheet
+(all five kinds, `FeatureNavigatorView:682`), UI Studio chat, Prototype Studio chat.
+Text for the AI with NO mic:
+1. QA **New scenario** goal: `QAViews.swift:1059-1063` (`QAGenerateSheet`, plain `TextEditor`; no image paste, no files; reported by Boris)
+2. New Project idea: `NewProjectSheet.swift:125` (has paste/drop/attachments, no mic)
+3. Clarifying question, "Your answer / answer in your own words": `FeaturePanelView.swift:739` (`QuestionCard`, used in the feature panel and New Project)
+4. Bug discussion box: `FeaturePanelView.swift:926` (`BugDiscussionInput`)
+5. Bug clarifying-question answer: `FeaturePanelView.swift:1026` (`BugQuestionCard`)
+6. Deployments "Ask the AI about this environment": `DeploymentsView.swift:520`
+7. Research follow-up question: `ResearchViews.swift:192`
+8. Prototype creator brief: `PrototypeCreatorSheet.swift:70`
+9. Diagram creator custom prompt: `GraphCreatorSheet.swift:83`
+Borderline (material the AI reads, or a prompt handed to an agent): source notes sheet (`FeaturePanelView:1198`), prototype hand-off brief (`PrototypeHandoffDraftView:151`),
+Definition-of-done custom instruction (`DefinitionOfDoneView:80`), QA node detail and application requirements (`QAViews:529`, `:646`).
+Not AI input, left alone: GitHub comments and issue bodies, SQL editor, filters, names, paths, deployment fields, the Markdown editor (out of scope since REQ-001).
+
+## Plan (awaiting Boris's approval of scope)
+- [ ] 1. One shared component for the pattern every site repeats by hand (`DictationController` + `DictationButton` + `DictationStatusView` + cancel on disappear): a mic overlay/modifier that takes the text binding and the focus flag. Migrate the existing copies to it (no old code left).
+- [ ] 2. Mic on the new sites (the approved list above), each with the status line and Esc cancel.
+- [ ] 3. QA New scenario: `IntakeTextEditor` instead of `TextEditor` (⌘V images, drop files), attachment strip, "Add Files…" and a project-file picker; `QAGenerationRequest.attachments` -> images to `CLICompletion.Request.images`, other files named in the prompt; files outside the project are copied under `.dde/qa/` so the CLI may read them (the folder is git-ignored) and removed after the run.
+- [ ] 4. Tests: harness for the shared insertion and the attachment staging; two-window check that one window's recording does not touch another's; hosted sheet snapshot; invisible probe on the real New scenario sheet.
+- [ ] 5. Feature record: new question/decision and requirement in `voice-input-for-text-prompts` (scope widened; REQ-001 and DEC-002 are outdated since 4.64.0 shows the mic without a key), docs (`docs/architecture`), lesson.
+- [ ] 6. Branch `feat/voice-and-files-on-ai-inputs`, minor bump (5.59.0), PR, merge, ONE release at the end of the batch.
+
 # Crowded header, per-window welcome screen, QA tile, window-specific state (2026-11-10)
 
 Boris, same session, in this order: (1) a screenshot of the top bar: "too crowded, fix it"; (2) the welcome screen's background switches in every
