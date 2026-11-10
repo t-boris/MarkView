@@ -2,7 +2,7 @@
 type: bug
 id: BUG-122
 title: QA run is blocked at the baseline, so the test-account step is never reached
-status: in-progress
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-10

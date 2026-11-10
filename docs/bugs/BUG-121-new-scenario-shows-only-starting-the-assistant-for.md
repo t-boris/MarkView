@@ -2,7 +2,7 @@
 type: bug
 id: BUG-121
 title: New scenario shows only "Starting the assistant" for the whole run
-status: backlog
+status: wont-do
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-10
