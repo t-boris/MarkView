@@ -232,3 +232,12 @@ struct QARunRecord: Codable, Equatable, Identifiable {
     /// The results that become bug reports (DEC-010).
     var bugResults: [QACheckResult] { results.filter { $0.verdict.outcome.createsBug } }
 }
+
+extension QATriage {
+    /// Marks one finding of a run. False when the run has no such finding or the mark is refused.
+    @discardableResult
+    static func mark(_ record: inout QARunRecord, finding id: String, _ state: QATriageState?, note: String, now: Date) -> Bool {
+        guard let index = record.findings.firstIndex(where: { $0.id == id }) else { return false }
+        return mark(&record.findings[index], state, note: note, now: now)
+    }
+}

@@ -90,15 +90,22 @@ struct QALiveRunView: View {
                             Text(player.name).uiFont(size: 11, weight: .semibold)
                             Spacer(minLength: 0)
                         }
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.35))
-                            if let picture = player.picture {
-                                Image(nsImage: picture).resizable().aspectRatio(contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 5))
-                            } else {
-                                Text("Waiting").uiFont(size: 10.5).foregroundColor(palette.textDim)
+                        Button { enlarge("player:\(player.id)") } label: {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.35))
+                                if let picture = player.picture {
+                                    Image(nsImage: picture).resizable().aspectRatio(contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 5))
+                                } else {
+                                    Text("Waiting").uiFont(size: 10.5).foregroundColor(palette.textDim)
+                                }
                             }
+                            .aspectRatio(1280.0 / 800.0, contentMode: .fit)
+                            .contentShape(Rectangle())
                         }
-                        .aspectRatio(1280.0 / 800.0, contentMode: .fit)
+                        .buttonStyle(.plain)
+                        .disabled(player.picture == nil)
+                        .accessibilityLabel("Enlarge the page of \(player.name)")
+                        .help(player.picture == nil ? "" : "Click to enlarge")
                         Text(player.title.isEmpty ? player.address : player.title).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1)
                     }
                     .frame(width: players2(run.players.count))
@@ -110,6 +117,11 @@ struct QALiveRunView: View {
     }
 
     private func players2(_ count: Int) -> CGFloat { count <= 1 ? 320 : 260 }
+
+    /// Opens the viewer on a picture of the run: a player's page now, or a screen from the feed.
+    private func enlarge(_ start: String) {
+        QAViewer.show(title: run.scenario?.title ?? "End-to-End QA", palette: palette) { QALiveViewer(run: run, start: start) }
+    }
 
     // MARK: The feed
 
@@ -136,18 +148,28 @@ struct QALiveRunView: View {
             Image(systemName: icon(item)).uiFont(size: 10.5).foregroundColor(color(item)).frame(width: 14)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.text).uiFont(size: 11.5, weight: item.kind == .result || item.finding != nil ? .semibold : .regular).fixedSize(horizontal: false, vertical: true)
-                if let finding = item.finding {
+                if let shown = item.finding {
+                    let finding = run.findings.first { $0.id == shown.id } ?? shown
                     Text(finding.detail).uiFont(size: 10.5).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     if !finding.proposal.isEmpty {
                         Text("Better: " + finding.proposal).uiFont(size: 10.5).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
+                    }
+                    if run.phase == .finished {
+                        QAFindingTriageBar(finding: finding) { state, note in run.mark(finding.id, state, note: note) }
                     }
                 }
             }
             Spacer(minLength: 0)
             if let picture = item.picture, item.kind != .preparation {
-                Image(nsImage: picture).resizable().aspectRatio(contentMode: .fit).frame(width: 96)
-                    .clipShape(RoundedRectangle(cornerRadius: 3))
-                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(palette.textDim.opacity(0.3)))
+                Button { enlarge("screen:\(item.screen)") } label: {
+                    Image(nsImage: picture).resizable().aspectRatio(contentMode: .fit).frame(width: 96)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(palette.textDim.opacity(0.3)))
+                }
+                .buttonStyle(.plain)
+                .disabled(item.screen == 0)
+                .accessibilityLabel("Enlarge the screenshot")
+                .help("Click to enlarge")
             }
         }
     }

@@ -34,6 +34,8 @@ final class QAModel: ObservableObject {
 
     /// The run in progress, or the last one (REQ-003). It outlives switching to another scenario.
     let run = QARunModel()
+    /// The runs of the scenario on disk, to look at again and mark (REQ-015).
+    let archive = QARunArchive()
 
     private var saveTask: Task<Void, Never>?
     private var generation: Task<Void, Never>?
@@ -63,6 +65,8 @@ final class QAModel: ObservableObject {
         flush()
         generation?.cancel()
         root = newRoot
+        archive.root = newRoot
+        archive.close()
         scenarios = []
         unreadable = []
         current = nil

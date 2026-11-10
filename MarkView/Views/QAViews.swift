@@ -136,6 +136,7 @@ struct QAEditorView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var model: QAModel
     @ObservedObject private var run: QARunModel
+    @ObservedObject private var archive: QARunArchive
     let wide: Bool
     /// Which part of the inspector is open. It belongs to the window and survives a switch to another tab of the window and back.
     @WindowStorage("qa.panel") private var panel = QAPanel.branches
@@ -144,6 +145,7 @@ struct QAEditorView: View {
         self.model = model
         self.wide = wide
         _run = ObservedObject(wrappedValue: model.run)
+        _archive = ObservedObject(wrappedValue: model.archive)
     }
 
     var body: some View {
@@ -153,6 +155,8 @@ struct QAEditorView: View {
                 Divider()
                 if run.phase != .idle, run.scenario?.id == scenario.id, !run.dismissed {
                     QALiveRunView(run: run) { run.dismiss() }
+                } else if let opened = archive.opened, opened.scenarioID == scenario.id {
+                    QARunReportView(archive: archive, scenario: scenario, record: opened) { archive.close() }
                 } else if wide {
                     HSplitView {
                         VStack(spacing: 0) {
@@ -1018,6 +1022,7 @@ struct QARunPanel: View {
                 approval(plan)
                 start
             }
+            QARunsList(archive: model.archive, scenarioID: scenario.id, phase: run.phase)
         }
         .onAppear { model.loadSavedLogins() }
         .onChange(of: plan?.fingerprint) { _ in acknowledged = false }

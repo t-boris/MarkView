@@ -1350,4 +1350,43 @@ do {
     check("files: the refusals say what is wrong in words", QAAttachments.Failure.tooLarge("big.bin").errorDescription?.contains("big.bin") == true)
 }
 
+// MARK: - What the person decides about a finding (REQ-015)
+
+do {
+    let defect = QAFinding(id: "f1", node: "n2", app: "shop", kind: .defect, severity: .high, title: "Pay does nothing", detail: "d", proposal: "p", isDefect: true)
+    let note = QAFinding(id: "f2", node: "n2", app: "shop", kind: .wording, severity: .low, title: "Say Pay now", detail: "d", proposal: "p", isDefect: false)
+    let when = Date(timeIntervalSince1970: 1_800_000_000)
+    check("triage: a defect offers confirm, not a bug and workaround; anything else offers seen and dismiss", QATriage.states(for: defect) == [.confirmed, .notABug, .workaround] && QATriage.states(for: note) == [.seen, .dismissed])
+    var marked = defect
+    check("triage: a defect is confirmed, and the mark says when", QATriage.mark(&marked, .confirmed, note: "", now: when) && marked.triage == .confirmed && marked.triagedAt == when && marked.triageNote == nil)
+    check("triage: a workaround needs its words", !QATriage.mark(&marked, .workaround, note: "   ", now: when) && marked.triage == .confirmed)
+    check("triage: the workaround keeps its words on one line", QATriage.mark(&marked, .workaround, note: "Use the\n  keyboard\tshortcut", now: when) && marked.triage == .workaround && marked.triageNote == "Use the keyboard shortcut")
+    check("triage: not a bug is one click and keeps no words", QATriage.mark(&marked, .notABug, note: "ignored", now: when) && marked.triage == .notABug && marked.triageNote == nil)
+    check("triage: a note is not given a bug's mark, a defect not a note's", { var n = note; var d = defect; return !QATriage.mark(&n, .confirmed, note: "", now: when) && n.triage == nil && !QATriage.mark(&d, .seen, note: "", now: when) && d.triage == nil }())
+    check("triage: the mark is taken back with nil, words and time with it", QATriage.mark(&marked, nil, note: "", now: when) && marked.triage == nil && marked.triageNote == nil && marked.triagedAt == nil)
+    check("triage: only the words of a mark that asks for them are kept", { var n = note; QATriage.mark(&n, .seen, note: "ignored", now: when); return n.triageNote == nil }())
+    check("triage: a note of any length is cut", QATriage.clean(String(repeating: "word ", count: 200)).count == 400)
+    var record = QARunRecord(id: "r", scenarioID: "s", targetID: "t", targetKind: .local, selected: [], startedAt: when)
+    record.findings = [defect, note]
+    check("triage: a finding of a run is marked by its id, a missing one is refused", QATriage.mark(&record, finding: "f2", .dismissed, note: "", now: when) && record.findings[1].triage == .dismissed && record.findings[0].triage == nil && !QATriage.mark(&record, finding: "nope", .seen, note: "", now: when))
+    check("triage: what is still unmarked is counted and told", QATriage.unmarked(record.findings) == 1 && QATriage.summary(record.findings) == "2 findings, 1 not marked" && QATriage.summary([]) == nil
+          && QATriage.summary([marked]) == "1 finding, 1 not marked")
+    var done = defect; QATriage.mark(&done, .confirmed, note: "", now: when)
+    check("triage: all marked is told too", QATriage.summary([done]) == "1 finding, all marked")
+    let saved = (try? QAStore.encoder.encode(record)).flatMap { try? QAStore.decoder.decode(QARunRecord.self, from: $0) }
+    check("triage: the mark survives the run file", saved?.findings[1].triage == .dismissed && saved?.findings[1].triagedAt == when)
+    let oldFile = #"{"id":"f1","kind":"defect","severity":"high","title":"t","detail":"d","proposal":"p","isDefect":true,"frame":"frames/1.png","time":3.5}"#
+    let old = try? JSONDecoder().decode(QAFinding.self, from: Data(oldFile.utf8))
+    check("triage: a finding written before the marks existed loads without one", old?.triage == nil && old?.frame == "frames/1.png")
+    check("triage: a mark of a bug names what it does to the report", QABugTriageChange.make(.confirmed, note: "").readyToFix && QABugTriageChange.make(.workaround, note: "Use X").workaround == "Use X"
+          && QABugTriageChange.make(.notABug, note: "").cancelReason == "Marked not a bug after a QA run." && QABugTriageChange.make(.notABug, note: "ignored").cancelReason == "Marked not a bug after a QA run.")
+    check("triage: a note's mark or no mark leaves the report alone", QABugTriageChange.make(.seen, note: "") == QABugTriageChange.make(nil, note: "") && !QABugTriageChange.make(nil, note: "").readyToFix)
+    let body = "## Summary\n\nIt breaks.\n\n## Expected\n\nIt works.\n"
+    let with = QABugTriage.settingWorkaround("Use the menu", in: body)
+    check("triage: a workaround is a section at the end of the report", with == body + "\n## Workaround\n\nUse the menu\n")
+    check("triage: a second workaround replaces the first, not adds a copy", QABugTriage.settingWorkaround("Press Enter", in: with).components(separatedBy: "## Workaround").count == 2 && QABugTriage.settingWorkaround("Press Enter", in: with).contains("Press Enter") && !QABugTriage.settingWorkaround("Press Enter", in: with).contains("Use the menu"))
+    check("triage: taking the workaround back leaves the report as it was", QABugTriage.settingWorkaround(nil, in: with) == body)
+    check("triage: a workaround in the middle of a report leaves the sections after it", { let mid = "## Summary\n\nA\n\n## Workaround\n\nOld\n\n## Expected\n\nB\n"; let out = QABugTriage.settingWorkaround(nil, in: mid); return out.contains("## Expected") && !out.contains("Workaround") }())
+}
+
 finish("QA")

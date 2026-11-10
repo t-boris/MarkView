@@ -61,4 +61,9 @@ struct QAFinding: Codable, Equatable, Identifiable {
     var frame: String? = nil
     /// Seconds from the start of the run.
     var time: Double? = nil
+    /// What the person decided about it after the run (QATriage.swift); nil until then. Absent in older run files.
+    var triage: QATriageState? = nil
+    /// The words of a workaround.
+    var triageNote: String? = nil
+    var triagedAt: Date? = nil
 }

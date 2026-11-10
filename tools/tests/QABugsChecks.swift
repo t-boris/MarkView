@@ -128,6 +128,14 @@ actor FakeSink: QABugSink {
         return found
     }
 
+    private(set) var triaged: [(key: String, change: QABugTriageChange)] = []
+
+    func applyTriage(key: String, _ change: QABugTriageChange) async throws -> QABugTriageOutcome {
+        triaged.append((key, change))
+        guard let id = preexisting[key] ?? ids[key] else { return .noReport }
+        return .updated(id: id)
+    }
+
     func createBug(_ report: QABugReport) async throws -> String {
         if delay > 0 { try await Task.sleep(nanoseconds: delay) }
         if failKeys.contains(report.key) { throw SinkFailure(message: "disk full") }
@@ -146,6 +154,14 @@ actor DiskSink: QABugSink {
     func bugFolder() async -> URL? { folder }
 
     func filedBugs(forKeys keys: [String]) async throws -> [String: String] { try QABugIndex.filedBugs(in: folder, keys: Set(keys)) }
+
+    func applyTriage(key: String, _ change: QABugTriageChange) async throws -> QABugTriageOutcome {
+        guard let file = try QABugIndex.file(forKey: key, in: folder) else { return .noReport }
+        var (front, body) = FrontMatter.split(try String(contentsOf: file, encoding: .utf8))
+        QABugTriage.apply(change, front: &front, body: &body)
+        try front.join(body: body).write(to: file, atomically: true, encoding: .utf8)
+        return .updated(id: front.string("id"))
+    }
 
     func createBug(_ report: QABugReport) async throws -> String {
         let count = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasPrefix("BUG-") }.count
@@ -548,10 +564,62 @@ func diskChecks() async {
     check("a report that was deleted is filed again", afterDelete.filter(isCreated).count == 1 && afterDelete[2].key == deletedKey && isCreated(afterDelete[2]))
 }
 
+func triageChecks() async {
+    let bugs = tempFolder().appendingPathComponent("bugs", isDirectory: true)
+    let list = drafts()
+    let filer = QABugFiler(sink: DiskSink(folder: bugs))
+    _ = await filer.file(list)
+    guard let defect = list.first(where: { if case .finding = $0.origin { return true } else { return false } }) else { check("triage: a defect was filed", false); return }
+    func read(_ key: String) -> (front: FrontMatter, body: String) {
+        guard let file = try? QABugIndex.file(forKey: key, in: bugs), let text = try? String(contentsOf: file, encoding: .utf8) else { return (FrontMatter.split("").0, "") }
+        return FrontMatter.split(text)
+    }
+    let before = read(defect.key)
+    check("triage: the file of a report is found by its key", ((try? QABugIndex.file(forKey: defect.key, in: bugs)) ?? nil) != nil && ((try? QABugIndex.file(forKey: "nope", in: bugs)) ?? nil) == nil && ((try? QABugIndex.file(forKey: "", in: bugs)) ?? nil) == nil)
+    check("triage: a report no one marked has no mark", before.front.string("qa_triage").isEmpty && before.front.string("ready_to_fix").isEmpty && !before.body.contains("## Workaround"))
+
+    let confirmed = try? await filer.applyTriage(key: defect.key, QABugTriageChange.make(.confirmed, note: ""))
+    var now = read(defect.key)
+    check("triage: a confirmed bug is ready to fix and carries its mark", { if case .updated? = confirmed { return true } else { return false } }() && now.front.string("ready_to_fix") == "true" && now.front.string("qa_triage") == "confirmed")
+    check("triage: the title, the key and the body of the report are untouched", now.front.string("title") == before.front.string("title") && now.front.string("qa_key") == defect.key && now.body == before.body)
+
+    _ = try? await filer.applyTriage(key: defect.key, QABugTriageChange.make(.workaround, note: "Use the keyboard shortcut"))
+    now = read(defect.key)
+    check("triage: a workaround is written into the report and the ready flag this app set is taken back", now.front.string("qa_triage") == "workaround" && now.front.string("ready_to_fix").isEmpty && now.body.contains("## Workaround\n\nUse the keyboard shortcut"))
+
+    _ = try? await filer.applyTriage(key: defect.key, QABugTriageChange.make(.notABug, note: ""))
+    now = read(defect.key)
+    check("triage: not a bug leaves the workaround out and says so in the mark", now.front.string("qa_triage") == "notABug" && !now.body.contains("## Workaround"))
+
+    _ = try? await filer.applyTriage(key: defect.key, QABugTriageChange.make(nil, note: ""))
+    now = read(defect.key)
+    check("triage: taking the mark back leaves the report as it was filed", now.front.string("qa_triage").isEmpty && now.front.string("ready_to_fix").isEmpty && now.body == before.body)
+
+    // A flag set by someone else is not this app's to take away
+    if let file = try? QABugIndex.file(forKey: defect.key, in: bugs) {
+        var (front, body) = FrontMatter.split((try? String(contentsOf: file, encoding: .utf8)) ?? "")
+        front.set("ready_to_fix", "true")
+        try? front.join(body: body).write(to: file, atomically: true, encoding: .utf8)
+        _ = body
+    }
+    _ = try? await filer.applyTriage(key: defect.key, QABugTriageChange.make(.workaround, note: "Wait a minute"))
+    check("triage: a ready flag someone else set stays when a workaround is marked", read(defect.key).front.string("ready_to_fix") == "true")
+
+    let none = try? await filer.applyTriage(key: "no-such-key", QABugTriageChange.make(.confirmed, note: ""))
+    check("triage: a finding with no report only carries the mark itself", none == .noReport)
+
+    let fake = FakeSink()
+    let fakeFiler = QABugFiler(sink: fake)
+    _ = try? await fakeFiler.applyTriage(key: "k", QABugTriageChange.make(.confirmed, note: ""))
+    let passed = await fake.triaged
+    check("triage: the filer passes the change to the sink as it is", passed.map(\.key) == ["k"] && passed.first?.change.readyToFix == true)
+}
+
 mappingChecks()
 await filerChecks()
 await pictureChecks()
 await diskChecks()
+await triageChecks()
 // MARK: - A video per branch (the run records one file for every branch)
 
 do {

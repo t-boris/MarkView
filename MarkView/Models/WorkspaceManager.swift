@@ -5034,6 +5034,7 @@ class WorkspaceManager: ObservableObject {
         hostWindow?.makeKeyAndOrderFront(nil)
         qa.attach(root: root)
         if qa.run.bugFiler == nil { qa.run.bugFiler = QABugFiler(sink: QAFeatureStoreBugSink(store: features)) }
+        qa.archive.bugFiler = qa.run.bugFiler
         for index in openTabs.indices {
             if case .qa = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
         }

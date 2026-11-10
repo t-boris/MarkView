@@ -53,6 +53,10 @@ final class QARunModel: ObservableObject {
         let node: String?
         let text: String
         let picture: NSImage?
+        /// The screen the picture is a thumbnail of, as the page was (PNG), and its number in the run (a finding's own screen has a negative one):
+        /// the viewer shows it at full size.
+        var screenshot: Data? = nil
+        var screen = 0
         var finding: QAFinding? = nil
     }
 
@@ -130,6 +134,10 @@ final class QARunModel: ObservableObject {
     // The recording of the branch in progress.
     private var writer: QAVideoWriter?
     private var pictures: [String: CGImage] = [:]
+    /// The same screens as taken (PNG) and their numbers in the run, for the viewer.
+    private var screenshots: [String: Data] = [:]
+    private var screenNumbers: [String: Int] = [:]
+    private var screenCount = 0
     private var thumbnails: [String: NSImage] = [:]
     private var slots: [String] = []
     private var subtitle: String?
@@ -148,6 +156,27 @@ final class QARunModel: ObservableObject {
 
     func dismiss() { dismissed = true }
     func show() { dismissed = false }
+
+    // MARK: The person's marks on the findings (REQ-015)
+
+    private var triageTail: Task<Void, Never>?
+
+    /// Marks a finding once the run has ended (the bug reports are filed then); one mark after another, so that none is lost.
+    func mark(_ id: String, _ state: QATriageState?, note: String = "") {
+        guard phase == .finished else { return }
+        let previous = triageTail
+        triageTail = Task { [weak self] in
+            await previous?.value
+            await self?.applyMark(id, state, note: note)
+        }
+    }
+
+    private func applyMark(_ id: String, _ state: QATriageState?, note: String) async {
+        guard let record, let root, let outcome = await QATriageService.apply(record, root: root, finding: id, state: state, note: note, filer: bugFiler) else { return }
+        self.record = outcome.record
+        findings = outcome.record.findings
+        notice = outcome.notice
+    }
 
     // MARK: Start and stop
 
@@ -219,6 +248,9 @@ final class QARunModel: ObservableObject {
 
     private func reset() {
         feed = []
+        screenshots = [:]
+        screenNumbers = [:]
+        screenCount = 0
         results = []
         findings = []
         videos = [:]
@@ -254,6 +286,7 @@ final class QARunModel: ObservableObject {
             branchIndex = (plan?.branches.firstIndex { $0.id == branch } ?? 0) + 1
             branchStart = Date()
             pictures = [:]
+            screenshots = [:]
             thumbnails = [:]
             subtitle = nil
             players.removeAll { $0.id == Self.setupPlayer }
@@ -261,7 +294,8 @@ final class QARunModel: ObservableObject {
             startVideo(branch)
         case .narration(let entry):
             subtitle = entry.text
-            addFeed(time: entry.time, kind: entry.kind, actor: entry.actor, node: entry.node, text: entry.text, picture: thumbnails[entry.actor ?? Self.setupPlayer])
+            let key = entry.actor ?? Self.setupPlayer
+            addFeed(time: entry.time, kind: entry.kind, actor: entry.actor, node: entry.node, text: entry.text, picture: thumbnails[key], screenshot: screenshots[key], screen: screenNumbers[key] ?? 0)
             addFrame()
         case .screen(let screen):
             show(screen)
@@ -290,6 +324,9 @@ final class QARunModel: ObservableObject {
         players[index].title = screen.observation.title
         guard let png = screen.png, let full = QAFrameComposer.image(from: png) else { return }
         pictures[key] = full
+        screenshots[key] = png
+        screenCount += 1
+        screenNumbers[key] = screenCount
         let thumbnail = QAFrameComposer.thumbnail(from: png)
         thumbnails[key] = thumbnail
         players[index].picture = thumbnail
@@ -301,26 +338,32 @@ final class QARunModel: ObservableObject {
         }
     }
 
-    private func addFeed(time: Double, kind: QATimelineEntry.Kind, actor: String?, node: String?, text: String, picture: NSImage?, finding: QAFinding? = nil) {
-        feed.append(FeedItem(id: nextFeedID, time: time, kind: kind, actor: actor, node: node, text: text, picture: picture, finding: finding))
+    private func addFeed(time: Double, kind: QATimelineEntry.Kind, actor: String?, node: String?, text: String, picture: NSImage?, screenshot: Data? = nil,
+                         screen: Int = 0, finding: QAFinding? = nil) {
+        feed.append(FeedItem(id: nextFeedID, time: time, kind: kind, actor: actor, node: node, text: text, picture: picture, screenshot: screenshot, screen: screen, finding: finding))
         nextFeedID += 1
     }
+
+    /// The newest screenshot of a player as it was taken, for the viewer; nil before the first one and between branches.
+    func screenshot(ofPlayer id: String) -> Data? { screenshots[id] }
 
     private func finishRun() async {
         // The last recording is still being closed when the run ends; the bug reports name it.
         for task in videoTasks { await task.value }
         videoTasks = []
+        let total = (assistant?.costUSD ?? 0) + reviewCost
+        costUSD = total > 0 ? total : nil
+        // The run file is written before the run counts as finished, so the list of runs and the marks on the findings find it.
+        if var finished = record, let root {
+            finished.findings = findings
+            record = finished
+            let saved = finished
+            do { try await Task.detached(priority: .utility) { try QAStore.saveRun(saved, root: root) }.value } catch { notice = "The run could not be saved: \(error.localizedDescription)" }
+        }
         phase = .finished
         currentBranch = nil
         currentNode = nil
-        let total = (assistant?.costUSD ?? 0) + reviewCost
-        costUSD = total > 0 ? total : nil
-        guard var record, let root else { return }
-        record.findings = findings
-        self.record = record
-        Task.detached(priority: .utility) { [record] in
-            do { try QAStore.saveRun(record, root: root) } catch { await MainActor.run { self.notice = "The run could not be saved: \(error.localizedDescription)" } }
-        }
+        guard let record, let root else { return }
         await fileBugs(record, root: root)
     }
 
@@ -415,7 +458,8 @@ final class QARunModel: ObservableObject {
                 found[index].time = at
                 found[index].app = app.id
                 findings.append(found[index])
-                addFeed(time: at, kind: .observation, actor: screen.actor, node: screen.node, text: found[index].title, picture: picture, finding: found[index])
+                addFeed(time: at, kind: .observation, actor: screen.actor, node: screen.node, text: found[index].title, picture: picture, screenshot: png,
+                        screen: -(findings.count), finding: found[index])
             }
         } catch is CancellationError {
             return

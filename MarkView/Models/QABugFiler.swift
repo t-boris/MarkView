@@ -31,6 +31,8 @@ protocol QABugSink: Sendable {
     func filedBugs(forKeys keys: [String]) async throws -> [String: String]
     /// Writes the report with the status a new bug starts in; returns its id.
     func createBug(_ report: QABugReport) async throws -> String
+    /// Carries the person's mark of a finding to the report filed under `key`, if there is one (REQ-015).
+    func applyTriage(key: String, _ change: QABugTriageChange) async throws -> QABugTriageOutcome
 }
 
 enum QAFilingStatus: Equatable, Sendable {
@@ -82,6 +84,22 @@ enum QABugIndex {
             found[key] = id.isEmpty ? String(file.deletingPathExtension().lastPathComponent.prefix(7)) : id
         }
         return found
+    }
+
+    /// The file of the report that names `key` in its front matter; nil when there is none.
+    static func file(forKey key: String, in folder: URL) throws -> URL? {
+        guard !key.isEmpty else { return nil }
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isFolder) else { return nil }
+        guard isFolder.boolValue else { throw Failure(message: "\(folder.lastPathComponent) is not a folder.") }
+        let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension.lowercased() == "md" && $0.lastPathComponent.lowercased() != "readme.md" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for file in files {
+            guard let head = head(of: file), head.contains(keyField) else { continue }
+            if FrontMatter.split(head).0.string(keyField) == key { return file }
+        }
+        return nil
     }
 
     private static func head(of file: URL) -> String? {
@@ -145,6 +163,13 @@ actor QABugFiler {
             }
         }
         return results
+    }
+
+    /// Carries a mark of a finding to its bug report (see `QABugSink.applyTriage`). Runs after the filing in progress, if any.
+    func applyTriage(key: String, _ change: QABugTriageChange) async throws -> QABugTriageOutcome {
+        await acquire()
+        defer { release() }
+        return try await sink.applyTriage(key: key, change)
     }
 
     private func fileOne(_ candidate: QABugCandidate, bugFolder: URL?) async -> QAFilingResult {
@@ -260,5 +285,27 @@ actor QABugFiler {
 
     private func release() {
         if waiting.isEmpty { busy = false } else { waiting.removeFirst().resume() }
+    }
+}
+
+// MARK: - The person's mark on a filed report (REQ-015)
+
+extension QABugTriage {
+    /// The front matter line that says which mark this app put on the report, so a later change knows what it may take back.
+    static let markField = "qa_triage"
+
+    /// Writes a mark into a report's front matter and body: `ready_to_fix` for a confirmed bug (and taken away again only when this app set
+    /// it), the "Workaround" section, and `qa_triage`. Returns the mark the report carried before.
+    @discardableResult
+    static func apply(_ change: QABugTriageChange, front: inout FrontMatter, body: inout String) -> QATriageState? {
+        let previous = QATriageState(rawValue: front.string(markField))
+        if change.readyToFix {
+            front.set("ready_to_fix", "true")
+        } else if previous == .confirmed {
+            front.set("ready_to_fix", nil)
+        }
+        front.set(markField, change.mark?.rawValue)
+        body = settingWorkaround(change.workaround, in: body)
+        return previous
     }
 }
