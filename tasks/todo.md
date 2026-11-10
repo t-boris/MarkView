@@ -16,7 +16,7 @@ One PR per item, ONE release at the end of the batch (Boris, 2026-11-08).
   title has the version). `Operations` section of the old AI tools menu is dropped (the Project menu replaces it).
 - [x] 4. Window-specific state (PR #352, 5.58.0; `fix/window-specific-state`): audit every shared `@AppStorage` / `UserDefaults` / singleton that one window's user changes and another window shows
   (read-only sub-agent running); list the findings to Boris, convert what he approves, one PR per group.
-- [ ] 5. Lessons and memory (`tasks/lessons.md`), one release from a clean worktree of `origin/main`, remove my worktree.
+- [x] 5. Lessons and memory (`tasks/lessons.md`), one release (v5.58.0, from a clean worktree of `origin/main`), my worktrees removed. Boris installed 5.58.0 and wrote "it works" (2026-11-10).
 
 ### Review (window-state PR #352)
 - Done in code: `WindowUIState` + `@WindowStorage` (Search mode, Contents info, terminal prompts, UI Studio / Prototype widths and toggles, slideshow interval,
@@ -26,6 +26,8 @@ One PR per item, ONE release at the end of the batch (Boris, 2026-11-08).
 - Verified: `tools/tests/window-ui-state-tests.sh` (new, incl. two real web views and two hosted windows), session / file-browser / project-AI-choice / welcome /
   PDF harnesses, and the real app through the invisible probe with two project windows (Search mode: Documents in one window, the other shows Project; the 5.56.0
   build shows Documents in both).
+- Installed by Boris (v5.58.0, signed and notarized, running as pid 63148 when checked) and confirmed: "it works". BUG-120 is still `in-review` in the app: the
+  process "Standard bug" lets only a person confirm "Installed on mac" (in the Lifecycle section of BUG-120), so the AI tools refuse `done`.
 - Not checked by hand: panel widths across two windows, the editor text size slider in two windows, Export PDF with two windows, the operations console with two
   windows on one folder.
 - Left global on purpose (Settings): interface text scale, `ai.customFilters`, `fileTree.sortField/sortAscending` (one per window, starting value only).
