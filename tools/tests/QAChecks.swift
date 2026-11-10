@@ -838,6 +838,12 @@ do {
     stopped.stop()
     check("gate: a stopped run allows nothing", stopped.isStopped && !stopped.canPrepare && stopped.decision(for: "login:buyer") == .refused("The run was stopped."))
     check("gate: and cannot be approved or revived", !stopped.approve(acknowledgedProduction: true) && { stopped.update(plan: plan(localAll)); stopped.confirmAllRemaining(); return stopped.isStopped }())
+    var stoppedProduction = QAGate(plan: production)
+    stoppedProduction.approve(acknowledgedProduction: true)
+    stoppedProduction.stop()
+    stoppedProduction.confirm("node:n2")
+    stoppedProduction.confirmAllRemaining()
+    check("gate: a stopped run takes no yes either", stoppedProduction.confirmed.isEmpty && stoppedProduction.decision(for: "node:n2") == .refused("The run was stopped."))
 }
 
 finish("QA")
