@@ -25,6 +25,7 @@ final class BackdropHostView: NSView {
     private var colors: BackdropColors?
     private var seed: UInt64 = 1
     var currentSeed: UInt64 { seed }
+    var currentKind: WelcomeBackdrop { kind }
     private var still = false
     private(set) var builtSize = CGSize.zero
     private var pendingRebuild: DispatchWorkItem?

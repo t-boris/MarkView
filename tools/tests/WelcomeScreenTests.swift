@@ -293,9 +293,10 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
     for _ in 0..<5 { view.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 }
 
-@MainActor func host(project: String?, git: Bool, theme: AppTheme, accent: ThemeColor? = nil, size: NSSize, still: Bool, perform: @escaping (WelcomeActionID) -> Void = { _ in })
+@MainActor func host(project: String?, git: Bool, theme: AppTheme, accent: ThemeColor? = nil, size: NSSize, still: Bool, backdrop: WelcomeBackdrop = .matrix,
+                      perform: @escaping (WelcomeActionID) -> Void = { _ in })
     -> (NSWindow, NSHostingView<AnyView>) {
-    let screen = WelcomeScreen(projectName: project, isGitRepo: git, still: still, perform: perform) {
+    let screen = WelcomeScreen(projectName: project, isGitRepo: git, backdrop: .constant(backdrop), still: still, perform: perform) {
         if project != nil {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Ready to resume").font(.system(size: 13, weight: .semibold))
@@ -325,14 +326,10 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
 
 @MainActor func hostedChecks() {
     // Every backdrop, in a dark and a light theme, in a project window and in a window without a folder.
-    let defaults = UserDefaults.standard
-    let previous = defaults.object(forKey: WelcomeBackdrop.storageKey)
-    defer { if let previous { defaults.set(previous, forKey: WelcomeBackdrop.storageKey) } else { defaults.removeObject(forKey: WelcomeBackdrop.storageKey) } }
     for backdrop in WelcomeBackdrop.allCases where backdrop != .shuffle {
-        defaults.set(backdrop.rawValue, forKey: WelcomeBackdrop.storageKey)
         for theme in [AppTheme.classicDark, .classicLight, .midnight] {
             for (project, git, size) in [("MarkView", true, NSSize(width: 1142, height: 1068)), (nil, false, NSSize(width: 900, height: 700)), ("A-long-project-folder-name", false, NSSize(width: 560, height: 800))] as [(String?, Bool, NSSize)] {
-                let (window, hosting) = host(project: project, git: git, theme: theme, size: size, still: true)
+                let (window, hosting) = host(project: project, git: git, theme: theme, size: size, still: true, backdrop: backdrop)
                 settle(hosting)
                 let name = "\(backdrop.rawValue)-\(theme.rawValue)-\(project == nil ? "empty" : (size.width < 600 ? "narrow" : "project"))"
                 let views = descendants(hosting)
@@ -354,13 +351,33 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
     }
 }
 
+/// BUG-120: the background belongs to the window that chose it. The screen shows only the binding it is given, so the stored value that
+/// the old @AppStorage shared with every window cannot reach it, and two windows hold two different choices at once.
+@MainActor func perWindowChecks() {
+    let defaults = UserDefaults.standard
+    let previous = defaults.object(forKey: WelcomeBackdrop.storageKey)
+    defer { if let previous { defaults.set(previous, forKey: WelcomeBackdrop.storageKey) } else { defaults.removeObject(forKey: WelcomeBackdrop.storageKey) } }
+    defaults.set(WelcomeBackdrop.aurora.rawValue, forKey: WelcomeBackdrop.storageKey)
+    let size = NSSize(width: 900, height: 700)
+    let (first, firstHosting) = host(project: "MarkView", git: false, theme: .classicDark, size: size, still: true, backdrop: .network)
+    let (second, secondHosting) = host(project: "MarkView", git: false, theme: .classicDark, size: size, still: true, backdrop: .bugs)
+    defer { first.close(); second.close() }
+    settle(firstHosting); settle(secondHosting)
+    let kinds = [firstHosting, secondHosting].map { descendants($0).compactMap { $0 as? BackdropHostView }.first?.currentKind }
+    check(kinds == [.network, .bugs], "per window: two windows show two different backgrounds at the same time", "\(kinds)")
+    check(kinds.allSatisfy { $0 != .aurora }, "per window: the stored value other windows may have written does not change a window that has its own")
+    // A third window that chose Off stays empty while the others animate.
+    let (third, thirdHosting) = host(project: "MarkView", git: false, theme: .classicDark, size: size, still: true, backdrop: .off)
+    defer { third.close() }
+    settle(thirdHosting)
+    check(descendants(thirdHosting).compactMap { $0 as? BackdropHostView }.isEmpty, "per window: a window that chose Off draws nothing while the others animate")
+}
+
 /// Real motion, without a screen: a window that is ordered in (far outside every display) lets Core Animation compute the presentation
 /// layer, the values the render server shows. Two readings a moment apart must differ the way the animation says.
 @MainActor func motionChecks() {
-    UserDefaults.standard.set(WelcomeBackdrop.matrix.rawValue, forKey: WelcomeBackdrop.storageKey)
     for backdrop in [WelcomeBackdrop.matrix, .bugs, .aurora, .network] {
-        UserDefaults.standard.set(backdrop.rawValue, forKey: WelcomeBackdrop.storageKey)
-        let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: NSSize(width: 1000, height: 800), still: false)
+        let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: NSSize(width: 1000, height: 800), still: false, backdrop: backdrop)
         settle(hosting)
         guard let view = descendants(hosting).compactMap({ $0 as? BackdropHostView }).first, let root = view.layer else {
             check(false, "motion \(backdrop.rawValue): the backdrop view exists"); window.close(); continue
@@ -394,7 +411,6 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
 
 /// A window that is resized gets a backdrop of its new size, and not a rebuild for every pixel on the way.
 @MainActor func resizeChecks() {
-    UserDefaults.standard.set(WelcomeBackdrop.matrix.rawValue, forKey: WelcomeBackdrop.storageKey)
     let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: NSSize(width: 700, height: 600), still: false)
     defer { window.close() }
     settle(hosting)
@@ -419,7 +435,6 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
 /// in, far outside every display), and every action of the catalogue must fire from some point.
 @MainActor func tileChecks() {
     // With a backdrop drawn, so the check also proves that the backdrop lets every click through.
-    UserDefaults.standard.set(WelcomeBackdrop.matrix.rawValue, forKey: WelcomeBackdrop.storageKey)
     for (git, project) in [(true, "MarkView"), (false, "MarkView"), (false, nil)] as [(Bool, String?)] {
         var performed: [WelcomeActionID] = []
         let size = NSSize(width: 1000, height: 1100)
@@ -504,8 +519,7 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
 @MainActor func animatedFrameChecks() {
     let size = NSSize(width: 1000, height: 800)
     for backdrop in [WelcomeBackdrop.matrix, .bugs, .aurora, .network] {
-        UserDefaults.standard.set(backdrop.rawValue, forKey: WelcomeBackdrop.storageKey)
-        let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: size, still: false)
+        let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: size, still: false, backdrop: backdrop)
         defer { window.close() }
         settle(hosting)
         guard let view = descendants(hosting).compactMap({ $0 as? BackdropHostView }).first, let root = view.layer else {
@@ -575,7 +589,6 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
 /// Reduce Motion: with the system setting on, the screen must hold still; off again, it moves. The setting is read through
 /// NSWorkspace, so the check swaps that one getter for the length of the run and announces the change as the system does.
 @MainActor func reduceMotionChecks() {
-    UserDefaults.standard.set(WelcomeBackdrop.bugs.rawValue, forKey: WelcomeBackdrop.storageKey)
     let selector = NSSelectorFromString("accessibilityDisplayShouldReduceMotion")
     guard let method = class_getInstanceMethod(NSWorkspace.self, selector) else { check(false, "reduce motion: the system getter exists"); return }
     let original = method_getImplementation(method)
@@ -583,7 +596,7 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
     let replacement: @convention(block) (AnyObject) -> Bool = { _ in reduce }
     method_setImplementation(method, imp_implementationWithBlock(replacement))
     defer { method_setImplementation(method, original) }
-    let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: NSSize(width: 900, height: 700), still: false)
+    let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: NSSize(width: 900, height: 700), still: false, backdrop: .bugs)
     defer { window.close() }
     settle(hosting)
     guard let view = descendants(hosting).compactMap({ $0 as? BackdropHostView }).first, let root = view.layer else { check(false, "reduce motion: the backdrop view exists"); return }
@@ -608,8 +621,7 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
 /// How the screen looks in Boris's theme as his screenshot shows it (dark, green accent), at the size of that window.
 @MainActor func borisThemeSnapshot() {
     for backdrop in [WelcomeBackdrop.matrix, .aurora, .bugs, .network] {
-        UserDefaults.standard.set(backdrop.rawValue, forKey: WelcomeBackdrop.storageKey)
-        let (window, hosting) = host(project: "vivaa-internals", git: true, theme: .midnight, accent: ThemeColor(0x3FB950), size: NSSize(width: 1142, height: 1068), still: true)
+        let (window, hosting) = host(project: "vivaa-internals", git: true, theme: .midnight, accent: ThemeColor(0x3FB950), size: NSSize(width: 1142, height: 1068), still: true, backdrop: backdrop)
         settle(hosting)
         snapshot(hosting, "boris-\(backdrop.rawValue)")
         window.close()
@@ -640,7 +652,6 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
 /// visible tile. It now sits beside the app icon inside the scrolled column.
 @MainActor func pillChecks() {
     NSApp.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
-    UserDefaults.standard.set(WelcomeBackdrop.matrix.rawValue, forKey: WelcomeBackdrop.storageKey)
     let titles = Set(WelcomeCatalogue.project(isGitRepo: true).flatMap { $0.actions.map(\.title) })
     for size in [NSSize(width: 520, height: 520), NSSize(width: 620, height: 800), NSSize(width: 1000, height: 640), NSSize(width: 460, height: 900)] {
         let (window, hosting) = host(project: "MarkView", git: true, theme: .classicDark, size: size, still: true)
@@ -672,6 +683,7 @@ app.setActivationPolicy(.accessory)
 MainActor.assumeIsolated {
     layerChecks()
     hostedChecks()
+    perWindowChecks()
     motionChecks()
     resizeChecks()
     tileChecks()

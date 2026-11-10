@@ -1153,7 +1153,7 @@ class WorkspaceManager: ObservableObject {
             feature: layout.issuesFeature, git: layout.gitSection.rawValue, stage: layout.featureStage.rawValue,
             showFiles: showFileTree, showNavigator: showTOC,
             contentsVisible: showTOC, terminalVisible: terminalVisible,
-            showCenter: showCenter)
+            showCenter: showCenter, welcomeBackdrop: layout.welcomeBackdrop.rawValue)
         return state
     }
 
@@ -1228,6 +1228,8 @@ class WorkspaceManager: ObservableObject {
             layout.issuesFeature = panels.feature
             layout.gitSection = GitSection(rawValue: panels.git) ?? .changes
             layout.featureStage = FeatureStage.stored(panels.stage)
+            // A session saved before BUG-120 has none: the window keeps the starting choice it was created with.
+            if let backdrop = panels.welcomeBackdrop { layout.welcomeBackdrop = WelcomeBackdrop.stored(backdrop) }
             setFileTreeForThisWindow(panels.showFiles)
             showTOC = panels.contentsVisible ?? false
             showCenter = panels.showCenter ?? true

@@ -27,6 +27,8 @@ struct WorkspacePanelState: Codable {
     var contentsVisible: Bool? = nil
     var terminalVisible: Bool? = nil
     var showCenter: Bool? = nil
+    /// This window's welcome-screen background (a `WelcomeBackdrop` raw value); absent in sessions saved before BUG-120.
+    var welcomeBackdrop: String? = nil
 }
 
 struct WorkspaceDraft: Codable {

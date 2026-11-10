@@ -63,6 +63,11 @@ final class PanelLayout: ObservableObject {
         didSet { remember(featureStage.rawValue, FeatureStage.storageKey) }
     }
 
+    /// Background of this window's welcome screen (BUG-120). The stored value is only the starting choice of the next window.
+    @Published var welcomeBackdrop: WelcomeBackdrop {
+        didSet { remember(welcomeBackdrop.rawValue, WelcomeBackdrop.storageKey) }
+    }
+
     static let leftPanelKey = "layout.leftPanel"
     static let workspaceAreaKey = "layout.workspaceArea"
     static let workSectionKey = "layout.workSection"
@@ -80,6 +85,7 @@ final class PanelLayout: ObservableObject {
         issuesFeature = defaults.string(forKey: Self.issuesFeatureKey) ?? ""
         gitSection = defaults.string(forKey: Self.gitSectionKey).flatMap(GitSection.init) ?? .changes
         featureStage = FeatureStage.stored(defaults.string(forKey: FeatureStage.storageKey))
+        welcomeBackdrop = WelcomeBackdrop.stored(defaults.string(forKey: WelcomeBackdrop.storageKey))
     }
 
     private func remember(_ value: String, _ key: String) {
