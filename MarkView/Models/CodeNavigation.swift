@@ -394,7 +394,8 @@ final class CodeNavigationStore {
     private func send(url: URL, _ event: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: event),
               let json = String(data: data, encoding: .utf8) else { return }
-        NotificationCenter.default.post(name: .codeNavEvent, object: nil,
+        // The object is this window's navigator: the viewers of other windows ignore the event.
+        NotificationCenter.default.post(name: .codeNavEvent, object: self,
                                         userInfo: ["url": url.standardizedFileURL, "json": json])
     }
 }

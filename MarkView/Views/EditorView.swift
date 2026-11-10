@@ -152,8 +152,9 @@ struct EditorView: NSViewRepresentable {
                 forName: .performPDFExport,
                 object: nil, queue: .main
             ) { [weak self] notification in
+                guard let self, notification.isFor(self.parent.workspaceManager) else { return }
                 let fileName = notification.object as? String ?? "document.pdf"
-                self?.exportPDF(fileName: fileName)
+                self.exportPDF(fileName: fileName)
             }
 
             // Listen for TOC scroll-to-heading requests
@@ -161,8 +162,9 @@ struct EditorView: NSViewRepresentable {
                 forName: .scrollToHeading,
                 object: nil, queue: .main
             ) { [weak self] notification in
+                guard let self, notification.isFor(self.parent.workspaceManager) else { return }
                 if let headingId = notification.object as? String {
-                    self?.scrollToHeading(headingId)
+                    self.scrollToHeading(headingId)
                 }
             }
 
@@ -171,7 +173,7 @@ struct EditorView: NSViewRepresentable {
                 forName: .revealCodeLine,
                 object: nil, queue: .main
             ) { [weak self] notification in
-                guard let self,
+                guard let self, notification.isFor(self.parent.workspaceManager),
                       let url = notification.userInfo?["url"] as? URL,
                       let line = notification.userInfo?["line"] as? Int else { return }
                 self.pendingCodeReveal = (url.standardizedFileURL, line, notification.userInfo?["endLine"] as? Int)
@@ -183,7 +185,7 @@ struct EditorView: NSViewRepresentable {
                 forName: .revealStructure,
                 object: nil, queue: .main
             ) { [weak self] notification in
-                guard let self, let webView = self.webView,
+                guard let self, notification.isFor(self.parent.workspaceManager), let webView = self.webView,
                       let url = (notification.userInfo?["url"] as? URL)?.standardizedFileURL, url == self.currentLineRevealURL,
                       let path = notification.userInfo?["path"] as? String,
                       let line = notification.userInfo?["line"] as? Int else { return }
@@ -195,7 +197,8 @@ struct EditorView: NSViewRepresentable {
                 forName: .codeNavEvent,
                 object: nil, queue: .main
             ) { [weak self] notification in
-                guard let self, let webView = self.webView,
+                guard let self, notification.object as AnyObject? === self.parent.workspaceManager.codeNav,
+                      let webView = self.webView,
                       let url = notification.userInfo?["url"] as? URL, url == self.currentCodeURL,
                       let json = notification.userInfo?["json"] as? String else { return }
                 self.bridge.sendCodeNavEvent(json, in: webView)
@@ -206,8 +209,9 @@ struct EditorView: NSViewRepresentable {
                 forName: .scrollToText,
                 object: nil, queue: .main
             ) { [weak self] notification in
+                guard let self, notification.isFor(self.parent.workspaceManager) else { return }
                 if let text = notification.object as? String {
-                    self?.scrollToText(text, heading: notification.userInfo?["heading"] as? Bool ?? false)
+                    self.scrollToText(text, heading: notification.userInfo?["heading"] as? Bool ?? false)
                 }
             }
         }
@@ -230,7 +234,14 @@ struct EditorView: NSViewRepresentable {
             lastLoadedContent = ""
             // The page starts at the current interface scale, so its chrome never flashes at 100%.
             appliedUIScale = uiScale
-            let page = html.replacingOccurrences(of: "<html lang=\"en\"", with: "<html lang=\"en\" style=\"--ui-scale: \(Double(uiScale))\"")
+            var page = html.replacingOccurrences(of: "<html lang=\"en\"", with: "<html lang=\"en\" style=\"--ui-scale: \(Double(uiScale))\"")
+            // This window's own text size and panel widths, ahead of every script that reads them (`EditorWindowPrefs`).
+            let windowUI = parent.workspaceManager.windowUI
+            var own: [String: String] = [:]
+            for key in EditorWindowPrefs.keys {
+                if let value: String = windowUI.existing(EditorWindowPrefs.stateKey(key)) { own[key] = value }
+            }
+            page = page.replacingOccurrences(of: "<head>", with: "<head><script>\(EditorWindowPrefs.script(values: own))</script>")
             webView.loadHTMLString(page, baseURL: editorResourceBaseURL)
         }
 
@@ -900,6 +911,14 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         Task { @MainActor in
             self.parent.workspaceManager.handleCursorBlockChange(blockId)
         }
+    }
+
+    func bridge(_ bridge: WebViewBridge, didChangeEditorFontSize size: Double) {
+        Task { @MainActor in self.parent.workspaceManager.windowUI.set(size, for: EditorTextSize.mirrorKey) }
+    }
+
+    func bridge(_ bridge: WebViewBridge, didSetWindowPref key: String, value: String) {
+        Task { @MainActor in self.parent.workspaceManager.windowUI.set(value, for: EditorWindowPrefs.stateKey(key)) }
     }
 
     func bridgeEditorReady(_ bridge: WebViewBridge) {

@@ -16,5 +16,5 @@ Path(sys.argv[1]).write_text(source)
 PY
 cp tools/tests/FileBrowserTests.swift "$out/main.swift"
 swiftc -o "$out/file-browser-tests" "$out/filetype.swift" MarkView/Models/ArchiveSupport.swift \
-    MarkView/Models/FileNode.swift MarkView/Models/FileBrowserModel.swift "$out/main.swift"
+    MarkView/Models/FileNode.swift MarkView/Models/WindowUIState.swift MarkView/Models/FileBrowserModel.swift "$out/main.swift"
 "$out/file-browser-tests"

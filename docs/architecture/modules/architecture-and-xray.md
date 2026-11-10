@@ -879,7 +879,7 @@ ISO-8601 dates, without temporary ratings. It is written detached and atomically
 | `markview-xray-details-hidden` | WKWebView `localStorage` | Whether the details panel is hidden (`markview-architecture.js:2058-2063`) |
 | `markview-xray-details-width` | `localStorage` via `MVPanels.resizable` | Width of the details panel (`:2053`) |
 
-The temporary ⚡ filter (`ImportanceRater.temporaryFilter`), `searchSymbols`,
+The temporary ⚡ filter (`WorkspaceManager.temporaryFilter`, one per window), `searchSymbols`,
 `searchAnswers`, `edgeNotes`, `prExplanations` and live streams are memory-only.
 
 ---

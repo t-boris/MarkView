@@ -6,9 +6,24 @@ import SwiftUI
 struct FileTreeView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    /// The view and the filter choices; they persist across restarts (AC-5, DEC-008). The sort order persists in
-    /// the file tree store.
-    @State private var preferences = FileBrowserPreferences.load()
+    /// The view and the filter choices of this window; they persist across restarts with its session (AC-5, DEC-008)
+    /// and no other window follows them. The sort order persists in the file tree store.
+    @WindowStorage("fileBrowser.viewMode") private var storedMode = FileBrowserViewMode.list
+    @WindowStorage("fileBrowser.showHidden") private var storedShowHidden = false
+    @WindowStorage("fileBrowser.hideIgnored") private var storedHideIgnored = false
+    @WindowStorage("fileBrowser.category") private var storedCategory = FileBrowserCategory.all
+    private var preferences: FileBrowserPreferences {
+        get { FileBrowserPreferences(mode: storedMode, showHidden: storedShowHidden, hideIgnored: storedHideIgnored, category: storedCategory) }
+        nonmutating set {
+            storedMode = newValue.mode
+            storedShowHidden = newValue.showHidden
+            storedHideIgnored = newValue.hideIgnored
+            storedCategory = newValue.category
+        }
+    }
+    private var preferencesBinding: Binding<FileBrowserPreferences> {
+        Binding(get: { preferences }, set: { preferences = $0 })
+    }
     /// The name query: the entries of the browsed folder in Icon and List views, the whole workspace in Tree.
     @State private var searchText = ""
     /// The folder browsed in Icon and List views; nil is the project folder.
@@ -203,7 +218,7 @@ struct FileTreeView: View {
             if projectRootURL != nil { breadcrumbBar }
             toolbar
             if projectRootURL != nil {
-                FileBrowserControls(preferences: $preferences, sort: sortBinding, canHideIgnored: git.isGitRepo)
+                FileBrowserControls(preferences: preferencesBinding, sort: sortBinding, canHideIgnored: git.isGitRepo)
                     .padding(.horizontal, 8).padding(.bottom, 6)
                     .background(palette.bgSidebar)
             }
@@ -268,10 +283,7 @@ struct FileTreeView: View {
             if let anchor = treeAnchor, workspaceManager.containerRoot(for: anchor) == nil { treeAnchor = nil }
             expanded = expanded.filter { key in roots.contains { key == $0.key || key.hasPrefix($0.key + "/") } }
         }
-        .onChange(of: preferences) { value in
-            value.save()
-            selection.keep(only: selectableURLs)
-        }
+        .onChange(of: preferences) { _ in selection.keep(only: selectableURLs) }
         .onChange(of: expanded) { _ in selection.keep(only: selectableURLs) }
         .onChange(of: mode) { _ in selection.keep(only: selectableURLs) }
         .task(id: searchKey) { await runTreeSearch() }

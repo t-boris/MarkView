@@ -220,11 +220,12 @@ enum AIAssistantPreferences {
     }
 
     /// A model a running assistant reported (the user switched inside its session, BUG-048): the next
-    /// start in `project` uses it, and so does any project with no choice of its own. Not a pick in
+    /// start in `project` uses it. Only that project: a switch in one window must not change what another
+    /// project shows or starts with, so the default moves only when no project is open. Not a pick in
     /// MarkView, so it restarts nothing (`ModelPickLog`).
     static func remember(_ model: String, for tool: CLITool, project: URL?) {
         if let project { ProjectAIChoice.update(project) { $0.models[tool.rawValue] = model } }
-        UserDefaults.standard.set(model, forKey: modelKey(for: tool))
+        else { UserDefaults.standard.set(model, forKey: modelKey(for: tool)) }
     }
 
     /// The model `tool` runs for `project`, or nil to let the CLI use its own default.

@@ -499,7 +499,8 @@ struct MarkViewApp: App {
     }
 
     private func exportPDF() {
-        NotificationCenter.default.post(name: .exportPDFRequested, object: nil)
+        guard let activeWorkspace else { return }
+        NotificationCenter.default.post(.exportPDFRequested, for: activeWorkspace)
     }
 }
 
@@ -550,6 +551,7 @@ enum DDESettingsWindow {
         let hosting = NSHostingView(
             rootView: DDESettingsView()
                 .environmentObject(workspace)
+                .environmentObject(workspace.windowUI)
                 .appFontScaled()
                 .windowThemed(workspace.theme)
         )
@@ -558,6 +560,27 @@ enum DDESettingsWindow {
         hosting.sizingOptions = []
         window.contentView = hosting
         window.setContentSize(size)
+    }
+}
+
+// MARK: - Notifications for one window
+
+extension NotificationCenter {
+    /// Posts a notification that is for one window only: every window's observers hear it, and the ones of other windows ignore it
+    /// (`Notification.isFor`). A scroll, a reveal or an export started in one window must not move another window.
+    func post(_ name: Notification.Name, for workspace: WorkspaceManager, object: Any? = nil, userInfo: [AnyHashable: Any] = [:]) {
+        var info = userInfo
+        info[Notification.workspaceKey] = ObjectIdentifier(workspace)
+        post(name: name, object: object, userInfo: info)
+    }
+}
+
+extension Notification {
+    static let workspaceKey = "workspace"
+
+    /// True when this notification was posted for `workspace`'s window. One posted for no window is for none.
+    func isFor(_ workspace: WorkspaceManager) -> Bool {
+        (userInfo?[Self.workspaceKey] as? ObjectIdentifier) == ObjectIdentifier(workspace)
     }
 }
 

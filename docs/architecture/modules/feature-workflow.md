@@ -185,7 +185,7 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 - A static `enum`. Each `Filter` has an id, name, criterion and levels.
   - The built-in `importance` filter has the levels `critical/high/normal/low` (`ImportanceRater.swift:16-17`).
   - User filters are stored as JSON in UserDefaults `ai.customFilters` (`:21-32`) and use the levels `strong/moderate/weak/none` (`:79`).
-  - One process-wide `temporaryFilter` (id prefix `tmp-`) is never persisted (`:42-60`).
+  - The one-off filter (id prefix `tmp-`) is built by `ImportanceRater.temporaryFilter(for:)`, held by each window (`WorkspaceManager.temporaryFilter`) and never persisted.
 - `request(subject:filter:context:items:language:)` builds a request with no file access, the X-Ray model, effort `low` and a 240 s timeout (`:185-195`). `parse` drops unknown keys and levels (`:198-207`).
 - `tools/importance-check.sh` compiles a throwaway Swift harness that rates the sections of `Tests/Fixtures/importance/*.md` with each CLI and compares the ratings with `expected.json`. It also runs a "Payment safety" custom-filter case (`tools/importance-check.sh:23-89`).
 
@@ -860,7 +860,7 @@ Settings read indirectly: `actions.outputLanguage` (conversation language), `AIA
     - It passes a `readableFolder:` argument that `ImportanceRater.request` does not accept (`tools/importance-check.sh:36,68-69` vs `ImportanceRater.swift:185-186`).
     - It does not compile `CodeExplainer.swift`, which defines `editorLines`, used at `ImportanceRater.swift:212`.
 
-    `ImportanceRater` is also an X-Ray concern kept in this module's file list; its `temporaryFilter` is unsynchronized global mutable state (`ImportanceRater.swift:42`).
+    `ImportanceRater` is also an X-Ray concern kept in this module's file list; the one-off filter used to be global mutable state; it is now a per-window value on `WorkspaceManager`.
 15. **Sensitive content leaves the machine**:
     - Every call sends feature content, documents and search snippets to the chosen CLI, with read access to the whole project root (`FeatureAI.swift:131-132`). `research` also enables the web (`:765`).
     - `newBug` posts the full report to a GitHub issue, **including the user's "Original description"** and links to attachments (`FeatureIntake.swift:193,219-220`). `newFeature` posts the idea, problem and scope (`:136-141`). On a public repository this publishes whatever the user pasted, such as logs or tokens.

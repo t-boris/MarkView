@@ -50,6 +50,8 @@ What it does **not** own. It calls into these, but the logic lives in sibling mo
 | `MarkView/Views/ImageViewerView.swift` | Image tab: `ImageCanvasController`, `ImageCanvasView` (pan/zoom/drop) |
 | `MarkView/Views/DDESettingsView.swift` | DDE Settings window: OpenAI key, assistant/model, CLI paths, extra PATH, usage chips, Whisper test, GitHub section, metadata maintenance |
 | `MarkView/Models/AppTheme.swift` | Foundation-only theme model: `ThemeColor` (contrast maths), `AppTheme` (System, Classic Dark/Light, Darcula, Midnight, Graphite, Paper), `ThemePalette` (native tokens), `WindowThemeSettings` (theme + accent per theme), `ThemeSettingsStore` (legacy `theme` migration, last change for new windows). Checked by `tools/tests/theme-model-tests.sh` |
+| `MarkView/Models/WindowUIState.swift`, `MarkView/Views/WindowStorage.swift` | `WindowUIState` (one per window, owned by `WorkspaceManager.windowUI`; values saved in the window session) and the `@WindowStorage` property wrapper that reads it |
+| `MarkView/Models/EditorWindowPrefs.swift`, `MarkView/Models/ExcludedFolders.swift` | The editor page's per-window choices (script for the page, key allow-list); a project's excluded folders keyed by its full path |
 | `MarkView/Models/WindowTheme.swift` | `WindowTheme`: one per window (owned by `WorkspaceManager`); sets `NSWindow.appearance`, publishes the palette, builds the web payload; `SystemAppearance` follows macOS |
 | `MarkView/Views/AppPalette.swift` | `AppPalette` (SwiftUI colours of a `ThemePalette`), the `\.palette` environment value, `.windowThemed(_:)`, `WindowThemeHost` |
 | `MarkView/Views/ThemePickerView.swift` | The picker popover (themes, accent swatches, colour well) and `.themePicker(_:)` |
@@ -337,7 +339,7 @@ flowchart TD
 | `workspace.lastFolder` | String (standardized path) | `WorkspaceManager.lastFolderKey` `:449`; set `:452`, removed `:1424`, read `ContentView.swift:204` |
 | `layout.showFileTree`, `layout.showTOC` | Bool | `WorkspaceManager.swift:319-324,410-415` |
 | `fileTree.sortField` (`"Name"`/`"Date Modified"`), `fileTree.sortAscending` | String, Bool | `WorkspaceManager.swift:13-14,28-34` |
-| `excludedFolders.<rootFolderName>` | [String] relative paths | `WorkspaceManager.swift:50,104` |
+| `excludedFolders.<standardized root path>` | [String] relative paths; a list saved under `excludedFolders.<folder name>` is copied to the new key once | `Models/ExcludedFolders.swift`, used by `WorkspaceFileTreeStore` |
 | `project.linkedFolders` | [project key: Data (JSON `[LinkedFolder]`)] | `LinkedFolders.load/save` (`Models/LinkedFolders.swift`) |
 | `layout.navigatorTab` | `TOCView.Tab` raw (`Contents`…`Feature`) | `PanelLayout.navigatorTab`; set by `TOCView`, `showAIConsole`, `intakeFinished`, `runFeatureAction` |
 | `layout.leftPanel` (`files`/`issues`), `layout.issuesFeature` | String | `PanelLayout.leftPanel` / `.issuesFeature`; `FeatureNavigatorView.swift`, `intakeFinished` |
@@ -346,6 +348,26 @@ flowchart TD
 These four are per-window state: `WorkspaceManager.layout` (`Models/PanelLayout.swift`) reads them once when the
 window opens and writes each change back only to seed the next window and relaunch. Views observe the window's
 `PanelLayout`, never the keys. `@AppStorage` would switch every window at once (BUG-004).
+
+Everything else a window shows of itself (expanded sections, panel widths, the Search mode, the Files view and filters, the
+Prototype and UI Studio widths, the interface text size the GitHub viewers follow) lives in `WorkspaceManager.windowUI`
+(`Models/WindowUIState.swift`), a per-window dictionary that `ContentView` puts in the environment. Views declare
+`@WindowStorage("key") var x = default` (`Views/WindowStorage.swift`), the same call as `@AppStorage` with the sharing taken
+out. The window saves the dictionary in `WorkspaceWindowState.uiState`; UserDefaults gets each change only as the starting value
+of the next window, which takes a snapshot of those values when it is created and never reads the keys again. Divider
+positions kept by AppKit views are written with `publishing: false` (no redraw per drag frame). Other per-window rules:
+
+- The editor page's text size, X-Ray details and code-notes widths are `localStorage` keys, which WebKit shares between all
+  windows' pages. `EditorWindowPrefs` puts a script at the top of the page that answers those four keys from the window's own
+  copy (first read starts from the shared value) and reports each save to Swift (`editorWindowPref`), which files it in `windowUI`.
+- Notifications that act on one window (`scrollToHeading`, `scrollToText`, `revealCodeLine`, `revealStructure`, `performPDFExport`,
+  `exportPDFRequested`) are posted with `NotificationCenter.post(_:for:)` and ignored by the observers of other windows
+  (`Notification.isFor`); `codeNavEvent` carries the window's `CodeNavigationStore` as its object.
+- The one-off ⚡ AI filter is `WorkspaceManager.temporaryFilter`, handed to every X-Ray store of the window.
+- `ProjectOperationsStore` stays one per project folder (operations, runs), but the console, its selected run and the editor are
+  `WorkspaceManager.operationConsoleVisible/operationSelectedRunID/operationEditRequest`; the store asks its `presenter` (the window
+  that last started an action) to show them.
+- A model the running assistant reports (`AIAssistantPreferences.remember`) changes the project's choice only, never the default.
 | `theme` | legacy `light`/`dark`/`system`; read once to choose Classic Light or Classic Dark for a window that has no saved theme (DEC-004), never written | `AppTheme.swift` (`ThemeSettingsStore.legacyKey`) |
 | `theme.lastChanged.v1` | JSON `WindowThemeSettings`: the theme and every per-theme accent last chosen in any window; the start of a new window (DEC-005) | `AppTheme.swift` (`ThemeSettingsStore`) |
 | `settings.ai.backend` | `CLITool` raw | `AIAssistants.swift:88`; `ContentView.swift:388` |
@@ -451,7 +473,7 @@ Caches in memory: `OpenTab.content`, `headings` and `blocks` per tab; `openFileD
 | 11 | `DDESettings` window is created once with the focused workspace (or a throwaway `new WorkspaceManager()`) and then reused. Its Maintenance section and embedding client stay bound to that first window's manager. | `MarkViewApp.swift:300-324` |
 | 12 | OpenAI API key is stored as plaintext in UserDefaults, not the Keychain. Presence and length are logged, not the value. | `EmbeddingClient.swift:125-127`; `DDESettingsView.swift:198` |
 | 13 | "Open in Terminal.app" builds AppleScript `do script "cd <path>"` escaping only `"`. The shell sees an unquoted path, so spaces break it, and `;`, `$()` or backticks in folder names run as commands. | `FileTreeView.swift:520-526` |
-| 14 | Exclusion list keyed by folder **name** (`excludedFolders.<lastPathComponent>`), so two projects named `docs` share it. `isExcluded` uses `hasPrefix` without a separator, so `docs` also excludes `docs2`. `includeFolder` path is derived by string replace. | `WorkspaceManager.swift:50,77,104`; `FileTreeView.swift:416` |
+| 14 | (The exclusion list used to be keyed by folder name; it is keyed by the full path now.) `isExcluded` uses `hasPrefix` without a separator, so `docs` also excludes `docs2`. `includeFolder` path is derived by string replace. | `WorkspaceManager.swift:77`; `FileTreeView.swift:416` |
 | 15 | `indexSingleFile` uses `lastPathComponent` as docId, contradicting "must be used by EVERY docId producer" in `docId(for:)`. | `:1500` vs `:691-698` |
 | 16 | Root watcher covers only the root directory entry. `FileNode` children are built but never rendered, because `FileTreeView` re-lists disk on every render. The tree model is effectively a root holder plus a redraw trigger. | `WorkspaceManager.swift:118-151`; `FileTreeView.swift:23-59`; `FileNode.swift:44-129` |
 | 17 | Main-thread file system and SQLite work (full list in section 7), notably `hasMarkdownFiles` during menu rendering. | `WorkspaceManager.swift:605-628`; `ContentView.swift:481` |

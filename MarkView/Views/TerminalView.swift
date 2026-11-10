@@ -185,7 +185,7 @@ struct AITerminalPanel: View {
     /// project's changes, never another window's (BUG-021).
     @State private var seenChoice: (tool: String, model: String)?
     @State private var showRemoteConnections = false
-    @AppStorage("layout.terminalPromptsExpanded.v3") private var promptsExpanded = false
+    @WindowStorage("layout.terminalPromptsExpanded.v3") private var promptsExpanded = false
 
     var body: some View {
         GeometryReader { geometry in

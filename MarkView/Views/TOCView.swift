@@ -74,7 +74,7 @@ struct TOCView: View {
                 ForEach(tab.headings) { heading in
                     Button(action: {
                         workspaceManager.updateActiveHeading(heading.id)
-                        NotificationCenter.default.post(name: .scrollToHeading, object: heading.id)
+                        NotificationCenter.default.post(.scrollToHeading, for: workspaceManager, object: heading.id)
                     }) {
                         HStack(spacing: 4) {
                             if heading.level > 1 {
@@ -195,7 +195,7 @@ struct DocumentSearchView: View {
         // Extract search term from snippet for scroll
         let searchTerm = searchQuery.prefix(40).replacingOccurrences(of: "'", with: "\\'")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            NotificationCenter.default.post(name: .scrollToText, object: String(searchTerm))
+            NotificationCenter.default.post(.scrollToText, for: workspaceManager, object: String(searchTerm))
         }
     }
 

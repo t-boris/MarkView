@@ -58,37 +58,17 @@ struct FileBrowserFilter: Equatable {
     var hasSettings: Bool { showHidden || hideIgnored || category != .all }
 }
 
-/// The settings that persist across restarts (AC-5): the view and the filter choices. The sort order
-/// persists in `WorkspaceFileTreeStore`.
+/// The view and the filter choices of one window's file browser (AC-5): each window keeps its own, in its `WindowUIState`
+/// (`FileTreeView`), so they survive a restart with the window's session. The sort order is in `WorkspaceFileTreeStore`.
 struct FileBrowserPreferences: Equatable {
     var mode = FileBrowserViewMode.list
     var showHidden = false
     var hideIgnored = false
     var category = FileBrowserCategory.all
-
-    private enum Key {
-        static let mode = "fileBrowser.viewMode"
-        static let showHidden = "fileBrowser.showHidden"
-        static let hideIgnored = "fileBrowser.hideIgnored"
-        static let category = "fileBrowser.category"
-    }
-
-    static func load(from defaults: UserDefaults = .standard) -> FileBrowserPreferences {
-        var preferences = FileBrowserPreferences()
-        if let raw = defaults.string(forKey: Key.mode), let mode = FileBrowserViewMode(rawValue: raw) { preferences.mode = mode }
-        if let raw = defaults.string(forKey: Key.category), let category = FileBrowserCategory(rawValue: raw) { preferences.category = category }
-        preferences.showHidden = defaults.bool(forKey: Key.showHidden)
-        preferences.hideIgnored = defaults.bool(forKey: Key.hideIgnored)
-        return preferences
-    }
-
-    func save(to defaults: UserDefaults = .standard) {
-        defaults.set(mode.rawValue, forKey: Key.mode)
-        defaults.set(showHidden, forKey: Key.showHidden)
-        defaults.set(hideIgnored, forKey: Key.hideIgnored)
-        defaults.set(category.rawValue, forKey: Key.category)
-    }
 }
+
+extension FileBrowserViewMode: WindowUIStorable {}
+extension FileBrowserCategory: WindowUIStorable {}
 
 /// The project folder or a linked folder: a place at the Workspace level (AC-2).
 struct FileBrowserRoot: Equatable {

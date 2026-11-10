@@ -49,12 +49,7 @@ final class WorkspaceFileTreeStore: ObservableObject {
     }
 
     func loadExcludedFolders() {
-        let key = "excludedFolders.\(rootNode?.url.lastPathComponent ?? "default")"
-        if let saved = UserDefaults.standard.stringArray(forKey: key) {
-            excludedFolders = Set(saved)
-        } else {
-            excludedFolders = []
-        }
+        excludedFolders = rootNode.map { ExcludedFolders.load(for: $0.url) } ?? []
     }
 
     @discardableResult
@@ -103,8 +98,8 @@ final class WorkspaceFileTreeStore: ObservableObject {
     }
 
     private func saveExcludedFolders() {
-        let key = "excludedFolders.\(rootNode?.url.lastPathComponent ?? "default")"
-        UserDefaults.standard.set(Array(excludedFolders), forKey: key)
+        guard let root = rootNode?.url else { return }
+        ExcludedFolders.save(excludedFolders, for: root)
     }
 
     private func relativePath(for url: URL) -> String? {
@@ -323,10 +318,26 @@ class WorkspaceManager: ObservableObject {
         UserDefaults.standard.stringArray(forKey: WorkspaceManager.recentProjectsKey) ?? []
     /// Which tab each panel of this window shows; never shared with other windows (BUG-004).
     let layout = PanelLayout()
+    /// Everything else this window shows of itself (expanded sections, widths, panel modes); never shared with other windows.
+    let windowUI = WindowUIState()
     /// The theme of this window; a change here leaves every other window alone.
     let theme = WindowTheme()
     /// AI tool runs working in a headless agent (diagrams, code map, review, audit).
     let aiJobs = AIToolJobs()
+    /// The project's operations, with this window as the one that shows what the person starts from here.
+    func operations() -> ProjectOperationsStore? {
+        projectOperations?.presenter = self
+        return projectOperations
+    }
+
+    /// Dismisses a finished run of the store, and moves this window's selection and console on when it was the one shown.
+    func dismissOperationRun(id: String) {
+        guard let store = projectOperations else { return }
+        store.dismiss(id: id)
+        if operationSelectedRunID == id { operationSelectedRunID = store.runs.keys.sorted().first }
+        if store.runs.isEmpty { operationConsoleVisible = false }
+    }
+
     /// The left panel. A change the user makes is also the default for windows opened later; see `showDocumentOnly()`.
     @Published var showFileTree: Bool = true {
         didSet { if remembersFileTreeChoice { UserDefaults.standard.set(showFileTree, forKey: "layout.showFileTree") } }
@@ -493,6 +504,10 @@ class WorkspaceManager: ObservableObject {
     let architecture = ArchitectureStore()
     /// Team-shared operation definitions and the process registry for this workspace root.
     @Published private(set) var projectOperations: ProjectOperationsStore?
+    /// What this window has open of the project's operations; the store is shared by every window on the folder, these are not.
+    @Published var operationConsoleVisible = false
+    @Published var operationSelectedRunID: String?
+    @Published var operationEditRequest: ProjectOperationEditRequest?
     /// AI margin notes for code files (code viewer → Explain).
     let codeExplain = CodeExplainStore()
     /// Go to definition / find usages, jump history and AI answers about selected code.
@@ -1117,6 +1132,7 @@ class WorkspaceManager: ObservableObject {
     func windowState(id: UUID) -> WorkspaceWindowState {
         var state = WorkspaceWindowState(id: id, folder: rootNode?.url)
         state.theme = theme.settings
+        state.uiState = windowUI.saved
         for (index, tab) in openTabs.enumerated() {
             let saved: WorkspaceTabState
             switch tab.kind {
@@ -1158,6 +1174,7 @@ class WorkspaceManager: ObservableObject {
     }
 
     func restoreWindowState(_ state: WorkspaceWindowState) async {
+        windowUI.restore(state.uiState)
         let fm = FileManager.default
         if let folder = state.folder, folder.isFileURL,
            (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
@@ -1336,7 +1353,9 @@ class WorkspaceManager: ObservableObject {
     }
 
     /// AI filters available to the code viewer: Importance and the user's own.
-    private var aiFilters: [ImportanceRater.Filter] { ImportanceRater.allFilters }
+    /// The one-off filter of this window (typed into an X-Ray or notes filter box); other windows have their own.
+    private(set) var temporaryFilter: ImportanceRater.Filter?
+    private var aiFilters: [ImportanceRater.Filter] { ImportanceRater.allFilters(temporary: temporaryFilter) }
 
     /// Create or delete a user filter (from the Architecture tab or the code viewer).
     func createFilter(name: String, criterion: String) {
@@ -1347,7 +1366,10 @@ class WorkspaceManager: ObservableObject {
 
     /// The one-off AI filter from a filter box (X-Ray or notes); empty clears it.
     func setTemporaryFilter(_ criterion: String) {
-        if let previous = ImportanceRater.setTemporaryFilter(criterion) {
+        let previous = temporaryFilter
+        temporaryFilter = ImportanceRater.temporaryFilter(for: criterion)
+        allXRayStores.forEach { $0.temporaryFilter = temporaryFilter }
+        if let previous {
             architecture.forgetRatings(filterId: previous.id, db: semanticDatabase)
             folderXRays.values.forEach { $0.forgetRatings(filterId: previous.id, db: nil) }
         }
@@ -1357,7 +1379,7 @@ class WorkspaceManager: ObservableObject {
 
     func deleteFilter(id: String) {
         if ImportanceRater.isTemporary(id) {
-            if ImportanceRater.temporaryFilter?.id == id { setTemporaryFilter("") }
+            if temporaryFilter?.id == id { setTemporaryFilter("") }
             return
         }
         ImportanceRater.removeFilter(id: id)
@@ -1397,7 +1419,7 @@ class WorkspaceManager: ObservableObject {
         architecture.searchSymbols[criterion] = XRaySearch.Symbol(name: name, path: path, line: line)
         setTemporaryFilter(criterion)
         openArchitecture()
-        if let id = ImportanceRater.temporaryFilter?.id { architecture.activate(filterId: id) }
+        if let id = temporaryFilter?.id { architecture.activate(filterId: id) }
     }
 
     /// Show a text file's Explain notes, or return to its dedicated viewer.
@@ -1540,6 +1562,7 @@ class WorkspaceManager: ObservableObject {
             store.persistenceFile = base.appendingPathComponent(key + ".json")
             store.cacheDirectory = root.appendingPathComponent(".dde/cache/xray", isDirectory: true)
         }
+        store.temporaryFilter = temporaryFilter
         folderXRays[scope] = store
         return store
     }
@@ -1692,18 +1715,18 @@ class WorkspaceManager: ObservableObject {
         case "operationRun":
             guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
                   let id = payload["id"] as? String else { return }
-            projectOperations?.run(id: id)
+            operations()?.run(id: id)
         case "operationOpen":
             guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
                   let id = payload["id"] as? String else { return }
-            projectOperations?.openPanel(id: id)
+            operations()?.openPanel(id: id)
         case "operationEdit":
             guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
                   let id = payload["id"] as? String else { return }
-            projectOperations?.edit(id: id)
+            operations()?.edit(id: id)
         case "operationAdd":
             guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
-            projectOperations?.edit(id: nil)
+            operations()?.edit(id: nil)
         case "operationAdopt":
             guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
                   let id = payload["id"] as? String else { return }
@@ -1731,7 +1754,7 @@ class WorkspaceManager: ObservableObject {
         case "operationAddUnknown":
             guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
                   let index = payload["index"] as? Int else { return }
-            projectOperations?.addUnknown(index: index)
+            operations()?.addUnknown(index: index)
         case "openFile":
             guard let path = payload["path"] as? String, !path.isEmpty else { return }
             let url = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path)).standardizedFileURL
@@ -1755,7 +1778,7 @@ class WorkspaceManager: ObservableObject {
                 // Markdown: scroll to a heading or to where the document mentions something.
                 if let text = payload["find"] as? String, !text.isEmpty, FileType.from(url: url) == .markdown {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        NotificationCenter.default.post(name: .scrollToText, object: String(text.prefix(80)))
+                        NotificationCenter.default.post(.scrollToText, for: self, object: String(text.prefix(80)))
                     }
                 }
             } else {
@@ -1781,7 +1804,7 @@ class WorkspaceManager: ObservableObject {
             let question = (payload["question"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !question.isEmpty else { return }
             setTemporaryFilter(question)
-            if let filter = ImportanceRater.temporaryFilter {
+            if let filter = temporaryFilter {
                 architecture.understand(filter: filter, root: root, db: semanticDatabase)
                 architecture.activate(filterId: filter.id)
             }
@@ -1954,7 +1977,7 @@ class WorkspaceManager: ObservableObject {
     func openFile(_ url: URL, line: Int?, endLine: Int? = nil) {
         openFile(url)
         guard let line, line > 0 else { return }
-        NotificationCenter.default.post(name: .revealCodeLine, object: nil, userInfo:
+        NotificationCenter.default.post(.revealCodeLine, for: self, userInfo:
             ["url": url, "line": line, "endLine": endLine ?? line])
     }
 
@@ -1962,7 +1985,7 @@ class WorkspaceManager: ObservableObject {
     /// its tree viewer scrolls to the node (a source view to the line).
     func revealStructure(_ url: URL, item: StructureOutline.Item) {
         openFile(url)
-        NotificationCenter.default.post(name: .revealStructure, object: nil,
+        NotificationCenter.default.post(.revealStructure, for: self,
                                         userInfo: ["url": url, "path": item.pathJSON, "line": item.line])
     }
 
@@ -2011,7 +2034,7 @@ class WorkspaceManager: ObservableObject {
             openFile(found)
             if let heading, !heading.isEmpty {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                    NotificationCenter.default.post(name: .scrollToText, object: heading, userInfo: ["heading": true])
+                    NotificationCenter.default.post(.scrollToText, for: self, object: heading, userInfo: ["heading": true])
                 }
             }
         }
@@ -3868,7 +3891,7 @@ class WorkspaceManager: ObservableObject {
 
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 250_000_000)
-            NotificationCenter.default.post(name: .scrollToText, object: trimmedText)
+            NotificationCenter.default.post(.scrollToText, for: self, object: trimmedText)
         }
     }
 
@@ -4413,7 +4436,7 @@ class WorkspaceManager: ObservableObject {
         guard let root = rootNode?.url, !text.isEmpty else { return }
         setTemporaryFilter(text)
         openArchitecture()
-        if let filter = ImportanceRater.temporaryFilter {
+        if let filter = temporaryFilter {
             architecture.understand(filter: filter, root: root, db: semanticDatabase, attachments: attachments)
             architecture.activate(filterId: filter.id)
         }
@@ -5747,4 +5770,17 @@ extension WorkspaceManager {
         openFile(url, line: line, endLine: endLine)
         return nil
     }
+}
+
+extension WorkspaceManager: ProjectOperationsPresenter {
+    func showOperationConsole(selecting id: String) {
+        operationSelectedRunID = id
+        operationConsoleVisible = true
+    }
+
+    func showOperationEditor(_ request: ProjectOperationEditRequest) {
+        operationEditRequest = request
+    }
+
+    var operationsHostWindow: NSWindow? { hostWindow }
 }

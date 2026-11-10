@@ -1100,7 +1100,7 @@ struct GitHubIssueView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @EnvironmentObject var windowTheme: WindowTheme
     @Environment(\.appFontScale) private var fontScale
-    @AppStorage(EditorTextSize.mirrorKey) private var editorTextSize = EditorTextSize.defaultSize
+    @WindowStorage(EditorTextSize.mirrorKey) private var editorTextSize = EditorTextSize.defaultSize
     @State private var comment = ""
     @State private var starting = false
 
@@ -1563,7 +1563,7 @@ struct GitHubPullRequestView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @EnvironmentObject var windowTheme: WindowTheme
     @Environment(\.appFontScale) private var fontScale
-    @AppStorage(EditorTextSize.mirrorKey) private var editorTextSize = EditorTextSize.defaultSize
+    @WindowStorage(EditorTextSize.mirrorKey) private var editorTextSize = EditorTextSize.defaultSize
     @State private var comment = ""
     @State private var checkingOut = false
     @State private var confirm: String?

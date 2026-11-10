@@ -1796,7 +1796,7 @@ final class ArchitectureStore: ObservableObject {
     /// Importance overlay on.
     func rateImportance(viewId: String, parentId: String, filterId: String, root: URL, db: SemanticDatabase?) {
         guard let current = snapshot, let view = current.view(viewId),
-              let filter = ImportanceRater.allFilters.first(where: { $0.id == filterId }),
+              let filter = allFilters.first(where: { $0.id == filterId }),
               !rating.contains(filterId + "|" + viewId + "|" + parentId) else { return }
         let existing = current.ratings[filterId] ?? [:]
         let byId = Dictionary(view.nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -1890,7 +1890,7 @@ final class ArchitectureStore: ObservableObject {
         // I Need to Understand owns a separate answer job, started before the scan finishes.
         if understandingAnswers[filterId] != nil { return }
         guard let current = snapshot, filterId != ImportanceRater.importance.id,
-              let filter = ImportanceRater.allFilters.first(where: { $0.id == filterId }),
+              let filter = allFilters.first(where: { $0.id == filterId }),
               rating.insert("search|" + filterId).inserted else { return }
         // The ⚡ quick filter is a search: only what really matters is marked.
         if ImportanceRater.isTemporary(filterId) {
@@ -2163,9 +2163,13 @@ final class ArchitectureStore: ObservableObject {
         }
     }
 
+    /// The window's one-off filter (`WorkspaceManager.setTemporaryFilter` hands it to every store of the window).
+    var temporaryFilter: ImportanceRater.Filter?
+    private var allFilters: [ImportanceRater.Filter] { ImportanceRater.allFilters(temporary: temporaryFilter) }
+
     func retryUnderstanding(filterId: String, root: URL, db: SemanticDatabase?) {
         guard understandingAnswers[filterId]?.state == "failed",
-              let filter = ImportanceRater.temporaryFilter, filter.id == filterId else { return }
+              let filter = temporaryFilter, filter.id == filterId else { return }
         let retryCopy = understandingAnswers[filterId]?.attachments.isEmpty == true
             ? understandingInputAttachments[filterId] : nil
         understand(filter: filter, root: root, db: db, attachments: retryCopy)
@@ -2356,7 +2360,7 @@ final class ArchitectureStore: ObservableObject {
     }
 
     func searchNotes(path: String) -> SearchNotes? {
-        guard let id = ImportanceRater.temporaryFilter?.id, let answer = searchAnswers[id] else { return nil }
+        guard let id = temporaryFilter?.id, let answer = searchAnswers[id] else { return nil }
         let places = answer.steps.flatMap { step in
             step.places.filter { $0.path == path }.map { SearchNotes.Place(start: $0.start, end: $0.end, title: $0.title, why: $0.why, step: step.title) }
         }
@@ -4223,7 +4227,7 @@ final class ArchitectureStore: ObservableObject {
         let modules = snapshot?.view("modules")
         let payload = Payload(mode: mode, snapshot: snapshot.map { withCodeArchitecture(withContents(withUnderstandingEvidence($0))) }, status: status, error: error,
                               prSources: prSources, pr: prOverlay.map(withChangeNotes), history: historyPicker, busy: busy, describing: Array(describing),
-                              filters: Array(ImportanceRater.allFilters.dropFirst()),
+                              filters: Array(allFilters.dropFirst()),
                               root: rootPath, outlining: Array(outlining), activateFilter: activateFilter,
                               searchSummaries: searchSummaries, searchAnswers: searchAnswers,
                               understandingAnswers: understandingAnswers, edgeNotes: edgeNotes,

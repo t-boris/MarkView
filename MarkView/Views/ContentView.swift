@@ -30,14 +30,15 @@ enum LeftPanelWidth {
     static let range: ClosedRange<CGFloat> = 180...6000
     static let standard: CGFloat = 220
 
-    static var saved: CGFloat {
-        let width = CGFloat(UserDefaults.standard.double(forKey: key))
+    /// The width this window last had (or, for a window that has none yet, the last one any window left).
+    static func saved(in state: WindowUIState) -> CGFloat {
+        let width = CGFloat(state.value(key, fallback: 0.0))
         return width > 0 ? min(max(width, range.lowerBound), range.upperBound) : standard
     }
 
-    static func save(_ width: CGFloat) {
+    static func save(_ width: CGFloat, in state: WindowUIState) {
         guard range.contains(width) else { return }
-        UserDefaults.standard.set(Double(width.rounded()), forKey: key)
+        state.set(Double(width.rounded()), for: key, publishing: false)
     }
 }
 
@@ -45,17 +46,27 @@ enum LeftPanelWidth {
 /// width (HSplitView ignores `idealWidth` and hands out space itself), then saves every width
 /// the user drags it to. Widths before the restore are layout passes, not the user's, and are not saved.
 private struct LeftPanelWidthKeeper: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { KeeperView() }
+    let state: WindowUIState
+
+    func makeNSView(context: Context) -> NSView { KeeperView(state: state) }
     func updateNSView(_ nsView: NSView, context: Context) {}
 
     final class KeeperView: NSView {
         private var restored = false
+        private let state: WindowUIState
+
+        init(state: WindowUIState) {
+            self.state = state
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard window != nil else { return }
             restored = false
-            let width = LeftPanelWidth.saved
+            let width = LeftPanelWidth.saved(in: state)
             // After this layout pass, when the split view has its panes.
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.window != nil else { return }
@@ -66,7 +77,7 @@ private struct LeftPanelWidthKeeper: NSViewRepresentable {
 
         override func setFrameSize(_ newSize: NSSize) {
             super.setFrameSize(newSize)
-            if restored { LeftPanelWidth.save(newSize.width) }
+            if restored { LeftPanelWidth.save(newSize.width, in: state) }
         }
 
         private var enclosingSplitView: NSSplitView? {
@@ -87,22 +98,24 @@ private enum RightPanelWidth {
     static let range: ClosedRange<CGFloat> = 320...1200
     static let standard: CGFloat = 500
 
-    static var saved: CGFloat {
-        let width = CGFloat(UserDefaults.standard.double(forKey: key))
+    /// The width this window last had (or, for a window that has none yet, the last one any window left).
+    static func saved(in state: WindowUIState) -> CGFloat {
+        let width = CGFloat(state.value(key, fallback: 0.0))
         return width > 0 ? min(max(width, range.lowerBound), range.upperBound) : standard
     }
 
-    static func save(_ width: CGFloat) {
+    static func save(_ width: CGFloat, in state: WindowUIState) {
         guard range.contains(width) else { return }
-        UserDefaults.standard.set(Double(width.rounded()), forKey: key)
+        state.set(Double(width.rounded()), for: key, publishing: false)
     }
 }
 
 private struct RightPanelWidthKeeper: NSViewRepresentable {
     let centerVisible: Bool
+    let state: WindowUIState
 
     func makeNSView(context: Context) -> KeeperView {
-        let view = KeeperView()
+        let view = KeeperView(state: state)
         view.centerVisible = centerVisible
         return view
     }
@@ -117,6 +130,14 @@ private struct RightPanelWidthKeeper: NSViewRepresentable {
         private var restored = false
         var centerVisible = true
         private var saveGeneration = 0
+        private let state: WindowUIState
+
+        init(state: WindowUIState) {
+            self.state = state
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -130,7 +151,7 @@ private struct RightPanelWidthKeeper: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.centerVisible, let split = self.enclosingSplitView,
                       split.subviews.count >= 2 else { return }
-                let width = min(RightPanelWidth.saved, split.bounds.width / 2)
+                let width = min(RightPanelWidth.saved(in: self.state), split.bounds.width / 2)
                 split.setPosition(split.bounds.width - width, ofDividerAt: split.subviews.count - 2)
                 self.restored = true
             }
@@ -145,7 +166,7 @@ private struct RightPanelWidthKeeper: NSViewRepresentable {
                       self.centerVisible, self.window != nil,
                       (self.enclosingSplitView?.subviews.count ?? 0) >= 2,
                       abs(self.frame.width - newSize.width) < 1 else { return }
-                RightPanelWidth.save(newSize.width)
+                RightPanelWidth.save(newSize.width, in: self.state)
             }
         }
 
@@ -206,14 +227,14 @@ struct ContentView: View {
                             .frame(minWidth: compact ? 160 : LeftPanelWidth.range.lowerBound,
                                    idealWidth: compact ? 190 : LeftPanelWidth.standard,
                                    maxWidth: compact ? 240 : .infinity)
-                            .background { if !compact { LeftPanelWidthKeeper() } }
+                            .background { if !compact { LeftPanelWidthKeeper(state: workspaceManager.windowUI) } }
                     }
                     if workspaceManager.showCenter {
                         workspaceCenter.frame(minWidth: 400, idealWidth: 500)
                     }
                     if workspaceManager.terminalVisible {
                         rightPane.frame(minWidth: terminalMinimum, idealWidth: max(500, terminalMinimum))
-                            .background(RightPanelWidthKeeper(centerVisible: workspaceManager.showCenter))
+                            .background(RightPanelWidthKeeper(centerVisible: workspaceManager.showCenter, state: workspaceManager.windowUI))
                     }
                 }
                 .onAppear {
@@ -227,8 +248,8 @@ struct ContentView: View {
         .onDrop(of: [UTType.fileURL], isTargeted: nil) { providers in
             handleFileDrop(providers)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .exportPDFRequested)) { _ in
-            exportPDF()
+        .onReceive(NotificationCenter.default.publisher(for: .exportPDFRequested)) { notification in
+            if notification.isFor(workspaceManager) { exportPDF() }
         }
         .onChange(of: workspaceManager.activeTabIndex) { index in
             guard workspaceManager.openTabs.indices.contains(index) else { return }
@@ -297,14 +318,12 @@ struct ContentView: View {
                 .environmentObject(workspaceManager)
                 .windowThemed(workspaceManager.theme)
         }
-        .sheet(isPresented: Binding(
-            get: { workspaceManager.projectOperations?.panelVisible ?? false },
-            set: { workspaceManager.projectOperations?.panelVisible = $0 })) {
-            if let store = workspaceManager.projectOperations { ProjectOperationConsole(store: store) }
+        .sheet(isPresented: $workspaceManager.operationConsoleVisible) {
+            if let store = workspaceManager.projectOperations {
+                ProjectOperationConsole(store: store).environmentObject(workspaceManager)
+            }
         }
-        .sheet(item: Binding(
-            get: { workspaceManager.projectOperations?.editRequest },
-            set: { workspaceManager.projectOperations?.editRequest = $0 })) { request in
+        .sheet(item: $workspaceManager.operationEditRequest) { request in
             if let store = workspaceManager.projectOperations {
                 let nodes = workspaceManager.architecture.snapshot?.view("deployment")?.nodes
                     .filter { $0.kind != "root" && $0.kind != "moduleRef" }
@@ -329,6 +348,8 @@ struct ContentView: View {
                 .padding(20)
             }
         }
+        // One for the whole window: `@WindowStorage` in any view below reads this window's own values.
+        .environmentObject(workspaceManager.windowUI)
         .navigationTitle(WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName))
         .background(WindowAccessor(window: $hostWindow))
         .onChange(of: workspaceManager.rootNode?.url) { _ in updateWindowIdentity() }
@@ -739,7 +760,6 @@ struct ContentView: View {
         hostWindow?.isMovableByWindowBackground = true
         hostWindow?.representedURL = root
         projectKey = workspaceManager.projectFolder.map(ProjectColor.projectKey(for:))
-        workspaceManager.projectOperations?.window = hostWindow
         // Agents driving MarkView see every window, also one with nothing open yet.
         workspaceManager.hostWindow = hostWindow
         if hostWindow != nil { workspaceManager.registerBrowserControl() }
@@ -908,7 +928,7 @@ struct ContentView: View {
 
         let activeTab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
         let fileName = activeTab.url.deletingPathExtension().lastPathComponent + ".pdf"
-        NotificationCenter.default.post(name: .performPDFExport, object: fileName)
+        NotificationCenter.default.post(.performPDFExport, for: workspaceManager, object: fileName)
     }
 
     private func handleFileDrop(_ providers: [NSItemProvider]) -> Bool {
