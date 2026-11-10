@@ -415,25 +415,19 @@ struct ContentView: View {
                             .buttonStyle(.plain)
                             .frame(width: 22 * min(1.5, max(1, appFontScale)))
                     }
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(workspaceFolderName ?? "MarkView")
-                            .uiFont(size: 12, weight: .semibold)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        if !MarkViewApp.version.isEmpty {
-                            Text("MarkView v\(MarkViewApp.version)")
-                                .uiFont(size: 10, weight: .medium)
-                                .foregroundColor(palette.text)
-                                .lineLimit(1)
-                        }
-                    }
-                    .help(WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName))
-                    .accessibilityLabel("\(workspaceFolderName.map { "Project: \($0), " } ?? "")MarkView version \(MarkViewApp.version)")
-                    Spacer(minLength: 0)
+                    // The name only: the window title above already carries the version, and the pill takes the width of its name.
+                    Text(workspaceFolderName ?? "MarkView")
+                        .uiFont(size: 12, weight: .semibold)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        // Only a long name is cut; a short one keeps the pill short (the ideal width of this frame is the text's own).
+                        .frame(maxWidth: compact ? 130 : 190, alignment: .leading)
+                        .help(WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName))
+                        .accessibilityLabel("\(workspaceFolderName.map { "Project: \($0), " } ?? "")MarkView version \(MarkViewApp.version)")
                 }
                 .padding(.horizontal, 12)
-                .frame(width: compact ? min(230, geometry.size.width * 0.26) : min(300, geometry.size.width * 0.3),
-                       height: controlWidth, alignment: .leading)
+                .frame(height: controlWidth)
+                .fixedSize(horizontal: true, vertical: false)
                 .background(palette.bgActive)
                 .cornerRadius(7)
                 Spacer(minLength: 4)
@@ -447,36 +441,12 @@ struct ContentView: View {
                     }
                 }
                 if workspaceManager.rootNode != nil {
-                    headerButton("server.rack", help: "Build & Deployment (⌃⌘D): commands, environments, state and logs", width: controlWidth,
-                                 selected: { if case .deployments? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
-                        workspaceManager.openDeployments()
-                    }
-                    // In a narrow window it moves to the "…" menu (Operations → Workflow…), like Cycle Time below.
-                    if !compact {
-                        headerButton("arrow.triangle.branch", help: "Workflow: this project's statuses, transitions and processes for features and bugs", width: controlWidth,
-                                     selected: { if case .workflow? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
-                            workspaceManager.openWorkflow()
-                        }
-                    }
-                    // In a narrow window it moves to the "…" menu (Operations → End-to-End QA…), like Workflow above.
-                    if !compact {
-                        headerButton("checklist.checked", help: "End-to-End QA (⌘8): scenarios written from a goal, edited as a graph and checked branch by branch", width: controlWidth,
-                                     selected: { if case .qa? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
-                            workspaceManager.openQA()
-                        }
-                    }
+                    projectMenu.frame(width: controlWidth, height: controlWidth)
                     headerButton("bubble.left.and.text.bubble.right", help: "Discussions (⌃⌘I): think an idea through before it is a feature", width: controlWidth,
                                  selected: { if case .discussions? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openDiscussions()
                     }
-                    // In a narrow window it moves to the "…" menu so the bar keeps its room for the usage chips.
-                    if !compact {
-                        headerButton("timer", help: "Project Cycle Time: how long features and bugs wait, take and finish, measured from the workflow", width: controlWidth,
-                                     selected: showCycleTime) {
-                            showCycleTime = true
-                        }
-                    }
-                    // REQ-011: UI Studio one click away, not only in the AI tools menu.
+                    // REQ-011: UI Studio one click away, not only in the AI menu.
                     headerButton("macwindow.and.cursorarrow", help: "UI Studio (⌘7): the project's real interface with simulated data — select, ask, change", width: controlWidth,
                                  selected: { if case .uiStudio? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openUIStudio()
@@ -487,10 +457,8 @@ struct ContentView: View {
                     workspaceManager.showGlobalSearch = true
                 }
                 newMenu.frame(width: controlWidth, height: controlWidth)
-                AssistantToolbarMenu(workspaceManager: workspaceManager, compact: compact)
+                AIToolbarMenu(workspaceManager: workspaceManager, compact: compact)
                     .frame(maxWidth: compact ? controlWidth : 230)
-                XRayModelToolbarMenu(workspaceManager: workspaceManager, compact: compact)
-                    .frame(maxWidth: compact ? controlWidth : 170)
                 if let operations = workspaceManager.projectOperations {
                     ProjectDeployButton(store: operations)
                 }
@@ -498,9 +466,6 @@ struct ContentView: View {
                     Menu {
                         Button("Open X-Ray") { workspaceManager.openArchitecture() }
                             .disabled(workspaceManager.rootNode == nil)
-                        Button("Project Cycle Time…") { showCycleTime = true }
-                            .disabled(workspaceManager.rootNode == nil)
-                        AIToolsMenu(workspaceManager: workspaceManager)
                         Button("Theme…") { workspaceManager.theme.showsPicker = true }
                         Button("DDE Settings…") { DDESettingsWindow.show(workspace: workspaceManager) }
                     } label: {
@@ -512,7 +477,6 @@ struct ContentView: View {
                     .accessibilityLabel("More window actions")
                     .themePicker(workspaceManager.theme)
                 } else {
-                    AIToolsMenu(workspaceManager: workspaceManager)
                     headerButton("paintpalette", help: "Theme (⇧⌘T)", width: controlWidth) {
                         workspaceManager.theme.showsPicker.toggle()
                     }
@@ -560,6 +524,30 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .help(help)
         .accessibilityLabel(help)
+    }
+
+    /// Build & Deployment, the Workflow, End-to-End QA and Project Cycle Time in one menu: they were four icons in a bar that had no room left.
+    /// The icon takes the accent while one of the tabs they open is the shown one.
+    private var projectMenu: some View {
+        let open: Bool = {
+            switch workspaceManager.activeTab?.kind {
+            case .deployments?, .workflow?, .qa?: return true
+            default: return false
+            }
+        }()
+        return Menu {
+            Button("Build & Deployment (⌃⌘D)") { workspaceManager.openDeployments() }
+            Button("Workflow") { workspaceManager.openWorkflow() }
+            Button("End-to-End QA (⌘8)") { workspaceManager.openQA() }
+            Divider()
+            Button("Project Cycle Time…") { showCycleTime = true }
+        } label: {
+            Image(systemName: "wrench.and.screwdriver")
+                .foregroundColor(open ? palette.blue : palette.text)
+        }
+        .menuIndicator(.hidden)
+        .help("Project tools: build and deployment, workflow, end-to-end QA, cycle time")
+        .accessibilityLabel("Project tools")
     }
 
     private var browserMenu: some View {
@@ -997,14 +985,14 @@ private struct WindowAccessor: NSViewRepresentable {
         .environmentObject(WorkspaceManager())
 }
 
-/// Toolbar menu choosing the assistant CLI and its model for this window's project (BUG-021);
-/// other projects keep theirs. The X-Ray model is chosen apart, in `XRayModelToolbarMenu`.
-/// A window showing a single file edits the defaults, as DDE Settings does.
-struct AssistantToolbarMenu: View {
+/// The one toolbar menu of the AI: the assistant CLI and its model for this window's project (BUG-021; other projects keep theirs), the model
+/// that X-Ray and the other large structured answers use, and the AI tools (diagrams, prototypes, analyses). A window showing a single file
+/// edits the defaults, as DDE Settings does. The bar shows the assistant and its model; the X-Ray model is named in the menu.
+struct AIToolbarMenu: View {
     let workspaceManager: WorkspaceManager
     var compact = false
-    /// Model lists per tool; Codex's is read from disk, so off the main thread.
-    @State private var options: [CLITool: [AIModelOption]] = [:]
+    /// The models each tool offers, as loaded (Codex's list is read from disk, so off the main thread).
+    @State private var catalog: [CLITool: [AIModelOption]] = [:]
     @State private var availability: [CLITool: Bool] = [:]
     /// Bumped when any choice changes, so the menu shows the stored values.
     @State private var refresh = 0
@@ -1018,11 +1006,30 @@ struct AssistantToolbarMenu: View {
         let tool = tool
         return Binding(get: { choice.model(for: tool) }, set: { choice.setModel($0, for: tool) })
     }
+    private var xrayModel: Binding<String> {
+        let tool = tool
+        return Binding(get: { choice.xrayModel(for: tool) }, set: { choice.setXRayModel($0, for: tool) })
+    }
+
+    /// The assistant's models. A model saved earlier stays selectable, but the list says that the CLI does not offer it
+    /// (Codex rejects models its catalog dropped or the account cannot use).
+    private var assistantOptions: [AIModelOption] {
+        let id = model.wrappedValue
+        guard let loaded = catalog[tool] else {
+            return [AIModelOption(id: id, name: id.isEmpty ? "Default" : id, detail: "")]
+        }
+        return loaded.contains { $0.id == id } ? loaded
+            : loaded + [AIModelOption(id: id, name: "\(id) — not in \(tool.displayName)'s list", detail: "")]
+    }
 
     var body: some View {
         let _ = refresh
+        let unavailable = availability[tool] == false
+        let xrayRecommended = AIAssistantPreferences.defaultXRayModel(for: tool)
+        let xrayListed = (catalog[tool] ?? []).filter { !$0.id.isEmpty }
+        let xrayName = xrayModel.wrappedValue.isEmpty ? "assistant's model" : xrayModel.wrappedValue
         Menu {
-            if availability[tool] == false {
+            if unavailable {
                 Text("Assistant unavailable. Set its CLI path in Settings.")
                 Button("Open AI Settings…") { DDESettingsWindow.show(workspace: workspaceManager) }
                 Button("Check Again") {
@@ -1036,38 +1043,50 @@ struct AssistantToolbarMenu: View {
             }
             .pickerStyle(.inline)
             Picker("Model", selection: model) {
-                ForEach(options[tool] ?? [AIModelOption(id: model.wrappedValue, name: model.wrappedValue.isEmpty ? "Default" : model.wrappedValue, detail: "")]) {
-                    Text($0.name).tag($0.id)
-                }
+                ForEach(assistantOptions) { Text($0.name).tag($0.id) }
             }
             .pickerStyle(.inline)
+            Divider()
+            // X-Ray, operations discovery, filters and explanations write large structured answers, where a fast model matters more than raw
+            // capability: the fast default is marked as recommended.
+            Menu("X-Ray model · " + xrayName) {
+                Picker("X-Ray model", selection: xrayModel) {
+                    Text("Same as the assistant's model").tag("")
+                    ForEach(xrayListed) { option in
+                        Text(option.id == xrayRecommended ? "\(option.name) (Recommended)" : option.name).tag(option.id)
+                    }
+                    if !xrayModel.wrappedValue.isEmpty, !xrayListed.contains(where: { $0.id == xrayModel.wrappedValue }) {
+                        Text(xrayModel.wrappedValue).tag(xrayModel.wrappedValue)
+                    }
+                }
+                .pickerStyle(.inline)
+                Text("Used by X-Ray, operations discovery, filters and explanations.")
+            }
+            AIToolsMenuItems(workspaceManager: workspaceManager)
         } label: {
             if compact {
-                Image(systemName: availability[tool] == false ? "exclamationmark.triangle" : "cpu")
+                Image(systemName: unavailable ? "exclamationmark.triangle" : "cpu")
             } else {
                 Label(AIAssistantPreferences.summary(tool: tool, model: model.wrappedValue),
-                      systemImage: availability[tool] == false ? "exclamationmark.triangle" : "cpu")
+                      systemImage: unavailable ? "exclamationmark.triangle" : "cpu")
             }
         }
-        .help(availability[tool] == false ? "Assistant unavailable. Set its CLI path in Settings." :
+        // An icon-only menu has no room for the chevron: it would reach into the button beside it.
+        .menuIndicator(compact ? .hidden : .automatic)
+        .help(unavailable ? "Assistant unavailable. Set its CLI path in Settings." :
               (workspaceManager.aiProject == nil ? "Default assistant and model" : "Assistant and model for this project")
-              + " — the AI terminal, features and research; X-Ray has its own model")
+              + " — the AI terminal, features and research. X-Ray model: \(xrayName). The menu also holds the AI tools.")
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in refresh += 1 }
         .task(id: tool) {
             let current = tool
             availability[current] = await CLIToolLocator.resolveThorough(current) != nil
-            guard options[current] == nil else { return }
-            let loaded = await Self.loadOptions(for: current)
-            // Keep a model saved earlier selectable, but say that the CLI does not list it
-            // (Codex rejects models its catalog dropped or the account cannot use).
-            let id = model.wrappedValue
-            options[current] = loaded.contains { $0.id == id } ? loaded
-                : loaded + [AIModelOption(id: id, name: "\(id) — not in \(current.displayName)'s list", detail: "")]
+            guard catalog[current] == nil else { return }
+            catalog[current] = await Self.loadOptions(for: current)
         }
     }
 }
 
-extension AssistantToolbarMenu {
+extension AIToolbarMenu {
     /// The models `tool` offers. ACP assistants list the account's models only over ACP:
     /// they are fetched the first time.
     static func loadOptions(for tool: CLITool) async -> [AIModelOption] {
@@ -1080,112 +1099,46 @@ extension AssistantToolbarMenu {
     }
 }
 
-/// Toolbar menu for the X-Ray model, apart from the assistant's model: X-Ray, operations discovery,
-/// filters and explanations write large structured answers, where a fast model matters more than
-/// raw capability. The fast default is marked as recommended.
-struct XRayModelToolbarMenu: View {
-    let workspaceManager: WorkspaceManager
-    var compact = false
-    @State private var options: [CLITool: [AIModelOption]] = [:]
-    @State private var refresh = 0
-
-    private var choice: AssistantChoice { AssistantChoice(project: workspaceManager.aiProject) }
-    private var tool: CLITool { choice.tool }
-    private var model: Binding<String> {
-        let tool = tool
-        return Binding(get: { choice.xrayModel(for: tool) }, set: { choice.setXRayModel($0, for: tool) })
-    }
-
-    var body: some View {
-        let _ = refresh
-        let recommended = AIAssistantPreferences.defaultXRayModel(for: tool)
-        let listed = (options[tool] ?? []).filter { !$0.id.isEmpty }
-        Menu {
-            Picker("X-Ray model", selection: model) {
-                Text("Same as the assistant's model").tag("")
-                ForEach(listed) { option in
-                    Text(option.id == recommended ? "\(option.name) (Recommended)" : option.name).tag(option.id)
-                }
-                if !model.wrappedValue.isEmpty, !listed.contains(where: { $0.id == model.wrappedValue }) {
-                    Text(model.wrappedValue).tag(model.wrappedValue)
-                }
-            }
-            .pickerStyle(.inline)
-            Text("Used by X-Ray, operations discovery, filters and explanations.")
-        } label: {
-            if compact {
-                Image(systemName: "viewfinder")
-            } else {
-                Label("X-Ray · " + (model.wrappedValue.isEmpty ? "assistant's model" : model.wrappedValue),
-                      systemImage: "viewfinder")
-            }
-        }
-        .help((workspaceManager.aiProject == nil ? "Default model" : "This project's model")
-              + " for X-Ray, operations discovery, filters and explanations; a fast one is recommended")
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in refresh += 1 }
-        .task(id: tool) {
-            let current = tool
-            guard options[current] == nil else { return }
-            options[current] = await AssistantToolbarMenu.loadOptions(for: current)
-        }
-    }
-}
-
-/// Toolbar menu of AI tools: diagrams (Graph Creator) and the analyses that work.
-struct AIToolsMenu: View {
+/// The AI tools, as submenus of the AI menu: diagrams (Graph Creator), prototypes and the analyses that work.
+private struct AIToolsMenuItems: View {
     // Passed in: toolbar content does not get the window's environment objects.
     @ObservedObject var workspaceManager: WorkspaceManager
 
     var body: some View {
-        Menu {
-            Section("Diagrams") {
-                Button("System Architecture") { workspaceManager.runAITool(named: "architecture") }
-                Button("Data Flow") { workspaceManager.runAITool(named: "dataflow") }
-                Button("Pipeline") { workspaceManager.runAITool(named: "pipeline") }
-                Button("Deployment") { workspaceManager.runAITool(named: "deployment") }
-                Button("Sequence") { workspaceManager.runAITool(named: "sequence") }
-                Button("Entity-Relationship") { workspaceManager.runAITool(named: "er") }
-            }
-            Section("Prototype") {
-                Button("New Prototype…") { workspaceManager.openPrototypeCreator(mode: .requirements) }
-                    .disabled(workspaceManager.rootNode == nil)
-                // Existing code opens as the real application in UI Studio, not as a reconstruction (DEC-002, DEC-005).
-                Button("UI Studio (Existing Code)") { workspaceManager.openUIStudio() }
-                    .disabled(workspaceManager.rootNode == nil)
-                let saved = workspaceManager.savedPrototypes()
-                Menu("Open Prototype (\(saved.count))") {
-                    if saved.isEmpty {
-                        Text("No prototypes in this project yet")
-                    } else {
-                        ForEach(saved) { prototype in
-                            Button(prototype.label) { workspaceManager.openSavedPrototype(prototype.slug) }
-                        }
+        Menu("Diagrams") {
+            Button("System Architecture") { workspaceManager.runAITool(named: "architecture") }
+            Button("Data Flow") { workspaceManager.runAITool(named: "dataflow") }
+            Button("Pipeline") { workspaceManager.runAITool(named: "pipeline") }
+            Button("Deployment") { workspaceManager.runAITool(named: "deployment") }
+            Button("Sequence") { workspaceManager.runAITool(named: "sequence") }
+            Button("Entity-Relationship") { workspaceManager.runAITool(named: "er") }
+        }
+        Menu("Prototype") {
+            Button("New Prototype…") { workspaceManager.openPrototypeCreator(mode: .requirements) }
+                .disabled(workspaceManager.rootNode == nil)
+            // Existing code opens as the real application in UI Studio, not as a reconstruction (DEC-002, DEC-005).
+            Button("UI Studio (Existing Code)") { workspaceManager.openUIStudio() }
+                .disabled(workspaceManager.rootNode == nil)
+            let saved = workspaceManager.savedPrototypes()
+            Menu("Open Prototype (\(saved.count))") {
+                if saved.isEmpty {
+                    Text("No prototypes in this project yet")
+                } else {
+                    ForEach(saved) { prototype in
+                        Button(prototype.label) { workspaceManager.openSavedPrototype(prototype.slug) }
                     }
                 }
-                .disabled(workspaceManager.rootNode == nil || saved.isEmpty)
             }
-            Section("Operations") {
-                Button("Deployments…") { workspaceManager.openDeployments() }
-                Button("Discussions…") { workspaceManager.openDiscussions() }
-                    .disabled(workspaceManager.rootNode == nil)
-                Button("Workflow…") { workspaceManager.openWorkflow() }
-                    .disabled(workspaceManager.rootNode == nil)
-                Button("End-to-End QA…") { workspaceManager.openQA() }
-                    .disabled(workspaceManager.rootNode == nil)
-            }
-            Section("Analysis") {
-                Button("Constructive Critic") { workspaceManager.runAITool(named: "critic") }
-                // Superseded by New Research, which saves a report (DEC-010).
-                Button("Deep Research…") { workspaceManager.newResearch() }
-                Button("Codebase Audit") { workspaceManager.runAITool(named: "audit") }
-                Button("Code Structure Map") { workspaceManager.runAITool(named: "codemap") }
-                Button("Recursive Insight") { workspaceManager.startRecursiveInsight() }
-                    .disabled(workspaceManager.rootNode == nil || !workspaceManager.hasMarkdownFiles)
-            }
-        } label: {
-            Image(systemName: "wand.and.stars")
+            .disabled(workspaceManager.rootNode == nil || saved.isEmpty)
         }
-        .menuIndicator(.hidden)
-        .help("AI tools: diagrams and analysis")
+        Menu("Analysis") {
+            Button("Constructive Critic") { workspaceManager.runAITool(named: "critic") }
+            // Superseded by New Research, which saves a report (DEC-010).
+            Button("Deep Research…") { workspaceManager.newResearch() }
+            Button("Codebase Audit") { workspaceManager.runAITool(named: "audit") }
+            Button("Code Structure Map") { workspaceManager.runAITool(named: "codemap") }
+            Button("Recursive Insight") { workspaceManager.startRecursiveInsight() }
+                .disabled(workspaceManager.rootNode == nil || !workspaceManager.hasMarkdownFiles)
+        }
     }
 }

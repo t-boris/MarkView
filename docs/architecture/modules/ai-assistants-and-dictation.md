@@ -51,7 +51,7 @@ Sibling modules: [app-shell-and-workspace](app-shell-and-workspace.md) ·
   `CLICompletion.Result.record(in:)` (`CLICompletion.swift:40-44`).
 - The JS side of the code viewer (`markview-code.js`) and the bridge transport — see
   [editor-and-bridge](editor-and-bridge.md).
-- The toolbar assistant menu `AssistantToolbarMenu` lives in
+- The toolbar assistant menu `AIToolbarMenu` lives in
   `MarkView/Views/ContentView.swift:387-452` but edits the same keys documented here.
 
 ---
@@ -188,7 +188,7 @@ Owns a private `WhisperClient`; `Phase` = `idle | starting | recording(since:) |
 | `TerminalSession.dictation` (`TerminalSession.swift:78`), `SessionDictationButton` (`TerminalView.swift:45-77`) | `WhisperClient` | Pasted at the prompt, not submitted |
 | Intake sheet (`FeatureNavigatorView.swift:421-450`, `:510-524`) | `DictationController`, `DictationButton`, `DictationInsertion`, `DictationStatusView` | Mic shown only when key set |
 | `DDESettingsView` (`DDESettingsView.swift:36-50`, `:66`, `:196-201`, `:286-301`) | key save, `AIAssistantPickerView`, probes, login, Whisper self-test | |
-| `AssistantToolbarMenu` (`ContentView.swift:387-452`) | same `@AppStorage` keys, `modelOptions`, `ACPAssistant.refreshModels` | |
+| `AIToolbarMenu` (`ContentView.swift:387-452`) | same `@AppStorage` keys, `modelOptions`, `ACPAssistant.refreshModels` | |
 | `AgentUsageTracker` (`AgentUsageTracker.swift:142`, `:485`) | `CLIToolLocator.resolve/run` | |
 
 ### What it calls
@@ -226,7 +226,7 @@ Owns a private `WhisperClient`; `Phase` = `idle | starting | recording(since:) |
 
 ### 6.1 Pick an assistant and model
 
-1. User picks in DDE Settings (`AIAssistantPickerView`) or the toolbar (`AssistantToolbarMenu`,
+1. User picks in DDE Settings (`AIAssistantPickerView`) or the toolbar (`AIToolbarMenu`,
    `ContentView.swift:387`). Both write `@AppStorage` keys `settings.ai.backend` and
    `settings.cli.<tool>Model` (`AIAssistantPickerView.swift:8-12`).
 2. On appear, the picker loads catalogs in `Task.detached` (`AIAssistantPickerView.swift:114-118`).
@@ -496,7 +496,7 @@ In-memory only: `CodeNavigationStore.back/forward` (≤100), answer tasks; `Code
 3. Add argv construction in `CLICompletion.run`'s `switch tool` (`CLICompletion.swift:107-139`)
    and an event parser in `Invocation.consume`/`handle<Tool>` (`:321-419`).
 4. Add `@AppStorage` bindings in `AIAssistantPickerView` (`AIAssistantPickerView.swift:9-26`),
-   `AssistantToolbarMenu` (`ContentView.swift:388-411`) and `AITerminalPanel` (`TerminalView.swift:101-116`).
+   `AIToolbarMenu` (`ContentView.swift:388-411`) and `AITerminalPanel` (`TerminalView.swift:101-116`).
 5. Add the startup command case in `WorkspaceManager.startupCommand` (`WorkspaceManager.swift:3094-3102`)
    and a `TerminalProfile` (`TerminalSession.swift:7`).
 
@@ -582,7 +582,7 @@ with the field's focus state, place `DictationStatusView` below, and `cancel()` 
     (`AIAssistants.swift:111`), Claude aliases (`:136-140`), Whisper list (`WhisperClient.swift:30`),
     embedding model (`EmbeddingClient.swift:7`).
 17. **Toolbar/Settings duplication**: the `@AppStorage` key set and model-loading logic are
-    repeated in `AIAssistantPickerView`, `AssistantToolbarMenu` and `AITerminalPanel`; adding
+    repeated in `AIAssistantPickerView`, `AIToolbarMenu` and `AITerminalPanel`; adding
     a tool needs edits in all three.
 18. **`EmbeddingClient.loadEmbedding` trusts file length** — binds bytes to `Float` with no
     dimension check (`EmbeddingClient.swift:116-121`).

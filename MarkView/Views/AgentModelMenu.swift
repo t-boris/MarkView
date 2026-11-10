@@ -44,7 +44,7 @@ struct AgentModelMenu: View {
         .task(id: session.profile) {
             guard let tool = session.profile.tool else { return }
             // "Default" is the CLI's own choice and has no name to switch to.
-            options = await AssistantToolbarMenu.loadOptions(for: tool).filter { !$0.id.isEmpty }
+            options = await AIToolbarMenu.loadOptions(for: tool).filter { !$0.id.isEmpty }
         }
     }
 }
