@@ -279,6 +279,9 @@ final class WorkspaceTabsStore: ObservableObject {
     func normalizeActiveTabIndex(preferred: Int? = nil) {
         let candidate = preferred ?? activeTabIndex
 
+        // -1 selects the pinned Welcome tab, including while other tabs are open.
+        if candidate == -1 { activeTabIndex = -1; return }
+
         guard !openTabs.isEmpty else {
             activeTabIndex = -1
             return
@@ -1235,7 +1238,7 @@ class WorkspaceManager: ObservableObject {
             }
             if savedIndex == state.activeTabIndex, openTabs.count > before { selected = before }
         }
-        activeTabIndex = selected ?? (openTabs.isEmpty ? -1 : 0)
+        activeTabIndex = state.activeTabIndex == -1 ? -1 : (selected ?? (openTabs.isEmpty ? -1 : 0))
         if let panels = state.panels {
             layout.workspaceArea = panels.workspaceArea.flatMap(WorkspaceArea.init) ?? .files
             let restoredWorkSection = panels.workSection.flatMap(WorkSection.init) ?? .features
