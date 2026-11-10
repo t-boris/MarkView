@@ -7,7 +7,9 @@ import AppKit
 struct WelcomeScreen<Below: View>: View {
     @Environment(\.palette) private var palette
     @Environment(\.appFontScale) private var appFontScale
-    @AppStorage(WelcomeBackdrop.storageKey) private var storedBackdrop = WelcomeBackdrop.defaultChoice.rawValue
+    /// The background of THIS window. The window's `PanelLayout` keeps it: a shared @AppStorage value would change the screen of every
+    /// window at once (BUG-120).
+    @Binding private var backdrop: WelcomeBackdrop
     /// Drawn once each time the screen appears: Shuffle must not change the scene while it is shown.
     @State private var shufflePick = Int.random(in: 0..<WelcomeBackdrop.animated.count)
     @State private var seed = UInt64.random(in: 1...UInt64.max)
@@ -20,19 +22,20 @@ struct WelcomeScreen<Below: View>: View {
     let perform: (WelcomeActionID) -> Void
     let below: Below
 
-    init(projectName: String?, isGitRepo: Bool = false, still: Bool = false, perform: @escaping (WelcomeActionID) -> Void,
-         @ViewBuilder below: () -> Below) {
+    init(projectName: String?, isGitRepo: Bool = false, backdrop: Binding<WelcomeBackdrop>, still: Bool = false,
+         perform: @escaping (WelcomeActionID) -> Void, @ViewBuilder below: () -> Below) {
         self.projectName = projectName
         self.isGitRepo = isGitRepo
+        _backdrop = backdrop
         self.still = still
         self.perform = perform
         self.below = below()
     }
 
     private var choice: Binding<WelcomeBackdrop> {
-        Binding(get: { WelcomeBackdrop.stored(storedBackdrop) },
+        Binding(get: { backdrop },
                 set: { picked in
-                    storedBackdrop = picked.rawValue
+                    backdrop = picked
                     if picked == .shuffle { shufflePick = Int.random(in: 0..<WelcomeBackdrop.animated.count) }
                 })
     }

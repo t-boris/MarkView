@@ -26,7 +26,7 @@ import Foundation
                    .image(folder.appendingPathComponent("image.png")), .architecture("src"), .terminal(folder),
                    .pdf(folder.appendingPathComponent("read only.pdf"))],
             activeTabIndex: 1,
-            panels: WorkspacePanelState(workspaceArea: "Work", workSection: "Git", navigator: "terminal", left: "issues", feature: "one", git: "changes", stage: "explore", showFiles: true, showNavigator: false, contentsVisible: false, terminalVisible: true, showCenter: false),
+            panels: WorkspacePanelState(workspaceArea: "Work", workSection: "Git", navigator: "terminal", left: "issues", feature: "one", git: "changes", stage: "explore", showFiles: true, showNavigator: false, contentsVisible: false, terminalVisible: true, showCenter: false, welcomeBackdrop: "aurora"),
             frame: CGRect(x: 300, y: 400, width: 1200, height: 800), minimized: true,
             theme: WindowThemeSettings(theme: .midnight, accents: [.midnight: ThemeColor(0xFF4D9A), .paper: ThemeColor(0x00AA00)]))
         let second = WorkspaceWindowState(id: UUID(), folder: folder)
@@ -46,6 +46,11 @@ import Foundation
               "workspace and Work section survive per window")
         check(loaded.windows[0].panels?.contentsVisible == false && loaded.windows[0].panels?.terminalVisible == true &&
               loaded.windows[0].panels?.showCenter == false, "column visibility survives per window")
+        check(loaded.windows[0].panels?.welcomeBackdrop == "aurora", "each window's welcome-screen background survives (BUG-120)")
+        // A session written before BUG-120 has no such key: it must still load, and the window keeps the choice it starts with.
+        let oldPanels = #"{"navigator":"contents","left":"files","feature":"","git":"changes","stage":"explore","showFiles":true,"showNavigator":true}"#
+        let decodedOld = try JSONDecoder().decode(WorkspacePanelState.self, from: Data(oldPanels.utf8))
+        check(decodedOld.welcomeBackdrop == nil, "panels saved before BUG-120 load without a welcome-screen background")
         check(loaded.windows[0].tabs.count == 6, "all supported tab kinds survive")
         if case .pdf(let restoredPDF) = loaded.windows[0].tabs[5] {
             check(restoredPDF == folder.appendingPathComponent("read only.pdf"), "PDF tabs survive session restoration without text drafts")

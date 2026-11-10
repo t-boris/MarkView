@@ -827,6 +827,8 @@ struct ContentView: View {
     private var welcomeView: some View {
         WelcomeScreen(projectName: workspaceManager.rootNode.map { WindowTitle.folderName(of: $0.url) },
                       isGitRepo: workspaceManager.gitClient.isGitRepo,
+                      backdrop: Binding(get: { workspaceManager.layout.welcomeBackdrop },
+                                        set: { workspaceManager.layout.welcomeBackdrop = $0 }),
                       perform: performWelcomeAction) {
             if workspaceManager.rootNode != nil {
                 HandoffStartList(store: workspaceManager.features)
