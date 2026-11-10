@@ -17,22 +17,25 @@ struct QAViewerSlide: Identifiable {
 }
 
 /// Shows a view in a window of its own that can be resized, made full screen and closed with Esc. One viewer window is kept: asking again
-/// replaces what it shows.
+/// replaces what it shows. The window keeps the size the person gave it: only the hosted view changes, never the window's content controller
+/// (AppKit resizes a window to a new content controller's initial size, which collapsed the viewer to a few points).
 @MainActor
 enum QAViewer {
     private static var window: NSWindow?
+    private static var host: NSHostingController<AnyView>?
 
     static func show<Content: View>(title: String, palette: AppPalette, @ViewBuilder content: () -> Content) {
-        let root = AnyView(content().environment(\.palette, palette).foregroundStyle(palette.text).background(palette.bg))
-        let host = NSHostingController(rootView: root)
-        // The window keeps the size it is given, whatever the picture inside would like.
-        host.sizingOptions = []
-        if let window, window.isVisible {
-            window.contentViewController = host
+        // A new identity for every request: the viewer then starts on the picture that was asked for instead of keeping the earlier selection.
+        let root = AnyView(content().environment(\.palette, palette).foregroundStyle(palette.text).background(palette.bg).id(UUID()))
+        if let window, let host, window.isVisible || window.isMiniaturized {
+            host.rootView = root
             window.title = title
+            if window.isMiniaturized { window.deminiaturize(nil) }
             window.makeKeyAndOrderFront(nil)
             return
         }
+        let host = NSHostingController(rootView: root)
+        host.sizingOptions = []
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let size = NSSize(width: min(1280, screen.width * 0.9), height: min(860, screen.height * 0.9))
         let created = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
@@ -43,6 +46,7 @@ enum QAViewer {
         created.collectionBehavior = [.fullScreenPrimary]
         created.isReleasedWhenClosed = false
         created.center()
+        self.host = host
         window = created
         created.makeKeyAndOrderFront(nil)
     }
