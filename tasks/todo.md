@@ -5418,10 +5418,29 @@ which is good, but each finding should be markable: a bug confirmed, a note mark
 marks live on the finding AND in the bug (the bug in docs/bugs stays the source of truth); add a list of past runs so marks work after a restart.
 
 ## Plan
-- [ ] 1. Model: `QATriageState` (confirmed, notABug, workaround, seen, dismissed) + `QAFinding.triage / triageNote / triagedAt` (optional, old run.json still loads); pure `QATriage` (which marks a finding offers: a defect gets confirmed / notABug / workaround, a note or suggestion gets seen / dismissed; which marks need a text).
-- [ ] 2. Bug side: `QABugTriage` maps a mark to the bug found by `qa_key` — confirmed: `ready_to_fix`; notABug: the project's cancelling status with the reason as evidence; workaround: a "Workaround" section in the report; seen/dismissed: no bug. The sink gets `applyTriage`, the FeatureStore sink does it through `updateBug` / the lifecycle.
-- [ ] 3. Run file: `QARunTriage.apply` loads run.json, sets the mark, saves (off the main thread); the live run model and the archive both use it.
-- [ ] 4. Viewer: `QAImageViewer` (sheet, fit / actual size, ← → through the run's pictures, Esc); a player's picture opens it live (follows the page), a feed thumbnail opens that screenshot with its finding text.
-- [ ] 5. Finding rows: one shared row with the marks (chips, a note field for workaround / not a bug, undo), in the live feed and in the archive.
-- [ ] 6. Runs list on the Run tab (`QAStore.loadRuns`, newest first, outcome per branch, findings still unmarked) and a run report opened from it (results, findings with frames read from the run folder, video button, marks, viewer).
-- [ ] 7. Checks in `tools/tests` for 1–3 (old file decodes, options, mapping, fake sink); app probe for 4–6 (invisible, real app); build; 5.61.0 (minor); one release; lessons.
+- [x] 1. Model: `QATriageState` (confirmed, notABug, workaround, seen, dismissed) + `QAFinding.triage / triageNote / triagedAt` (optional, old run.json still loads); pure `QATriage` (which marks a finding offers: a defect gets confirmed / notABug / workaround, a note or suggestion gets seen / dismissed; which marks need a text).
+- [x] 2. Bug side: `QABugTriage` maps a mark to the bug found by `qa_key` — confirmed: `ready_to_fix`; notABug: the project's cancelling status with the reason as evidence; workaround: a "Workaround" section in the report; seen/dismissed: no bug. The sink gets `applyTriage`, the FeatureStore sink does it through `updateBug` / the lifecycle.
+- [x] 3. Run file: `QARunTriage.apply` loads run.json, sets the mark, saves (off the main thread); the live run model and the archive both use it.
+- [x] 4. Viewer: `QAImageViewer` (sheet, fit / actual size, ← → through the run's pictures, Esc); a player's picture opens it live (follows the page), a feed thumbnail opens that screenshot with its finding text.
+- [x] 5. Finding rows: one shared row with the marks (chips, a note field for workaround / not a bug, undo), in the live feed and in the archive.
+- [x] 6. Runs list on the Run tab (`QAStore.loadRuns`, newest first, outcome per branch, findings still unmarked) and a run report opened from it (results, findings with frames read from the run folder, video button, marks, viewer).
+- [x] 7. Checks in `tools/tests` for 1–3 (old file decodes, options, mapping, fake sink); app probe for 4–6 (invisible, real app); build; 5.61.0 (minor); one release; lessons.
+
+## Review (5.61.0)
+Delivered as planned, with these differences from the plan:
+- The viewer is a window of its own (`QAViewer`, resizable, full screen, Esc closes), not a sheet: a sheet would block the run behind it and cannot be larger than the
+  window. Fit / 100%, ← → through the pictures, "Open in Preview". A player's picture shows the page now; a feed thumbnail shows that screen with its finding text.
+- "Not a bug" and "Seen" / "Dismiss" are one click (no reason box: the bug gets the fixed reason "Marked not a bug after a QA run."). Only "Has a workaround" asks
+  for text, because the workaround is the point of the mark.
+- The bug side uses the workflow's own steps: the cancellation rule that a person may take (closed / won't do / canceled) and the reopen rule when the mark is
+  taken back; `qa_triage` in the bug's front matter remembers that this app set it. A workflow with no such step leaves the bug alone and says so on the run report.
+- The run file is now written before the run counts as finished, so the list of earlier runs and the marks always find it.
+- Not planned, added: the run report opened from the list has a Back button, a "What happened" fold, and the video button.
+
+Verified: the three QA harnesses (`qa-tests.sh`, `qa-bugs-tests.sh`, `qa-review-tests.sh`) pass; the build passes; in the invisible app probe (real Debug app, empty HOME):
+a seeded project with two earlier runs lists both; opening one shows branches, findings, frames; "Confirm bug" sets `ready_to_fix: true` on the bug file; "Not a bug" closes
+the bug and "Undo" reopens it and removes `qa_triage`; "Mark seen" is saved in run.json; the other run is untouched; a thumbnail opens the viewer window (1280x892,
+hidden by the probe). One live run on the fixture site with the real assistant: the player's page is enlarged during the run (14 slides), the run passes, "Mark seen" on a
+finished live run is saved to run.json, and the run appears under "Earlier runs".
+Not checked by hand: the workaround box (a popover with a text field; the probe has no typing step), full-screen mode of the viewer, the mark of a finding whose bug was
+never filed, and a project whose bug workflow has no cancelling step (covered by the harness only).

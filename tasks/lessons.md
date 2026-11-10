@@ -1873,3 +1873,11 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
   "a person does this" (a flag), instead of letting it write text the executor will fail on.
 - Check: the fixture used here is a 40-line Python site (sign-up, catalog, request form with required fields) under the session scratchpad; the probe steps are
   `approve`, `Start the check`, `It is done, go on` through `clicklabel`; read `.dde/qa/runs/*/run.json` for the verdict and the timeline.
+
+## A probe's window index is not a count of what you see (2026-11-10)
+- What happened: in the live QA run the first look at the enlarged picture came back as a blank 1280x800 image, because `pick 2` selected an off-screen helper window
+  instead of the viewer; it looked like a broken viewer.
+- Rule: before judging a screenshot from the probe, run `windows` and read which index is the window you mean (`pick` is 0-based over the visible windows in creation order,
+  and a run that opens a player adds one). A blank or wrong-size image is a wrong pick until the window list says otherwise.
+- Check: the viewer opened by `QAViewer` is the last visible `NSWindow` with a title; `pick 3` was right in the live run, `pick 2` in the run without players.
+
