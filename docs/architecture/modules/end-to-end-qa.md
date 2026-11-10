@@ -55,8 +55,9 @@ additionally requires acknowledging the list of steps that change data.
 
 `QARunner.run()` goes: baseline (preparation) → logins and accounts → branch conditions → steps. Per
 branch, per step, it loops: observe the page, take a screenshot, measure the screen if it is new, ask the
-assistant for the next action, perform it. Limits: 12 actions per step, 3 failed actions, 2 unusable
-answers. Cancelling marks the branch in progress interrupted and the ones not started uncovered.
+assistant for the next action, perform it. Limits: no cap on the number of actions in a step; a step is given up when
+the same action is chosen 4 times on an unchanged page (going in circles), after 3 failed actions in a row,
+or after 2 unusable answers in a row. Cancelling marks the branch in progress interrupted and the ones not started uncovered.
 
 Outcomes: passed, failed (the check did not hold), blocked (the run could not go on: login failed,
 launch failed, baseline failed), interrupted (stopped), uncovered (not run). A failed baseline or login

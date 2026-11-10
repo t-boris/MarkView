@@ -52,7 +52,10 @@ enum QABlockReason: String, Codable {
     case permissionMissing
     case approvalMissing
     case elementNotFound
+    /// Only in run records written before 5.61.0, when a step had a fixed budget of 12 actions.
     case stepBudgetExhausted
+    /// The assistant chose the same action again and again on a page that did not change.
+    case stepStuck
     case other
 }
 

@@ -898,16 +898,16 @@ do {
     let task = QAStepTask(id: "n2", kind: .act, title: "Pay with a valid card", detail: "Use the test card", actorName: "Buyer", appName: "Shop")
     let page = QAObservation(address: "http://localhost:3000/cart", title: "Cart", snapshot: "[e1] button \"Pay\"\nTotal 12")
     let history = (1...9).map { QAHistoryItem(narration: "n", action: "click [e\($0)]", result: "ok \($0)") }
-    let text = QAStepPrompt.prompt(task: task, goal: "A buyer pays", history: history, observation: page, actionsLeft: 5)
+    let text = QAStepPrompt.prompt(task: task, goal: "A buyer pays", history: history, observation: page)
     check("step prompt: the goal, the application, the player, the step and its details", ["A buyer pays", "Shop", "Buyer", "Pay with a valid card", "Use the test card"].allSatisfy(text.contains))
     check("step prompt: the page", text.contains("http://localhost:3000/cart") && text.contains("Title: Cart") && text.contains("[e1] button \"Pay\""))
     check("step prompt: the last six actions only, with what came of them", text.contains("click [e9] → ok 9") && text.contains("click [e4] → ok 4") && !text.contains("click [e3] → ok 3"))
-    check("step prompt: how many actions are left", text.contains("5 actions left") && QAStepPrompt.prompt(task: task, goal: "g", history: [], observation: page, actionsLeft: 1).contains("1 action left"))
-    check("step prompt: no history, no history heading", !QAStepPrompt.prompt(task: task, goal: "g", history: [], observation: page, actionsLeft: 3).contains("What you did so far"))
-    check("step prompt: a check is told to change nothing", QAStepPrompt.prompt(task: QAStepTask(id: "n3", kind: .verify, title: "t", detail: "", actorName: "B", appName: "S"), goal: "g", history: [], observation: page, actionsLeft: 3).contains("do not change anything"))
-    check("step prompt: requests are allowed only for preparation", text.contains("may not use http") && QAStepPrompt.prompt(task: QAStepTask(id: "s", kind: .act, title: "t", detail: "", actorName: "B", appName: "S", allowsHTTP: true), goal: "g", history: [], observation: page, actionsLeft: 3).contains("you may use http"))
+    check("step prompt: the assistant is not told it has a budget of actions", !text.contains("left for this step") && !QAStepPrompt.systemPrompt().contains("actions left"))
+    check("step prompt: no history, no history heading", !QAStepPrompt.prompt(task: task, goal: "g", history: [], observation: page).contains("What you did so far"))
+    check("step prompt: a check is told to change nothing", QAStepPrompt.prompt(task: QAStepTask(id: "n3", kind: .verify, title: "t", detail: "", actorName: "B", appName: "S"), goal: "g", history: [], observation: page).contains("do not change anything"))
+    check("step prompt: requests are allowed only for preparation", text.contains("may not use http") && QAStepPrompt.prompt(task: QAStepTask(id: "s", kind: .act, title: "t", detail: "", actorName: "B", appName: "S", allowsHTTP: true), goal: "g", history: [], observation: page).contains("you may use http"))
     let long = QAObservation(address: "a", title: "t", snapshot: String(repeating: "x", count: 20_000))
-    let cut = QAStepPrompt.prompt(task: task, goal: "g", history: [], observation: long, actionsLeft: 3)
+    let cut = QAStepPrompt.prompt(task: task, goal: "g", history: [], observation: long)
     check("step prompt: a long page is cut and says so", cut.count < 9000 && cut.contains("the page continues"))
     check("step prompt: the system prompt keeps passwords away from the assistant", QAStepPrompt.systemPrompt().contains("{{password}}") && QAStepPrompt.systemPrompt().contains("Never type, guess or write a real password"))
 
@@ -1140,9 +1140,16 @@ do {
     check("run: even a failed check shows its count", failed.result?.steps.map(\.node) == ["n1", "n2", "n3"])
     let blocked = run(script: ["Pay with a valid card": [stuck("There is no pay button", "elementNotFound")]])
     check("run: a step that cannot be done blocks the branch with the assistant's reason", blocked.result?.verdict.outcome == .blocked && blocked.result?.verdict.blockReason == .elementNotFound && blocked.result?.verdict.node == "n2" && blocked.result?.verdict.reason == "There is no pay button")
-    var small = QARunner.Config(); small.maxActionsPerStep = 3
-    let endless = run(script: ["Add a product to the cart": Array(repeating: move("click"), count: 10)], config: small)
-    check("run: a step that does not end is given up as blocked", endless.result?.verdict.blockReason == .stepBudgetExhausted && endless.result?.verdict.outcome == .blocked && endless.factory.driver("buyer")?.performed.count == 3)
+    // A step has no cap on its actions: only going in circles ends it
+    let endless = run(script: ["Add a product to the cart": Array(repeating: move("wait"), count: 10)])
+    check("run: a step that does the same thing on a page that does not change is given up as going in circles", endless.result?.verdict.blockReason == .stepStuck && endless.result?.verdict.outcome == .blocked
+          && endless.factory.driver("buyer")?.performed.count == 3 && endless.result?.verdict.reason.contains("going in circles") == true)
+    let longForm = run(script: ["Add a product to the cart": (1...30).map { move("fill", "e\($0)", text: "value \($0)") } + [finished("The long form is filled")]])
+    check("run: a long step is not cut: thirty different actions that move the page on, then it is done", longForm.result?.verdict.outcome == .passed && longForm.factory.driver("buyer")?.performed.count == 30 && longForm.result?.steps.first?.effort.fills == 30)
+    let sameClick = run(script: ["Add a product to the cart": Array(repeating: move("click", "e1"), count: 10) + [finished()]])
+    check("run: the same click on a page that changes each time is progress, not a loop", sameClick.result?.verdict.outcome == .passed && sameClick.factory.driver("buyer")?.performed.count == 10)
+    var patient = QARunner.Config(); patient.maxRepeats = 2
+    check("run: how many repeats are allowed is a setting", run(script: ["Add a product to the cart": Array(repeating: move("wait"), count: 10)], config: patient).factory.driver("buyer")?.performed.count == 1)
 
     // Actions that fail, answers that cannot be used
     let giveUp = run(script: ["Add a product to the cart": Array(repeating: move("click", "e9"), count: 6)], prepare: { factory, _ in factory.failing = ["click [e9]"] })

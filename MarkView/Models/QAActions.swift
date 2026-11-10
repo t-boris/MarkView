@@ -121,7 +121,7 @@ enum QAStepPrompt {
         """
     }
 
-    static func prompt(task: QAStepTask, goal: String, history: [QAHistoryItem], observation: QAObservation, actionsLeft: Int) -> String {
+    static func prompt(task: QAStepTask, goal: String, history: [QAHistoryItem], observation: QAObservation) -> String {
         var lines: [String] = []
         lines.append("Scenario goal: \(goal)")
         lines.append("Application: \(task.appName). Player: \(task.actorName).")
@@ -134,7 +134,7 @@ enum QAStepPrompt {
             for item in history.suffix(maxHistory) { lines.append("- \(item.action) → \(item.result)") }
         }
         lines.append("")
-        lines.append("Page now (\(actionsLeft) action\(actionsLeft == 1 ? "" : "s") left for this step):")
+        lines.append("Page now:")
         lines.append("Address: \(observation.address)")
         lines.append("Title: \(observation.title)")
         let snapshot = observation.snapshot.count > maxSnapshot ? String(observation.snapshot.prefix(maxSnapshot)) + "\n[… the page continues]" : observation.snapshot

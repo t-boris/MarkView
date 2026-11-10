@@ -77,8 +77,9 @@ protocol QARunObserver: AnyObject {
 
 final class QARunner {
     struct Config {
-        /// Actions one step may take before it is given up as blocked.
-        var maxActionsPerStep = 12
+        /// How many times the assistant may choose the same action on a page that has not changed before the step is given up as going in circles.
+        /// A step has no other limit: a long form or a slow page needs as many actions as it needs (the person can always stop the run).
+        var maxRepeats = 4
         /// Failed actions in a row before the step is given up as blocked.
         var maxFailedActions = 3
         /// Unusable answers of the assistant in a row before the step is given up as blocked.
@@ -340,12 +341,10 @@ final class QARunner {
     private func perform(_ task: QAStepTask, branch: QABranch, node: String?, actor: String?, driver: QAActorDriver, tally: Tally,
                          branchBefore: QAEffort = QAEffort()) async -> Outcome {
         var history: [QAHistoryItem] = []
-        var actions = 0, failed = 0, bad = 0
+        var failed = 0, bad = 0
+        var chosen: [String: Int] = [:]
         while true {
             if Task.isCancelled { return .interrupted }
-            if actions >= config.maxActionsPerStep {
-                return .blocked(.stepBudgetExhausted, "The step was not completed within \(config.maxActionsPerStep) actions.")
-            }
             let observation: QAObservation
             do { observation = try await driver.observe() } catch is CancellationError { return .interrupted } catch {
                 return .blocked(.other, "The page could not be read: \(describe(error))")
@@ -363,8 +362,7 @@ final class QARunner {
             let decision: QADecision
             do {
                 let answer = try await assistant.decide(system: QAStepPrompt.systemPrompt(),
-                                                        prompt: QAStepPrompt.prompt(task: task, goal: scenario.goal, history: history, observation: observation,
-                                                                                    actionsLeft: config.maxActionsPerStep - actions),
+                                                        prompt: QAStepPrompt.prompt(task: task, goal: scenario.goal, history: history, observation: observation),
                                                         schema: QAStepPrompt.schema)
                 decision = try QAStepPrompt.parse(answer, allowsHTTP: task.allowsHTTP)
             } catch is CancellationError {
@@ -390,6 +388,13 @@ final class QARunner {
                 note(branch, node, actor, .observation, line(actor, decision.narration, fallback: message))
                 return .blocked(reason, message)
             case .act(let action):
+                // The same action on the same, unchanged page again and again is a loop; anything that moves the page on is progress.
+                let repeatKey = signature + "|" + action.summary
+                let times = (chosen[repeatKey] ?? 0) + 1
+                chosen[repeatKey] = times
+                if times >= config.maxRepeats {
+                    return .blocked(.stepStuck, "The step is going in circles: \"\(action.summary)\" was chosen \(times) times on a page that did not change.")
+                }
                 note(branch, node, actor, .action, line(actor, decision.narration, fallback: action.summary))
                 do {
                     let outcome = try await driver.perform(action)
@@ -405,7 +410,6 @@ final class QARunner {
                         return .blocked(.elementNotFound, "The action \"\(action.summary)\" failed \(failed) times: \(describe(error))")
                     }
                 }
-                actions += 1
             }
         }
     }

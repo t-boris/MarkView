@@ -172,6 +172,7 @@ enum QABugDrafts {
         case .approvalMissing: return "an approval is missing"
         case .elementNotFound: return "an element was not found"
         case .stepBudgetExhausted: return "the step budget ran out"
+        case .stepStuck: return "the step went in circles"
         case .other: return "another cause"
         }
     }
