@@ -1169,6 +1169,9 @@ do {
     check("run: preparation is not counted as the person's effort", reset.result?.effort.interactions == 0)
     let unreset = run(scenario: withBaseline, script: ["Confirm: restore the baseline": [notMet("The list still has orders")]])
     check("run: a baseline that is not confirmed blocks the check before any step", unreset.result?.verdict.outcome == .blocked && unreset.result?.verdict.blockReason == .baselineNotEstablished && !unreset.assistant.asked("Add a product to the cart") && unreset.result?.nodesMet.isEmpty == true)
+    let unopened = run(scenario: withBaseline, prepare: { factory, _ in factory.failFor = ["setup"] })
+    check("run: a baseline that cannot even open the application is a launch failure, not an unestablished baseline",
+          unopened.result?.verdict.outcome == .blocked && unopened.result?.verdict.blockReason == .launchFailed && !unopened.assistant.asked("Add a product to the cart"))
     let lost = run(scenario: withBaseline, script: ["Restore the baseline": [stuck("The server is down", "other")]])
     check("run: a baseline that cannot be restored blocks the check", lost.result?.verdict.blockReason == .baselineNotEstablished && lost.result?.verdict.reason == "The server is down")
     let refusedLogin = run(script: ["Sign in as Buyer": [stuck("The password was refused", "loginFailed")]])
@@ -1205,11 +1208,16 @@ do {
     check("run: a stopped run still closes its sessions", stopped.factory.drivers.allSatisfy(\.closed))
     check("run: interrupted checks make bugs, uncovered ones do not", stopped.record.bugResults.count == 1)
 
+    let abandoned = run(branches: [mainLine, declined], prepare: { _, assistant in assistant.failure = CancellationError() })
+    check("run: a stop that reaches the assistant while the run's own task lives on still leaves the later branches uncovered",
+          abandoned.record.results.first?.verdict.interruption == .stoppedByUser && abandoned.record.results.dropFirst().allSatisfy { $0.verdict.outcome == .uncovered })
+
     // The gate
     let prodScenario = shop()
     let prodBuyer = QALoginReference(host: "shop.example.com", username: "buyer@example.com")
     let unapproved = run(scenario: prodScenario, target: "prod", saved: [prodBuyer], approve: false)
     check("run: nothing is touched before the plan is approved", unapproved.result?.verdict.blockReason == .approvalMissing && unapproved.result?.verdict.outcome == .blocked && unapproved.factory.drivers.isEmpty && unapproved.assistant.prompts.isEmpty)
+    check("run: and the person is told it was the missing approval", unapproved.result?.verdict.reason == "The plan was not approved.")
     let production = run(scenario: prodScenario, target: "prod", saved: [prodBuyer])
     check("run: on production each action that may change data waits for a yes, in order, and once", production.asked == ["account:seller", "node:n2"] && production.result?.verdict.outcome == .passed)
     check("run: a yes is remembered by the gate", production.gate.confirmed == ["account:seller", "node:n2"])
