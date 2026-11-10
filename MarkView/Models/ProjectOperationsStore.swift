@@ -162,6 +162,17 @@ final class ProjectOperationRun: ObservableObject, Identifiable {
     }
 }
 
+/// The window that shows what the person starts in a project's operations: the console of a run and the editor of a definition.
+/// The store is one per project folder, so the windows that show the same folder share the operations and their runs, but each
+/// window owns what it has open (BUG-120 and the window-state audit): the store asks the window that started the action.
+@MainActor
+protocol ProjectOperationsPresenter: AnyObject {
+    func showOperationConsole(selecting id: String)
+    func showOperationEditor(_ request: ProjectOperationEditRequest)
+    /// The window to bring forward when a notification of a finished run is clicked.
+    var operationsHostWindow: NSWindow? { get }
+}
+
 @MainActor
 final class ProjectOperationsStore: ObservableObject {
     private static var stores: [String: ProjectOperationsStore] = [:]
@@ -195,15 +206,13 @@ final class ProjectOperationsStore: ObservableObject {
     }
 
     let root: URL
-    weak var window: NSWindow?
+    /// The window that last started something here; `WorkspaceManager.operations()` sets it.
+    weak var presenter: (any ProjectOperationsPresenter)?
     @Published private(set) var document = ProjectOperationsDocument()
     @Published private(set) var fileError: String?
     @Published private(set) var hasFile = false
     @Published private(set) var lastRuns: [String: ProjectOperationLastRun] = [:]
     @Published private(set) var runs: [String: ProjectOperationRun] = [:]
-    @Published var panelVisible = false
-    @Published var selectedRunID: String?
-    @Published var editRequest: ProjectOperationEditRequest?
     @Published private(set) var revision = 0
     @Published var message: String? { didSet { revision += 1 } }
     @Published private(set) var discoveryPhase: String?
@@ -379,17 +388,17 @@ final class ProjectOperationsStore: ObservableObject {
     func edit(id: String?) {
         guard !readOnly else { return }
         if let id, let operation = operations.first(where: { $0.id == id }) {
-            editRequest = ProjectOperationEditRequest(operation: operation)
+            presenter?.showOperationEditor(ProjectOperationEditRequest(operation: operation))
         } else if id == nil {
-            editRequest = ProjectOperationEditRequest(operation: nil)
+            presenter?.showOperationEditor(ProjectOperationEditRequest(operation: nil))
         }
     }
 
     func addUnknown(index: Int) {
         guard let report = discoveryReport, report.notDetermined.indices.contains(index) else { return }
         let item = report.notDetermined[index]
-        editRequest = ProjectOperationEditRequest(operation: nil, kind: item.kind,
-                                                 environment: item.environment, label: item.label)
+        presenter?.showOperationEditor(ProjectOperationEditRequest(operation: nil, kind: item.kind,
+                                                                  environment: item.environment, label: item.label))
     }
 
     private var fingerprintsKey: String { "projectOperations.fingerprints." + String(ContentHash.of(root.path).prefix(24)) }
@@ -584,8 +593,7 @@ final class ProjectOperationsStore: ObservableObject {
         let run = ProjectOperationRun(snapshot: snapshot, directory: cwd)
         suppressNotifications = false
         runs[id] = run
-        selectedRunID = id
-        panelVisible = true
+        presenter?.showOperationConsole(selecting: id)
         revision += 1
         let history = ProjectOperationLastRun(id: id, label: snapshot.label, environment: snapshot.environment,
             command: snapshot.command, cwd: snapshot.cwd, started: run.started, ended: nil, state: "running", exitCode: nil)
@@ -666,15 +674,12 @@ final class ProjectOperationsStore: ObservableObject {
 
     func openPanel(id: String) {
         guard runs[id] != nil || lastRuns[id] != nil else { return }
-        selectedRunID = id
-        panelVisible = true
+        presenter?.showOperationConsole(selecting: id)
     }
 
     func dismiss(id: String) {
         guard runs[id]?.isActive != true else { return }
         runs[id] = nil
-        if selectedRunID == id { selectedRunID = runs.keys.sorted().first }
-        if runs.isEmpty { panelVisible = false }
         revision += 1
     }
 
@@ -747,7 +752,7 @@ private final class ProjectOperationNotificationRouter: NSObject, UNUserNotifica
         Task { @MainActor in
             NSApp.activate(ignoringOtherApps: true)
             if let store = ProjectOperationsStore.existing(rootPath: root) {
-                store.window?.makeKeyAndOrderFront(nil)
+                store.presenter?.operationsHostWindow?.makeKeyAndOrderFront(nil)
                 if store.runs[id] != nil { store.openPanel(id: id) }
             }
             completionHandler()

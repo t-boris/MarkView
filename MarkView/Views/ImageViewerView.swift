@@ -14,7 +14,7 @@ struct ImageViewerView: View {
     /// The folder's images, for the arrows and the slideshow.
     @State private var siblings: [URL] = []
     @State private var playing = false
-    @AppStorage("imageSlideshowSeconds") private var interval = 4.0
+    @WindowStorage("imageSlideshowSeconds") private var interval = 4.0
 
     private var previous: URL? { ImageSiblings.neighbour(of: url, in: siblings, step: -1, wrap: false) }
     private var next: URL? { ImageSiblings.neighbour(of: url, in: siblings, step: 1, wrap: false) }

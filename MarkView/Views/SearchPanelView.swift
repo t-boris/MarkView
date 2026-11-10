@@ -5,7 +5,7 @@ import SwiftUI
 struct WorkspaceSearchView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @AppStorage("search.panelMode") private var mode = Mode.project.rawValue
+    @WindowStorage("search.panelMode") private var mode = Mode.project.rawValue
 
     enum Mode: String, CaseIterable, Identifiable {
         case project = "Project"

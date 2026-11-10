@@ -81,6 +81,8 @@ struct ProjectDeployButton: View {
 struct ProjectOperationConsole: View {
     @Environment(\.palette) private var palette
     @ObservedObject var store: ProjectOperationsStore
+    /// The console is shown by one window: which run it shows and whether it is open are that window's own.
+    @EnvironmentObject var workspaceManager: WorkspaceManager
 
     private static func runTitle(label: String, environment: String?, state: String) -> String {
         let suffix: String = environment.map { " (\($0))" } ?? ""
@@ -93,7 +95,7 @@ struct ProjectOperationConsole: View {
             HStack {
                 Text("Project operations").font(.headline)
                 Spacer()
-                Button("Close") { store.panelVisible = false; dismiss() }
+                Button("Close") { workspaceManager.operationConsoleVisible = false; dismiss() }
             }
             .padding(12)
             Divider()
@@ -103,7 +105,7 @@ struct ProjectOperationConsole: View {
                         ForEach(store.runs.keys.sorted(), id: \.self) { id in
                             if let run = store.runs[id] {
                                 Button {
-                                    store.selectedRunID = id
+                                    workspaceManager.operationSelectedRunID = id
                                 } label: {
                                     Text(Self.runTitle(label: run.snapshot.label,
                                                        environment: run.snapshot.environment, state: run.state))
@@ -116,10 +118,10 @@ struct ProjectOperationConsole: View {
                 }
                 Divider()
             }
-            if let id = store.selectedRunID, let run = store.runs[id] {
+            if let id = workspaceManager.operationSelectedRunID, let run = store.runs[id] {
                 OperationRunPanel(store: store, run: run)
                     .id(run.id)
-            } else if let id = store.selectedRunID, let last = store.lastRuns[id] {
+            } else if let id = workspaceManager.operationSelectedRunID, let last = store.lastRuns[id] {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("\(last.label)\(last.environment.map { " (\($0))" } ?? "")").font(.headline)
                     Text("Last run: " + last.state.capitalized)
@@ -144,6 +146,7 @@ private struct OperationRunPanel: View {
     @Environment(\.palette) private var palette
     @ObservedObject var store: ProjectOperationsStore
     @ObservedObject var run: ProjectOperationRun
+    @EnvironmentObject var workspaceManager: WorkspaceManager
 
     var body: some View {
         VStack(spacing: 0) {
@@ -158,7 +161,7 @@ private struct OperationRunPanel: View {
                 Spacer()
                 if run.state == "running" { Button("Cancel") { store.cancel(id: run.id) } }
                 if run.state == "cancelling" { Button("Force stop") { store.forceStop(id: run.id) } }
-                if !run.isActive { Button("Dismiss") { store.dismiss(id: run.id) } }
+                if !run.isActive { Button("Dismiss") { workspaceManager.dismissOperationRun(id: run.id) } }
             }
             .padding(10)
             if let notice = run.definitionNotice {

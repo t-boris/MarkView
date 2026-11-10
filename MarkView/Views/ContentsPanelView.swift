@@ -8,7 +8,7 @@ struct ContentsPanelView<Headings: View>: View {
     @Environment(\.palette) private var palette
     let tab: OpenTab
     @ViewBuilder let headings: () -> Headings
-    @AppStorage("contents.infoExpanded") private var infoExpanded = true
+    @WindowStorage("contents.infoExpanded") private var infoExpanded = true
 
     var body: some View {
         VStack(spacing: 0) {

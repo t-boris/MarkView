@@ -79,14 +79,33 @@ for name in ["a.mov", "a.dylib", "a.bin", "a.unknownext", "NOEXTENSION", ".custo
 let suite = "file-browser-tests-\(UUID().uuidString)"
 let defaults = UserDefaults(suiteName: suite)!
 defer { defaults.removePersistentDomain(forName: suite) }
-check(FileBrowserPreferences.load(from: defaults) == FileBrowserPreferences(), "defaults: list, hidden off, ignored shown, all")
+// Each window keeps its own view and filter choices (`FileTreeView` stores them in the window's `WindowUIState`).
+func browserPreferences(_ state: WindowUIState) -> FileBrowserPreferences {
+    FileBrowserPreferences(mode: state.value("fileBrowser.viewMode", fallback: FileBrowserViewMode.list),
+                           showHidden: state.value("fileBrowser.showHidden", fallback: false),
+                           hideIgnored: state.value("fileBrowser.hideIgnored", fallback: false),
+                           category: state.value("fileBrowser.category", fallback: FileBrowserCategory.all))
+}
+let windowA = WindowUIState(defaults: defaults), windowB = WindowUIState(defaults: defaults)
+check(browserPreferences(windowA) == FileBrowserPreferences(), "defaults: list, hidden off, ignored shown, all")
+check(browserPreferences(windowB) == FileBrowserPreferences(), "a second window starts the same")
 check(FileBrowserPreferences().mode == .list && !FileBrowserPreferences().showHidden, "hidden items are excluded by default")
-var stored = FileBrowserPreferences(mode: .tree, showHidden: true, hideIgnored: true, category: .openable)
-stored.save(to: defaults)
-check(FileBrowserPreferences.load(from: defaults) == stored, "view, hidden, ignored and category survive a restart")
+windowA.set(FileBrowserViewMode.tree, for: "fileBrowser.viewMode")
+windowA.set(true, for: "fileBrowser.showHidden")
+windowA.set(FileBrowserCategory.openable, for: "fileBrowser.category")
+check(browserPreferences(windowA).mode == .tree && browserPreferences(windowA).showHidden && browserPreferences(windowA).category == .openable,
+      "the window that changed its view shows it")
+check(browserPreferences(windowB) == FileBrowserPreferences(), "another window that already shows its files keeps its own view")
+let windowC = WindowUIState(defaults: defaults)
+check(browserPreferences(windowC).mode == .tree && browserPreferences(windowC).showHidden, "a window opened later starts from the last choice")
+let restored = WindowUIState(defaults: UserDefaults(suiteName: suite + "-empty")!)
+restored.restore(windowA.saved)
+check(browserPreferences(restored).mode == .tree && browserPreferences(restored).category == .openable,
+      "the view, hidden and category come back with the window's session")
 defaults.set("nonsense", forKey: "fileBrowser.viewMode")
 defaults.set("nonsense", forKey: "fileBrowser.category")
-check(FileBrowserPreferences.load(from: defaults).mode == .list && FileBrowserPreferences.load(from: defaults).category == .all,
+let windowD = WindowUIState(defaults: defaults)
+check(browserPreferences(windowD).mode == .list && browserPreferences(windowD).category == .all,
       "unknown stored values fall back to the defaults")
 check(!FileBrowserFilter().isActive && FileBrowserFilter(query: "a").isActive && FileBrowserFilter(hideIgnored: true).hasSettings,
       "an active filter is reported")

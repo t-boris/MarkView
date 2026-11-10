@@ -74,7 +74,7 @@ final class SharedSearchModel: ObservableObject {
             if result.scope == .content {
                 let text = query
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    NotificationCenter.default.post(name: .scrollToText, object: text)
+                    NotificationCenter.default.post(.scrollToText, for: workspaceManager, object: text)
                 }
             }
         }
@@ -280,7 +280,7 @@ struct SharedSearchView: View {
                     manager.saveActiveFile()
                 }),
                 SearchCommand(id: "pdf", title: "Export PDF…", symbol: "doc.richtext", detail: "⌘E", run: {
-                    NotificationCenter.default.post(name: .exportPDFRequested, object: nil)
+                    NotificationCenter.default.post(.exportPDFRequested, for: manager)
                 })
             ]
         }

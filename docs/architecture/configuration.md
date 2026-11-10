@@ -12,16 +12,17 @@ Changing or renaming any of these keys is a **major** version change (CLAUDE.md)
 |---|---|---|---|
 | `workspace.lastFolder` | path | Folder restored on launch | app shell |
 | `layout.showFileTree`, `layout.showTOC` | Bool | Pane visibility | app shell |
-| `layout.leftPanelWidth` | Double, 220 (180–800) | Width of the left pane (Files and Issues), restored on launch | app shell |
+| `layout.leftPanelWidth`, `layout.rightPanelWidth` | Double, 220 (180–6000) / 500 (320–1200) | Width of the left / right pane. The window keeps its own (`WindowUIState`); the key is only the starting value of a new window | app shell |
 | `layout.navigatorTab`, `layout.leftPanel`, `layout.issuesFeature`, `layout.gitSection`, `feature.stage` | enum/String | Last panel tab/section chosen. Each window keeps its own in `PanelLayout`; the key only seeds the next window and relaunch (BUG-004) | app shell, features, git |
-| `layout.terminalPromptsExpanded`, `feature.lifecycle.expanded` | Bool | Disclosure state (global across windows) | terminal, features |
+| `layout.terminalPromptsExpanded.v3`, `contents.infoExpanded`, `search.panelMode`, `uiStudioInspectorWidth`, `uiStudioSelectionExpanded`, `prototypeChatWidth`, `prototypePickScreenshot`, `imageSlideshowSeconds`, `editorTextSizeMirror`, `fileBrowser.viewMode`, `fileBrowser.showHidden`, `fileBrowser.hideIgnored`, `fileBrowser.category`, `editor.markview-*` | mixed | Per-window interface state (`WindowUIState`); the key is only the starting value of a new window | app shell |
+| `feature.lifecycle.expanded` | Bool | Disclosure state (global across windows) | features |
 | `features.active.<12-char hash of root>` | String | Open feature per project | features |
 | `research.webDisabled.<12-char hash of root>` | Bool, false | New Research: repository-only, no web search, for this folder (DEC-011) | research |
 | `research.timeoutMinutes` | Int, 20 (5–120) | New Research job time limit; a longer run stops and is saved as incomplete (DEC-012) | research |
 | `features.issues.filter.<12-char hash of root>` | [String], `[]` | Issues list funnel filter per project: ids of `open`, `closed`, `bugs`, `features`, `implemented`, `not-implemented`; unknown ids ignored | features |
 | `features.issues.sort.<12-char hash of root>` | String, `date:desc` | Issues list order per project, `date\|priority:asc\|desc`; unknown values fall back to the default | features |
 | `fileTree.sortField`, `fileTree.sortAscending` | enum/Bool | File tree sort | app shell |
-| `excludedFolders.<folderName>` | [String] | Excluded folders. Keyed by folder name only | app shell |
+| `excludedFolders.<project path>` | [String] | Excluded folders of one project, keyed by its full path (a list under the folder-name key is copied once) | app shell |
 | `theme` | light/dark/system | Legacy theme: read once to start a window in Classic Light or Classic Dark; never written | `ThemeSettingsStore` |
 | `theme.lastChanged.v1` | JSON | Theme and per-theme accents last chosen in any window; the start of a new window | `ThemeSettingsStore` |
 | `settings.ai.backend` | `CLITool` raw value | Selected assistant | AI |

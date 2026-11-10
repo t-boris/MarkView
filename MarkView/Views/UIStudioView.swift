@@ -9,13 +9,13 @@ struct UIStudioView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @AppStorage("uiStudioInspectorWidth") private var inspectorWidth = 380.0
+    @WindowStorage("uiStudioInspectorWidth") private var inspectorWidth = 380.0
     @State private var dragStartWidth: Double?
     @State private var panel: Panel = .element
     @State private var draft = ""
     @FocusState private var draftFocused: Bool
     @StateObject private var dictation = DictationController()
-    @AppStorage("uiStudioSelectionExpanded") private var selectionExpanded = true
+    @WindowStorage("uiStudioSelectionExpanded") private var selectionExpanded = true
     @State private var showingTrust = false
     @State private var effectiveScale = 1.0
     @State private var showLivePage = false

@@ -274,7 +274,14 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         // JS sends: { size: 13 } — the editor slider's document text size (mirror only)
         case "editorFontSize":
             if let size = data?["size"] as? Double, EditorTextSize.range.contains(size) {
-                UserDefaults.standard.set(size, forKey: EditorTextSize.mirrorKey)
+                delegate?.bridge(self, didChangeEditorFontSize: size)
+            }
+
+        // JS sends: { key, value } — one of the choices the page keeps for its window (`EditorWindowPrefs`)
+        case "editorWindowPref":
+            if let key = data?["key"] as? String, let value = data?["value"] as? String,
+               EditorWindowPrefs.accepts(key: key, value: value) {
+                delegate?.bridge(self, didSetWindowPref: key, value: value)
             }
 
         case "linkClicked":
@@ -759,6 +766,10 @@ protocol WebViewBridgeDelegate: AnyObject {
     func bridge(_ bridge: WebViewBridge, didReceiveBlocksDelta delta: BlocksDelta)
     func bridge(_ bridge: WebViewBridge, didChangeCursorBlock blockId: String)
     func bridgeEditorReady(_ bridge: WebViewBridge)
+    /// The document text size the page's slider shows, for the document text this window hosts natively.
+    func bridge(_ bridge: WebViewBridge, didChangeEditorFontSize size: Double)
+    /// A choice the page keeps for its own window (`EditorWindowPrefs.keys`).
+    func bridge(_ bridge: WebViewBridge, didSetWindowPref key: String, value: String)
     func bridgeSaveRequested(_ bridge: WebViewBridge, documentID: UUID?)
     func bridge(_ bridge: WebViewBridge, didRequestTranslation markdown: String, targetLang: String)
     func bridge(_ bridge: WebViewBridge, didRequestSelectionAction action: String, text: String)

@@ -28,7 +28,8 @@ import Foundation
             activeTabIndex: 1,
             panels: WorkspacePanelState(workspaceArea: "Work", workSection: "Git", navigator: "terminal", left: "issues", feature: "one", git: "changes", stage: "explore", showFiles: true, showNavigator: false, contentsVisible: false, terminalVisible: true, showCenter: false, welcomeBackdrop: "aurora"),
             frame: CGRect(x: 300, y: 400, width: 1200, height: 800), minimized: true,
-            theme: WindowThemeSettings(theme: .midnight, accents: [.midnight: ThemeColor(0xFF4D9A), .paper: ThemeColor(0x00AA00)]))
+            theme: WindowThemeSettings(theme: .midnight, accents: [.midnight: ThemeColor(0xFF4D9A), .paper: ThemeColor(0x00AA00)]),
+            uiState: ["search.panelMode": .string("Documents"), "uiStudioInspectorWidth": .double(412), "contents.infoExpanded": .bool(false), "n": .int(3)])
         let second = WorkspaceWindowState(id: UUID(), folder: folder)
         let archive = WindowSessionArchive(windows: [first, second])
         try await storage.save(archive, revision: 1)
@@ -41,6 +42,9 @@ import Foundation
         check(loaded.windows[0].theme == first.theme && loaded.windows[0].theme?.theme == .midnight &&
               loaded.windows[0].theme?.accentOverride(for: .paper)?.rgb == 0x00AA00, "each window's theme and per-theme accents survive")
         check(loaded.windows[1].theme == nil, "a window saved without a theme stays without one")
+        check(loaded.windows[0].uiState == first.uiState && loaded.windows[0].uiState?["uiStudioInspectorWidth"] == .double(412),
+              "each window's own interface state (modes, widths, expanded sections) survives")
+        check(loaded.windows[1].uiState == nil, "a window saved without interface state stays without it")
         check(loaded.windows[0].panels?.feature == "one" && loaded.windows[0].panels?.showNavigator == false, "per-window panels survive")
         check(loaded.windows[0].panels?.workspaceArea == "Work" && loaded.windows[0].panels?.workSection == "Git",
               "workspace and Work section survive per window")

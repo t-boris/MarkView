@@ -12,6 +12,8 @@ struct WorkspaceWindowState: Codable, Identifiable {
     var minimized = false
     /// The theme of this window and the accent each theme remembers in it; absent in sessions saved before themes.
     var theme: WindowThemeSettings?
+    /// What this window shows of itself besides the panels (`WindowUIState`); absent in sessions saved before it existed.
+    var uiState: [String: WindowUIValue]?
 }
 
 struct WorkspacePanelState: Codable {

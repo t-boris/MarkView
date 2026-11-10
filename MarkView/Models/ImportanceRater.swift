@@ -31,32 +31,26 @@ enum ImportanceRater {
         }
     }
 
-    /// Importance first, then the user's filters, then the one-off filter if any.
-    static var allFilters: [Filter] { [importance] + customFilters + (temporaryFilter.map { [$0] } ?? []) }
+    /// Importance first, then the user's filters, then the window's one-off filter if it has one.
+    static func allFilters(temporary: Filter?) -> [Filter] { [importance] + customFilters + (temporary.map { [$0] } ?? []) }
 
     // MARK: One-off filter
 
     /// Typed into a filter box and applied at once, like the saved ones — but never added
     /// to the list, and its ratings are not written to the database or the notes cache.
-    /// Gone when replaced, cleared or the app quits.
-    private(set) static var temporaryFilter: Filter?
+    /// Each window holds its own (`WorkspaceManager.temporaryFilter`): gone when replaced,
+    /// cleared, the window closes or the app quits.
     static let temporaryPrefix = "tmp-"
 
     static func isTemporary(_ id: String) -> Bool { id.hasPrefix(temporaryPrefix) }
 
-    /// Replace the one-off filter (an empty criterion clears it); returns the previous one.
-    @discardableResult
-    static func setTemporaryFilter(_ criterion: String) -> Filter? {
-        let previous = temporaryFilter
+    /// The one-off filter for what was typed (an empty criterion makes none).
+    static func temporaryFilter(for criterion: String) -> Filter? {
         let text = criterion.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.isEmpty {
-            temporaryFilter = nil
-        } else {
-            let hash = abs(text.lowercased().unicodeScalars.reduce(5381) { ($0 &* 33) &+ Int($1.value) }) % 1_000_000
-            let label = text.count > 32 ? String(text.prefix(30)) + "…" : text
-            temporaryFilter = Filter(id: temporaryPrefix + String(hash), name: "⚡ " + label, criterion: text, levels: relevanceLevels)
-        }
-        return previous
+        if text.isEmpty { return nil }
+        let hash = abs(text.lowercased().unicodeScalars.reduce(5381) { ($0 &* 33) &+ Int($1.value) }) % 1_000_000
+        let label = text.count > 32 ? String(text.prefix(30)) + "…" : text
+        return Filter(id: temporaryPrefix + String(hash), name: "⚡ " + label, criterion: text, levels: relevanceLevels)
     }
 
     /// Add a filter from a topic or question; the name defaults to the criterion.
