@@ -237,7 +237,7 @@ do {
     try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
 
-    check("store: scenarios are reusable assets under .markview/qa", QAStore.scenariosFolder(root).path.hasSuffix("/.markview/qa/scenarios") && QAStore.policyURL(root).path.hasSuffix("/.markview/qa/policy.json"))
+    check("store: scenarios are reusable assets under .markview/qa", QAStore.scenariosFolder(root).path.hasSuffix("/.markview/qa/scenarios"))
     check("store: runs are local data under .dde/qa", QAStore.runURL(root, runID: "r1").path.hasSuffix("/.dde/qa/runs/r1/run.json"))
     check("store: an id is a plain file name", QAStore.safeID("Checkout / Card!") == "checkout-card" && QAStore.safeID("../../etc") == "etc" && QAStore.safeID("") == "scenario")
     check("store: an id is not longer than 60 characters", QAStore.safeID(String(repeating: "a", count: 200)).count == 60)

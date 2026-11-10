@@ -1,7 +1,7 @@
 import Foundation
 
-// End-to-End QA (feature end-to-end-qa, DEC-006 and DEC-014): where scenarios and runs live. Reusable assets (scenarios, the material
-// policy) are in `.markview/qa/`, which may be committed; runs, with their frames and video, are in `.dde/qa/`, which carries its own
+// End-to-End QA (feature end-to-end-qa, DEC-006 and DEC-014): where scenarios and runs live. Reusable assets (scenarios) are in
+// `.markview/qa/`, which may be committed; runs, with their frames and video, are in `.dde/qa/`, which carries its own
 // `.gitignore`. Foundation only.
 
 enum QAStoreError: Error, Equatable {
@@ -22,7 +22,6 @@ struct QAScenarioListing: Equatable {
 enum QAStore {
     static func configFolder(_ root: URL) -> URL { root.appendingPathComponent(".markview/qa", isDirectory: true) }
     static func scenariosFolder(_ root: URL) -> URL { configFolder(root).appendingPathComponent("scenarios", isDirectory: true) }
-    static func policyURL(_ root: URL) -> URL { configFolder(root).appendingPathComponent("policy.json") }
 
     static func localFolder(_ root: URL) -> URL { root.appendingPathComponent(".dde/qa", isDirectory: true) }
     static func runsFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("runs", isDirectory: true) }
