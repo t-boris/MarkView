@@ -163,6 +163,21 @@ struct QAAPIChecks {
         check("missing executable request blocks approval", !QAPlanner.make(incomplete, targetID: "local", savedLogins: []).canBeApproved)
         var changed = good; changed.nodes[0].api?.statuses = [200]
         check("request changes invalidate approval fingerprint", QAPlanner.fingerprint(good, target: good.targets[0], branches: good.selectedBranches().found) != QAPlanner.fingerprint(changed, target: changed.targets[0], branches: changed.selectedBranches().found))
+        let interruptible = scenario(url, nodes: [
+            QANode(id: "fork", kind: .alternative, title: "Choose flow", changesData: .no),
+            node("slow", .init(path: "/slow"), kind: .check),
+            node("later", .init(path: "/types"), kind: .check)
+        ], edges: [.init(from: "fork", to: "slow"), .init(from: "fork", to: "later")])
+        let stopPlan = QAPlanner.make(interruptible, targetID: "local", savedLogins: [])
+        var stopGate = QAGate(plan: stopPlan); stopGate.approve(acknowledgedProduction: false)
+        let stopRunner = QARunner(scenario: interruptible, plan: stopPlan, gate: stopGate, factory: FixtureFactory(), assistant: NoAssistant(),
+                                  runID: QAStore.newRunID(at: Date()), confirm: { _ in true })
+        let running = Task { await stopRunner.run() }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        running.cancel()
+        let stopped = await running.value
+        check("Stop interrupts the API branch in flight", stopped.count(.interrupted) == 1)
+        check("Stop leaves later API branches uncovered", stopped.count(.uncovered) == 1)
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
         try QAStore.saveScenario(good, root: folder)
