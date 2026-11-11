@@ -1189,6 +1189,8 @@ struct QAGenerateSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("New scenario").uiFont(size: 15, weight: .semibold)
+            Text("Assistant: \(model.isGenerating ? model.generationAssistant : model.assistantSummary)")
+                .uiFont(size: 11).foregroundColor(palette.textDim)
             if !model.scenarios.isEmpty {
                 Picker("Based on", selection: $baseID) {
                     Text("Nothing: write it from the goal").tag(String?.none)
@@ -1279,7 +1281,7 @@ struct QAGenerateSheet: View {
                             .uiFont(size: 11).foregroundColor(palette.textDim)
                     }
                 }
-                Text("The assistant reads the project and the attached files first; a scenario takes a few minutes. Cancel stops it.")
+                Text("The assistant reads the project and attached files first. There is no time limit; Cancel stops generation.")
                     .uiFont(size: 10).foregroundColor(palette.textDim)
             }
         case .failed(let message):

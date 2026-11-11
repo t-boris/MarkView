@@ -10,6 +10,17 @@ import Foundation
 /// bounded by the argument-list limit.
 enum CLICompletion {
 
+    /// A window's assistant captured when an operation starts, including the CLI default model (nil).
+    struct Assistant {
+        let tool: CLITool
+        let model: String?
+
+        static func project(_ project: URL?) -> Assistant {
+            let tool = AIAssistantPreferences.backend(project: project)
+            return Assistant(tool: tool, model: AIAssistantPreferences.model(for: tool, project: project))
+        }
+    }
+
     struct Request {
         /// The project the request works for: its assistant and models answer it (BUG-021).
         /// nil only outside any project; then the defaults apply.
@@ -27,6 +38,8 @@ enum CLICompletion {
         var timeout: TimeInterval? = 180
         /// Set only to force a CLI (translation); otherwise `tool` is the project's assistant.
         var toolOverride: CLITool? = nil
+        /// An operation tied to an open window uses that window's assistant throughout the operation.
+        var assistantOverride: Assistant? = nil
         /// nil = the model selected for `tool` for the project (or the CLI default).
         var model: String? = nil
         /// Reasoning effort ("low", "medium", "high"); nil = the CLI's configured default.
@@ -41,8 +54,12 @@ enum CLICompletion {
         var label = ""
 
         var tool: CLITool {
-            get { toolOverride ?? AIAssistantPreferences.backend(project: project) }
-            set { toolOverride = newValue }
+            get { assistantOverride?.tool ?? toolOverride ?? AIAssistantPreferences.backend(project: project) }
+            set { assistantOverride = nil; toolOverride = newValue }
+        }
+        var resolvedModel: String? {
+            if let assistantOverride { return assistantOverride.model }
+            return model ?? AIAssistantPreferences.model(for: tool, project: project)
         }
         /// The project's X-Ray model for this request's CLI.
         var xrayModel: String? { AIAssistantPreferences.xrayModel(for: tool, project: project) }
@@ -116,7 +133,7 @@ enum CLICompletion {
                     onActivity: (@Sendable (Activity) -> Void)? = nil) async throws -> Result {
         let started = Date()
         let tool = request.tool
-        let model = request.model ?? AIAssistantPreferences.model(for: tool, project: request.project)
+        let model = request.resolvedModel
         func log(_ result: Result?, outcome: String) {
             AICallLog.record(AICallLog.Entry(timestamp: started, project: (request.project ?? request.readableFolder)?.path ?? "",
                                              label: request.label, tool: tool.rawValue, model: model ?? "",
