@@ -24,6 +24,7 @@ One step per line, run on the main queue (`#` starts a comment). Output goes to 
 |---|---|
 | `wait <s>` | pause |
 | `pick <n>` | work on the n-th visible window (default: the largest) |
+| `picktitle <part>` | work on the visible window whose title contains this text (useful with several project windows) |
 | `key` | make the picked window the key window (needed before `openurl`: the app opens a folder in the key window) |
 | `openurl <path>` | calls the delegate's `application(_:open:)`, as Finder does |
 | `size <w> <h>` | content size of the window |

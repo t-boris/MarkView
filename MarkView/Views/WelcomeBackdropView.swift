@@ -11,11 +11,12 @@ struct WelcomeBackdropView: NSViewRepresentable {
     let seed: UInt64
     /// Draw a still picture even when motion is allowed (a check wants to look at the scene).
     var still = false
+    var detail = 1
 
     func makeNSView(context: Context) -> BackdropHostView { BackdropHostView() }
 
     func updateNSView(_ view: BackdropHostView, context: Context) {
-        view.configure(kind: kind, colors: colors, seed: seed, still: still)
+        view.configure(kind: kind, colors: colors, seed: seed, still: still, detail: detail)
     }
 }
 
@@ -27,6 +28,7 @@ final class BackdropHostView: NSView {
     var currentSeed: UInt64 { seed }
     var currentKind: WelcomeBackdrop { kind }
     private var still = false
+    private var detail = 1
     private(set) var builtSize = CGSize.zero
     private var pendingRebuild: DispatchWorkItem?
     /// How many times the layers were built: a SwiftUI update that changes nothing must not restart the animations.
@@ -57,12 +59,13 @@ final class BackdropHostView: NSView {
 
     var isAnimating: Bool { !still && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
-    func configure(kind: WelcomeBackdrop, colors: BackdropColors, seed: UInt64, still: Bool) {
-        guard kind != self.kind || colors != self.colors || seed != self.seed || still != self.still else { return }
+    func configure(kind: WelcomeBackdrop, colors: BackdropColors, seed: UInt64, still: Bool, detail: Int = 1) {
+        guard kind != self.kind || colors != self.colors || seed != self.seed || still != self.still || detail != self.detail else { return }
         self.kind = kind
         self.colors = colors
         self.seed = seed
         self.still = still
+        self.detail = min(4, max(1, detail))
         rebuild()
     }
 
@@ -110,7 +113,7 @@ final class BackdropHostView: NSView {
         root.sublayers = nil
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         root.contentsScale = scale
-        let builder = BackdropBuilder(size: bounds.size, colors: colors, scale: scale, animated: isAnimating, seed: seed)
+        let builder = BackdropBuilder(size: bounds.size, colors: colors, scale: scale, animated: isAnimating, seed: seed, detail: detail)
         for layer in builder.layers(for: kind) { root.addSublayer(layer) }
         CATransaction.commit()
     }

@@ -12,20 +12,23 @@ struct WelcomeScreen<Below: View>: View {
     @Binding private var backdrop: WelcomeBackdrop
     /// Drawn once each time the screen appears: Shuffle must not change the scene while it is shown.
     @State private var shufflePick = Int.random(in: 0..<WelcomeBackdrop.animated.count)
-    @State private var seed = UInt64.random(in: 1...UInt64.max)
+    @State private var seed: UInt64
 
     /// Name of the open folder; nil in a window without one.
     let projectName: String?
     let isGitRepo: Bool
+    let projectContext: ProjectBackdropContext?
     /// A still picture instead of the animation (a check looks at the scene).
     let still: Bool
     let perform: (WelcomeActionID) -> Void
     let below: Below
 
-    init(projectName: String?, isGitRepo: Bool = false, backdrop: Binding<WelcomeBackdrop>, still: Bool = false,
+    init(projectName: String?, isGitRepo: Bool = false, backdrop: Binding<WelcomeBackdrop>, still: Bool = false, projectContext: ProjectBackdropContext? = nil, sceneSeed: UInt64? = nil,
          perform: @escaping (WelcomeActionID) -> Void, @ViewBuilder below: () -> Below) {
         self.projectName = projectName
+        _seed = State(initialValue: sceneSeed ?? UInt64.random(in: 1...UInt64.max))
         self.isGitRepo = isGitRepo
+        self.projectContext = projectContext
         _backdrop = backdrop
         self.still = still
         self.perform = perform
@@ -47,9 +50,11 @@ struct WelcomeScreen<Below: View>: View {
     var body: some View {
         ZStack {
             palette.bg
-            let scene = choice.wrappedValue.scene(pick: shufflePick)
+            let scene = choice.wrappedValue.scene(pick: shufflePick, project: projectContext)
             if scene != .off {
-                WelcomeBackdropView(kind: scene, colors: BackdropColors(palette), seed: seed, still: still)
+                WelcomeBackdropView(kind: scene, colors: BackdropColors(palette),
+                                    seed: backdrop == .project ? (projectContext?.seed ?? seed) : seed, still: still,
+                                    detail: backdrop == .project ? (projectContext?.detail ?? 1) : 1)
                     .accessibilityHidden(true)
             }
             GeometryReader { proxy in
@@ -112,6 +117,10 @@ struct WelcomeScreen<Below: View>: View {
                 .uiFont(size: 13)
                 .foregroundColor(palette.textDim)
                 .halo(palette.bg)
+            if backdrop == .project, let context = projectContext {
+                Text(context.summary).uiFont(size: 10.5).foregroundColor(palette.textDim).halo(palette.bg)
+                    .help(context.reason).accessibilityLabel(context.reason)
+            }
         }
     }
 
@@ -128,6 +137,7 @@ struct WelcomeScreen<Below: View>: View {
                 .uiFont(size: 11)
                 .foregroundColor(palette.textDim)
         }
+        .environment(\.colorScheme, palette.model.isDark ? .dark : .light)
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
@@ -135,7 +145,7 @@ struct WelcomeScreen<Below: View>: View {
         .padding(.vertical, 5)
         .background(Capsule().fill(palette.bgActive.opacity(0.9)))
         .overlay(Capsule().stroke(palette.border, lineWidth: 1))
-        .help("Choose the animated background of this screen")
+        .help(backdrop == .project ? (projectContext?.reason ?? "Open a project to give its background a personality") : "Choose the animated background of this screen")
     }
 }
 

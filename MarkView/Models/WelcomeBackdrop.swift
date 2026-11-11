@@ -5,15 +5,15 @@ import CoreGraphics
 /// Only the choice and the scenes live here, as plain values: `WelcomeBackdropView` turns a scene into Core Animation layers.
 /// All scene coordinates follow the layer tree: the origin is the bottom left corner and y grows upwards.
 enum WelcomeBackdrop: String, CaseIterable, Identifiable {
-    case matrix, aurora, bugs, network, shuffle, off
+    case matrix, aurora, bugs, network, orbit, blueprint, circuit, garden, launch, project, shuffle, off
 
     var id: String { rawValue }
 
-    /// One UserDefaults value for every window (DEC-002).
+    /// Starting choice for new windows; each window keeps its own actual choice (DEC-002, BUG-120).
     static let storageKey = "welcomeBackdrop"
     static let defaultChoice = WelcomeBackdrop.matrix
     /// What Shuffle picks from.
-    static let animated: [WelcomeBackdrop] = [.matrix, .aurora, .bugs, .network]
+    static let animated: [WelcomeBackdrop] = [.matrix, .aurora, .bugs, .network, .orbit, .blueprint, .circuit, .garden, .launch]
 
     var title: String {
         switch self {
@@ -21,6 +21,12 @@ enum WelcomeBackdrop: String, CaseIterable, Identifiable {
         case .aurora: return "Aurora"
         case .bugs: return "Bug Swarm"
         case .network: return "Network"
+        case .orbit: return "Orbit"
+        case .blueprint: return "Device Lab"
+        case .circuit: return "Circuit Flow"
+        case .garden: return "Code Garden"
+        case .launch: return "Launch"
+        case .project: return "By Project"
         case .shuffle: return "Shuffle"
         case .off: return "Off"
         }
@@ -32,6 +38,12 @@ enum WelcomeBackdrop: String, CaseIterable, Identifiable {
         case .aurora: return "sparkles"
         case .bugs: return "ladybug"
         case .network: return "point.3.connected.trianglepath.dotted"
+        case .orbit: return "atom"
+        case .blueprint: return "iphone"
+        case .circuit: return "cpu"
+        case .garden: return "leaf"
+        case .launch: return "paperplane"
+        case .project: return "folder.badge.gearshape"
         case .shuffle: return "shuffle"
         case .off: return "circle.slash"
         }
@@ -44,7 +56,8 @@ enum WelcomeBackdrop: String, CaseIterable, Identifiable {
 
     /// The scene to draw. Shuffle becomes one of the animated ones, chosen by `pick`: the screen draws that number once each time it
     /// appears, so the scene does not change while it is shown.
-    func scene(pick: Int) -> WelcomeBackdrop {
+    func scene(pick: Int, project: ProjectBackdropContext? = nil) -> WelcomeBackdrop {
+        if self == .project { return project?.scene ?? .garden }
         guard self == .shuffle else { return self }
         let count = Self.animated.count
         return Self.animated[((pick % count) + count) % count]
@@ -339,7 +352,7 @@ struct BugScene: Equatable {
         return (points, distances)
     }
 
-    static func make(size: CGSize, seed: UInt64) -> BugScene {
+    static func make(size: CGSize, seed: UInt64, intensity: Int = 1) -> BugScene {
         guard size.width >= 40, size.height >= 40 else { return BugScene(size: size, colonies: []) }
         var random = BackdropRandom(seed: seed)
         let margin: CGFloat = 36
@@ -351,7 +364,7 @@ struct BugScene: Equatable {
             default: return CGPoint(x: -margin, y: along * size.height)
             }
         }
-        let count = min(9, max(3, Int(size.width * size.height / 140_000)))
+        let count = min(9, max(3, Int(size.width * size.height / 140_000))) + min(3, max(0, intensity - 1))
         var colonies: [Colony] = []
         for index in 0..<count {
             let startSide = random.int(4)

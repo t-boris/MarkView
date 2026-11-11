@@ -5579,3 +5579,31 @@ adds HTTP API as the third separate scenario type (REQ-017, DEC-026).
   interrupted and uncovered outcomes.
 - Delivery is complete: merged PR, successful merge CI, signed universal Release
   app and notarized published DMG. Existing installed app and sessions are intact.
+
+# Five new welcome animations and project personality (2026-11-11)
+
+Boris requested about five more splash-screen animations and a background that
+expresses a project's platform, complexity and bug burden. REQ-004 and DEC-003 in
+`welcome-screen-with-action-tiles-and-a-falling` record the extension.
+
+- [x] Isolated branch `feat/project-aware-backdrops` from `origin/main`; read the
+  existing scene, layer, welcome, window-persistence and feature/workflow paths.
+- [x] Add Orbit, Device Lab, Circuit Flow, Code Garden and Launch, each selectable
+  manually and included in Shuffle. Retain existing choices and Off.
+- [x] Add By Project: stable seed, bounded density, mobile/size/web/backend/work
+  completion rules, live workflow-aware open-bug counts, visible evidence.
+- [x] Implement a cancellable utility scan with entry/depth/read budgets and
+  dependency/generated/test/symlink exclusions; no source retention or AI calls.
+- [x] Extend the welcome harness to all nine scenes, fixed-seed snapshots and
+  circular motion-direction measurements; add pure context/scanner checks and
+  hosted live-context checks. Pure checks and initial Debug build pass.
+- [x] Render review: dark/light/narrow pictures and changing frames of all five new
+  scenes; fixed detached leaves in Garden. The welcome suite passes all 1,082
+  checks, including hosted context changes, all nine scenes and Accessibility.
+  Pure context/scanner checks pass. In the isolated real app, an iOS project's
+  Device Lab becomes Bug Swarm for eight open bugs and returns when they are done.
+  Custom workflow terminal roles are respected. A separate backend window shows
+  Circuit Flow with moving packets while the iOS window retains its own context;
+  the installed app is untouched. Final 5.67.0 Debug build passes.
+- [ ] Bump minor version, final Debug build, PR checks, merge, signed/notarized
+  Release app and DMG from the merged commit.

@@ -25,7 +25,7 @@ func choiceChecks() {
     check(Set(WelcomeBackdrop.allCases.map(\.title)).count == WelcomeBackdrop.allCases.count, "every backdrop has its own title")
     let picked = Set((-9...30).map { WelcomeBackdrop.shuffle.scene(pick: $0) })
     check(picked == Set(WelcomeBackdrop.animated), "Shuffle reaches every animated backdrop and nothing else", "\(picked.map(\.rawValue).sorted())")
-    check(WelcomeBackdrop.allCases.filter { $0 != .shuffle }.allSatisfy { $0.scene(pick: 3) == $0 }, "a chosen backdrop is drawn as itself")
+    check(WelcomeBackdrop.allCases.filter { $0 != .shuffle && $0 != .project }.allSatisfy { $0.scene(pick: 3) == $0 }, "a chosen backdrop is drawn as itself")
     check(!WelcomeBackdrop.animated.contains(.off) && !WelcomeBackdrop.animated.contains(.shuffle), "Off and Shuffle are not among the animated ones")
     var a = BackdropRandom(seed: 7), b = BackdropRandom(seed: 7), c = BackdropRandom(seed: 8)
     check((0..<20).map { _ in a.next() } == (0..<20).map { _ in b.next() }, "the same seed gives the same numbers")
@@ -285,6 +285,53 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
         BackdropBuilder(size: CGSize(width: 800, height: 600), colors: darkColors, scale: 2, animated: true, seed: 1).layers(for: $0).isEmpty }, "Off and Shuffle draw no layers of their own")
 }
 
+// MARK: - Live project context
+
+@MainActor final class ProjectContextFixture: ObservableObject {
+    @Published var context = ProjectBackdropContext(identity: "/projects/mobile", signals: .init(platform: .ios, sourceFiles: 40, inspected: true),
+                                                     openBugs: 0, criticalBugs: 0, features: 4, completedFeatures: 1)
+}
+
+private struct ProjectContextScreen: View {
+    @ObservedObject var fixture: ProjectContextFixture
+    var body: some View {
+        WelcomeScreen(projectName: "Mobile project", backdrop: .constant(.project), projectContext: fixture.context, sceneSeed: 11,
+                      perform: { _ in }) { EmptyView() }
+    }
+}
+
+@MainActor func projectContextChecks() {
+    let fixture = ProjectContextFixture()
+    let hosting = NSHostingView(rootView: ProjectContextScreen(fixture: fixture).environment(\.palette, AppPalette(ThemePalette.make(.midnight))))
+    let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 1000, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = hosting
+    window.orderFrontRegardless()
+    defer { window.close() }
+    settle(hosting)
+    guard let view = descendants(hosting).compactMap({ $0 as? BackdropHostView }).first else { check(false, "project context: the real backdrop view exists"); return }
+    let seed = view.currentSeed
+    check(view.currentKind == .blueprint && seed == fixture.context.seed, "project context: mobile evidence resolves to a stable device composition")
+    snapshot(hosting, "context-ios")
+    fixture.context.openBugs = 12
+    settle(hosting)
+    check(view.currentKind == .bugs && view.currentSeed == seed, "project context: newly opened bugs change the live scene without changing project identity")
+    snapshot(hosting, "context-bugs")
+    let builds = view.buildCount
+    let unchanged = fixture.context
+    fixture.context = unchanged
+    settle(hosting)
+    check(view.buildCount == builds, "project context: unchanged facts do not restart the animation")
+    fixture.context.openBugs = 0
+    settle(hosting)
+    check(view.currentKind == .blueprint, "project context: closing the bugs restores the platform scene")
+    fixture.context.identity = "/projects/backend"
+    fixture.context.signals.platform = .backend
+    settle(hosting)
+    check(view.currentKind == .circuit && view.currentSeed != seed, "project context: switching projects changes the scene and composition")
+    snapshot(hosting, "context-backend")
+}
+
 // MARK: - The hosted screen
 
 @MainActor func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
@@ -296,7 +343,7 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
 @MainActor func host(project: String?, git: Bool, theme: AppTheme, accent: ThemeColor? = nil, size: NSSize, still: Bool, backdrop: WelcomeBackdrop = .matrix,
                       perform: @escaping (WelcomeActionID) -> Void = { _ in })
     -> (NSWindow, NSHostingView<AnyView>) {
-    let screen = WelcomeScreen(projectName: project, isGitRepo: git, backdrop: .constant(backdrop), still: still, perform: perform) {
+    let screen = WelcomeScreen(projectName: project, isGitRepo: git, backdrop: .constant(backdrop), still: still, sceneSeed: 11, perform: perform) {
         if project != nil {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Ready to resume").font(.system(size: 13, weight: .semibold))
@@ -340,7 +387,7 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
                     check(!layers.isEmpty, "\(name): the backdrop has \(layers.count) layers", "bounds \(view.bounds)")
                     check(view.hitTest(NSPoint(x: view.bounds.midX, y: view.bounds.midY)) == nil, "\(name): the backdrop takes no mouse event")
                     let builds = view.buildCount
-                    view.configure(kind: backdrop, colors: BackdropColors(AppPalette(ThemePalette.make(theme))), seed: view.currentSeed, still: true)
+                    view.configure(kind: backdrop.scene(pick: 0), colors: BackdropColors(AppPalette(ThemePalette.make(theme))), seed: view.currentSeed, still: true)
                     check(view.buildCount == builds, "\(name): an update that changes nothing does not rebuild (the animation keeps running)")
                     check(view.frame.size == hosting.bounds.size, "\(name): the backdrop fills the window")
                 }
@@ -376,7 +423,7 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
 /// Real motion, without a screen: a window that is ordered in (far outside every display) lets Core Animation compute the presentation
 /// layer, the values the render server shows. Two readings a moment apart must differ the way the animation says.
 @MainActor func motionChecks() {
-    for backdrop in [WelcomeBackdrop.matrix, .bugs, .aurora, .network] {
+    for backdrop in WelcomeBackdrop.animated {
         let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: NSSize(width: 1000, height: 800), still: false, backdrop: backdrop)
         settle(hosting)
         guard let view = descendants(hosting).compactMap({ $0 as? BackdropHostView }).first, let root = view.layer else {
@@ -524,7 +571,7 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
 
 @MainActor func animatedFrameChecks() {
     let size = NSSize(width: 1000, height: 800)
-    for backdrop in [WelcomeBackdrop.matrix, .bugs, .aurora, .network] {
+    for backdrop in WelcomeBackdrop.animated {
         let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: size, still: false, backdrop: backdrop)
         defer { window.close() }
         settle(hosting)
@@ -568,7 +615,7 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
                 let dx = b.0.x - a.0.x, dy = b.0.y - a.0.y
                 guard hypot(dx, dy) > 3, hypot(dx, dy) < 60 else { continue }
                 compared += 1
-                if angleBetween(atan2(dy, dx), (a.1 + b.1) / 2) < 0.3 { aligned += 1 }
+                if angleBetween(atan2(dy, dx), atan2(sin(a.1) + sin(b.1), cos(a.1) + cos(b.1))) < 0.3 { aligned += 1 }
             }
             check(compared >= before.count * 7 / 10 && aligned == compared, "frames bugs: every bug in motion faces the way it moves (\(aligned) of \(compared), \(before.count) bugs)")
         }
@@ -748,6 +795,7 @@ MainActor.assumeIsolated {
     layerChecks()
     hostedChecks()
     perWindowChecks()
+    projectContextChecks()
     motionChecks()
     resizeChecks()
     tileChecks()
