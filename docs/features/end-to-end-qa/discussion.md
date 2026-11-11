@@ -77,3 +77,9 @@ A: all applications of one scenario are of the same type (all web or all native 
 How are the recorded run videos and frames cleaned up as runs pile up?
 
 A: keep the newest 5 runs per scenario and every run that a filed bug points to; delete the others automatically when a new run starts; add "Delete run" and "Delete all runs of this scenario" in the Run panel. Boris, 2026-11-10.
+
+### Answer to Q-011 · 2026-11-11
+
+Should QA also check an HTTP/REST service, as a third application type next to web and native macOS: the product's web application, its Mac 
+
+Boris's explicit goal on 2026-11-11 (translated): Extend end-to-end testing to web applications, macOS applications or APIs. For an API the assistant should understand how to form requests, create or propose the scenarios, and then execute the scenario so I can check my backend. This is the requested API extension now; the existing one-type-per-scenario model remains the implementation context.
