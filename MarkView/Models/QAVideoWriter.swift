@@ -210,6 +210,7 @@ final class QAVideoWriter: @unchecked Sendable {
 
     // Confined to `queue`: the rendered frame of the latest picture, held until the next picture arrives.
     private var held: CVPixelBuffer?
+    private var heldUntil = 0
 
     private static let bandColor = CGColor(srgbRed: 0.08, green: 0.08, blue: 0.10, alpha: 1)
     private static let waitForEncoder: TimeInterval = 60
@@ -287,16 +288,17 @@ final class QAVideoWriter: @unchecked Sendable {
     /// picture. `time` is seconds from the start of the recording and must not go backwards. The frames in between are filled with the
     /// previous picture; before the first picture (when it comes after time zero) the video shows black. Two pictures within one
     /// frame duration: the later one wins. Returns at once: rendering and encoding happen on a background queue.
-    func append(_ picture: CGImage, at time: Double, subtitle: String?) throws {
+    func append(_ picture: CGImage, at time: Double, subtitle: String?, minimumDuration: Double = 0) throws {
         guard picture.width > 0, picture.height > 0 else { throw QAVideoError.zeroSizePicture }
         guard time.isFinite, time >= 0 else { throw QAVideoError.invalidTime(time) }
+        guard minimumDuration.isFinite, (0...10).contains(minimumDuration) else { throw QAVideoError.invalidSettings("the minimum frame duration must be 0 to 10 seconds") }
         try locked {
             if finished { throw QAVideoError.alreadyFinished }
             if let failure { throw failure }
             if time < lastTime { throw QAVideoError.timeWentBackwards(previous: lastTime, requested: time) }
             lastTime = time
             // Queued under the lock so that the queue sees the pictures in the order their times were accepted.
-            queue.async { self.process(picture, at: time, subtitle: subtitle) }
+            queue.async { self.process(picture, at: time, subtitle: subtitle, minimumDuration: minimumDuration) }
         }
     }
 
@@ -314,13 +316,16 @@ final class QAVideoWriter: @unchecked Sendable {
 
     // MARK: - Queue
 
-    private func process(_ picture: CGImage, at time: Double, subtitle: String?) {
+    private func process(_ picture: CGImage, at time: Double, subtitle: String?, minimumDuration: Double) {
         guard locked({ failure }) == nil else { return }
         do {
             // The first frame that shows this picture; every frame before it still shows the held one.
-            let first = Int((time * Double(framesPerSecond) - 1e-6).rounded(.up))
+            // Reserve enough frames to read fast input markers, without delaying the tested app.
+            // Later wall-clock gaps absorb this short extension rather than accumulating an offset.
+            let first = max(heldUntil, Int((time * Double(framesPerSecond) - 1e-6).rounded(.up)))
             try fill(upTo: first)
             held = try render(picture, subtitle: subtitle)
+            heldUntil = first + Int((minimumDuration * Double(framesPerSecond)).rounded(.up))
         } catch {
             fail(error)
         }
@@ -337,6 +342,7 @@ final class QAVideoWriter: @unchecked Sendable {
             return
         }
         do {
+            try fill(upTo: heldUntil)
             try write(held)
         } catch {
             fail(error)

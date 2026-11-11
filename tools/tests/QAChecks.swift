@@ -1199,6 +1199,14 @@ do {
     check("run: every turn shows the observer the page and a picture; the first look at a screen is new", ok.recorder.screens.count >= 8 && ok.recorder.screens.allSatisfy { $0.png == Data([1, 2, 3]) } && ok.recorder.screens.first?.isNew == true)
     check("run: pictures can be left out", run(config: { var c = QARunner.Config(); c.captureFrames = false; return c }()).recorder.screens.allSatisfy { $0.png == nil })
 
+    let inputEvents = ok.recorder.events.compactMap { event -> (String?, QAInputMark, Data?)? in
+        if case .input(let actor, let mark, let png) = event { return (actor, mark, png) }; return nil
+    }
+    check("input: every executed action has a pre-input picture and the correct player", !inputEvents.isEmpty && inputEvents.allSatisfy { $0.2 == Data([1,2,3]) && $0.0 != nil })
+    check("input: markers carry semantics without typed values", inputEvents.contains { $0.1.kind == .fill && $0.1.label == "Type text" })
+    var noInputs = QARunner.Config(); noInputs.captureInputs = false
+    check("input: video annotations can be disabled", !run(script: okScript, config: noInputs).recorder.events.contains { if case .input = $0 { return true }; return false })
+
     // What the review is given with each new screen
     var dirty = QAPageEvidence()
     dirty.smallText = QAPageEvidence.Tally(count: 2, samples: ["p 9px"])
@@ -1235,6 +1243,8 @@ do {
     // Actions that fail, answers that cannot be used
     let giveUp = run(script: ["Add a product to the cart": Array(repeating: move("click", "e9"), count: 6)], prepare: { factory, _ in factory.failing = ["click [e9]"] })
     check("run: an action that keeps failing blocks the step as an element that is not there", giveUp.result?.verdict.blockReason == .elementNotFound && giveUp.result?.verdict.node == "n1" && giveUp.result?.steps.first?.effort.clicks == 0 && giveUp.result?.verdict.reason.contains("failed 3 times") == true)
+    let failedInputs = giveUp.recorder.events.compactMap { event -> QAInputMark? in if case .input(_, let mark, _) = event { return mark }; return nil }
+    check("input: failed attempts have explicit failure annotations", failedInputs.filter(\.failed).count == 3 && failedInputs.filter { !$0.failed }.count == 3)
     check("run: a screen that did not change is not new the second time", giveUp.recorder.screens.contains { !$0.isNew } && giveUp.recorder.screens.first?.isNew == true)
     check("run: and the assistant was told each time it failed", giveUp.assistant.prompts.contains { $0.contains("click [e9] → failed: refused") })
     let retried = run(script: ["Add a product to the cart": [move("click", "e9"), move("click", "e1"), finished()]], prepare: { factory, _ in factory.failing = ["click [e9]"] })

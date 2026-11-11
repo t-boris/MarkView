@@ -4,18 +4,6 @@ import Foundation
 // is read. A turn shows the assistant the page and the step; it answers with one move: an action, "done", "not met" or "blocked", and one
 // sentence of narration that becomes the subtitle. Foundation only; checked by tools/tests/qa-tests.sh.
 
-enum QAActionKind: String, Codable, CaseIterable {
-    case click
-    case fill
-    case select
-    case scroll
-    case navigate
-    case key
-    case wait
-    /// A request sent by the runner itself, for preparing data. Never a way to do what a person does in the page.
-    case http
-}
-
 struct QAAction: Codable, Equatable {
     var kind: QAActionKind
     /// The element, as the page snapshot names it (`e12`).

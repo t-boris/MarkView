@@ -5662,3 +5662,22 @@ expresses a project's platform, complexity and bug burden. REQ-004 and DEC-003 i
 - [x] MarkView lifecycle recognizes BUG-125 as done with verified completion.
   The installed app was not replaced; saved screenshots remain historical,
   and fresh QA runs use the corrected rendering after updating.
+
+# Visible actions in QA recordings (2026-11-11)
+
+- [x] Read the runner, web/native input paths, frame composition and encoding.
+- [x] Capture pre-input geometry and clean frames; label every action and implicit
+  scrolling; compose player-specific video markers without touching review images.
+- [x] Decoded MP4 pixel/timing checks, multi-player/portrait geometry, failed
+  action events, QA runner suite and live native one-/two-player checks pass.
+  Debug 5.68.0 builds. The real-app web fixture is being verified.
+- [ ] Bump minor version, verify build, merge PR, then publish signed/notarized DMG.
+
+# Pause and resume QA from a chosen step (2026-11-11)
+
+- [x] Boris chose existing application state, without replaying earlier steps.
+- [ ] Pause at action boundaries; preserve sessions on pause and after failure.
+- [ ] Continue at a chosen step, start there, retry a failure; clearly record skipped
+  steps and preserve approval/production checks.
+- [ ] Verify control races, retained sessions, partial results and real-app controls.
+- [ ] Deliver through a verified PR and signed/notarized release.

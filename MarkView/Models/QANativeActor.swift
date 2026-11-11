@@ -173,6 +173,14 @@ final class QANativeActor: QAActorDriver {
     }
 
     /// The latest picture of the player's window; nil when it has none.
+    func inputMark(for action: QAAction) async -> QAInputMark {
+        var mark = QAInputMark(kind: action.kind, direction: action.direction)
+        if let driver = accessibility, let (frame, viewport) = await driver.inputFrame(ref: action.ref, kind: action.kind) {
+            mark.target = QAInputMark.normalized(frame, in: viewport)
+        }
+        return mark
+    }
+
     func screenshot() async -> Data? {
         guard !closed, let capture else { return nil }
         return await capture.latestPNG(preferring: last?.windowFrame)

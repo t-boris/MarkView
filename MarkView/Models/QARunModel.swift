@@ -213,8 +213,10 @@ final class QARunModel: ObservableObject {
         case .api: factory = QAAPIDriverFactory()
         case .nativeMacOS: factory = QANativeDriverFactory()
         }
+        var config = QARunner.Config()
+        config.captureInputs = recordVideo
         let runner = QARunner(scenario: scenario, plan: plan, gate: gate, factory: factory, assistant: assistant, runID: runID,
-                              confirm: { [weak self] confirmation in await self?.ask(confirmation) ?? false }, observer: sink)
+                              confirm: { [weak self] confirmation in await self?.ask(confirmation) ?? false }, observer: sink, config: config)
 
         let (queue, jobsContinuation) = AsyncStream.makeStream(of: ReviewJob.self)
         jobs = jobsContinuation
@@ -311,6 +313,11 @@ final class QARunModel: ObservableObject {
             addFrame()
         case .screen(let screen):
             show(screen)
+        case .input(let actor, let mark, let png):
+            let key = actor ?? Self.setupPlayer
+            var shown = pictures
+            if let png, let image = QAFrameComposer.image(from: png) { shown[key] = image }
+            addFrame(input: (key, mark), pictures: shown)
         case .nodeStarted(_, let node, _, _):
             currentNode = node
             players.removeAll { $0.id == Self.setupPlayer }
@@ -500,13 +507,18 @@ final class QARunModel: ObservableObject {
     }
 
     /// The latest pictures of the players, side by side, with the subtitle that is current, at this second of the branch.
-    private func addFrame() {
+    private func addFrame(input: (String, QAInputMark)? = nil, pictures source: [String: CGImage]? = nil) {
         guard let writer else { return }
+        let pictures = source ?? self.pictures
         var shown = slots.map { pictures[$0] }
         // The session that prepares data is nobody's: it takes the first player's place until the steps begin.
         if let setup = pictures[Self.setupPlayer], !shown.isEmpty, shown[0] == nil { shown[0] = setup }
-        guard let composed = QAFrameComposer.compose(shown) else { return }
-        do { try writer.append(composed, at: max(0, Date().timeIntervalSince(branchStart)), subtitle: subtitle) } catch {
+        var marks: [Int: QAInputMark] = [:]
+        if let (key, mark) = input, let index = key == Self.setupPlayer ? (shown.isEmpty ? nil : 0) : slots.firstIndex(of: key) { marks[index] = mark }
+        let names = slots.map { id in players.first { $0.id == id }?.name ?? id }
+        guard let composed = QAFrameComposer.compose(shown, marks: marks, names: names) else { return }
+        do { try writer.append(composed, at: max(0, Date().timeIntervalSince(branchStart)), subtitle: subtitle,
+                               minimumDuration: input == nil ? 0 : 0.75) } catch {
             notice = "The video stopped: \(error.localizedDescription)"
             self.writer = nil
         }

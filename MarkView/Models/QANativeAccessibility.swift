@@ -237,6 +237,19 @@ final class QANativeAccessibility: @unchecked Sendable {
 
     // MARK: Acting
 
+    /// Read geometry from the same live handles used for input, never from field values.
+    func inputFrame(ref: String, kind: QAActionKind) async -> (CGRect, CGRect)? {
+        try? await run {
+            guard let window = self.targetWindow(), let viewport = self.frame(of: window) else { return nil }
+            let element: AXUIElement?
+            if kind == .scroll { element = self.mainScrollArea(in: window) }
+            else if kind == .key { element = self.copy(self.application, "AXFocusedUIElement").map { unsafeBitCast($0, to: AXUIElement.self) } }
+            else { element = try? self.lookup(ref).0 }
+            guard let element, let frame = self.frame(of: element) else { return nil }
+            return (frame, viewport)
+        }
+    }
+
     /// Presses the element; text fields and text areas get the focus instead; what answers to no press is clicked with the mouse at its centre.
     func click(_ ref: String) async throws -> String {
         try await run {

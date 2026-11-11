@@ -9,5 +9,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/QAVideoChecks.swift "$out/main.swift"
-swiftc -O -target "$(uname -m)-apple-macos13.0" -o "$out/qa-video-checks" MarkView/Models/QAVideoWriter.swift "$out/main.swift"
+swiftc -O -target "$(uname -m)-apple-macos13.0" -o "$out/qa-video-checks" MarkView/Models/QAInputMark.swift MarkView/Models/QAFrameComposer.swift MarkView/Models/QAVideoWriter.swift "$out/main.swift"
 "$out/qa-video-checks"
