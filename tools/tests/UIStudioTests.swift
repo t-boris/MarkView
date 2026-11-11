@@ -1537,6 +1537,17 @@ func connectionChecks() {
     check("BUG-073 a JWT secret's test value is a signed JWT that shape checks accept", supportedAnonKey(anon)
           && StudioTestJWT.claims(of: anon)?["role"] == .string("anon") && StudioTestJWT.claims(of: anon)?["exp"] == .number(StudioTestJWT.expires)
           && anon.hasPrefix(StudioTestJWT.base64URL(Data(#"{"alg":"HS256","typ":"JWT"}"#.utf8))), anon)
+    for missing in [nil, "", "replace_me"] as [String?] {
+        let value = StudioConnections.testValue(for: "NEXT_PUBLIC_SUPABASE_ANON_KEY", real: missing)
+        check("a missing or placeholder Supabase anon key produces a valid simulated key", supportedAnonKey(value)
+              && StudioTestJWT.claims(of: value)?["role"] == .string("anon"))
+    }
+    let modernKey = StudioConnections.testValue(for: "NEXT_PUBLIC_SUPABASE_ANON_KEY", real: "sb_publishable_example")
+    let namedPublishable = StudioConnections.testValue(for: "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", real: nil)
+    let missingService = StudioConnections.testValue(for: "SUPABASE_SERVICE_ROLE_KEY", real: nil)
+    check("Supabase publishable and service keys have their expected test formats", supportedAnonKey(modernKey)
+          && modernKey.hasPrefix("sb_publishable_") && namedPublishable.hasPrefix("sb_publishable_")
+          && StudioTestJWT.claims(of: missingService)?["role"] == .string("service_role"))
     let serviceRole = StudioConnections.testValue(for: "SUPABASE_SERVICE_ROLE_KEY", real: StudioTestJWT.make(
         ["role": .string("service_role"), "ref": .string("real-project-ref"), "iss": .string("supabase")]))
     let oddRole = StudioConnections.testValue(for: "SOME_TOKEN", real: StudioTestJWT.make(["role": .string("admin-of-everything")]))

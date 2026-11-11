@@ -165,6 +165,19 @@ enum StudioConnections {
         if let secret = StudioAuthMock.signingSecretTestValue(for: name) { return secret }
         let real = real ?? ""
         let plain = "markview-test-" + name.lowercased().replacingOccurrences(of: "_", with: "-")
+        // A project may declare a Supabase key without an actual .env value. The client still checks its format before
+        // issuing a request, so derive the mock key's shape and role from the variable name, not from a real credential.
+        if name.contains("SUPABASE") {
+            if name.hasSuffix("PUBLISHABLE_KEY") || (name.hasSuffix("ANON_KEY") && real.hasPrefix("sb_publishable_")) {
+                return "sb_publishable_markview_test"
+            }
+            if name.hasSuffix("SERVICE_ROLE_KEY"), real.hasPrefix("sb_secret_") { return "sb_secret_markview_test" }
+            if name.hasSuffix("ANON_KEY") || name.hasSuffix("SERVICE_ROLE_KEY") {
+                let role = name.hasSuffix("SERVICE_ROLE_KEY") ? "service_role" : "anon"
+                return StudioTestJWT.make(["iss": .string("markview-test"), "role": .string(role),
+                                           "iat": .number(StudioTestJWT.issuedAt), "exp": .number(StudioTestJWT.expires)])
+            }
+        }
         if real.hasPrefix("eyJ"), real.split(separator: ".", omittingEmptySubsequences: false).count == 3 {
             // Only the role claim is copied (anon and service-role keys behave differently); a project ref or any other
             // claim of the real key never reaches the test value.

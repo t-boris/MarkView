@@ -1642,6 +1642,7 @@ func finish(_ session: StudioSession, port: Int? = nil) {
             await serverClockChecks()
             await logChecks()
             await authChecks()
+            await authWithoutRealKeyChecks()
             await ipcSessionChecks()
             await fixDataChecks()
             await dependencyInstallChecks()

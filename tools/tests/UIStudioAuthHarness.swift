@@ -92,6 +92,11 @@ function store(session) {
   for (let i = 0; i * size < value.length; i++) document.cookie = COOKIE + '.' + i + '=' + value.slice(i * size, (i + 1) * size) + '; path=/';
 }
 async function signIn() {
+  // Like applications which validate Supabase's public configuration before invoking its SDK.
+  const jwt = KEY.split('.');
+  if (!(jwt.length === 3 && jwt.every(Boolean)) && !(KEY.startsWith('sb_publishable_') && KEY.length > 'sb_publishable_'.length)) {
+    document.getElementById('login').textContent = 'Invalid public key'; return;
+  }
   const answer = await fetch(SUPABASE + '/auth/v1/token?grant_type=password', { method: 'POST',
     headers: { 'content-type': 'application/json', apikey: KEY }, body: JSON.stringify({ email: 'nobody@nowhere.test', password: 'not-it' }) });
   if (answer.status !== 200) { document.getElementById('login').textContent = 'Refused ' + answer.status; return; }
@@ -296,5 +301,48 @@ func authChecks() async {
         + CLICompletion.requests.dropFirst(promptsBefore).map(\.prompt).joined() + session.serverLog
     check("REQ-010 the fixture's real key and JWT secret reach no log or prompt", !everything.contains(authFixtureAnonKey)
           && !everything.contains(authFixtureJWTSecret))
+    await session.close()
+}
+
+/// No real anon key is present, as in a fresh checkout of the master portal. Discovery must still give the server and the
+/// browser a valid-shaped test key; the app refuses to call Auth when that key is malformed.
+@MainActor
+func authWithoutRealKeyChecks() async {
+    watchdog.reached("Supabase sign-in without a real anon key")
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-no-auth-key-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    try? authServer.write(to: root.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
+    try? #"{"name":"auth-no-key-fixture","private":true,"dependencies":{"@supabase/ssr":"0.8.0"}}"#
+        .write(to: root.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+    try? "NEXT_PUBLIC_SUPABASE_URL=http://supabase.example.test\n".write(to: root.appendingPathComponent(".env.local"), atomically: true, encoding: .utf8)
+    let assistant = Assistant()
+    assistant.proposal = ["rules": [], "assumptions": ["Nothing else is needed."]]
+    CLICompletion.answer = { request in assistant.respond(request) }
+    let port = freePort()
+    let session = StudioSession(root: root)
+    session.start(WebAppTarget(folder: root, label: "auth without key", command: "python3 server.py \(port)", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    let loginURL = URL(string: "/auth/login", relativeTo: session.appURL)?.absoluteString ?? ""
+    _ = try? await session.call("location.href = target; return true;", ["target": loginURL])
+    for _ in 0..<150 {
+        if (try? await session.call("return !!document.getElementById('password');")) as? Bool == true { break }
+        try? await Task.sleep(nanoseconds: 200_000_000)
+    }
+    _ = try? await session.call("document.getElementById('password')?.click(); return true;")
+    var email = ""
+    for _ in 0..<150 {
+        email = (try? await session.call("return document.getElementById('email')?.textContent || '';")) as? String ?? ""
+        if !email.isEmpty { break }
+        try? await Task.sleep(nanoseconds: 200_000_000)
+    }
+    let page = session.webView.url?.path ?? ""
+    let authRequests = session.requests.filter { $0.contract.contains("/auth/v1/") && $0.outcome == "simulated" }
+    check("a project with no real Supabase key signs in through the mock and passes server authentication",
+          email == "tester@example.test" && page == "/account"
+          && authRequests.contains { $0.method == "POST" && $0.status == 200 }
+          && authRequests.contains { $0.method == "GET" && $0.transport == "server" && $0.status == 200 },
+          "\(email) at \(page); simulated auth requests: \(authRequests.count)")
     await session.close()
 }
