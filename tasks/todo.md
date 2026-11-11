@@ -5512,3 +5512,10 @@ Not in this release: Q-009 mixing, Q-011 HTTP service type.
 - [x] Replaced the welcome tiles' nested lazy grids with an eager adaptive `Layout` (at most six tiles per section), preserving spacing, columns and tile actions. Added Accessibility scrolling checks at three window sizes, with and without a project.
 - [x] Bumped patch version to 5.64.2; Debug build passes. The full welcome-screen suite passes all 572 checks, including Accessibility page scrolling, tile clicks and adaptive layouts. The real app probe completes the original scroll-action walk, resizing and opening a project without a crash.
 - [x] [PR #356](https://github.com/t-boris/MarkView/pull/356) merged as `3fc9971`; [release v5.64.2](https://github.com/t-boris/MarkView/releases/tag/v5.64.2) published from that commit. Universal arm64/x86_64 app signature verified; DMG notarized, stapled and accepted by Gatekeeper. The merge's [Build & Release run](https://github.com/t-boris/MarkView/actions/runs/43026228867) passed on both architectures; all PR checks passed. Local artifacts: `/tmp/MarkView-accessibility-release/build/release/MarkView.app` and `/tmp/MarkView-accessibility-release/build/MarkView-5.64.2.dmg`. Boris's running app and active sessions were left intact.
+
+# Two additional dark themes (2026-11-11, 5.65.0)
+
+- [x] Add Tokyo Night (indigo surfaces, lavender accent, cyan details) and Carbon Red (soft black surfaces, coral accent, warm ivory text) as window presets, alongside the existing Darcula, Midnight, Graphite and Paper.
+- [x] Supply native and web palettes, syntax and structured-document colors, terminal ANSI colors, chart and diagram colors. Use the existing per-window choice and per-theme accent persistence.
+- [x] Extend the existing palette, picker and real WebKit checks to both themes; native contrast, web contrast, window independence, saved sessions, overrides and resets pass. Debug build passes (5.65.0). Inspect rendered picker and editor screenshots for both themes.
+- [ ] Merge the PR; build and publish the signed, notarized DMG from the merged commit and verify Build & Release. Leave the running app and its active sessions intact.

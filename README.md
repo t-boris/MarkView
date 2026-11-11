@@ -819,7 +819,7 @@ flowchart LR
   deploy command after you confirm the exact command, with live output, Cancel and a notification when
   done; the other kinds start from **Run** in the Deployment details panel. The list is shared in
   `.markview/operations.json`.
-- A theme for each window: System (follows macOS) and four presets, Darcula-inspired, Midnight, Graphite and Paper, each with an
+- A theme for each window: System (follows macOS) and six presets: Darcula, Midnight, Graphite, Tokyo Night, Carbon Red and Paper, each with an
   accent colour of your own. The choice applies to the whole window (interface, editor, preview, discussion, terminal), is
   remembered per window across restarts and does not touch other windows; a new window starts from the last theme and accents
   you chose. Installations that used the old light or dark setting keep that look as Classic Light or Classic Dark until you

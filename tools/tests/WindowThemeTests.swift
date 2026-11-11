@@ -112,7 +112,7 @@ MainActor.assumeIsolated {
     check(centre(render(Probe().windowThemed(tb))) == 0xFFFCF5, "and the other window does not")
 
     // MARK: the picker draws in every theme and lists what it should
-    for theme in [AppTheme.classicDark, .darcula, .midnight, .graphite, .paper] {
+    for theme in [AppTheme.classicDark, .darcula, .midnight, .graphite, .tokyoNight, .carbonRed, .paper] {
         let t = WindowTheme(store: freshStore())
         t.select(theme)
         let image = render(ThemePickerView().windowThemed(t))
