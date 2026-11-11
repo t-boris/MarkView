@@ -5648,5 +5648,17 @@ expresses a project's platform, complexity and bug burden. REQ-004 and DEC-003 i
   (open, select, close/reopen, verify) in 24 seconds with four native clicks.
   Saved screenshots and the video contain the animated dialog; its date persists.
   Evidence: `/tmp/qa-dialog-live/project/.dde/qa/runs/20261111-224446-bcf1/`.
-- [ ] Bump patch version, merge the verified PR and pass merge CI.
-- [ ] Publish and verify the signed, notarized Release app and DMG from the merge.
+- [x] Version 5.67.1; [PR #363](https://github.com/t-boris/MarkView/pull/363)
+  merged as `28ddbc8` after all PR checks passed. The merge's
+  [Build & Release run](https://github.com/t-boris/MarkView/actions/runs/43115122637)
+  passed on arm64 and x86_64.
+- [x] [Release v5.67.1](https://github.com/t-boris/MarkView/releases/tag/v5.67.1)
+  published as Latest from the merged commit. Version/build 5.67.1, universal
+  architectures and strict signatures verified. DMG notarized, stapled and
+  accepted by Gatekeeper; uploaded assets match the local SHA-256:
+  `34ee70dfa43800872b2b14c7cff5c221ee55ed84c62b54cee84004222901a90d`.
+  Local app: `/tmp/MarkView-qa-dialogs-release/build/release/MarkView.app`.
+  Installer: `/tmp/MarkView-qa-dialogs-release/build/MarkView-5.67.1.dmg`.
+- [x] MarkView lifecycle recognizes BUG-125 as done with verified completion.
+  The installed app was not replaced; saved screenshots remain historical,
+  and fresh QA runs use the corrected rendering after updating.
