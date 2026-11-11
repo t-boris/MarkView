@@ -41,7 +41,7 @@ final class QAWebActor: QAActorDriver {
         session = BrowserSession(url: nil, dataStore: .nonPersistent())
         self.credentials = credentials
         let size = Self.viewport
-        window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: size.width, height: size.height),
+        window = QAWebWindow(contentRect: NSRect(x: -30000, y: -30000, width: size.width, height: size.height),
                           styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.isExcludedFromWindowsMenu = true

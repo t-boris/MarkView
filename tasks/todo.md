@@ -5630,3 +5630,23 @@ expresses a project's platform, complexity and bug burden. REQ-004 and DEC-003 i
 - Delivery is complete: merged PR, successful merge CI, signed universal Release
   app and notarized published DMG. The existing installed app and sessions remain
   intact.
+
+# BUG-125 — render animated dialogs in offscreen web QA (2026-11-11)
+
+- [x] Reproduce the user's backdrop-only screenshot with a real offscreen WKWebView:
+  an animated HTML dialog remains transparent, `document.hidden` is true and its
+  220 ms animation is still at time zero after a second. Without animation the
+  same dialog renders. Disabling inactive CPU scheduling does not fix rendering.
+- [x] Add `QAWebWindow`, reporting visible occlusion while ordered in, so WebKit
+  advances rendering without moving, activating or displaying the player window.
+  Keep ordinary browser windows and ordered-out windows on normal behavior.
+- [x] Real WebKit regression: two independent players, animation frames, two dialog
+  opens, native date clicks, screenshot pixel checks and no focus/display impact.
+  The original system window fails eight rendering checks; the fixed host passes.
+- [x] Debug build 5.67.1 and the QA runner suite pass. In an isolated copy of
+  the real app, the real Claude QA assistant passed all four fixture steps
+  (open, select, close/reopen, verify) in 24 seconds with four native clicks.
+  Saved screenshots and the video contain the animated dialog; its date persists.
+  Evidence: `/tmp/qa-dialog-live/project/.dde/qa/runs/20261111-224446-bcf1/`.
+- [ ] Bump patch version, merge the verified PR and pass merge CI.
+- [ ] Publish and verify the signed, notarized Release app and DMG from the merge.

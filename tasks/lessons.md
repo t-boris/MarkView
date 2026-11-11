@@ -1909,3 +1909,18 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
   avoids those lazy Accessibility nodes. Keep the regression in `WelcomeScreenTests.swift`: before the fix it exits with SIGTRAP.
 - A build, mouse-click sweep, and Accessibility tree read do not exercise the actions a native E2E client may send. Invoke the advertised
   scroll actions and repeat after resizing; keep the crash report's proven mechanism separate from an unrecorded original screen.
+
+## Offscreen WebKit windows pause entrance animations (BUG-125, 2026-11-11)
+
+- A screenshot with a modal backdrop but no panel can come from the QA host, even
+  when the page's layout and input work. A real offscreen WKWebView reported
+  `document.hidden = true`; the dialog's 220 ms CSS entrance animation remained
+  running at `currentTime = 0` after one second. An unanimated dialog rendered.
+- More waiting and `WKPreferences.inactiveSchedulingPolicy = .none` did not
+  advance the animation. `QAWebWindow` reports visible occlusion while ordered in,
+  allowing WebKit's rendering clock to advance without moving or activating the
+  host. Keep the override limited to QA windows and respect `orderOut`.
+- Regress with screenshots AND the rendering clock: `qa-web-window-tests.sh`
+  checks requestAnimationFrame, completed animations, visible dialog pixels,
+  repeated opens, native input, separate players and unchanged focus. Running it
+  with `--system-window` reproduces eight failures on the old host.
