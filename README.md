@@ -94,6 +94,13 @@ up to 1,000 chapters and 12 MB of text, and remote `http(s)` images in it are do
 CSV, Parquet, SQLite, Excel, logs, archives and HTML.
 → [Reading and writing](#reading-and-writing), [Workspace](#workspace)
 
+**Give the welcome screen a project personality.** Its background menu offers Matrix Rain, Aurora,
+Bug Swarm, Network, Orbit, Device Lab, Circuit Flow, Code Garden and Launch, plus Shuffle and Off.
+Choose **By Project** to reflect the platform, project size and open bugs: mobile wireframes for iOS/Android,
+a busier swarm for a bug backlog, orbits for a large system, circuits for web/backends, and a launch for
+completed work. The choice belongs to each window. All motion respects Reduce Motion and stays behind
+clickable tiles. [How project backgrounds work](docs/architecture/modules/welcome-backdrops.md).
+
 **3. Understand an unfamiliar project: X-Ray.** See layers, subsystems, components and dependencies,
 then zoom into a single file, requirement or function. Overlays show where documentation,
 tests or freshness are missing. The **⚡ Ask the project** box answers a question with clickable

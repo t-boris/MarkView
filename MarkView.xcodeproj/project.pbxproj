@@ -240,6 +240,7 @@
 		74421F227DDFABBFB9F463CE /* QANativePermissionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C09F7CEBCE9717896EDDD7 /* QANativePermissionsView.swift */; };
 		74509776B2E78308C373196C /* WikiLinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 237DD0835DF06F9CC7A08573 /* WikiLinkResolver.swift */; };
 		7520B7671FB1C71B40EC8211 /* RemoteConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A29090EAC22CD958E5209927 /* RemoteConnectionState.swift */; };
+		75302DD7E9EB4A5A1F10FE67 /* ProjectWelcomeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD72F5E6622A4D7E9B1E74C5 /* ProjectWelcomeScreen.swift */; };
 		76A3C4055647AC8EE0D50BFE /* prism-json.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 53EE48E0FB60C63546A10ED0 /* prism-json.min.js */; };
 		774025BBB9B6D66ED956E9ED /* RemoteProviderConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8DF6857E5E8CBFBDCAB042 /* RemoteProviderConfiguration.swift */; };
 		776B4CCD3D7E382170DA54D9 /* ArchiveTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCFD48E5B70D7745B61B76D4 /* ArchiveTabView.swift */; };
@@ -380,6 +381,7 @@
 		C49808DDF55EA4CFAE1DF0D3 /* WelcomeBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0BA904D56E2EC5A116AF06 /* WelcomeBackdrop.swift */; };
 		C4A75C53A2754763566F7F85 /* prism-markdown.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 253BAC42F71F867A6BC8DA76 /* prism-markdown.min.js */; };
 		C5A3AF560E0A3F1732079F2A /* ProjectOperationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8342199E7F182C48ECA2B9C3 /* ProjectOperationsStore.swift */; };
+		C5D230483D49D5FBD8D6A0AE /* ProjectBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEFEA342845F3A1FEE82AFF9 /* ProjectBackdrop.swift */; };
 		C736E5E1FFFB0156CDA82E01 /* AgentUsageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB9D81DA338A806D3B356A8 /* AgentUsageViews.swift */; };
 		C78F412DCE44DBB2D9137206 /* FeatureAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19E031440F6D9721BE887B99 /* FeatureAI.swift */; };
 		C833761DF72AB6FA2DC6AFF8 /* WelcomeBackdropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F6E10AE97C18F7EEB04788 /* WelcomeBackdropView.swift */; };
@@ -410,6 +412,7 @@
 		D40D607EDA753D4E0873C3A8 /* ProjectChangeReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85C85E2BEE8759104FBAE2CE /* ProjectChangeReview.swift */; };
 		D473D076B8CDB69362293780 /* QAModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3323DFCCDF2491C10061C8C /* QAModel.swift */; };
 		D4F3C35D9679DCE67FDD55E2 /* AIAssistantPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45DC630D21D2720ADBA52066 /* AIAssistantPickerView.swift */; };
+		D56B85D51681C3986887D30B /* ProjectBackdropLayers.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9DF671C11798DAD675BD4A1 /* ProjectBackdropLayers.swift */; };
 		D5F25BB6BA178A77A79E3E55 /* KaTeX_AMS-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 3E5D9ED683199ECEC005CAE0 /* KaTeX_AMS-Regular.woff2 */; };
 		D65DC6A2790B1DD0BECA74BB /* SemanticModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234669AA71D7061108B72B97 /* SemanticModels.swift */; };
 		D664BF3E1626441B84C4E70D /* UIStudioGateway.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3441FC520D23442EBB84DD6 /* UIStudioGateway.swift */; };
@@ -868,6 +871,7 @@
 		BC7E31914169E263C7E43C35 /* IssueGitHubSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueGitHubSync.swift; sourceTree = "<group>"; };
 		BCE051A679B2C439D859FF03 /* PrototypeFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeFiles.swift; sourceTree = "<group>"; };
 		BCFD48E5B70D7745B61B76D4 /* ArchiveTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveTabView.swift; sourceTree = "<group>"; };
+		BD72F5E6622A4D7E9B1E74C5 /* ProjectWelcomeScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectWelcomeScreen.swift; sourceTree = "<group>"; };
 		BDC9210ADC47CAF918764DB3 /* WorkspaceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManager.swift; sourceTree = "<group>"; };
 		BDD60B865C8AFD298FC5EB04 /* ClaudeSessionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeSessionModel.swift; sourceTree = "<group>"; };
 		BED228E05C82D2EF282BC91F /* BookPDFAssistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookPDFAssistant.swift; sourceTree = "<group>"; };
@@ -893,6 +897,7 @@
 		C810BDB58DAE8CE2BB086095 /* KaTeX_Caligraphic-Bold.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Caligraphic-Bold.woff2"; sourceTree = "<group>"; };
 		C8129CD4E329CC3065FA3E44 /* KaTeX_Script-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Script-Regular.woff2"; sourceTree = "<group>"; };
 		C8E8A27F4B312FDE7DAA2EE1 /* ResearchMapReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchMapReport.swift; sourceTree = "<group>"; };
+		C9DF671C11798DAD675BD4A1 /* ProjectBackdropLayers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBackdropLayers.swift; sourceTree = "<group>"; };
 		C9F34EA5D75C7F75E473333E /* NewProjectFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProjectFlow.swift; sourceTree = "<group>"; };
 		CA7B7306EDD4435E3DCEBAAC /* AgentUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsage.swift; sourceTree = "<group>"; };
 		CBCBDE4DDD0932A3FC8963D1 /* PrototypeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeSession.swift; sourceTree = "<group>"; };
@@ -1002,6 +1007,7 @@
 		FE435E3B14E793F9ECF7A958 /* QAGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAGeneration.swift; sourceTree = "<group>"; };
 		FEE76C2ADB908748CA265A52 /* UIStudioEnvironmentMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioEnvironmentMapper.swift; sourceTree = "<group>"; };
 		FEF4614EF60F2106DE512B32 /* GitClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitClient.swift; sourceTree = "<group>"; };
+		FEFEA342845F3A1FEE82AFF9 /* ProjectBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBackdrop.swift; sourceTree = "<group>"; };
 		FFDFB9B4AC589ED10AEE08BC /* FeatureNavigatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureNavigatorView.swift; sourceTree = "<group>"; };
 		FFEF7847F3AAA59FC62971D9 /* chart-4.4.9.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "chart-4.4.9.min.js"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -1195,6 +1201,7 @@
 				85A5D63235ACB47FEA0FF70C /* PanelLayout.swift */,
 				52C44D6E1296CFE8E4DB1688 /* PDFReader.swift */,
 				89AF21E7EC037DF41CC973BB /* ProjectAgentTools.swift */,
+				FEFEA342845F3A1FEE82AFF9 /* ProjectBackdrop.swift */,
 				6CB25CF391C44897DD4AF564 /* ProjectBootstrap.swift */,
 				85C85E2BEE8759104FBAE2CE /* ProjectChangeReview.swift */,
 				8930513F5E47FE846434F86D /* ProjectChangeReviewModel.swift */,
@@ -1404,9 +1411,11 @@
 				5B43997D8A629734399B2640 /* NewProjectSheet.swift */,
 				3F11B5789897E966C65CC52B /* PanelTabButton.swift */,
 				1B30371E56B62E99A84BE234 /* PDFReaderView.swift */,
+				C9DF671C11798DAD675BD4A1 /* ProjectBackdropLayers.swift */,
 				49F34A3A95ECF49AFECC200E /* ProjectChangeReviewView.swift */,
 				ECE2007A33F690F2F444E2AA /* ProjectColorViews.swift */,
 				912140EE22AFCD2CE3BDFE87 /* ProjectOperationsView.swift */,
+				BD72F5E6622A4D7E9B1E74C5 /* ProjectWelcomeScreen.swift */,
 				2663026CFBB201AA64A26D4C /* PrototypeCreatorSheet.swift */,
 				901ED09E28D33F6F03D15605 /* PrototypeHandoffDraftView.swift */,
 				392E7835EA61B16C2B0E7E47 /* PrototypeStudioView.swift */,
@@ -1995,6 +2004,8 @@
 				7793396F1E2AD46E05AEC4DE /* PanelLayout.swift in Sources */,
 				A26F7B60A67BEF3CED078BBA /* PanelTabButton.swift in Sources */,
 				1024E357E18DFF4E233DC275 /* ProjectAgentTools.swift in Sources */,
+				C5D230483D49D5FBD8D6A0AE /* ProjectBackdrop.swift in Sources */,
+				D56B85D51681C3986887D30B /* ProjectBackdropLayers.swift in Sources */,
 				A24B49057B4B87E4278B429F /* ProjectBootstrap.swift in Sources */,
 				D40D607EDA753D4E0873C3A8 /* ProjectChangeReview.swift in Sources */,
 				ABAF5DAC540027464649560A /* ProjectChangeReviewModel.swift in Sources */,
@@ -2012,6 +2023,7 @@
 				6611DAB9EB812B4A045B9F5A /* ProjectToolRunner+Edit.swift in Sources */,
 				46072FD65DFA2FCCEAC27FFF /* ProjectToolRunner+Lifecycle.swift in Sources */,
 				8F57D15C98A99D233F5E269C /* ProjectToolRunner.swift in Sources */,
+				75302DD7E9EB4A5A1F10FE67 /* ProjectWelcomeScreen.swift in Sources */,
 				FC420EFF9ACE397D28554582 /* ProjectWorkflow.swift in Sources */,
 				9C4DA44F3BEA0F4D04B30E15 /* ProjectWorkflowStore.swift in Sources */,
 				598C33AB8B8DA0A9FC3D8315 /* PrototypeAI+Handoff.swift in Sources */,
@@ -2245,7 +2257,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.66.0;
+				CURRENT_PROJECT_VERSION = 5.67.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -2260,7 +2272,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.66.0;
+				MARKETING_VERSION = 5.67.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -2324,7 +2336,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.66.0;
+				CURRENT_PROJECT_VERSION = 5.67.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -2345,7 +2357,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.66.0;
+				MARKETING_VERSION = 5.67.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

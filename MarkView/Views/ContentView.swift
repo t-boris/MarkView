@@ -836,8 +836,9 @@ struct ContentView: View {
     /// The pinned welcome tab: action tiles over an animated backdrop (`WelcomeScreen`). What each tile does is
     /// decided here, with the same calls as the menus and the search commands.
     private var welcomeView: some View {
-        WelcomeScreen(projectName: workspaceManager.rootNode.map { WindowTitle.folderName(of: $0.url) },
+        ProjectWelcomeScreen(root: workspaceManager.rootNode?.url,
                       isGitRepo: workspaceManager.gitClient.isGitRepo,
+                      store: workspaceManager.features,
                       backdrop: Binding(get: { workspaceManager.layout.welcomeBackdrop },
                                         set: { workspaceManager.layout.welcomeBackdrop = $0 }),
                       perform: performWelcomeAction) {

@@ -28,6 +28,7 @@ struct BackdropBuilder {
     let scale: CGFloat
     let animated: Bool
     let seed: UInt64
+    var detail: Int = 1
 
     func layers(for kind: WelcomeBackdrop) -> [CALayer] {
         guard size.width >= 40, size.height >= 40 else { return [] }
@@ -36,14 +37,19 @@ struct BackdropBuilder {
         case .aurora: return aurora()
         case .bugs: return bugs()
         case .network: return network()
-        case .shuffle, .off: return []
+        case .orbit: return orbit()
+        case .blueprint: return blueprint()
+        case .circuit: return circuit()
+        case .garden: return garden()
+        case .launch: return launch()
+        case .project, .shuffle, .off: return []
         }
     }
 
     // MARK: - Animation helpers
 
     /// `offset` starts the animation part-way along, so layers that share a duration do not move together.
-    private func basic(_ keyPath: String, from: Double, to: Double, seconds: Double, offset: Double = 0,
+    func basic(_ keyPath: String, from: Double, to: Double, seconds: Double, offset: Double = 0,
                        reverses: Bool = false, eased: Bool = false) -> CABasicAnimation {
         let animation = CABasicAnimation(keyPath: keyPath)
         animation.fromValue = from
@@ -57,7 +63,7 @@ struct BackdropBuilder {
         return animation
     }
 
-    private func layer(frame center: CGPoint, width: CGFloat, height: CGFloat) -> CALayer {
+    func layer(frame center: CGPoint, width: CGFloat, height: CGFloat) -> CALayer {
         let layer = CALayer()
         layer.bounds = CGRect(x: 0, y: 0, width: width, height: height)
         layer.position = center
@@ -226,7 +232,7 @@ struct BackdropBuilder {
     }
 
     private func bugs() -> [CALayer] {
-        let scene = BugScene.make(size: size, seed: seed)
+        let scene = BugScene.make(size: size, seed: seed, intensity: detail)
         let tints = [colors.green, colors.cyan, colors.red]
         var layers: [CALayer] = []
         for colony in scene.colonies {

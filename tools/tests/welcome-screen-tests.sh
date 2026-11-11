@@ -10,8 +10,8 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/WelcomeScreenTests.swift "$out/main.swift"
 swiftc -suppress-warnings -target "$(uname -m)-apple-macos13.0" \
-    MarkView/Models/WelcomeBackdrop.swift MarkView/Models/WelcomeActions.swift \
-    MarkView/Views/BackdropLayerBuilders.swift MarkView/Views/WelcomeBackdropView.swift MarkView/Views/WelcomeView.swift \
+    MarkView/Models/ProjectBackdrop.swift MarkView/Models/WelcomeBackdrop.swift MarkView/Models/WelcomeActions.swift \
+    MarkView/Views/ProjectBackdropLayers.swift MarkView/Views/BackdropLayerBuilders.swift MarkView/Views/WelcomeBackdropView.swift MarkView/Views/WelcomeView.swift \
     MarkView/Models/AppFontScale.swift MarkView/Models/AppTheme.swift MarkView/Models/WindowTheme.swift MarkView/Views/AppPalette.swift \
     "$out/main.swift" -o "$out/welcome-tests"
 "$out/welcome-tests"

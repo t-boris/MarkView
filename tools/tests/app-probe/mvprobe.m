@@ -40,7 +40,13 @@ static id hookInitB(id self, SEL cmd, NSRect r, NSWindowStyleMask m, NSBackingSt
 }
 
 static int Pick = -1;
+static NSString *PickTitle = nil;
 static NSWindow *MainWindow(void) {
+    if (PickTitle.length) {
+        for (NSWindow *w in NSApp.windows) {
+            if (w.isVisible && w.contentView && [w.title containsString:PickTitle]) return w;
+        }
+    }
     if (Pick >= 0) {
         NSMutableArray *eligible = [NSMutableArray array];
         for (NSWindow *w in NSApp.windows) {
@@ -186,6 +192,9 @@ static void RunNext(void) {
     } else if ([cmd isEqualToString:@"pick"]) {
         Pick = p[1].intValue;
         L(@"pick %d", Pick);
+    } else if ([cmd isEqualToString:@"picktitle"]) {
+        PickTitle = [[line substringFromIndex:10] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        L(@"picktitle %@", PickTitle);
     } else if ([cmd isEqualToString:@"key"]) {
         if (w) { [w makeKeyWindow]; L(@"key: keyWindow=%d NSApp.keyWindow=%@ main=%d", w.isKeyWindow, NSApp.keyWindow ? @"set" : @"nil", w.isMainWindow); }
     } else if ([cmd isEqualToString:@"size"]) {
