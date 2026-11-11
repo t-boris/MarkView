@@ -10,6 +10,10 @@ struct StudioContextPlan: Equatable {
     var description = ""
     /// The in-app path to load; empty keeps the current route.
     var route = ""
+    /// The path the restoration must reach, when the request names a page behind interactions.
+    var expectedPath = ""
+    /// A visible element of the destination, when the page's markup provides one.
+    var expectedSelector = ""
     /// Records by entity that replace those entities' baseline records; nil keeps every record.
     var data: [String: [StudioJSON]]? = nil
     /// Records by entity added to those entities' records ("add test packages to every category"); nil adds none.
@@ -47,6 +51,8 @@ extension StudioContextPlan {
         name = text(object["name"])
         description = text(object["description"])
         route = text(object["route"])
+        expectedPath = text(object["expectedPath"])
+        expectedSelector = text(object["expectedSelector"])
         locale = text(object["locale"])
         timeZone = text(object["timeZone"])
         unsupported = ((object["unsupported"] as? [Any]) ?? []).map(text).filter { !$0.isEmpty }
@@ -214,6 +220,12 @@ enum StudioContextValidator {
         problems += stepProblems(plan.steps)
         if !plan.route.isEmpty, !isPath(plan.route) {
             problems.append("The route \"\(plan.route)\" is not an in-app path such as /bookings.")
+        }
+        if !plan.expectedPath.isEmpty, !isPath(plan.expectedPath) {
+            problems.append("The expected path \"\(plan.expectedPath)\" is not an in-app path such as /bookings.")
+        }
+        if plan.expectedSelector.count > 500 || plan.expectedSelector.contains(where: \.isNewline) {
+            problems.append("The expected element must be a CSS selector of at most 500 characters on one line.")
         }
         if !plan.locale.isEmpty, plan.locale.range(of: #"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*$"#, options: .regularExpression) == nil {
             problems.append("The locale \"\(plan.locale)\" is not a language tag such as de-DE.")
@@ -391,6 +403,8 @@ enum StudioContextValidator {
         next.overrides = plan.overrides(keeping: current.overrides, spec: spec)
         if !plan.route.isEmpty { next.route = plan.route }
         next.steps = plan.steps
+        next.expectedPath = plan.expectedPath.nonEmpty
+        next.expectedSelector = plan.expectedSelector.nonEmpty
         if let time = plan.testTime { next.testTime = time }
         if !plan.locale.isEmpty { next.locale = plan.locale }
         if !plan.timeZone.isEmpty { next.timeZone = plan.timeZone }
@@ -443,10 +457,17 @@ enum StudioContextValidator {
         }
         if next.route != previous.route { change.route = next.route }
         if next.steps != previous.steps { change.steps = next.steps.map(describe) }
+        if next.expectedPath != previous.expectedPath {
+            change.other.append(next.expectedPath.map { "Expected page: " + $0 } ?? "Expected page removed")
+        }
+        if next.expectedSelector != previous.expectedSelector {
+            change.other.append(next.expectedSelector.map { "Expected element: " + $0 } ?? "Expected element removed")
+        }
         if next.role.user != previous.role.user {
             let user = next.role.user
             let label = [user["name"], user["email"], user["id"]].compactMap { $0?.identityKey }.first ?? "changed"
-            change.other.append("Test user: \(label)")
+            let role = user["app_metadata"]?["role"]?.stringValue ?? user["role"]?.stringValue
+            change.other.append("Test user (simulation only): \(label)" + (role.map { " · role: " + $0 } ?? ""))
         }
         if next.testTime != previous.testTime { change.other.append("Clock: " + ISO8601DateFormatter().string(from: next.testTime)) }
         if next.locale != previous.locale { change.other.append("Locale: \(next.locale)") }

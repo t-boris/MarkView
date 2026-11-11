@@ -278,6 +278,20 @@ func authChecks() async {
           "rejected \(session.rejectedMessages)")
     check("REQ-010 the external page is in the session log", logged("leaves the application: a simulated external page is shown"))
 
+    // A navigate step must hit the server, not just change the address in browser history: middleware redirects it.
+    await go("/signout")
+    _ = await waitFor("login")
+    let originalScenario = session.scenario
+    var protectedNavigation = originalScenario
+    protectedNavigation.route = "/auth/login"
+    protectedNavigation.steps = [StudioStep(action: .navigate, text: "/account")]
+    protectedNavigation.expectedPath = "/auth/login"
+    session.activate(protectedNavigation)
+    _ = await waitUntil(60) { session.busy == nil }
+    let redirectedLogin = await value("login")
+    check("a navigate step follows the server's authentication redirect", path() == "/auth/login" && redirectedLogin == "Sign in",
+          "at \(path())")
+
     let everything = session.sessionLog.entries.map(\.text).joined() + session.requests.map(\.url).joined()
         + CLICompletion.requests.dropFirst(promptsBefore).map(\.prompt).joined() + session.serverLog
     check("REQ-010 the fixture's real key and JWT secret reach no log or prompt", !everything.contains(authFixtureAnonKey)

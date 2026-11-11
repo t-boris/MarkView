@@ -75,11 +75,11 @@ func answerPlan(_ text: String) -> [String: Any] {
 
 /// A context change as the assistant returns it (REQ-013): the whole strict answer with kind `context`. `edits` are stray
 /// edits a confused assistant might add; a context change never writes them.
-func contextPlan(name: String, data: String = "", addData: String = "", steps: [[String: Any]] = [], unsupported: [String] = [],
+func contextPlan(name: String, data: String = "", addData: String = "", steps: [[String: Any]] = [], expectedPath: String = "", expectedSelector: String = "", unsupported: [String] = [],
                  edits: [[String: Any]] = []) -> [String: Any] {
     ["kind": "context", "answer": "", "scope": "unknown", "scopeNote": "", "needsClarification": false, "question": "", "options": [],
      "summary": "Context: \(name)", "edits": edits,
-     "context": ["name": name, "description": "", "route": "", "data": data, "addData": addData, "userJSON": "", "overrides": [],
+     "context": ["name": name, "description": "", "route": "", "expectedPath": expectedPath, "expectedSelector": expectedSelector, "data": data, "addData": addData, "userJSON": "", "overrides": [],
                  "steps": steps, "testTime": "", "locale": "", "timeZone": "", "theme": "", "unsupported": unsupported]]
 }
 
@@ -218,6 +218,7 @@ func run() async {
         print("usage: ui-studio-session-harness <markview-ui-studio.js>")
         exit(2)
     }
+    StudioSession.expectedStateTimeout = 1
     StudioSession.runtimeURL = URL(fileURLWithPath: runtime)
     StudioSession.nodePreloadURL = URL(fileURLWithPath: runtime).deletingLastPathComponent().appendingPathComponent("markview-ui-studio-node.cjs")
     let fm = FileManager.default
@@ -666,7 +667,9 @@ func run() async {
     let channelPrompt = CLICompletion.requests.last { $0.label == "ui-studio:prepare" }
     check("REQ-015 the preparation asks for a channel by its contract", channelPrompt?.prompt.contains("WS /ws/live") == true
           && channelPrompt?.prompt.contains("real-time connection") == true, channelPrompt.map { String($0.prompt.prefix(300)) } ?? "no prompt")
-    check("REQ-015 the prepared channel is kept for later sessions", StudioStore.loadEnvironment(root)?.channels?.contains { $0.id == "live" } == true)
+    // Environment persistence is queued on the session's I/O queue; the response can arrive before the file is written.
+    let channelSaved = await waitUntil(5) { StudioStore.loadEnvironment(root)?.channels?.contains { $0.id == "live" } == true }
+    check("REQ-015 the prepared channel is kept for later sessions", channelSaved)
     // BUG-100: a page-initiated unsupported protocol is visible in the conversation as well as the log and environment.
     assistant.lock.withLock {
         assistant.proposal = ["rules": [], "assumptions": [], "graphql": "[]", "channels": "[]",
@@ -692,7 +695,8 @@ func run() async {
         return r.status + ' ' + JSON.stringify(await r.json());
         """)
     check("REQ-015 an unknown GraphQL field is prepared and answered for its selection", team == #"200 {"data":{"team":{"name":"Core"}}}"#, team ?? "nil")
-    check("REQ-015 the prepared operation is kept", StudioStore.loadEnvironment(root)?.graphQL?.contains { $0.id == "q-team" } == true)
+    let operationSaved = await waitUntil(5) { StudioStore.loadEnvironment(root)?.graphQL?.contains { $0.id == "q-team" } == true }
+    check("REQ-015 the prepared operation is kept", operationSaved)
 
     // The page cannot leave the application (AC-16): another site is a local stand-in page, and nothing is sent (REQ-010).
     watchdog.reached("The page cannot leave the application")
@@ -862,6 +866,15 @@ func run() async {
     let replayed = await text("return location.pathname + ' ' + (document.body.dataset.done || '');")
     check("BUG-071 Reset replays the steps across the page load", replayed == "/rec-next.html milk", replayed ?? "nil")
     check("BUG-071 the replay reports no failed step", !(session.notice ?? "").contains("restoration step failed"), session.notice ?? "")
+
+    // A navigate step must load the document, including the server's routing and redirects, before later steps run.
+    recordScenario.steps = [StudioStep(action: .navigate, text: "/rec-next.html"),
+                            StudioStep(action: .type, selector: "#q", text: "tea"),
+                            StudioStep(action: .click, selector: "#done")]
+    session.activate(recordScenario)
+    _ = await idle()
+    let navigated = await text("return location.pathname + ' ' + (document.body.dataset.done || '');")
+    check("a navigate step loads the destination document before the following steps", navigated == "/rec-next.html tea", navigated ?? "nil")
 
     await contextChecks(session, web: web, root: root, assistant: assistant, text: text, idle: idle)
     contextTrackingChecks(session, store: store)
@@ -1150,6 +1163,67 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
     check("REQ-013 the next request remembers the context change", dialogPrompt.contains("(context change · page /context.html)")
           && dialogPrompt.contains("New scenario: Random numbers (made from Context base)"), String(dialogPrompt.suffix(1200)))
 
+    let appOriginForCheck = URL(string: "http://localhost:1234/")!
+    check("destination checks reject another origin and respect an explicitly requested query",
+          !StudioSession.reached(expectedPath: "/account", url: URL(string: "https://other.example/account"), appURL: appOriginForCheck)
+          && !StudioSession.reached(expectedPath: "/account?view=1", url: URL(string: "http://localhost:1234/account?view=2"), appURL: appOriginForCheck)
+          && StudioSession.reached(expectedPath: "/account", url: URL(string: "http://localhost:1234/account?view=2"), appURL: appOriginForCheck))
+    // A page request must reach its destination, not merely execute its clicks. Retry from the original scenario with
+    // the observed result, and do not save a candidate that failed both attempts.
+    let previousDestinationScenario = session.scenario
+    let beforeDestination = session.scenario.id, beforeDestinationCount = session.savedScenarios.count
+    let beforeDestinationRequests = editRequests().count
+    assistant.lock.withLock {
+        assistant.edits = [contextPlan(name: "Wrong page", expectedPath: "/not-reached"),
+                           contextPlan(name: "Reached page", steps: [["action": "click", "selector": "[data-testid=open-booking]", "text": "", "ms": 0]],
+                                       expectedPath: "/context.html", expectedSelector: "#booking-dialog")]
+    }
+    session.change("Open the booking dialog on the context page")
+    _ = await idle()
+    let destination = session.history.last
+    let destinationRetry = editRequests().last?.prompt ?? ""
+    check("a missed destination is retried using the observed path", editRequests().count == beforeDestinationRequests + 2
+          && destinationRetry.contains("Expected page /not-reached") && destinationRetry.contains("/context.html"), destinationRetry.suffix(600).description)
+    check("only the verified scenario is saved", destination?.status == .applied && session.scenario.name == "Reached page"
+          && session.savedScenarios.count == beforeDestinationCount + 1 && !session.savedScenarios.contains { $0.name == "Wrong page" }
+          && destination?.checks.contains { $0.name == "Requested page reached" && $0.passed } == true,
+          "\(destination?.status.rawValue ?? "nil") \(session.scenario.name)")
+    let reachedScenario = session.scenario.id, reachedCount = session.savedScenarios.count
+    assistant.lock.withLock {
+        assistant.edits = [contextPlan(name: "Unreachable", expectedPath: "/context.html", expectedSelector: "#missing"),
+                           contextPlan(name: "Still unreachable", expectedPath: "/context.html", expectedSelector: "#missing")]
+    }
+    session.change("Open the missing page")
+    _ = await idle()
+    let missed = session.history.last
+    check("a destination missed twice is reported as failed and the original scenario is restored", missed?.status == .failed
+          && missed?.answer.contains("not reached") == true && missed?.answer.contains("#missing") == true && session.scenario.id == reachedScenario
+          && session.savedScenarios.count == reachedCount && session.webView.url?.path == "/context.html",
+          "\(missed?.status.rawValue ?? "nil") \(missed?.answer ?? "") \(session.webView.url?.path ?? "nil")")
+    check("the failed trial did not replace the original scenario", beforeDestination != reachedScenario)
+    assistant.lock.withLock {
+        assistant.edits = [contextPlan(name: "Unreachable answer", expectedPath: "/missing"), answerPlan("I could not open it.")]
+    }
+    session.change("Open another missing page")
+    _ = await idle()
+    let explainedMiss = session.history.last
+    check("an explanation after a failed trial does not turn it into a successful answer", explainedMiss?.status == .failed
+          && explainedMiss?.answer.contains("not reached") == true && explainedMiss?.answer.contains("I could not open it") == true
+          && session.scenario.id == reachedScenario, explainedMiss?.answer ?? "nil")
+    let beforeCombinedRetry = editRequests().count
+    assistant.lock.withLock {
+        assistant.edits = [contextPlan(name: "Invalid data", data: #"{"unknown":[{"id":1}]}"#),
+                           contextPlan(name: "Wrong destination", expectedPath: "/missing"),
+                           contextPlan(name: "Corrected destination", expectedPath: "/context.html", expectedSelector: "body")]
+    }
+    session.change("Open the context page")
+    _ = await idle()
+    check("a validation correction does not consume the destination correction", editRequests().count == beforeCombinedRetry + 3
+          && session.history.last?.status == .applied && session.scenario.name == "Corrected destination",
+          "\(session.history.last?.status.rawValue ?? "nil") \(session.scenario.name)")
+    session.activate(previousDestinationScenario)
+    _ = await idle()
+
     // A refused change is sent back once with its problems; refused twice, nothing changes.
     let current = session.scenario.id, saved = session.savedScenarios.count, sent = editRequests().count
     assistant.lock.withLock {
@@ -1161,7 +1235,7 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
     let refused = session.history.last
     let retry = editRequests().last?.prompt ?? ""
     check("REQ-013 an invalid context change is retried once with its problems", editRequests().count == sent + 2
-          && retry.contains("Your previous context change was refused") && retry.contains("unknown entity users"), String(retry.suffix(600)))
+          && retry.contains("Your previous context change was not saved") && retry.contains("unknown entity users"), String(retry.suffix(600)))
     check("REQ-013 a context change refused twice changes nothing", refused?.kind == .context && refused?.status == .failed
           && refused?.answer.contains("was refused") == true && session.scenario.id == current && session.savedScenarios.count == saved,
           refused?.answer ?? "nil")

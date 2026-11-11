@@ -1,3 +1,10 @@
+# UI Studio: sign-in and the page after it (2026-11-10)
+
+- A real assistant given the master-portal login and “make a test master account” previously set the scenario user and route `/`, but supplied no sign-in steps; middleware returned the visitor to `/login`. A context change only checked that its steps ran, not that the destination or its content appeared.
+- The request prompt now names the active built-in Supabase mock and asks for a real form submission in the scenario, the correct test role, and an observable final path and element. The test user is labelled as simulated. A requested destination is tried before saving; a missed path or invisible element is given to the assistant with the observed state for one correction. Two failed attempts (or an explanation after a failed attempt) are reported as failed, with the original scenario restored. Reset verifies saved expectations too. A navigate step loads the document so server middleware and redirects run.
+- Live verification: on an isolated copy of vivaa master-portal, Codex answered both “make a test master account” and “show the page after login”; each answer was replayed through StudioSession. Both reached `/`, passed the server `getUser` check and displayed `Dashboard · Test Master` (`main#main-content h1`). Management, master, orders and balances were preconfigured simulated responses; booking-request and conversation preparations were still pending. This does not prove arbitrary providers or every application-specific data service.
+- Regression: UI Studio unit, page and session harnesses cover validation, navigation, missed destinations, correction, repeated failure and the restored original scenario; the Debug app build is required before the PR.
+
 # Voice, images and files on every AI input (2026-11-10)
 
 Boris: "In the New scenario (End-to-End QA) there is no audio input. Check that there is audio input everywhere we type text for the AI." Then, mid-audit:

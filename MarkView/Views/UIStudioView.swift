@@ -878,7 +878,7 @@ struct UIStudioOperationRow: View {
         switch operation.kind {
         case .question: return false
         case .edit: return [.applied, .kept, .conflict].contains(operation.status) && !operation.files.isEmpty
-        case .context: return [.applied, .kept].contains(operation.status) && operation.context?.scenarioId.isEmpty == false
+        case .context: return [.applied, .kept, .failed].contains(operation.status) && operation.context?.scenarioId.isEmpty == false
         }
     }
 

@@ -232,6 +232,10 @@ struct StudioScenario: Codable, Hashable, Identifiable, Sendable {
     /// Mid-month at noon UTC: the same date and year in every time zone, so a server and a page in different zones agree (DEC-006).
     var testTime = Date(timeIntervalSince1970: 1_768_478_400) // 2026-01-15T12:00:00Z
     var steps: [StudioStep] = []
+    /// A page the scenario's restoration must reach; absent in scenarios saved before this check.
+    var expectedPath: String? = nil
+    /// A visible destination element to verify after restoration, when known.
+    var expectedSelector: String? = nil
     /// The contracts this scenario was saved against (`StudioScenarioCompatibility.fingerprint`).
     var contractFingerprint = ""
     var updated = Date()
