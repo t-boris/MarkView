@@ -2857,8 +2857,8 @@
   function navigateTo(path) {
     var target = new URL(String(path), location.href);
     if (target.origin !== location.origin) throw new Error('A step may only navigate inside the application.');
-    history.pushState({}, '', target.pathname + target.search + target.hash);
-    window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    // Load the application page normally: server middleware and redirects must run as they do for a real navigation.
+    location.assign(target.href);
   }
 
   async function replay(steps) {

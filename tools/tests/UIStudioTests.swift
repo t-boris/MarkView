@@ -880,6 +880,21 @@ func contextChecks() {
                                                stepObject("press", "input", text: "Enter"), stepObject("wait", ms: 500), stepObject("navigate", text: "/projects/2")]))
     check("REQ-013 steps are checked before they are replayed", steps.count == 3 && steps[0].contains("Step 1 (click)")
           && steps[1].contains("Step 2 (wait)") && steps[2].contains("Step 3 (navigate)"), steps.joined(separator: " | "))
+    var invalidDestination = contextObject()
+    invalidDestination["expectedPath"] = "https://example.invalid/"
+    invalidDestination["expectedSelector"] = "main\nheader"
+    let destinationProblems = problems(invalidDestination)
+    check("destination expectations reject external paths and multiline selectors", destinationProblems.count == 2,
+          destinationProblems.joined(separator: " | "))
+    var validDestination = contextObject()
+    validDestination["expectedPath"] = "/account"
+    validDestination["expectedSelector"] = "main h1"
+    let destinationPlan = StudioContextPlan(structured: validDestination)
+    let destinationScenario = StudioContextValidator.scenario(destinationPlan, from: base, spec: spec, request: "Open account", taken: [])
+    check("destination expectations are saved in the scenario", destinationScenario.expectedPath == "/account"
+          && destinationScenario.expectedSelector == "main h1")
+    check("the assistant is told how to use the simulated sign-in", system.contains("Setting `userJSON` alone does not create a browser session")
+          && system.contains("actually sign in with restoration steps") && system.contains("do not override its auth requests"))
     let place = problems(contextObject(route: "projects list", locale: "??", timeZone: "Mars/Olympus"))
     check("REQ-013 the route, locale and time zone are checked", place.count == 3, place.joined(separator: " | "))
 
@@ -1063,8 +1078,12 @@ func contextChecks() {
           && page.contains(##"{"action":"click","ms":0,"selector":"#add","text":""}"##), page)
     check("REQ-013 the prompt never shows the test token or confidential values", !page.contains("markview-test-token") && !page.contains("hunter2secret")
           && !page.contains("sk-ant-") && page.contains("test@example.com"), page)
-    check("REQ-013 a refused change comes back with its problems", page.contains("Your previous context change was refused")
+    check("REQ-013 a refused change comes back with its problems", page.contains("Your previous context change was not saved")
           && page.contains("- projects 5: status must be one of active, archived") && page.hasSuffix("return the whole corrected change."))
+    let realAuthPrompt = StudioPrompts.editPrompt("Sign in", selection: nil, scenario: shown, revision: nil, history: [],
+                                                 redactor: redactor, clarification: nil, retryProblem: nil, supabaseAuthReal: true)
+    check("a real Supabase connection is not described as a mock", realAuthPrompt.contains("Supabase connection is set to Real")
+          && !realAuthPrompt.contains("Built-in Supabase Auth is active"))
     let elementPrompt = StudioPrompts.editPrompt("Why?", selection: StudioSelectionContext(["rect": ["x": 0, "y": 0, "width": 1, "height": 1], "tag": "h1", "selector": "h1"])!,
                                                  scenario: nil, revision: nil, history: [], redactor: redactor, clarification: nil, retryProblem: nil)
     check("DEC-010 a request with a selection is about the element, without an environment block when none is known",

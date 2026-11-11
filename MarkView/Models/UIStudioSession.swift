@@ -80,6 +80,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     /// The bounds of rule preparation for new sessions (overridable for tests outside the app).
     static var preparationLimits = StudioPreparationLimits()
+    /// Bound the wait for a requested screen while its simulated dependencies are being prepared.
+    static var expectedStateTimeout: TimeInterval = 45
 
     @Published var targets: [WebAppTarget] = []
     @Published private(set) var target: WebAppTarget?
@@ -94,8 +96,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @Published private(set) var spec: StudioEnvironmentSpec
     @Published private(set) var savedScenarios: [StudioScenario] = []
     @Published private(set) var scenario: StudioScenario {
-        didSet { rememberActiveScenario() }
+        didSet { if !tryingScenario { rememberActiveScenario() } }
     }
+    private var tryingScenario = false
     /// The scenario id last written to the project's session data (BUG-087).
     private var rememberedScenarioID: String?
 
@@ -297,6 +300,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         base.data = nil
         base.overrides = []
         base.steps = []
+        base.expectedPath = nil
+        base.expectedSelector = nil
         return base
     }
 
@@ -823,13 +828,53 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             return "The page did not finish loading."
         }
         _ = try? await call("return await window.__markviewStudio.whenIdle(40000, 400);")
-        let problem = await replay(scenario.steps)
+        var problem = await replay(scenario.steps)
+        if problem == nil { problem = await expectedStateProblem() }
         if let problem { notice = problem }
         await refreshPageState()
         restoringPage = false
         updateReadiness()
         if mode == .select { startPicking() }
         return problem
+    }
+
+    /// Wait for both the destination and its visible content: an address alone can still be a loading or error screen.
+    private func expectedStateProblem() async -> String? {
+        guard scenario.expectedPath != nil || scenario.expectedSelector != nil else { return nil }
+        let deadline = Date().addingTimeInterval(Self.expectedStateTimeout)
+        var pathOK = false, elementOK = scenario.expectedSelector == nil
+        repeat {
+            let appPage = webView.url.flatMap(StudioBridge.Origin.init(url:)).flatMap { origin in
+                appURL.flatMap(StudioBridge.Origin.init(url:)).map { origin.sameServer($0) }
+            } ?? false
+            pathOK = appPage && (scenario.expectedPath.map { Self.reached(expectedPath: $0, url: webView.url, appURL: appURL) } ?? true)
+            if pathOK, let selector = scenario.expectedSelector {
+                let result = try? await call("""
+                    try { const e = document.querySelector(selector); if (!e) return false;
+                          const s = getComputedStyle(e); return e.getClientRects().length > 0 && s.visibility !== 'hidden' && s.display !== 'none'; }
+                    catch (_) { return false; }
+                    """, ["selector": selector]) as? Bool
+                elementOK = result == true
+            }
+            if pathOK && elementOK { return nil }
+            guard !Task.isCancelled, !closed else { break }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        } while Date() < deadline
+        if !pathOK, let expected = scenario.expectedPath {
+            let actual = webView.url.map { $0.path + ($0.query.map { "?" + $0 } ?? "") } ?? "no page"
+            return redactor.redact(text: "Expected page \(expected), but the application is at \(actual).")
+        }
+        return redactor.redact(text: "The expected element \(scenario.expectedSelector ?? "") did not become visible on the page.")
+    }
+
+    /// Compare the observed page, including a requested query or fragment, without allowing another origin.
+    static func reached(expectedPath: String, url: URL?, appURL: URL?) -> Bool {
+        guard StudioContextValidator.isPath(expectedPath), let expected = URLComponents(string: expectedPath), let url, let appURL,
+              let origin = StudioBridge.Origin(url: url), let appOrigin = StudioBridge.Origin(url: appURL), origin.sameServer(appOrigin),
+              let actual = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
+        return actual.percentEncodedPath == expected.percentEncodedPath
+            && (expected.percentEncodedQuery == nil || actual.percentEncodedQuery == expected.percentEncodedQuery)
+            && (expected.percentEncodedFragment == nil || actual.percentEncodedFragment == expected.percentEncodedFragment)
     }
 
     /// Replays restoration steps one at a time, so that a step which loads another page (a link, a form) is followed by the
@@ -2322,11 +2367,13 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             // Only files that are there are sent: an image of an earlier turn may have been deleted since.
             let sentImages = attached.filter { StudioStore.isAttachmentPath($0) && FileManager.default.fileExists(atPath: session.root.appendingPathComponent($0).path) }
             // Without a selection the assistant sees the page as it is.
-            let pageImage = selection == nil ? await session.pagePicture() : nil
+            var pageImage = selection == nil ? await session.pagePicture() : nil
             var retryProblem: String?
             var refusedContext: [String]?
+            var trialFailure: String?
+            var contextValidationRetries = 0
             var restored = false
-            for attempt in 1...2 {
+            for attempt in 1...3 {
                 session.busyDetail = attempt == 1 ? "The assistant is reading the project"
                     : refusedContext != nil ? "The assistant is correcting its context change" : "The assistant is correcting its edits"
                 // The history includes a clarification being answered: its turn says what the assistant asked.
@@ -2337,10 +2384,13 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                                                                                   retryProblem: retryProblem, route: pageRoute,
                                                                                   pageImage: pageImage, spec: session.spec,
                                                                                   refusedContext: refusedContext,
-                                                                                  reached: session.servedRules, attachments: sentImages),
+                                                                                  reached: session.servedRules, attachments: sentImages,
+                                                                                  supabaseAuth: session.simulator.authMock != nil && !session.hasRealSupabase,
+                                                                                  supabaseAuthReal: session.hasRealSupabase),
                                                  systemPrompt: StudioPrompts.editSystem, jsonSchema: StudioPrompts.editSchema,
                                                  readableFolder: session.root)
-                call.images = (selection?.imagePath ?? pageImage).map { [URL(fileURLWithPath: $0)] } ?? []
+                let shownImage = refusedContext != nil ? (pageImage ?? selection?.imagePath) : (selection?.imagePath ?? pageImage)
+                call.images = shownImage.map { [URL(fileURLWithPath: $0)] } ?? []
                 call.images += sentImages.map { session.root.appendingPathComponent($0) }
                 call.timeout = 900
                 call.effort = "medium"
@@ -2364,6 +2414,14 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                     operation.answer = error.localizedDescription
                     return session.append(operation)
                 }
+                if let failure = trialFailure, plan.kind != .context {
+                    operation.kind = .context
+                    operation.status = .failed
+                    operation.answer = "The requested page was not reached, so the new scenario was not saved: " + failure
+                    let explanation = plan.answer.isEmpty ? plan.summary : plan.answer
+                    if !explanation.isEmpty { operation.answer += "\n\n" + explanation }
+                    return session.append(operation)
+                }
                 switch plan.kind {
                 case .answer:
                     operation.kind = .question
@@ -2378,14 +2436,38 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                     let context = plan.context ?? StudioContextPlan(structured: nil)
                     var problems = StudioContextValidator.problems(context, current: session.scenario, spec: session.spec)
                     // Giving up on data the application can change is asked about once, and never blocks a second answer.
-                    if attempt == 1 {
+                    if contextValidationRetries == 0 {
                         problems += StudioContextValidator.givenUpProblems(context, current: session.scenario, spec: session.spec)
                     }
                     if problems.isEmpty {
+                        if (!context.expectedPath.isEmpty || !context.expectedSelector.isEmpty), let failure = await session.tryContext(context, request: operation.request) {
+                            guard !Task.isCancelled, !session.closed else { return }
+                            if trialFailure == nil {
+                                let attemptedSteps = context.steps.map { step in
+                                    step.action.rawValue + (step.selector.map { " " + $0 } ?? "")
+                                        + (step.action == .navigate ? (step.text.map { " " + $0 } ?? "") : "")
+                                }.joined(separator: "; ")
+                                let attempted = "The attempted starting route was \(context.route.isEmpty ? session.scenario.route : context.route); steps: \(attemptedSteps)."
+                                trialFailure = failure.problem
+                                refusedContext = [failure.problem, session.redactor.redact(text: attempted)]
+                                if let image = failure.image { pageImage = image }
+                                retryProblem = nil
+                                continue
+                            }
+                            operation.kind = .context
+                            operation.status = .failed
+                            operation.summary = plan.summary
+                            operation.answer = "The requested page was not reached, so the new scenario was not saved: " + failure.problem
+                            operation.context = StudioContextChange(previousScenarioId: session.scenario.id,
+                                                                    previousScenarioName: session.scenario.name,
+                                                                    unsupported: context.unsupported)
+                            return session.append(operation)
+                        }
                         return await session.applyContext(context, operation: operation, summary: plan.summary, snapshot: snapshot,
                                                           selection: selection)
                     }
-                    if attempt == 1 {
+                    if contextValidationRetries == 0 {
+                        contextValidationRetries += 1
                         refusedContext = problems
                         retryProblem = nil
                         continue
@@ -2504,6 +2586,26 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         return written ? file.path : nil
     }
 
+    /// Try a requested destination before saving it. A failed attempt is shown to the assistant for one correction; the
+    /// original scenario is restored and no temporary scenario is written to the project.
+    private func tryContext(_ plan: StudioContextPlan, request: String) async -> (problem: String, image: String?)? {
+        let previous = scenario, previousSteps = recordedSteps
+        let candidate = StudioContextValidator.scenario(plan, from: previous, spec: spec, request: request, taken: savedScenarios + presets)
+        tryingScenario = true
+        scenario = candidate
+        simulator.activate(candidate)
+        busyDetail = "Checking that the requested page opens"
+        let problem = await restore()
+        let picture = problem == nil ? nil : await pagePicture()
+        scenario = previous
+        simulator.activate(previous)
+        tryingScenario = false
+        _ = await restore()
+        recordedSteps = previousSteps
+        if let problem { return (problem, picture) }
+        return nil
+    }
+
     /// Applies a checked context change (REQ-013, DEC-009): the new scenario derived from the current one is saved, made the
     /// active one and restored, and the turn records what changed and what could not be done. No source file is written;
     /// Undo returns to the scenario it was made from.
@@ -2558,6 +2660,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         var checks = [StudioCheck(name: "Scenario saved", passed: true, detail: ".markview/studio/scenarios/\(StudioStore.safeID(next.id)).json"),
                       StudioCheck(name: "Page loaded in the new scenario", passed: pageLoaded, detail: pageLoaded ? next.name : problem ?? "")]
         if !next.steps.isEmpty { checks.append(StudioCheck(name: "Restoration steps replayed", passed: problem == nil, detail: problem ?? "")) }
+        if next.expectedPath != nil || next.expectedSelector != nil {
+            let reached = problem == nil
+            let expected = redactor.redact(text: [next.expectedPath, next.expectedSelector].compactMap { $0 }.joined(separator: " · "))
+            checks.append(StudioCheck(name: "Requested page reached", passed: reached, detail: reached ? expected : problem ?? "Expected " + expected))
+            if !reached { operation.status = .failed; operation.answer = problem ?? "The requested page was not reached." }
+        }
         checks.append(StudioCheck(name: "No runtime errors", passed: errors.isEmpty,
                                   detail: errors.prefix(3).map { String($0.detail.prefix(300)) }.joined(separator: "\n")))
         let same = StudioContextValidator.sameSources(snapshot, after)
@@ -2576,7 +2684,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// Undo of a context change (REQ-013): the scenario it was made from is active again and the turn is marked undone. The
     /// new scenario is never deleted; it stays saved in the Scenario menu.
     private func undoContext(_ operation: StudioOperation) {
-        guard let change = operation.context, !change.scenarioId.isEmpty, [.applied, .kept].contains(operation.status) else { return }
+        guard let change = operation.context, !change.scenarioId.isEmpty, [.applied, .kept, .failed].contains(operation.status) else { return }
         guard let previous = change.previous ?? (savedScenarios + presets).first(where: { $0.id == change.previousScenarioId }) else {
             notice = "The scenario \(change.previousScenarioName) is no longer available."
             return
@@ -2856,6 +2964,10 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 // MARK: - Sign-in and pages outside the application (REQ-010)
 
 extension StudioSession {
+    private var hasRealSupabase: Bool {
+        serverConnections.contains { $0.variable.uppercased().contains("SUPABASE") && $0.mode == .real }
+    }
+
     /// The redirects a simulated navigation follows before it shows where it got to.
     static let simulatedRedirectLimit = 5
 

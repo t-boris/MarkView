@@ -305,11 +305,27 @@ enum StudioPrompts {
            Steps rebuild a page state after the route loads: click, type (`text` \
            into a field), press (a key in `text`), wait (`ms`, at most 10000), navigate (an in-app path in `text`). Use \
            selectors that exist in the project's markup and prefer stable attributes (data-testid, id, name, aria-label) \
-           to positions.
-        8. `route` is the in-app path to load (empty keeps the current one); `userJSON` is the test user as a JSON object \
+           to positions. `expectedPath` is the final in-app path the request asks to see, after all steps and redirects \
+           (for a successful login, the protected page). Use an empty string when the final path is unknown or irrelevant. \
+           `expectedSelector` is a stable CSS selector of a visible element unique to the requested screen, found in the \
+           source (for example its main content or heading); use it whenever the person asks to see a screen, and leave it \
+           empty only when no reliable selector can be found. MarkView waits for and verifies both and asks you to correct \
+           the plan if they are not reached. Keep the current expectations on later requests unless the person asks for a \
+           different destination or state.
+        8. When the person asks for a test account, to sign in, or to see a page behind sign-in, configure the scenario's \
+           test user and actually sign in with restoration steps. Setting `userJSON` alone does not create a browser session. \
+           Read the login form and its redirect and role checks. Start at the login route, fill its real selectors with a \
+           fictional valid email and nonempty test password, submit, and reach the requested protected page. Keep any existing \
+           steps needed for sign-in on follow-up requests. Do not invent a real account or claim one was created. If the \
+           built-in Supabase mock is active, it accepts any credentials, issues the scenario user and satisfies server \
+           getUser checks: do not override its auth requests or replace session-setting responses with fabricated success. \
+           Set the application's role in the test user (for Supabase `role`, or the app_metadata role if supplied). \
+           If a needed auth connection is Real, do not submit fictional credentials to it; explain that limitation. \
+           For another provider, inspect the available rules and explain a genuine limitation in `unsupported`. \
+        9. `route` is the in-app path to load (empty keeps the current one); `userJSON` is the test user as a JSON object \
            (empty keeps it); `testTime` (ISO 8601), `locale`, `timeZone` and `theme` stay empty unless the request changes \
            them. `name` is a short scenario name; `description` says in one sentence what the new scenario shows.
-        9. What cannot be done (an entity no rule serves, data no listed rule answers, a state no step reaches) goes in \
+        10. What cannot be done (an entity no rule serves, data no listed rule answers, a state no step reaches) goes in \
            `unsupported` in plain words, naming the rule or request; do the rest. Never fake it with records, overrides or \
            steps that only look right.
         """ + "\n" + dataNotInstructions
@@ -330,6 +346,8 @@ enum StudioPrompts {
         let context: [String: Any] = ["type": "object", "properties": [
             "name": ["type": "string"], "description": ["type": "string"],
             "route": ["type": "string", "description": "in-app path, or empty to keep the current one"],
+            "expectedPath": ["type": "string", "description": "final in-app path after steps and redirects, or empty when unknown or irrelevant"],
+            "expectedSelector": ["type": "string", "description": "CSS selector of a visible destination element, or empty when unknown"],
             "data": ["type": "string", "description": "JSON text of {\"<entity>\": [records]} replacing those entities' records, or empty"],
             "addData": ["type": "string", "description": "JSON text of {\"<entity>\": [records]} added to those entities' records, or empty"],
             "userJSON": ["type": "string", "description": "JSON text of the test user object, or empty"],
@@ -340,7 +358,7 @@ enum StudioPrompts {
             "locale": ["type": "string"], "timeZone": ["type": "string"],
             "theme": ["type": "string", "enum": ["", "light", "dark"]],
             "unsupported": ["type": "array", "items": ["type": "string"]]],
-            "required": ["name", "description", "route", "data", "addData", "userJSON", "overrides", "dropOverrides", "steps", "testTime", "locale",
+            "required": ["name", "description", "route", "expectedPath", "expectedSelector", "data", "addData", "userJSON", "overrides", "dropOverrides", "steps", "testTime", "locale",
                          "timeZone", "theme", "unsupported"]]
         return ["type": "object", "properties": [
             "kind": ["type": "string", "enum": StudioEditPlan.Kind.allCases.map(\.rawValue)],
@@ -520,6 +538,8 @@ enum StudioPrompts {
         if spec.rules.count > contextRules { lines.append("- … and \(spec.rules.count - contextRules) more") }
         lines.append("Current scenario \"\(scenario.name)\":")
         lines.append("- Route: \(scenario.route)")
+        if let expected = scenario.expectedPath { lines.append("- Expected final path after restoration: " + expected) }
+        if let selector = scenario.expectedSelector { lines.append("- Expected visible element after restoration: " + selector) }
         var user = redactor.redact(scenario.role.user).text
         if user.count > 1_000 { user = String(user.prefix(999)) + "…" }
         lines.append("- Role \(scenario.role.name), test user: \(user)")
@@ -628,16 +648,20 @@ enum StudioPrompts {
                            revision: StudioRevision?, history: [StudioOperation], redactor: StudioRedactor,
                            clarification: String?, retryProblem: String?, route: String = "/", pageImage: String? = nil,
                            spec: StudioEnvironmentSpec? = nil, refusedContext: [String]? = nil, reached: [String] = [],
-                           attachments: [String] = []) -> String {
+                           attachments: [String] = [], supabaseAuth: Bool = false, supabaseAuthReal: Bool = false) -> String {
         var text = selection.map { selectionBlock($0, scenario: scenario, revision: revision, redactor: redactor) }
             ?? pageBlock(route: route, scenario: scenario, revision: revision, imagePath: pageImage)
         text += attachmentsBlock(attachments)
+        if supabaseAuth { text += "\n\nBuilt-in Supabase Auth is active: sign-in uses the scenario's test user and any test credentials." }
+        if supabaseAuthReal {
+            text += "\n\nA Supabase connection is set to Real. Do not submit fictional credentials to a real service or claim it is simulated; explain the limitation."
+        }
         if let spec, let scenario { text += "\n\n" + contextBlock(spec: spec, scenario: scenario, redactor: redactor, reached: reached) }
         text += withConversation(history, redactor: redactor) + "\n\nRequest: " + request
         if let clarification { text += "\n\nThe person answered your question: " + clarification + "\nDo not ask again; make the change." }
         if let retryProblem { text += "\n\nYour previous edits could not be applied: \(retryProblem) Read the files again and return edits that match them exactly." }
         if let refusedContext, !refusedContext.isEmpty {
-            text += "\n\nYour previous context change was refused, so nothing was applied:\n"
+            text += "\n\nYour previous context change was not saved because it did not validate or did not reach the requested state:\n"
                 + refusedContext.prefix(20).map { "- " + $0 }.joined(separator: "\n")
                 + "\nFix these problems and return the whole corrected change."
         }
