@@ -434,6 +434,7 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
 /// The tiles really run what they are given: real mouse clicks on a grid of points over the hosted window (a window that is ordered
 /// in, far outside every display), and every action of the catalogue must fire from some point.
 @MainActor func tileChecks() {
+    NSApp.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
     // With a backdrop drawn, so the check also proves that the backdrop lets every click through.
     for (git, project) in [(true, "MarkView"), (false, "MarkView"), (false, nil)] as [(Bool, String?)] {
         var performed: [WelcomeActionID] = []
@@ -441,6 +442,11 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
         let (window, hosting) = host(project: project, git: git, theme: .classicDark, size: size, still: true) { performed.append($0) }
         defer { window.close() }
         settle(hosting)
+        // The menu travels with the centered/scrolled column. Exclude its actual frame: a hard-coded strip can open
+        // the menu and leave this synthetic mouse-down sweep waiting forever in AppKit's menu tracking loop.
+        let menuFrames = accessibilityButtons(hosting).filter { $0.label.contains("Matrix Rain") }.map {
+            hosting.convert(window.convertFromScreen($0.frame), from: nil).insetBy(dx: -4, dy: -4)
+        }
         func click(_ p: CGPoint) {
             let location = hosting.convert(NSPoint(x: p.x, y: p.y), to: nil)
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
@@ -452,12 +458,12 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
         }
         var fired = Set<WelcomeActionID>()
         var y: CGFloat = 20
-        // The Background menu sits in the bottom right corner; clicking it would open a menu that waits for a choice.
         while y < size.height - 90 {
             var x: CGFloat = 20
             while x < size.width - 20 {
                 let before = performed.count
-                click(CGPoint(x: x, y: y))
+                let point = CGPoint(x: x, y: y)
+                if !menuFrames.contains(where: { $0.contains(point) }) { click(point) }
                 if performed.count > before { fired.formUnion(performed[before...]) }
                 x += 13
             }
@@ -672,6 +678,64 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
     }
 }
 
+/// E2E clients send these actions to every advertised scroll container, including grids below the fold.
+/// On macOS 27, the welcome screen's nested lazy grids trapped in ForEachState.item during this walk.
+@MainActor func accessibilityScrollChecks() {
+    NSApp.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
+    func scroll(_ element: NSObject, depth: Int = 0) {
+        guard depth < 20 else { return }
+        let names = NSSelectorFromString("accessibilityActionNames")
+        if element.responds(to: names), let actions = element.perform(names)?.takeUnretainedValue() as? [String] {
+            for action in ["AXScrollToBottom", "AXScrollToTop"] where actions.contains(action) {
+                element.perform(NSSelectorFromString("accessibilityPerformAction:"), with: action)
+            }
+        }
+        let children = NSSelectorFromString("accessibilityChildren")
+        if element.responds(to: children), let kids = element.perform(children)?.takeUnretainedValue() as? [NSObject] {
+            for child in kids { scroll(child, depth: depth + 1) }
+        }
+    }
+    for project in ["MarkView", nil] as [String?] {
+        let (window, hosting) = host(project: project, git: true, theme: .classicDark, size: NSSize(width: 440, height: 700), still: true)
+        defer { window.close() }
+        for size in [NSSize(width: 440, height: 700), NSSize(width: 900, height: 500), NSSize(width: 620, height: 800)] {
+            window.setContentSize(size)
+            settle(hosting, seconds: 0.3)
+            scroll(hosting)
+            settle(hosting, seconds: 0.2)
+            scroll(hosting)
+            if project != nil, let area = descendants(hosting).compactMap({ $0 as? NSScrollView }).first {
+                // Use the same Accessibility API to reach the beginning; SwiftUI's hosted clip/document coordinates
+                // are not a reliable indication of which end an assistive client currently sees.
+                for _ in 0..<4 {
+                    area.accessibilityPerformAction(NSAccessibility.Action(rawValue: "AXScrollUpByPage"))
+                    settle(hosting, seconds: 0.2)
+                }
+                let top = area.contentView.bounds.origin.y
+                area.accessibilityPerformAction(NSAccessibility.Action(rawValue: "AXScrollDownByPage"))
+                settle(hosting, seconds: 0.5)
+                let down = area.contentView.bounds.origin.y
+                check(abs(down - top) > 1, "AX page-down reaches welcome tiles below the fold", "before \(top), after \(down)")
+                area.accessibilityPerformAction(NSAccessibility.Action(rawValue: "AXScrollUpByPage"))
+                settle(hosting, seconds: 0.5)
+                let up = area.contentView.bounds.origin.y
+                check((up - down) * (down - top) < 0, "AX page-up scrolls back toward the welcome header", "before \(top), down \(down), up \(up)")
+            }
+            let titles = Set(project == nil ? WelcomeCatalogue.emptyWindow.map(\.title)
+                             : WelcomeCatalogue.project(isGitRepo: true).flatMap { $0.actions.map(\.title) })
+            let found = Set(accessibilityButtons(hosting).map(\.label))
+            check(titles.isSubset(of: found), "AX scrolling at \(Int(size.width))x\(Int(size.height)) keeps every welcome action reachable")
+        }
+    }
+}
+
+if ProcessInfo.processInfo.environment["WELCOME_SCROLL_ONLY"] != nil {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    MainActor.assumeIsolated { accessibilityScrollChecks() }
+    exit(failures == 0 ? 0 : 1)
+}
+
 choiceChecks()
 matrixChecks()
 auroraChecks()
@@ -688,6 +752,7 @@ MainActor.assumeIsolated {
     resizeChecks()
     tileChecks()
     pillChecks()
+    accessibilityScrollChecks()
     animatedFrameChecks()
     reduceMotionChecks()
     borisThemeSnapshot()

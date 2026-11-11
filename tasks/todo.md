@@ -5504,3 +5504,11 @@ Not done, left open on purpose:
 - Not hand-checked in the installed app: the Accessibility and Screen Recording grant flow (a Debug build loses the grants on each rebuild; a signed build keeps them).
 
 Not in this release: Q-009 mixing, Q-011 HTTP service type.
+
+# Accessibility scroll crash during E2E automation (2026-11-11, 5.64.2)
+
+- [x] Read the 5.64.1 incident from 06:21:48: SIGTRAP on the main thread in `AGAttribute.syncMainIfReferences` / `ForEachState.item`, reached through `AccessibilityNode.scrollToBeginning` and an external Accessibility action. Boris confirmed E2E automation was running; the original screen is not recorded in the report.
+- [x] Reproduced the same stack in a separate Debug app and the standalone welcome-screen harness by walking the welcome screen's advertised `AXScrollToBottom` / `AXScrollToTop` actions, including offscreen grids. The regression check on the original code exits 133.
+- [x] Replaced the welcome tiles' nested lazy grids with an eager adaptive `Layout` (at most six tiles per section), preserving spacing, columns and tile actions. Added Accessibility scrolling checks at three window sizes, with and without a project.
+- [x] Bumped patch version to 5.64.2; Debug build passes. Full welcome-screen suite and app-probe verification are recorded in the PR.
+- [ ] Merge the PR and build, sign, notarize and publish the DMG from the merged main commit; verify the merge's Build & Release run. Do not replace the running app during Boris's active sessions.
