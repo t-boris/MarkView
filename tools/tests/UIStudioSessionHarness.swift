@@ -667,7 +667,9 @@ func run() async {
     let channelPrompt = CLICompletion.requests.last { $0.label == "ui-studio:prepare" }
     check("REQ-015 the preparation asks for a channel by its contract", channelPrompt?.prompt.contains("WS /ws/live") == true
           && channelPrompt?.prompt.contains("real-time connection") == true, channelPrompt.map { String($0.prompt.prefix(300)) } ?? "no prompt")
-    check("REQ-015 the prepared channel is kept for later sessions", StudioStore.loadEnvironment(root)?.channels?.contains { $0.id == "live" } == true)
+    // Environment persistence is queued on the session's I/O queue; the response can arrive before the file is written.
+    let channelSaved = await waitUntil(5) { StudioStore.loadEnvironment(root)?.channels?.contains { $0.id == "live" } == true }
+    check("REQ-015 the prepared channel is kept for later sessions", channelSaved)
     // BUG-100: a page-initiated unsupported protocol is visible in the conversation as well as the log and environment.
     assistant.lock.withLock {
         assistant.proposal = ["rules": [], "assumptions": [], "graphql": "[]", "channels": "[]",
@@ -693,7 +695,8 @@ func run() async {
         return r.status + ' ' + JSON.stringify(await r.json());
         """)
     check("REQ-015 an unknown GraphQL field is prepared and answered for its selection", team == #"200 {"data":{"team":{"name":"Core"}}}"#, team ?? "nil")
-    check("REQ-015 the prepared operation is kept", StudioStore.loadEnvironment(root)?.graphQL?.contains { $0.id == "q-team" } == true)
+    let operationSaved = await waitUntil(5) { StudioStore.loadEnvironment(root)?.graphQL?.contains { $0.id == "q-team" } == true }
+    check("REQ-015 the prepared operation is kept", operationSaved)
 
     // The page cannot leave the application (AC-16): another site is a local stand-in page, and nothing is sent (REQ-010).
     watchdog.reached("The page cannot leave the application")
