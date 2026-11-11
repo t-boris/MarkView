@@ -673,6 +673,16 @@ struct QAInspector: View {
                 TextField("Verify", text: Binding(get: { condition.verify }, set: { value in changeCondition(node.id) { $0.verify = value } }), axis: .vertical)
                     .textFieldStyle(.roundedBorder).lineLimit(1...3)
                 if condition.kind == .networkFault || condition.kind == .delay {
+                    Picker("HTTP method", selection: Binding(get: { condition.fault?.method ?? "" }, set: { value in
+                        changeCondition(node.id) { condition in
+                            var fault = condition.fault ?? QAFault(urlPattern: "", mode: condition.kind == .delay ? .delay : .fail)
+                            fault.method = value.isEmpty ? nil : value
+                            condition.fault = fault
+                        }
+                    })) {
+                        Text("Any method").tag("")
+                        ForEach(QAFault.methods, id: \.self) { Text($0).tag($0) }
+                    }
                     TextField("Address pattern", text: Binding(get: { condition.fault?.urlPattern ?? "" }, set: { value in
                         changeCondition(node.id) { condition in
                             var fault = condition.fault ?? QAFault(urlPattern: "", mode: condition.kind == .delay ? .delay : .fail)

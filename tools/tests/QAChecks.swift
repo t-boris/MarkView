@@ -124,6 +124,8 @@ do {
     check("problems: a network condition with no fault", kinds(changed(shop()) { $0.nodes[7].condition?.fault = nil }) == [.incompleteCondition])
     check("problems: a delay with no time", kinds(changed(shop()) { $0.nodes[7].condition?.fault?.milliseconds = 0 }) == [.incompleteCondition])
     check("problems: a status answer needs a real status", kinds(changed(shop()) { $0.nodes[7].condition?.fault = QAFault(urlPattern: "/api", mode: .status, status: 42) }) == [.incompleteCondition])
+    check("problems: a network fault rejects an unknown HTTP method", kinds(changed(shop()) { $0.nodes[7].condition?.fault?.method = "SEND" }) == [.incompleteCondition])
+    check("problems: a POST-only network fault is valid", kinds(changed(shop()) { $0.nodes[7].condition?.fault?.method = "POST" }).isEmpty)
     check("problems: no target", kinds(changed(shop()) { $0.targets = [] }) == [.noTarget])
     check("problems: a web target needs an http address", kinds(changed(shop()) { $0.targets[0].locations["shop"]?.url = "localhost:3000" }) == [.incompleteTarget] && kinds(changed(shop()) { $0.targets[0].locations["shop"]?.url = nil }) == [.incompleteTarget])
     check("problems: a web target may not be a file address", kinds(changed(shop()) { $0.targets[0].locations["shop"]?.url = "file:///etc/passwd" }) == [.incompleteTarget])
@@ -146,6 +148,11 @@ do {
     check("scenario file: a login is a host and a user name, never a password", !json.lowercased().contains("password") && json.contains("buyer@example.com"))
     let back = try? QAStore.decoder.decode(QAScenario.self, from: Data(json.utf8))
     check("scenario file: JSON round trip keeps the scenario", back == shop())
+    let legacyFault = try? QAStore.decoder.decode(QAFault.self, from: Data(#"{"urlPattern":"/messages","mode":"status","status":503}"#.utf8))
+    check("scenario file: old network faults still affect every HTTP method", legacyFault?.method == nil && legacyFault?.status == 503)
+    let postOnly = QAFault(urlPattern: "/messages", mode: .status, status: 503, method: "POST")
+    let encodedFault = (try? QAStore.encoder.encode(postOnly)) ?? Data()
+    check("scenario file: a method-specific fault survives saving and loading", (try? QAStore.decoder.decode(QAFault.self, from: encodedFault)) == postOnly)
 }
 
 // MARK: - Outcomes of one check
@@ -326,6 +333,11 @@ do {
     check("generation: a network condition is read with its fault",
           result.scenario.node("f1")?.condition == QACondition(kind: .delay, establish: "Delay /api/pay", verify: "The delayed request was seen", fault: QAFault(urlPattern: "/api/pay", mode: .delay, status: nil, milliseconds: 5000)))
     check("generation: no condition kind means no condition", result.scenario.node("n1")?.condition == nil)
+    var methodAnswer = answer()
+    var methodNodes = methodAnswer["nodes"] as! [[String: Any]]
+    methodNodes[2]["faultMethod"] = "post"
+    methodAnswer["nodes"] = methodNodes
+    check("generation: a fault method is normalized and kept", QAGeneration.parse(methodAnswer, request: request).scenario.node("f1")?.condition?.fault?.method == "POST")
     check("generation: the scenario id comes from the title and is not one in use", result.scenario.id == "pay-an-order")
     check("generation: ... or is made unique", QAGeneration.parse(answer(), request: QAGenerationRequest(goal: "g", appKind: .web, existingIDs: ["pay-an-order"], now: now)).scenario.id == "pay-an-order-2")
     check("generation: a missing target is not the AI's to fix", QAGeneration.parse(answer(), request: QAGenerationRequest(goal: "g", appKind: .web, now: now)).isClean)
