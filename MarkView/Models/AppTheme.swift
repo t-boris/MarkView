@@ -87,7 +87,7 @@ struct ThemeColor: Equatable, Hashable, Codable {
 /// The appearance choices of a window. `classicDark` and `classicLight` are the look before themes existed
 /// (DEC-004): kept until the person chooses System or a preset, listed only while active.
 enum AppTheme: String, CaseIterable, Codable {
-    case system, classicDark, classicLight, darcula, midnight, graphite, paper
+    case system, classicDark, classicLight, darcula, midnight, graphite, tokyoNight, carbonRed, paper
 
     var displayName: String {
         switch self {
@@ -97,6 +97,8 @@ enum AppTheme: String, CaseIterable, Codable {
         case .darcula: return "Darcula"
         case .midnight: return "Midnight"
         case .graphite: return "Graphite"
+        case .tokyoNight: return "Tokyo Night"
+        case .carbonRed: return "Carbon Red"
         case .paper: return "Paper"
         }
     }
@@ -110,11 +112,13 @@ enum AppTheme: String, CaseIterable, Codable {
         case .darcula: return "IntelliJ-inspired warm dark grey"
         case .midnight: return "Deep blue-black with sky blue"
         case .graphite: return "Neutral dark with violet"
+        case .tokyoNight: return "Indigo night with lavender and cyan"
+        case .carbonRed: return "Soft black with coral and warm ivory"
         case .paper: return "Warm light paper with blue ink"
         }
     }
 
-    var isPreset: Bool { [.darcula, .midnight, .graphite, .paper].contains(self) }
+    var isPreset: Bool { [.darcula, .midnight, .graphite, .tokyoNight, .carbonRed, .paper].contains(self) }
     var isClassic: Bool { self == .classicDark || self == .classicLight }
 
     /// Whether the window is drawn dark; `systemIsDark` decides for System.
@@ -122,7 +126,7 @@ enum AppTheme: String, CaseIterable, Codable {
         switch self {
         case .system: return systemIsDark
         case .classicLight, .paper: return false
-        case .classicDark, .darcula, .midnight, .graphite: return true
+        case .classicDark, .darcula, .midnight, .graphite, .tokyoNight, .carbonRed: return true
         }
     }
 
@@ -140,13 +144,15 @@ enum AppTheme: String, CaseIterable, Codable {
         case .darcula: return "darcula"
         case .midnight: return "midnight"
         case .graphite: return "graphite"
+        case .tokyoNight: return "tokyo-night"
+        case .carbonRed: return "carbon-red"
         case .paper: return "paper"
         }
     }
 
-    /// The choices a window's picker lists: System and the four presets, preceded by Classic only while it is active.
+    /// The choices a window's picker lists: System and the presets, preceded by Classic only while it is active.
     static func pickerChoices(current: AppTheme) -> [AppTheme] {
-        (current.isClassic ? [current] : []) + [.system, .darcula, .midnight, .graphite, .paper]
+        (current.isClassic ? [current] : []) + [.system, .darcula, .midnight, .graphite, .tokyoNight, .carbonRed, .paper]
     }
 }
 
@@ -213,6 +219,16 @@ struct ThemePalette: Equatable {
                         text: 0xE8EAED, textDim: 0x9AA0A6, textBright: 0xFFFFFF, border: 0x40434A, selection: 0,
                         accent: 0xB39DDB, green: 0x81C995, orange: 0xF6AE5F, yellow: 0xF2D675, purple: 0xD58FE0, red: 0xF28B82,
                         cyan: 0x78D9EC, badge: nil, literalBlue: nil)
+        case .tokyoNight:
+            return Base(bg: 0x1A1B26, bgSidebar: 0x202233, bgInput: 0x2B2F45, bgHover: 0x292D42, bgActive: 0x353B55, bgBanner: 0x151620,
+                        text: 0xD5DAF0, textDim: 0xA0A9CB, textBright: 0xF2F4FF, border: 0x414763, selection: 0,
+                        accent: 0xB49AFF, green: 0x9ECE6A, orange: 0xFFAD77, yellow: 0xE0C583, purple: 0xBB9AF7, red: 0xFF879D,
+                        cyan: 0x7DCFFF, badge: nil, literalBlue: nil)
+        case .carbonRed:
+            return Base(bg: 0x171719, bgSidebar: 0x212124, bgInput: 0x2C2B30, bgHover: 0x302C30, bgActive: 0x403139, bgBanner: 0x121214,
+                        text: 0xEDE8E6, textDim: 0xB4A6A6, textBright: 0xFFF7F1, border: 0x484046, selection: 0,
+                        accent: 0xFF6B81, green: 0xA3C991, orange: 0xEFA975, yellow: 0xE7CD92, purple: 0xC8A4D4, red: 0xFF929C,
+                        cyan: 0x8DCBD0, badge: nil, literalBlue: nil)
         case .paper:
             return Base(bg: 0xFFFCF5, bgSidebar: 0xF2EDE3, bgInput: 0xE8E1D3, bgHover: 0xEBE5D8, bgActive: 0xDDD5C4, bgBanner: 0xF7F2E8,
                         text: 0x292724, textDim: 0x655F55, textBright: 0x000000, border: 0xD6CEBE, selection: 0,

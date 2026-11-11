@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The theme picker of a window: System and the four presets (Classic while it is active), and the accent of the
+/// The theme picker of a window: System and the presets (Classic while it is active), and the accent of the
 /// chosen appearance. Opened from the header button and from View > Theme (Shift-Cmd-T). Everything it changes
 /// belongs to the window that opened it.
 struct ThemePickerView: View {

@@ -4,7 +4,7 @@ import WebKit
 // The window themes (DEC-003, DEC-004, DEC-006) in the shipped web pages, in real WebKit with hidden windows and a
 // stubbed bridge: the editor page (index.html), the discussion thread (discussion.html) and the terminal
 // (terminal.html). What is checked:
-//   - every appearance (Classic Dark/Light, Darcula, Midnight, Graphite, Paper) paints the real elements with its
+//   - every appearance paints the real elements with its
 //     tokens, and the text pairs of the presets meet the contrast the specification asks for;
 //   - an accent override reaches the accent colours and a reset returns the appearance's own;
 //   - a theme change is only a restyle: the page is not reloaded, text and scroll position stay;
@@ -123,7 +123,7 @@ final class Page: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
 }
 
 // ---- colours ----------------------------------------------------------------------------------------------------------
-/// The six appearances: id, mode, and the base colours of the specification (DEC-003) or the old page (Classic).
+/// The appearances: id, mode, and the base colours of the native palettes or the old page (Classic).
 struct Look { let id: String; let dark: Bool; let background: String; let panel: String; let text: String; let accent: String; let classic: Bool }
 let looks: [Look] = [
     Look(id: "classic-dark", dark: true, background: "#1e1e1e", panel: "#252526", text: "#d4d4d4", accent: "#569cd6", classic: true),
@@ -131,6 +131,8 @@ let looks: [Look] = [
     Look(id: "darcula", dark: true, background: "#2b2b2b", panel: "#323232", text: "#e0e0e0", accent: "#e6a15c", classic: false),
     Look(id: "midnight", dark: true, background: "#151c2b", panel: "#1d2738", text: "#e5ebf5", accent: "#79b8ff", classic: false),
     Look(id: "graphite", dark: true, background: "#202124", panel: "#2a2c30", text: "#e8eaed", accent: "#b39ddb", classic: false),
+    Look(id: "tokyo-night", dark: true, background: "#1a1b26", panel: "#202233", text: "#d5daf0", accent: "#b49aff", classic: false),
+    Look(id: "carbon-red", dark: true, background: "#171719", panel: "#212124", text: "#ede8e6", accent: "#ff6b81", classic: false),
     Look(id: "paper", dark: false, background: "#fffcf5", panel: "#f2ede3", text: "#292724", accent: "#315e9b", classic: false),
 ]
 let presets = looks.filter { !$0.classic }
@@ -308,7 +310,7 @@ const T = window.MarkViewThemes, c = T.color, bad = [];
 function chk(id, name, fg, bgs, min) {
   bgs.forEach(function (b) { const r = c.contrast(fg, b[1]); if (r < min) bad.push(id + ': ' + name + ' ' + fg + ' on ' + b[0] + ' ' + b[1] + ' = ' + r.toFixed(2) + ' < ' + min); });
 }
-['darcula', 'midnight', 'graphite', 'paper'].forEach(function (id) {
+T.ids.filter(function (id) { return !T.themes[id].classic; }).forEach(function (id) {
   const v = T.varsFor(id, ''), bgs = [['bg', v['--bg-primary']], ['panel', v['--bg-secondary']]];
   ['--text-primary', '--text-secondary', '--text-tertiary', '--accent-primary', '--accent-secondary', '--accent-warning', '--accent-success',
    '--accent-danger', '--h2-color', '--h3-color', '--ok-text', '--warn-text', '--bad-text', '--struct-key', '--struct-string', '--struct-number',
@@ -342,14 +344,14 @@ function chk(id, name, fg, bgs, min) {
 return JSON.stringify(bad);
 """)
 let tokenFailures = (try? JSONSerialization.jsonObject(with: Data(tokenReport.utf8)) as? [String]) ?? [tokenReport]
-check(tokenFailures.isEmpty, "every text pair of the four presets meets 4.5:1 (cursor and syntax over a selection 3:1)", tokenFailures.joined(separator: "; "))
+check(tokenFailures.isEmpty, "every preset's text pairs meet 4.5:1 (cursor and syntax over a selection 3:1)", tokenFailures.joined(separator: "; "))
 
 // Every appearance defines the same set of custom properties (nothing is left to the previous appearance).
 let keyReport = page.js("""
 const T = window.MarkViewThemes, first = Object.keys(T.varsFor(T.ids[0], '')).sort().join();
 return JSON.stringify(T.ids.filter(function (id) { return Object.keys(T.varsFor(id, '')).sort().join() !== first; }));
 """)
-check(keyReport == "[]", "all six appearances define the same custom properties", keyReport)
+check(keyReport == "[]", "all appearances define the same custom properties", keyReport)
 
 // The colours of the real elements follow the tokens.
 func colorOf(_ s: [String: [String: String]], _ probe: String, _ prop: String = "color") -> [Double]? {
@@ -454,7 +456,7 @@ return JSON.stringify({ html: r.innerHTML.length, text: r.textContent, scroll: r
 """)
 // A reload would drop the marker and replace the element; the clock (performance.timeOrigin) is not used: some WebKit builds
 // report it with a jitter, which made this check fail on the CI image while the page had not reloaded.
-check((after["marker"] as? String) == "same page" && (after["sameNode"] as? Bool) == true, "twelve theme changes do not reload the page", "\(after)")
+check((after["marker"] as? String) == "same page" && (after["sameNode"] as? Bool) == true, "repeated theme changes do not reload the page", "\(after)")
 check((after["text"] as? String) == (before["text"] as? String) && (after["html"] as? Int) == (before["html"] as? Int), "the document text and structure are untouched by theme changes")
 check((after["scroll"] as? Double) == (before["scroll"] as? Double), "the scroll position survives theme changes", "\(before["scroll"] ?? "") → \(after["scroll"] ?? "")")
 // Source mode: the unsaved text in the editor field stays too.

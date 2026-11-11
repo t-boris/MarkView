@@ -1,8 +1,8 @@
 /*
  * MarkView window themes for the web pages (editor, discussion, terminal).
  *
- * One file holds the tokens of the six appearances: classic-dark and classic-light (the look before themes,
- * kept value for value, DEC-004) and the presets darcula, midnight, graphite and paper (DEC-003). Swift sends
+ * One file holds the appearance tokens: classic-dark and classic-light (the look before themes,
+ * kept value for value, DEC-004) and the presets, including Tokyo Night and Carbon Red. Swift sends
  * only an appearance id and the accent the window uses; this file turns them into CSS custom properties on
  * <html>, plus data-preset (the id), data-theme (dark | light, the mode that older selectors still read) and
  * data-accent. Swift rewrites those three attributes in the page text so the first paint is already right
@@ -186,6 +186,32 @@
             term: { black: '#3c4043', red: '#f28b82', green: '#81c995', yellow: '#fdd663', blue: '#8ab4f8', magenta: '#d7aefb',
                     cyan: '#78d9ec', white: '#dadce0', brightBlack: '#8f959b', brightRed: '#f6aea9', brightGreen: '#a8dab5',
                     brightYellow: '#fde293', brightBlue: '#aecbfa', brightMagenta: '#e4c7fc', brightCyan: '#a1e4f2', brightWhite: '#ffffff' } },
+
+        'tokyo-night': { base: { bg: '#1A1B26', panel: '#202233', text: '#D5DAF0', accent: '#B49AFF' },
+            mode: 'dark',
+            t: { tertiary: '#2b2f45', textSecondary: '#a0a9cb', textTertiary: '#949dbf', border: '#414763', borderLight: '#30344d',
+                 secondary: '#7dcfff', danger: '#ff879d', success: '#9ece6a', warning: '#ffad77', hover: '#353b55',
+                 h2: '#b49aff', h3: '#7dcfff', codeBg: '#2b2f45', preBg: '#151620', preBorder: '#353b55', preText: '#d5daf0' },
+            syn: { comment: '#949dbf', punct: '#b8c1e3', property: '#7dcfff', number: '#ffad77', string: '#b2d88a', operator: '#89ddff',
+                   func: '#91b5ff', keyword: '#c6a5ff', regex: '#e0c583' },
+            struct: { key: '#91b5ff', string: '#b2d88a', number: '#ffad77', boolean: '#c6a5ff', null: '#949dbf', bracket: '#a0a9cb',
+                      tag: '#ff879d', attrName: '#7dcfff', attrValue: '#b2d88a', comment: '#949dbf', count: '#949dbf' },
+            term: { black: '#353b55', red: '#ff879d', green: '#9ece6a', yellow: '#e0c583', blue: '#91b5ff', magenta: '#bb9af7',
+                    cyan: '#7dcfff', white: '#d5daf0', brightBlack: '#949dbf', brightRed: '#ffa6b6', brightGreen: '#bce496',
+                    brightYellow: '#efdbad', brightBlue: '#b5ceff', brightMagenta: '#d5bfff', brightCyan: '#a9e2ff', brightWhite: '#f2f4ff' } },
+
+        'carbon-red': { base: { bg: '#171719', panel: '#212124', text: '#EDE8E6', accent: '#FF6B81' },
+            mode: 'dark',
+            t: { tertiary: '#2c2b30', textSecondary: '#b4a6a6', textTertiary: '#a99b9d', border: '#484046', borderLight: '#342f35',
+                 secondary: '#8dcbd0', danger: '#ff929c', success: '#a3c991', warning: '#efa975', hover: '#403139',
+                 h2: '#ff8b9b', h3: '#e7cd92', codeBg: '#2c2b30', preBg: '#121214', preBorder: '#40383e', preText: '#ede8e6' },
+            syn: { comment: '#a99b9d', punct: '#c8bec0', property: '#8dcbd0', number: '#efa975', string: '#b4d29c', operator: '#d8c4b8',
+                   func: '#e7cd92', keyword: '#ff8b9b', regex: '#c8a4d4' },
+            struct: { key: '#e7cd92', string: '#b4d29c', number: '#efa975', boolean: '#ff8b9b', null: '#a99b9d', bracket: '#b4a6a6',
+                      tag: '#ff8b9b', attrName: '#c8a4d4', attrValue: '#b4d29c', comment: '#a99b9d', count: '#a99b9d' },
+            term: { black: '#40383e', red: '#ff929c', green: '#a3c991', yellow: '#e7cd92', blue: '#9dbce6', magenta: '#c8a4d4',
+                    cyan: '#8dcbd0', white: '#ede8e6', brightBlack: '#a99b9d', brightRed: '#ffb1b7', brightGreen: '#c1dfa9',
+                    brightYellow: '#f4e1b7', brightBlue: '#bdd4f4', brightMagenta: '#e0bee9', brightCyan: '#b2e3e5', brightWhite: '#fff7f1' } },
 
         'paper': { base: { bg: '#FFFCF5', panel: '#F2EDE3', text: '#292724', accent: '#315E9B' },
             mode: 'light',

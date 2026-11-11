@@ -1,5 +1,5 @@
 #!/bin/bash
-# Checks the theme model (MarkView/Models/AppTheme.swift): the six appearances, the palettes and their legibility, the accent rules,
+# Checks the theme model (MarkView/Models/AppTheme.swift): the appearances, the palettes and their legibility, the accent rules,
 # per-appearance accent memory, the settings codec, the upgrade from the old light / dark / system setting and what a new window inherits.
 # The module is Foundation-only and is compiled on its own with a test main.
 #   tools/tests/theme-model-tests.sh

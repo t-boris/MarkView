@@ -6,7 +6,7 @@ func check(_ condition: Bool, _ message: String) {
 }
 func ratio(_ a: ThemeColor, _ b: ThemeColor) -> String { String(format: "%.2f", ThemeColor.contrast(a, b)) }
 
-let presets: [AppTheme] = [.darcula, .midnight, .graphite, .paper]
+let presets: [AppTheme] = [.darcula, .midnight, .graphite, .tokyoNight, .carbonRed, .paper]
 
 // MARK: colour basics
 check(ThemeColor(hex: "#12ab34")?.rgb == 0x12AB34, "lower-case hex with # parses")
@@ -19,12 +19,12 @@ check(ThemeColor(0x000000).mixed(with: ThemeColor(0xFFFFFF), fraction: 0.5).rgb 
 
 // MARK: appearances
 check(AppTheme.paper.isDark(systemIsDark: true) == false, "Paper is light even when macOS is dark")
-for t in [AppTheme.darcula, .midnight, .graphite, .classicDark] { check(t.isDark(systemIsDark: false), "\(t) is dark even when macOS is light") }
+for t in presets.filter({ $0 != .paper }) + [.classicDark] { check(t.isDark(systemIsDark: false), "\(t) is dark even when macOS is light") }
 check(AppTheme.system.isDark(systemIsDark: true) && !AppTheme.system.isDark(systemIsDark: false), "System follows macOS")
 check(AppTheme.system.resolved(systemIsDark: true) == .classicDark && AppTheme.system.resolved(systemIsDark: false) == .classicLight,
       "System draws Classic Dark or Classic Light")
-check(AppTheme.pickerChoices(current: .midnight) == [.system, .darcula, .midnight, .graphite, .paper], "picker lists System and four presets")
-check(AppTheme.pickerChoices(current: .classicDark).first == .classicDark && AppTheme.pickerChoices(current: .classicDark).count == 6,
+check(AppTheme.pickerChoices(current: .midnight) == [.system] + presets, "picker lists System and every preset")
+check(AppTheme.pickerChoices(current: .classicDark).first == .classicDark && AppTheme.pickerChoices(current: .classicDark).count == presets.count + 2,
       "Classic is listed while active")
 check(Set(AppTheme.allCases.map(\.webID)).count == AppTheme.allCases.count, "web ids are unique")
 
@@ -106,6 +106,11 @@ full.select(.paper)
 full.setAccent(ThemeColor(0xABCDEF))
 let data = try! JSONEncoder().encode(full)
 check((try? JSONDecoder().decode(WindowThemeSettings.self, from: data)) == full, "settings survive a round trip")
+for theme in [AppTheme.tokyoNight, .carbonRed] {
+    let settings = WindowThemeSettings(theme: theme, accents: [theme: pink])
+    let encoded = try! JSONEncoder().encode(settings)
+    check((try? JSONDecoder().decode(WindowThemeSettings.self, from: encoded)) == settings, "\(theme) and its custom accent survive a relaunch")
+}
 func decode(_ json: String) -> WindowThemeSettings? { try? JSONDecoder().decode(WindowThemeSettings.self, from: Data(json.utf8)) }
 check(decode(#"{"theme":"nope","accents":{}}"#)?.theme == .classicDark, "an unknown appearance becomes Classic Dark")
 check(decode(##"{"theme":"paper","accents":{"paper":"#12","midnight":"#0A0B0C","x":"#ffffff"}}"##)?.accents == [.midnight: ThemeColor(0x0A0B0C)],
