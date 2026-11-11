@@ -1,3 +1,9 @@
+# UI Studio: missing Supabase key on a fresh checkout (2026-11-10)
+
+- Boris reproduced the master-portal login failure in 5.64.0. The earlier live check supplied a valid JWT in a synthetic `.env.local` and missed the real checkout's configuration: no real anon key exists, so Studio supplied a plain test string which `resolveSupabasePublicConfig` rejected before any Auth request. The page consequently showed “Wrong email or password”.
+- Derive the simulated Supabase anon/service key shape and role from its variable name even without a real value; preserve the modern publishable/secret key format when applicable. Never copy a real key. Added format and no-real-key session checks, including server-side `getUser`.
+- Reproduced the failure on a clean copy of the current vivaa project with no `.env`: invalid generated key, `/login`, no Auth request. With the fix, the generated key has the correct format and the test user reaches the dashboard through simulated Auth. No real service credentials were used.
+
 # UI Studio: sign-in and the page after it (2026-11-10)
 
 - A real assistant given the master-portal login and “make a test master account” previously set the scenario user and route `/`, but supplied no sign-in steps; middleware returned the visitor to `/login`. A context change only checked that its steps ran, not that the destination or its content appeared.
