@@ -76,6 +76,10 @@ struct QAAPIChecks {
         for path in ["https://example.com", "//example.com/x", "http://localhost:1", "file:///etc/passwd", "http://user:pass@127.0.0.1"] {
             await rejects("origin confinement: \(path)") { _ = try client.resolved(path) }
         }
+        let uppercase = try QAAPIClient(address: "HTTPS://example.com")
+        check("HTTPS origin normalizes the default port regardless of case", try uppercase.resolved("https://example.com:443/test").port == 443)
+        await rejects("uppercase HTTPS cannot escape to port 80") { _ = try uppercase.resolved("https://example.com:80/test") }
+        uppercase.close()
         let login = QAAPIRequest(method: "POST", path: "/login", body: #"{"username":"{{username}}","password":"{{password}}"}"#,
                                  captures: [.init(name: "token", pointer: "/token", secret: true)])
         let loginResult = try await client.execute(login)

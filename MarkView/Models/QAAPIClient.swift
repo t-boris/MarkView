@@ -34,7 +34,7 @@ final class QAAPIClient: NSObject, URLSessionDataDelegate {
     func resolved(_ path: String) throws -> URL {
         guard let url = URL(string: path, relativeTo: origin)?.absoluteURL,
               url.scheme?.lowercased() == origin.scheme?.lowercased(), url.host?.lowercased() == origin.host?.lowercased(),
-              (url.port ?? (url.scheme == "https" ? 443 : 80)) == (origin.port ?? (origin.scheme == "https" ? 443 : 80)),
+              (url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)) == (origin.port ?? (origin.scheme?.lowercased() == "https" ? 443 : 80)),
               url.user == nil, url.password == nil else { throw QAAPIError.invalid("Requests must stay on the configured service origin and use no embedded credentials.") }
         return url
     }

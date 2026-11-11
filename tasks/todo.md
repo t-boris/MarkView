@@ -5547,7 +5547,7 @@ adds HTTP API as the third separate scenario type (REQ-017, DEC-026).
   filing. Report HTTP evidence/timings and omit API screen/video controls.
 - [x] Add a loopback fixture and retain a real Claude proposal (19 steps, four
   branches); all proposed CRUD/auth/invalid-input/anonymous-access branches pass.
-- [x] API harness: 88 checks pass, including cancellation races, response limits,
+- [x] API harness: 90 checks pass, including cancellation races, response limits,
   no retry of mutating requests, multi-service isolation, branch reset, archive
   persistence, failed assertions and production refusal. Shared QA suites pass;
   native live two-player check and real WKWebView evidence checks pass.
