@@ -1899,3 +1899,13 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
   prompt, even with an example). The assistant's own settings and the page text pull the answer elsewhere.
 - Rule: a language requirement that must hold is stated by name, worked out from the scenario's own texts by a deterministic recogniser (`QALanguage`), and checked on the
   real assistant in more than one run; the general wording stays as the fallback when no language is clear.
+
+## Exercise advertised Accessibility scroll actions, including offscreen groups (2026-11-11)
+- MarkView 5.64.1 crashed during E2E automation in `AGAttribute.syncMainIfReferences` / `ForEachState.item`, reached through
+  `AccessibilityNode.scrollToBeginning`. The report contained no app view frame. Walking the welcome screen's Accessibility tree and
+  invoking its advertised `AXScrollToBottom` / `AXScrollToTop` actions reproduced the same trap, including in the standalone view harness.
+- The welcome screen nested three `LazyVGrid`s inside one scroll view. A grid below the fold exposed a scroll action that SwiftUI could
+  not safely perform. For this bounded collection (at most six actions per section), an eager `Layout` preserves adaptive columns and
+  avoids those lazy Accessibility nodes. Keep the regression in `WelcomeScreenTests.swift`: before the fix it exits with SIGTRAP.
+- A build, mouse-click sweep, and Accessibility tree read do not exercise the actions a native E2E client may send. Invoke the advertised
+  scroll actions and repeat after resizing; keep the crash report's proven mechanism separate from an unrecorded original screen.

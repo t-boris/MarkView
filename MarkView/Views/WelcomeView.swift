@@ -40,8 +40,8 @@ struct WelcomeScreen<Below: View>: View {
                 })
     }
 
-    private var tileColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: 235 * min(appFontScale, 1.4)), spacing: 10)]
+    private var tileLayout: WelcomeTileLayout {
+        WelcomeTileLayout(minimumWidth: 235 * min(appFontScale, 1.4))
     }
 
     var body: some View {
@@ -80,13 +80,13 @@ struct WelcomeScreen<Below: View>: View {
                             .uiFont(size: 10, weight: .semibold)
                             .foregroundColor(palette.textDim)
                             .halo(palette.bg)
-                        LazyVGrid(columns: tileColumns, spacing: 10) {
+                        tileLayout {
                             ForEach(group.actions) { action in WelcomeTile(action: action) { perform(action.id) } }
                         }
                     }
                 }
             } else {
-                LazyVGrid(columns: tileColumns, spacing: 10) {
+                tileLayout {
                     ForEach(WelcomeCatalogue.emptyWindow) { action in WelcomeTile(action: action) { perform(action.id) } }
                 }
             }
@@ -136,6 +136,42 @@ struct WelcomeScreen<Below: View>: View {
         .background(Capsule().fill(palette.bgActive.opacity(0.9)))
         .overlay(Capsule().stroke(palette.border, lineWidth: 1))
         .help("Choose the animated background of this screen")
+    }
+}
+
+/// There are at most six tiles per section. Keep them eager: macOS 27's Accessibility scroll-to-top/bottom actions on
+/// nested LazyVGrids trap in ForEachState.item when an offscreen section is visited by an E2E client.
+private struct WelcomeTileLayout: Layout {
+    let minimumWidth: CGFloat
+    private let spacing: CGFloat = 10
+
+    private func rows(width: CGFloat, subviews: Subviews) -> (columns: Int, tileWidth: CGFloat, heights: [CGFloat]) {
+        let columns = max(1, Int((width + spacing) / (minimumWidth + spacing)))
+        let tileWidth = max(0, (width - CGFloat(columns - 1) * spacing) / CGFloat(columns))
+        var heights: [CGFloat] = []
+        for (index, view) in subviews.enumerated() {
+            if index % columns == 0 { heights.append(0) }
+            heights[heights.count - 1] = max(heights.last ?? 0,
+                                            view.sizeThatFits(ProposedViewSize(width: tileWidth, height: nil)).height)
+        }
+        return (columns, tileWidth, heights)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = max(0, proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? minimumWidth)
+        let layout = rows(width: width, subviews: subviews)
+        return CGSize(width: width, height: layout.heights.reduce(0, +) + CGFloat(max(0, layout.heights.count - 1)) * spacing)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let layout = rows(width: bounds.width, subviews: subviews)
+        var y = bounds.minY
+        for (index, view) in subviews.enumerated() {
+            let row = index / layout.columns
+            if index > 0, index % layout.columns == 0 { y += layout.heights[row - 1] + spacing }
+            view.place(at: CGPoint(x: bounds.minX + CGFloat(index % layout.columns) * (layout.tileWidth + spacing), y: y),
+                       anchor: .topLeading, proposal: ProposedViewSize(width: layout.tileWidth, height: layout.heights[row]))
+        }
     }
 }
 
