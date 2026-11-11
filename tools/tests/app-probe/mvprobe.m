@@ -46,6 +46,7 @@ static NSWindow *MainWindow(void) {
         for (NSWindow *w in NSApp.windows) {
             if (w.isVisible && w.contentView && [w.title containsString:PickTitle]) return w;
         }
+        return nil;
     }
     if (Pick >= 0) {
         NSMutableArray *eligible = [NSMutableArray array];
@@ -191,6 +192,7 @@ static void RunNext(void) {
         delay = p[1].doubleValue;
     } else if ([cmd isEqualToString:@"pick"]) {
         Pick = p[1].intValue;
+        PickTitle = nil;
         L(@"pick %d", Pick);
     } else if ([cmd isEqualToString:@"picktitle"]) {
         PickTitle = [[line substringFromIndex:10] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
