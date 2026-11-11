@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 enum QAActionKind: String, Codable, CaseIterable {
     case click

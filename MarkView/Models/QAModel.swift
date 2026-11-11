@@ -73,6 +73,7 @@ final class QAModel: ObservableObject {
     func attach(root newRoot: URL?) {
         guard newRoot != root else { return }
         flush()
+        run.releaseSessions()
         generation?.cancel()
         root = newRoot
         archive.root = newRoot
@@ -185,12 +186,13 @@ final class QAModel: ObservableObject {
     func withdrawApproval() { gate = nil }
 
     /// Starts the check of the chosen branches. Only an approved plan runs; the run takes its own copy of the scenario and the approval.
-    func startRun() {
+    func startRun(from point: QAStartPoint? = nil) {
         guard let current, let plan, let gate, let root, gate.canPrepare, !run.isRunning else { return }
         // A native check drives and watches another application, which the system has to allow first (the Run panel says what is missing).
         if current.appKind == .nativeMacOS && QANativePermissions.current != .granted { return }
+        if let point, !plan.branches.contains(where: { $0.id == point.branch && $0.nodes.contains(point.node) }) { return }
         flush()
-        run.start(scenario: current, plan: plan, gate: gate, root: root, assistant: selectedAssistant)
+        run.start(scenario: current, plan: plan, gate: gate, root: root, assistant: selectedAssistant, from: point)
     }
 
     /// Reads the saved logins (user names and hosts only) off the main thread.

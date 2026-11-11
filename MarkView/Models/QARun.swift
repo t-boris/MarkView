@@ -5,6 +5,12 @@ import Foundation
 
 /// What happened to one selected branch. Failed, blocked and interrupted are distinct (DEC-010); a branch whose condition could not be
 /// established is not executed and is reported as uncovered (DEC-011).
+/// A point in the original branch: earlier steps are skipped, never silently marked as met.
+struct QAStartPoint: Codable, Equatable {
+    var branch: String
+    var node: String
+}
+
 enum QAOutcome: String, Codable, CaseIterable {
     /// Every step and check held.
     case passed
@@ -161,6 +167,7 @@ struct QACheckResult: Codable, Equatable, Identifiable {
     /// The whole branch, and each step of it that was started.
     var effort = QAEffort()
     var steps: [QAStepEffort] = []
+    var skippedNodes: [String]? = nil
     var id: String { branch }
 }
 
@@ -206,6 +213,7 @@ struct QARunRecord: Codable, Equatable, Identifiable {
     var timeline: [QATimelineEntry] = []
     /// What the review found on the screens of the run: defects become bugs, the rest stays here as suggestions.
     var findings: [QAFinding] = []
+    var startPoint: QAStartPoint? = nil
 
     /// Stores the result of a selected branch. A branch that was not selected, or already has its result, is refused.
     @discardableResult
