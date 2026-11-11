@@ -507,7 +507,11 @@ enum BrowserAgentExecutor {
           let extra = '';
           if (tag === 'a') extra += ' -> ' + el.getAttribute('href');
           if (el.type === 'checkbox' || el.type === 'radio') extra += el.checked ? ' [checked]' : ' [unchecked]';
-          else if ((tag === 'input' || tag === 'textarea' || tag === 'select') && el.value && el.type !== 'password') extra += ' value="' + String(el.value).slice(0, 60) + '"';
+          else if ((tag === 'input' || tag === 'textarea' || tag === 'select') && el.value && el.type !== 'password') {
+            const value = String(el.value);
+            extra += ' value=' + JSON.stringify(value.slice(0, 4000));
+            if (value.length > 4000) extra += ' [value truncated: ' + value.length + ' characters total]';
+          }
           if (el.disabled) extra += ' (disabled)';
           out.push('[' + ref + '] ' + role + ' "' + name + '"' + extra);
         }

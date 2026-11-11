@@ -94,6 +94,19 @@ enum BrowserAddress { static func url(from text: String) -> URL? { URL(string: t
         _ = await call("browser_click", ["tab": .string("WorkTab"), "ref": .string("e1")])
         let clicked = await call("browser_snapshot")
         check(text(clicked).contains("clicked"), "Remote click changes the work page")
+        let question = "[QA-PACKAGE-20261111-212347-UTC] Здравствуйте! Я выбрал пакет „Праздник двух мастеров 20261111-01“. Подскажите, что нужно уточнить перед покупкой?"
+        _ = try await session.webView.callAsyncJavaScript("""
+            for (const [type, value] of [['textarea', question], ['textarea', 'x'.repeat(4100)], ['password', 'fixture-password-hidden']]) {
+              const el = document.createElement(type === 'password' ? 'input' : 'textarea');
+              if (type === 'password') el.type = type;
+              el.value = value;
+              document.body.appendChild(el);
+            }
+            """, arguments: ["question": question], in: nil, contentWorld: .page)
+        let fields = text(await call("browser_snapshot"))
+        check(fields.contains(question), "A 146-character QA chat draft is shown completely, not silently shortened to 60 characters")
+        check(fields.contains("[value truncated: 4100 characters total]"), "Oversized field previews explicitly say they are truncated")
+        check(!fields.contains("fixture-password-hidden"), "Full field previews still never expose password values")
         let image = await call("browser_screenshot")
         check(image["content"].array?.contains { $0["type"].string == "image" && $0["mimeType"].string == "image/png" && !($0["data"].string ?? "").isEmpty } == true, "Real page screenshot returns an MCP PNG image")
         let noArgs = await BrowserControlServer.performRemoteBrowser("browser_tabs", arguments: .null, window: id, root: root, agent: .claude)
