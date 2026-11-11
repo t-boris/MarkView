@@ -140,6 +140,8 @@ struct QAEditorView: View {
     let wide: Bool
     /// Which part of the inspector is open. It belongs to the window and survives a switch to another tab of the window and back.
     @WindowStorage("qa.panel") private var panel = QAPanel.branches
+    @WindowStorage("qa.inspectorWidth") private var inspectorWidth = 380.0
+    @State private var dragStartWidth: CGFloat?
 
     init(model: QAModel, wide: Bool) {
         self.model = model
@@ -158,23 +160,41 @@ struct QAEditorView: View {
                 } else if let opened = archive.opened, opened.scenarioID == scenario.id {
                     QARunReportView(archive: archive, scenario: scenario, record: opened) { archive.close() }
                 } else if wide {
-                    HSplitView {
-                        VStack(spacing: 0) {
-                            QAGraphCanvas(model: model, scenario: scenario)
-                            Divider()
-                            QABranchList(model: model, scenario: scenario).frame(height: 190)
-                        }
-                        .frame(minWidth: 380)
-                        VStack(spacing: 0) {
-                            Picker("", selection: Binding(get: { panel == .branches ? .step : panel }, set: { panel = $0 })) {
-                                Text("Step").tag(QAPanel.step)
-                                Text("Setup").tag(QAPanel.setup)
-                                Text("Run").tag(QAPanel.run)
+                    GeometryReader { geometry in
+                        let width = min(max(320, inspectorWidth), max(320, geometry.size.width - 387))
+                        HStack(spacing: 0) {
+                            VStack(spacing: 0) {
+                                QAGraphCanvas(model: model, scenario: scenario)
+                                Divider()
+                                QABranchList(model: model, scenario: scenario).frame(height: 190)
                             }
-                            .pickerStyle(.segmented).labelsHidden().padding(.horizontal, 10).padding(.vertical, 6)
-                            QAInspector(model: model, scenario: scenario, panel: panel == .branches ? .step : panel)
+                            .frame(minWidth: 380, maxWidth: .infinity)
+                            Rectangle().fill(palette.border).frame(width: 1)
+                                .padding(.horizontal, 3)
+                                .contentShape(Rectangle())
+                                .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+                                .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                                    .onChanged { value in
+                                        let start = dragStartWidth ?? width
+                                        dragStartWidth = start
+                                        inspectorWidth = min(max(320, start - value.translation.width), max(320, geometry.size.width - 387))
+                                    }
+                                    .onEnded { _ in dragStartWidth = nil })
+                                .accessibilityElement()
+                                .accessibilityLabel("Resize QA inspector")
+                                .accessibilityValue("\(Int(width)) points")
+                                .help("Drag to resize the QA inspector")
+                            VStack(spacing: 0) {
+                                Picker("", selection: Binding(get: { panel == .branches ? .step : panel }, set: { panel = $0 })) {
+                                    Text("Step").tag(QAPanel.step)
+                                    Text("Setup").tag(QAPanel.setup)
+                                    Text("Run").tag(QAPanel.run)
+                                }
+                                .pickerStyle(.segmented).labelsHidden().padding(.horizontal, 10).padding(.vertical, 6)
+                                QAInspector(model: model, scenario: scenario, panel: panel == .branches ? .step : panel)
+                            }
+                            .frame(width: width)
                         }
-                        .frame(minWidth: 280, idealWidth: 320, maxWidth: 420)
                     }
                 } else {
                     // The graph and the panel under it share the height; the person drags the divider to give either more.
@@ -706,21 +726,30 @@ struct QAInspector: View {
                     HStack {
                         TextField("Name", text: Binding(get: { app.name }, set: { value in model.edit { s in if let i = s.apps.firstIndex(where: { $0.id == app.id }) { s.apps[i].name = value } } }))
                             .textFieldStyle(.roundedBorder)
-                        Picker("", selection: Binding(get: { app.profile }, set: { value in model.edit { s in if let i = s.apps.firstIndex(where: { $0.id == app.id }) { s.apps[i].profile = value } } })) {
-                            ForEach(QAReviewProfile.allCases, id: \.self) { Text($0.title).tag($0) }
-                        }
-                        .labelsHidden().frame(width: 130)
-                        .help("What this application is reviewed against")
                         if scenario.apps.count > 1 {
                             Button { removeApp(app.id) } label: { Image(systemName: "minus.circle") }.buttonStyle(.borderless)
                                 .help("Remove this application")
                         }
                     }
-                    TextEditor(text: Binding(get: { app.requirements.isEmpty ? app.profile.presetRequirements : app.requirements },
+                    HStack {
+                        Text("Review as").uiFont(size: 10.5).foregroundColor(palette.textDim)
+                        Spacer()
+                        Picker("", selection: Binding(get: { app.profile }, set: { value in model.edit { s in if let i = s.apps.firstIndex(where: { $0.id == app.id }) { s.apps[i].profile = value } } })) {
+                            ForEach(QAReviewProfile.allCases, id: \.self) { Text($0.title).tag($0) }
+                        }
+                        .labelsHidden().frame(width: 150)
+                        .help("What this application is reviewed against")
+                    }
+                    DisclosureGroup("Review requirements") {
+                        TextEditor(text: Binding(get: { app.requirements.isEmpty ? app.profile.presetRequirements : app.requirements },
                                              set: { value in model.edit { s in if let i = s.apps.firstIndex(where: { $0.id == app.id }) { s.apps[i].requirements = value == app.profile.presetRequirements ? "" : value } } }))
-                        .uiFont(size: 10.5).frame(height: 84)
+                        .uiFont(size: 10.5).frame(height: 100)
                         .overlay(RoundedRectangle(cornerRadius: 4).stroke(palette.border))
+                    }
+                    .uiFont(size: 10.5)
                 }
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 6).fill(palette.bgInput.opacity(0.35)))
             }
         }
     }
@@ -737,17 +766,20 @@ struct QAInspector: View {
                     HStack {
                         TextField("Name", text: Binding(get: { actor.name }, set: { value in model.edit { s in if let i = s.actors.firstIndex(where: { $0.id == actor.id }) { s.actors[i].name = value } } }))
                             .textFieldStyle(.roundedBorder)
-                        if scenario.apps.count > 1 {
+                        Button { removeActor(actor.id) } label: { Image(systemName: "minus.circle") }.buttonStyle(.borderless)
+                            .disabled(scenario.nodes.contains { $0.actor == actor.id })
+                            .help(scenario.nodes.contains { $0.actor == actor.id } ? "This player has steps" : "Remove this player")
+                    }
+                    if scenario.apps.count > 1 {
+                        HStack {
+                            Text("Application").uiFont(size: 10.5).foregroundColor(palette.textDim)
                             Picker("", selection: Binding(get: { actor.app ?? "" }, set: { value in model.edit { s in if let i = s.actors.firstIndex(where: { $0.id == actor.id }) { s.actors[i].app = value.isEmpty ? nil : value } } })) {
                                 Text("—").tag("")
                                 ForEach(scenario.apps) { Text($0.name).tag($0.id) }
                             }
-                            .labelsHidden().frame(width: 130)
+                            .labelsHidden().frame(maxWidth: .infinity)
                             .help("The application this player uses")
                         }
-                        Button { removeActor(actor.id) } label: { Image(systemName: "minus.circle") }.buttonStyle(.borderless)
-                            .disabled(scenario.nodes.contains { $0.actor == actor.id })
-                            .help(scenario.nodes.contains { $0.actor == actor.id } ? "This player has steps" : "Remove this player")
                     }
                     HStack(spacing: 8) {
                         loginMenu(actor)
@@ -765,10 +797,13 @@ struct QAInspector: View {
                             }
                         Toggle("Test account", isOn: Binding(get: { actor.createTestAccount }, set: { value in model.edit { s in if let i = s.actors.firstIndex(where: { $0.id == actor.id }) { s.actors[i].createTestAccount = value } } }))
                             .toggleStyle(.checkbox).uiFont(size: 10.5)
+                            .fixedSize(horizontal: true, vertical: false)
                             .help("Create an account that exists only for this test, instead of signing in with a saved login")
                             .disabled(actor.login != nil)
                     }
                 }
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 6).fill(palette.bgInput.opacity(0.35)))
             }
             Text("A login is chosen from the passwords the browser saved, or added here: it is saved in the macOS Keychain, the same place. Passwords are never copied into the scenario.")
                 .uiFont(size: 10).foregroundColor(palette.textDim)
@@ -810,10 +845,12 @@ struct QAInspector: View {
             ForEach(others) { item($0) }
         } label: {
             Label(current.map { "\($0.username) — \($0.host)" } ?? "No login", systemImage: "key")
-                .uiFont(size: 10.5).lineLimit(1)
+                .uiFont(size: 10.5).lineLimit(1).truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .menuStyle(.borderlessButton).fixedSize()
-        .help("The saved login this player signs in with")
+        .menuStyle(.borderlessButton)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .help(current.map { "\($0.username) — \($0.host)" } ?? "The saved login this player signs in with")
     }
 
     private func setLogin(_ id: String, _ login: QALoginReference?) {
