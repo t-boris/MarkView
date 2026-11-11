@@ -101,6 +101,18 @@ enum QAStepPrompt {
     static let maxSnapshot = 8000
     static let maxHistory = 6
 
+    /// Keep the initial facts (such as a baseline) and the latest progress when a long check exceeds the prompt allowance.
+    static func boundedEvidence(_ text: String, limit: Int = 12000) -> String {
+        guard text.count > limit else { return text }
+        return String(text.prefix(limit / 2)) + "\n[… intermediate recorded evidence omitted]\n" + String(text.suffix(limit / 2))
+    }
+
+    static func progress(_ history: [QAHistoryItem]) -> String {
+        boundedEvidence(history.filter { !$0.narration.isEmpty }.map {
+            "- \($0.narration) [result: \($0.result)]"
+        }.joined(separator: "\n"))
+    }
+
     static func systemPrompt(_ kind: QAAppKind) -> String {
         switch kind {
         case .web: return webSystemPrompt
@@ -150,7 +162,7 @@ enum QAStepPrompt {
         """
 
     /// `language` is the name of the language the scenario is written in (`QALanguage`); the narration is asked for in it, whatever language the screen is in.
-    static func prompt(kind: QAAppKind, task: QAStepTask, goal: String, history: [QAHistoryItem], observation: QAObservation, language: String? = nil) -> String {
+    static func prompt(kind: QAAppKind, task: QAStepTask, goal: String, history: [QAHistoryItem], observation: QAObservation, language: String? = nil, branchContext: [String] = []) -> String {
         var lines: [String] = []
         lines.append("Scenario goal: \(goal)")
         lines.append("Application: \(task.appName). Player: \(task.actorName).")
@@ -158,7 +170,14 @@ enum QAStepPrompt {
         if !task.detail.isEmpty { lines.append("Details: \(task.detail)") }
         lines.append(task.allowsHTTP ? "This is preparation: you may use http requests to the application's own address as well as the page." : "You may not use http for this step.")
         if let language { lines.append("Narration language: \(language), the language of this scenario. Write the narration in it, whatever language the application is in.") }
+        lines.append("Include identifiers, counts and exact text the step asks you to remember in your narration and completion summary. Use recorded progress to avoid repeating completed work. Recorded evidence does not replace checking the current page; element references are only valid on the current page.")
+        if !branchContext.isEmpty {
+            lines.append("\nCompleted steps in this branch (recorded evidence shared between players):")
+            lines.append(boundedEvidence(branchContext.joined(separator: "\n\n"), limit: 24000))
+        }
         if !history.isEmpty {
+            lines.append("\nNarrated progress in this step (with action results):")
+            lines.append(progress(history))
             lines.append("")
             lines.append("What you did so far in this step:")
             for item in history.suffix(maxHistory) { lines.append("- \(item.action) → \(item.result)") }

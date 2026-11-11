@@ -902,6 +902,13 @@ do {
     check("step prompt: the goal, the application, the player, the step and its details", ["A buyer pays", "Shop", "Buyer", "Pay with a valid card", "Use the test card"].allSatisfy(text.contains))
     check("step prompt: the page", text.contains("http://localhost:3000/cart") && text.contains("Title: Cart") && text.contains("[e1] button \"Pay\""))
     check("step prompt: the last six actions only, with what came of them", text.contains("click [e9] → ok 9") && text.contains("click [e4] → ok 4") && !text.contains("click [e3] → ok 3"))
+    let baselineHistory = [QAHistoryItem(narration: "Baseline has two events: /events/old-a and /events/old-b", action: "click [e1]", result: "ok")]
+        + (1...9).map { QAHistoryItem(narration: "Navigation \($0)", action: "click [e\($0 + 1)]", result: "ok") }
+    let remembered = QAStepPrompt.prompt(kind: .web, task: task, goal: "g", history: baselineHistory, observation: page)
+    check("step prompt: recorded baseline survives more than six navigation actions", remembered.contains("Baseline has two events: /events/old-a and /events/old-b"))
+    let hugeEvidence = "initial baseline" + String(repeating: "x", count: 30000) + "latest event ID"
+    let bounded = QAStepPrompt.boundedEvidence(hugeEvidence)
+    check("step prompt: long evidence keeps initial and latest facts and declares omitted material", bounded.hasPrefix("initial baseline") && bounded.hasSuffix("latest event ID") && bounded.contains("evidence omitted") && bounded.count < 12100)
     check("step prompt: the assistant is not told it has a budget of actions", !text.contains("left for this step") && !QAStepPrompt.systemPrompt(.web).contains("actions left"))
     check("step prompt: no history, no history heading", !QAStepPrompt.prompt(kind: .web, task: task, goal: "g", history: [], observation: page).contains("What you did so far"))
     check("step prompt: a check is told to change nothing", QAStepPrompt.prompt(kind: .web, task: QAStepTask(id: "n3", kind: .verify, title: "t", detail: "", actorName: "B", appName: "S"), goal: "g", history: [], observation: page).contains("do not change anything"))
@@ -1130,6 +1137,16 @@ do {
     check("run: a check is told to change nothing, an action is not", ok.assistant.prompts.first { $0.contains("): Confirmation is shown\n") }?.contains("a check: do not change anything") == true && ok.assistant.prompts.first { $0.contains("): Pay with a valid card\n") }?.contains("an action") == true)
     check("run: the sign-in is told to use placeholders, never real values", ok.assistant.prompts.first?.contains("{{username}} and {{password}}") == true)
 
+    let rememberedRun = run(script: [
+        "Add a product to the cart": [move("click", "e1", "Baseline: /events/old-a and /events/old-b")]
+            + (1...8).map { _ in move("click", "e1", "Continue browsing") }
+            + [finished("New event /events/new-c; marker QA-PACKAGE-123")],
+    ])
+    let sellerPrompt = rememberedRun.assistant.prompts.first { $0.contains("Step (an action): Open the order list\n") } ?? ""
+    check("run: another player receives the baseline and new event from the customer's completed step", sellerPrompt.contains("/events/old-a") && sellerPrompt.contains("/events/old-b") && sellerPrompt.contains("/events/new-c") && sellerPrompt.contains("QA-PACKAGE-123"))
+    check("run: a later check receives evidence across step and player changes", rememberedRun.assistant.prompts.first { $0.contains("Step (a check: do not change anything): The order is listed\n") }?.contains("QA-PACKAGE-123") == true)
+    check("run: account preparation is not retained as shared scenario evidence", !(rememberedRun.assistant.prompts.first { $0.contains("Step (an action): Add a product to the cart\n") } ?? "").contains("Completed steps in this branch"))
+
     // A native macOS scenario runs through the same loop, with the application's own words
     let nativeShop = changed(local) { scenario in
         scenario.appKind = .nativeMacOS
@@ -1285,6 +1302,9 @@ do {
     let several = run(branches: [mainLine, declined, slow], script: ["Confirmation is shown": [notMet("No confirmation")]], prepare: { factory, _ in factory.hits = 1 })
     check("run: each branch is a check of its own, with its own outcome", several.record.results.map(\.verdict.outcome) == [.failed, .passed, .passed] && several.record.isFinished && several.record.selected == [mainLine, declined, slow])
     check("run: each branch starts from fresh sessions", several.factory.drivers.count == 5 && several.factory.drivers.allSatisfy(\.closed) && several.factory.drivers.allSatisfy { $0.opened.count == 1 })
+    let isolatedContext = run(branches: [mainLine, declined], script: ["Add a product to the cart": [finished("Only the first branch: QA-PACKAGE-first")]])
+    let newBranchPrompt = isolatedContext.assistant.prompts.last { $0.contains("Step (an action): Add a product to the cart\n") } ?? ""
+    check("run: a new branch never inherits a previous branch's event or marker", !newBranchPrompt.isEmpty && !newBranchPrompt.contains("QA-PACKAGE-first") && !newBranchPrompt.contains("Completed steps in this branch"))
     check("run: the branches' counts are separate", several.record.results[0].steps.count == 3 && several.record.results[1].steps.count == 3)
     let stopped = run(branches: [mainLine, declined, slow], prepare: { _, assistant in assistant.cancelOnCall = 4 })
     check("run: stopping interrupts the branch in progress", stopped.record.results.first?.verdict.outcome == .interrupted && stopped.record.results.first?.verdict.interruption == .stoppedByUser)

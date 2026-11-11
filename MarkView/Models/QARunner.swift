@@ -122,6 +122,8 @@ final class QARunner {
     private var timeline: [QATimelineEntry] = []
     private var drivers: [String: QAActorDriver] = [:]
     private var lastScreen: [String: String] = [:]
+    /// Only completed scenario steps of the current branch, never another branch's accounts or preparation.
+    private var branchContext: [String] = []
 
     init(scenario: QAScenario, plan: QAExecutionPlan, gate: QAGate, factory: QADriverFactory, assistant: QAAssistant, runID: String,
          confirm: @escaping (QAConfirmation) async -> Bool, observer: QARunObserver? = nil, now: @escaping () -> Date = Date.init,
@@ -171,6 +173,7 @@ final class QARunner {
     // MARK: One check
 
     private func check(_ branch: QABranch) async -> QACheckResult {
+        branchContext = []
         let started = now()
         var machine = QACheckMachine(conditionRequired: !scenario.conditions(of: branch).isEmpty)
         var steps: [QAStepEffort] = []
@@ -386,7 +389,7 @@ final class QARunner {
             let decision: QADecision
             do {
                 let answer = try await assistant.decide(system: QAStepPrompt.systemPrompt(scenario.appKind),
-                                                        prompt: QAStepPrompt.prompt(kind: scenario.appKind, task: task, goal: scenario.goal, history: history, observation: observation, language: language),
+                                                        prompt: QAStepPrompt.prompt(kind: scenario.appKind, task: task, goal: scenario.goal, history: history, observation: observation, language: language, branchContext: branchContext),
                                                         schema: QAStepPrompt.schema)
                 decision = try QAStepPrompt.parse(answer, kind: scenario.appKind, allowsHTTP: task.allowsHTTP)
             } catch is CancellationError {
@@ -403,6 +406,9 @@ final class QARunner {
 
             switch decision.move {
             case .done:
+                if let node {
+                    branchContext.append("Step \(node) · \(task.actorName) · \(task.title)\nLast address: \(observation.address)\n\(QAStepPrompt.progress(history))\nCompletion: \(decision.narration)")
+                }
                 note(branch, node, actor, task.kind == .verify ? .observation : .action, line(actor, decision.narration, fallback: task.kind == .verify ? "The expectation holds." : "Done."))
                 return .done
             case .notMet(let reason):
