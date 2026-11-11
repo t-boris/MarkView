@@ -145,6 +145,7 @@ enum QAConditionKind: String, Codable, CaseIterable {
 
 /// A network fault the actor's page is made to show: matching requests fail, wait or answer with a status.
 struct QAFault: Codable, Equatable {
+    static let methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
     enum Mode: String, Codable {
         case fail
         case delay
@@ -154,6 +155,8 @@ struct QAFault: Codable, Equatable {
     var mode: Mode
     var status: Int? = nil
     var milliseconds: Int? = nil
+    /// Nil preserves existing scenarios: every matching request is affected.
+    var method: String? = nil
 }
 
 /// What a branch needs to be true before it can be executed (DEC-011): how preparation brings it about and how that is confirmed.
@@ -458,6 +461,9 @@ struct QAScenario: Codable, Equatable, Identifiable {
             }
             if fault.mode == .delay && (fault.milliseconds ?? 0) <= 0 { add("The delay of \(node) needs a positive time.") }
             if fault.mode == .status && !(100...599).contains(fault.status ?? 0) { add("The status answer of \(node) needs a status from 100 to 599.") }
+            if let method = fault.method, !QAFault.methods.contains(method.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()) {
+                add("The network condition of \(node) has an unsupported HTTP method.")
+            }
         }
         return found
     }

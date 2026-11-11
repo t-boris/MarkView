@@ -62,6 +62,7 @@ enum QAGeneration {
             "conditionVerify": string(),
             "conditionManual": ["type": "boolean"],
             "faultUrlPattern": string(),
+            "faultMethod": string(),
             "faultMode": choice(["", "fail", "delay", "status"]),
             "faultStatus": integer(),
             "faultMilliseconds": integer(),
@@ -101,7 +102,7 @@ enum QAGeneration {
             surface = """
             The application under test is a web application, driven in a browser like a person does: open pages, click, fill fields, read what is shown. \
             A network condition (a failed or slow request) can be injected into the page: use conditionKind networkFault or delay with faultUrlPattern, \
-            a part of the request address, and a faultMode.
+            a literal part of the request address (no placeholders), and a faultMode. Set faultMethod to GET, POST, PUT, PATCH, DELETE, HEAD or OPTIONS to affect only that HTTP method, or leave it empty for all methods. For a failed send, use POST so loading the same resource still works.
             """
         case .api: return apiSystemPrompt
         case .nativeMacOS:
@@ -160,7 +161,7 @@ enum QAGeneration {
     {"method":"POST","path":"/items","headers":[{"name":"Content-Type","value":"application/json"}],"body":"{\"name\":\"QA item\"}","statuses":[201],"assertions":[{"pointer":"/name","equals":"\"QA item\""}],"captures":[{"name":"itemId","pointer":"/id","secret":false}],"timeoutSeconds":20}
     Paths are relative to the service base URL (a leading slash starts at the host root), or absolute on the same origin. Use {{itemId}} in later paths, headers and bodies. For a safely escaped JSON value use {{itemId.json}} without surrounding quotes; {{username.json}} and {{password.json}} work the same way in JSON login bodies. Capture a token with secret=true, then use a header Authorization: Bearer {{token}}. JSON paths are RFC 6901 pointers, including array indexes (/items/0/id). `equals` is a JSON literal encoded as a string. Include expected statuses on EVERY request and exact body assertions where meaningful. Captures require that the path exists. Timeouts are 1..120 seconds.
     A check may send a read-only GET/HEAD/OPTIONS request, or use path="" to assert the SAME actor/service's previous response without sending again. POST/PUT/PATCH/DELETE must be action nodes marked changesData=yes or unknown, never checks or read-only nodes. Alternative/failure marker nodes can have api=""; use a following check or action to execute the actual request. All action and check nodes need a valid api object. A marker with no request does no work. Put prose explaining intent and sources in detail, and a concise label in title.
-    Prefer self-contained flows that create unique data and clean up after themselves. If an external reset is needed, baselineManual=true with baselineEstablish as instructions for the person; otherwise leave baselineEstablish and baselineVerify empty and baselineManual=false. Do not use networkFault/delay injection: failures must come from actual requests or a manually prepared service condition. Empty conditionKind, conditionEstablish, conditionVerify, faultUrlPattern, faultMode; conditionManual=false; faultStatus and faultMilliseconds=0 unless a manual state/data condition is essential.
+    Prefer self-contained flows that create unique data and clean up after themselves. If an external reset is needed, baselineManual=true with baselineEstablish as instructions for the person; otherwise leave baselineEstablish and baselineVerify empty and baselineManual=false. Do not use networkFault/delay injection: failures must come from actual requests or a manually prepared service condition. Empty conditionKind, conditionEstablish, conditionVerify, faultUrlPattern, faultMode, faultMethod; conditionManual=false; faultStatus and faultMilliseconds=0 unless a manual state/data condition is essential.
     Write titles/details in the goal's language. Ids are plain ASCII letters, digits, hyphens, underscores (max 40). Return 8..25 useful steps when the goal warrants it, without padding. The person reviews and edits the proposed requests before approving a run. Never store passwords, API keys or tokens in request JSON: use saved-login placeholders and secret captures.
     """#
 
@@ -271,7 +272,8 @@ enum QAGeneration {
                         if let mode = QAFault.Mode(rawValue: modeText) {
                             condition.fault = QAFault(urlPattern: pattern, mode: mode,
                                                       status: number(item["faultStatus"]) == 0 ? nil : number(item["faultStatus"]),
-                                                      milliseconds: number(item["faultMilliseconds"]) == 0 ? nil : number(item["faultMilliseconds"]))
+                                                      milliseconds: number(item["faultMilliseconds"]) == 0 ? nil : number(item["faultMilliseconds"]),
+                                                      method: text(item["faultMethod"]).isEmpty ? nil : text(item["faultMethod"]).uppercased())
                         } else {
                             parseProblems.append("Step \(id): faultMode must be fail, delay or status.")
                         }

@@ -218,6 +218,7 @@ final class QAWebActor: QAActorDriver {
             var object: [String: Any] = ["pattern": fault.urlPattern, "mode": fault.mode.rawValue]
             object["status"] = fault.status ?? 500
             object["ms"] = fault.milliseconds ?? 0
+            if let method = fault.method { object["method"] = method.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() }
             return object
         }
         let json = (try? JSONSerialization.data(withJSONObject: list)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
@@ -226,9 +227,13 @@ final class QAWebActor: QAActorDriver {
           window.__qaRules = \(json);
           if (window.__qaInstalled) return;
           window.__qaInstalled = true;
-          function rule(url) {
+          function rule(url, method) {
             var text = String(url);
-            for (var i = 0; i < window.__qaRules.length; i++) { if (text.indexOf(window.__qaRules[i].pattern) >= 0) return window.__qaRules[i]; }
+            method = String(method || 'GET').toUpperCase();
+            for (var i = 0; i < window.__qaRules.length; i++) {
+              var r = window.__qaRules[i];
+              if (text.indexOf(r.pattern) >= 0 && (!r.method || r.method === method)) return r;
+            }
             return null;
           }
           function hit(r) { try { window.webkit.messageHandlers.\(QAFaultHandler.name).postMessage(r.pattern); } catch (e) {} }
@@ -236,7 +241,8 @@ final class QAWebActor: QAActorDriver {
           if (realFetch) {
             window.fetch = function (input, init) {
               var url = typeof input === 'string' ? input : (input && input.url) || String(input);
-              var r = rule(url), self = this, args = arguments;
+              var method = (init && init.method) || (input && input.method) || 'GET';
+              var r = rule(url, method), self = this, args = arguments;
               if (!r) return realFetch.apply(self, args);
               hit(r);
               if (r.mode === 'delay') return new Promise(function (go) { setTimeout(go, r.ms); }).then(function () { return realFetch.apply(self, args); });
@@ -245,9 +251,9 @@ final class QAWebActor: QAActorDriver {
             };
           }
           var open = XMLHttpRequest.prototype.open, send = XMLHttpRequest.prototype.send;
-          XMLHttpRequest.prototype.open = function (method, url) { this.__qaUrl = url; return open.apply(this, arguments); };
+          XMLHttpRequest.prototype.open = function (method, url) { this.__qaUrl = url; this.__qaMethod = method; return open.apply(this, arguments); };
           XMLHttpRequest.prototype.send = function () {
-            var r = rule(this.__qaUrl || ''), self = this, args = arguments;
+            var r = rule(this.__qaUrl || '', this.__qaMethod), self = this, args = arguments;
             if (!r) return send.apply(self, args);
             hit(r);
             if (r.mode === 'delay') { setTimeout(function () { send.apply(self, args); }, r.ms); return; }
