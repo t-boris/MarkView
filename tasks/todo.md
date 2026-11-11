@@ -5554,4 +5554,28 @@ adds HTTP API as the third separate scenario type (REQ-017, DEC-026).
 - [x] Invisible real app: API scenario loads, request editor renders, approval and
   Start execute a live request, result is passed and HTTP response/timing is saved
   in run.json. Existing running app and its sessions are untouched.
-- [ ] Final Debug build, PR checks, merge and signed/notarized 5.66.0 release.
+- [x] Final Debug build and all PR checks passed. [PR #360](https://github.com/t-boris/MarkView/pull/360)
+  merged as `da89c77`; the merge's [Build & Release run](https://github.com/t-boris/MarkView/actions/runs/43101452250)
+  passed for arm64 and x86_64.
+- [x] [Release v5.66.0](https://github.com/t-boris/MarkView/releases/tag/v5.66.0) published as Latest
+  from the merge commit. Universal Release app version/build 5.66.0 and strict
+  signatures verified; DMG notarized, stapled and accepted by Gatekeeper. The
+  uploaded asset SHA-256 matches the local installer:
+  `7ba6997539eaddba77551255e773f2457fab6bd553416b2e9dbb870299fa14ff`.
+  Local artifacts: `/tmp/MarkView-qa-api-release/build/release/MarkView.app` and
+  `/tmp/MarkView-qa-api-release/build/MarkView-5.66.0.dmg`.
+
+## Completion audit
+
+- Web and native macOS remain separate runnable scenario types, verified by the
+  shared QA, real WKWebView and native two-player suites.
+- API generation reads the project and supplied API contracts, proposes concrete
+  requests and branches, validates them and persists editable executable steps.
+  A real assistant's proposal was inspected and all four branches executed.
+- Backend execution verifies statuses and JSON, chains captured ids/tokens, isolates
+  clients/services/branches, preserves production approval and Stop, and records
+  evidence, outcomes, archives and bugs. The live fixture and real app probes
+  exercise passing and failing checks; the harness also verifies blocked,
+  interrupted and uncovered outcomes.
+- Delivery is complete: merged PR, successful merge CI, signed universal Release
+  app and notarized published DMG. Existing installed app and sessions are intact.
