@@ -18,8 +18,10 @@ struct QALiveRunView: View {
                 confirmation(question)
                 Divider()
             }
-            players
-            Divider()
+            if run.scenario?.appKind != .api {
+                players
+                Divider()
+            }
             feed
             if !run.results.isEmpty {
                 Divider()
@@ -147,7 +149,7 @@ struct QALiveRunView: View {
             Text(clock(item.time)).uiFont(size: 10).foregroundColor(palette.textDim).monospacedDigit().frame(width: 38, alignment: .trailing)
             Image(systemName: icon(item)).uiFont(size: 10.5).foregroundColor(color(item)).frame(width: 14)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.text).uiFont(size: 11.5, weight: item.kind == .result || item.finding != nil ? .semibold : .regular).fixedSize(horizontal: false, vertical: true)
+                Text(item.text).textSelection(.enabled).uiFont(size: 11.5, weight: item.kind == .result || item.finding != nil ? .semibold : .regular).fixedSize(horizontal: false, vertical: true)
                 if let shown = item.finding {
                     let finding = run.findings.first { $0.id == shown.id } ?? shown
                     Text(finding.detail).uiFont(size: 10.5).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)

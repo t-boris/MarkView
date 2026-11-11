@@ -121,12 +121,15 @@ enum QAPlanner {
                 if !savedLogins.contains(login) {
                     problem(.loginNotSaved, actor.id, "\(actor.name): the login \(login.username) for \(login.host) is not saved in the browser's passwords.")
                 }
-                if scenario.appKind == .web, let target, let app, let host = hostOf(target.locations[app]?.url),
+                if scenario.appKind != .nativeMacOS, let target, let app, let host = hostOf(target.locations[app]?.url),
                    normalized(login.host) != host {
                     problem(.loginHostMismatch, actor.id, "\(actor.name): the saved login is for \(login.host), but \(target.name) runs on \(host).")
                 }
-                preparation.append(QAPreparationStep(id: "login:\(actor.id)", kind: .login, title: "\(actor.name) signs in as \(login.username)",
-                                                     detail: login.host, actor: actor.id, app: app, changesData: .no))
+                // API authentication is an explicit saved request; choosing credentials must not send an implicit login request.
+                if scenario.appKind != .api {
+                    preparation.append(QAPreparationStep(id: "login:\(actor.id)", kind: .login, title: "\(actor.name) signs in as \(login.username)",
+                                                         detail: login.host, actor: actor.id, app: app, changesData: .no))
+                }
             } else if actor.createTestAccount {
                 preparation.append(QAPreparationStep(id: "account:\(actor.id)", kind: .createAccount, title: "Create a test account for \(actor.name)",
                                                      detail: "An account that exists only for this test, created through the application's own sign-up.",

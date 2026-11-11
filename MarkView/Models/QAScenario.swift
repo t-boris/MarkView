@@ -6,6 +6,7 @@ import Foundation
 enum QAAppKind: String, Codable, CaseIterable {
     case web
     case nativeMacOS
+    case api
 }
 
 enum QATargetKind: String, Codable, CaseIterable {
@@ -28,7 +29,7 @@ struct QALocation: Codable, Equatable {
     /// What a player opens for this kind of application: the web address, or the bundle identifier of the installed application.
     func address(for kind: QAAppKind) -> String? {
         switch kind {
-        case .web: return url
+        case .web, .api: return url
         case .nativeMacOS: return application?.bundleIdentifier
         }
     }
@@ -181,6 +182,8 @@ struct QANode: Codable, Equatable, Identifiable {
     var app: String? = nil
     var changesData: QADataChange = .unknown
     var condition: QACondition? = nil
+    /// Executable request and deterministic response checks for HTTP API scenarios.
+    var api: QAAPIRequest? = nil
 }
 
 struct QAEdge: Codable, Equatable, Hashable {
@@ -212,6 +215,7 @@ struct QAProblem: Equatable {
         case ambiguousApp
         case emptyTitle
         case missingExpectation
+        case invalidAPI
         case missingStart
         case unknownNode
         case unreachableNode
@@ -237,7 +241,7 @@ struct QAScenario: Codable, Equatable, Identifiable {
     var title: String
     /// What the person wanted to test, in their words.
     var goal: String
-    /// One scenario targets one kind of application; web and native are never mixed (DEC-007).
+    /// One scenario targets web, native macOS or HTTP API applications; surface kinds are never mixed (DEC-007).
     var appKind: QAAppKind
     var apps: [QAApp] = []
     var targets: [QATarget] = []
@@ -376,6 +380,21 @@ struct QAScenario: Codable, Equatable, Identifiable {
             }
             if let app = node.app, self.app(app) == nil { add(.unknownApp, node.id, "Step \(node.id) names the unknown application \(app).") }
             if let condition = node.condition { found.append(contentsOf: QAScenario.conditionProblems(condition, node: node.id)) }
+            if appKind == .api {
+                if let api = node.api {
+                    for message in api.problems { add(.invalidAPI, node.id, "Step \(node.id): \(message)") }
+                    if node.changesData == .no || node.kind == .check || node.kind == .failure {
+                        if !api.path.isEmpty && !["GET", "HEAD", "OPTIONS"].contains(api.method) {
+                            add(.invalidAPI, node.id, "A mutating HTTP request must be an action marked as changing data.")
+                        }
+                    }
+                } else if node.kind == .action || node.kind == .check {
+                    add(.invalidAPI, node.id, "Step \(node.id) needs an API request or a previous-response check.")
+                }
+                if let condition = node.condition, condition.kind == .networkFault || condition.kind == .delay {
+                    add(.invalidAPI, node.id, "API faults must be produced by real service requests or manual preparation.")
+                }
+            }
         }
 
         if let baseline { found.append(contentsOf: QAScenario.conditionProblems(baseline, node: "baseline")) }
@@ -387,6 +406,7 @@ struct QAScenario: Codable, Equatable, Identifiable {
         }
         if apps.isEmpty { add(.noApp, id, "The scenario has no application.") }
         for actor in actors {
+            if appKind == .api && actor.createTestAccount { add(.invalidAPI, actor.id, "API accounts and authentication must be explicit request steps; turn off automatic test account creation.") }
             if let app = actor.app, self.app(app) == nil { add(.unknownApp, actor.id, "Actor \(actor.id) uses the unknown application \(app).") }
             if actor.app == nil && apps.count > 1 && nodes.contains(where: { $0.actor == actor.id && $0.app == nil }) {
                 add(.ambiguousApp, actor.id, "Actor \(actor.id) does not say which of the \(apps.count) applications they use.")
@@ -451,7 +471,7 @@ struct QAScenario: Codable, Equatable, Identifiable {
                 continue
             }
             switch appKind {
-            case .web:
+            case .web, .api:
                 guard let text = location.url, let url = URL(string: text), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
                       let host = url.host, !host.isEmpty else {
                     problem("\(app.name) in the target \(target.name) needs an http or https address.")

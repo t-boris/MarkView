@@ -1,4 +1,4 @@
-# End-to-End QA (Scenarios, Web and Native Runners, Video, UX Review, Bugs, Cleanup)
+# End-to-End QA (Scenarios, Web, Native and API Runners, Video, UX Review, Bugs, Cleanup)
 
 End-to-End QA turns a goal ("a requester submits an expense and a manager approves it") into a branching
 scenario, shows it in a visual editor, and checks the chosen branches against a running web application
@@ -10,14 +10,14 @@ interrupted and for each defect the review finds.
 
 Related module docs: [feature-workflow](feature-workflow.md), [editor-and-bridge](editor-and-bridge.md),
 [ai-assistants-and-dictation](ai-assistants-and-dictation.md), [build-release-testing](build-release-testing.md).
-The feature record is `docs/features/end-to-end-qa/` (requirements REQ-001..016, decisions DEC-001..025).
+The feature record is `docs/features/end-to-end-qa/` (requirements REQ-001..017, decisions DEC-001..026).
 
 ---
 
 ## 1. Scope of this release
 
 Shipped: web applications (5.55.0) and native macOS applications. One scenario targets one type of
-application (Q-009, DEC-007): web and native flows are separate scenarios. A native player launches the
+application (Q-009, DEC-007): web, native and HTTP API flows are separate scenarios. HTTP API checks are available alongside the screen runners (section 9). A native player launches the
 installed application the person chose, reads and operates it through Accessibility and takes its
 pictures through ScreenCaptureKit; both permissions are granted by the person in System Settings and the
 Run panel says which one is missing. Old runs are cleaned up by a retention rule (section 8).
@@ -32,6 +32,7 @@ Run panel says which one is missing. Old runs are cleaned up by a retention rule
 | Run engine | `QARun.swift` (outcomes and the state machine), `QARunner.swift` (the loop), `QAActions.swift` (the actions the assistant may ask for and how they are validated), `QAEffort.swift` (measured counts, `QAFinding`) |
 | Web player | `QAWebActor.swift` (`QAWebActor`, `QAWebDriverFactory`), `QACredentials.swift` (placeholders and scrubbing), `BrowserSession.swift` (optional website data store) |
 | Native player | `QANativeTree.swift` (pure: the element model, the text the assistant reads, key parsing, measured evidence), `QANativeAccessibility.swift` (the Accessibility layer), `QANativeCapture.swift` (window pictures), `QANativeActor.swift` (`QANativeActor`, `QANativeError`), `QANativeFactory.swift` (`QANativeDriverFactory`, `QANativePermissions`) |
+| HTTP API | `QAAPI.swift` (persisted request, JSON Pointer checks), `QAAPIClient.swift` (bounded HTTP transport, isolated sessions and captures), `QAAPIActor.swift` (driver and factory), `Views/QAAPIRequestEditor.swift` (editable request fields) |
 | Assistant | `QARunAssistant.swift` (`QACLIAssistant`: one `CLICompletion` call per turn, effort `low`), `QALanguage.swift` (names the language of the scenario for the prompts) |
 | Video | `QAFrameComposer.swift` (players side by side), `QAVideoWriter.swift` (H.264, subtitle band) |
 | Review | `QAReview.swift` (prompt, schema, parsing, effort summary), `QAPageEvidence.swift` (in-page measurements) |
@@ -162,3 +163,52 @@ on the real screen).
 - Mixing web and native applications in one scenario (Q-009 answered: no).
 - An HTTP/REST service as a third application type (Q-011, open).
 - Replaying resolved steps without the assistant (a step cache); every re-run asks the assistant again.
+
+## 9. HTTP API scenarios
+
+Choose **HTTP API** in New scenario, describe the backend flow, and attach an
+OpenAPI/Swagger contract or API documentation. The generator also reads the
+project's routes, validation, auth handlers and tests. It proposes positive and
+negative branches with concrete request templates, not just prose. Generation
+never executes requests. `QAGeneration.schema(for:)` includes the serialized
+request object only for API proposals; validation and retry reject malformed or
+missing requests. The existing web/native schema stays unchanged.
+
+Each step's API editor saves its method, path, headers, body, expected HTTP
+statuses, timeout (1–120 seconds), JSON equality assertions and captures.
+JSON paths are RFC 6901 pointers (`/items/0/id`; `~1` escapes `/`, `~0` escapes `~`).
+Expected values are JSON literals (`true`, `3`, `"Alice"`, `null`). An empty request
+path checks the same actor/service's previous response without sending again.
+A write must be an action marked as changing data or unknown; checks and
+read-only nodes cannot send POST/PUT/PATCH/DELETE.
+
+A capture names a value from a response for later `{{name}}` substitution in a
+path, header or body. `{{name.json}}` inserts an escaped JSON literal without
+surrounding quotes; `{{username.json}}` / `{{password.json}}` do the same for saved
+credentials. Authentication is an explicit request step: choosing a login supplies
+credentials but sends no implicit request. Capture a login token with Secret on,
+then send `Authorization: Bearer {{token}}`. Cookies and captures are isolated by
+actor and service, and discarded between branches. No cross-client variable sharing
+is implied; keep a create/read/update/delete flow on one actor/service.
+
+`QARunner` executes each saved API request once through `QAAPIExecuting`; no
+assistant chooses the request or its verdict during replay. Status/JSON/capture
+mismatches fail the branch. Missing variables, connection errors, timeouts and
+responses above 2 MiB block it. Stop cancels the in-flight request and interrupts
+the branch; cancellation during request creation is covered by a race check.
+Expected negative statuses pass. Redirects remain responses under test and are
+never followed, preventing credential forwarding and implicit write replays.
+All requests must stay on the configured HTTP(S) origin (scheme, host and port).
+
+The live feed and archived timeline retain request templates, HTTP statuses,
+response evidence (at most 16,000 characters) and timings. Assertions use the full
+bounded response. Request headers/bodies are omitted from evidence; saved passwords,
+secret captures and common authentication fields are removed from response text.
+API runs skip video and screen review and retain the existing approval,
+production confirmation, outcome, archive, retention and bug-filing paths.
+
+Verification: `tools/tests/qa-api-tests.sh` runs the real client and runner against
+`Tests/Fixtures/qa-api-demo`, including the retained real-assistant proposal. Other
+QA suites cover shared behavior and web/native regressions. For native live checks
+from a worktree under `/tmp`, set `QA_NATIVE_FIXTURE_ROOT` to a regular local build
+folder, because Launch Services does not register apps beneath temporary folders.

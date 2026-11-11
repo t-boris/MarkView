@@ -35,6 +35,11 @@ struct QADriverRequest {
     var login: QALoginReference?
 }
 
+/// API steps execute the saved request once and check its response without an assistant deciding the verdict.
+protocol QAAPIExecuting: AnyObject {
+    func execute(_ request: QAAPIRequest) async throws -> QAAPIResult
+}
+
 protocol QADriverFactory: AnyObject {
     func makeDriver(_ request: QADriverRequest) async throws -> QAActorDriver
 }
@@ -295,7 +300,23 @@ final class QARunner {
             let began = now()
             let task = QAStepTask(id: node.id, kind: node.kind == .check || node.kind == .failure ? .verify : .act, title: node.title, detail: node.detail,
                                   actorName: actor?.name ?? "the user", appName: app.name)
-            let outcome = await perform(task, branch: branch, node: node.id, actor: actor?.id, driver: driver, tally: tally, branchBefore: total)
+            let outcome: Outcome
+            if scenario.appKind == .api {
+                if let api = node.api, let executor = driver as? QAAPIExecuting {
+                    do {
+                        try Task.checkCancellation()
+                        note(branch, node.id, actor?.id, .action, node.title)
+                        let response = try await executor.execute(api)
+                        note(branch, node.id, actor?.id, .observation, response.evidence)
+                        outcome = response.passed ? .done : .notMet(response.evidence)
+                    } catch is CancellationError { outcome = .interrupted }
+                    catch { outcome = .blocked(.other, describe(error)) }
+                } else if node.kind == .alternative || node.kind == .failure {
+                    outcome = .done
+                } else { outcome = .blocked(.other, "The API step has no executable request.") }
+            } else {
+                outcome = await perform(task, branch: branch, node: node.id, actor: actor?.id, driver: driver, tally: tally, branchBefore: total)
+            }
             tally.effort.milliseconds = Int(now().timeIntervalSince(began) * 1000)
             total = total + tally.effort
             steps.append(QAStepEffort(node: node.id, actor: actor?.id, effort: tally.effort))
@@ -420,7 +441,7 @@ final class QARunner {
     // MARK: Helpers
 
     private func session(for actor: QAActor?, app: QAApp) async throws -> QAActorDriver {
-        let key = actor?.id ?? "setup"
+        let key = scenario.appKind == .api ? "\(actor?.id ?? "setup"):\(app.id)" : (actor?.id ?? "setup")
         if let existing = drivers[key] { return existing }
         guard let address = plan.target?.locations[app.id]?.address(for: scenario.appKind) else { throw QARunnerError.noAddress(app.name) }
         let created = try await factory.makeDriver(QADriverRequest(actor: actor, app: app, address: address, login: actor?.login))

@@ -210,6 +210,7 @@ final class QARunModel: ObservableObject {
         let factory: QADriverFactory
         switch scenario.appKind {
         case .web: factory = QAWebDriverFactory()
+        case .api: factory = QAAPIDriverFactory()
         case .nativeMacOS: factory = QANativeDriverFactory()
         }
         let runner = QARunner(scenario: scenario, plan: plan, gate: gate, factory: factory, assistant: assistant, runID: runID,
@@ -414,6 +415,9 @@ final class QARunModel: ObservableObject {
 
     /// What the branch cost a person, and the steps that cost the most.
     func effortSummary(_ result: QACheckResult) -> String {
+        if scenario?.appKind == .api {
+            return "\(result.steps.count) API steps · \(result.effort.milliseconds) ms"
+        }
         let steps = result.steps.compactMap { step -> (title: String, effort: QAEffort)? in
             scenario?.node(step.node).map { (title: $0.title, effort: step.effort) }
         }
@@ -484,7 +488,7 @@ final class QARunModel: ObservableObject {
 
     private func startVideo(_ branch: String) {
         writer = nil
-        guard recordVideo, let root, let scenario, let plan, let found = plan.branches.first(where: { $0.id == branch }) else { return }
+        guard recordVideo, let root, let scenario, scenario.appKind != .api, let plan, let found = plan.branches.first(where: { $0.id == branch }) else { return }
         slots = scenario.actors(in: found)
         if slots.isEmpty { slots = [Self.setupPlayer] }
         let size = QAFrameComposer.pictureSize(players: slots.count)

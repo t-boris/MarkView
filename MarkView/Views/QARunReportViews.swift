@@ -410,7 +410,7 @@ struct QARunReportView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     if let notice = archive.notice { Text(notice).uiFont(size: 10.5).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true) }
                     results
-                    findings
+                    if scenario.appKind != .api || !record.findings.isEmpty { findings }
                     timeline
                 }
                 .padding(12)
@@ -503,7 +503,7 @@ struct QARunReportView: View {
                 ForEach(record.timeline, id: \.id) { entry in
                     HStack(alignment: .top, spacing: 8) {
                         Text(clock(entry.time)).uiFont(size: 10).foregroundColor(palette.textDim).monospacedDigit().frame(width: 38, alignment: .trailing)
-                        Text(entry.text).uiFont(size: 10.5).fixedSize(horizontal: false, vertical: true)
+                        Text(entry.text).textSelection(.enabled).uiFont(size: 10.5).fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }

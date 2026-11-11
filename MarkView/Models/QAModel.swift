@@ -276,7 +276,7 @@ final class QAModel: ObservableObject {
                     complete: { prompt in
                         let result = try await CLICompletion.run(
                             CLICompletion.Request(project: root, prompt: prompt, systemPrompt: QAGeneration.systemPrompt(request.appKind),
-                                                  jsonSchema: QAGeneration.schema, readableFolder: root, timeout: nil, assistantOverride: assistant,
+                                                  jsonSchema: QAGeneration.schema(for: request.appKind), readableFolder: root, timeout: nil, assistantOverride: assistant,
                                                   images: images, label: "qa-generate"),
                             onActivity: { activity in Task { @MainActor in self?.setActivity(activity) } })
                         return QAGenerator.Answer(structured: result.structured, costUSD: result.costUSD)
