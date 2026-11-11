@@ -78,6 +78,10 @@ final class QARunModel: ObservableObject {
     /// A run reviews at most this many screens, whatever their number, so its cost stays bounded.
     static let maxReviews = 40
 
+    @Published private(set) var isPaused = false
+    @Published private(set) var pauseRequested = false
+    private var control: QARunControl?
+    private var sessions = QARunSessions()
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var players: [Player] = []
     @Published private(set) var feed: [FeedItem] = []
@@ -155,6 +159,13 @@ final class QARunModel: ObservableObject {
         reviewDepth = UserDefaults.standard.string(forKey: Self.depthKey).flatMap(ReviewDepth.init(rawValue:)) ?? .screens
     }
 
+    deinit {
+        runTask?.cancel()
+        control?.stop()
+        let retained = sessions
+        Task { await retained.close() }
+    }
+
     func dismiss() { dismissed = true }
     func show() { dismissed = false }
 
@@ -181,8 +192,14 @@ final class QARunModel: ObservableObject {
 
     // MARK: Start and stop
 
-    func start(scenario: QAScenario, plan: QAExecutionPlan, gate: QAGate, root: URL, assistant selected: CLICompletion.Assistant? = nil) {
+    func start(scenario: QAScenario, plan: QAExecutionPlan, gate: QAGate, root: URL, assistant selected: CLICompletion.Assistant? = nil, from startPoint: QAStartPoint? = nil) {
         guard phase != .running, gate.canPrepare else { return }
+        let reuse = startPoint != nil && self.root == root && self.scenario?.id == scenario.id && self.plan?.target == plan.target
+            && self.scenario?.actors == scenario.actors && self.scenario?.appKind == scenario.appKind
+        let oldSessions = reuse ? nil : sessions
+        if !reuse { sessions = QARunSessions() }
+        let control = QARunControl()
+        self.control = control
         reset()
         self.scenario = scenario
         self.plan = plan
@@ -215,8 +232,10 @@ final class QARunModel: ObservableObject {
         }
         var config = QARunner.Config()
         config.captureInputs = recordVideo
+        config.keepSessions = true
+        config.startPoint = startPoint
         let runner = QARunner(scenario: scenario, plan: plan, gate: gate, factory: factory, assistant: assistant, runID: runID,
-                              confirm: { [weak self] confirmation in await self?.ask(confirmation) ?? false }, observer: sink, config: config)
+                              confirm: { [weak self] confirmation in await self?.ask(confirmation) ?? false }, observer: sink, config: config, control: control, sessions: sessions)
 
         let (queue, jobsContinuation) = AsyncStream.makeStream(of: ReviewJob.self)
         jobs = jobsContinuation
@@ -230,6 +249,7 @@ final class QARunModel: ObservableObject {
             for await event in events { self?.handle(event) }
         }
         runTask = Task { [weak self] in
+            await oldSessions?.close()
             _ = await runner.run()
             continuation.finish()
             await self?.consumer?.value
@@ -241,9 +261,38 @@ final class QARunModel: ObservableObject {
 
     /// Stops the run: the branch in progress is interrupted and the ones not started stay uncovered.
     func stop() {
+        control?.stop()
         runTask?.cancel()
         reviewer?.cancel()
         reply(false)
+    }
+
+    func pause() {
+        guard isRunning, !isPaused else { return }
+        pauseRequested = true
+        control?.pause()
+    }
+
+    func resume(at node: String? = nil) {
+        guard isRunning else { return }
+        if let node, !(scenario?.enumerateBranches().branches.first { $0.id == currentBranch }?.nodes.contains(node) ?? false) { return }
+        pauseRequested = false
+        control?.resume(at: node)
+    }
+
+    var restartBranches: [QABranch] { plan?.branches ?? [] }
+
+    var continuationSteps: [QANode] {
+        guard let scenario, let branch = scenario.enumerateBranches().branches.first(where: { $0.id == currentBranch }) else { return [] }
+        return branch.nodes.compactMap { scenario.node($0) }
+    }
+
+    /// Called on project changes; wait for the active runner before closing its players.
+    func releaseSessions() {
+        stop()
+        let task = runTask, old = sessions
+        sessions = QARunSessions()
+        Task { await task?.value; await old.close() }
     }
 
     func reply(_ yes: Bool) {
@@ -261,6 +310,8 @@ final class QARunModel: ObservableObject {
     }
 
     private func reset() {
+        isPaused = false
+        pauseRequested = false
         feed = []
         screenshots = [:]
         screenNumbers = [:]
@@ -310,6 +361,11 @@ final class QARunModel: ObservableObject {
             subtitle = entry.text
             let key = entry.actor ?? Self.setupPlayer
             addFeed(time: entry.time, kind: entry.kind, actor: entry.actor, node: entry.node, text: entry.text, picture: thumbnails[key], screenshot: screenshots[key], screen: screenNumbers[key] ?? 0)
+            addFrame()
+        case .paused(let paused):
+            isPaused = paused
+            pauseRequested = false
+            subtitle = paused ? "Execution paused" : "Execution resumed"
             addFrame()
         case .screen(let screen):
             show(screen)
@@ -379,11 +435,12 @@ final class QARunModel: ObservableObject {
             let saved = finished
             do { try await Task.detached(priority: .utility) { try QAStore.saveRun(saved, root: root) }.value } catch { notice = "The run could not be saved: \(error.localizedDescription)" }
         }
+        if let record, let root { await fileBugs(record, root: root) }
         phase = .finished
+        isPaused = false
+        pauseRequested = false
         currentBranch = nil
         currentNode = nil
-        guard let record, let root else { return }
-        await fileBugs(record, root: root)
     }
 
     // MARK: The bugs of the run (REQ-007)

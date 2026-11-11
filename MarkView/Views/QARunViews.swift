@@ -9,6 +9,7 @@ struct QALiveRunView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var run: QARunModel
     let onClose: () -> Void
+    var onRestart: (QAStartPoint) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,25 +37,47 @@ struct QALiveRunView: View {
     private var statusBar: some View {
         HStack(spacing: 8) {
             if run.isRunning {
-                ProgressView().controlSize(.small)
+                if !run.isPaused { ProgressView().controlSize(.small) }
                 Text(statusText).uiFont(size: 11.5, weight: .medium).lineLimit(1)
                 Spacer()
+                if run.isPaused {
+                    Button { run.resume() } label: { Label("Resume", systemImage: "play.fill") }
+                    Menu("Continue from step") {
+                        ForEach(run.continuationSteps) { node in Button(node.title) { run.resume(at: node.id) } }
+                    }.disabled(run.currentNode == nil)
+                } else {
+                    Button { run.pause() } label: { Label(run.pauseRequested ? "Pausing…" : "Pause", systemImage: "pause.fill") }
+                        .disabled(run.pauseRequested)
+                }
                 Button(role: .destructive) { run.stop() } label: { Label("Stop", systemImage: "stop.fill") }.uiFont(size: 11)
             } else {
                 Image(systemName: "flag.checkered").foregroundColor(palette.textDim)
                 Text(finishedText).uiFont(size: 11.5, weight: .medium).lineLimit(2)
                 Spacer()
+                restartMenu
                 Button("Back to the scenario", action: onClose).uiFont(size: 11)
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
     }
 
+    private var restartMenu: some View {
+        Menu("Run from step") {
+            ForEach(run.restartBranches) { branch in
+                Menu(run.scenario?.label(of: branch) ?? branch.id) {
+                    ForEach(branch.nodes, id: \.self) { id in
+                        Button(run.scenario?.node(id)?.title ?? id) { onRestart(QAStartPoint(branch: branch.id, node: id)) }
+                    }
+                }
+            }
+        }
+    }
+
     private var statusText: String {
         guard let branch = run.currentBranch else { return "Starting…" }
         let label = run.labels[branch] ?? branch
         let number = run.results.count + 1
-        return "Branch \(min(number, max(run.branchCount, 1))) of \(run.branchCount): \(label)"
+        return (run.isPaused ? "Paused · " : "") + "Branch \(min(number, max(run.branchCount, 1))) of \(run.branchCount): \(label)"
     }
 
     private var finishedText: String {
@@ -208,6 +231,10 @@ struct QALiveRunView: View {
                             .background(Capsule().fill(tint(result.verdict.outcome)))
                         Text(run.labels[result.branch] ?? result.branch).uiFont(size: 11.5, weight: .medium).lineLimit(1)
                         Spacer(minLength: 0)
+                        if result.verdict.outcome != .passed, let node = result.verdict.node ?? (result.verdict.outcome == .interrupted ? result.steps.last?.node : nil) {
+                            Button("Retry from this step") { onRestart(QAStartPoint(branch: result.branch, node: node)) }
+                                .buttonStyle(.borderless).uiFont(size: 10.5)
+                        }
                         if let video = run.videos[result.branch] {
                             Button { NSWorkspace.shared.open(video) } label: { Label("Video", systemImage: "play.rectangle") }
                                 .buttonStyle(.borderless).uiFont(size: 10.5)

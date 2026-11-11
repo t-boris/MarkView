@@ -156,7 +156,7 @@ struct QAEditorView: View {
                 header(scenario)
                 Divider()
                 if run.phase != .idle, run.scenario?.id == scenario.id, !run.dismissed {
-                    QALiveRunView(run: run) { run.dismiss() }
+                    QALiveRunView(run: run, onClose: { run.dismiss() }, onRestart: { model.startRun(from: $0) })
                 } else if let opened = archive.opened, opened.scenarioID == scenario.id {
                     QARunReportView(archive: archive, scenario: scenario, record: opened) { archive.close() }
                 } else if wide {
@@ -1185,10 +1185,22 @@ struct QARunPanel: View {
                 if scenario.appKind == .nativeMacOS {
                     QANativePermissionsView(status: permissions, refresh: { permissions = QANativePermissions.current })
                 }
+                Text("Starting from a step uses current application state. Earlier steps and preparation are skipped.").uiFont(size: 10.5).foregroundColor(palette.textDim)
                 if run.isRunning {
                     Button("Show the run") { run.show() }
                 } else {
                     HStack {
+                        Menu("Start from step") {
+                            ForEach(model.plan?.branches ?? []) { branch in
+                                Menu(scenario.label(of: branch)) {
+                                    ForEach(branch.nodes, id: \.self) { id in
+                                        Button(scenario.node(id)?.title ?? id) {
+                                            run.show(); model.startRun(from: QAStartPoint(branch: branch.id, node: id))
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         Button("Start the check") { run.show(); model.startRun() }.buttonStyle(.borderedProminent)
                             .disabled(scenario.appKind == .nativeMacOS && permissions != .granted)
                         if run.phase == .finished && run.scenario?.id == scenario.id {

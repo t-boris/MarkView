@@ -1077,7 +1077,8 @@ final class ScriptedAssistant: QAAssistant {
 
 final class Recorder: QARunObserver {
     var events: [QARunEvent] = []
-    func handle(_ event: QARunEvent) { events.append(event) }
+    var onEvent: ((QARunEvent) -> Void)?
+    func handle(_ event: QARunEvent) { events.append(event); onEvent?(event) }
     var narrations: [QATimelineEntry] { events.compactMap { if case .narration(let entry) = $0 { return entry } else { return nil } } }
     var shown: [QAScreenEvent] { events.compactMap { if case .screen(let screen) = $0 { return screen } else { return nil } } }
     var screens: [(isNew: Bool, png: Data?)] { shown.map { ($0.isNew, $0.png) } }
@@ -1107,6 +1108,8 @@ do {
 
     func run(scenario: QAScenario = local, target: String = "local", branches: [String] = [mainLine], script: [String: [[String: Any]]] = [:],
              saved: Set<QALoginReference> = [localBuyer], approve: Bool = true, confirm: Bool = true, config: QARunner.Config = QARunner.Config(),
+             control: QARunControl = QARunControl(), sessions: QARunSessions = QARunSessions(),
+             observe: ((QARunEvent) -> Void)? = nil,
              prepare: (FakeFactory, ScriptedAssistant) -> Void = { _, _ in }) -> Setup {
         var scenario = scenario
         scenario.clearSelection()
@@ -1116,11 +1119,12 @@ do {
         if approve { gate.approve(acknowledgedProduction: true) }
         let factory = FakeFactory(), assistant = ScriptedAssistant(script), recorder = Recorder()
         prepare(factory, assistant)
+        recorder.onEvent = observe
         var asked: [String] = []
         var tick = 0.0
         let runner = QARunner(scenario: scenario, plan: plan, gate: gate, factory: factory, assistant: assistant, runID: "r1",
                               confirm: { confirmation in asked.append(confirmation.id); return confirm }, observer: recorder,
-                              now: { tick += 1; return now.addingTimeInterval(tick) }, config: config)
+                              now: { tick += 1; return now.addingTimeInterval(tick) }, config: config, control: control, sessions: sessions)
         let record = (try? runAsync { await runner.run() }.get()) ?? QARunRecord(id: "lost", scenarioID: "", targetID: "", targetKind: .local, selected: [], startedAt: now)
         return Setup(record: record, factory: factory, assistant: assistant, recorder: recorder, asked: asked, gate: runner.gate)
     }
@@ -1206,6 +1210,41 @@ do {
     check("input: markers carry semantics without typed values", inputEvents.contains { $0.1.kind == .fill && $0.1.label == "Type text" })
     var noInputs = QARunner.Config(); noInputs.captureInputs = false
     check("input: video annotations can be disabled", !run(script: okScript, config: noInputs).recorder.events.contains { if case .input = $0 { return true }; return false })
+
+    var tailConfig = QARunner.Config(); tailConfig.startPoint = QAStartPoint(branch: mainLine, node: "n3")
+    let tail = run(config: tailConfig)
+    check("restart: only the chosen tail runs and no preparation repeats", tail.result?.nodesMet == ["n3", "n4", "n5"] && !tail.assistant.asked("Restore the baseline") && !tail.assistant.asked("Sign in as Buyer"))
+    check("restart: skipped steps never become a full pass", tail.result?.verdict.outcome == .uncovered && tail.result?.skippedNodes == ["n1", "n2"] && tail.record.startPoint == tailConfig.startPoint)
+    var invalidStart = tailConfig; invalidStart.startPoint = QAStartPoint(branch: mainLine, node: "missing")
+    check("restart: an invalid start opens no application", run(config: invalidStart).factory.drivers.isEmpty)
+    check("restart: starting mid-scenario still requires approval", run(approve: false, config: tailConfig).factory.drivers.isEmpty)
+    let retained = QARunSessions()
+    var keep = QARunner.Config(); keep.keepSessions = true
+    let beforeRetry = run(config: keep, sessions: retained)
+    check("restart: sessions remain live for an explicit continuation", !beforeRetry.factory.drivers.isEmpty && beforeRetry.factory.drivers.allSatisfy { !$0.closed })
+    let afterRetry = run(config: tailConfig, sessions: retained)
+    check("restart: continuation reuses existing players without reopening", afterRetry.factory.drivers.isEmpty && afterRetry.result?.nodesMet == ["n3", "n4", "n5"])
+    _ = runAsync { await retained.close() }
+    check("restart: releasing retained sessions closes every player", beforeRetry.factory.drivers.allSatisfy(\.closed))
+    let pauseControl = QARunControl()
+    var sawPause = false
+    let resumed = run(control: pauseControl, observe: { event in
+        if case .nodeStarted(_, "n1", _, _) = event { pauseControl.pause() }
+        if case .paused(true) = event { sawPause = true; DispatchQueue.global().async { pauseControl.resume() } }
+    })
+    check("pause: execution acknowledges pause and resumes all steps", sawPause && resumed.result?.verdict.outcome == .passed && resumed.recorder.events.contains { if case .paused(false) = $0 { return true }; return false })
+    let jumpControl = QARunControl()
+    let jumped = run(control: jumpControl, observe: { event in
+        if case .nodeStarted(_, "n1", _, _) = event { jumpControl.pause() }
+        if case .paused(true) = event { DispatchQueue.global().async { jumpControl.resume(at: "n4") } }
+    })
+    check("pause: continuing at another step uses the same run and marks omissions", jumped.result?.nodesMet == ["n4", "n5"] && jumped.result?.verdict.outcome == .uncovered && !jumped.assistant.asked("Add a product to the cart"))
+    let stopControl = QARunControl()
+    let stoppedPaused = run(control: stopControl, observe: { event in
+        if case .nodeStarted(_, "n1", _, _) = event { stopControl.pause() }
+        if case .paused(true) = event { DispatchQueue.global().async { stopControl.stop() } }
+    })
+    check("pause: Stop wakes a paused runner without executing input", stoppedPaused.result?.verdict.outcome == .interrupted && stoppedPaused.factory.drivers.allSatisfy { $0.performed.isEmpty && $0.closed })
 
     // What the review is given with each new screen
     var dirty = QAPageEvidence()
