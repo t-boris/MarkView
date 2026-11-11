@@ -5605,5 +5605,28 @@ expresses a project's platform, complexity and bug burden. REQ-004 and DEC-003 i
   Custom workflow terminal roles are respected. A separate backend window shows
   Circuit Flow with moving packets while the iOS window retains its own context;
   the installed app is untouched. Final 5.67.0 Debug build passes.
-- [ ] Bump minor version, final Debug build, PR checks, merge, signed/notarized
-  Release app and DMG from the merged commit.
+- [x] Version 5.67.0; final Debug build and all PR checks passed.
+  [PR #362](https://github.com/t-boris/MarkView/pull/362) merged as `9e369e7`.
+  The merged commit's [Build & Release run](https://github.com/t-boris/MarkView/actions/runs/43109462756)
+  passed on arm64 and x86_64.
+- [x] [Release v5.67.0](https://github.com/t-boris/MarkView/releases/tag/v5.67.0)
+  published as Latest from the merge commit. App version/build 5.67.0, universal
+  architectures and strict signatures verified; DMG notarized, stapled and
+  accepted by Gatekeeper. The uploaded asset matches the local SHA-256:
+  `0db3ea4ff844a86c13d297958445a074ae8cf3ab29dc0777cc9c5c0843c83e70`.
+  Local artifacts: `/tmp/MarkView-project-backdrops-release/build/release/MarkView.app`
+  and `/tmp/MarkView-project-backdrops-release/build/MarkView-5.67.0.dmg`.
+
+## Completion audit
+
+- Five additional distinct scenes are present in the shipping picker and Shuffle;
+  rendered stills and changing Core Animation frames prove their visual behavior.
+- By Project reflects platform, project scale and workflow-aware bug/feature state,
+  keeps a stable composition, explains the evidence, and reacts to live changes.
+  Pure rules, hosted updates and real iOS/backend windows cover these paths.
+- Existing manual choices, per-window state, themes, Reduce Motion, click-through
+  and Accessibility behavior remain verified. Inspection is bounded, cancellable,
+  off the main thread and local, with no AI calls or retained document text.
+- Delivery is complete: merged PR, successful merge CI, signed universal Release
+  app and notarized published DMG. The existing installed app and sessions remain
+  intact.
