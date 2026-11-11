@@ -239,8 +239,9 @@ struct QAEditorView: View {
                 Picker("", selection: Binding(get: { scenario.appKind }, set: { value in model.edit { $0.appKind = value } })) {
                     Text("Web").tag(QAAppKind.web)
                     Text("macOS app").tag(QAAppKind.nativeMacOS)
+                    Text("HTTP API").tag(QAAppKind.api)
                 }
-                .pickerStyle(.segmented).frame(width: 170).labelsHidden()
+                .pickerStyle(.menu).frame(width: 130).labelsHidden()
                 .help("All applications of a scenario are of one type")
             }
             TextField("Goal", text: Binding(get: { scenario.goal }, set: { value in model.edit { $0.goal = value } }), axis: .vertical)
@@ -633,6 +634,7 @@ struct QAInspector: View {
                 Text("No").tag(QADataChange.no)
             }
             .help("A step that changes data needs a prepared baseline before each check")
+            if scenario.appKind == .api { QAAPIRequestEditor(model: model, node: node) }
             conditionSection(node)
             HStack {
                 Button("Add step after") { var id: String?; model.edit { id = $0.addNode(.action, title: "Action", after: node.id) }; if let id { model.selectedNode = id } }
@@ -907,7 +909,7 @@ struct QAInspector: View {
         let location = target.locations[app.id]
         HStack(spacing: 6) {
             if scenario.apps.count > 1 { Text(app.name).uiFont(size: 10.5).foregroundColor(palette.textDim).frame(width: 90, alignment: .leading).lineLimit(1) }
-            if scenario.appKind == .web {
+            if scenario.appKind != .nativeMacOS {
                 TextField("https://…", text: Binding(get: { location?.url ?? "" }, set: { value in
                     editTarget(target.id) { $0.locations[app.id] = QALocation(url: value.isEmpty ? nil : value) }
                 })).textFieldStyle(.roundedBorder)
@@ -926,7 +928,7 @@ struct QAInspector: View {
             var id = base, number = 2
             while s.targets.contains(where: { $0.id == id }) { id = base + String(number); number += 1 }
             var target = QATarget(id: id, kind: kind, name: kind == .local ? "Local" : (kind == .development ? "Development" : "Production"))
-            if s.appKind == .web && kind == .local { for app in s.apps { target.locations[app.id] = QALocation(url: "http://localhost:3000") } }
+            if s.appKind != .nativeMacOS && kind == .local { for app in s.apps { target.locations[app.id] = QALocation(url: "http://localhost:3000") } }
             s.targets.append(target)
             s.updated = Date()
         }
@@ -1154,18 +1156,22 @@ struct QARunPanel: View {
         if let gate = model.gate, gate.canPrepare {
             Divider()
             VStack(alignment: .leading, spacing: 8) {
-                Toggle("Record a video with subtitles", isOn: Binding(get: { run.recordVideo }, set: { run.recordVideo = $0 }))
-                    .toggleStyle(.checkbox).uiFont(size: 11)
-                    .help("The video shows the players side by side; a band below says what is done, where and why")
-                HStack {
-                    Text("Review the screens").uiFont(size: 11)
-                    Spacer()
-                    Picker("", selection: Binding(get: { run.reviewDepth }, set: { run.reviewDepth = $0 })) {
-                        ForEach(QARunModel.ReviewDepth.allCases, id: \.self) { Text($0.title).tag($0) }
+                if scenario.appKind == .api {
+                    Text("Requests, status codes, response checks and timings are saved in the run report.").uiFont(size: 10.5).foregroundColor(palette.textDim)
+                } else {
+                    Toggle("Record a video with subtitles", isOn: Binding(get: { run.recordVideo }, set: { run.recordVideo = $0 }))
+                        .toggleStyle(.checkbox).uiFont(size: 11)
+                        .help("The video shows the players side by side; a band below says what is done, where and why")
+                    HStack {
+                        Text("Review the screens").uiFont(size: 11)
+                        Spacer()
+                        Picker("", selection: Binding(get: { run.reviewDepth }, set: { run.reviewDepth = $0 })) {
+                            ForEach(QARunModel.ReviewDepth.allCases, id: \.self) { Text($0.title).tag($0) }
+                        }
+                        .labelsHidden().frame(width: 150)
                     }
-                    .labelsHidden().frame(width: 150)
+                    .help("After a step the assistant looks at the screen and says what could be better: layout, fonts, missing or superfluous controls, extra stages")
                 }
-                .help("After a step the assistant looks at the screen and says what could be better: layout, fonts, missing or superfluous controls, extra stages")
                 if scenario.appKind == .nativeMacOS {
                     QANativePermissionsView(status: permissions, refresh: { permissions = QANativePermissions.current })
                 }
@@ -1259,8 +1265,13 @@ struct QAGenerateSheet: View {
             Picker("Applications are", selection: $kind) {
                 Text("Web").tag(QAAppKind.web)
                 Text("Native macOS").tag(QAAppKind.nativeMacOS)
+                Text("HTTP API").tag(QAAppKind.api)
             }
             .pickerStyle(.segmented)
+            if kind == .api {
+                Text("Describe the backend flow. Attach an OpenAPI/Swagger file or API documentation; the assistant also reads the project's routes and tests. It proposes requests and response checks for you to review before running.")
+                    .uiFont(size: 11).foregroundColor(palette.textDim)
+            }
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text("Applications").uiFont(size: 11.5, weight: .semibold)

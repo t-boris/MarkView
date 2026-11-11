@@ -5528,3 +5528,30 @@ Not in this release: Q-009 mixing, Q-011 HTTP service type.
 - [x] [Release v5.65.2](https://github.com/t-boris/MarkView/releases/tag/v5.65.2) built from the merged main commit, universal arm64/x86_64, signed, notarized and stapled; Gatekeeper accepts the DMG. Both merge Build & Release runs and all PR checks passed.
 - [x] Installed from the verified DMG into `/Applications/MarkView.app` at Boris's explicit request. Installed version and code signature verified. The prior 5.64.1 app is retained under `Library/Application Support/MarkView/InstallBackups/5.64.1-qa-20261111-111146`. Normal quit/relaunch is scheduled after the updating assistant's final response because that assistant itself runs inside MarkView.
 - Local release artifacts: `/tmp/MarkView-qa-inspector/build/release/MarkView.app` and `/tmp/MarkView-qa-inspector/build/MarkView-5.65.2.dmg`.
+
+# HTTP API end-to-end scenarios (2026-11-11)
+
+Boris requested web, native macOS and API E2E scenarios, with inferred requests,
+scenario proposals and backend execution. Web/native already ship; this change
+adds HTTP API as the third separate scenario type (REQ-017, DEC-026).
+
+- [x] Read the existing scenario/generation/plan/gate/driver/UI path; branch
+  `feat/qa-api` in an isolated worktree from `origin/main`.
+- [x] Persist editable HTTP request templates, expected statuses, JSON Pointer
+  equality assertions, captures, secret flags and timeouts; preserve old nodes.
+- [x] Generate concrete request proposals from project routes/tests and attached
+  API/OpenAPI documentation, validate and retry. No requests during generation.
+- [x] Replay saved requests once with deterministic checks; isolate cookies and
+  variables by actor/service and branch; support credential and JSON placeholders.
+- [x] Keep approval, production confirmation, Stop, outcomes, history and bug
+  filing. Report HTTP evidence/timings and omit API screen/video controls.
+- [x] Add a loopback fixture and retain a real Claude proposal (19 steps, four
+  branches); all proposed CRUD/auth/invalid-input/anonymous-access branches pass.
+- [x] API harness: 86 checks pass, including cancellation races, response limits,
+  no retry of mutating requests, multi-service isolation, branch reset, archive
+  persistence, failed assertions and production refusal. Shared QA suites pass;
+  native live two-player check and real WKWebView evidence checks pass.
+- [x] Invisible real app: API scenario loads, request editor renders, approval and
+  Start execute a live request, result is passed and HTTP response/timing is saved
+  in run.json. Existing running app and its sessions are untouched.
+- [ ] Final Debug build, PR checks, merge and signed/notarized 5.66.0 release.

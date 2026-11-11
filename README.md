@@ -352,7 +352,11 @@ plain Markdown.
   (layout, fonts, missing or superfluous controls, extra steps) with the measured clicks, fields, scrolls and time, and
   each branch ends with what it cost a person. A check that failed, was blocked or was interrupted, and every defect the
   review finds, becomes a bug. Old runs are cleaned up: the newest five per scenario and every run a bug names are kept.
-  One scenario checks one type of application, web or native. Details:
+  HTTP API scenarios propose requests from the project's routes/tests and attached OpenAPI or API documentation.
+  Edit methods, paths, headers, bodies, expected statuses, JSON checks and captured values, then replay the saved
+  requests against your backend. Captures pass ids and secret tokens to later requests; each player/service has its
+  own session. API reports keep status, response evidence and timings, with the same approval, production confirmations,
+  outcomes and bugs, without screen review or video. One scenario checks one type: web, native macOS or HTTP API. Details:
   [end-to-end-qa](docs/architecture/modules/end-to-end-qa.md).
 
 **Bugs** get the same care: *New Bug* writes a structured report (and optionally a GitHub

@@ -11,7 +11,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
-fixtures="build/qa-native-demo-$$"
+fixtures="${QA_NATIVE_FIXTURE_ROOT:-build}/qa-native-demo-$$"
 lsregister=/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister
 cleanup() {
     if [ -d "$fixtures/QANativeDemo.app" ]; then "$lsregister" -u "$fixtures/QANativeDemo.app" >/dev/null 2>&1 || true; fi
@@ -22,7 +22,7 @@ M=MarkView/Models
 cp tools/tests/QANativeChecks.swift "$out/main.swift"
 swiftc -target "$(uname -m)-apple-macos13.0" -o "$out/qa-native" \
     "$M/QANativeTree.swift" "$M/QANativeAccessibility.swift" "$M/QANativeCapture.swift" "$M/QANativeActor.swift" "$M/QANativeFactory.swift" tools/tests/QANativeKeychainStub.swift \
-    "$M/QAScenario.swift" "$M/QARun.swift" "$M/QAStore.swift" "$M/QAGeneration.swift" "$M/QAGenerator.swift" "$M/QAPlan.swift" "$M/QAGate.swift" "$M/QAEffort.swift" \
+    "$M/QAAPI.swift" "$M/QAScenario.swift" "$M/QARun.swift" "$M/QAStore.swift" "$M/QAGeneration.swift" "$M/QAGenerator.swift" "$M/QAPlan.swift" "$M/QAGate.swift" "$M/QAEffort.swift" \
     "$M/QATriage.swift" "$M/QAActions.swift" "$M/QARunner.swift" "$M/QALanguage.swift" "$M/QAPageEvidence.swift" "$M/QACredentials.swift" "$M/QAScenarioEdit.swift" "$M/QAAttachments.swift" \
     "$M/QAGraphLayout.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
 app=""

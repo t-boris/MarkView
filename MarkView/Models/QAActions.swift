@@ -104,6 +104,7 @@ enum QAStepPrompt {
     static func systemPrompt(_ kind: QAAppKind) -> String {
         switch kind {
         case .web: return webSystemPrompt
+        case .api: return apiSystemPrompt
         case .nativeMacOS: return nativeSystemPrompt
         }
     }
@@ -125,6 +126,10 @@ enum QAStepPrompt {
         - narration is one short sentence in the language of the step title: what you do now, which control or field it is (by the name a person sees) and why. It is shown as a subtitle. For done and notMet, narration says what you saw.
         - Fill only the fields the step needs. Prefer the plain, visible way a person would take.
         """
+
+    private static let apiSystemPrompt = """
+    You prepare or inspect an HTTP API test. Only http actions are available (method, url, text: request body); requests stay on the configured service origin. Read the response status and body shown in the observation. Use {{username}} and {{password}} for saved credentials. Do not invent endpoints. Answer done only after observing evidence that the task holds, not before sending any required requests. Use notMet for a false expectation and blocked if the contract or credentials are missing. The API scenario's normal steps execute saved requests and assertions without your intervention. Narrate in the scenario's language.
+    """
 
     private static let nativeSystemPrompt = """
         You carry out one step of an end-to-end test of a native macOS application, with the mouse and the keyboard, as a careful person would. Every turn you are shown the application's window as text: the window title, its controls (each with a reference such as [e12], its role and its name), its text, and the entries of the menu bar written "Menu > Item" (they have references too). You answer with exactly one move.
@@ -164,6 +169,9 @@ enum QAStepPrompt {
             lines.append("Page now:")
             lines.append("Address: \(observation.address)")
             lines.append("Title: \(observation.title)")
+        case .api:
+            lines.append("API response now:")
+            lines.append("Service: \(observation.address)")
         case .nativeMacOS:
             lines.append("Window now:")
             lines.append("Title: \(observation.title)")
@@ -227,6 +235,7 @@ enum QAStepPrompt {
             var action = QAAction(kind: kind, ref: text(raw["ref"]).trimmingCharacters(in: CharacterSet(charactersIn: "[]")), text: (raw["text"] as? String) ?? "",
                                   url: text(raw["url"]), method: text(raw["method"]).uppercased(), direction: text(raw["direction"]).lowercased(),
                                   amount: min(max((raw["amount"] as? Int) ?? 0, 0), 30_000))
+            if appKind == .api && kind != .http { throw ParseError.notAllowed(kind) }
             switch kind {
             case .click, .fill, .select:
                 if action.ref.isEmpty { throw ParseError.missingRef(kind) }
@@ -237,7 +246,7 @@ enum QAStepPrompt {
             case .key:
                 if action.text.isEmpty { throw ParseError.missingText(kind) }
             case .http:
-                guard allowsHTTP, appKind == .web else { throw ParseError.notAllowed(kind) }
+                guard allowsHTTP, appKind != .nativeMacOS else { throw ParseError.notAllowed(kind) }
                 if action.url.isEmpty { throw ParseError.missingURL(kind) }
                 if action.method.isEmpty { action.method = "GET" }
             case .scroll, .wait: break

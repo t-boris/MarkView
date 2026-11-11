@@ -78,6 +78,20 @@ enum QAGeneration {
         ])
     }
 
+    static func schema(for kind: QAAppKind) -> [String: Any] {
+        var result = schema
+        if kind == .api,
+           var properties = result["properties"] as? [String: Any],
+           var nodes = properties["nodes"] as? [String: Any],
+           var items = nodes["items"] as? [String: Any],
+           var fields = items["properties"] as? [String: Any] {
+            fields["api"] = ["type": "string"]
+            items["properties"] = fields; nodes["items"] = items
+            properties["nodes"] = nodes; result["properties"] = properties
+        }
+        return result
+    }
+
     // MARK: Prompt
 
     static func systemPrompt(_ appKind: QAAppKind) -> String {
@@ -89,6 +103,7 @@ enum QAGeneration {
             A network condition (a failed or slow request) can be injected into the page: use conditionKind networkFault or delay with faultUrlPattern, \
             a part of the request address, and a faultMode.
             """
+        case .api: return apiSystemPrompt
         case .nativeMacOS:
             surface = """
             The application under test is a native macOS application, driven like a person does: menus, buttons, fields, windows. There are no web \
@@ -135,6 +150,19 @@ enum QAGeneration {
         - Write titles and details in the language of the goal. Ids and enumerated values stay in English.
         """
     }
+
+    private static let apiSystemPrompt = #"""
+    You are a senior backend QA engineer. Propose a branching HTTP/REST end-to-end scenario for the person's goal, grounded in the project's actual API.
+    Read the attached OpenAPI/Swagger files, API documentation, routes, request validation, auth handlers and tests with your file tools first. Infer methods, paths, required headers, payloads, authentication and status/body expectations from that evidence. Never invent endpoints. If contracts are unavailable, explain what is needed in the step detail; leave api empty so validation flags it for correction. Do not execute requests or modify the backend during generation.
+    Use the structured schema. Nodes: action, check, alternative, failure. Edges connect node ids; start is the first id. No cycles, all nodes reachable. Every path ends in a check. Include a main flow and meaningful negative/permission/input cases supported by the API. A request expecting 400/401/403/404 passes when that is the documented expected result.
+    Define one actor per independent API client. Actors have id, name, app (one of the supplied application ids), createTestAccount=false. Authentication and account creation are EXPLICIT request steps, never implicit preparation. Credentials use {{username}} and {{password}} filled from the chosen saved login; never write secrets. Each actor/service has isolated cookies and captured variables, reset between branches. Keep a create/read/update/delete flow on the same actor/service; values are not shared across actors or services.
+    Each executable node has `api`: a STRING containing a JSON object in exactly this format:
+    {"method":"POST","path":"/items","headers":[{"name":"Content-Type","value":"application/json"}],"body":"{\"name\":\"QA item\"}","statuses":[201],"assertions":[{"pointer":"/name","equals":"\"QA item\""}],"captures":[{"name":"itemId","pointer":"/id","secret":false}],"timeoutSeconds":20}
+    Paths are relative to the service base URL (a leading slash starts at the host root), or absolute on the same origin. Use {{itemId}} in later paths, headers and bodies. For a safely escaped JSON value use {{itemId.json}} without surrounding quotes; {{username.json}} and {{password.json}} work the same way in JSON login bodies. Capture a token with secret=true, then use a header Authorization: Bearer {{token}}. JSON paths are RFC 6901 pointers, including array indexes (/items/0/id). `equals` is a JSON literal encoded as a string. Include expected statuses on EVERY request and exact body assertions where meaningful. Captures require that the path exists. Timeouts are 1..120 seconds.
+    A check may send a read-only GET/HEAD/OPTIONS request, or use path="" to assert the SAME actor/service's previous response without sending again. POST/PUT/PATCH/DELETE must be action nodes marked changesData=yes or unknown, never checks or read-only nodes. Alternative/failure marker nodes can have api=""; use a following check or action to execute the actual request. All action and check nodes need a valid api object. A marker with no request does no work. Put prose explaining intent and sources in detail, and a concise label in title.
+    Prefer self-contained flows that create unique data and clean up after themselves. If an external reset is needed, baselineManual=true with baselineEstablish as instructions for the person; otherwise leave baselineEstablish and baselineVerify empty and baselineManual=false. Do not use networkFault/delay injection: failures must come from actual requests or a manually prepared service condition. Empty conditionKind, conditionEstablish, conditionVerify, faultUrlPattern, faultMode; conditionManual=false; faultStatus and faultMilliseconds=0 unless a manual state/data condition is essential.
+    Write titles/details in the goal's language. Ids are plain ASCII letters, digits, hyphens, underscores (max 40). Return 8..25 useful steps when the goal warrants it, without padding. The person reviews and edits the proposed requests before approving a run. Never store passwords, API keys or tokens in request JSON: use saved-login placeholders and secret captures.
+    """#
 
     static func prompt(_ request: QAGenerationRequest) -> String {
         var lines = [request.base == nil ? "Goal of the test:" : "What the new scenario must do, or what changes compared with the base scenario:",
@@ -251,6 +279,13 @@ enum QAGeneration {
                     node.condition = condition
                 } else {
                     parseProblems.append("Step \(id): unknown conditionKind \"\(conditionKind)\".")
+                }
+            }
+            if request.appKind == .api {
+                let source = text(item["api"])
+                if !source.isEmpty {
+                    do { node.api = try JSONDecoder().decode(QAAPIRequest.self, from: Data(source.utf8)) }
+                    catch { parseProblems.append("Step \(id): api must contain a complete QAAPIRequest JSON object.") }
                 }
             }
             scenario.nodes.append(node)
