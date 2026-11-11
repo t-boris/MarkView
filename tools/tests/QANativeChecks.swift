@@ -313,6 +313,10 @@ func live(fixture: URL) async {
         await player.close()
         return
     }
+    let clickMark = await player.inputMark(for: QAAction(kind: .click, ref: signInRef))
+    let fieldMark = await player.inputMark(for: QAAction(kind: .fill, ref: nameRef, text: "{{password}}"))
+    check("live: input markers locate the native control and field", clickMark.target != nil && fieldMark.target != nil && clickMark.target != fieldMark.target)
+    check("live: marker labels do not repeat typed values", fieldMark.label == "Type text")
     // A wrong password first, typed as plain text; then the real one through the placeholder.
     let filled = await act(QAAction(kind: .fill, ref: nameRef, text: "{{username}}"))
     check("live: a text field is filled with the player's user name", filled?.hasPrefix("Typed into text field \"Name\"") == true)

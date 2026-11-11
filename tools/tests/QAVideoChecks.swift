@@ -433,6 +433,54 @@ await section("the destination") {
     check("a writer dropped without finish leaves no half-written file", gone)
 }
 
+await section("input markers in the exported video") {
+    let grey = RGB(r: 100, g: 100, b: 100)
+    let page = picture(1280, 800, top: grey)
+    let target = CGRect(x: 0.25, y: 0.25, width: 0.2, height: 0.1)
+    let click = QAInputMark(kind: .click, target: target)
+    let fill = QAInputMark(kind: .fill, target: target)
+    let clean = QAFrameComposer.compose([page, page])!
+    let marked = QAFrameComposer.compose([page, page], marks: [1: click], names: ["Client", "Admin"])!
+    let writer = try QAVideoWriter(url: tempURL("inputs.mp4"), pictureSize: CGSize(width: marked.width, height: marked.height))
+    try writer.append(marked, at: 0, subtitle: "Click the control", minimumDuration: 0.75)
+    try writer.append(QAFrameComposer.compose([page, page], marks: [0: fill], names: ["Client", "Admin"])!, at: 0.02,
+                      subtitle: "Type into the field", minimumDuration: 0.75)
+    try writer.append(clean, at: 0.03, subtitle: "Result")
+    let url = try await writer.finish()
+    let video = try await readVideo(url)
+    check("fast successive inputs each remain readable", video.duration >= 1.6)
+    func yellow(_ frame: Frame, _ region: Region) -> Int {
+        var count = 0
+        for y in region.y0..<region.y1 { for x in region.x0..<region.x1 {
+            let p = frame.pixel(x, y)
+            if p.r > 180 && p.g > 120 && p.b < 100 { count += 1 }
+        } }
+        return count
+    }
+    if let first = video.frames[0], let second = video.frames[8], let result = video.frames[16] {
+        let firstTarget = Region(x0: 370, y0: 190, x1: 440, y1: 240)
+        let adminTarget = Region(x0: 1530, y0: 190, x1: 1600, y1: 240)
+        check("click ring is on the admin's actual target", yellow(first, adminTarget) > 100)
+        check("other player's target is untouched", yellow(first, firstTarget) == 0)
+        check("typing outlines the client's field", yellow(second, Region(x0: 280, y0: 175, x1: 530, y1: 260)) > 300)
+        check("clean result is restored after the input", yellow(result, adminTarget) == 0 && yellow(result, firstTarget) == 0)
+    } else { check("marker frames can be decoded", false) }
+    let portrait = picture(400, 800, top: grey)
+    let portraitMarked = QAFrameComposer.compose([portrait], marks: [0: click])!
+    let portraitWriter = try QAVideoWriter(url: tempURL("portrait-input.mp4"), pictureSize: CGSize(width: portraitMarked.width, height: portraitMarked.height))
+    try portraitWriter.append(portraitMarked, at: 0, subtitle: nil)
+    let portraitVideo = try await readVideo(try await portraitWriter.finish())
+    check("portrait target accounts for letterboxing", portraitVideo.frames[0].map { yellow($0, Region(x0: 490, y0: 185, x1: 555, y1: 245)) > 100 } ?? false)
+    check("offscreen geometry is clipped", QAInputMark.normalized(CGRect(x: -10, y: 20, width: 30, height: 40), in: CGRect(x: 0, y: 0, width: 100, height: 100)) == CGRect(x: 0, y: 0.2, width: 0.2, height: 0.4))
+    check("unknown or invalid target has no invented position", QAInputMark.normalized(CGRect(x: 1000, y: 0, width: 10, height: 10), in: CGRect(x: 0, y: 0, width: 100, height: 100)) == nil)
+    check("every action has a visible semantic label", QAActionKind.allCases.allSatisfy { !QAInputMark(kind: $0).label.isEmpty })
+    check("scroll direction and failure are explicit", QAInputMark(kind: .scroll, direction: "up", failed: true).label == "Scroll ↑ · Failed")
+    if let export = ProcessInfo.processInfo.environment["QA_ACTION_EXPORT"] {
+        try FileManager.default.createDirectory(atPath: export, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: url, to: URL(fileURLWithPath: export).appendingPathComponent("inputs.mp4"))
+    }
+}
+
 try? FileManager.default.removeItem(at: temp)
 print(failures == 0 ? "All QA video checks passed" : "\(failures) QA video check(s) failed")
 exit(failures == 0 ? 0 : 1)

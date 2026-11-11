@@ -103,6 +103,30 @@ final class QAWebActor: QAActorDriver {
         return reply.isError ? nil : reply.pngBase64.flatMap { Data(base64Encoded: $0) }
     }
 
+    func inputMark(for action: QAAction) async -> QAInputMark {
+        var mark = QAInputMark(kind: action.kind, direction: action.direction)
+        guard !closed else { return mark }
+        let ref = action.ref.range(of: "^e[0-9]{1,6}$", options: .regularExpression) != nil ? action.ref : ""
+        let usesTarget = [.click, .fill, .select].contains(action.kind)
+        let script = """
+        const el = \(usesTarget ? "document.querySelector('[data-mv-ref=\"\(ref)\"]')" : action.kind == .key ? "document.activeElement" : "null");
+        if (!el || el === document.body || el === document.documentElement) return null;
+        const parents = []; for (let p = el.parentElement; p; p = p.parentElement) parents.push([p, p.scrollTop, p.scrollLeft]);
+        const before = el.getBoundingClientRect();
+        \(usesTarget ? "el.scrollIntoView({block:'center',inline:'center',behavior:'instant'});" : "")
+        const r = el.getBoundingClientRect();
+        return {x:r.x,y:r.y,width:r.width,height:r.height,vw:innerWidth,vh:innerHeight,
+          scroll:parents.some(([p,y,x])=>p.scrollTop!==y||p.scrollLeft!==x) ? (before.y > r.y ? 'down' : 'up') : null};
+        """
+        guard let value = try? await session.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page),
+              let rect = value as? [String: Any], let x = rect["x"] as? Double, let y = rect["y"] as? Double,
+              let width = rect["width"] as? Double, let height = rect["height"] as? Double,
+              let vw = rect["vw"] as? Double, let vh = rect["vh"] as? Double else { return mark }
+        mark.target = QAInputMark.normalized(CGRect(x: x, y: y, width: width, height: height), in: CGRect(x: 0, y: 0, width: vw, height: vh))
+        mark.automaticScroll = rect["scroll"] as? String
+        return mark
+    }
+
     func arm(_ fault: QAFault) async throws {
         rules.append(fault)
         // Each arming adds a script that carries every rule so far; they run in order, so the last list wins and the wrapper is installed once.

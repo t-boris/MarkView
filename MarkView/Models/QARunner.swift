@@ -13,6 +13,7 @@ protocol QAActorDriver: AnyObject {
     /// Does what the action says and answers, in a few words, what came of it. A failed action throws.
     func perform(_ action: QAAction) async throws -> String
     func screenshot() async -> Data?
+    func inputMark(for action: QAAction) async -> QAInputMark
     /// Makes the session's requests fail, wait or answer with a status; the fault is armed before the page loads.
     func arm(_ fault: QAFault) async throws
     /// How many requests the armed faults have met so far.
@@ -24,6 +25,7 @@ protocol QAActorDriver: AnyObject {
 
 extension QAActorDriver {
     func measure() async -> QAPageEvidence? { nil }
+    func inputMark(for action: QAAction) async -> QAInputMark { QAInputMark(kind: action.kind, direction: action.direction) }
 }
 
 struct QADriverRequest {
@@ -70,6 +72,8 @@ enum QARunEvent {
     case narration(QATimelineEntry)
     /// What an actor's page showed at one turn.
     case screen(QAScreenEvent)
+    /// The target and a clean picture immediately before input; failed attempts reuse that same picture.
+    case input(actor: String?, mark: QAInputMark, png: Data?)
     case nodeStarted(branch: String, node: String, actor: String?, title: String)
     case nodeFinished(branch: String, node: String, effort: QAEffort)
     case branchFinished(QACheckResult)
@@ -90,6 +94,7 @@ final class QARunner {
         /// Unusable answers of the assistant in a row before the step is given up as blocked.
         var maxBadAnswers = 2
         var captureFrames = true
+        var captureInputs = true
         /// Measure each new screen of a step in the page (for the review).
         var measureScreens = true
     }
@@ -426,6 +431,9 @@ final class QARunner {
                     return .blocked(.stepStuck, "The step is going in circles: \"\(action.summary)\" was chosen \(times) times on a page that did not change.")
                 }
                 note(branch, node, actor, .action, line(actor, decision.narration, fallback: action.summary))
+                var mark = await driver.inputMark(for: action)
+                let before = config.captureInputs ? await driver.screenshot() : nil
+                if config.captureInputs { emit(.input(actor: actor, mark: mark, png: before)) }
                 do {
                     let outcome = try await driver.perform(action)
                     failed = 0
@@ -434,6 +442,8 @@ final class QARunner {
                 } catch is CancellationError {
                     return .interrupted
                 } catch {
+                    mark.failed = true
+                    if config.captureInputs { emit(.input(actor: actor, mark: mark, png: before)) }
                     failed += 1
                     history.append(QAHistoryItem(narration: decision.narration, action: action.summary, result: "failed: \(describe(error))"))
                     if failed >= config.maxFailedActions {
