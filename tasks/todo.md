@@ -5715,5 +5715,8 @@ expresses a project's platform, complexity and bug burden. REQ-004 and DEC-003 i
   `52727623023f2d0a95fbc0b816876fec105c635059b258fc1e69d9b3dfebd87f`.
   App: `/tmp/MarkView-qa-workflow-release/build/release/MarkView.app`.
   DMG: `/tmp/MarkView-qa-workflow-release/build/MarkView-5.70.0.dmg`.
-- [ ] Install the published signed DMG and restart MarkView (explicitly authorized
-  by Boris after the release was ready).
+- [x] Installed the published signed DMG into `/Applications/MarkView.app`;
+  version 5.70.0 and strict signature verified. The previous 5.67.0 app is
+  backed up outside Applications. Boris explicitly authorized installation.
+  A detached graceful restart helper saves the app session and records its
+  result in `/tmp/markview-570-install-receipt.json`.
