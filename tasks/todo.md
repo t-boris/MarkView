@@ -5671,13 +5671,49 @@ expresses a project's platform, complexity and bug burden. REQ-004 and DEC-003 i
 - [x] Decoded MP4 pixel/timing checks, multi-player/portrait geometry, failed
   action events, QA runner suite and live native one-/two-player checks pass.
   Debug 5.68.0 builds. The real-app web fixture is being verified.
-- [ ] Bump minor version, verify build, merge PR, then publish signed/notarized DMG.
+- [x] Shipped in release 5.70.0 through merged PR #364; Debug, decoded-video,
+  runner and live native checks pass. Real web run `20261111-231611-eb2e`
+  passed seven steps and its MP4 was visually inspected.
 
 # Pause and resume QA from a chosen step (2026-11-11)
 
 - [x] Boris chose existing application state, without replaying earlier steps.
-- [ ] Pause at action boundaries; preserve sessions on pause and after failure.
-- [ ] Continue at a chosen step, start there, retry a failure; clearly record skipped
+- [x] Pause at action boundaries; preserve sessions on pause and after failure.
+- [x] Continue at a chosen step, start there, retry a failure; clearly record skipped
   steps and preserve approval/production checks.
-- [ ] Verify control races, retained sessions, partial results and real-app controls.
-- [ ] Deliver through a verified PR and signed/notarized release.
+- [x] Control, retention, skip, approval and cancellation checks pass, as do all
+  90 API checks. Real-app run `20261111-232544-e551` paused/resumed, failed the
+  final check, then `20261111-232633-d2c4` reused the same player and retained
+  localStorage, retried only that check and correctly reported partial coverage.
+- [x] PR #366 merged and included in signed/notarized release 5.70.0.
+
+
+# QA authoring and complete workflow delivery — 5.70.0 (2026-11-11)
+
+- [x] Mandatory AI discussion in New scenario: questions, suggested choices,
+  free-text answers, overlooked cases and optional further rounds. Stop and
+  failed calls preserve input; stale responses cannot replace a newer proposal.
+- [x] New scenarios persist answers and an AI summary; existing scenarios receive
+  a cached summary on opening. The header never falls back to the original
+  request; original goals remain stored. Fingerprints reject outdated summaries.
+- [x] Pure authoring, schema/backward compatibility, summary invalidation and
+  answer-propagation checks pass. Debug 5.70.0 builds.
+- [x] Real assistant in the isolated real app: five questions answered through
+  real button actions, six steps and a summary generated, five answers persisted.
+  The generated scenario then passed all six steps in run
+  `20261111-234707-9463`. An old scenario received a summary while retaining its
+  original request. Evidence: `/tmp/qa-authoring-live/`.
+- [x] PRs [#364](https://github.com/t-boris/MarkView/pull/364),
+  [#366](https://github.com/t-boris/MarkView/pull/366) and
+  [#367](https://github.com/t-boris/MarkView/pull/367) merged; all PR checks pass.
+  Final merge `e617f2f`; [merge CI](https://github.com/t-boris/MarkView/actions/runs/43122382480)
+  passes on arm64 and x86_64.
+- [x] [Release 5.70.0](https://github.com/t-boris/MarkView/releases/tag/v5.70.0)
+  published as Latest from the final merged commit. App version/build 5.70.0,
+  universal architectures and strict signature verified. DMG notarized, stapled
+  and accepted by Gatekeeper. Uploaded assets match local SHA-256
+  `52727623023f2d0a95fbc0b816876fec105c635059b258fc1e69d9b3dfebd87f`.
+  App: `/tmp/MarkView-qa-workflow-release/build/release/MarkView.app`.
+  DMG: `/tmp/MarkView-qa-workflow-release/build/MarkView-5.70.0.dmg`.
+- [ ] Install the published signed DMG and restart MarkView (explicitly authorized
+  by Boris after the release was ready).

@@ -2,7 +2,7 @@
 type: feature
 id: visible-actions-in-qa-recordings
 title: Visible actions in QA recordings
-status: in-progress
+status: done
 owner: Boris Tsekinovsky
 created: 2026-11-11
 provenance: Created by an AI agent through MarkView from Boris's request, 2026-11-11

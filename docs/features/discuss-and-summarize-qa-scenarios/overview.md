@@ -2,7 +2,7 @@
 type: feature
 id: discuss-and-summarize-qa-scenarios
 title: Discuss and summarize QA scenarios
-status: in-progress
+status: done
 owner: Boris Tsekinovsky
 created: 2026-11-11
 provenance: Created by an AI agent through MarkView from Boris's requests, 2026-11-11

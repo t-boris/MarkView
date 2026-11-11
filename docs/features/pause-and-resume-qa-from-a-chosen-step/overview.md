@@ -2,7 +2,7 @@
 type: feature
 id: pause-and-resume-qa-from-a-chosen-step
 title: Pause and resume QA from a chosen step
-status: in-progress
+status: done
 owner: Boris Tsekinovsky
 created: 2026-11-11
 provenance: Created by an AI agent through MarkView from Boris's request, 2026-11-11
