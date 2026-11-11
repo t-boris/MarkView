@@ -244,8 +244,19 @@ struct QAEditorView: View {
                 .pickerStyle(.menu).frame(width: 130).labelsHidden()
                 .help("All applications of a scenario are of one type")
             }
-            TextField("Goal", text: Binding(get: { scenario.goal }, set: { value in model.edit { $0.goal = value } }), axis: .vertical)
-                .textFieldStyle(.plain).uiFont(size: 11.5).foregroundColor(palette.textDim).lineLimit(1...3)
+            HStack(alignment: .top, spacing: 8) {
+                if let summary = QASummary.current(scenario) {
+                    Text(summary).uiFont(size: 11.5).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                } else {
+                    Text(model.summaryBusy ? "Writing scenario summary…" : "The scenario summary needs an update.")
+                        .uiFont(size: 11.5).foregroundColor(palette.textDim)
+                }
+                Spacer(minLength: 0)
+                Button { model.refreshSummary(force: true) } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.borderless).disabled(model.summaryBusy)
+                    .accessibilityLabel("Refresh scenario summary").help("Ask AI to summarize the current scenario")
+            }
+            if let error = model.summaryError { Text(error).uiFont(size: 10.5).foregroundColor(palette.orange) }
             if !problems.isEmpty {
                 DisclosureGroup {
                     VStack(alignment: .leading, spacing: 3) {
@@ -1237,6 +1248,12 @@ struct QAGenerateSheet: View {
     @State private var kind: QAAppKind = .web
     @State private var apps: [QAApp] = [QAApp(id: "app1", name: "")]
     @State private var players = ""
+    @State private var discussion: QADiscovery.Round?
+    @State private var history: [QAClarification] = []
+    @State private var answers: [String: String] = [:]
+    @State private var isDiscussing = false
+    @State private var discussionToken = UUID()
+    @State private var discussionTask: Task<Void, Never>?
 
     init(model: QAModel, isPresented: Binding<Bool>, baseID: String? = nil) {
         self.model = model
@@ -1253,6 +1270,8 @@ struct QAGenerateSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
             Text("New scenario").uiFont(size: 15, weight: .semibold)
             Text("Assistant: \(model.isGenerating ? model.generationAssistant : model.assistantSummary)")
                 .uiFont(size: 11).foregroundColor(palette.textDim)
@@ -1319,17 +1338,33 @@ struct QAGenerateSheet: View {
                 TextField("One per line or separated by commas, for example Buyer, Seller, Courier", text: $players, axis: .vertical)
                     .textFieldStyle(.roundedBorder).lineLimit(1...3)
             }
+            discussionView
             progress
+            }
+            .padding(2)
+            }
+            .frame(maxHeight: min(680, (NSScreen.main?.visibleFrame.height ?? 900) - 180))
             HStack {
                 Spacer()
-                Button("Cancel") { if model.isGenerating { model.cancelGeneration() }; isPresented = false }.keyboardShortcut(.cancelAction)
-                Button("Write scenario") { start() }
+                Button(model.isGenerating || isDiscussing ? "Stop" : "Cancel") {
+                    if model.isGenerating { started = false; model.cancelGeneration() }
+                    else if isDiscussing { discussionTask?.cancel() }
+                    else { isPresented = false }
+                }.keyboardShortcut(.cancelAction)
+                if discussion != nil {
+                    Button("Ask follow-up questions") { askQuestions() }
+                        .disabled(!questionsComplete || isDiscussing || model.isGenerating)
+                }
+                Button(discussion == nil ? "Discuss with AI" : "Write scenario") {
+                    if discussion == nil { askQuestions() } else { start() }
+                }
                     .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                    .disabled(goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isGenerating)
+                    .disabled(goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isGenerating || isDiscussing || (discussion != nil && !questionsComplete))
             }
         }
         .padding(18)
         .frame(width: 560)
+        .onDisappear { discussionTask?.cancel() }
         .onChange(of: model.phase) { phase in
             // The sheet closes when the scenario has been written.
             if phase == .idle, started { isPresented = false }
@@ -1337,6 +1372,80 @@ struct QAGenerateSheet: View {
     }
 
     @State private var started = false
+
+    private var questionsComplete: Bool {
+        discussion?.questions.allSatisfy { !(answers[$0.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
+    }
+    private var discussionAnswers: [QAClarification] {
+        history + (discussion?.questions.compactMap { question in
+            let answer = (answers[question.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return answer.isEmpty ? nil : QAClarification(question: question.question, answer: answer)
+        } ?? [])
+    }
+    @ViewBuilder private var discussionView: some View {
+        if isDiscussing {
+            HStack { ProgressView().controlSize(.small); Text("Asking QA questions…").uiFont(size: 11.5) }
+        }
+        if let discussion {
+            Divider()
+            Text("What we are checking").uiFont(size: 12, weight: .semibold)
+            Text(discussion.understanding).uiFont(size: 11.5).textSelection(.enabled)
+            if !discussion.overlooked.isEmpty {
+                Text("Worth considering").uiFont(size: 12, weight: .semibold)
+                ForEach(Array(discussion.overlooked.enumerated()), id: \.offset) { _, item in
+                    Text("• " + item).uiFont(size: 11.5).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            ForEach(discussion.questions) { question in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(question.question).uiFont(size: 12, weight: .semibold).fixedSize(horizontal: false, vertical: true)
+                    if !question.why.isEmpty { Text(question.why).uiFont(size: 10.5).foregroundColor(palette.textDim) }
+                    ForEach(Array(question.options.enumerated()), id: \.offset) { _, option in
+                        Button { answers[question.id] = option } label: {
+                            HStack(alignment: .top) {
+                                Image(systemName: answers[question.id] == option ? "checkmark.circle.fill" : "circle")
+                                Text(option).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                                Spacer(minLength: 0)
+                            }.uiFont(size: 11)
+                        }.buttonStyle(.bordered)
+                    }
+                    TextField("Your answer, or say you don't know", text: Binding(get: { answers[question.id] ?? "" }, set: { answers[question.id] = $0 }), axis: .vertical)
+                        .textFieldStyle(.roundedBorder).lineLimit(1...4)
+                }.padding(.vertical, 5)
+            }
+            if discussion.questions.isEmpty { Text("The key choices are clear. You can write the scenario.").uiFont(size: 11).foregroundColor(palette.green) }
+        }
+    }
+
+    private func askQuestions() {
+        model.dismissFailure()
+        problem = nil
+        let request = makeRequest()
+        let previousGoal = goal, previousKind = kind, previousApps = apps, previousPlayers = players
+        let previousFiles = attachments, previousBase = baseID, previousAnswers = answers
+        let token = UUID()
+        discussionToken = token
+        isDiscussing = true
+        discussionTask = Task {
+            defer { if discussionToken == token { isDiscussing = false } }
+            do {
+                let next = try await model.discuss(request)
+                try Task.checkCancellation()
+                guard discussionToken == token else { return }
+                guard goal == previousGoal, kind == previousKind, apps == previousApps, players == previousPlayers,
+                      attachments == previousFiles, baseID == previousBase, answers == previousAnswers else {
+                    problem = "The proposal changed while the assistant was working. Ask questions again; your answers are kept."
+                    return
+                }
+                history = request.clarifications
+                discussion = next
+                answers = [:]
+            } catch is CancellationError { }
+            catch { if discussionToken == token { problem = error.localizedDescription } }
+        }
+    }
+
+
 
     @ViewBuilder private var progress: some View {
         switch model.phase {
@@ -1367,8 +1476,7 @@ struct QAGenerateSheet: View {
         apps.append(QAApp(id: "app\(number)", name: ""))
     }
 
-    private func start() {
-        model.dismissFailure()
+    private func makeRequest() -> QAGenerationRequest {
         let named: [QAApp] = apps.enumerated().map { index, app in
             var app = app
             app.name = app.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1376,12 +1484,18 @@ struct QAGenerateSheet: View {
             return app
         }
         let names = players.split(whereSeparator: { $0 == "," || $0 == "\n" }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        started = true
         var request = QAGenerationRequest(goal: goal.trimmingCharacters(in: .whitespacesAndNewlines), appKind: kind, apps: named, actorNames: names, now: Date())
         request.base = base
         request.targets = base?.targets ?? []
         request.attachments = attachments
-        model.generate(request)
+        request.clarifications = discussionAnswers
+        return request
+    }
+
+    private func start() {
+        model.dismissFailure()
+        started = true
+        model.generate(makeRequest())
     }
 
     /// Choosing a scenario to start from takes its kind, applications and players, which the person can still change.

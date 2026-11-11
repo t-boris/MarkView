@@ -236,6 +236,12 @@ struct QAProblem: Equatable {
     var message: String
 }
 
+/// Answers supplied during scenario discovery, retained separately from the original request.
+struct QAClarification: Codable, Equatable {
+    var question: String
+    var answer: String
+}
+
 struct QAScenario: Codable, Equatable, Identifiable {
     static let currentSchema = 1
 
@@ -244,6 +250,9 @@ struct QAScenario: Codable, Equatable, Identifiable {
     var title: String
     /// What the person wanted to test, in their words.
     var goal: String
+    var summary: String? = nil
+    var summarySource: String? = nil
+    var clarifications: [QAClarification]? = nil
     /// One scenario targets web, native macOS or HTTP API applications; surface kinds are never mixed (DEC-007).
     var appKind: QAAppKind
     var apps: [QAApp] = []

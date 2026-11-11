@@ -383,7 +383,7 @@ do {
     let schema = QAGeneration.schema
     let props = schema["properties"] as? [String: Any] ?? [:]
     let nodeProps = ((props["nodes"] as? [String: Any])?["items"] as? [String: Any])?["properties"] as? [String: Any] ?? [:]
-    check("generation: the schema is valid JSON with its parts", JSONSerialization.isValidJSONObject(schema) && Set(props.keys) == ["title", "baselineEstablish", "baselineVerify", "baselineManual", "actors", "start", "nodes", "edges"])
+    check("generation: the schema is valid JSON with its parts", JSONSerialization.isValidJSONObject(schema) && Set(props.keys) == ["title", "summary", "baselineEstablish", "baselineVerify", "baselineManual", "actors", "start", "nodes", "edges"])
     check("generation: the schema offers the node kinds the model knows", ((nodeProps["kind"] as? [String: Any])?["enum"] as? [String]) == QANodeKind.allCases.map(\.rawValue))
     check("generation: ... and the condition kinds, or none", ((nodeProps["conditionKind"] as? [String: Any])?["enum"] as? [String]) == [""] + QAConditionKind.allCases.map(\.rawValue))
     check("generation: the schema has a property for each field the reader uses", Set(nodeProps.keys).isSuperset(of: ["id", "kind", "title", "detail", "actor", "changesData", "conditionKind", "conditionEstablish", "conditionVerify", "faultUrlPattern", "faultMode", "faultStatus", "faultMilliseconds"]))
@@ -1520,6 +1520,31 @@ do {
     check("triage: a second workaround replaces the first, not adds a copy", QABugTriage.settingWorkaround("Press Enter", in: with).components(separatedBy: "## Workaround").count == 2 && QABugTriage.settingWorkaround("Press Enter", in: with).contains("Press Enter") && !QABugTriage.settingWorkaround("Press Enter", in: with).contains("Use the menu"))
     check("triage: taking the workaround back leaves the report as it was", QABugTriage.settingWorkaround(nil, in: with) == body)
     check("triage: a workaround in the middle of a report leaves the sections after it", { let mid = "## Summary\n\nA\n\n## Workaround\n\nOld\n\n## Expected\n\nB\n"; let out = QABugTriage.settingWorkaround(nil, in: mid); return out.contains("## Expected") && !out.contains("Workaround") }())
+}
+
+do {
+    let clarification = QAClarification(question: "Which user?", answer: "An existing administrator")
+    var request = QAGenerationRequest(goal: "Buy a ticket", appKind: .web)
+    request.clarifications = [clarification]
+    check("discovery: answers reach generation without rewriting the original goal", QAGeneration.prompt(request).contains(clarification.answer) && request.goal == "Buy a ticket")
+    check("discovery: the question prompt does not instruct scenario generation", !QADiscovery.prompt(request).contains("Return the scenario as the structured answer."))
+    let round = try? QADiscovery.parse(["understanding":"Check an administrator purchase", "overlooked":["Duplicate submission"], "questions":[["question":"Which environment?", "why":"Avoid real data", "options":["Local", "Development"]]]])
+    check("discovery: questions, options and suggested omissions parse", round?.questions.count == 1 && round?.questions[0].options == ["Local","Development"] && round?.overlooked == ["Duplicate submission"])
+    let again = try? QADiscovery.parse(["understanding":"Ready", "questions":[["question":"Which environment?"]]])
+    check("discovery: question identities are unique across rounds", round?.questions[0].id != again?.questions[0].id)
+    check("discovery: a settled discussion can have no questions", (try? QADiscovery.parse(["understanding":"Ready", "questions":[] as [[String:Any]]]))?.questions.isEmpty == true)
+    check("discovery: malformed answers are refused", (try? QADiscovery.parse(["questions":[]])) == nil)
+    var scenario = shop()
+    scenario.summary = "A buyer pays an order and an administrator verifies its confirmation."
+    scenario.summarySource = QASummary.source(scenario)
+    check("summary: generated text has a valid source fingerprint", QASummary.current(scenario) == scenario.summary)
+    let originalSource = scenario.summarySource
+    scenario.updated = Date(); scenario.selected = []
+    check("summary: saving or selecting branches does not invalidate it", QASummary.current(scenario) != nil && QASummary.source(scenario) == originalSource)
+    scenario.nodes[0].detail += " New requirement"
+    check("summary: changing coverage invalidates the old text", QASummary.current(scenario) == nil)
+    check("summary: blank or excessively long text is refused", (try? QASummary.parse(["summary":" "])) == nil && (try? QASummary.parse(["summary":String(repeating:"x",count:1401)])) == nil)
+    check("summary: prompt asks for purpose and verified coverage", QASummary.prompt(scenario).contains("purpose, participants") && QASummary.prompt(scenario).contains("do not copy the original request"))
 }
 
 finish("QA")
