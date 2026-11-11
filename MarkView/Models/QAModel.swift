@@ -27,6 +27,10 @@ final class QAModel: ObservableObject {
         return AIAssistantPreferences.summary(tool: assistant.tool, model: assistant.model ?? "")
     }
     @Published private(set) var unreadable: [QAUnreadable] = []
+    @Published private(set) var summaryBusy = false
+    @Published private(set) var summaryError: String?
+    private var summaryTask: Task<Void, Never>?
+    private var summaryToken = UUID()
     @Published private(set) var current: QAScenario?
     @Published var selectedNode: String?
     @Published var selectedEdge: QAEdge?
@@ -75,6 +79,7 @@ final class QAModel: ObservableObject {
         flush()
         run.releaseSessions()
         generation?.cancel()
+        summaryTask?.cancel(); summaryToken = UUID(); summaryBusy = false; summaryError = nil
         root = newRoot
         archive.root = newRoot
         archive.close()
@@ -107,7 +112,9 @@ final class QAModel: ObservableObject {
         guard current?.id != id else { return }
         flush()
         guard let scenario = scenarios.first(where: { $0.id == id }) else { return }
+        summaryTask?.cancel(); summaryToken = UUID(); summaryBusy = false; summaryError = nil
         current = scenario
+        refreshSummary()
         selectedNode = nil
         selectedEdge = nil
         lit = nil
@@ -117,6 +124,7 @@ final class QAModel: ObservableObject {
     }
 
     func close() {
+        summaryTask?.cancel(); summaryToken = UUID(); summaryBusy = false; summaryError = nil
         flush()
         current = nil
         selectedNode = nil
@@ -128,7 +136,9 @@ final class QAModel: ObservableObject {
     /// Adds a scenario to the project and opens it.
     func add(_ scenario: QAScenario) {
         flush()
+        summaryTask?.cancel(); summaryToken = UUID(); summaryBusy = false; summaryError = nil
         current = scenario
+        refreshSummary()
         selectedNode = nil
         selectedEdge = nil
         targetID = nil
@@ -249,6 +259,47 @@ final class QAModel: ObservableObject {
         }
     }
 
+    // MARK: Scenario discussion and readable summary
+
+    func discuss(_ request: QAGenerationRequest) async throws -> QADiscovery.Round {
+        guard let root else { throw QADiscovery.Failure.invalidAnswer }
+        let assistant = selectedAssistant
+        var request = request
+        let files = request.attachments
+        let staged = try await Task.detached { try QAAttachments.stage(files, root: root, id: QAStore.newRunID(at: Date())) }.value
+        defer { QAAttachments.discard(staged) }
+        request.attachmentPaths = staged.paths
+        let response = try await CLICompletion.run(CLICompletion.Request(project: root, prompt: QADiscovery.prompt(request), systemPrompt: QADiscovery.system,
+            jsonSchema: QADiscovery.schema, readableFolder: root, timeout: nil, assistantOverride: assistant, images: staged.images, label: "qa-discuss"))
+        try Task.checkCancellation()
+        guard self.root == root else { throw CancellationError() }
+        return try QADiscovery.parse(response.structured)
+    }
+
+    func refreshSummary(force: Bool = false) {
+        guard let scenario = current, let root, force || QASummary.current(scenario) == nil else { return }
+        summaryTask?.cancel()
+        let token = UUID()
+        summaryToken = token
+        let source = QASummary.source(scenario), assistant = selectedAssistant
+        summaryBusy = true
+        summaryError = nil
+        summaryTask = Task { [weak self] in
+            defer { if self?.summaryToken == token { self?.summaryBusy = false } }
+            do {
+                let response = try await CLICompletion.run(CLICompletion.Request(project: root, prompt: QASummary.prompt(scenario),
+                    systemPrompt: "You write accurate, concise QA scenario summaries.", jsonSchema: QASummary.schema, timeout: 120,
+                    assistantOverride: assistant, label: "qa-summary"))
+                try Task.checkCancellation()
+                let text = try QASummary.parse(response.structured)
+                guard let self, self.summaryToken == token, self.root == root, let current = self.current,
+                      current.id == scenario.id, QASummary.source(current) == source else { return }
+                self.edit { $0.summary = text; $0.summarySource = source }
+            } catch is CancellationError { }
+            catch { if self?.summaryToken == token { self?.summaryError = error.localizedDescription } }
+        }
+    }
+
     // MARK: Generation
 
     func generate(_ request: QAGenerationRequest) {
@@ -283,6 +334,8 @@ final class QAModel: ObservableObject {
                             onActivity: { activity in Task { @MainActor in self?.setActivity(activity) } })
                         return QAGenerator.Answer(structured: result.structured, costUSD: result.costUSD)
                     })
+                try Task.checkCancellation()
+                guard self?.root == root else { return }
                 self?.finishGeneration(outcome)
             } catch is CancellationError {
                 self?.phase = .idle

@@ -6,6 +6,7 @@ import Foundation
 
 struct QAGenerationRequest {
     var goal: String
+    var clarifications: [QAClarification] = []
     var appKind: QAAppKind
     /// The applications the person named (DEC-018); none means one default application. The AI never writes applications.
     var apps: [QAApp] = []
@@ -69,6 +70,7 @@ enum QAGeneration {
         ])
         return object([
             "title": string(),
+            "summary": string(),
             "baselineEstablish": string(),
             "baselineVerify": string(),
             "baselineManual": ["type": "boolean"],
@@ -112,6 +114,7 @@ enum QAGeneration {
             """
         }
         return """
+        Include `summary`: 2–3 concise sentences in the goal’s language describing purpose, participants, flow and checks, grounded in the scenario rather than quoting the request.
         You are a senior QA engineer. You turn a testing goal into a branching end-to-end test scenario that a person can read, edit and run.
         \(surface)
 
@@ -162,6 +165,7 @@ enum QAGeneration {
     Paths are relative to the service base URL (a leading slash starts at the host root), or absolute on the same origin. Use {{itemId}} in later paths, headers and bodies. For a safely escaped JSON value use {{itemId.json}} without surrounding quotes; {{username.json}} and {{password.json}} work the same way in JSON login bodies. Capture a token with secret=true, then use a header Authorization: Bearer {{token}}. JSON paths are RFC 6901 pointers, including array indexes (/items/0/id). `equals` is a JSON literal encoded as a string. Include expected statuses on EVERY request and exact body assertions where meaningful. Captures require that the path exists. Timeouts are 1..120 seconds.
     A check may send a read-only GET/HEAD/OPTIONS request, or use path="" to assert the SAME actor/service's previous response without sending again. POST/PUT/PATCH/DELETE must be action nodes marked changesData=yes or unknown, never checks or read-only nodes. Alternative/failure marker nodes can have api=""; use a following check or action to execute the actual request. All action and check nodes need a valid api object. A marker with no request does no work. Put prose explaining intent and sources in detail, and a concise label in title.
     Prefer self-contained flows that create unique data and clean up after themselves. If an external reset is needed, baselineManual=true with baselineEstablish as instructions for the person; otherwise leave baselineEstablish and baselineVerify empty and baselineManual=false. Do not use networkFault/delay injection: failures must come from actual requests or a manually prepared service condition. Empty conditionKind, conditionEstablish, conditionVerify, faultUrlPattern, faultMode, faultMethod; conditionManual=false; faultStatus and faultMilliseconds=0 unless a manual state/data condition is essential.
+    Include `summary`: 2–3 concise sentences describing purpose, clients/services and response checks in the goal's language. Do not quote the request.
     Write titles/details in the goal's language. Ids are plain ASCII letters, digits, hyphens, underscores (max 40). Return 8..25 useful steps when the goal warrants it, without padding. The person reviews and edits the proposed requests before approving a run. Never store passwords, API keys or tokens in request JSON: use saved-login placeholders and secret captures.
     """#
 
@@ -176,6 +180,10 @@ enum QAGeneration {
             lines.append("Material the person attached (read each file with your tools; images are screens or designs of the product):")
             lines += request.attachmentPaths.map { "- " + $0 }
             lines.append("")
+        }
+        if !request.clarifications.isEmpty {
+            lines.append("The author answered these discovery questions. Respect these answers rather than guessing:")
+            for item in request.clarifications { lines.append("Q: \(item.question)\nA: \(item.answer)") }
         }
         if request.apps.count > 0 {
             lines.append("Applications of the product (id, name, what it is judged as):")
@@ -218,6 +226,7 @@ enum QAGeneration {
                 parseProblems.append("The scenario has no title.")
             }
             scenario.id = QAStore.newScenarioID(title: scenario.title, existing: request.existingIDs)
+            if scenario.summary != nil { scenario.summarySource = QASummary.source(scenario) }
             let fixable = scenario.problems().filter { $0.kind != .noTarget && $0.kind != .incompleteTarget }
             return QAGenerationResult(scenario: scenario, parseProblems: parseProblems, problems: fixable)
         }
@@ -229,6 +238,9 @@ enum QAGeneration {
         func number(_ value: Any?) -> Int { (value as? NSNumber)?.intValue ?? 0 }
 
         scenario.title = text(root["title"])
+        let summary = text(root["summary"])
+        scenario.summary = summary.isEmpty ? nil : String(summary.prefix(1400))
+        scenario.clarifications = request.clarifications.isEmpty ? nil : request.clarifications
         let baselineEstablish = text(root["baselineEstablish"]), baselineVerify = text(root["baselineVerify"])
         if !baselineEstablish.isEmpty || !baselineVerify.isEmpty {
             scenario.baseline = QACondition(kind: .state, establish: baselineEstablish, verify: baselineVerify, manual: root["baselineManual"] as? Bool == true ? true : nil)
@@ -301,5 +313,96 @@ enum QAGeneration {
             scenario.edges.append(QAEdge(from: text(item["from"]), to: text(item["to"]), label: label.isEmpty ? nil : label))
         }
         return finish()
+    }
+}
+
+
+/// Pure prompt/parse layer for discussion before generation.
+enum QADiscovery {
+    struct Question: Identifiable, Equatable {
+        var id: String
+        var question: String
+        var why: String
+        var options: [String]
+    }
+    struct Round: Equatable {
+        var understanding: String
+        var overlooked: [String]
+        var questions: [Question]
+    }
+    enum Failure: LocalizedError {
+        case invalidAnswer
+        var errorDescription: String? { "The assistant returned an unusable answer. Try again; your input is kept." }
+    }
+    static let system = """
+    You are a senior QA engineer discussing a new end-to-end scenario with its author BEFORE writing steps.
+    Read relevant project documentation and attached materials. Ask 3–5 focused questions about unresolved choices only:
+    objective/scope, applications and independent actors, starting state/test data, observable success, important negative cases.
+    Do not ask for credentials. Do not repeat settled facts or answered questions. Offer 2–4 useful answer suggestions where appropriate;
+    the author can write another answer. Explain why each question matters. Do not decide for the author.
+    Identify up to four possibly overlooked cases as suggestions, not established requirements. Use the goal's language.
+    Return no questions only if every important choice is settled. Do not execute or create a scenario yet.
+    """
+    static var schema: [String: Any] {
+        ["type": "object", "properties": [
+            "understanding": ["type": "string"], "overlooked": ["type": "array", "items": ["type": "string"]],
+            "questions": ["type": "array", "items": ["type": "object", "properties": [
+                "question": ["type": "string"], "why": ["type": "string"], "options": ["type": "array", "items": ["type": "string"]]
+            ]]]
+        ]]
+    }
+    static func prompt(_ request: QAGenerationRequest) -> String {
+        "Discuss this proposal without generating steps.\n\n" + QAGeneration.prompt(request).replacingOccurrences(of: "Return the scenario as the structured answer.", with: "Return your understanding, suggested overlooked cases and clarification questions.")
+    }
+    static func parse(_ value: Any?) throws -> Round {
+        guard let object = value as? [String: Any], let text = object["understanding"] as? String,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let items = object["questions"] as? [[String: Any]], items.count <= 5 else { throw Failure.invalidAnswer }
+        let prefix = UUID().uuidString
+        var questions: [Question] = []
+        for (index, item) in items.enumerated() {
+            guard let question = item["question"] as? String, !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw Failure.invalidAnswer }
+            questions.append(Question(id: "\(prefix)-\(index)", question: String(question.prefix(1000)), why: String((item["why"] as? String ?? "").prefix(600)),
+                                      options: Array((item["options"] as? [String] ?? []).prefix(4)).map { String($0.prefix(500)) }))
+        }
+        return Round(understanding: String(text.prefix(1600)), overlooked: Array((object["overlooked"] as? [String] ?? []).prefix(4)).map { String($0.prefix(700)) }, questions: questions)
+    }
+}
+
+/// The fingerprint ignores UI selection, save dates and the summary itself.
+enum QASummary {
+    static func source(_ scenario: QAScenario) -> String {
+        var value = scenario
+        value.summary = nil; value.summarySource = nil; value.selected = []
+        value.created = .distantPast; value.updated = .distantPast
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let bytes = (try? encoder.encode(value)) ?? Data()
+        var hash: UInt64 = 14695981039346656037
+        for byte in bytes { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
+        return String(hash, radix: 16)
+    }
+    static func current(_ scenario: QAScenario) -> String? {
+        guard scenario.summarySource == source(scenario), let summary = scenario.summary, !summary.isEmpty else { return nil }
+        return summary
+    }
+    static let schema: [String: Any] = ["type": "object", "properties": ["summary": ["type": "string"]]]
+    static func prompt(_ scenario: QAScenario) -> String {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        var input = scenario
+        input.summary = nil; input.summarySource = nil
+        let text = (try? encoder.encode(input)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        return """
+        Summarize this QA scenario in 2–3 concise sentences, in \(QALanguage.name(of: scenario) ?? "the scenario's language").
+        Explain purpose, participants, main flow and important outcome/failure checks. Ground claims in the scenario;
+        do not copy the original request, invent coverage or repeat credentials. This appears under the scenario title.
+        Scenario JSON:
+        \(text)
+        """
+    }
+    static func parse(_ value: Any?) throws -> String {
+        guard let object = value as? [String: Any], let raw = object["summary"] as? String else { throw QADiscovery.Failure.invalidAnswer }
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text.count <= 1400 else { throw QADiscovery.Failure.invalidAnswer }
+        return text
     }
 }
