@@ -218,20 +218,6 @@ func authChecks() async {
           && session.dependencies.contains { $0.id == StudioAuthMock.dependencyID && $0.mode == .simulated },
           "\(session.state) \(session.stateDetail) \(session.dependencies.map(\.id))")
 
-    // A navigate step must hit the server, not just change the address in browser history: middleware redirects it.
-    let originalScenario = session.scenario
-    var protectedNavigation = originalScenario
-    protectedNavigation.route = "/auth/login"
-    protectedNavigation.steps = [StudioStep(action: .navigate, text: "/account")]
-    protectedNavigation.expectedPath = "/auth/login"
-    session.activate(protectedNavigation)
-    _ = await waitUntil(60) { session.busy == nil }
-    let redirectedLogin = await value("login")
-    check("a navigate step follows the server's authentication redirect", path() == "/auth/login" && redirectedLogin == "Sign in",
-          "at \(path())")
-    session.activate(originalScenario)
-    _ = await waitUntil(60) { session.busy == nil }
-
     // The protected page sends a signed-out visitor to sign in.
     await go("/account")
     let login = await waitFor("login")
@@ -291,6 +277,20 @@ func authChecks() async {
     check("REQ-010 the application's page has the runtime again, and no page message was rejected", await runtime() && session.rejectedMessages == 0,
           "rejected \(session.rejectedMessages)")
     check("REQ-010 the external page is in the session log", logged("leaves the application: a simulated external page is shown"))
+
+    // A navigate step must hit the server, not just change the address in browser history: middleware redirects it.
+    await go("/signout")
+    _ = await waitFor("login")
+    let originalScenario = session.scenario
+    var protectedNavigation = originalScenario
+    protectedNavigation.route = "/auth/login"
+    protectedNavigation.steps = [StudioStep(action: .navigate, text: "/account")]
+    protectedNavigation.expectedPath = "/auth/login"
+    session.activate(protectedNavigation)
+    _ = await waitUntil(60) { session.busy == nil }
+    let redirectedLogin = await value("login")
+    check("a navigate step follows the server's authentication redirect", path() == "/auth/login" && redirectedLogin == "Sign in",
+          "at \(path())")
 
     let everything = session.sessionLog.entries.map(\.text).joined() + session.requests.map(\.url).joined()
         + CLICompletion.requests.dropFirst(promptsBefore).map(\.prompt).joined() + session.serverLog
