@@ -659,6 +659,10 @@ class WorkspaceManager: ObservableObject {
         try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
         recentFilesURL = appDir.appendingPathComponent("recentFiles.json")
         research.workspace = self
+        qa.assistantSelection = { [weak self] in
+            guard let self, let terminal = self.assistantTerminal, let tool = terminal.profile.tool else { return nil }
+            return CLICompletion.Assistant(tool: tool, model: terminal.observedModel ?? terminal.model)
+        }
         agentActivity.terminals = { [weak self] in self?.aiTerminals ?? [] }
         agentActivity.activeTerminalID = { [weak self] in self?.activeAITerminalID }
         agentActivity.onClaudeModel = { [weak self] id, model in self?.claudeModelReported(model, terminalID: id) }

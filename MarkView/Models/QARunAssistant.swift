@@ -5,11 +5,15 @@ import Foundation
 
 final class QACLIAssistant: QAAssistant {
     private let project: URL
+    private let assistant: CLICompletion.Assistant
     private let lock = NSLock()
     private var cost = 0.0
     private var asked = 0
 
-    init(project: URL) { self.project = project }
+    init(project: URL, assistant: CLICompletion.Assistant? = nil) {
+        self.project = project
+        self.assistant = assistant ?? .project(project)
+    }
 
     /// What the answers cost so far, for the tools that report a cost.
     var costUSD: Double { lock.withLock { cost } }
@@ -17,7 +21,7 @@ final class QACLIAssistant: QAAssistant {
 
     func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any? {
         var request = CLICompletion.Request(project: project, prompt: prompt, systemPrompt: system, jsonSchema: schema, readableFolder: nil,
-                                            timeout: 150, label: "qa-step")
+                                            timeout: 150, assistantOverride: assistant, label: "qa-step")
         request.effort = "low"
         let result = try await CLICompletion.run(request)
         lock.withLock {

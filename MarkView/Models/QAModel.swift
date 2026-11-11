@@ -16,6 +16,16 @@ final class QAModel: ObservableObject {
     @Published private(set) var scenarios: [QAScenario] = []
     /// When the assistant was asked to write the scenario; the sheet shows how long it has been working.
     @Published private(set) var generationStarted: Date?
+    @Published private(set) var generationAssistant = ""
+    /// Supplied by this window: the shown assistant takes precedence over the project's fallback.
+    var assistantSelection: () -> CLICompletion.Assistant? = { nil }
+    var selectedAssistant: CLICompletion.Assistant {
+        assistantSelection() ?? CLICompletion.Assistant.project(root)
+    }
+    var assistantSummary: String {
+        let assistant = selectedAssistant
+        return AIAssistantPreferences.summary(tool: assistant.tool, model: assistant.model ?? "")
+    }
     @Published private(set) var unreadable: [QAUnreadable] = []
     @Published private(set) var current: QAScenario?
     @Published var selectedNode: String?
@@ -180,7 +190,7 @@ final class QAModel: ObservableObject {
         // A native check drives and watches another application, which the system has to allow first (the Run panel says what is missing).
         if current.appKind == .nativeMacOS && QANativePermissions.current != .granted { return }
         flush()
-        run.start(scenario: current, plan: plan, gate: gate, root: root)
+        run.start(scenario: current, plan: plan, gate: gate, root: root, assistant: selectedAssistant)
     }
 
     /// Reads the saved logins (user names and hosts only) off the main thread.
@@ -243,6 +253,8 @@ final class QAModel: ObservableObject {
         guard let root, !isGenerating else { return }
         var request = request
         request.existingIDs = existingIDs
+        let assistant = selectedAssistant
+        generationAssistant = AIAssistantPreferences.summary(tool: assistant.tool, model: assistant.model ?? "")
         notice = nil
         generationStarted = Date()
         phase = .generating(attempt: 1, activity: request.attachments.isEmpty ? "Starting the assistant" : "Preparing the attached files")
@@ -264,7 +276,8 @@ final class QAModel: ObservableObject {
                     complete: { prompt in
                         let result = try await CLICompletion.run(
                             CLICompletion.Request(project: root, prompt: prompt, systemPrompt: QAGeneration.systemPrompt(request.appKind),
-                                                  jsonSchema: QAGeneration.schema, readableFolder: root, timeout: 420, images: images, label: "qa-generate"),
+                                                  jsonSchema: QAGeneration.schema, readableFolder: root, timeout: nil, assistantOverride: assistant,
+                                                  images: images, label: "qa-generate"),
                             onActivity: { activity in Task { @MainActor in self?.setActivity(activity) } })
                         return QAGenerator.Answer(structured: result.structured, costUSD: result.costUSD)
                     })

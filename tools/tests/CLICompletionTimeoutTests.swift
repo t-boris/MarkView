@@ -5,6 +5,7 @@ import Darwin
     static func main() async throws {
         if CommandLine.arguments.contains("--acp") { try serveACP(); return }
         if CommandLine.arguments.contains("exec") { try serveCodex(); return }
+        if CommandLine.arguments.contains("-p") { try serveClaude(); return }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("mv-completion-timeout-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -34,7 +35,16 @@ import Darwin
         }
         precondition(CLICompletion.Request(project: root, prompt: "x").timeout == 180,
                      "Other app features must keep their existing default deadline.")
-        for tool in [CLITool.copilot, .codex] {
+        var windowRequest = request(.claude, timeout: nil)
+        windowRequest.assistantOverride = CLICompletion.Assistant(tool: .codex, model: "window-model")
+        precondition(windowRequest.tool == .codex && windowRequest.resolvedModel == "window-model",
+                     "The window's shown Codex must win over the project's assistant.")
+        windowRequest.assistantOverride = CLICompletion.Assistant(tool: .codex, model: nil)
+        windowRequest.model = "stale-project-model"
+        precondition(windowRequest.resolvedModel == nil, "A captured CLI default must not pick up another model.")
+        let windowResult = try await CLICompletion.run(windowRequest)
+        precondition((windowResult.structured as? [String: Any])?["ok"] as? Bool == true)
+        for tool in [CLITool.copilot, .codex, .claude] {
             let result = try await CLICompletion.run(request(tool, timeout: nil))
             precondition((result.structured as? [String: Any])?["ok"] as? Bool == true)
             do {
@@ -56,7 +66,7 @@ import Darwin
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         precondition(AgentProcesses.count == 0, "Completed and cancelled test assistants must be removed.")
-        print("Completion deadlines: Copilot ACP and native CLI unbounded completion, explicit limits, Stop, provider errors and cleanup passed.")
+        print("Completion deadlines: shown assistant selection, captured model, Claude/Codex/ACP unbounded completion, explicit limits, Stop, errors and cleanup passed.")
     }
 
     static func send(_ value: [String: Any]) throws {
@@ -87,5 +97,10 @@ import Darwin
         usleep(350_000)
         try send(["type": "item.completed", "item": ["type": "agent_message", "text": "{\"ok\":true}"]])
         try send(["type": "turn.completed"])
+    }
+    static func serveClaude() throws {
+        _ = FileHandle.standardInput.readDataToEndOfFile()
+        usleep(350_000)
+        try send(["type": "result", "structured_output": ["ok": true], "result": "", "is_error": false])
     }
 }

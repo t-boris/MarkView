@@ -116,6 +116,7 @@ final class QARunModel: ObservableObject {
     private var reviewer: Task<Void, Never>?
     private var sink: QAEventSink?
     private var assistant: QACLIAssistant?
+    private var selectedAssistant: CLICompletion.Assistant?
     private var answer: CheckedContinuation<Bool, Never>?
     private var nextFeedID = 1
     private var reviewCost = 0.0
@@ -180,7 +181,7 @@ final class QARunModel: ObservableObject {
 
     // MARK: Start and stop
 
-    func start(scenario: QAScenario, plan: QAExecutionPlan, gate: QAGate, root: URL) {
+    func start(scenario: QAScenario, plan: QAExecutionPlan, gate: QAGate, root: URL, assistant selected: CLICompletion.Assistant? = nil) {
         guard phase != .running, gate.canPrepare else { return }
         reset()
         self.scenario = scenario
@@ -202,7 +203,8 @@ final class QARunModel: ObservableObject {
         }
         let (events, continuation) = AsyncStream.makeStream(of: QARunEvent.self)
         let sink = QAEventSink(continuation)
-        let assistant = QACLIAssistant(project: root)
+        selectedAssistant = selected ?? .project(root)
+        let assistant = QACLIAssistant(project: root, assistant: selectedAssistant)
         self.sink = sink
         self.assistant = assistant
         let factory: QADriverFactory
@@ -453,7 +455,8 @@ final class QARunModel: ObservableObject {
         guard written, !Task.isCancelled else { return }
 
         var request = CLICompletion.Request(project: root, prompt: QAReview.prompt(input) + "\n\nThe screenshot is the image file at \(file.path). Open it and look at it before you answer.",
-                                            systemPrompt: QAReview.systemPrompt(), jsonSchema: QAReview.schema, readableFolder: folder, timeout: 150, label: "qa-review")
+                                            systemPrompt: QAReview.systemPrompt(), jsonSchema: QAReview.schema, readableFolder: folder, timeout: 150,
+                                            assistantOverride: selectedAssistant, label: "qa-review")
         request.images = [file]
         request.effort = "low"
         do {
