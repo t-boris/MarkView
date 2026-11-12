@@ -1220,6 +1220,26 @@ do {
     }())
     check("web run: still opens the web address and tells the assistant about a browser", ok.assistant.systems.allSatisfy { $0.contains("web application") } && ok.assistant.prompts.allSatisfy { $0.contains("Page now:") })
 
+    let nativeAttached = changed(nativeShop) { scenario in
+        scenario.actors = [scenario.actors[0]]
+        for i in scenario.nodes.indices where scenario.nodes[i].actor != nil { scenario.nodes[i].actor = scenario.actors[0].id }
+        scenario.targets[0].locations["shop"]?.application?.startupPolicy = .attach
+    }
+    let attachedData = try? QAStore.encoder.encode(nativeAttached)
+    let attachedBack = attachedData.flatMap { try? QAStore.decoder.decode(QAScenario.self, from: $0) }
+    check("native policy: old scenarios launch and explicit attachment round-trips", nativeShop.targets[0].locations["shop"]?.application?.effectiveStartupPolicy == .launch && attachedBack == nativeAttached)
+    check("scenario conflict: unchanged file may be saved", !QAStore.scenarioChangedOnDisk(expected: nativeAttached, data: attachedData, exists: true))
+    var fractional = nativeAttached; fractional.updated = Date(timeIntervalSince1970: 1_790_000_000.75)
+    check("scenario conflict: the encoder's date precision does not cause a false conflict", !QAStore.scenarioChangedOnDisk(expected: fractional, data: try? QAStore.encoder.encode(fractional), exists: true))
+    check("scenario conflict: external edits, unreadable data and deletion are preserved", QAStore.scenarioChangedOnDisk(expected: nativeShop, data: attachedData, exists: true) && QAStore.scenarioChangedOnDisk(expected: nativeShop, data: Data("bad".utf8), exists: true) && QAStore.scenarioChangedOnDisk(expected: nativeShop, data: nil, exists: false))
+    check("scenario conflict: an already existing file is never treated as new", QAStore.scenarioChangedOnDisk(expected: nil, data: attachedData, exists: true))
+    check("native policy: policy changes the approved plan fingerprint", QAPlanner.fingerprint(nativeShop, target: nativeShop.targets[0], branches: []) != QAPlanner.fingerprint(nativeAttached, target: nativeAttached.targets[0], branches: []))
+    var nativeKeep = QARunner.Config(); nativeKeep.keepSessions = true
+    let attachedSessions = QARunSessions()
+    let attached = run(scenario: nativeAttached, branches: [mainLine, declined], config: nativeKeep, sessions: attachedSessions)
+    check("native policy: sequential branches reuse one attached player", attached.factory.drivers.count == 1 && attached.factory.drivers.first?.request.startupPolicy == .attach)
+    _ = runAsync { await attachedSessions.close() }
+
     // What is told
     let lines = ok.record.timeline
     check("run: the timeline is the story: preparation, actions, what was seen, the result", lines.first?.kind == .preparation && lines.contains { $0.kind == .action && $0.text.contains("Buyer: Doing it") } && lines.last?.kind == .result && lines.last?.text == "Passed: Every step and check held.")

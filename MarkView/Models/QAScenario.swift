@@ -15,10 +15,17 @@ enum QATargetKind: String, Codable, CaseIterable {
     case production
 }
 
-/// An installed macOS application the user picked; MarkView launches it (DEC-008).
+enum QANativeStartupPolicy: String, Codable, CaseIterable {
+    case launch, attach
+    var title: String { self == .launch ? "Launch a new instance" : "Attach to a running application" }
+}
+
+/// The installed application and optional startup policy for this environment.
 struct QAApplication: Codable, Equatable {
     var bundleIdentifier: String
     var name: String
+    var startupPolicy: QANativeStartupPolicy? = nil
+    var effectiveStartupPolicy: QANativeStartupPolicy { startupPolicy ?? .launch }
 }
 
 /// Where one application runs in one environment: a web address for a web scenario, an installed application for a native one.

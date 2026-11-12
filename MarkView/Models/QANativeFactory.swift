@@ -18,7 +18,7 @@ final class QANativeDriverFactory: QADriverFactory {
     /// The request's address is the bundle identifier of the application (or `app://<bundle identifier>`).
     func makeDriver(_ request: QADriverRequest) async throws -> QAActorDriver {
         var credentials = QACredentials(username: request.login?.username, password: nil)
-        if let login = request.login {
+        if request.startupPolicy != .attach, let login = request.login {
             // The Keychain answers over a system service and may wait for the person: never on the main thread.
             credentials.password = await Task.detached(priority: .userInitiated) {
                 BrowserPasswordStore.shared.password(host: login.host, username: login.username)

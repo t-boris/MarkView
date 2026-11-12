@@ -52,6 +52,11 @@ final class QAModel: ObservableObject {
     let archive = QARunArchive()
 
     private var saveTask: Task<Void, Never>?
+    private var writeTail: Task<Void, Never>?
+    private var writesPending = 0
+    private var diskVersions: [String: QAScenario] = [:]
+    private var conflictedFiles: Set<String> = []
+    private var unsavedConflicts: Set<String> = []
     private var generation: Task<Void, Never>?
     private let saveDelay: UInt64 = 500_000_000
 
@@ -114,6 +119,7 @@ final class QAModel: ObservableObject {
         guard let scenario = scenarios.first(where: { $0.id == id }) else { return }
         summaryTask?.cancel(); summaryToken = UUID(); summaryBusy = false; summaryError = nil
         current = scenario
+        if let root { diskVersions[root.path + "/" + scenario.id] = scenario }
         refreshSummary()
         selectedNode = nil
         selectedEdge = nil
@@ -251,11 +257,67 @@ final class QAModel: ObservableObject {
 
     private func save(_ scenario: QAScenario) {
         guard let root else { return }
-        Task { [weak self] in
-            let failure: String? = await Task.detached(priority: .utility) {
-                do { try QAStore.saveScenario(scenario, root: root); return nil } catch { return error.localizedDescription }
+        let key = root.path + "/" + scenario.id
+        let previous = writeTail
+        writesPending += 1
+        writeTail = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
+            let expected = self.diskVersions[key]
+            let alreadyConflicted = self.conflictedFiles.contains(key)
+            let result: (String?, Bool, Bool) = await Task.detached(priority: .utility) {
+                let url = QAStore.scenariosFolder(root).appendingPathComponent(scenario.id + ".json")
+                let exists = FileManager.default.fileExists(atPath: url.path)
+                let actual = try? Data(contentsOf: url)
+                if alreadyConflicted || QAStore.scenarioChangedOnDisk(expected: expected, data: actual, exists: exists) {
+                    do {
+                        let backup = QAStore.configFolder(root).appendingPathComponent("conflicts", isDirectory: true)
+                            .appendingPathComponent("\(scenario.id)-\(UUID().uuidString).json")
+                        try QAStore.save(scenario, to: backup)
+                        return ("The scenario changed on disk. Your local edits were saved to \(backup.path); the external file was not overwritten. Reload after reviewing both copies.", true, true)
+                    } catch { return ("The scenario changed on disk and the local copy could not be saved: \(error.localizedDescription)", true, false) }
+                }
+                do { try QAStore.saveScenario(scenario, root: root); return (nil, false, true) }
+                catch { return ("The scenario could not be saved: \(error.localizedDescription)", true, false) }
             }.value
-            if let failure { self?.notice = "The scenario could not be saved: \(failure)" }
+            self.writesPending -= 1
+            if result.1 { self.conflictedFiles.insert(key) } else { self.diskVersions[key] = scenario }
+            if result.2 { self.unsavedConflicts.remove(key) } else { self.unsavedConflicts.insert(key) }
+            if let message = result.0 { self.notice = message }
+        }
+    }
+
+    /// Reload explicitly only after pending writes have completed; conflicting local edits have a separate backup.
+    func reloadCurrent() {
+        guard let root else { return }
+        guard saveTask == nil, writesPending == 0 else {
+            notice = "Wait for pending scenario edits to finish saving, then reload."
+            return
+        }
+        let id = current?.id
+        if let id, unsavedConflicts.contains(root.path + "/" + id) {
+            notice = "The local edits could not be backed up. Save a copy before reloading."
+            return
+        }
+        Task { [weak self] in
+            let listing = await Task.detached(priority: .userInitiated) { QAStore.loadScenarios(root) }.value
+            guard let self, self.root == root, self.current?.id == id, self.saveTask == nil, self.writesPending == 0 else { return }
+            self.scenarios = listing.scenarios
+            self.unreadable = listing.unreadable
+            guard let id else { self.notice = "Scenario list refreshed."; return }
+            guard let refreshed = listing.scenarios.first(where: { $0.id == id }) else {
+                self.notice = listing.unreadable.first(where: { $0.file == id + ".json" })?.message ?? "The scenario is no longer on disk."
+                return
+            }
+            let key = root.path + "/" + id
+            self.diskVersions[key] = refreshed
+            self.conflictedFiles.remove(key)
+            self.current = refreshed
+            self.selectedNode = nil; self.selectedEdge = nil; self.lit = nil
+            self.gate = nil
+            self.summaryTask?.cancel(); self.summaryToken = UUID(); self.summaryBusy = false; self.summaryError = nil
+            self.refreshSummary()
+            self.notice = "Scenario reloaded from disk. Review the plan again before running."
         }
     }
 
