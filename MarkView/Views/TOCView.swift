@@ -125,7 +125,7 @@ private struct TOCTabs<Content: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                ForEach(TOCView.Tab.allCases.filter { $0 != .terminal && ($0 != .feature || store.hasIssues) }, id: \.self) { tab in
+                ForEach(TOCView.Tab.allCases.filter { ![.terminal, .git, .search].contains($0) && ($0 != .feature || store.hasIssues) }, id: \.self) { tab in
                     PanelTabButton(title: tab.title, isSelected: selectedTab == tab) {
                         selectedTab = tab
                     }

@@ -77,6 +77,14 @@
             transition: background-color 0.3s ease, color 0.3s ease;
         }
 
+        html.workspace-transparent body,
+        html.workspace-transparent .editor-rendered,
+        html.workspace-transparent .editor-input,
+        html.workspace-transparent .md-viewer,
+        html.workspace-transparent .code-container,
+        html.workspace-transparent .code-container .cm-editor,
+        html.workspace-transparent .arch-container { background-color: transparent !important; }
+
         .editor-container {
             display: flex;
             height: 100vh;
