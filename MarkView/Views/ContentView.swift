@@ -198,6 +198,8 @@ struct ContentView: View {
     /// Project color identity of the open project folder; nil without one (feature-2, DEC-012).
     @State private var projectKey: String?
     @ObservedObject private var projectColors = ProjectColorStore.shared
+    @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
+    private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
     @State private var sessionAttached = false
     @State private var restorationComplete = false
     @State private var lastFilesTab: UUID?
@@ -212,7 +214,7 @@ struct ContentView: View {
     }
 
     /// The palette of this window, for the parts of this view that draw with it (its children read it from the environment).
-    private var palette: AppPalette { workspaceManager.theme.palette }
+    private var palette: AppPalette { AppPalette(workspaceManager.theme.palette.model, workspaceTransparency: workspaceTransparency) }
 
     private var windowContent: some View {
         VStack(spacing: 0) {
@@ -222,6 +224,10 @@ struct ContentView: View {
                 let compact = geometry.size.width < 1280 * max(1, appFontScale)
                 let terminalMinimum = min(500, max(300, geometry.size.width - 700))
                 ZStack(alignment: .bottomTrailing) {
+                if workspaceTransparency > 0 {
+                    WorkspaceBackdrop(root: workspaceManager.rootNode?.url, backdrop: workspaceManager.layout.welcomeBackdrop,
+                                      store: workspaceManager.features)
+                }
                 HSplitView {
                     if workspaceManager.showFileTree {
                         navigationPane
@@ -238,6 +244,7 @@ struct ContentView: View {
                             .background(RightPanelWidthKeeper(centerVisible: workspaceManager.showCenter, state: workspaceManager.windowUI))
                     }
                 }
+                .environment(\.palette, palette)
                 if workspaceManager.agentsVisible {
                     FloatingAgentsView(workspaceManager: workspaceManager, available: geometry.size)
                 }
@@ -479,7 +486,7 @@ struct ContentView: View {
                 headerButton("paintpalette", help: "Theme (⇧⌘T)", width: controlWidth) {
                     workspaceManager.theme.showsPicker.toggle()
                 }
-                .themePicker(workspaceManager.theme)
+                .themePicker(workspaceManager.theme, project: workspaceManager.projectFolder)
             }
             .padding(.leading, 12)
             .padding(.trailing, 12)
@@ -634,10 +641,19 @@ struct ContentView: View {
                 HandoffResumeBar(resume: resume).environmentObject(workspaceManager)
             }
             if workspaceManager.openTabs.indices.contains(workspaceManager.activeTabIndex) {
+                let activeTab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
+                let editorVisible: Bool = {
+                    switch activeTab.kind {
+                    case .file, .data, .architecture, .insight: return true
+                    default: return false
+                    }
+                }()
                 ZStack {
                     EditorView()
                         .environmentObject(workspaceManager)
-                    let activeTab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
+                        .opacity(editorVisible ? 1 : 0)
+                        .allowsHitTesting(editorVisible)
+                        .accessibilityHidden(!editorVisible)
                     if case .terminal(let id) = activeTab.kind,
                        let session = workspaceManager.terminalSession(id) {
                         TerminalTabView(session: session)
@@ -694,7 +710,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 DiagnosticsBarView().environmentObject(workspaceManager)
             } else {
-                welcomeView
+                welcomeView.environment(\.palette, workspaceManager.theme.palette)
             }
             ResearchBar(research: workspaceManager.research,
                         root: workspaceManager.rootNode?.url,

@@ -32,9 +32,10 @@ struct AppPalette: Equatable {
     let border, selection, accent, onAccent, badge: Color
     let blue, green, orange, yellow, purple, red, cyan: Color
 
-    init(_ model: ThemePalette) {
+    init(_ model: ThemePalette, workspaceTransparency: Double = 0) {
         self.model = model
-        bg = Color(model.bg); bgSidebar = Color(model.bgSidebar); bgInput = Color(model.bgInput)
+        let opacity = 1 - min(0.7, max(0, workspaceTransparency))
+        bg = Color(model.bg).opacity(opacity); bgSidebar = Color(model.bgSidebar).opacity(opacity); bgInput = Color(model.bgInput)
         bgHover = Color(model.bgHover); bgActive = Color(model.bgActive); bgBanner = Color(model.bgBanner)
         text = Color(model.text); textDim = Color(model.textDim); textBright = Color(model.textBright)
         border = Color(model.border); selection = Color(model.selection); accent = Color(model.accent)
@@ -94,5 +95,34 @@ extension View {
     /// Give the views below this one the palette of `theme` (the root of a window or of a hosted view).
     func windowThemed(_ theme: WindowTheme) -> some View {
         modifier(WindowThemeRoot(theme: theme))
+    }
+}
+
+/// A project keeps its own transparency locally, shared by its open windows.
+@MainActor
+final class ProjectTransparencyStore: ObservableObject {
+    static let shared = ProjectTransparencyStore()
+    private static let key = "project.workspaceTransparency"
+    @Published private var values: [String: Double]
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.values = defaults.dictionary(forKey: Self.key) as? [String: Double] ?? [:]
+    }
+
+    private func key(for root: URL) -> String { root.resolvingSymlinksInPath().standardizedFileURL.path }
+    func value(for root: URL?) -> Double {
+        guard let root, let value = values[key(for: root)], value.isFinite else { return 0 }
+        return min(0.7, max(0, value))
+    }
+    func set(_ value: Double, for root: URL?) {
+        guard let root, value.isFinite else { return }
+        let amount = min(0.7, max(0, value))
+        values[key(for: root)] = amount == 0 ? nil : amount
+        defaults.set(values, forKey: Self.key)
+    }
+    func binding(for root: URL?) -> Binding<Double> {
+        Binding(get: { self.value(for: root) }, set: { self.set($0, for: root) })
     }
 }
