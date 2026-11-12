@@ -151,7 +151,11 @@ enum QAStore {
     static func scenarioChangedOnDisk(expected: QAScenario?, data: Data?, exists: Bool) -> Bool {
         if !exists { return expected != nil }
         guard let data, let actual = try? decoder.decode(QAScenario.self, from: data) else { return true }
-        return actual != expected
+        guard let expected else { return true }
+        // The file encoder rounds dates to seconds. Compare the same representation so our own
+        // successful save is not mistaken for an external edit on the next keystroke.
+        guard let encoded = try? encoder.encode(expected), let normalized = try? decoder.decode(QAScenario.self, from: encoded) else { return true }
+        return actual != normalized
     }
 
     static func saveScenario(_ scenario: QAScenario, root: URL) throws {

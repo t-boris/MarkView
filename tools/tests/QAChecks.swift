@@ -1229,6 +1229,8 @@ do {
     let attachedBack = attachedData.flatMap { try? QAStore.decoder.decode(QAScenario.self, from: $0) }
     check("native policy: old scenarios launch and explicit attachment round-trips", nativeShop.targets[0].locations["shop"]?.application?.effectiveStartupPolicy == .launch && attachedBack == nativeAttached)
     check("scenario conflict: unchanged file may be saved", !QAStore.scenarioChangedOnDisk(expected: nativeAttached, data: attachedData, exists: true))
+    var fractional = nativeAttached; fractional.updated = Date(timeIntervalSince1970: 1_790_000_000.75)
+    check("scenario conflict: the encoder's date precision does not cause a false conflict", !QAStore.scenarioChangedOnDisk(expected: fractional, data: try? QAStore.encoder.encode(fractional), exists: true))
     check("scenario conflict: external edits, unreadable data and deletion are preserved", QAStore.scenarioChangedOnDisk(expected: nativeShop, data: attachedData, exists: true) && QAStore.scenarioChangedOnDisk(expected: nativeShop, data: Data("bad".utf8), exists: true) && QAStore.scenarioChangedOnDisk(expected: nativeShop, data: nil, exists: false))
     check("scenario conflict: an already existing file is never treated as new", QAStore.scenarioChangedOnDisk(expected: nil, data: attachedData, exists: true))
     check("native policy: policy changes the approved plan fingerprint", QAPlanner.fingerprint(nativeShop, target: nativeShop.targets[0], branches: []) != QAPlanner.fingerprint(nativeAttached, target: nativeAttached.targets[0], branches: []))
