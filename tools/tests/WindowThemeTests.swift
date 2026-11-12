@@ -35,6 +35,20 @@ MainActor.assumeIsolated {
     _ = NSApplication.shared
     let outFolder = CommandLine.arguments.count > 1 && !CommandLine.arguments[1].isEmpty ? CommandLine.arguments[1] : nil
 
+    // Project transparency persists independently and is shared by windows of the same project.
+    let transparencyName = "transparency-test-\(UUID().uuidString)"
+    let transparencyDefaults = UserDefaults(suiteName: transparencyName)!
+    let projectA = URL(fileURLWithPath: "/tmp/project-a", isDirectory: true)
+    let projectB = URL(fileURLWithPath: "/tmp/project-b", isDirectory: true)
+    let transparency = ProjectTransparencyStore(defaults: transparencyDefaults)
+    transparency.set(0.45, for: projectA)
+    check(transparency.value(for: projectA) == 0.45 && transparency.value(for: projectB) == 0, "projects have independent transparency")
+    let restoredTransparency = ProjectTransparencyStore(defaults: transparencyDefaults)
+    check(restoredTransparency.value(for: projectA) == 0.45, "project transparency survives relaunch")
+    transparency.set(0.2, for: nil)
+    check(transparency.value(for: nil) == 0, "a window without a project cannot change a project")
+    transparencyDefaults.removePersistentDomain(forName: transparencyName)
+
     // MARK: windows are independent (criterion 3)
     let store = freshStore()
     let a = WindowTheme(store: store), b = WindowTheme(store: store)

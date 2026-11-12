@@ -7,6 +7,8 @@ struct EditorView: NSViewRepresentable {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @EnvironmentObject var windowTheme: WindowTheme
     @Environment(\.appFontScale) private var fontScale
+    @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
+    private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -41,6 +43,7 @@ struct EditorView: NSViewRepresentable {
         config.setURLSchemeHandler(documentFiles, forURLScheme: DocumentFileSchemeHandler.scheme)
 
         let webView = WKWebView(frame: .zero, configuration: config)
+        webView.setValue(false, forKey: "drawsBackground")
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
 
@@ -73,6 +76,7 @@ struct EditorView: NSViewRepresentable {
         // Update theme
         coordinator.setTheme(windowTheme.webArguments)
         coordinator.setUIScale(fontScale)
+        coordinator.setWorkspaceTransparency(workspaceTransparency)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -375,7 +379,7 @@ struct EditorView: NSViewRepresentable {
                 bridge.clearDocument(in: webView)
                 routeArchitecture(scope: scope, webView: webView)
                 return
-            case .terminal, .image, .pdf, .archive, .deployments, .discussions, .workflow, .changeReview, .github, .browser, .prototype, .uiStudio, .qa:
+            case .terminal, .image, .pdf, .archive, .deployments, .discussions, .workflow, .git, .changeReview, .github, .browser, .prototype, .uiStudio, .qa:
                 // Drawn over the editor (TerminalTabView, ImageViewerView, GitHub views); it keeps its content.
                 return
             case .data:
@@ -763,6 +767,13 @@ struct EditorView: NSViewRepresentable {
             webView.evaluateJavaScript("window.mvSetUIScale && window.mvSetUIScale(\(Double(scale)))")
         }
 
+        var workspaceTransparency: Double = 0
+        func setWorkspaceTransparency(_ value: Double) {
+            workspaceTransparency = value.isFinite ? min(0.7, max(0, value)) : 0
+            guard let webView = webView, isEditorReady else { return }
+            webView.evaluateJavaScript("document.documentElement.classList.toggle('workspace-transparent', \(workspaceTransparency > 0 ? "true" : "false"))")
+        }
+
         func setTheme(_ arguments: String) {
             guard let webView = webView, isEditorReady, arguments != lastTheme else { return }
             lastTheme = arguments
@@ -927,6 +938,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             // Apply theme that was deferred while editor was loading
             self.setTheme(self.parent.windowTheme.webArguments)
             self.setUIScale(self.uiScale)
+            self.setWorkspaceTransparency(self.workspaceTransparency)
             let idx = self.parent.workspaceManager.activeTabIndex
             if idx >= 0, idx < self.parent.workspaceManager.openTabs.count {
                 let tab = self.parent.workspaceManager.openTabs[idx]

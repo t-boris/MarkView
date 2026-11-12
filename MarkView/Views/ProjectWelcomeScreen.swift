@@ -12,18 +12,7 @@ struct ProjectWelcomeScreen<Below: View>: View {
     @State private var scannedRoot: URL?
 
     private var context: ProjectBackdropContext? {
-        guard let root else { return nil }
-        let workflow = store.lifecycle.workflow
-        let issuesKnown = store.hasLoaded && store.root?.standardizedFileURL == root.standardizedFileURL
-        let bugs = issuesKnown ? store.bugs.filter { !(workflow.role(.bug, $0.status)?.isFinished ?? false) } : []
-        let features = issuesKnown ? store.features.filter { workflow.role(.feature, $0.status) != .cancelled } : []
-        return ProjectBackdropContext(identity: root.standardizedFileURL.path,
-                                      signals: scannedRoot == root ? signals : ProjectBackdropSignals(),
-                                      openBugs: bugs.count,
-                                      criticalBugs: bugs.filter { ["critical", "blocker"].contains($0.severity.lowercased()) }.count,
-                                      features: features.count,
-                                      completedFeatures: features.filter { workflow.isCompleted(.feature, $0.status) }.count,
-                                      issuesKnown: issuesKnown)
+        projectBackdropContext(root: root, store: store, signals: scannedRoot == root ? signals : ProjectBackdropSignals())
     }
 
     var body: some View {
@@ -37,5 +26,54 @@ struct ProjectWelcomeScreen<Below: View>: View {
                 signals = result
                 scannedRoot = root
             }
+    }
+}
+
+/// The welcome screen and the workspace background use the same project evidence.
+@MainActor
+func projectBackdropContext(root: URL?, store: FeatureStore, signals: ProjectBackdropSignals) -> ProjectBackdropContext? {
+    guard let root else { return nil }
+    let workflow = store.lifecycle.workflow
+    let issuesKnown = store.hasLoaded && store.root?.standardizedFileURL == root.standardizedFileURL
+    let bugs = issuesKnown ? store.bugs.filter { !(workflow.role(.bug, $0.status)?.isFinished ?? false) } : []
+    let features = issuesKnown ? store.features.filter { workflow.role(.feature, $0.status) != .cancelled } : []
+    return ProjectBackdropContext(identity: root.standardizedFileURL.path, signals: signals,
+                                  openBugs: bugs.count,
+                                  criticalBugs: bugs.filter { ["critical", "blocker"].contains($0.severity.lowercased()) }.count,
+                                  features: features.count,
+                                  completedFeatures: features.filter { workflow.isCompleted(.feature, $0.status) }.count,
+                                  issuesKnown: issuesKnown)
+}
+
+struct WorkspaceBackdrop: View {
+    let root: URL?
+    let backdrop: WelcomeBackdrop
+    @ObservedObject var store: FeatureStore
+    @Environment(\.palette) private var palette
+    @State private var signals = ProjectBackdropSignals()
+    @State private var scannedRoot: URL?
+    @State private var pick = Int.random(in: 0..<WelcomeBackdrop.animated.count)
+    @State private var seed = UInt64.random(in: 1...UInt64.max)
+
+    var body: some View {
+        let context = projectBackdropContext(root: root, store: store, signals: scannedRoot == root ? signals : ProjectBackdropSignals())
+        let scene = backdrop.scene(pick: pick, project: context)
+        ZStack {
+            Color(palette.model.bg)
+            if scene != .off {
+                WelcomeBackdropView(kind: scene, colors: BackdropColors(palette),
+                                    seed: backdrop == .project ? (context?.seed ?? seed) : seed,
+                                    detail: backdrop == .project ? (context?.detail ?? 1) : 1)
+            }
+        }
+        .allowsHitTesting(false).accessibilityHidden(true)
+        .task(id: backdrop == .project ? root : nil) {
+            guard backdrop == .project, let root else { return }
+            let work = Task.detached(priority: .utility) { ProjectBackdropScanner.scan(root) }
+            let result = await withTaskCancellationHandler(operation: { await work.value }, onCancel: { work.cancel() })
+            guard !Task.isCancelled else { return }
+            signals = result
+            scannedRoot = root
+        }
     }
 }

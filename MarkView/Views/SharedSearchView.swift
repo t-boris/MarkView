@@ -307,8 +307,7 @@ struct SharedSearchView: View {
                     manager.openDeployments()
                 }),
                 SearchCommand(id: "git", title: "Show Git", symbol: "arrow.triangle.branch", detail: "Work", run: {
-                    manager.layout.workspaceArea = .work
-                    manager.layout.workSection = .git
+                    manager.openGit()
                 })
             ]
             if manager.gitClient.isGitRepo {

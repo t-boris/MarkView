@@ -198,6 +198,8 @@ struct ContentView: View {
     /// Project color identity of the open project folder; nil without one (feature-2, DEC-012).
     @State private var projectKey: String?
     @ObservedObject private var projectColors = ProjectColorStore.shared
+    @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
+    private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
     @State private var sessionAttached = false
     @State private var restorationComplete = false
     @State private var lastFilesTab: UUID?
@@ -212,7 +214,7 @@ struct ContentView: View {
     }
 
     /// The palette of this window, for the parts of this view that draw with it (its children read it from the environment).
-    private var palette: AppPalette { workspaceManager.theme.palette }
+    private var palette: AppPalette { AppPalette(workspaceManager.theme.palette.model, workspaceTransparency: workspaceTransparency) }
 
     private var windowContent: some View {
         VStack(spacing: 0) {
@@ -222,6 +224,10 @@ struct ContentView: View {
                 let compact = geometry.size.width < 1280 * max(1, appFontScale)
                 let terminalMinimum = min(500, max(300, geometry.size.width - 700))
                 ZStack(alignment: .bottomTrailing) {
+                if workspaceTransparency > 0 {
+                    WorkspaceBackdrop(root: workspaceManager.rootNode?.url, backdrop: workspaceManager.layout.welcomeBackdrop,
+                                      store: workspaceManager.features)
+                }
                 HSplitView {
                     if workspaceManager.showFileTree {
                         navigationPane
@@ -238,6 +244,7 @@ struct ContentView: View {
                             .background(RightPanelWidthKeeper(centerVisible: workspaceManager.showCenter, state: workspaceManager.windowUI))
                     }
                 }
+                .environment(\.palette, palette)
                 if workspaceManager.agentsVisible {
                     FloatingAgentsView(workspaceManager: workspaceManager, available: geometry.size)
                 }
@@ -260,7 +267,7 @@ struct ContentView: View {
             guard workspaceManager.openTabs.indices.contains(index) else { return }
             let tab = workspaceManager.openTabs[index]
             switch tab.kind {
-            case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .changeReview, .terminal, .browser, .data, .prototype, .uiStudio, .qa:
+            case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .git, .changeReview, .terminal, .browser, .data, .prototype, .uiStudio, .qa:
                 lastFilesTab = tab.id
                 workspaceManager.layout.workspaceArea = .files
                 if case .file = tab.kind,
@@ -271,13 +278,11 @@ struct ContentView: View {
                 workspaceManager.layout.workspaceArea = .projectMap
             case .github(let item):
                 workspaceManager.layout.workspaceArea = .files
-                workspaceManager.layout.navigatorTab = .git
                 switch item {
                 case .issue: workspaceManager.layout.gitSection = .issues
                 case .pullRequest: workspaceManager.layout.gitSection = .pullRequests
                 case .run: workspaceManager.layout.gitSection = .actions
                 }
-                workspaceManager.terminalVisible = true
             }
             workspaceManager.showCenter = true
         }
@@ -442,6 +447,10 @@ struct ContentView: View {
                     headerButton("checklist", help: "Tasks", width: controlWidth,
                                  selected: workspaceManager.layout.workspaceArea == .work) { activate(.work) }
                         .disabled(workspaceManager.rootNode == nil)
+                    headerButton("arrow.triangle.branch", help: "Git", width: controlWidth,
+                                 selected: { if case .git? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                        workspaceManager.openGit()
+                    }.disabled(workspaceManager.rootNode == nil)
                     headerButton("server.rack", help: "Build & Deployment (⌃⌘D)", width: controlWidth,
                                  selected: { if case .deployments? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openDeployments()
@@ -481,7 +490,7 @@ struct ContentView: View {
                 headerButton("paintpalette", help: "Theme (⇧⌘T)", width: controlWidth) {
                     workspaceManager.theme.showsPicker.toggle()
                 }
-                .themePicker(workspaceManager.theme)
+                .themePicker(workspaceManager.theme, project: workspaceManager.projectFolder)
             }
             .padding(.leading, 12)
             .padding(.trailing, 12)
@@ -636,10 +645,19 @@ struct ContentView: View {
                 HandoffResumeBar(resume: resume).environmentObject(workspaceManager)
             }
             if workspaceManager.openTabs.indices.contains(workspaceManager.activeTabIndex) {
+                let activeTab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
+                let editorVisible: Bool = {
+                    switch activeTab.kind {
+                    case .file, .data, .architecture, .insight: return true
+                    default: return false
+                    }
+                }()
                 ZStack {
                     EditorView()
                         .environmentObject(workspaceManager)
-                    let activeTab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
+                        .opacity(editorVisible ? 1 : 0)
+                        .allowsHitTesting(editorVisible)
+                        .accessibilityHidden(!editorVisible)
                     if case .terminal(let id) = activeTab.kind,
                        let session = workspaceManager.terminalSession(id) {
                         TerminalTabView(session: session)
@@ -653,6 +671,9 @@ struct ContentView: View {
                     } else if case .discussions = activeTab.kind {
                         DiscussionsView(store: workspaceManager.discussions)
                             .environmentObject(workspaceManager)
+                            .id(activeTab.id)
+                    } else if case .git = activeTab.kind {
+                        GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
                             .id(activeTab.id)
                     } else if case .workflow = activeTab.kind {
                         WorkflowTabView(store: workspaceManager.features, editor: workspaceManager.workflowEditor)
@@ -693,7 +714,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 DiagnosticsBarView().environmentObject(workspaceManager)
             } else {
-                welcomeView
+                welcomeView.environment(\.palette, workspaceManager.theme.palette)
             }
             ResearchBar(research: workspaceManager.research,
                         root: workspaceManager.rootNode?.url,
@@ -711,7 +732,7 @@ struct ContentView: View {
                 workspaceManager.activeTabIndex = index
             } else if let index = workspaceManager.openTabs.firstIndex(where: { tab in
                 switch tab.kind {
-                case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .changeReview, .terminal, .browser, .prototype, .uiStudio, .qa: return true
+                case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .git, .changeReview, .terminal, .browser, .prototype, .uiStudio, .qa: return true
                 default: return false
                 }
             }) {
@@ -864,9 +885,7 @@ struct ContentView: View {
         case .search: workspaceManager.showGlobalSearch = true
         case .files: activate(.files)
         case .openFile: openFile()
-        case .git:
-            workspaceManager.layout.workspaceArea = .work
-            workspaceManager.layout.workSection = .git
+        case .git: workspaceManager.openGit()
         case .deployments: workspaceManager.openDeployments()
         case .workflow: workspaceManager.openWorkflow()
         case .qa: workspaceManager.openQA()
@@ -1219,6 +1238,11 @@ private struct FloatingAgentsView: View {
                                 state.set(Double(min(max(0, available.height - height), max(0, baseY - value.translation.height))), for: "layout.agentsOffsetY")
                                 moveTranslation = .zero
                             })
+                        .simultaneousGesture(TapGesture(count: 2).onEnded {
+                            if maximized { maximized = false }
+                            if !minimized { NSApp.keyWindow?.makeFirstResponder(nil) }
+                            minimized.toggle()
+                        })
                     headerControl(minimized ? "arrow.up.left.and.arrow.down.right" : "minus", help: minimized ? "Restore Agents" : "Minimize Agents", height: headerHeight) {
                         if maximized { maximized = false }
                         if !minimized { NSApp.keyWindow?.makeFirstResponder(nil) }
