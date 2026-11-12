@@ -102,6 +102,7 @@ final class PDFReaderController: NSObject, ObservableObject, @preconcurrency PDF
     private var fitMode: PDFReaderPDFView.FitMode = .page
     private weak var view: PDFReaderPDFView?
     private var query = ""
+    private var pendingPage: Int?
 
     var pageCount: Int { document?.pageCount ?? 0 }
     var canCopy: Bool { document?.allowsCopying == true && !locked }
@@ -131,6 +132,10 @@ final class PDFReaderController: NSObject, ObservableObject, @preconcurrency PDF
             locked = result.document.isLocked
             loadedURL = url
             pageNumber = 1
+            if !locked, let page = pendingPage {
+                pendingPage = nil
+                go(to: page)
+            }
             if locked, password != nil { error = "The password is incorrect. Try again." }
         } catch {
             guard generation == loadGeneration else { return }
@@ -174,6 +179,13 @@ final class PDFReaderController: NSObject, ObservableObject, @preconcurrency PDF
         }
         if zoom != view.scaleFactor { zoom = view.scaleFactor }
         fitMode = view.fitMode
+    }
+
+    /// A project-search result can request a page before this tab has loaded its PDF.
+    func openPageWhenReady(_ page: Int) {
+        guard page > 0 else { return }
+        if document != nil && !locked { go(to: page) }
+        else { pendingPage = page }
     }
 
     func go(to number: Int) {

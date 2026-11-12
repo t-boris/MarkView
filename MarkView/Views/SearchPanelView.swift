@@ -20,7 +20,7 @@ struct WorkspaceSearchView: View {
             }
             .pickerStyle(.segmented).labelsHidden().controlSize(.small)
             .padding(.horizontal, 8).padding(.vertical, 6)
-            .help("Project: file names and text of any file. Documents: meaning search of Markdown.")
+            .help("Project: filenames, searchable text, PDF and Word documents. Documents: indexed Markdown search.")
             Divider().background(palette.border)
             if mode == Mode.documents.rawValue {
                 DocumentSearchView().environmentObject(workspaceManager)
@@ -44,7 +44,7 @@ struct ProjectSearchPanel: View {
                 Image(systemName: "magnifyingglass").uiFont(size: 11).foregroundColor(palette.textDim)
                 TextField("Search files and text…", text: $model.query)
                     .textFieldStyle(.plain).uiFont(size: 11).foregroundColor(palette.text)
-                    .onChange(of: model.query) { _ in Task { await model.search() } }
+                    .onChange(of: model.query) { _ in model.scheduleSearch() }
                 if model.indexing { ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12) }
                 if !model.query.isEmpty {
                     Button { model.query = ""; Task { await model.search() } } label: {
@@ -85,7 +85,7 @@ struct ProjectSearchPanel: View {
         let files = model.results.filter { $0.scope == .file }
         let content = model.results.filter { $0.scope == .content }
         if model.query.trimmingCharacters(in: .whitespaces).isEmpty {
-            placeholder("Type to search file names and the text of every file in the project, and file names inside zip archives.")
+            placeholder("Search project and linked-folder names, text, PDF and Word documents, and archive entry names.")
         } else if files.isEmpty && content.isEmpty && !model.indexing {
             placeholder("No results")
         } else {
@@ -122,7 +122,8 @@ struct ProjectSearchPanel: View {
                     Image(systemName: inArchive ? "archivebox" : result.scope == .file ? "doc" : "text.magnifyingglass")
                         .uiFont(size: 9).foregroundColor(palette.blue)
                     Text(result.title).uiFont(size: 11, weight: .medium).foregroundColor(palette.blue).lineLimit(1)
-                    if let line = result.line { Text(":\(line)").uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim) }
+                    if let page = result.page { Text("page \(page)").uiFont(size: 10).foregroundColor(palette.textDim) }
+                    else if let line = result.line { Text(":\(line)").uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim) }
                 }
                 if let snippet = result.snippet {
                     Text(snippet).uiFont(size: 10).foregroundColor(palette.text).lineLimit(2)

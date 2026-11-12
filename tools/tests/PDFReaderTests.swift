@@ -104,8 +104,12 @@ enum PDFReaderTests {
         check(ingested.contains("FIRST") && ingested.contains("LAST"), "existing feature-source ingestion still extracts embedded text")
 
         let reader = PDFReaderController()
+        reader.openPageWhenReady(3)
         await reader.load(url)
         check(!reader.loading && reader.error == nil && !reader.locked, "mixed PDF loads")
+        check(reader.pageNumber == 3, "search result opens its page after asynchronous PDF loading")
+        reader.openPageWhenReady(1)
+        check(reader.pageNumber == 1, "search result opens its page in an already loaded PDF")
         let pdf = reader.document!
         check(pdf.pageCount == 3, "all pages retain their order")
         check(pdf.page(at: 0)!.string!.contains("FIRST") && pdf.page(at: 2)!.string!.contains("LAST"), "first and last embedded text survive")
