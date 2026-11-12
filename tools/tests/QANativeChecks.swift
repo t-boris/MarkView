@@ -209,6 +209,47 @@ do {
 
 // MARK: - Keys
 
+// REQ-018: one current prompt must retain facts from panels on both sides of a dense table.
+do {
+    let chain = el("AXTable", "Option chain", (0..<24).map { row in
+        el("AXRow", "", (0..<8).map { column in
+            el("AXButton", "Contract \(row), quote column \(column), bid / ask / quantity")
+        })
+    })
+    var pagedChain = chain
+    pagedChain.childCount = 100
+    pagedChain.omittedChildren = 76
+    let accountRows = (0..<18).map { column in
+        el("AXColumn", "", (0..<6).map { row in
+            el("AXCell", "Account metric column \(column), row \(row), current balance", press: true)
+        })
+    }
+    let controls = [
+        el("AXComboBox", desc: "Underlying", value: "SPX"),
+        el("AXPopUpButton", "Status: Connected PAPER"),
+        el("AXGroup", "Accounts overview", [el("AXTable", "Accounts", [el("AXRow", "Individual PAPER")]+accountRows)]),
+        el("AXPopUpButton", desc: "Visible strikes", value: "96"),
+        pagedChain,
+        el("AXGroup", "POSITIONS", [el("AXImage")]),
+        el("AXGroup", "Positions", [
+            el("AXCheckBox", "Active accounts only", value: "checked"),
+            el("AXTable", "Holdings", [el("AXRow", "", [
+                el("AXButton", "SPX 0 strategies 0 legs 1 working"),
+                el("AXButton", "Legs of working order 100203"),
+            ])]),
+        ]),
+        el("AXTextField", sub: "AXSecureTextField", desc: "Password", value: "no-overview-secret"),
+    ]
+    let snapshot = render(controls)
+    let prefix = String(snapshot.text.prefix(QAStepPrompt.maxSnapshot))
+    check("prompt boundary: current account and late holding state coexist", prefix.contains("Individual PAPER") && prefix.contains("Active accounts only")
+          && prefix.contains("0 strategies 0 legs 1 working") && prefix.contains("working order 100203"))
+    check("prompt boundary: current connection and chain controls coexist", prefix.contains("Status: Connected PAPER") && prefix.contains("Visible strikes") && prefix.contains("96"))
+    check("prompt boundary: account cells do not hide later panel captions", prefix.contains("POSITIONS"))
+    check("prompt boundary: full and scoped inspection routes remain current", prefix.contains("Inspection regions") && snapshot.refs.values.contains { $0.id == pagedChain.id })
+    check("prompt boundary: no secure value is summarized", !snapshot.text.contains("no-overview-secret"))
+}
+
 do {
     check("keys: cmd+shift+n", QANativeKeys.parse("cmd+shift+n") == QANativeKey(code: 45, modifiers: [.command, .shift]))
     check("keys: names and case are free", QANativeKeys.parse("Cmd+Shift+N") == QANativeKeys.parse("command+SHIFT+n") && QANativeKeys.parse("Cmd+Shift+N") != nil)
@@ -544,6 +585,20 @@ func liveAttached(fixture: URL, identifier: String, singleInstance: Bool) async 
         check("attached: closing QA leaves the user's process running", !userApp.isTerminated)
         await player.close()
         check("attached: closing twice leaves the user's process running", !userApp.isTerminated)
+        var discoveryCalls = 0
+        var recoveringConfig = QANativeActor.Config(bringToFront: false, launchTimeout: 15)
+        recoveringConfig.discoverApplications = { requested in
+            discoveryCalls += 1
+            return requested == identifier && discoveryCalls > 2 ? [userApp] : []
+        }
+        let recovering = QANativeActor(request: request, credentials: QACredentials(username: nil, password: nil), config: recoveringConfig)
+        do {
+            try await recovering.open(identifier)
+            let identity = await recovering.sessionIdentity()
+            check("attached: transient discovery recovers the exact existing PID", discoveryCalls == 3 && identity?.contains("PID \(userApp.processIdentifier)") == true)
+        } catch { check("attached: transient discovery recovers (\(error.localizedDescription))", false) }
+        await recovering.close()
+        check("attached: discovery recovery never ends the user's app", !userApp.isTerminated)
         let sessions = QARunSessions()
         let factory = QANativeDriverFactory(config: .init(bringToFront: false, launchTimeout: 15))
         do {
@@ -615,6 +670,8 @@ func liveDense(fixture: URL, rows: Int) async {
             observed = try await player.observe()
         }
         check("dense live \(rows): deep layout exposes later controls", observed.snapshot.contains("Visible strikes") && observed.snapshot.contains("button \"Positions\"") && observed.snapshot.contains("button \"Activity\""))
+        let promptPrefix = String(observed.snapshot.prefix(QAStepPrompt.maxSnapshot))
+        check("dense live \(rows): current cross-panel facts fit the real prompt", ["PAPER Connected", "Visible strikes", "Positions", "Activity", "Zero test residue"].allSatisfy { promptPrefix.contains($0) })
         if let table = ref(observed.snapshot, containing: "table \"Option chain\"") {
             var invalidOffset = ""
             do { _ = try await player.perform(QAAction(kind: .inspect, ref: table, amount: -1)) }
@@ -680,6 +737,15 @@ if let identifier = ProcessInfo.processInfo.environment["QA_NATIVE_EXISTING_BUND
             }
             check("existing consumer reaches visible-strike and account controls", snapshot.text.contains("Visible strikes") && snapshot.text.contains("Active accounts only"))
             print("Existing consumer rendered references: \(snapshot.refs.count)")
+            let prefix = String(snapshot.text.prefix(QAStepPrompt.maxSnapshot))
+            for label in ["Accounts", "ACCOUNTS", "Connected", "Visible strikes", "Custom (Manual)", "PAPER", "POSITIONS", "Active accounts only", "Legs of working order"] {
+                print("Consumer prompt prefix contains \(label): \(prefix.contains(label))")
+            }
+            check("existing consumer prompt retains simultaneous current panels", ["Accounts overview", "Connected", "Visible strikes", "POSITIONS", "Active accounts only"].allSatisfy { prefix.contains($0) })
+            for line in snapshot.text.components(separatedBy: "\n").filter({ $0.contains(" direct children, ") }).prefix(24) {
+                print("Consumer route: \(line)")
+            }
+
             let partialTables = Set(QANativeTree.flatten(reading.elements, maxDepth: 64).nodes.filter { $0.element.role == "AXTable" && $0.element.omittedChildren > 0 }.map { $0.element.id })
             if let region = snapshot.refs.first(where: { partialTables.contains($0.value.id) }) {
                 await driver.publish(snapshot.refs)
@@ -692,6 +758,10 @@ if let identifier = ProcessInfo.processInfo.environment["QA_NATIVE_EXISTING_BUND
                 check("existing consumer returns to whole window", !restored.scoped)
             } else { check("existing consumer exposes truncated chain region", false) }
             let raw = QANativeTree.flatten(reading.elements, maxDepth: 64).nodes
+            for (index, node) in raw.enumerated() where node.text == "POSITIONS" || node.name == "POSITIONS" {
+                print("Consumer POSITIONS node: \(index), role=\(node.element.role), interactive=\(node.interactive), hidden=\(node.hidden), parent=\(node.parent.map(String.init) ?? "none")")
+            }
+            for line in snapshot.text.components(separatedBy: "\n") where line.contains("POSITIONS") { print("Consumer POSITIONS line: \(line)") }
             print("Existing consumer raw panels: \(raw.contains { $0.text == "POSITIONS" }), raw visible strikes: \(raw.contains { $0.name == "Visible strikes" })")
             for line in snapshot.text.components(separatedBy: "\n").filter({ $0.contains("inspectable") }).prefix(8) {
                 print(String(line.prefix(220)))

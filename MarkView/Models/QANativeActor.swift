@@ -44,6 +44,9 @@ final class QANativeActor: QAActorDriver {
         var launchTimeout: TimeInterval = 20
         /// How long a closing application is given to quit before it is made to.
         var terminationGrace: TimeInterval = 3
+        /// Launch Services may briefly omit a still-running app while its registration settles.
+        var discoveryGrace: TimeInterval = 0.4
+        var discoverApplications: (String) -> [NSRunningApplication] = { NSRunningApplication.runningApplications(withBundleIdentifier: $0) }
     }
 
     /// The application reacts to an action for a moment before the next look.
@@ -85,7 +88,15 @@ final class QANativeActor: QAActorDriver {
         applicationName = (bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
             ?? (bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? url.deletingPathExtension().lastPathComponent
 
-        let running = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter { !$0.isTerminated }
+        var running = config.discoverApplications(identifier).filter { !$0.isTerminated }
+        if request.startupPolicy == .attach, running.isEmpty {
+            let deadline = Date().addingTimeInterval(config.discoveryGrace)
+            while running.isEmpty, Date() < deadline {
+                let pause = max(0, min(0.1, deadline.timeIntervalSinceNow))
+                try await Task.sleep(nanoseconds: UInt64(pause * 1_000_000_000))
+                running = config.discoverApplications(identifier).filter { !$0.isTerminated }
+            }
+        }
         let launched: NSRunningApplication
         switch request.startupPolicy {
         case .attach:
