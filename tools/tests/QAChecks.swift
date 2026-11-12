@@ -80,6 +80,8 @@ do {
     let paths = shared.enumerateBranches().branches.filter { $0.nodes.contains("n1") }
     let names = shared.displayLabels(for: paths)
     check("branches: shared choices are omitted while distinct choices stay visible", names.count == paths.count && names.values.allSatisfy { !$0.contains("Common setup") } && Set(names.values).count == paths.count)
+    let oldPath = QABranch(nodes: ["missing", "step"])
+    check("branches: archived paths missing from the current scenario keep their original ID", scenario.displayLabels(for: [oldPath])[oldPath.id] == oldPath.id)
 
     check("branches: a branch is named by the alternatives and failures it takes",
           scenario.label(of: QABranch(nodes: ["n1", "n2", "f1", "c2"])) == "Payment is slow" && scenario.label(of: QABranch(nodes: ["n1", "a1", "c1"])) == "Card is declined")

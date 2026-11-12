@@ -389,8 +389,10 @@ struct QAScenario: Codable, Equatable, Identifiable {
             return result
         }
         let paths = branches.map(choices)
-        let shared = branches.count > 1 ? paths.dropFirst().reduce(Set(paths.first ?? [])) { $0.intersection($1) } : []
+        let validPaths = zip(branches, paths).compactMap { branch, path in branch.nodes.allSatisfy { node($0) != nil } ? path : nil }
+        let shared = validPaths.count > 1 ? validPaths.dropFirst().reduce(Set(validPaths.first ?? [])) { $0.intersection($1) } : []
         let names = zip(branches, paths).map { branch, path -> String in
+            guard branch.nodes.allSatisfy({ node($0) != nil }) else { return branch.id }
             let distinct = path.filter { !shared.contains($0) }
             return distinct.isEmpty ? label(of: branch) : distinct.joined(separator: " · ")
         }
