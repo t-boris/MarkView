@@ -41,6 +41,11 @@ struct FileTreeView: View {
     @State private var isSearching = false
     /// Bumped after this view creates something, so the list (read from disk) redraws.
     @State private var listVersion = 0
+    @State private var cachedDirectoryEntries: [FileBrowserEntry] = []
+    @State private var cachedTreeRows: [FileBrowserRow] = []
+    @State private var cachedSearchRows: [FileBrowserRow] = []
+    @State private var listingMonitors: [ProjectChangeMonitor] = []
+    @State private var listingRefresh: Task<Void, Never>?
     /// Folder a drag is currently over (highlighted as the drop target).
     @State private var dropTarget: URL?
     /// Row shown by "Reveal in File Tree" (highlighted until the next reveal).
@@ -123,23 +128,81 @@ struct FileTreeView: View {
         }
     }
 
-    /// Entries of the browsed folder (Icon and List views), or of the Workspace level.
-    private var directoryEntries: [FileBrowserEntry] {
-        _ = listVersion
-        switch location {
-        case .workspace: return FileBrowser.workspaceEntries(source: source, applyQuery: true)
-        case .folder(let url): return FileBrowser.listing(of: url, source: source, applyQuery: true)
-        }
-    }
+    /// Disk listings are built once per relevant state change, away from SwiftUI's render pass.
+    private var directoryEntries: [FileBrowserEntry] { cachedDirectoryEntries }
 
     private var isTreeSearch: Bool {
         mode == .tree && !searchText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private var treeRows: [FileBrowserRow] {
-        _ = listVersion
-        if isTreeSearch { return searchResult.map { FileBrowser.searchRows($0, source: source) } ?? [] }
-        return FileBrowser.treeRows(source: source, expanded: expanded)
+        if isTreeSearch { return cachedSearchRows }
+        return cachedTreeRows
+    }
+
+    private var listingKey: String {
+        let rootIdentity = workspaceManager.rootNode.map { String(describing: ObjectIdentifier($0)) } ?? ""
+        let directory = currentDirectory?.standardizedFileURL.path ?? ""
+        let sort = workspaceManager.fileTreeSortOrder
+        return [searchKey, rootIdentity, directory, String(atWorkspace), mode.rawValue,
+                String(describing: sort.field), String(sort.ascending), expanded.sorted().joined(separator: "|")].joined(separator: "#")
+    }
+
+    private var listingMonitorKey: String {
+        [workspaceManager.searchRootsKey, currentDirectory?.path ?? "", String(atWorkspace), mode.rawValue,
+         String(isTreeSearch), expanded.sorted().joined(separator: "|")].joined(separator: "#")
+    }
+
+    private func installListingMonitors() {
+        let watched: Set<String>
+        if mode == .tree {
+            watched = Set(expanded.map { URL(fileURLWithPath: $0).standardizedFileURL.resolvingSymlinksInPath().path })
+        } else if case .folder(let directory) = location {
+            watched = [directory.standardizedFileURL.resolvingSymlinksInPath().path]
+        } else {
+            watched = Set(roots.map { $0.url.standardizedFileURL.resolvingSymlinksInPath().path })
+        }
+        let searchAll = isTreeSearch
+        listingMonitors = roots.map { root in
+            ProjectChangeMonitor(root: root.url, includeGenerated: true, shouldInclude: { path in
+                searchAll || watched.contains(path) || watched.contains(URL(fileURLWithPath: path).deletingLastPathComponent().path)
+            }) {
+                Task { @MainActor in
+                    listingRefresh?.cancel()
+                    listingRefresh = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        guard !Task.isCancelled else { return }
+                        listVersion += 1
+                    }
+                }
+            }
+        }
+    }
+
+    private func refreshSearchRows() async {
+        guard let result = searchResult else { cachedSearchRows = []; return }
+        let snapshot = source
+        let worker = Task.detached(priority: .userInitiated) { FileBrowser.searchRows(result, source: snapshot) }
+        let rows = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
+        guard !Task.isCancelled else { return }
+        cachedSearchRows = rows
+        selection.keep(only: selectableURLs)
+    }
+
+    private func refreshListings() async {
+        let snapshot = source, place = location, selectedMode = mode, openFolders = expanded
+        let worker = Task.detached(priority: .userInitiated) { () -> ([FileBrowserEntry], [FileBrowserRow]) in
+            if selectedMode == .tree { return ([], FileBrowser.treeRows(source: snapshot, expanded: openFolders)) }
+            switch place {
+            case .workspace: return (FileBrowser.workspaceEntries(source: snapshot, applyQuery: true), [])
+            case .folder(let url): return (FileBrowser.listing(of: url, source: snapshot, applyQuery: true), [])
+            }
+        }
+        let result = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
+        guard !Task.isCancelled else { return }
+        cachedDirectoryEntries = result.0
+        cachedTreeRows = result.1
+        selection.keep(only: selectableURLs)
     }
 
     /// What a click, a range selection and the actions on a selection see, in display order.
@@ -170,7 +233,7 @@ struct FileTreeView: View {
     private var searchKey: String {
         [String(isTreeSearch), searchText, String(preferences.showHidden), String(preferences.hideIgnored),
          preferences.category.rawValue, workspaceManager.searchRootsKey, String(listVersion),
-         String(git.repoStatus.entries.count)].joined(separator: "|")
+         String(preferences.hideIgnored ? git.repoStatus.entries.hashValue : 0)].joined(separator: "|")
     }
 
     /// The first time a project is shown, its folder is open in Tree view.
@@ -270,6 +333,9 @@ struct FileTreeView: View {
             // Browsing state belongs to the previous folder.
             currentDirectory = nil
             atWorkspace = false
+            cachedDirectoryEntries = []
+            cachedTreeRows = []
+            cachedSearchRows = []
             expanded = []
             seededRoot = nil
             seedTree()
@@ -283,11 +349,12 @@ struct FileTreeView: View {
             if let anchor = treeAnchor, workspaceManager.containerRoot(for: anchor) == nil { treeAnchor = nil }
             expanded = expanded.filter { key in roots.contains { key == $0.key || key.hasPrefix($0.key + "/") } }
         }
-        .onChange(of: preferences) { _ in selection.keep(only: selectableURLs) }
-        .onChange(of: expanded) { _ in selection.keep(only: selectableURLs) }
-        .onChange(of: mode) { _ in selection.keep(only: selectableURLs) }
+        .task(id: listingMonitorKey) { installListingMonitors() }
+        .task(id: listingKey) { await refreshListings() }
+        .task(id: searchResult) { await refreshSearchRows() }
         .task(id: searchKey) { await runTreeSearch() }
         // The tree may have been hidden when the reveal was asked for.
+        .onDisappear { listingRefresh?.cancel(); listingMonitors = [] }
         .onAppear {
             seedTree()
             reveal(with: proxy)
@@ -432,10 +499,9 @@ struct FileTreeView: View {
             .focusable()
             .focused($listFocused)
             .onDeleteCommand { trash(selectedItems) }
-            .onChange(of: currentDirectory) { _ in selection.clear() }
-            .onChange(of: atWorkspace) { _ in selection.clear() }
+            .onChange(of: currentDirectory) { _ in selection.clear(); cachedDirectoryEntries = [] }
+            .onChange(of: atWorkspace) { _ in selection.clear(); cachedDirectoryEntries = [] }
             .onChange(of: searchText) { _ in selection.keep(only: selectableURLs) }
-            .onChange(of: searchResult) { _ in selection.keep(only: selectableURLs) }
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
             .onDrop(of: [.fileURL], isTargeted: nil) { providers in

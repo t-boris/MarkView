@@ -500,6 +500,15 @@ do {
     let loaded = try! first.load()
     check("a repeated load returns the same records", try! first.load() == loaded && loaded.count == 3)
 
+    let own = lineRecord(10)
+    try! first.append(own)
+    let fromCache = try! first.load()
+    let fromDisk = try! FileTransitionStorage(projectRoot: folder).load()
+    check("a warmed cache includes an appended record exactly as it decodes from disk", fromCache == fromDisk && fromCache.last?.issue == "BUG-10")
+    try! FileManager.default.removeItem(at: first.url)
+    for n in 1...3 { try! first.append(lineRecord(n)) }
+    _ = try! first.load()
+
     try! second.append(lineRecord(4))
     check("a record appended through another storage shows at the next load",
           (try! first.load()).map(\.issue) == ["BUG-1", "BUG-2", "BUG-3", "BUG-4"])

@@ -244,6 +244,7 @@ enum FileBrowser {
     static func treeRows(source: FileBrowserSource, expanded: Set<String>) -> [FileBrowserRow] {
         var rows: [FileBrowserRow] = []
         func add(_ entry: FileBrowserEntry, depth: Int) {
+            guard !Task<Never, Never>.isCancelled else { return }
             let open = entry.isDirectory && expanded.contains(entry.key)
             rows.append(FileBrowserRow(entry: entry, depth: depth, isExpanded: open,
                                        isExpandable: entry.isDirectory, isMatch: true))
@@ -303,6 +304,7 @@ enum FileBrowser {
         var childrenOf: [String: [FileBrowserEntry]] = [:]
         var placed = Set<String>()
         for match in result.matches {
+            guard !Task<Never, Never>.isCancelled else { return [] }
             var current = match
             while !rootKeys.contains(current.key) {
                 guard placed.insert(current.key).inserted else { break }

@@ -192,7 +192,29 @@ final class FileTransitionStorage: TransitionStorage {
     func append(_ record: TransitionRecord) throws {
         let line = try Self.encoder().encode(record) + Data("\n".utf8)
         lock.lock(); defer { lock.unlock() }
+        let before = Self.signature(of: url)
+        let prior = cached
         try JSONLinesFile.append(line, to: url)
+        // Reuse the decoded history only when this append was the sole file change. A short or
+        // concurrent write, replacement, or missing final newline forces the next load to re-read it.
+        if let before, let prior, prior.signature == before, let after = Self.signature(of: url),
+           after.inode == before.inode, after.device == before.device,
+           after.size == before.size + Int64(line.count) {
+            let formatter = Self.timeFormatter()
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .custom { decoder in
+                let text = try decoder.singleValueContainer().decode(String.self)
+                guard let date = formatter.date(from: text) else {
+                    throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Not a time: \(text)"))
+                }
+                return date
+            }
+            if let normalized = try? decoder.decode(TransitionRecord.self, from: line) {
+                cached = (after, prior.records + [normalized])
+                return
+            }
+        }
+        cached = nil
     }
 
     private static func signature(of url: URL) -> Signature? {

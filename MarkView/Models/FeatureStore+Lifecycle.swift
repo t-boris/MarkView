@@ -20,7 +20,12 @@ final class IssueLifecycleCoordinator {
     }
 
     private var cached: Parts?
+    /// Workflow recovery and saves for the same project stay serialized across windows.
+    private static var recoveringProjects: Set<String> = []
+    private var retryTask: Task<Void, Never>?
     private var reconciling = false
+    private var preloading = false
+    private var reconcileRequested = false
     private var progressTask: Task<Void, Never>?
     /// When each item under way was last looked at for completion ("bug:BUG-012").
     private var lastProgressCheck: [String: Date] = [:]
@@ -115,12 +120,11 @@ final class IssueLifecycleCoordinator {
     /// Gives every item without a variant the standard one of its type, once, when the workflow was adopted (DEC-024). The default
     /// of a type may change later; the items that existed keep how they were treated before. The marker file survives a quit: the
     /// pass is repeated at each start until every item has its variant, and only after the project's items were read at least once.
-    private func assignExistingItems(parts: Parts) {
-        guard store.hasLoaded, parts.workflowStore.assignmentPending else { return }
+    private nonisolated static func assignExistingItems(parts: Parts, items: [(kind: IssueKind, issue: String)], revision: Int) {
+        guard parts.workflowStore.assignmentPending else { return }
         let complete = parts.service.recordInitialAssignments(
-            items().map { (kind: $0.kind, issue: $0.issue) },
-            variantFor: { $0 == .feature ? StandardWorkflow.featureVariantID : StandardWorkflow.bugVariantID },
-            actor: .system("MarkView"), reason: "The standard workflow was adopted.", workflowRevision: workflow.revision)
+            items, variantFor: { $0 == .feature ? StandardWorkflow.featureVariantID : StandardWorkflow.bugVariantID },
+            actor: .system("MarkView"), reason: "The standard workflow was adopted.", workflowRevision: revision)
         if complete { parts.workflowStore.clearAssignmentPending() }
     }
 
@@ -191,6 +195,7 @@ final class IssueLifecycleCoordinator {
     func saveWorkflow(_ changed: ProjectWorkflow, statusReplacements: [IssueKind: [String: String]] = [:],
                       variantReplacements: [String: String] = [:], by actor: LifecycleActor) -> Result<WorkflowSaveReport, WorkflowStoreError> {
         guard let parts, store.recordsLifecycle else { return .failure(.notEditable("This window has no project folder open.")) }
+        guard !Self.recoveringProjects.contains(parts.root) else { return .failure(.notEditable("The workflow is finishing a previous change. Try saving again shortly.")) }
         guard actor.kind == .human else { return .failure(.notEditable("Only a person changes the workflow.")) }
         guard parts.workflow.isEditable else { return .failure(.notEditable(parts.workflow.problem ?? "The workflow file cannot be edited.")) }
         let current = workflow
@@ -223,7 +228,8 @@ final class IssueLifecycleCoordinator {
         workflowProposal = nil
 
         var report = WorkflowSaveReport(workflow: saved)
-        let outcome = carryOut(plan, workflow: saved, parts: parts)
+        let outcome = Self.carryOut(plan, workflow: saved, parts: parts)
+        if outcome.statusesReplaced > 0 { store.reloadSync() }
         report.statusesReplaced = outcome.statusesReplaced
         report.variantsReplaced = outcome.variantsReplaced
         report.failures = outcome.failures
@@ -264,7 +270,7 @@ final class IssueLifecycleCoordinator {
 
     /// Moves the items a save owes a replacement, in the name of the person who chose it (DEC-021). It can be repeated: an item that
     /// already left the removed status or variant is skipped. What could not be done stays in the pending file for the next start.
-    private func carryOut(_ plan: PendingReplacements, workflow saved: ProjectWorkflow, parts: Parts) -> ReplacementOutcome {
+    private nonisolated static func carryOut(_ plan: PendingReplacements, workflow saved: ProjectWorkflow, parts: Parts) -> ReplacementOutcome {
         var outcome = ReplacementOutcome()
         guard !plan.isEmpty else { return outcome }
         let actor = LifecycleActor.human(plan.actor)
@@ -298,20 +304,16 @@ final class IssueLifecycleCoordinator {
             }
         }
         if remaining.isEmpty { parts.workflowStore.clearPending() } else { try? parts.workflowStore.savePending(remaining) }
-        if outcome.statusesReplaced > 0 { store.reloadSync() }
         return outcome
     }
 
     /// Finishes a save that was interrupted, or whose items could not all be moved (DEC-021). A plan whose revision the workflow file
     /// never reached belongs to a save that did not happen and is dropped.
-    private func resumePendingReplacements(parts: Parts) {
-        guard let plan = parts.workflowStore.pending() else { return }
-        guard case .loaded(let saved) = parts.workflow else { return }
-        guard saved.revision >= plan.revision else { parts.workflowStore.clearPending(); return }
-        let outcome = carryOut(plan, workflow: saved, parts: parts)
-        if !outcome.failures.isEmpty {
-            store.lastError = "Some work items could not be moved to the replacement chosen when the workflow was saved: " + outcome.failures.prefix(3).joined(separator: " ")
-        }
+    private nonisolated static func resumePendingReplacements(parts: Parts) -> ReplacementOutcome? {
+        guard let plan = parts.workflowStore.pending() else { return nil }
+        guard case .loaded(let saved) = parts.workflowStore.load() else { return nil }
+        guard saved.revision >= plan.revision else { parts.workflowStore.clearPending(); return nil }
+        return carryOut(plan, workflow: saved, parts: parts)
     }
 
     var service: IssueTransitionService? { parts?.service }
@@ -598,25 +600,80 @@ final class IssueLifecycleCoordinator {
         store.features.map { (IssueKind.feature, $0.slug, $0.status) } + store.bugs.map { (IssueKind.bug, $0.key, $0.status) }
     }
 
+    /// Prime the journal away from the UI before reconciling. Repeated refreshes coalesce and
+    /// the current project and current item snapshot are rechecked after the background read.
+    func requestReconciliation() {
+        reconcileRequested = true
+        guard !preloading, store.recordsLifecycle, let parts, let root = store.root else { return }
+        guard !Self.recoveringProjects.contains(parts.root) else {
+            if retryTask == nil {
+                retryTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    guard let self, !Task.isCancelled else { return }
+                    self.retryTask = nil
+                    self.requestReconciliation()
+                }
+            }
+            return
+        }
+        Self.recoveringProjects.insert(parts.root)
+        let snapshot = items().map { (kind: $0.kind, issue: $0.issue) }
+        let revision = workflow.revision
+        let loaded = store.hasLoaded
+        preloading = true
+        Task { [weak self] in
+            let (outcome, records) = await Task.detached(priority: .utility) {
+                _ = parts.service.records()
+                if loaded { Self.assignExistingItems(parts: parts, items: snapshot, revision: revision) }
+                let resumed = Self.resumePendingReplacements(parts: parts)
+                parts.service.recoverPending()
+                let grouped = Dictionary(grouping: parts.service.records()) { Self.historyKey($0.kind, $0.issue) }
+                return (resumed, grouped)
+            }.value
+            Self.recoveringProjects.remove(parts.root)
+            guard let self else { return }
+            self.preloading = false
+            guard self.store.root == root else {
+                self.reconcileRequested = false
+                self.requestReconciliation()
+                return
+            }
+            if let outcome {
+                if !outcome.failures.isEmpty {
+                    self.store.lastError = "Some work items could not be moved to the replacement chosen when the workflow was saved: " + outcome.failures.prefix(3).joined(separator: " ")
+                }
+                if outcome.statusesReplaced > 0 {
+                    self.reconcileRequested = false
+                    // Read the changed statuses off the main thread before using the snapshot again.
+                    self.store.reload()
+                    return
+                }
+            }
+            self.reconcileRequested = false
+            self.reconcileLocal(records: records)
+            if self.reconcileRequested { self.requestReconciliation() }
+        }
+    }
+
     /// Cheap, no network: closes interrupted operations, records first looks (baseline) and edits made outside MarkView, and
     /// reopens a completed item when a bug report names it as a regression (DEC-009, DEC-015). Runs after every load.
-    func reconcileLocal() {
+    private nonisolated static func historyKey(_ kind: IssueKind, _ issue: String) -> String {
+        kind.rawValue + "\u{0}" + issue
+    }
+
+    private func reconcileLocal(records all: [String: [TransitionRecord]]) {
         guard !reconciling, store.recordsLifecycle, parts != nil else { return }
         reconciling = true
         defer { reconciling = false }
         reloadWorkflow()
         guard let parts = self.parts else { return }
-        assignExistingItems(parts: parts)
-        resumePendingReplacements(parts: parts)
-        parts.service.recoverPending()
-        let all = parts.service.records()
         for item in items() {
-            let history = IssueHistory(kind: item.kind, issue: item.issue, all: all)
+            let history = IssueHistory(kind: item.kind, issue: item.issue, all: all[Self.historyKey(item.kind, item.issue)] ?? [])
             let input = ReconcileInput(kind: item.kind, issue: item.issue, storedStatus: item.status, history: history, delivery: nil,
                                        regressionBug: regressionBug(item.kind, item.issue), workflow: workflow)
             for action in IssueReconciler.actions(input) { perform(action, for: item, parts: parts) }
         }
-        scheduleProgressCheck()
+        scheduleProgressCheck(records: all)
     }
 
     private func perform(_ action: ReconcileAction, for item: (kind: IssueKind, issue: String, status: String), parts: Parts) {
@@ -644,10 +701,15 @@ final class IssueLifecycleCoordinator {
     @discardableResult
     func completeFinishedWork(only targets: [(kind: IssueKind, issue: String)]? = nil, minimumInterval: TimeInterval = 0) async -> [String] {
         guard let parts, store.recordsLifecycle else { return [] }
-        let candidates = targets ?? items().map { (kind: $0.kind, issue: $0.issue) }
+        let snapshot = items()
+        let candidates = targets ?? snapshot.map { (kind: $0.kind, issue: $0.issue) }
+        let statuses = Dictionary(snapshot.map { ("\($0.kind.rawValue):\($0.issue)", $0.status) }, uniquingKeysWith: { first, _ in first })
         var completed: [String] = []
         for target in candidates {
-            guard let status = storedStatus(target.kind, target.issue),
+            // The loaded snapshot is enough to select candidates; re-read the chosen item below
+            // before changing it. This avoids enumerating and opening every bug on the UI thread.
+            let cachedStatus = statuses["\(target.kind.rawValue):\(target.issue)"]
+            guard let status = cachedStatus ?? (targets == nil ? nil : storedStatus(target.kind, target.issue)),
                   let destination = IssueReconciler.completionTarget(kind: target.kind, status: status, workflow: workflow,
                                                                      variantID: assignedVariantID(target.kind, target.issue)) else { continue }
             let key = "\(target.kind.rawValue):\(target.issue)"
@@ -670,10 +732,13 @@ final class IssueLifecycleCoordinator {
 
     /// After a load: looks at the work that is under way, at most every few minutes per item, and only with the GitHub
     /// integration on (without it no check can be read, so nothing could complete).
-    private func scheduleProgressCheck() {
+    private func scheduleProgressCheck(records: [String: [TransitionRecord]]) {
         guard progressTask == nil, GitHubSettings.enabled,
-              items().contains(where: { IssueReconciler.completionTarget(kind: $0.kind, status: $0.status, workflow: workflow,
-                                                                   variantID: assignedVariantID($0.kind, $0.issue)) != nil }) else { return }
+              items().contains(where: { item in
+                  let history = IssueHistory(kind: item.kind, issue: item.issue, all: records[Self.historyKey(item.kind, item.issue)] ?? [])
+                  return IssueReconciler.completionTarget(kind: item.kind, status: item.status, workflow: workflow,
+                                                         variantID: history.assignedVariant) != nil
+              }) else { return }
         progressTask = Task { [weak self] in
             guard let self else { return }
             await self.completeFinishedWork(minimumInterval: Self.progressInterval)

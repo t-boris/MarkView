@@ -41,6 +41,8 @@ final class FeatureStore: ObservableObject {
     /// project without items rather than a list not read yet.
     private(set) var hasLoaded = false
     private var pollTask: Task<Void, Never>?
+    private var changeMonitor: ProjectChangeMonitor?
+    private var changeDebounce: Task<Void, Never>?
     private var fingerprint = ""
     /// Bumped by every write and reset: a background reload that started earlier is dropped.
     private var generation = 0
@@ -83,14 +85,29 @@ final class FeatureStore: ObservableObject {
         activeSlug = UserDefaults.standard.string(forKey: Self.activeKey(root))
         reload()
         loadGitUser()
+        let prefix = root.standardizedFileURL.resolvingSymlinksInPath().path
+        changeMonitor = ProjectChangeMonitor(root: root, includeGenerated: true, shouldInclude: { path in
+            path == prefix || path == prefix + "/docs" || path == prefix + "/docs/features" || path.hasPrefix(prefix + "/docs/features/") ||
+                path == prefix + "/docs/bugs" || path.hasPrefix(prefix + "/docs/bugs/")
+        }) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.root == root else { return }
+                self.changeDebounce?.cancel()
+                self.changeDebounce = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 700_000_000)
+                    guard !Task.isCancelled else { return }
+                    self?.reloadIfChanged()
+                }
+            }
+        }
         pollTask = Task { [weak self] in
             var tick = 0
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
                 guard let self, !Task.isCancelled else { return }
-                self.reloadIfChanged()
+                self.syncLifecycleWithGit()
                 tick += 1
-                if tick % 20 == 0 { self.syncLifecycleWithGit() }  // about once a minute
+                if tick % 2 == 0 { self.reloadIfChanged() } // A fallback if the event stream is unavailable.
             }
         }
     }
@@ -101,6 +118,9 @@ final class FeatureStore: ObservableObject {
         lastLifecycleSync = nil
         pollTask?.cancel()
         pollTask = nil
+        changeDebounce?.cancel()
+        changeDebounce = nil
+        changeMonitor = nil
         root = nil
         issueFilter = IssueFilter()
         issueSort = .default
@@ -128,7 +148,7 @@ final class FeatureStore: ObservableObject {
             bugs = bugList
             hasLoaded = true
             updateFolderFlags()
-            lifecycle.reconcileLocal()
+            lifecycle.requestReconciliation()
             fingerprint = print
             if let activeSlug, !loaded.contains(where: { $0.slug == activeSlug }) { self.activeSlug = loaded.first?.slug }
         }
@@ -266,7 +286,7 @@ final class FeatureStore: ObservableObject {
         if let bugsFolder { bugs = Self.loadBugs(bugsFolder) }
         hasLoaded = true
         updateFolderFlags()
-        lifecycle.reconcileLocal()
+        lifecycle.requestReconciliation()
         fingerprint = ""  // the poll re-reads the dates and settles
     }
 
