@@ -23,6 +23,16 @@ The repaired real consumer reads 1037 elements through depth 21 in about 134 ms,
 
 ## Verification progress
 
+### Real consumer follow-up after installed 6.11 restart
+
+Broker Fabric run `20261112-170416-41d7` on installed MarkView6.11/PID77471 and system StrikeDesk1.43.5/PID75565 ended after two baseline blocks, one interruption and27 unexecuted branches. No order changed. The assistant reached current Positions/Working controls but could not combine their evidence with Accounts/Connected in its current observation. This is a failed consumer acceptance, not a passing regression fixture.
+
+The current read-only consumer diagnostic measures1072 elements at depth21, zero depth/count/time/failure omissions and139 explicitly paged children. The complete rendered observation contains both panels; its actual8000-character prompt prefix contains Accounts/Connected/Visible strikes but excludes Active accounts only. Scoped Positions inspection exposes the missing state while replacing the Accounts portion. The existing compact region index supplies routes but does not itself supply simultaneous current facts. A successful scope round trip does not test this cross-panel prompt boundary.
+
+REQ-018 follow-up design: put a bounded current-window overview of controls and panel state before dense table details. Preserve current-reference identity, secure-field filtering and explicit omission/inspection routes. Prefer shallow semantic controls and compact table/region summaries over a chain's repetitive row bodies; account/connection, chain selection and later-panel state must remain discoverable within QAStepPrompt.maxSnapshot. Do not enlarge prompts without bounds, weaken the baseline, invent absent values or treat historical narration as current observation.
+
+Verification: add a pure dense multi-panel regression using the actual8000-character prompt cap, checking account/connection, Visible strikes, current Positions/Working identity and scope routes together. Keep existing native/pointer/secure/ref/deep-limit checks; exercise both16/96-row live fixtures, QA runner tests and Debug build. Measure the current consumer again, then complete versioned PR, merged signed/notarized delivery and a fresh installed native run. The final REQ-018 consumer criterion stays unchecked until real acceptance passes.
+
 - Pure/live native checks pass, including deep 16/96-row WKWebView fixtures, actual cell clicks invoking the web handler, later-page continuation, return to window, secure values, two attached branches and retry. QA model checks pass, including native-only inspect parsing. Final added boundary checks and the versioned build are tracked with the code PR.
 - Versioned Debug build 6.11.0 passes. Existing 6.10.0 remains installed until the merged signed/notarized Release is ready.
 - Consumer acceptance is pending: 30 explicit ES/SPX/SPY template/manual entry-and-close branches. Fixtures and read-only diagnosis do not satisfy the trading acceptance criterion.
