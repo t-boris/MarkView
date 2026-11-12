@@ -114,9 +114,27 @@ enum QAPlanner {
         var preparation: [QAPreparationStep] = []
         var involved: [String] = []
         for branch in branches { for actor in scenario.actors(in: branch) where !involved.contains(actor) { involved.append(actor) } }
+        if scenario.appKind == .nativeMacOS, let target {
+            var attachedPlayers: [String: Int] = [:]
+            for id in involved {
+                guard let actor = scenario.actors.first(where: { $0.id == id }),
+                      let app = actor.app ?? (scenario.apps.count == 1 ? scenario.apps[0].id : nil),
+                      let application = target.locations[app]?.application,
+                      application.effectiveStartupPolicy == .attach else { continue }
+                attachedPlayers[application.bundleIdentifier, default: 0] += 1
+            }
+            for (identifier, count) in attachedPlayers where count > 1 {
+                problem(.scenarioUnsound, identifier, "Multiple players cannot share an attached application: \(identifier).")
+            }
+        }
         for id in involved {
             guard let actor = scenario.actors.first(where: { $0.id == id }) else { continue }
             let app = actor.app ?? (scenario.apps.count == 1 ? scenario.apps[0].id : nil)
+            let attaching = scenario.appKind == .nativeMacOS && app.flatMap { target?.locations[$0]?.application?.effectiveStartupPolicy } == .attach
+            if attaching {
+                problem(.actorWithoutAccess, actor.id, "\(actor.name) uses the current application session. No automatic sign-in or account creation will run.", blocks: false)
+                continue
+            }
             if let login = actor.login {
                 if !savedLogins.contains(login) {
                     problem(.loginNotSaved, actor.id, "\(actor.name): the login \(login.username) for \(login.host) is not saved in the browser's passwords.")

@@ -217,6 +217,12 @@ struct QAEditorView: View {
                     }
                 }
             }
+            .overlay(alignment: .bottom) {
+                if let notice = model.notice {
+                    Text(notice).uiFont(size: 10.5).foregroundColor(palette.text)
+                        .padding(8).background(palette.bgInput).textSelection(.enabled)
+                }
+            }
             .onChange(of: model.selectedNode) { if $0 != nil { panel = .step } }
             .onChange(of: model.selectedEdge) { if $0 != nil { panel = .step } }
         }
@@ -232,6 +238,9 @@ struct QAEditorView: View {
                 TextField("Title", text: Binding(get: { scenario.title }, set: { value in model.edit { $0.title = value } }))
                     .textFieldStyle(.plain).uiFont(size: 15, weight: .semibold)
                 Spacer()
+                Button { model.reloadCurrent() } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.borderless).help("Reload scenario from disk")
+                    .accessibilityLabel("Reload scenario from disk")
                 Button { model.duplicate(scenario.id) } label: { Image(systemName: "plus.square.on.square") }
                     .buttonStyle(.borderless)
                     .help("Duplicate this scenario: the copy opens at once and the original stays as it is")
@@ -939,6 +948,13 @@ struct QAInspector: View {
                     Label(location?.application.map { "\($0.name) (\($0.bundleIdentifier))" } ?? "Choose an installed application…", systemImage: "app.dashed").uiFont(size: 10.5).lineLimit(1)
                 }
                 .buttonStyle(.bordered)
+                if let application = location?.application {
+                    Picker("Startup", selection: Binding(get: { application.effectiveStartupPolicy }, set: { value in
+                        editTarget(target.id) { $0.locations[app.id]?.application?.startupPolicy = value }
+                    })) {
+                        ForEach(QANativeStartupPolicy.allCases, id: \.self) { policy in Text(policy.title).tag(policy) }
+                    }.labelsHidden().help("Attach uses the current application state; it does not reset or sign in.")
+                }
             }
         }
     }
@@ -1077,6 +1093,14 @@ struct QARunPanel: View {
             environment
             if let plan {
                 summary(plan)
+                if scenario.appKind == .nativeMacOS, let target = plan.target {
+                    ForEach(scenario.apps) { app in
+                        if let application = target.locations[app.id]?.application {
+                            Text("\(application.name): \(application.effectiveStartupPolicy.title)")
+                                .uiFont(size: 10.5).foregroundColor(palette.textDim)
+                        }
+                    }
+                }
                 if !plan.problems.isEmpty { problems(plan) }
                 if !plan.preparation.isEmpty { preparation(plan) }
                 if plan.isProduction && !plan.confirmations.isEmpty { production(plan) }

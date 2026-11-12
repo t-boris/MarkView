@@ -85,18 +85,17 @@ final class QANativeActor: QAActorDriver {
         applicationName = (bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
             ?? (bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? url.deletingPathExtension().lastPathComponent
 
-        // Prefer the person's running application. Some apps enforce a single instance without
-        // declaring it in their bundle, so trying another launch can just hand control back to it.
-        // Never claim ownership of an attached process: close() releases capture without quitting it.
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter { !$0.isTerminated }
-        let prohibitsMultiple = bundle?.object(forInfoDictionaryKey: "LSMultipleInstancesProhibited") as? Bool == true
         let launched: NSRunningApplication
-        if let existing = running.first(where: { !Self.claimedProcesses.contains($0.processIdentifier) }) {
-            launched = existing
+        switch request.startupPolicy {
+        case .attach:
+            guard !running.isEmpty else { throw QANativeError.failed("Open \(applicationName) before attaching, or choose Launch a new instance in Setup.") }
+            guard running.count == 1 else { throw QANativeError.failed("More than one \(applicationName) process is running. Close the extra instances before attaching.") }
+            launched = running[0]
             ownsProcess = false
-        } else {
-            if prohibitsMultiple && !running.isEmpty {
-                throw QANativeError.failed("\(applicationName) is already in use by another QA player. A separate instance is required for each player.")
+        case .launch:
+            if !running.isEmpty, bundle?.object(forInfoDictionaryKey: "LSMultipleInstancesProhibited") as? Bool == true {
+                throw QANativeError.noSecondInstance(applicationName)
             }
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.createsNewApplicationInstance = true
@@ -105,9 +104,10 @@ final class QANativeActor: QAActorDriver {
             do { launched = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration) } catch {
                 throw QANativeError.launchFailed(error.localizedDescription)
             }
-            // Launch Services may return an existing instance even when the bundle did not declare
-            // the restriction. A PID present before the request always belongs to the user.
-            ownsProcess = !running.contains { $0.processIdentifier == launched.processIdentifier }
+            guard !running.contains(where: { $0.processIdentifier == launched.processIdentifier }) else {
+                throw QANativeError.noSecondInstance(applicationName)
+            }
+            ownsProcess = true
         }
         guard !Self.claimedProcesses.contains(launched.processIdentifier) else {
             ownsProcess = false
@@ -215,6 +215,12 @@ final class QANativeActor: QAActorDriver {
     func measure() async -> QAPageEvidence? {
         guard !closed, let last, let frame = last.windowFrame else { return nil }
         return QANativeEvidence.make(from: last.elements, windowFrame: frame)
+    }
+
+    func sessionIdentity() async -> String? {
+        guard let process, !closed, !process.isTerminated else { return nil }
+        let mode = ownsProcess ? "Launched" : "Attached to"
+        return "\(mode) \(applicationName) (PID \(process.processIdentifier))."
     }
 
     /// Stops the pictures and ends only a process this player launched; an attached process stays open.

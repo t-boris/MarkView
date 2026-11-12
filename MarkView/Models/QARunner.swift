@@ -21,9 +21,11 @@ protocol QAActorDriver: AnyObject {
     /// What the page shows by measure (small text, low contrast, clipped content…) for the review; nil when it cannot be measured.
     func measure() async -> QAPageEvidence?
     func close() async
+    func sessionIdentity() async -> String?
 }
 
 extension QAActorDriver {
+    func sessionIdentity() async -> String? { nil }
     func measure() async -> QAPageEvidence? { nil }
     func inputMark(for action: QAAction) async -> QAInputMark { QAInputMark(kind: action.kind, direction: action.direction) }
 }
@@ -35,6 +37,7 @@ struct QADriverRequest {
     /// Where the application is, in the chosen environment: a web address, or the bundle identifier of the installed application.
     var address: String
     var login: QALoginReference?
+    var startupPolicy: QANativeStartupPolicy = .launch
 }
 
 /// API steps execute the saved request once and check its response without an assistant deciding the verdict.
@@ -585,9 +588,15 @@ final class QARunner {
         let key = scenario.appKind == .api ? "\(actor?.id ?? "setup"):\(app.id)" : (actor?.id ?? "setup")
         if let existing = drivers[key] { return existing }
         guard let address = plan.target?.locations[app.id]?.address(for: scenario.appKind) else { throw QARunnerError.noAddress(app.name) }
-        let request = QADriverRequest(actor: actor, app: app, address: address, login: actor?.login)
-        let created = try await sessions.session(key: activeBranch + "|" + key, request: request, factory: factory)
+        let policy = plan.target?.locations[app.id]?.application?.effectiveStartupPolicy ?? .launch
+        let request = QADriverRequest(actor: actor, app: app, address: address, login: actor?.login, startupPolicy: policy)
+        let sessionKey = scenario.appKind == .nativeMacOS && policy == .attach && config.keepSessions
+            ? "attach|\(scenario.id)|\(plan.target?.id ?? "")|\(address)|\(key)" : activeBranch + "|" + key
+        let created = try await sessions.session(key: sessionKey, request: request, factory: factory)
         drivers[key] = created
+        if let identity = await created.sessionIdentity(), let branch = plan.branches.first(where: { $0.id == activeBranch }) {
+            note(branch, nil, actor?.id, .preparation, identity)
+        }
         return created
     }
 

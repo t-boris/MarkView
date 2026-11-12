@@ -128,7 +128,12 @@ enum QAStore {
                 unreadable.append(QAUnreadable(file: name, message: "Made by a newer version of MarkView."))
                 continue
             }
-            guard let scenario = try? decoder.decode(QAScenario.self, from: data) else {
+            let scenario: QAScenario
+            do { scenario = try decoder.decode(QAScenario.self, from: data) }
+            catch DecodingError.dataCorrupted(let context) where context.codingPath.last?.stringValue == "startupPolicy" {
+                unreadable.append(QAUnreadable(file: name, message: "Unsupported native startup policy."))
+                continue
+            } catch {
                 unreadable.append(QAUnreadable(file: name, message: "Not a QA scenario."))
                 continue
             }
@@ -140,6 +145,13 @@ enum QAStore {
         }
         scenarios.sort { ($0.title.lowercased(), $0.id) < ($1.title.lowercased(), $1.id) }
         return QAScenarioListing(scenarios: scenarios, unreadable: unreadable)
+    }
+
+    /// A save must never replace a file that differs from the last version loaded or saved by this window.
+    static func scenarioChangedOnDisk(expected: QAScenario?, data: Data?, exists: Bool) -> Bool {
+        if !exists { return expected != nil }
+        guard let data, let actual = try? decoder.decode(QAScenario.self, from: data) else { return true }
+        return actual != expected
     }
 
     static func saveScenario(_ scenario: QAScenario, root: URL) throws {

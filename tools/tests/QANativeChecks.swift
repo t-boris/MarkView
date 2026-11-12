@@ -283,6 +283,12 @@ func live(fixture: URL) async {
     check("live: an application that is not installed is an error", notInstalled)
     check("live: nothing was launched for it", NSRunningApplication.runningApplications(withBundleIdentifier: identifier).isEmpty)
 
+    let attachMissing = QANativeActor(request: QADriverRequest(actor: nil, app: QAApp(id: "demo", name: "Demo"), address: identifier, login: nil, startupPolicy: .attach), credentials: credentials, config: .init(bringToFront: false))
+    var missingBlocked = false
+    do { try await attachMissing.open(identifier) } catch { missingBlocked = error.localizedDescription.contains("Open") }
+    await attachMissing.close()
+    check("attach: missing process is blocked without launch", missingBlocked && NSRunningApplication.runningApplications(withBundleIdentifier: identifier).isEmpty)
+
     let player = QANativeActor(request: request(identifier), credentials: credentials, config: .init(bringToFront: false, launchTimeout: 15))
     do {
         let opening = Date()
@@ -447,6 +453,12 @@ func liveTwoPlayers() async {
     }
     let running = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
     check("live two players: two instances of the same application run, one per player", running.count == 2 && Set(running.map(\.processIdentifier)).count == 2)
+    let attachRequest = QADriverRequest(actor: nil, app: QAApp(id: "demo", name: "Demo"), address: identifier, login: nil, startupPolicy: .attach)
+    let ambiguous = QANativeActor(request: attachRequest, credentials: QACredentials(username: nil, password: nil), config: .init(bringToFront: false))
+    var rejectedAmbiguity = false
+    do { try await ambiguous.open(identifier) } catch { rejectedAmbiguity = error.localizedDescription.contains("More than one") }
+    await ambiguous.close()
+    check("attach: multiple running instances are rejected without closing either", rejectedAmbiguity && NSRunningApplication.runningApplications(withBundleIdentifier: identifier).count == 2)
     let annSignedIn = await signIn(ann)
     check("live two players: the first player signs in", annSignedIn?.snapshot.contains("text \"Signed in as Ann\"") == true)
     let bobBefore = try? await bob.observe()
@@ -467,15 +479,22 @@ func liveTwoPlayers() async {
     check("live two players: nothing is left running", none)
 }
 
+final class NativeFixtureAssistant: QAAssistant {
+    func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any? {
+        ["move": "done", "narration": "Observed fixture.", "action": ["kind": "none"], "reason": "", "blockReason": ""] as [String: Any]
+    }
+}
+
 /// A user-owned single-instance application remains alive after a QA player attaches and closes.
 @MainActor
 func liveAttached(fixture: URL, identifier: String, singleInstance: Bool) async {
     let config = NSWorkspace.OpenConfiguration()
+    config.createsNewApplicationInstance = true
     config.activates = false
     let userApp: NSRunningApplication
     do { userApp = try await NSWorkspace.shared.openApplication(at: fixture, configuration: config) }
     catch { check("attached: start fixture (\(error.localizedDescription))", false); return }
-    let request = QADriverRequest(actor: nil, app: QAApp(id: "demo", name: "Demo"), address: identifier, login: nil)
+    let request = QADriverRequest(actor: nil, app: QAApp(id: "demo", name: "Demo"), address: identifier, login: nil, startupPolicy: .attach)
     let player = QANativeActor(request: request, credentials: QACredentials(username: nil, password: nil), config: .init(bringToFront: false, launchTimeout: 15))
     do {
         try await player.open(identifier)
@@ -492,6 +511,44 @@ func liveAttached(fixture: URL, identifier: String, singleInstance: Bool) async 
         check("attached: closing QA leaves the user's process running", !userApp.isTerminated)
         await player.close()
         check("attached: closing twice leaves the user's process running", !userApp.isTerminated)
+        let sessions = QARunSessions()
+        let factory = QANativeDriverFactory(config: .init(bringToFront: false, launchTimeout: 15))
+        do {
+            let first = try await sessions.session(key: "same-player", request: request, factory: factory)
+            let second = try await sessions.session(key: "same-player", request: request, factory: factory)
+            check("attached: retained session reuses the same driver and process", first === second && NSRunningApplication.runningApplications(withBundleIdentifier: identifier).count == 1)
+            await sessions.close()
+            check("attached: releasing retained sessions preserves the user's process", !userApp.isTerminated)
+        } catch { check("attached: retained session connects (\(error.localizedDescription); pid \(userApp.processIdentifier), terminated \(userApp.isTerminated), running \(NSRunningApplication.runningApplications(withBundleIdentifier: identifier).map(\.processIdentifier)))", false); await sessions.close() }
+        if singleInstance {
+            let now = Date()
+            var scenario = QAScenario(id: "native-attach-test", title: "Native fixture", goal: "Observe the fixture", appKind: .nativeMacOS,
+                apps: [QAApp(id: "demo", name: "Demo")],
+                targets: [QATarget(id: "local", kind: .local, name: "Local", locations: ["demo": QALocation(application: QAApplication(bundleIdentifier: identifier, name: "Demo", startupPolicy: .attach))])],
+                actors: [QAActor(id: "player", name: "Player")],
+                nodes: [QANode(id: "s", kind: .check, title: "Observe", detail: "The fixture is visible"), QANode(id: "a", kind: .check, title: "First", detail: "The fixture is visible"), QANode(id: "b", kind: .check, title: "Second", detail: "The fixture is visible")],
+                edges: [QAEdge(from: "s", to: "a"), QAEdge(from: "s", to: "b")], start: "s", created: now, updated: now)
+            scenario.selectAllBranches()
+            let plan = QAPlanner.make(scenario, targetID: "local", savedLogins: [])
+            var gate = QAGate(plan: plan)
+            let approved = gate.approve(acknowledgedProduction: false)
+            let runSessions = QARunSessions()
+            var options = QARunner.Config(); options.keepSessions = true; options.captureFrames = false; options.captureInputs = false; options.measureScreens = false
+            let runner = QARunner(scenario: scenario, plan: plan, gate: gate, factory: factory, assistant: NativeFixtureAssistant(), runID: "attach-fixture", confirm: { _ in false }, config: options, sessions: runSessions)
+            let record = await runner.run()
+            if !approved || record.results.count != 2 || record.results.contains(where: { $0.verdict.outcome != .passed }) {
+                print("attached runner diagnostics: approved=\(approved), problems=\(plan.problems.map(\.message)), results=\(record.results.map { "\($0.verdict.outcome.rawValue): \($0.verdict.reason)" })")
+            }
+            check("attached runner: two branches reuse the running single-instance fixture", approved && record.results.count == 2 && record.results.allSatisfy { $0.verdict.outcome == .passed } && NSRunningApplication.runningApplications(withBundleIdentifier: identifier).count == 1 && !userApp.isTerminated)
+            if let firstBranch = plan.branches.first, let firstNode = firstBranch.nodes.first {
+                options.startPoint = QAStartPoint(branch: firstBranch.id, node: firstNode)
+                let retry = QARunner(scenario: scenario, plan: plan, gate: gate, factory: factory, assistant: NativeFixtureAssistant(), runID: "attach-retry", confirm: { _ in false }, config: options, sessions: runSessions)
+                let retried = await retry.run()
+                check("attached runner: retry reuses the retained process", retried.results.contains { $0.branch == firstBranch.id && $0.nodesMet.contains(firstNode) && $0.verdict.outcome == .uncovered } && NSRunningApplication.runningApplications(withBundleIdentifier: identifier).count == 1 && !userApp.isTerminated)
+            }
+            await runSessions.close()
+            check("attached runner: releasing retained sessions preserves the fixture", !userApp.isTerminated)
+        }
     } catch { check("attached: player connects (\(error.localizedDescription))", false); await player.close() }
     userApp.terminate()
     for _ in 0..<40 where !userApp.isTerminated { try? await Task.sleep(nanoseconds: 100_000_000) }
