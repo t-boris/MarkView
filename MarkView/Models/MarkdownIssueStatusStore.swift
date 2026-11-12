@@ -9,6 +9,9 @@ import Foundation
 final class MarkdownIssueStatusStore: LifecycleStatusStore, @unchecked Sendable {
     let root: URL
     private let lock = NSLock()
+    private let namesLock = NSLock()
+    private var namesSignature: String?
+    private var namesByPrefix: [String: [String]] = [:]
 
     init(root: URL) { self.root = root }
 
@@ -38,9 +41,25 @@ final class MarkdownIssueStatusStore: LifecycleStatusStore, @unchecked Sendable 
     /// The report whose front matter `id` is `key`, else the one whose file name starts with it ("BUG-012-…").
     func bugFile(key: String) -> URL? {
         let wanted = key.uppercased()
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: bugsFolder.path)) ?? []
-        let candidates = names.filter { $0.hasSuffix(".md") && $0.uppercased().hasPrefix(wanted) }
-        for name in candidates.sorted() {
+        let path = bugsFolder.path
+        var info = stat()
+        guard stat(path, &info) == 0 else { return nil }
+        let signature = "\(info.st_dev):\(info.st_ino):\(info.st_mtimespec.tv_sec):\(info.st_mtimespec.tv_nsec)"
+        namesLock.lock()
+        if namesSignature != signature {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
+            var index: [String: [String]] = [:]
+            for name in names where name.hasSuffix(".md") {
+                let key = name.uppercased().split(separator: "-", maxSplits: 2).prefix(2).joined(separator: "-")
+                index[key, default: []].append(name)
+            }
+            namesByPrefix = index.mapValues { $0.sorted() }
+            namesSignature = signature
+        }
+        // Existing callers use IDs such as BUG-012. Preserve the prefix fallback for unusual IDs.
+        let candidates = namesByPrefix.filter { $0.key.hasPrefix(wanted) }.values.flatMap { $0 }.sorted()
+        namesLock.unlock()
+        for name in candidates {
             let url = bugsFolder.appendingPathComponent(name)
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             let id = FrontMatter.split(text).0.string("id")

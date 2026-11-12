@@ -41,6 +41,12 @@ check("a slug cannot leave the features folder", statuses.status(kind: .feature,
 check("a bug is found by its key, not by a longer key it prefixes", statuses.bugFile(key: "BUG-001")?.lastPathComponent == "BUG-001-crash-on-export.md")
 check("the longer key is found by its own", statuses.bugFile(key: "BUG-0010")?.lastPathComponent == "BUG-0010-other.md")
 check("an unknown bug has no status", statuses.status(kind: .bug, issue: "BUG-999") == nil)
+write("---\ntype: bug\nid: BUG-003\nstatus: open\n---\n", "docs/bugs/BUG-003-new.md")
+check("a bug created after the directory index was built is found", statuses.status(kind: .bug, issue: "BUG-003") == "open")
+try! fm.moveItem(at: root.appendingPathComponent("docs/bugs/BUG-003-new.md"), to: root.appendingPathComponent("docs/bugs/BUG-003-renamed.md"))
+check("a renamed bug refreshes the directory index", statuses.bugFile(key: "BUG-003")?.lastPathComponent == "BUG-003-renamed.md")
+try! fm.removeItem(at: root.appendingPathComponent("docs/bugs/BUG-003-renamed.md"))
+check("a deleted bug disappears from the directory index", statuses.status(kind: .bug, issue: "BUG-003") == nil)
 
 // MARK: A step writes the status line and nothing else
 

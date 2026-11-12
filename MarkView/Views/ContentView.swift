@@ -369,7 +369,7 @@ struct ContentView: View {
         .task(id: workspaceManager.rootNode?.url) {
             await changeReview.open(workspaceManager.rootNode?.url)
             while !Task.isCancelled {
-                do { try await Task.sleep(nanoseconds: 15_000_000_000) }
+                do { try await Task.sleep(nanoseconds: 120_000_000_000) }
                 catch { break }
                 await changeReview.refresh()
             }

@@ -14,6 +14,9 @@ final class ProjectChangeReview: ObservableObject {
 
     private let scanner = ProjectChangeScanner()
     private var project: URL?
+    private var monitor: ProjectChangeMonitor?
+    private var refreshTask: Task<Void, Never>?
+    private var refreshPending = false
 
     /// One reading belongs to one pair of texts: a file that changes again is a new question.
     static func explanationKey(_ change: ProjectChange) -> String {
@@ -21,11 +24,22 @@ final class ProjectChangeReview: ObservableObject {
     }
 
     func open(_ project: URL?) async {
+        monitor = nil
+        refreshTask?.cancel()
+        self.project = project
         isScanning = true
-        defer { isScanning = false }
+        if let project {
+            monitor = ProjectChangeMonitor(root: project) { [weak self] in
+                Task { @MainActor in self?.scheduleRefresh() }
+            }
+        }
+        defer {
+            isScanning = false
+            if refreshPending { refreshPending = false; scheduleRefresh() }
+        }
         do {
             try await scanner.open(project)
-            self.project = project
+            guard !Task.isCancelled, self.project == project else { return }
             changes = []
             explanations = [:]
             explanationFailures = [:]
@@ -36,15 +50,27 @@ final class ProjectChangeReview: ObservableObject {
     }
 
     func refresh() async {
-        guard !isScanning else { return }
+        guard !isScanning else { refreshPending = true; return }
         isScanning = true
-        defer { isScanning = false }
+        defer {
+            isScanning = false
+            if refreshPending { refreshPending = false; scheduleRefresh() }
+        }
         do {
             changes = try await scanner.refresh()
             error = nil
         } catch is CancellationError {
             return
         } catch { self.error = error.localizedDescription }
+    }
+
+    private func scheduleRefresh() {
+        refreshTask?.cancel()
+        refreshTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.refresh()
+        }
     }
 
     func acknowledge() async {

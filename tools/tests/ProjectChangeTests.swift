@@ -93,5 +93,29 @@ try await fresh.open(root)
 let growth = peakFootprintMB() - before
 check(before > 0 && growth < 80, "a walk over 200 MB of files holds at most one file at a time (peak grew \(Int(growth)) MB)")
 
+// The watcher sees nested changes without polling the full tree and ignores generated folders.
+let monitorRoot = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".markview-watch-\(UUID().uuidString)")
+try? fm.createDirectory(at: monitorRoot.appendingPathComponent("nested"), withIntermediateDirectories: true)
+try? fm.createDirectory(at: monitorRoot.appendingPathComponent("node_modules"), withIntermediateDirectories: true)
+final class NotificationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func increment() { lock.lock(); value += 1; lock.unlock() }
+    func count() -> Int { lock.lock(); defer { lock.unlock() }; return value }
+}
+let notifications = NotificationCounter()
+let monitor = ProjectChangeMonitor(root: monitorRoot) { notifications.increment() }
+try? await Task.sleep(nanoseconds: 300_000_000)
+try? Data("visible".utf8).write(to: monitorRoot.appendingPathComponent("nested/note.md"))
+for _ in 0..<40 where notifications.count() == 0 { try? await Task.sleep(nanoseconds: 100_000_000) }
+check(notifications.count() > 0, "the recursive watcher notices a nested file change")
+try? await Task.sleep(nanoseconds: 1_500_000_000)
+let beforeIgnored = notifications.count()
+try? Data("generated".utf8).write(to: monitorRoot.appendingPathComponent("node_modules/generated.js"))
+try? await Task.sleep(nanoseconds: 2_000_000_000)
+check(notifications.count() == beforeIgnored, "the watcher ignores changes under node_modules")
+withExtendedLifetime(monitor) {}
+try? fm.removeItem(at: monitorRoot)
+
 print(failures == 0 ? "All Project Changes checks passed." : "\(failures) Project Changes check(s) failed.")
 exit(failures == 0 ? 0 : 1)
