@@ -352,6 +352,7 @@ class WorkspaceManager: ObservableObject {
     @Published var compactLayout = false
     @Published var showCenter = true
     @Published var terminalVisible = true
+    @Published var agentsVisible = false
     @Published var handoffResume: HandoffResume?
     @Published var showGlobalSearch = false
     struct SelectionActionState: Identifiable {
@@ -391,6 +392,7 @@ class WorkspaceManager: ObservableObject {
     func showDocumentOnly() {
         setFileTreeForThisWindow(false)
         terminalVisible = false
+        agentsVisible = false
         showCenter = true
     }
 
@@ -1175,7 +1177,7 @@ class WorkspaceManager: ObservableObject {
             navigator: layout.navigatorTab.rawValue, left: layout.leftPanel,
             feature: layout.issuesFeature, git: layout.gitSection.rawValue, stage: layout.featureStage.rawValue,
             showFiles: showFileTree, showNavigator: showTOC,
-            contentsVisible: showTOC, terminalVisible: terminalVisible,
+            contentsVisible: showTOC, terminalVisible: terminalVisible, agentsVisible: agentsVisible,
             showCenter: showCenter, welcomeBackdrop: layout.welcomeBackdrop.rawValue)
         return state
     }
@@ -1247,7 +1249,8 @@ class WorkspaceManager: ObservableObject {
             layout.workspaceArea = panels.workspaceArea.flatMap(WorkspaceArea.init) ?? .files
             let restoredWorkSection = panels.workSection.flatMap(WorkSection.init) ?? .features
             layout.workSection = restoredWorkSection == .terminal ? .features : restoredWorkSection
-            layout.navigatorTab = TOCView.Tab(rawValue: panels.navigator) ?? .contents
+            let restoredNavigator = TOCView.Tab(rawValue: panels.navigator) ?? .contents
+            layout.navigatorTab = restoredNavigator == .terminal ? .contents : restoredNavigator
             layout.leftPanel = panels.left == "issues" ? "issues" : "files"
             layout.issuesFeature = panels.feature
             layout.gitSection = GitSection(rawValue: panels.git) ?? .changes
@@ -1257,7 +1260,9 @@ class WorkspaceManager: ObservableObject {
             setFileTreeForThisWindow(panels.showFiles)
             showTOC = panels.contentsVisible ?? false
             showCenter = panels.showCenter ?? true
-            terminalVisible = panels.terminalVisible ?? panels.showNavigator
+            let oldVisible = panels.terminalVisible ?? panels.showNavigator
+            agentsVisible = panels.agentsVisible ?? (restoredNavigator == .terminal && oldVisible)
+            terminalVisible = panels.agentsVisible == nil && restoredNavigator == .terminal ? false : oldVisible
             if !showFileTree && !showCenter && !terminalVisible { showCenter = true }
         }
     }
@@ -3916,23 +3921,10 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    /// Show the terminal in the right column without changing other columns.
-    func showAIConsole() {
-        showTOC = false
-        layout.navigatorTab = .terminal
-        terminalVisible = true
-    }
+    /// Show the floating agents surface without changing the other panels.
+    func showAIConsole() { agentsVisible = true }
 
-    func toggleAIConsole() {
-        if terminalVisible && layout.navigatorTab == .terminal {
-            guard showFileTree || showCenter else { return }
-            terminalVisible = false
-        } else {
-            showTOC = false
-            layout.navigatorTab = .terminal
-            terminalVisible = true
-        }
-    }
+    func toggleAIConsole() { agentsVisible.toggle() }
 
     func resumeHandoff(slug: String, title: String, linkedFiles: [String]) {
         guard let root = features.root else { return }

@@ -45,7 +45,7 @@ struct TOCView: View {
             case .contents: contentsList
             case .search: WorkspaceSearchView().environmentObject(workspaceManager)
             case .git: GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
-            case .terminal: ModuleExplorerView().environmentObject(workspaceManager)
+            case .terminal: contentsList
             case .feature:
                 VStack(spacing: 0) {
                     if let tab = workspaceManager.activeTab,
@@ -125,7 +125,7 @@ private struct TOCTabs<Content: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                ForEach(TOCView.Tab.allCases.filter { $0 != .feature || store.hasIssues }, id: \.self) { tab in
+                ForEach(TOCView.Tab.allCases.filter { $0 != .terminal && ($0 != .feature || store.hasIssues) }, id: \.self) { tab in
                     PanelTabButton(title: tab.title, isSelected: selectedTab == tab) {
                         selectedTab = tab
                     }

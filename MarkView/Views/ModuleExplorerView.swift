@@ -31,7 +31,8 @@ struct ModuleExplorerView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 10)
+                .padding(.leading, 36)
+                .padding(.trailing, 34)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(height: 26 * min(1.5, max(1, fontScale)))

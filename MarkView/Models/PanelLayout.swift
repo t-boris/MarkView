@@ -80,7 +80,8 @@ final class PanelLayout: ObservableObject {
         self.defaults = defaults
         workspaceArea = defaults.string(forKey: Self.workspaceAreaKey).flatMap(WorkspaceArea.init) ?? .files
         workSection = defaults.string(forKey: Self.workSectionKey).flatMap(WorkSection.init) ?? .features
-        navigatorTab = defaults.string(forKey: TOCView.Tab.storageKey).flatMap(TOCView.Tab.init) ?? .contents
+        let storedNavigator = defaults.string(forKey: TOCView.Tab.storageKey).flatMap(TOCView.Tab.init) ?? .contents
+        navigatorTab = storedNavigator == .terminal ? .contents : storedNavigator
         leftPanel = defaults.string(forKey: Self.leftPanelKey) ?? "files"
         issuesFeature = defaults.string(forKey: Self.issuesFeatureKey) ?? ""
         gitSection = defaults.string(forKey: Self.gitSectionKey).flatMap(GitSection.init) ?? .changes
