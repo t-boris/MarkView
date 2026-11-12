@@ -7,7 +7,8 @@ Owner-authorized full repair and local delivery; external broker-fabric BUG-157,
 - [x] Pass pure/live dense 16/96 checks, real web click-handler checks, retained attach/retry checks and QA model checks.
 - [x] Bump to 6.11.0 and pass Debug build.
 - [x] Finish post-review secure/stale/offset boundary regressions; PR #383 merged at 8a477a23455c2e52b607a7c7273fb68d59f0b282 with all PR checks green. Exact merge Build & Release #43226197736 passes both architectures.
-- [ ] Build/sign/notarize/publish from clean merged main and install the new local app, preserving unrelated sessions.
+- [x] Build/sign/notarize/publish v6.11.0 from clean merged main; install the verified DMG app at /Applications/MarkView.app. Release https://github.com/t-boris/MarkView/releases/tag/v6.11.0; app/DMG Gatekeeper checks pass.
+- [ ] Coordinate/restart the running 6.10.0 process: it hosts the current agent and concurrent vivaa QA. New 6.11.0 is installed on disk; restart timing is awaiting owner coordination.
 - [ ] Complete real StrikeDesk broker-paper baseline plus all 30 entry/close cases; preserve old order 2072872 and all initial holdings.
 - [ ] Record exact release/installed versions and per-case fills and residual checks; only then close the external report.
 
