@@ -1177,8 +1177,10 @@ private struct FloatingAgentsView: View {
     @ObservedObject var workspaceManager: WorkspaceManager
     @ObservedObject private var state: WindowUIState
     let available: CGSize
-    @State private var agentsDragStart: CGSize?
+    @State private var resizeTranslation = CGSize.zero
+    @State private var moveTranslation = CGSize.zero
     @Environment(\.palette) private var palette
+    @Environment(\.appFontScale) private var fontScale
 
     init(workspaceManager: WorkspaceManager, available: CGSize) {
         self.workspaceManager = workspaceManager
@@ -1189,8 +1191,16 @@ private struct FloatingAgentsView: View {
     var body: some View {
         let savedWidth = CGFloat(state.value("layout.agentsWidth", fallback: 650.0))
         let savedHeight = CGFloat(state.value("layout.agentsHeight", fallback: 600.0))
-        let width = min(max(280, savedWidth), available.width)
-        let height = min(max(180, savedHeight), available.height)
+        let baseWidth = min(max(280, savedWidth), available.width)
+        let baseHeight = min(max(180, savedHeight), available.height)
+        let savedX = max(0, CGFloat(state.value("layout.agentsOffsetX", fallback: 0.0)))
+        let savedY = max(0, CGFloat(state.value("layout.agentsOffsetY", fallback: 0.0)))
+        let baseX = min(savedX, max(0, available.width - baseWidth))
+        let baseY = min(savedY, max(0, available.height - baseHeight))
+        let width = min(available.width - baseX, max(min(280, available.width), baseWidth - resizeTranslation.width))
+        let height = min(available.height - baseY, max(min(180, available.height), baseHeight - resizeTranslation.height))
+        let x = min(max(0, available.width - width), max(0, baseX - moveTranslation.width))
+        let y = min(max(0, available.height - height), max(0, baseY - moveTranslation.height))
         return ModuleExplorerView()
             .environmentObject(workspaceManager)
             .frame(width: max(0, width), height: max(0, height))
@@ -1203,14 +1213,27 @@ private struct FloatingAgentsView: View {
                     .background(palette.bg)
                     .contentShape(Rectangle())
                     .help("Drag to resize Agents")
-                    .gesture(DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            if agentsDragStart == nil { agentsDragStart = CGSize(width: width, height: height) }
-                            guard let start = agentsDragStart else { return }
-                            state.set(Double(min(available.width, max(280, start.width - value.translation.width))), for: "layout.agentsWidth")
-                            state.set(Double(min(available.height, max(180, start.height - value.translation.height))), for: "layout.agentsHeight")
-                        }
-                        .onEnded { _ in agentsDragStart = nil })
+                    .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                        .onChanged { resizeTranslation = $0.translation }
+                        .onEnded { value in
+                            state.set(Double(min(available.width - baseX, max(min(280, available.width), baseWidth - value.translation.width))), for: "layout.agentsWidth")
+                            state.set(Double(min(available.height - baseY, max(min(180, available.height), baseHeight - value.translation.height))), for: "layout.agentsHeight")
+                            resizeTranslation = .zero
+                        })
+            }
+            .overlay(alignment: .top) {
+                Color.clear
+                    .frame(height: 26 * min(1.5, max(1, fontScale)))
+                    .padding(.leading, 30).padding(.trailing, 28)
+                    .contentShape(Rectangle())
+                    .help("Drag to move Agents")
+                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { moveTranslation = $0.translation }
+                        .onEnded { value in
+                            state.set(Double(min(max(0, available.width - width), max(0, baseX - value.translation.width))), for: "layout.agentsOffsetX")
+                            state.set(Double(min(max(0, available.height - height), max(0, baseY - value.translation.height))), for: "layout.agentsOffsetY")
+                            moveTranslation = .zero
+                        })
             }
             .overlay(alignment: .topTrailing) {
                 Button { workspaceManager.agentsVisible = false } label: {
@@ -1222,6 +1245,7 @@ private struct FloatingAgentsView: View {
             }
             .overlay(Rectangle().stroke(palette.border, lineWidth: 1).allowsHitTesting(false))
             .shadow(color: .black.opacity(0.3), radius: 12, x: -3, y: -3)
+            .offset(x: -x, y: -y)
     }
 
 }
