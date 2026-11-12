@@ -1215,6 +1215,11 @@ private struct FloatingAgentsView: View {
                                 state.set(Double(min(max(0, available.height - height), max(0, baseY - value.translation.height))), for: "layout.agentsOffsetY")
                                 moveTranslation = .zero
                             })
+                        .simultaneousGesture(TapGesture(count: 2).onEnded {
+                            if maximized { maximized = false }
+                            if !minimized { NSApp.keyWindow?.makeFirstResponder(nil) }
+                            minimized.toggle()
+                        })
                     headerControl(minimized ? "arrow.up.left.and.arrow.down.right" : "minus", help: minimized ? "Restore Agents" : "Minimize Agents", height: headerHeight) {
                         if maximized { maximized = false }
                         if !minimized { NSApp.keyWindow?.makeFirstResponder(nil) }
