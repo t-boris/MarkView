@@ -100,6 +100,8 @@ final class QAWebActor: QAActorDriver {
             return try await tool("browser_press_key", ["key": action.text])
         case .wait:
             return try await tool("browser_wait_for", ["timeout_ms": action.amount])
+        case .inspect:
+            throw QAWebError.failed("Scoped native inspection is not available in a web page.")
         case .http:
             return scrub(try await send(action))
         }

@@ -30,6 +30,8 @@ struct QANativeElement: Equatable {
     /// A name the application itself links to the element (its title element, or the text inside a control that has no title).
     var labelText = ""
     var children: [QANativeElement] = []
+    var childCount: Int = 0
+    var omittedChildren: Int = 0
 }
 
 /// One entry of the application's menu bar: a menu item that can be pressed.
@@ -161,7 +163,7 @@ struct QANativeNode {
 enum QANativeTree {
     /// The elements in reading order (a parent before its children), named. Elements deeper than `maxDepth` are not part of it and are
     /// counted in `tooDeep` when they would have been something to show.
-    static func flatten(_ roots: [QANativeElement], maxDepth: Int = QANativeSnapshot.maxDepth) -> (nodes: [QANativeNode], tooDeep: Int) {
+    static func flatten(_ roots: [QANativeElement], maxDepth: Int = QANativeSnapshot.maxDepth, includeHitTargets: Bool = false) -> (nodes: [QANativeNode], tooDeep: Int) {
         var nodes: [QANativeNode] = []
         var tooDeep = 0
 
@@ -177,15 +179,20 @@ enum QANativeTree {
             stripped.children = []
             let index = nodes.count
             var node = QANativeNode(element: stripped, kind: facts.kind, depth: depth, parent: parent)
-            node.interactive = facts.interactive
-            node.textual = facts.textual
+            let hitTarget = includeHitTargets && ["AXCell", "AXStaticText"].contains(element.role)
+                && (element.frame.map { $0.width > 0 && $0.height > 0 } ?? false)
+            node.interactive = facts.interactive || hitTarget
+            node.textual = facts.textual && !hitTarget
             node.secure = element.role == "AXTextField" && element.subrole == "AXSecureTextField"
             node.insideScrollArea = inScroll
             if facts.textual { node.text = [element.value, element.title, element.description].first { !clean($0).isEmpty }.map(clean) ?? "" }
             nodes.append(node)
             if let parent { nodes[parent].children.append(index) }
+            // Unnamed layout wrappers are not semantic nesting. Electron commonly has many before a real panel.
+            let meaningful = facts.interactive || facts.textual || !element.title.isEmpty || !element.description.isEmpty
+                || QANativeRoles.alwaysShown.contains(element.role)
             for child in element.children {
-                visit(child, depth: depth + 1, parent: index, parentRole: element.role, inScroll: inScroll || element.role == "AXScrollArea")
+                visit(child, depth: depth + (meaningful ? 1 : 0), parent: index, parentRole: element.role, inScroll: inScroll || element.role == "AXScrollArea")
             }
         }
         for root in roots { visit(root, depth: 1, parent: nil, parentRole: "", inScroll: false) }
@@ -219,7 +226,17 @@ enum QANativeTree {
             // A pop-up is titled with the choice it shows: that is its value, not its name.
             if element.role == "AXPopUpButton" || element.role == "AXComboBox", clean(element.title) == clean(element.value) { candidates[0] = "" }
             candidates.append(element.labelText)
+            if element.role == "AXStaticText" { candidates.append(element.value) }
             nodes[index].name = candidates.map(clean).first { !$0.isEmpty } ?? QANativeRoles.windowControls[element.subrole] ?? ""
+        }
+        // A layout region can be inspected by the visible caption immediately inside it.
+        for index in nodes.indices where nodes[index].element.role == "AXGroup" && nodes[index].name.isEmpty {
+            let captions = nodes[index].children.compactMap { child -> String? in
+                let node = nodes[child]
+                guard node.element.role == "AXStaticText", node.text.rangeOfCharacter(from: .letters) != nil else { return nil }
+                return node.text
+            }.prefix(3)
+            nodes[index].name = clip(captions.joined(separator: " | "), QANativeSnapshot.maxName)
         }
         // Pass 2: a label next to a field, and the text inside a row or a cell.
         for index in nodes.indices where nodes[index].interactive && nodes[index].name.isEmpty {
@@ -236,7 +253,7 @@ enum QANativeTree {
             let inside = innerText(of: index, in: nodes)
             if !inside.isEmpty {
                 nodes[index].name = inside
-                for child in descendants(of: index, in: nodes) where nodes[child].textual { nodes[child].hidden = true }
+                for child in descendants(of: index, in: nodes) where nodes[child].textual || (role == "AXCell" && nodes[child].element.role == "AXStaticText") { nodes[child].hidden = true }
             }
         }
     }
@@ -249,7 +266,7 @@ enum QANativeTree {
     }
 
     private static func innerText(of index: Int, in nodes: [QANativeNode]) -> String {
-        let pieces = descendants(of: index, in: nodes).compactMap { nodes[$0].textual && !nodes[$0].text.isEmpty ? nodes[$0].text : nil }.prefix(4)
+        let pieces = descendants(of: index, in: nodes).compactMap { (nodes[$0].textual || nodes[$0].element.role == "AXStaticText") && !nodes[$0].text.isEmpty ? nodes[$0].text : nil }.prefix(4)
         return clip(pieces.joined(separator: " | "), QANativeSnapshot.maxName)
     }
 
@@ -313,14 +330,18 @@ struct QANativeSnapshot: Equatable {
     /// menu entry) has a reference `[e12]`; static text is shown with its text and none. The order is the order of the application's own
     /// tree, so one look at the same window gives the same text. Past the limits, controls come before long text, and the end says how
     /// much was left out. `omitted` is what the reader itself could not read.
-    static func render(app: String, windowTitle: String, elements: [QANativeElement], menus: [QANativeMenuEntry], omitted: Int = 0) -> QANativeSnapshot {
+    static func render(app: String, windowTitle: String, elements: [QANativeElement], menus: [QANativeMenuEntry], omitted: Int = 0, scoped: Bool = false) -> QANativeSnapshot {
         var lines: [String] = []
         var refs: [String: Target] = [:]
         var counter = 0
+        var assigned: [String: String] = [:]
         func reference(_ target: Target) -> String {
+            let key = "\(target.isMenuEntry):\(target.id)"
+            if let existing = assigned[key] { return existing }
             counter += 1
             let ref = "e\(counter)"
             refs[ref] = target
+            assigned[key] = ref
             return ref
         }
 
@@ -328,27 +349,48 @@ struct QANativeSnapshot: Equatable {
         let title = QANativeTree.clean(windowTitle)
         lines.append(title.isEmpty ? "Window: (untitled)" : "Window: \"\(QANativeTree.clip(title, 120))\"")
         lines.append("A native macOS application. Every [eN] reference is valid for this look only. click presses a control or chooses a menu entry, fill types into a field, select chooses an item of a pop-up, key sends a key such as cmd+shift+n.")
+        lines.append("inspect (ref) reads a container without changing the app; empty ref returns to the whole window. amount skips that many direct children for continuation. Incomplete observations do not prove controls are absent.")
         lines.append("Window content:")
 
-        let (nodes, tooDeep) = QANativeTree.flatten(elements)
+        if scoped { lines.append("Text and cells with real Accessibility frames also have pointer refs. Click only the target called for by the task; a text ref does not prove the app assigns it an action. inspect with empty ref returns to the whole window.") }
+        let (nodes, tooDeep) = QANativeTree.flatten(elements, includeHitTargets: scoped)
         var kept = Set<Int>()
-        let interactive = nodes.indices.filter { nodes[$0].interactive }
+        let interactive = nodes.indices.filter { nodes[$0].interactive && !nodes[$0].hidden }
         // The window's own title is shown by the header, not once more as text.
         let texts = nodes.indices.filter {
             let node = nodes[$0]
             return (node.textual && !node.hidden && !node.text.isEmpty && !(node.depth == 1 && node.text == title)) || isNamedImage(node)
         }
-        if interactive.count + texts.count <= maxElements {
-            kept = Set(interactive + texts)
-        } else {
-            kept = Set(interactive.prefix(maxElements))
-            let room = maxElements - kept.count
-            // The shortest texts first: a long paragraph is the first to go.
-            let byLength = texts.sorted { (nodes[$0].text.count, $0) < (nodes[$1].text.count, $1) }
-            for index in byLength.prefix(room) { kept.insert(index) }
+        var inspectable = Set(nodes.indices.filter {
+            let node = nodes[$0]
+            return !node.secure && (node.element.omittedChildren > 0 || ["AXWebArea", "AXTable", "AXOutline", "AXList"].contains(node.element.role)
+                || (node.element.role == "AXGroup" && !node.name.isEmpty && node.name.lowercased() != "n/a" && !node.children.isEmpty))
+        })
+        if interactive.count + texts.count > maxElements {
+            inspectable.formUnion(nodes.indices.filter { ["AXTable", "AXOutline", "AXWebArea"].contains(nodes[$0].element.role) })
         }
-        let leftOut = interactive.count + texts.count - kept.count + tooDeep + omitted
+        kept = Set(inspectable.sorted().prefix(maxElements))
+        for index in interactive where kept.count < maxElements { kept.insert(index) }
+        let byLength = texts.sorted { (nodes[$0].text.count, $0) < (nodes[$1].text.count, $1) }
+        for index in byLength where kept.count < maxElements { kept.insert(index) }
+        let leftOut = Set(interactive + texts).subtracting(kept).count + tooDeep + omitted
 
+        // Keep a compact route to later panels before the long table body. The assistant's prompt may truncate that body.
+        let navigation = inspectable.sorted().filter { index in
+            let node = nodes[index]
+            return kept.contains(index) && (["AXWebArea", "AXTable", "AXOutline", "AXList"].contains(node.element.role)
+                || node.children.contains { ["AXGroup", "AXTable", "AXOutline", "AXList", "AXScrollArea"].contains(nodes[$0].element.role) })
+        }
+        if !navigation.isEmpty {
+            lines.append("Inspection regions (read-only routes, valid for this look):")
+            for index in navigation {
+                let node = nodes[index]
+                let name = QANativeTree.clip(node.name, maxName)
+                let summary = name.isEmpty ? node.kind : "\(node.kind) \"\(name)\""
+                let ref = reference(Target(id: node.element.id, summary: summary, kind: node.kind, secure: false, isMenuEntry: false))
+                lines.append("[\(ref)] \(summary); \(node.element.childCount) direct children, \(node.element.omittedChildren) unread")
+            }
+        }
         // A container is shown when something inside it is.
         var shown = Set<Int>()
         for index in kept {
@@ -366,11 +408,14 @@ struct QANativeSnapshot: Equatable {
             let node = nodes[index]
             let indent = String(repeating: "  ", count: level[index])
             var line = node.kind
-            if node.interactive {
+            if node.interactive || inspectable.contains(index) {
                 let name = QANativeTree.clip(node.name, maxName)
                 let summary = name.isEmpty ? node.kind : "\(node.kind) \"\(name)\""
                 line = "[\(reference(Target(id: node.element.id, summary: summary, kind: node.kind, secure: node.secure, isMenuEntry: false)))] \(summary)"
                 line += valueSuffix(node)
+                if inspectable.contains(index) {
+                    line += " (inspectable, direct children: \(node.element.childCount), unread children: \(node.element.omittedChildren))"
+                }
             } else if node.textual {
                 line += " \"\(QANativeTree.clip(node.text, maxText))\""
             } else if !node.name.isEmpty {

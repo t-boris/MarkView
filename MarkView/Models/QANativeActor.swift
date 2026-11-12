@@ -140,11 +140,11 @@ final class QANativeActor: QAActorDriver {
         await front()
         let reading = try await driver.read()
         let snapshot = QANativeSnapshot.render(app: "\(applicationName) (\(bundleIdentifier))", windowTitle: reading.windowTitle, elements: reading.elements,
-                                               menus: reading.menus, omitted: reading.omitted)
+                                               menus: reading.menus, omitted: reading.omitted, scoped: reading.scoped)
         await driver.publish(snapshot.refs)
         last = reading
         let path = reading.windowTitle.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? ""
-        return QAObservation(address: scrub("app://\(bundleIdentifier)/\(path)"), title: scrub(reading.windowTitle), snapshot: scrub(snapshot.text))
+        return QAObservation(address: scrub("app://\(bundleIdentifier)/\(path)"), title: scrub(reading.windowTitle), snapshot: scrub(snapshot.text + "\n" + reading.diagnostics.summary))
     }
 
     func perform(_ action: QAAction) async throws -> String {
@@ -155,6 +155,11 @@ final class QANativeActor: QAActorDriver {
         case .wait:
             try await Task.sleep(nanoseconds: UInt64(max(action.amount, 0)) * 1_000_000)
             return "Waited \(action.amount) ms"
+        case .inspect:
+            do { return scrub(try await driver.inspect(action.ref, offset: action.amount)) }
+            catch let error as QANativeError {
+                throw QANativeError.failed(scrub(error.errorDescription ?? "The inspection failed."))
+            }
         case .click, .fill, .select, .scroll, .key: break
         }
         await front()
@@ -179,13 +184,15 @@ final class QANativeActor: QAActorDriver {
                 }
                 try await driver.press(key)
                 done = "Pressed \(action.text)"
-            case .wait, .navigate, .http:
+            case .wait, .navigate, .http, .inspect:
                 return ""
             }
         } catch let error as QANativeError {
             // What an element is called can hold the password; no error may carry it to the assistant.
             throw QANativeError.failed(scrub(error.errorDescription ?? "The action failed."))
         }
+        // A control may reveal UI outside the inspected table. Observe its effect from the window again.
+        if action.kind != .scroll { _ = try? await driver.inspect("") }
         try? await Task.sleep(nanoseconds: Self.settle)
         return scrub(done)
     }
