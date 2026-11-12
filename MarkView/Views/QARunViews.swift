@@ -9,6 +9,7 @@ struct QALiveRunView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var run: QARunModel
     let onClose: () -> Void
+    @State private var showUncovered = false
     var onRestart: (QAStartPoint) -> Void = { _ in }
 
     var body: some View {
@@ -64,7 +65,7 @@ struct QALiveRunView: View {
     private var restartMenu: some View {
         Menu("Run from step") {
             ForEach(run.restartBranches) { branch in
-                Menu(run.scenario?.label(of: branch) ?? branch.id) {
+                Menu(run.scenario?.displayLabel(of: branch) ?? branch.id) {
                     ForEach(branch.nodes, id: \.self) { id in
                         Button(run.scenario?.node(id)?.title ?? id) { onRestart(QAStartPoint(branch: branch.id, node: id)) }
                     }
@@ -222,33 +223,59 @@ struct QALiveRunView: View {
     // MARK: The end of every branch
 
     private var results: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(run.results) { result in
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(result.verdict.outcome.label).uiFont(size: 10.5, weight: .semibold).foregroundColor(.white)
-                            .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(Capsule().fill(tint(result.verdict.outcome)))
-                        Text(run.labels[result.branch] ?? result.branch).uiFont(size: 11.5, weight: .medium).lineLimit(1)
-                        Spacer(minLength: 0)
-                        if result.verdict.outcome != .passed, let node = result.verdict.node ?? (result.verdict.outcome == .interrupted ? result.steps.last?.node : nil) {
-                            Button("Retry from this step") { onRestart(QAStartPoint(branch: result.branch, node: node)) }
-                                .buttonStyle(.borderless).uiFont(size: 10.5)
-                        }
-                        if let video = run.videos[result.branch] {
-                            Button { NSWorkspace.shared.open(video) } label: { Label("Video", systemImage: "play.rectangle") }
-                                .buttonStyle(.borderless).uiFont(size: 10.5)
+        let completed = run.results.filter { $0.verdict.outcome != .uncovered }
+        let uncovered = run.results.filter { $0.verdict.outcome == .uncovered }
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Branch results").uiFont(size: 11, weight: .semibold)
+                Text("\(run.results.count) / \(run.branchCount)").uiFont(size: 10).foregroundColor(palette.textDim)
+                Spacer()
+            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(completed) { resultRow($0) }
+                    if !uncovered.isEmpty {
+                        DisclosureGroup(isExpanded: $showUncovered) {
+                            LazyVStack(alignment: .leading, spacing: 8) {
+                                ForEach(uncovered) { resultRow($0) }
+                            }.padding(.top, 6)
+                        } label: {
+                            Text("Not executed (\(uncovered.count))").uiFont(size: 11, weight: .medium)
                         }
                     }
-                    Text(result.verdict.reason).uiFont(size: 10.5).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
-                    Text(run.effortSummary(result)).uiFont(size: 10.5).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            if let notice = run.notice { Text(notice).uiFont(size: 10.5).foregroundColor(palette.orange) }
+                    if let notice = run.notice { Text(notice).uiFont(size: 10.5).foregroundColor(palette.orange) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.frame(maxHeight: 240)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(palette.bgSidebar)
+    }
+
+    private func resultRow(_ result: QACheckResult) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(result.verdict.outcome.label).uiFont(size: 10.5, weight: .semibold).foregroundColor(.white)
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(Capsule().fill(tint(result.verdict.outcome)))
+                Text(run.labels[result.branch] ?? result.branch).uiFont(size: 11.5, weight: .medium).lineLimit(2)
+                Spacer(minLength: 0)
+                if result.verdict.outcome != .passed, let node = result.verdict.node ?? (result.verdict.outcome == .interrupted ? result.steps.last?.node : nil) {
+                    Button("Retry from this step") { onRestart(QAStartPoint(branch: result.branch, node: node)) }
+                        .buttonStyle(.borderless).uiFont(size: 10.5)
+                }
+                if let video = run.videos[result.branch] {
+                    Button { NSWorkspace.shared.open(video) } label: { Label("Video", systemImage: "play.rectangle") }
+                        .buttonStyle(.borderless).uiFont(size: 10.5)
+                }
+            }
+            if !result.verdict.reason.isEmpty {
+                Text(result.verdict.reason).uiFont(size: 10.5).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+            }
+            if result.effort.interactions > 0 {
+                Text(run.effortSummary(result)).uiFont(size: 10.5).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private func tint(_ outcome: QAOutcome) -> Color {

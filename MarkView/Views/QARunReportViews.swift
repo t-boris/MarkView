@@ -447,7 +447,7 @@ struct QARunReportView: View {
     }
 
     private func label(_ branch: String) -> String {
-        scenario.enumerateBranches().branches.first { $0.id == branch }.map { scenario.label(of: $0) } ?? branch
+        scenario.enumerateBranches().branches.first { $0.id == branch }.map { scenario.displayLabel(of: $0) } ?? branch
     }
 
     private func tint(_ outcome: QAOutcome?) -> Color {
