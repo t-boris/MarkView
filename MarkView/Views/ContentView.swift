@@ -1174,6 +1174,8 @@ private struct FloatingAgentsView: View {
     let available: CGSize
     @State private var resizeTranslation = CGSize.zero
     @State private var moveTranslation = CGSize.zero
+    @State private var minimized = false
+    @State private var maximized = false
     @Environment(\.palette) private var palette
     @Environment(\.appFontScale) private var fontScale
 
@@ -1192,55 +1194,75 @@ private struct FloatingAgentsView: View {
         let savedY = max(0, CGFloat(state.value("layout.agentsOffsetY", fallback: 0.0)))
         let baseX = min(savedX, max(0, available.width - baseWidth))
         let baseY = min(savedY, max(0, available.height - baseHeight))
-        let width = min(available.width - baseX, max(min(280, available.width), baseWidth - resizeTranslation.width))
-        let height = min(available.height - baseY, max(min(180, available.height), baseHeight - resizeTranslation.height))
-        let x = min(max(0, available.width - width), max(0, baseX - moveTranslation.width))
-        let y = min(max(0, available.height - height), max(0, baseY - moveTranslation.height))
+        let normalWidth = min(available.width - baseX, max(min(280, available.width), baseWidth - resizeTranslation.width))
+        let normalHeight = min(available.height - baseY, max(min(180, available.height), baseHeight - resizeTranslation.height))
+        let headerHeight = 26 * min(1.5, max(1, fontScale))
+        let width = maximized ? available.width : normalWidth
+        let height = maximized ? available.height : (minimized ? min(headerHeight, available.height) : normalHeight)
+        let x = maximized ? 0 : min(max(0, available.width - width), max(0, baseX - moveTranslation.width))
+        let y = maximized ? 0 : min(max(0, available.height - height), max(0, baseY - moveTranslation.height))
         return ModuleExplorerView()
             .environmentObject(workspaceManager)
-            .frame(width: max(0, width), height: max(0, height))
+            .accessibilityHidden(minimized)
+            .allowsHitTesting(!minimized)
+            .frame(width: max(0, width), height: max(0, height), alignment: .top)
+            .clipped()
             .background(palette.bg)
-            .overlay(alignment: .topLeading) {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .uiFont(size: 11, weight: .semibold)
-                    .foregroundColor(palette.textDim)
-                    .frame(width: 30, height: 26)
-                    .background(palette.bg)
-                    .contentShape(Rectangle())
-                    .help("Drag to resize Agents")
-                    .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                        .onChanged { resizeTranslation = $0.translation }
-                        .onEnded { value in
-                            state.set(Double(min(available.width - baseX, max(min(280, available.width), baseWidth - value.translation.width))), for: "layout.agentsWidth")
-                            state.set(Double(min(available.height - baseY, max(min(180, available.height), baseHeight - value.translation.height))), for: "layout.agentsHeight")
-                            resizeTranslation = .zero
-                        })
-            }
             .overlay(alignment: .top) {
-                Color.clear
-                    .frame(height: 26 * min(1.5, max(1, fontScale)))
-                    .padding(.leading, 30).padding(.trailing, 28)
-                    .contentShape(Rectangle())
-                    .help("Drag to move Agents")
-                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                        .onChanged { moveTranslation = $0.translation }
-                        .onEnded { value in
-                            state.set(Double(min(max(0, available.width - width), max(0, baseX - value.translation.width))), for: "layout.agentsOffsetX")
-                            state.set(Double(min(max(0, available.height - height), max(0, baseY - value.translation.height))), for: "layout.agentsOffsetY")
-                            moveTranslation = .zero
-                        })
-            }
-            .overlay(alignment: .topTrailing) {
-                Button { workspaceManager.agentsVisible = false } label: {
-                    Image(systemName: "xmark").uiFont(size: 10, weight: .bold)
-                        .foregroundColor(palette.textDim).frame(width: 28, height: 26)
+                HStack(spacing: 0) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .uiFont(size: 11, weight: .semibold)
+                        .foregroundColor(palette.textDim.opacity(minimized || maximized ? 0.4 : 1))
+                        .frame(width: 30, height: headerHeight)
+                        .background(palette.bg)
+                        .contentShape(Rectangle())
+                        .help("Drag to resize Agents")
+                        .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                            .onChanged { if !minimized && !maximized { resizeTranslation = $0.translation } }
+                            .onEnded { value in
+                                guard !minimized && !maximized else { return }
+                                state.set(Double(min(available.width - baseX, max(min(280, available.width), baseWidth - value.translation.width))), for: "layout.agentsWidth")
+                                state.set(Double(min(available.height - baseY, max(min(180, available.height), baseHeight - value.translation.height))), for: "layout.agentsHeight")
+                                resizeTranslation = .zero
+                            })
+                    Color.clear
+                        .frame(maxWidth: .infinity, minHeight: headerHeight, maxHeight: headerHeight)
+                        .contentShape(Rectangle())
+                        .help("Drag to move Agents")
+                        .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { if !maximized { moveTranslation = $0.translation } }
+                            .onEnded { value in
+                                guard !maximized else { return }
+                                state.set(Double(min(max(0, available.width - width), max(0, baseX - value.translation.width))), for: "layout.agentsOffsetX")
+                                state.set(Double(min(max(0, available.height - height), max(0, baseY - value.translation.height))), for: "layout.agentsOffsetY")
+                                moveTranslation = .zero
+                            })
+                    headerControl(minimized ? "arrow.up.left.and.arrow.down.right" : "minus", help: minimized ? "Restore Agents" : "Minimize Agents", height: headerHeight) {
+                        if maximized { maximized = false }
+                        if !minimized { NSApp.keyWindow?.makeFirstResponder(nil) }
+                        minimized.toggle()
+                    }
+                    headerControl(maximized ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right", help: maximized ? "Restore Agents size" : "Maximize Agents", height: headerHeight) {
+                        minimized = false
+                        maximized.toggle()
+                    }
+                    headerControl("xmark", help: "Hide Agents", height: headerHeight) {
+                        workspaceManager.agentsVisible = false
+                    }
                 }
-                .buttonStyle(.plain)
-                .help("Hide Agents")
             }
             .overlay(Rectangle().stroke(palette.border, lineWidth: 1).allowsHitTesting(false))
             .shadow(color: .black.opacity(0.3), radius: 12, x: -3, y: -3)
             .offset(x: -x, y: -y)
     }
 
+    private func headerControl(_ symbol: String, help: String, height: CGFloat, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).uiFont(size: 10, weight: .bold)
+                .foregroundColor(palette.textDim).frame(width: 28, height: height)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+    }
 }
