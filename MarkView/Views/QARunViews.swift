@@ -65,7 +65,7 @@ struct QALiveRunView: View {
     private var restartMenu: some View {
         Menu("Run from step") {
             ForEach(run.restartBranches) { branch in
-                Menu(run.scenario?.displayLabel(of: branch) ?? branch.id) {
+                Menu(run.labels[branch.id] ?? branch.id) {
                     ForEach(branch.nodes, id: \.self) { id in
                         Button(run.scenario?.node(id)?.title ?? id) { onRestart(QAStartPoint(branch: branch.id, node: id)) }
                     }

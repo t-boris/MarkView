@@ -70,8 +70,17 @@ do {
     let branches = scenario.enumerateBranches()
     check("branches: every line from the start to a last step, in the order the edges are written", branches.branches.map(\.id) == [main, slow, declined])
     check("branches: nothing was cut", !branches.truncated)
-    let titles = branches.branches.map { scenario.displayLabel(of: $0) }
+    let titles = Array(scenario.displayLabels(for: branches.branches).values)
     check("branches: display names distinguish choices at each fork", Set(titles).count == titles.count && titles.contains(where: { $0.contains("declined") }) && titles.contains(where: { $0.contains("slow") }))
+    let shared = changed(scenario) { s in
+        s.nodes += [QANode(id: "shared", kind: .action, title: "Shared")]
+        s.edges += [QAEdge(from: "shared", to: "n1", label: "Common setup"), QAEdge(from: "shared", to: "n5", label: "Other")]
+        s.start = "shared"
+    }
+    let paths = shared.enumerateBranches().branches.filter { $0.nodes.contains("n1") }
+    let names = shared.displayLabels(for: paths)
+    check("branches: shared choices are omitted while distinct choices stay visible", names.count == paths.count && names.values.allSatisfy { !$0.contains("Common setup") } && Set(names.values).count == paths.count)
+
     check("branches: a branch is named by the alternatives and failures it takes",
           scenario.label(of: QABranch(nodes: ["n1", "n2", "f1", "c2"])) == "Payment is slow" && scenario.label(of: QABranch(nodes: ["n1", "a1", "c1"])) == "Card is declined")
     check("branches: the main line has no alternative", scenario.label(of: QABranch(nodes: ["n1", "n2", "n3", "n4", "n5"])) == "Main line")
