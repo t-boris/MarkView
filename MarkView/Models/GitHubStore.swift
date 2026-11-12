@@ -206,20 +206,34 @@ final class GitHubStore: ObservableObject {
 
     // MARK: Issues
 
+    @Published var issueSearch = ""
+    private var issueSearchTask: Task<Void, Never>?
+
+    func searchIssues(_ query: String) {
+        issueSearch = query
+        issueSearchTask?.cancel()
+        issueSearchTask = Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            refreshIssues()
+        }
+    }
+
     func refreshIssues() {
         guard let client else { return }
         loadingIssues = true
-        let state = issueState, filter = issueFilter, generation = self.generation
+        let state = issueState, filter = issueFilter, search = issueSearch, generation = self.generation
         Task {
             do {
-                let list = try await client.issues(state: state, filter: filter)
-                guard generation == self.generation, state == issueState, filter == issueFilter else { return }
+                let list = try await client.issues(state: state, filter: filter, search: search)
+                guard generation == self.generation, state == issueState, filter == issueFilter, search == issueSearch else { return }
                 issues = list
                 lastError = nil
             } catch {
-                if generation == self.generation { lastError = error.localizedDescription }
+                guard generation == self.generation, state == issueState, filter == issueFilter, search == issueSearch else { return }
+                lastError = error.localizedDescription
             }
-            if generation == self.generation { loadingIssues = false }
+            if generation == self.generation, state == issueState, filter == issueFilter, search == issueSearch { loadingIssues = false }
         }
     }
 

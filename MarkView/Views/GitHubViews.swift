@@ -31,6 +31,7 @@ private struct SectionBar<Leading: View>: View {
     @Environment(\.palette) private var palette
     @Binding var search: String
     let loading: Bool
+    var placeholder = "Filter"
     let refresh: () -> Void
     @ViewBuilder let leading: () -> Leading
 
@@ -46,7 +47,7 @@ private struct SectionBar<Leading: View>: View {
             }
             HStack(spacing: 4) {
                 Image(systemName: "magnifyingglass").uiFont(size: 9).foregroundColor(palette.textDim)
-                TextField("Filter", text: $search).textFieldStyle(.plain).uiFont(size: 11)
+                TextField(placeholder, text: $search).textFieldStyle(.plain).uiFont(size: 11)
                 if !search.isEmpty {
                     Button(action: { search = "" }) {
                         Image(systemName: "xmark.circle.fill").uiFont(size: 9).foregroundColor(palette.textDim)
@@ -505,12 +506,23 @@ struct GitHubIssuesView: View {
     let workspaceManager: WorkspaceManager
     @State private var search = ""
     @State private var showNew = false
+    @State private var board = false
+    @State private var groupBy = "Labels"
+
+    private func group(_ issue: GHIssue) -> String {
+        if groupBy == "Assignee" { return issue.assignees?.first?.login ?? "Unassigned" }
+        return issue.labels?.first?.name ?? "No label"
+    }
+
+    private var groups: [String] {
+        Array(Set(gitHub.issues.map(group))).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            SectionBar(search: $search, loading: gitHub.loadingIssues, refresh: gitHub.refreshIssues) {
+            SectionBar(search: $search, loading: gitHub.loadingIssues, placeholder: "Search GitHub issues…", refresh: gitHub.refreshIssues) {
                 Picker("", selection: $gitHub.issueState) {
-                    Text("Open").tag("open"); Text("Closed").tag("closed")
+                    Text("Open").tag("open"); Text("Closed").tag("closed"); Text("All states").tag("all")
                 }.labelsHidden().controlSize(.small).fixedSize()
                 Picker("", selection: $gitHub.issueFilter) {
                     ForEach(GitHubClient.IssueFilter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
@@ -519,36 +531,69 @@ struct GitHubIssuesView: View {
                     Image(systemName: "plus").uiFont(size: 10).foregroundColor(palette.blue)
                 }.buttonStyle(.plain).help("New issue")
             }
+            HStack(spacing: 8) {
+                Text("\(gitHub.issues.count) results\(gitHub.issues.count == 100 ? " (limit 100)" : "")").uiFont(size: 10).foregroundColor(palette.textDim)
+                Spacer()
+                Picker("Group by", selection: $groupBy) {
+                    Text("Label").tag("Labels"); Text("Assignee").tag("Assignee")
+                }.labelsHidden().controlSize(.small).fixedSize()
+                    .help("Grouped by the first label or assignee; issues without one have their own group")
+                Button { board.toggle() } label: {
+                    Image(systemName: board ? "list.bullet" : "rectangle.split.3x1")
+                        .foregroundColor(palette.blue)
+                }.buttonStyle(.plain).help(board ? "List view" : "Board view")
+            }.padding(.horizontal, 10).padding(.bottom, 7)
             ErrorBanner(gitHub.lastError)
             Divider().background(palette.border)
-            let list = gitHub.issues.filter { issue in
-                matches(search, "#\(issue.number)", issue.title, issue.author?.login ?? "",
-                        (issue.labels ?? []).map(\.name).joined(separator: " "))
-            }
-            if list.isEmpty {
-                EmptyList(gitHub.loadingIssues ? "Loading…" : "No issues")
+            if gitHub.issues.isEmpty {
+                EmptyList(gitHub.loadingIssues ? "Searching GitHub…" : "No matching issues")
+            } else if board {
+                ScrollView([.horizontal, .vertical]) {
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(groups, id: \.self) { name in
+                            issueGroup(name).frame(width: 260)
+                                .background(palette.bgInput).cornerRadius(6)
+                        }
+                    }.padding(10)
+                }
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(list) { issue in
-                            Button(action: {
-                                guard let repo = gitHub.selectedRepo?.slug else { return }
-                                workspaceManager.openGitHubTab(.issue(number: issue.number, repo: repo, title: "#\(issue.number) \(issue.title)"))
-                            }) { row(issue) }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Button("New Feature from #\(issue.number)…") { workspaceManager.startIntake(.feature, fromIssue: issue.number) }
-                                Button("New Bug from #\(issue.number)…") { workspaceManager.startIntake(.bug, fromIssue: issue.number) }
-                                Button("Open on GitHub") { openInBrowser(issue.url) }
-                            }
-                            Divider().background(palette.border)
-                        }
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(groups, id: \.self) { name in issueGroup(name) }
                     }
                 }
             }
         }
-        .onAppear { if gitHub.issues.isEmpty { gitHub.refreshIssues() } }
+        .onAppear {
+            search = gitHub.issueSearch
+            if gitHub.issues.isEmpty { gitHub.refreshIssues() }
+        }
+        .onChange(of: search) { gitHub.searchIssues($0) }
         .sheet(isPresented: $showNew) { GitHubNewIssueSheet(gitHub: gitHub) }
+    }
+
+    private func issueGroup(_ name: String) -> some View {
+        let issues = gitHub.issues.filter { group($0) == name }
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(name).uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
+                Text("\(issues.count)").uiFont(size: 10).foregroundColor(palette.textDim)
+                Spacer()
+            }.padding(.horizontal, 10).padding(.vertical, 8)
+            ForEach(issues) { issue in
+                Button(action: {
+                    guard let repo = gitHub.selectedRepo?.slug else { return }
+                    workspaceManager.openGitHubTab(.issue(number: issue.number, repo: repo, title: "#\(issue.number) \(issue.title)"))
+                }) { row(issue) }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    Button("New Feature from #\(issue.number)…") { workspaceManager.startIntake(.feature, fromIssue: issue.number) }
+                    Button("New Bug from #\(issue.number)…") { workspaceManager.startIntake(.bug, fromIssue: issue.number) }
+                    Button("Open on GitHub") { openInBrowser(issue.url) }
+                }
+                Divider().background(palette.border)
+            }
+        }
     }
 
     private func row(_ issue: GHIssue) -> some View {
