@@ -68,6 +68,8 @@ class GitClient: ObservableObject {
         let message: String
         let author: String
         let date: String
+        let parents: [String]
+        let refs: String
     }
 
     /// The one-line status the file tree and the commit bar use: staged wins over unstaged.
@@ -152,11 +154,12 @@ class GitClient: ObservableObject {
         loadingHistory = true
         defer { loadingHistory = false }
         let limit = historyLimit, branchAtStart = branch
-        let logOutput = await run("git", "log", "--format=%H%x1f%s%x1f%an%x1f%ar%x1e", "-\(limit + 1)", in: dir) ?? ""
+        let logOutput = await run("git", "log", "--all", "HEAD", "--topo-order", "--format=%H%x1f%s%x1f%an%x1f%ar%x1f%P%x1f%D%x1e", "-\(limit + 1)", in: dir) ?? ""
         let commits: [GitCommit] = logOutput.components(separatedBy: "\u{1e}").compactMap { record in
             let parts = record.trimmingCharacters(in: .newlines).components(separatedBy: "\u{1f}")
-            guard parts.count == 4, !parts[0].isEmpty else { return nil }
-            return GitCommit(hash: parts[0], message: parts[1], author: parts[2], date: parts[3])
+            guard parts.count == 6, !parts[0].isEmpty else { return nil }
+            return GitCommit(hash: parts[0], message: parts[1], author: parts[2], date: parts[3],
+                             parents: parts[4].split(separator: " ").map(String.init), refs: parts[5])
         }
         guard workingDirectory == dir, historyLimit == limit, branch == branchAtStart else { return }
         hasMoreCommits = commits.count > limit

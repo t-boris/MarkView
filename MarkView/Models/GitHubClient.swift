@@ -874,8 +874,9 @@ struct GitHubClient: Sendable {
 
     enum IssueFilter: String, CaseIterable, Sendable { case all = "All", assigned = "Assigned to me", created = "Created by me" }
 
-    func issues(state: String, filter: IssueFilter) async throws -> [GHIssue] {
+    func issues(state: String, filter: IssueFilter, search: String = "") async throws -> [GHIssue] {
         var args = ["issue", "list"] + r + ["--state", state, "--limit", "100", "--json", GHIssue.listFields]
+        if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { args += ["--search", search] }
         switch filter {
         case .all: break
         case .assigned: args += ["--assignee", "@me"]

@@ -610,28 +610,87 @@ struct GitView: View {
         }
     }
 
+    private struct GraphRow {
+        let lane: Int
+        let before: [String]
+        let after: [String]
+        let parents: [String]
+    }
+
+    private var historyGraph: [String: GraphRow] {
+        var lanes: [String] = []
+        var rows: [String: GraphRow] = [:]
+        for commit in git.commitLog {
+            if !lanes.contains(commit.hash) { lanes.append(commit.hash) }
+            let before = lanes
+            let lane = lanes.firstIndex(of: commit.hash) ?? 0
+            lanes.remove(at: lane)
+            for parent in commit.parents.reversed() where !lanes.contains(parent) {
+                lanes.insert(parent, at: min(lane, lanes.count))
+            }
+            rows[commit.hash] = GraphRow(lane: lane, before: before, after: lanes, parents: commit.parents)
+        }
+        return rows
+    }
+
+    private func graph(_ row: GraphRow) -> some View {
+        Canvas { context, size in
+            let step: CGFloat = 12
+            func x(_ lane: Int) -> CGFloat { CGFloat(lane) * step + 8 }
+            var path = Path()
+            for (index, hash) in row.before.enumerated() {
+                let start = CGPoint(x: x(index), y: 0)
+                if index == row.lane {
+                    path.move(to: start); path.addLine(to: CGPoint(x: x(index), y: size.height / 2))
+                    for parent in row.parents {
+                        if let target = row.after.firstIndex(of: parent) {
+                            path.move(to: CGPoint(x: x(index), y: size.height / 2))
+                            path.addLine(to: CGPoint(x: x(target), y: size.height))
+                        }
+                    }
+                } else if let target = row.after.firstIndex(of: hash) {
+                    path.move(to: start); path.addLine(to: CGPoint(x: x(target), y: size.height))
+                }
+            }
+            context.stroke(path, with: .color(palette.blue.opacity(0.7)), lineWidth: 1.4)
+            let point = CGRect(x: x(row.lane) - 3, y: size.height / 2 - 3, width: 6, height: 6)
+            context.fill(Path(ellipseIn: point), with: .color(palette.blue))
+        }.frame(width: CGFloat(max(row.before.count, row.after.count)) * 12 + 4, height: 58)
+    }
+
     private var historyList: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("\(git.commitLog.count) commits on \(git.branch)").uiFont(size: 9).foregroundColor(palette.textDim).padding(.horizontal, 8).padding(.top, 6)
+        let graphRows = historyGraph
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("\(git.commitLog.count) commits · all branches").uiFont(size: 9).foregroundColor(palette.textDim).padding(.horizontal, 8).padding(.top, 6)
             TextField("Filter commits", text: $historySearch).textFieldStyle(.roundedBorder).padding(8)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(git.commitLog.filter { historySearch.isEmpty ||
                         $0.message.localizedCaseInsensitiveContains(historySearch) ||
                         $0.author.localizedCaseInsensitiveContains(historySearch) ||
-                        $0.hash.localizedCaseInsensitiveContains(historySearch) }) { commit in
+                        $0.hash.localizedCaseInsensitiveContains(historySearch) ||
+                        $0.refs.localizedCaseInsensitiveContains(historySearch) }) { commit in
                         Button {
                             selectedCommit = commit
                             selectedCommitFile = nil
                             historyDiff = ""
                         } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(commit.message).uiFont(size: 11, weight: .medium).lineLimit(2)
-                                Text("\(commit.author) · \(commit.date) · \(commit.hash.prefix(7))")
-                                    .uiFont(size: 9).foregroundColor(palette.textDim)
+                            HStack(spacing: 6) {
+                                if historySearch.isEmpty, let graphRow = graphRows[commit.hash] {
+                                    graph(graphRow)
+                                }
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(commit.message).uiFont(size: 11, weight: .medium).lineLimit(2)
+                                    if !commit.refs.isEmpty {
+                                        Text(commit.refs).uiFont(size: 9, weight: .medium)
+                                            .foregroundColor(palette.blue).lineLimit(2)
+                                    }
+                                    Text("\(commit.author) · \(commit.date) · \(commit.hash.prefix(7))")
+                                        .uiFont(size: 9).foregroundColor(palette.textDim)
+                                }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .frame(height: 58)
+                            .padding(.horizontal, 6)
                             .background(selectedCommit?.hash == commit.hash ? palette.bgActive : Color.clear)
                             .contentShape(Rectangle())
                         }.buttonStyle(.plain)
