@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import CoreText
 import PDFKit
+import SQLite3
 
 @main struct WorkspaceRedesignTests {
     static var checks = 0
@@ -129,6 +130,21 @@ import PDFKit
         try wordData.write(to: project.appendingPathComponent("report.docx"))
         let largeText = String(repeating: "x", count: ProjectSearchIndex.maximumTextBytes + 10) + "\nlarge_deferred_needle\n"
         try largeText.write(to: project.appendingPathComponent("large.swift"), atomically: true, encoding: .utf8)
+        let ftsURL = project.appendingPathComponent("document-search.sqlite")
+        var ftsDB: OpaquePointer?
+        check(sqlite3_open(ftsURL.path, &ftsDB) == SQLITE_OK, "document FTS fixture opens")
+        check(sqlite3_exec(ftsDB, "CREATE VIRTUAL TABLE fts_documents USING fts5(document_id, title, content)", nil, nil, nil) == SQLITE_OK,
+              "document FTS fixture is created")
+        check(sqlite3_exec(ftsDB, "INSERT INTO fts_documents VALUES ('docs/features/demo/overview.md', 'Demo', 'alpha distant beta')", nil, nil, nil) == SQLITE_OK,
+              "document FTS fixture is populated")
+        sqlite3_close(ftsDB)
+        let indexed = ProjectDocumentSearch.search(databasePath: ftsURL.path, query: "alpha beta")
+        check(indexed.contains { $0.path == "docs/features/demo/overview.md" },
+              "the shared search includes indexed documents matching separate terms")
+        check(ProjectDocumentSearch.search(databasePath: ftsURL.path, query: "\" OR *").isEmpty,
+              "special search characters cannot change the FTS expression")
+        check(ProjectDocumentSearch.search(databasePath: project.appendingPathComponent("missing.sqlite").path, query: "alpha").isEmpty,
+              "missing document index fails without creating a database")
         let search = ProjectSearchIndex()
         try await search.rebuild(root: project, progress: { _ in })
         let names = await search.search("main.swift")

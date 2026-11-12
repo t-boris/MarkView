@@ -5,18 +5,20 @@ import AppKit
 final class SharedSearchModel: ObservableObject {
     @Published var query = ""
     @Published var results: [ProjectSearchResult] = []
+    @Published var indexedDocuments: [ProjectSearchResult] = []
     @Published var indexing = false
     @Published var scanned = 0
     @Published var indexedAt: Date?
     @Published var error: String?
     private var searchTask: Task<Void, Never>?
+    private var documentDatabasePath: String?
 
     private let index = ProjectSearchIndex()
     /// The roots of the last rebuild: results are resolved against them.
     private(set) var roots: [ProjectSearchRoot] = []
 
     func rebuild(root: URL?, linked: [LinkedFolder] = []) async {
-        guard let root else { results = []; roots = []; return }
+        guard let root else { results = []; indexedDocuments = []; roots = []; return }
         indexing = true
         scanned = 0
         error = nil
@@ -83,7 +85,8 @@ final class SharedSearchModel: ObservableObject {
         } else {
             workspaceManager.openFile(url)
             if result.scope == .content {
-                let text = query
+                // An FTS match may contain separated query terms; the first term still locates the passage.
+                let text = result.line == nil ? String(query.split(whereSeparator: { $0.isWhitespace }).first ?? "") : query
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     NotificationCenter.default.post(.scrollToText, for: workspaceManager, object: text)
                 }
@@ -92,7 +95,8 @@ final class SharedSearchModel: ObservableObject {
         return true
     }
 
-    func scheduleSearch() {
+    func scheduleSearch(documentDatabasePath: String? = nil) {
+        self.documentDatabasePath = documentDatabasePath
         searchTask?.cancel()
         searchTask = Task {
             do { try await Task.sleep(nanoseconds: 150_000_000) } catch { return }
@@ -102,8 +106,18 @@ final class SharedSearchModel: ObservableObject {
 
     func search() async {
         let searched = query
-        let found = await index.search(searched)
-        if !Task.isCancelled && query == searched { results = found }
+        let databasePath = documentDatabasePath
+        async let found = index.search(searched)
+        let indexed = await Task.detached(priority: .userInitiated) {
+            guard let databasePath else { return [ProjectSearchResult]() }
+            return ProjectDocumentSearch.search(databasePath: databasePath, query: searched)
+        }.value
+        let files = await found
+        if !Task.isCancelled && query == searched {
+            results = files
+            let matchedPaths = Set(files.compactMap { $0.scope == .content ? $0.path : nil })
+            indexedDocuments = indexed.filter { $0.path.map { !matchedPaths.contains($0) } ?? false }
+        }
     }
 }
 
@@ -123,7 +137,7 @@ struct SharedSearchView: View {
                     .textFieldStyle(.plain)
                     .uiFont(size: 16)
                     .focused($searchFocused)
-                    .onChange(of: model.query) { _ in model.scheduleSearch() }
+                    .onChange(of: model.query) { _ in model.scheduleSearch(documentDatabasePath: workspaceManager.semanticDatabase?.dbPath) }
                 if model.indexing { ProgressView().controlSize(.small) }
                 Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders) } } label: {
                     Image(systemName: "arrow.clockwise")
@@ -145,8 +159,8 @@ struct SharedSearchView: View {
                 Spacer()
                 Text("Files · Documents · Code · Commands")
                 Image(systemName: "info.circle")
-                    .help("Searches project and linked-folder names and text, PDF and Word text, and archive entry names. Locked or scanned PDFs, binary data, caches, very large files, and archive contents are not indexed. Results are limited; refine the query if needed.")
-                    .accessibilityLabel("Search scope: project and linked-folder names and text, PDF and Word text, and archive entry names. Some large, binary, locked and scanned files are not indexed.")
+                    .help("Searches project and linked-folder names and text, PDF and Word text, the document index, and archive entry names. Locked or scanned PDFs, binary data, caches, very large files, and archive contents are not indexed. Results are limited; refine the query if needed.")
+                    .accessibilityLabel("Search scope: project and linked-folder names and text, PDF and Word text, the document index, and archive entry names. Some large, binary, locked and scanned files are not indexed.")
             }
             .uiFont(size: 10)
             .foregroundColor(palette.textDim)
@@ -173,6 +187,10 @@ struct SharedSearchView: View {
                             searchResult(result)
                         }
                     }
+                    if !model.indexedDocuments.isEmpty {
+                        sectionTitle("Indexed documents")
+                        ForEach(model.indexedDocuments) { result in searchResult(result) }
+                    }
                     if !matchingCommands.isEmpty {
                         sectionTitle("Commands")
                         ForEach(matchingCommands) { command in
@@ -186,7 +204,7 @@ struct SharedSearchView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    if !model.query.isEmpty && matchingCommands.isEmpty && model.results.isEmpty && !model.indexing {
+                    if !model.query.isEmpty && matchingCommands.isEmpty && model.results.isEmpty && model.indexedDocuments.isEmpty && !model.indexing {
                         Text("No matches in searchable project files or available commands. Some binary or very large files may not be indexed.")
                             .foregroundColor(palette.textDim).padding(16)
                     }
@@ -199,6 +217,9 @@ struct SharedSearchView: View {
             await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders)
         }
         .onAppear { searchFocused = true }
+        .onReceive(workspaceManager.$semanticDatabase) { database in
+            if !model.query.isEmpty { model.scheduleSearch(documentDatabasePath: database?.dbPath) }
+        }
     }
 
     private func sectionTitle(_ title: String) -> some View {

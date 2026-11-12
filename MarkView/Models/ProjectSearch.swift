@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import PDFKit
+import SQLite3
 
 enum ProjectSearchScope: String {
     case file = "File"
@@ -291,5 +292,38 @@ actor ProjectSearchIndex {
             }
         }
         return Array(files.prefix(75)) + Array(contents.prefix(150))
+    }
+}
+
+/// Search the existing document FTS index on a separate read-only connection.
+enum ProjectDocumentSearch {
+    static func search(databasePath: String, query: String, limit: Int = 50) -> [ProjectSearchResult] {
+        let terms = query.split(whereSeparator: { $0.isWhitespace }).prefix(16).map {
+            "\"" + $0.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        }
+        guard !terms.isEmpty else { return [] }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(databasePath, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil) == SQLITE_OK else {
+            sqlite3_close(db)
+            return []
+        }
+        defer { sqlite3_close(db) }
+        sqlite3_busy_timeout(db, 500)
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        let sql = "SELECT document_id, title, snippet(fts_documents, 2, '', '', '…', 40) FROM fts_documents WHERE fts_documents MATCH ? ORDER BY rank LIMIT ?"
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        let expression = terms.joined(separator: " AND ")
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(statement, 1, expression, -1, transient)
+        sqlite3_bind_int(statement, 2, Int32(max(1, min(limit, 500))))
+        var results: [ProjectSearchResult] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let id = sqlite3_column_text(statement, 0), let title = sqlite3_column_text(statement, 1) else { continue }
+            let snippet = sqlite3_column_text(statement, 2).map { String(cString: $0) }
+            results.append(ProjectSearchResult(scope: .content, title: String(cString: title),
+                path: String(cString: id), snippet: snippet, line: nil))
+        }
+        return results
     }
 }

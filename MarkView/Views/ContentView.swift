@@ -405,7 +405,7 @@ struct ContentView: View {
     private var workspaceHeader: some View {
         GeometryReader { geometry in
             let compact = geometry.size.width < 1100 * max(1, appFontScale)
-            let controlWidth = 28 * min(1.5, max(1, appFontScale))
+            let controlWidth = toolbarIconWidth
             HStack(spacing: 5) {
                 HStack(spacing: 1) {
                     headerButton("sidebar.leading", help: "Navigation (⌘1)", width: controlWidth,
@@ -468,19 +468,9 @@ struct ContentView: View {
                     projectMenu.frame(width: controlWidth, height: controlWidth)
                 }
                 .background(RoundedRectangle(cornerRadius: 7).fill(palette.bgActive.opacity(0.5)))
-                Button { workspaceManager.showGlobalSearch = true } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass")
-                        if !compact { Text("Search project").lineLimit(1) }
-                    }
-                    .uiFont(size: 12).foregroundColor(palette.textDim)
-                    .padding(.horizontal, 9).frame(height: controlWidth)
-                    .frame(minWidth: controlWidth)
-                    .background(palette.bgActive).cornerRadius(6)
+                headerButton("magnifyingglass", help: "Search project (⌘⇧K)", width: controlWidth) {
+                    workspaceManager.showGlobalSearch = true
                 }
-                .buttonStyle(.plain)
-                .help("Search files, documents, code, and commands (⌘⇧K)")
-                .accessibilityLabel("Search project (⌘⇧K)")
                 newMenu.frame(width: controlWidth, height: controlWidth)
                 AIToolbarMenu(workspaceManager: workspaceManager, compact: compact)
                     .frame(maxWidth: compact ? controlWidth : 200)
@@ -516,16 +506,22 @@ struct ContentView: View {
             .padding(.horizontal, 3)
     }
 
+    private var toolbarIconWidth: CGFloat { 28 * min(1.5, max(1, appFontScale)) }
+
+    private func toolbarIcon(_ symbol: String, width: CGFloat, selected: Bool = false) -> some View {
+        Image(systemName: symbol)
+            .uiFont(size: 14)
+            .foregroundColor(selected ? palette.blue : palette.text)
+            .frame(width: width, height: width)
+            .background(selected ? palette.bgActive : Color.clear)
+            .cornerRadius(6)
+            .contentShape(Rectangle())
+    }
+
     private func headerButton(_ symbol: String, help: String, width: CGFloat,
                               selected: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .uiFont(size: 14)
-                .foregroundColor(selected ? palette.blue : palette.text)
-                .frame(width: width, height: width)
-                .background(selected ? palette.bgActive : Color.clear)
-                .cornerRadius(6)
-                .contentShape(Rectangle())
+            toolbarIcon(symbol, width: width, selected: selected)
         }
         .buttonStyle(.plain)
         .help(help)
@@ -539,15 +535,18 @@ struct ContentView: View {
                 .disabled(workspaceManager.rootNode == nil)
             Button("DDE Settings…") { DDESettingsWindow.show(workspace: workspaceManager) }
         } label: {
-            Image(systemName: "ellipsis").foregroundColor(palette.text)
+            toolbarIcon("ellipsis", width: toolbarIconWidth)
         }
+        .menuStyle(.borderlessButton)
+        .tint(palette.text)
         .menuIndicator(.hidden)
         .help("More project tools")
         .accessibilityLabel("More project tools")
     }
 
     private var browserMenu: some View {
-        Menu {
+        let selected: Bool = { if case .browser? = workspaceManager.activeTab?.kind { return true } else { return false } }()
+        return Menu {
             Button("Preview Web App (⌘6)") { workspaceManager.previewWebApp() }
                 .disabled(workspaceManager.rootNode == nil)
             Button("New Browser Tab (⌘5)") { workspaceManager.openBrowser(nil) }
@@ -564,8 +563,10 @@ struct ContentView: View {
             Button("Connect Agents to MarkView…") { AgentBrowserRegistration.connectInteractively() }
                 .help("Let Claude Code, Codex, Copilot, Cline and Antigravity drive these browser tabs even when started by hand in a MarkView terminal")
         } label: {
-            Image(systemName: "globe")
+            toolbarIcon("globe", width: toolbarIconWidth, selected: selected)
         }
+        .menuStyle(.borderlessButton)
+        .tint(selected ? palette.blue : palette.text)
         .menuIndicator(.hidden)
         .help("Preview the project's web app on localhost, or open a browser tab")
         .accessibilityLabel("Browser and web app preview")
@@ -585,8 +586,10 @@ struct ContentView: View {
                 }
             }
         } label: {
-            Image(systemName: "plus.square")
+            toolbarIcon("plus.square", width: toolbarIconWidth)
         }
+        .menuStyle(.borderlessButton)
+        .tint(palette.text)
         .menuIndicator(.hidden)
         .help("New feature, new bug, or research something in the project")
         .accessibilityLabel("New project item")
