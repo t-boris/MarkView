@@ -118,7 +118,7 @@ struct WelcomeScreen<Below: View>: View {
                 .foregroundColor(palette.textDim)
                 .halo(palette.bg)
             if backdrop == .project, let context = projectContext {
-                Text(context.summary).uiFont(size: 10.5).foregroundColor(palette.textDim).halo(palette.bg)
+                Text(context.summary).uiFont(size: 10.5).foregroundColor(palette.textDim).multilineTextAlignment(.center).halo(palette.bg)
                     .help(context.reason).accessibilityLabel(context.reason)
             }
         }
