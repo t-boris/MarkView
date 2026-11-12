@@ -12,6 +12,12 @@ struct GitView: View {
     @State private var collapsed: Set<GitStatusGroup> = []
     /// Height of the status rows: the list takes what it needs, up to 260 points.
     @State private var listHeight: CGFloat = 0
+    @State private var localSection = 0
+    @State private var selectedCommit: GitClient.GitCommit?
+    @State private var commitFiles: [String] = []
+    @State private var selectedCommitFile: String?
+    @State private var historyDiff = ""
+    @State private var historySearch = ""
     /// GitHub sections, shown only when the integration is on and the folder is on GitHub.
     @ObservedObject var gitHub: GitHubStore
     /// This window's Git section (BUG-004: not shared between windows).
@@ -49,28 +55,57 @@ struct GitView: View {
         }
         .background(palette.bgSidebar)
         .onAppear { Task { await git.refresh() } }
+        .onChange(of: git.branch) { _ in
+            selectedCommit = nil
+            selectedCommitFile = nil
+            commitFiles = []
+            historyDiff = ""
+            selectedFile = nil
+            diffText = ""
+        }
     }
 
-    /// Changes, diff, commit and history — the Git tab without GitHub.
-    @ViewBuilder
+    /// Give changes and history their own space instead of squeezing both into the sidebar.
     private var localChanges: some View {
-                // Changed files
-                changedFilesView
-
-                // Diff view (if file selected)
-                if !diffText.isEmpty {
-                    diffView
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                Picker("", selection: $localSection) {
+                    Text("Changes").tag(0)
+                    Text("History").tag(1)
                 }
+                .pickerStyle(.segmented).labelsHidden().padding(8)
+                if localSection == 0 {
+                    if geometry.size.width > 700 {
+                        HSplitView {
+                            changesList.frame(minWidth: 260, idealWidth: 350, maxWidth: 450)
+                            if diffText.isEmpty {
+                                Text("Select a changed file to review its diff")
+                                    .foregroundColor(palette.textDim).frame(maxWidth: .infinity, maxHeight: .infinity)
+                            } else { diffView.frame(maxWidth: .infinity, maxHeight: .infinity) }
+                        }
+                    } else {
+                        VStack(spacing: 0) {
+                            changedFilesView
+                            if !diffText.isEmpty { diffView }
+                            Spacer(minLength: 0)
+                            Divider().background(palette.border)
+                            commitBar
+                        }
+                    }
+                } else {
+                    historyView(wide: geometry.size.width > 700)
+                }
+            }
+        }
+    }
 
-                Divider().background(palette.border)
-
-                // Commit bar
-                commitBar
-
-                Divider().background(palette.border)
-
-                // History
-                historyView
+    private var changesList: some View {
+        VStack(spacing: 0) {
+            changedFilesView
+            Spacer(minLength: 0)
+            Divider().background(palette.border)
+            commitBar
+        }
     }
 
     /// What is running right now: a Git operation, or GitHub loading its lists. Without it a slow
@@ -194,7 +229,7 @@ struct GitView: View {
                             .onChange(of: proxy.size.height) { listHeight = $0 }
                     })
                 }
-                .frame(height: min(max(listHeight, 1), 260))
+                .frame(minHeight: min(max(listHeight, 1), 260), maxHeight: .infinity)
             }
 
             if let error = git.lastError {
@@ -243,7 +278,7 @@ struct GitView: View {
                     .help("List the files Git tracks that have no change")
                 Spacer(minLength: 0)
                 if status.count(.changes) + status.count(.untracked) > 0 {
-                    Button("Stage All") { git.stageAll() }.uiFont(size: 9).buttonStyle(.plain).foregroundColor(palette.blue)
+                    Button("Stage All Changes") { git.stageAll() }.uiFont(size: 9).buttonStyle(.plain).foregroundColor(palette.blue)
                 }
             }
             .uiFont(size: 9)
@@ -267,6 +302,16 @@ struct GitView: View {
             .buttonStyle(.plain).padding(.horizontal, 10).padding(.top, 4)
             .help(help(for: group))
             .contextMenu { groupMenu(group, list) }
+            if !list.isEmpty && (group == .changes || group == .untracked || group == .staged) {
+                HStack {
+                    Spacer()
+                    Button(group == .staged ? "Unstage \(filter.isEmpty ? "All" : "Filtered")" : "Stage \(filter.isEmpty ? "All" : "Filtered")") {
+                        if group == .staged { git.unstage(list) } else { git.stage(list) }
+                    }
+                    .buttonStyle(.plain).uiFont(size: 9, weight: .medium).foregroundColor(palette.blue)
+                    .disabled(git.isOperating || git.activity != nil)
+                }.padding(.horizontal, 10)
+            }
             if group == .conflicts && !list.isEmpty {
                 HStack(spacing: 6) {
                     Button(action: { workspaceManager.resolveConflictsWithAI() }) {
@@ -355,11 +400,16 @@ struct GitView: View {
 
             Button(action: {
                 selectedFile = selection
-                if group == .staged || group == .changes {
-                    Task { diffText = await git.diff(file: entry.path, staged: group == .staged) }
-                } else {
-                    diffText = ""
-                    if !entry.isDirectory { openFile(entry.path) }
+                diffText = ""
+                if group == .staged || group == .changes || (group == .untracked && !entry.isDirectory) {
+                    Task {
+                        let diff: String
+                        if group == .untracked { diff = await git.untrackedDiff(file: entry.path) }
+                        else { diff = await git.diff(file: entry.path, staged: group == .staged) }
+                        if selectedFile == selection { diffText = diff.isEmpty ? "No text diff available." : diff }
+                    }
+                } else if !entry.isDirectory {
+                    openFile(entry.path)
                 }
             }) {
                 Text(entry.origin.map { "\($0) → \(entry.path)" } ?? entry.path)
@@ -481,14 +531,14 @@ struct GitView: View {
                 }.buttonStyle(.plain)
             }.padding(.horizontal, 10).padding(.vertical, 3)
 
-            ScrollView {
+            ScrollView([.horizontal, .vertical]) {
                 Text(diffText)
                     .uiFont(size: 10, design: .monospaced)
                     .foregroundColor(palette.text)
                     .textSelection(.enabled)
                     .padding(.horizontal, 10)
             }
-            .frame(maxHeight: 200)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(palette.bg)
         }
     }
@@ -543,31 +593,104 @@ struct GitView: View {
 
     // MARK: - History
 
-    private var historyView: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("History").uiFont(size: 10, weight: .bold).foregroundColor(palette.textDim)
-                .padding(.horizontal, 10).padding(.vertical, 4)
+    private func historyView(wide: Bool) -> some View {
+        Group {
+            if wide {
+                HSplitView {
+                    historyList.frame(minWidth: 240, idealWidth: 320, maxWidth: 450)
+                    historyDetail.frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                VStack(spacing: 0) {
+                    historyList.frame(minHeight: 100, maxHeight: .infinity)
+                    Divider().background(palette.border)
+                    historyDetail.frame(maxHeight: .infinity)
+                }
+            }
+        }
+    }
 
+    private var historyList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("\(git.commitLog.count) commits on \(git.branch)").uiFont(size: 9).foregroundColor(palette.textDim).padding(.horizontal, 8).padding(.top, 6)
+            TextField("Filter commits", text: $historySearch).textFieldStyle(.roundedBorder).padding(8)
             ScrollView {
-                LazyVStack(spacing: 1) {
-                    ForEach(git.commitLog) { commit in
-                        HStack(spacing: 6) {
-                            Text(commit.hash)
-                                .uiFont(size: 9, design: .monospaced)
-                                .foregroundColor(palette.blue)
-                            Text(commit.message)
-                                .uiFont(size: 10)
-                                .foregroundColor(palette.text)
-                                .lineLimit(1)
-                            Spacer()
-                            Text(commit.date)
-                                .uiFont(size: 8)
-                                .foregroundColor(palette.textDim)
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 2)
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(git.commitLog.filter { historySearch.isEmpty ||
+                        $0.message.localizedCaseInsensitiveContains(historySearch) ||
+                        $0.author.localizedCaseInsensitiveContains(historySearch) ||
+                        $0.hash.localizedCaseInsensitiveContains(historySearch) }) { commit in
+                        Button {
+                            selectedCommit = commit
+                            selectedCommitFile = nil
+                            historyDiff = ""
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(commit.message).uiFont(size: 11, weight: .medium).lineLimit(2)
+                                Text("\(commit.author) · \(commit.date) · \(commit.hash.prefix(7))")
+                                    .uiFont(size: 9).foregroundColor(palette.textDim)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(selectedCommit?.hash == commit.hash ? palette.bgActive : Color.clear)
+                            .contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                    }
+                    if git.hasMoreCommits {
+                        Button(git.loadingHistory ? "Loading…" : "Load more commits") {
+                            Task { await git.loadMoreHistory() }
+                        }.disabled(git.loadingHistory).padding(8)
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder private var historyDetail: some View {
+        if let commit = selectedCommit {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(commit.message).uiFont(size: 11, weight: .semibold).textSelection(.enabled)
+                Text("\(commit.author) · \(commit.date) · \(commit.hash)")
+                    .uiFont(size: 9).foregroundColor(palette.textDim).textSelection(.enabled)
+                Text("Files (\(commitFiles.count))").uiFont(size: 10, weight: .bold)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(commitFiles, id: \.self) { file in
+                            Button(file) { selectedCommitFile = file }
+                                .buttonStyle(.plain).uiFont(size: 10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(4)
+                                .background(selectedCommitFile == file ? palette.bgActive : Color.clear)
+                        }
+                    }
+                }.frame(minHeight: 50, idealHeight: 100, maxHeight: 140)
+                if selectedCommitFile != nil {
+                    ScrollView([.horizontal, .vertical]) {
+                        Text(historyDiff.isEmpty ? "No text diff (this file may be binary)." : historyDiff)
+                            .uiFont(size: 10, design: .monospaced).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(6)
+                    }.frame(minHeight: 100, maxHeight: .infinity).background(palette.bg)
+                }
+                Spacer(minLength: 0)
+            }.padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .task(id: commit.hash) {
+                commitFiles = []
+                let files = await git.commitFiles(commit.hash)
+                guard !Task.isCancelled else { return }
+                commitFiles = files
+                selectedCommitFile = files.first
+            }
+            .task(id: selectedCommitFile) {
+                guard let file = selectedCommitFile else { historyDiff = ""; return }
+                historyDiff = "Loading…"
+                let diff = await git.commitDiff(commit.hash, file: file)
+                guard !Task.isCancelled else { return }
+                historyDiff = diff
+            }
+        } else {
+            Text("Select a commit to see its files and changes")
+                .uiFont(size: 11).foregroundColor(palette.textDim)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -589,6 +712,8 @@ struct GitBranchMenu: View {
     let workspaceManager: WorkspaceManager
     var fontSize: CGFloat = 11
     @State private var creating = false
+    @State private var choosing = false
+    @State private var branchSearch = ""
     @State private var error: String?
 
     var body: some View {
@@ -602,56 +727,45 @@ struct GitBranchMenu: View {
     }
 
     private var menu: some View {
-        Menu {
-            Section("Switch to") {
-                ForEach(git.localBranches, id: \.self) { name in
-                    // A branch checked out in another working copy cannot be checked out here: open that copy.
-                    let elsewhere = git.worktrees.first { $0.branch == name && !sameFolder($0.path) }
-                    Button((name == git.branch ? "✓ " : "") + name + (elsewhere.map { " — in \($0.folderName)" } ?? "")) {
-                        if let elsewhere { workspaceManager.openFolder(URL(fileURLWithPath: elsewhere.path)) }
-                        else { run { await workspaceManager.switchBranch(name) } }
-                    }
-                    .disabled(name == git.branch)
-                }
-            }
-            if !git.remoteBranches.isEmpty {
-                Menu("Remote Branches") {
-                    ForEach(git.remoteBranches, id: \.self) { name in
-                        Button(name) { run { await workspaceManager.switchBranch(name) } }
-                    }
-                }
-            }
-            if !git.worktrees.isEmpty {
-                Menu("Other Working Copies (\(git.worktrees.count - 1))") {
-                    ForEach(git.worktrees) { copy in
-                        let here = sameFolder(copy.path)
-                        Button((here ? "✓ " : "") + copy.branchLabel + " — " + copy.folderName
-                               + (copy.changes.map { $0 > 0 ? " (\($0) changes)" : "" } ?? "")) {
-                            workspaceManager.openFolder(URL(fileURLWithPath: copy.path))
-                        }
-                        .disabled(here || copy.isBare)
-                    }
-                }
-            }
-            Divider()
-            Menu("Compare This Branch With") {
-                compareList(reverse: false)
-            }
-            Menu("Show What Another Branch Adds") {
-                compareList(reverse: true)
-            }
-            Divider()
-            Button("New Branch…") { creating = true }
-        } label: {
+        Button { choosing.toggle() } label: {
             HStack(spacing: 3) {
-                Text(git.branch).uiFont(size: fontSize, weight: .semibold)
+                Text(git.branch).uiFont(size: fontSize, weight: .semibold).lineLimit(1)
                 Image(systemName: "chevron.down").uiFont(size: fontSize - 3, weight: .semibold)
             }
         }
-        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-        .disabled(git.isOperating)
-        .help("Switch or create a branch. Uncommitted changes move along unless the switch would overwrite them. \"copies\" are other working copies of this repository (worktrees), each on its own branch.")
-        .popover(isPresented: $creating, arrowEdge: .bottom) {
+        .buttonStyle(.plain).disabled(git.isOperating)
+        .help("Find, switch, create or compare branches")
+        .popover(isPresented: $choosing, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Branches").uiFont(.headline)
+                TextField("Find a branch", text: $branchSearch).textFieldStyle(.roundedBorder)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        branchRows(git.localBranches, heading: "Local")
+                        branchRows(git.remoteBranches, heading: "Remote")
+                    }
+                }.frame(height: 240)
+                Divider()
+                HStack {
+                    Button("New Branch…") { choosing = false; creating = true }
+                    Menu("Compare") {
+                        Menu("This branch with…") { compareList(reverse: false) }
+                        Menu("What another branch adds…") { compareList(reverse: true) }
+                    }
+                    if !git.worktrees.isEmpty {
+                        Menu("Working Copies") {
+                            ForEach(git.worktrees) { copy in
+                                Button(copy.branchLabel + " — " + copy.folderName) {
+                                    choosing = false
+                                    workspaceManager.openFolder(URL(fileURLWithPath: copy.path))
+                                }.disabled(sameFolder(copy.path) || copy.isBare)
+                            }
+                        }
+                    }
+                }.controlSize(.small)
+            }.padding(12).frame(width: 320)
+        }
+        .sheet(isPresented: $creating) {
             GitNewBranchForm(git: git) { name, base in
                 creating = false
                 run { await workspaceManager.createBranch(name, from: base) }
@@ -659,8 +773,29 @@ struct GitBranchMenu: View {
         }
         .alert("Branch", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK", role: .cancel) {}
-        } message: {
-            Text(error ?? "")
+        } message: { Text(error ?? "") }
+    }
+
+    @ViewBuilder private func branchRows(_ branches: [String], heading: String) -> some View {
+        let matches = branches.filter { branchSearch.isEmpty || $0.localizedCaseInsensitiveContains(branchSearch) }
+        if !matches.isEmpty {
+            Text(heading).uiFont(size: 10, weight: .bold).foregroundColor(palette.textDim).padding(.top, 4)
+            ForEach(matches, id: \.self) { name in
+                let elsewhere = git.worktrees.first { $0.branch == name && !sameFolder($0.path) }
+                Button {
+                    choosing = false
+                    if let elsewhere { workspaceManager.openFolder(URL(fileURLWithPath: elsewhere.path)) }
+                    else { run { await workspaceManager.switchBranch(name) } }
+                } label: {
+                    HStack {
+                        Image(systemName: name == git.branch ? "checkmark" : "arrow.triangle.branch")
+                            .frame(width: 15)
+                        Text(name).lineLimit(1).truncationMode(.middle)
+                        Spacer()
+                        if let elsewhere { Text(elsewhere.folderName).foregroundColor(palette.textDim) }
+                    }.padding(4).contentShape(Rectangle())
+                }.buttonStyle(.plain).disabled(name == git.branch)
+            }
         }
     }
 

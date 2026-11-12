@@ -576,13 +576,20 @@ final class GitHubIssueModel: ObservableObject {
         }
     }
 
+    func contentDidChange() {
+        refresh()
+        store?.refreshIssues()
+    }
+
     /// Run an edit, then reload the issue and the list.
-    func act(_ label: String, _ action: @escaping (GitHubClient) async throws -> Void) {
-        guard let store else { return }
+    func act(_ label: String, onSuccess: (() -> Void)? = nil,
+             _ action: @escaping (GitHubClient) async throws -> Void) {
+        guard let store, !busy else { return }
         busy = true
         Task {
             error = await store.perform(label, client: client, action)
             busy = false
+            if error == nil { onSuccess?() }
             refresh()
             store.refreshIssues()
         }
