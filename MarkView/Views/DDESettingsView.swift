@@ -11,6 +11,7 @@ struct DDESettingsView: View {
     @AppStorage(ResearchSettings.timeoutKey) private var researchTimeout = ResearchSettings.defaultTimeoutMinutes
     @AppStorage(AIAssistantPreferences.autoAnalyzeKey) private var autoAnalyze = true
     @AppStorage(AppFontScale.storageKey) private var fontScalePercent = AppFontScale.defaultPercent
+    @AppStorage("appearance.workspaceTransparency") private var workspaceTransparency = 0.0
     @State private var showKey = false
     @State private var showDone = false
     @State private var saved = false
@@ -56,6 +57,14 @@ struct DDESettingsView: View {
                         Button("Reset") { fontScalePercent = AppFontScale.defaultPercent }
                             .disabled(AppFontScale.validated(fontScalePercent) == AppFontScale.defaultPercent)
                     }
+                    HStack {
+                        Text("Workspace transparency: \(Int(workspaceTransparency * 100))%")
+                        Slider(value: $workspaceTransparency, in: 0...0.7, step: 0.05)
+                        Button("Reset") { workspaceTransparency = 0 }.disabled(workspaceTransparency == 0)
+                    }
+                    Text("Shows the selected welcome background behind workspace panels. Some embedded content retains its own background.")
+                        .uiFont(size: 9).foregroundColor(palette.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text("Scales text in every window: AI answers, settings, sidebars, labels, buttons and the terminal. Document text in the editor and previews keeps its own size slider.")
                         .uiFont(size: 9).foregroundColor(palette.textDim)
                         .fixedSize(horizontal: false, vertical: true)

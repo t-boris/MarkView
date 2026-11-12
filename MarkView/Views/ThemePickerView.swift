@@ -6,6 +6,7 @@ import SwiftUI
 struct ThemePickerView: View {
     @EnvironmentObject var theme: WindowTheme
     @Environment(\.palette) private var palette
+    @AppStorage("appearance.workspaceTransparency") private var workspaceTransparency = 0.0
 
     /// Accents offered next to the appearance's own; any other colour comes from the colour well.
     private static let swatches: [(name: String, color: ThemeColor)] = [
@@ -24,6 +25,15 @@ struct ThemePickerView: View {
             }
             Divider().overlay(palette.border)
             accentSection
+            Divider().overlay(palette.border)
+            HStack {
+                Text("Workspace transparency").uiFont(size: 11, weight: .semibold).foregroundColor(palette.textDim)
+                Spacer()
+                Text("\(Int(workspaceTransparency * 100))% ").uiFont(size: 11).foregroundColor(palette.text)
+            }
+            Slider(value: $workspaceTransparency, in: 0...0.7, step: 0.05)
+                .accessibilityLabel("Workspace transparency")
+                .help("Show the welcome background behind panels in all windows")
         }
         .padding(14)
         .frame(width: 320)

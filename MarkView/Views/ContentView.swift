@@ -198,6 +198,7 @@ struct ContentView: View {
     /// Project color identity of the open project folder; nil without one (feature-2, DEC-012).
     @State private var projectKey: String?
     @ObservedObject private var projectColors = ProjectColorStore.shared
+    @AppStorage("appearance.workspaceTransparency") private var workspaceTransparency = 0.0
     @State private var sessionAttached = false
     @State private var restorationComplete = false
     @State private var lastFilesTab: UUID?
@@ -212,7 +213,7 @@ struct ContentView: View {
     }
 
     /// The palette of this window, for the parts of this view that draw with it (its children read it from the environment).
-    private var palette: AppPalette { workspaceManager.theme.palette }
+    private var palette: AppPalette { AppPalette(workspaceManager.theme.palette.model, workspaceTransparency: workspaceTransparency) }
 
     private var windowContent: some View {
         VStack(spacing: 0) {
@@ -222,6 +223,10 @@ struct ContentView: View {
                 let compact = geometry.size.width < 1280 * max(1, appFontScale)
                 let terminalMinimum = min(500, max(300, geometry.size.width - 700))
                 ZStack(alignment: .bottomTrailing) {
+                if workspaceTransparency > 0 {
+                    WorkspaceBackdrop(root: workspaceManager.rootNode?.url, backdrop: workspaceManager.layout.welcomeBackdrop,
+                                      store: workspaceManager.features)
+                }
                 HSplitView {
                     if workspaceManager.showFileTree {
                         navigationPane
@@ -238,6 +243,7 @@ struct ContentView: View {
                             .background(RightPanelWidthKeeper(centerVisible: workspaceManager.showCenter, state: workspaceManager.windowUI))
                     }
                 }
+                .environment(\.palette, palette)
                 if workspaceManager.agentsVisible {
                     FloatingAgentsView(workspaceManager: workspaceManager, available: geometry.size)
                 }
@@ -689,7 +695,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 DiagnosticsBarView().environmentObject(workspaceManager)
             } else {
-                welcomeView
+                welcomeView.environment(\.palette, workspaceManager.theme.palette)
             }
             ResearchBar(research: workspaceManager.research,
                         root: workspaceManager.rootNode?.url,

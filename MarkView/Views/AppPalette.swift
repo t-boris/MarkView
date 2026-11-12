@@ -32,9 +32,10 @@ struct AppPalette: Equatable {
     let border, selection, accent, onAccent, badge: Color
     let blue, green, orange, yellow, purple, red, cyan: Color
 
-    init(_ model: ThemePalette) {
+    init(_ model: ThemePalette, workspaceTransparency: Double = 0) {
         self.model = model
-        bg = Color(model.bg); bgSidebar = Color(model.bgSidebar); bgInput = Color(model.bgInput)
+        let opacity = 1 - min(0.7, max(0, workspaceTransparency))
+        bg = Color(model.bg).opacity(opacity); bgSidebar = Color(model.bgSidebar).opacity(opacity); bgInput = Color(model.bgInput)
         bgHover = Color(model.bgHover); bgActive = Color(model.bgActive); bgBanner = Color(model.bgBanner)
         text = Color(model.text); textDim = Color(model.textDim); textBright = Color(model.textBright)
         border = Color(model.border); selection = Color(model.selection); accent = Color(model.accent)
