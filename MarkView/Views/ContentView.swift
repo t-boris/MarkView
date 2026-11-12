@@ -639,10 +639,19 @@ struct ContentView: View {
                 HandoffResumeBar(resume: resume).environmentObject(workspaceManager)
             }
             if workspaceManager.openTabs.indices.contains(workspaceManager.activeTabIndex) {
+                let activeTab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
+                let editorVisible: Bool = {
+                    switch activeTab.kind {
+                    case .file, .data, .architecture, .insight: return true
+                    default: return false
+                    }
+                }()
                 ZStack {
                     EditorView()
                         .environmentObject(workspaceManager)
-                    let activeTab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
+                        .opacity(editorVisible ? 1 : 0)
+                        .allowsHitTesting(editorVisible)
+                        .accessibilityHidden(!editorVisible)
                     if case .terminal(let id) = activeTab.kind,
                        let session = workspaceManager.terminalSession(id) {
                         TerminalTabView(session: session)
