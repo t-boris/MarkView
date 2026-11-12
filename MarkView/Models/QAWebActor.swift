@@ -89,7 +89,8 @@ final class QAWebActor: QAActorDriver {
             return scrub(try await tool("browser_type", ["ref": try reference(action), "value": value]))
         case .select:
             let ref = try reference(action)
-            return scrub(try await tool("browser_evaluate", ["script": Self.selectScript(ref: ref, option: action.text)]))
+            let local = String(ref.split(separator: ":").last ?? Substring(ref))
+            return scrub(try await tool("browser_evaluate", ["script": Self.selectScript(ref: local, option: action.text), "frame_ref": ref]))
         case .scroll:
             let sign = action.direction.lowercased() == "up" ? "-" : ""
             return try await tool("browser_evaluate", ["script": "window.scrollBy(0, \(sign)Math.round(window.innerHeight * 0.8)); return 'scrolled';"])
@@ -112,6 +113,9 @@ final class QAWebActor: QAActorDriver {
     func inputMark(for action: QAAction) async -> QAInputMark {
         var mark = QAInputMark(kind: action.kind, direction: action.direction)
         guard !closed else { return mark }
+        // Frame targets have their own viewport; never paint a main-frame mark
+        // at a child coordinate. The trusted input still reaches that frame.
+        if action.ref.hasPrefix("f") { return mark }
         let ref = action.ref.range(of: "^e[0-9]{1,6}$", options: .regularExpression) != nil ? action.ref : ""
         let usesTarget = [.click, .fill, .select].contains(action.kind)
         let script = """
@@ -159,6 +163,7 @@ final class QAWebActor: QAActorDriver {
         web.navigationDelegate = nil
         web.stopLoading()
         web.configuration.userContentController.removeScriptMessageHandler(forName: QAFaultHandler.name, contentWorld: .page)
+        web.configuration.userContentController.removeScriptMessageHandler(forName: "markviewAgentFrame", contentWorld: .defaultClient)
         window.contentView = nil
         window.close()
     }
@@ -180,8 +185,8 @@ final class QAWebActor: QAActorDriver {
 
     private func reference(_ action: QAAction) throws -> String {
         let ref = action.ref
-        // A reference is `e` and a number; anything else would be script in a selector.
-        guard ref.range(of: "^e[0-9]{1,6}$", options: .regularExpression) != nil else { throw QAWebError.failed("\"\(ref)\" is not an element of the page.") }
+        // A bounded frame namespace and element number cannot become script in a selector.
+        guard ref.range(of: "^(?:f[0-9]{1,3}:)?e[0-9]{1,6}$", options: .regularExpression) != nil else { throw QAWebError.failed("\"\(ref)\" is not an element of the page.") }
         return ref
     }
 
