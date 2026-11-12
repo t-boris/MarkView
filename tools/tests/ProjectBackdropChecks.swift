@@ -47,8 +47,10 @@ struct ProjectBackdropChecks {
         }
         try write("project.yml", "targets:\n  App:\n    platform: iOS\n")
         try write("App/Scene.swift", "import UIKit\n")
+        try write("README.md", "# Project")
         var found = ProjectBackdropScanner.scan(root)
         check("scanner detects an iOS XcodeGen target", found.platform == .ios && found.sourceFiles == 1 && found.inspected)
+        check("scanner counts languages and documentation", found.languages["Swift"] == 1 && found.documentationFiles == 1)
         try write("project.yml", "targets:\n  App:\n    platform: macOS\n")
         found = ProjectBackdropScanner.scan(root)
         check("macOS does not become iOS merely because Swift is present", found.platform == .macOS)

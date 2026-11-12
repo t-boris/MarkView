@@ -6,6 +6,8 @@ struct ProjectBackdropSignals: Equatable, Sendable {
     var platform: Platform = .unknown
     var sourceFiles = 0
     var modules = 0
+    var documentationFiles = 0
+    var languages: [String: Int] = [:]
     var sampled = false
     var inspected = false
 }
@@ -49,8 +51,17 @@ struct ProjectBackdropContext: Equatable {
 
     var summary: String {
         var parts = [scene.title, signals.platform.rawValue]
-        if issuesKnown { parts += ["\(openBugs) open bugs", "\(features) features"] }
-        if scene == .orbit { parts.append("\(signals.sourceFiles) source files") }
+        if issuesKnown {
+            parts.append("\(openBugs) open bugs" + (criticalBugs > 0 ? " (\(criticalBugs) critical)" : ""))
+            parts.append("\(completedFeatures)/\(features) features complete")
+        }
+        if signals.inspected {
+            let prefix = signals.sampled ? "≥" : ""
+            parts.append("\(prefix)\(signals.sourceFiles) source files")
+            if signals.documentationFiles > 0 { parts.append("\(prefix)\(signals.documentationFiles) docs") }
+            let top = signals.languages.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }.prefix(3)
+            if !top.isEmpty { parts.append(top.map(\.key).joined(separator: ", ")) }
+        }
         if signals.sampled { parts.append("sampled") }
         return parts.joined(separator: " · ")
     }
@@ -83,7 +94,13 @@ enum ProjectBackdropScanner {
                 continue
             }
             guard values.isRegularFile == true else { continue }
-            if sourceExtensions.contains(file.pathExtension.lowercased()) { result.sourceFiles += 1 }
+            let ext = file.pathExtension.lowercased()
+            if sourceExtensions.contains(ext) {
+                result.sourceFiles += 1
+                let languages = ["swift": "Swift", "m": "Objective-C", "mm": "Objective-C++", "h": "C/C++", "kt": "Kotlin", "java": "Java", "ts": "TypeScript", "tsx": "TypeScript", "js": "JavaScript", "jsx": "JavaScript", "py": "Python", "rs": "Rust", "go": "Go", "c": "C", "cpp": "C++", "cs": "C#", "rb": "Ruby", "dart": "Dart"]
+                if let language = languages[ext] { result.languages[language, default: 0] += 1 }
+            }
+            if ["md", "mdx", "rst", "adoc"].contains(ext) { result.documentationFiles += 1 }
             guard ["package.json", "package.swift", "project.yml", "project.pbxproj", "pyproject.toml", "requirements.txt", "cargo.toml", "go.mod", "pubspec.yaml"].contains(lower) else { continue }
             guard let handle = try? FileHandle(forReadingFrom: file) else { continue }
             let data = try? handle.read(upToCount: 32_768)
