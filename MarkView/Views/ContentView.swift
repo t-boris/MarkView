@@ -405,43 +405,17 @@ struct ContentView: View {
     private var workspaceHeader: some View {
         GeometryReader { geometry in
             let compact = geometry.size.width < 1100 * max(1, appFontScale)
-            let controlWidth = 32 * min(1.5, max(1, appFontScale))
-            HStack(spacing: 6) {
-                headerButton("sidebar.leading", help: "Navigation (⌘1)", width: controlWidth,
-                             selected: workspaceManager.showFileTree) {
-                    workspaceManager.toggleNavigation()
+            let controlWidth = toolbarIconWidth
+            HStack(spacing: 5) {
+                HStack(spacing: 1) {
+                    headerButton("sidebar.leading", help: "Navigation (⌘1)", width: controlWidth,
+                                 selected: workspaceManager.showFileTree) { workspaceManager.toggleNavigation() }
+                    headerButton("rectangle", help: "Workspace content", width: controlWidth,
+                                 selected: workspaceManager.showCenter) { workspaceManager.toggleCenter() }
+                    headerButton("sidebar.trailing", help: "Right panel (⌘2)", width: controlWidth,
+                                 selected: workspaceManager.terminalVisible) { workspaceManager.toggleRightPanel() }
                 }
-                headerButton("rectangle", help: "Workspace content", width: controlWidth,
-                             selected: workspaceManager.showCenter) {
-                    workspaceManager.toggleCenter()
-                }
-                headerButton("sidebar.trailing", help: "Right panel (⌘2)", width: controlWidth,
-                             selected: workspaceManager.terminalVisible) {
-                    workspaceManager.toggleRightPanel()
-                }
-                Button { workspaceManager.toggleAIConsole() } label: {
-                    Group {
-                        if appFontScale >= 1.7 { Image(systemName: "terminal") }
-                        else { Label("Agents", systemImage: "terminal") }
-                    }
-                    .uiFont(size: 12, weight: .semibold)
-                    .fixedSize()
-                    .foregroundColor(workspaceManager.agentsVisible ? palette.blue : palette.text)
-                    .padding(.horizontal, 9)
-                    .frame(height: controlWidth)
-                    .background(workspaceManager.agentsVisible ? palette.bgActive : Color.clear)
-                    .cornerRadius(6)
-                }
-                .buttonStyle(.plain)
-                .help("Agents (⌘3): terminals for Claude Code, Codex, Cline, Copilot, Antigravity, or a shell")
-                .accessibilityLabel("Agents (⌘3)")
-                headerDivider
-                ForEach(WorkspaceArea.allCases) { area in
-                    headerButton(area.symbol, help: area.rawValue, width: controlWidth,
-                                 selected: workspaceManager.layout.workspaceArea == area) {
-                        activate(area)
-                    }
-                }
+                .background(RoundedRectangle(cornerRadius: 7).fill(palette.bgActive.opacity(0.5)))
                 headerDivider
                 HStack(spacing: 6) {
                     if let projectKey {
@@ -449,66 +423,61 @@ struct ContentView: View {
                             .buttonStyle(.plain)
                             .frame(width: 22 * min(1.5, max(1, appFontScale)))
                     }
-                    // The name only: the window title above already carries the version, and the pill takes the width of its name.
                     Text(workspaceFolderName ?? "MarkView")
                         .uiFont(size: 12, weight: .semibold)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        // Only a long name is cut; a short one keeps the pill short (the ideal width of this frame is the text's own).
-                        .frame(maxWidth: compact ? 130 : 190, alignment: .leading)
+                        .lineLimit(1).truncationMode(.middle)
+                        .frame(maxWidth: compact ? 100 : 160, alignment: .leading)
                         .help(WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName))
                         .accessibilityLabel("\(workspaceFolderName.map { "Project: \($0), " } ?? "")MarkView version \(MarkViewApp.version)")
                 }
-                .padding(.horizontal, 12)
-                .frame(height: controlWidth)
+                .padding(.horizontal, 10).frame(height: controlWidth)
                 .fixedSize(horizontal: true, vertical: false)
-                .background(palette.bgActive)
-                .cornerRadius(7)
-                Spacer(minLength: 4)
-                // Claude Code and Codex quota, whatever the workspace shows and whether or not Agents is open (AC-6, AC-7).
+                .background(palette.bgActive).cornerRadius(7)
                 AgentUsageBar()
-                if workspaceManager.rootNode != nil {
-                    projectMenu.frame(width: controlWidth, height: controlWidth)
-                    headerButton("bubble.left.and.text.bubble.right", help: "Discussions (⌃⌘I): think an idea through before it is a feature", width: controlWidth,
-                                 selected: { if case .discussions? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
-                        workspaceManager.openDiscussions()
-                    }
-                    // REQ-011: UI Studio one click away, not only in the AI menu.
-                    headerButton("macwindow.and.cursorarrow", help: "UI Studio (⌘7): the project's real interface with simulated data — select, ask, change", width: controlWidth,
+                Spacer(minLength: 4)
+                HStack(spacing: 1) {
+                    headerButton("viewfinder", help: "X-Ray (⌘4)", width: controlWidth,
+                                 selected: workspaceManager.layout.workspaceArea == .projectMap) { activate(.projectMap) }
+                        .disabled(workspaceManager.rootNode == nil)
+                    headerButton("checklist", help: "Tasks", width: controlWidth,
+                                 selected: workspaceManager.layout.workspaceArea == .work) { activate(.work) }
+                        .disabled(workspaceManager.rootNode == nil)
+                    headerButton("server.rack", help: "Build & Deployment (⌃⌘D)", width: controlWidth,
+                                 selected: { if case .deployments? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                        workspaceManager.openDeployments()
+                    }.disabled(workspaceManager.rootNode == nil)
+                    headerButton("point.3.connected.trianglepath.dotted", help: "Workflow", width: controlWidth,
+                                 selected: { if case .workflow? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                        workspaceManager.openWorkflow()
+                    }.disabled(workspaceManager.rootNode == nil)
+                    headerButton("checkmark.shield", help: "End-to-End QA (⌘8)", width: controlWidth,
+                                 selected: { if case .qa? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                        workspaceManager.openQA()
+                    }.disabled(workspaceManager.rootNode == nil)
+                    headerButton("macwindow.and.cursorarrow", help: "UI Studio (⌘7)", width: controlWidth,
                                  selected: { if case .uiStudio? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openUIStudio()
-                    }
+                    }.disabled(workspaceManager.rootNode == nil)
+                    browserMenu.frame(width: controlWidth, height: controlWidth)
+                    headerButton("bubble.left.and.text.bubble.right", help: "Discussions (⌃⌘I)", width: controlWidth,
+                                 selected: { if case .discussions? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                        workspaceManager.openDiscussions()
+                    }.disabled(workspaceManager.rootNode == nil)
+                    headerButton("terminal", help: "Agents (⌘3)", width: controlWidth,
+                                 selected: workspaceManager.agentsVisible) { workspaceManager.toggleAIConsole() }
+                    projectMenu.frame(width: controlWidth, height: controlWidth)
                 }
-                browserMenu.frame(width: controlWidth, height: controlWidth)
+                .background(RoundedRectangle(cornerRadius: 7).fill(palette.bgActive.opacity(0.5)))
                 headerButton("magnifyingglass", help: "Search project (⌘⇧K)", width: controlWidth) {
                     workspaceManager.showGlobalSearch = true
                 }
                 newMenu.frame(width: controlWidth, height: controlWidth)
                 AIToolbarMenu(workspaceManager: workspaceManager, compact: compact)
-                    .frame(maxWidth: compact ? controlWidth : 230)
-                if let operations = workspaceManager.projectOperations {
-                    ProjectDeployButton(store: operations)
+                    .frame(maxWidth: compact ? controlWidth : 200)
+                headerButton("paintpalette", help: "Theme (⇧⌘T)", width: controlWidth) {
+                    workspaceManager.theme.showsPicker.toggle()
                 }
-                if compact {
-                    Menu {
-                        Button("Open X-Ray") { workspaceManager.openArchitecture() }
-                            .disabled(workspaceManager.rootNode == nil)
-                        Button("Theme…") { workspaceManager.theme.showsPicker = true }
-                        Button("DDE Settings…") { DDESettingsWindow.show(workspace: workspaceManager) }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .frame(width: controlWidth, height: controlWidth)
-                    }
-                    .menuIndicator(.hidden)
-                    .help("More window actions")
-                    .accessibilityLabel("More window actions")
-                    .themePicker(workspaceManager.theme)
-                } else {
-                    headerButton("paintpalette", help: "Theme (⇧⌘T)", width: controlWidth) {
-                        workspaceManager.theme.showsPicker.toggle()
-                    }
-                    .themePicker(workspaceManager.theme)
-                }
+                .themePicker(workspaceManager.theme)
             }
             .padding(.leading, 12)
             .padding(.trailing, 12)
@@ -537,48 +506,47 @@ struct ContentView: View {
             .padding(.horizontal, 3)
     }
 
+    private var toolbarIconWidth: CGFloat { 28 * min(1.5, max(1, appFontScale)) }
+
+    private func toolbarIcon(_ symbol: String, width: CGFloat, selected: Bool = false) -> some View {
+        Image(systemName: symbol)
+            .uiFont(size: 14)
+            .foregroundColor(selected ? palette.blue : palette.text)
+            .frame(width: width, height: width)
+            .background(selected ? palette.bgActive : Color.clear)
+            .cornerRadius(6)
+            .contentShape(Rectangle())
+    }
+
     private func headerButton(_ symbol: String, help: String, width: CGFloat,
                               selected: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .uiFont(size: 14)
-                .foregroundColor(selected ? palette.blue : palette.text)
-                .frame(width: width, height: width)
-                .background(selected ? palette.bgActive : Color.clear)
-                .cornerRadius(6)
-                .contentShape(Rectangle())
+            toolbarIcon(symbol, width: width, selected: selected)
         }
         .buttonStyle(.plain)
         .help(help)
         .accessibilityLabel(help)
     }
 
-    /// Build & Deployment, the Workflow, End-to-End QA and Project Cycle Time in one menu: they were four icons in a bar that had no room left.
-    /// The icon takes the accent while one of the tabs they open is the shown one.
+    /// Less frequent window tools, kept alongside the direct project buttons.
     private var projectMenu: some View {
-        let open: Bool = {
-            switch workspaceManager.activeTab?.kind {
-            case .deployments?, .workflow?, .qa?: return true
-            default: return false
-            }
-        }()
-        return Menu {
-            Button("Build & Deployment (⌃⌘D)") { workspaceManager.openDeployments() }
-            Button("Workflow") { workspaceManager.openWorkflow() }
-            Button("End-to-End QA (⌘8)") { workspaceManager.openQA() }
-            Divider()
+        Menu {
             Button("Project Cycle Time…") { showCycleTime = true }
+                .disabled(workspaceManager.rootNode == nil)
+            Button("DDE Settings…") { DDESettingsWindow.show(workspace: workspaceManager) }
         } label: {
-            Image(systemName: "wrench.and.screwdriver")
-                .foregroundColor(open ? palette.blue : palette.text)
+            toolbarIcon("ellipsis", width: toolbarIconWidth)
         }
+        .menuStyle(.borderlessButton)
+        .tint(palette.text)
         .menuIndicator(.hidden)
-        .help("Project tools: build and deployment, workflow, end-to-end QA, cycle time")
-        .accessibilityLabel("Project tools")
+        .help("More project tools")
+        .accessibilityLabel("More project tools")
     }
 
     private var browserMenu: some View {
-        Menu {
+        let selected: Bool = { if case .browser? = workspaceManager.activeTab?.kind { return true } else { return false } }()
+        return Menu {
             Button("Preview Web App (⌘6)") { workspaceManager.previewWebApp() }
                 .disabled(workspaceManager.rootNode == nil)
             Button("New Browser Tab (⌘5)") { workspaceManager.openBrowser(nil) }
@@ -595,8 +563,10 @@ struct ContentView: View {
             Button("Connect Agents to MarkView…") { AgentBrowserRegistration.connectInteractively() }
                 .help("Let Claude Code, Codex, Copilot, Cline and Antigravity drive these browser tabs even when started by hand in a MarkView terminal")
         } label: {
-            Image(systemName: "globe")
+            toolbarIcon("globe", width: toolbarIconWidth, selected: selected)
         }
+        .menuStyle(.borderlessButton)
+        .tint(selected ? palette.blue : palette.text)
         .menuIndicator(.hidden)
         .help("Preview the project's web app on localhost, or open a browser tab")
         .accessibilityLabel("Browser and web app preview")
@@ -616,8 +586,10 @@ struct ContentView: View {
                 }
             }
         } label: {
-            Image(systemName: "plus.square")
+            toolbarIcon("plus.square", width: toolbarIconWidth)
         }
+        .menuStyle(.borderlessButton)
+        .tint(palette.text)
         .menuIndicator(.hidden)
         .help("New feature, new bug, or research something in the project")
         .accessibilityLabel("New project item")

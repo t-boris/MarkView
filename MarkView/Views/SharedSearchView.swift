@@ -5,17 +5,20 @@ import AppKit
 final class SharedSearchModel: ObservableObject {
     @Published var query = ""
     @Published var results: [ProjectSearchResult] = []
+    @Published var indexedDocuments: [ProjectSearchResult] = []
     @Published var indexing = false
     @Published var scanned = 0
     @Published var indexedAt: Date?
     @Published var error: String?
+    private var searchTask: Task<Void, Never>?
+    private var documentDatabasePath: String?
 
     private let index = ProjectSearchIndex()
     /// The roots of the last rebuild: results are resolved against them.
     private(set) var roots: [ProjectSearchRoot] = []
 
     func rebuild(root: URL?, linked: [LinkedFolder] = []) async {
-        guard let root else { results = []; roots = []; return }
+        guard let root else { results = []; indexedDocuments = []; roots = []; return }
         indexing = true
         scanned = 0
         error = nil
@@ -67,12 +70,23 @@ final class SharedSearchModel: ObservableObject {
             await rebuild(root: root, linked: linked)
             return false
         }
-        if result.scope == .content, let line = result.line, !FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {
+        if url.pathExtension.lowercased() == "docx" {
+            guard NSWorkspace.shared.open(url) else {
+                error = "Could not open this Word document in its default application."
+                return false
+            }
+        } else if url.pathExtension.lowercased() == "pdf" {
+            workspaceManager.openFile(url)
+            if let page = result.page, case .pdf(let reader)? = workspaceManager.activeTab?.kind {
+                reader.openPageWhenReady(page)
+            }
+        } else if result.scope == .content, let line = result.line, !FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {
             workspaceManager.openFile(url, line: line)
         } else {
             workspaceManager.openFile(url)
             if result.scope == .content {
-                let text = query
+                // An FTS match may contain separated query terms; the first term still locates the passage.
+                let text = result.line == nil ? String(query.split(whereSeparator: { $0.isWhitespace }).first ?? "") : query
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     NotificationCenter.default.post(.scrollToText, for: workspaceManager, object: text)
                 }
@@ -81,10 +95,29 @@ final class SharedSearchModel: ObservableObject {
         return true
     }
 
+    func scheduleSearch(documentDatabasePath: String? = nil) {
+        self.documentDatabasePath = documentDatabasePath
+        searchTask?.cancel()
+        searchTask = Task {
+            do { try await Task.sleep(nanoseconds: 150_000_000) } catch { return }
+            await search()
+        }
+    }
+
     func search() async {
         let searched = query
-        let found = await index.search(searched)
-        if query == searched { results = found }
+        let databasePath = documentDatabasePath
+        async let found = index.search(searched)
+        let indexed = await Task.detached(priority: .userInitiated) {
+            guard let databasePath else { return [ProjectSearchResult]() }
+            return ProjectDocumentSearch.search(databasePath: databasePath, query: searched)
+        }.value
+        let files = await found
+        if !Task.isCancelled && query == searched {
+            results = files
+            let matchedPaths = Set(files.compactMap { $0.scope == .content ? $0.path : nil })
+            indexedDocuments = indexed.filter { $0.path.map { !matchedPaths.contains($0) } ?? false }
+        }
     }
 }
 
@@ -100,11 +133,11 @@ struct SharedSearchView: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(palette.textDim)
-                TextField("Find files, text, or commands", text: $model.query)
+                TextField("Search files, documents, code, and commands", text: $model.query)
                     .textFieldStyle(.plain)
                     .uiFont(size: 16)
                     .focused($searchFocused)
-                    .onChange(of: model.query) { _ in Task { await model.search() } }
+                    .onChange(of: model.query) { _ in model.scheduleSearch(documentDatabasePath: workspaceManager.semanticDatabase?.dbPath) }
                 if model.indexing { ProgressView().controlSize(.small) }
                 Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders) } } label: {
                     Image(systemName: "arrow.clockwise")
@@ -124,13 +157,21 @@ struct SharedSearchView: View {
                     Text("Open a project to search its files")
                 }
                 Spacer()
-                Text("File · Content · Command")
+                Text("Files · Documents · Code · Commands")
+                Image(systemName: "info.circle")
+                    .help("Searches project and linked-folder names and text, PDF and Word text, the document index, and archive entry names. Locked or scanned PDFs, binary data, caches, very large files, and archive contents are not indexed. Results are limited; refine the query if needed.")
+                    .accessibilityLabel("Search scope: project and linked-folder names and text, PDF and Word text, the document index, and archive entry names. Some large, binary, locked and scanned files are not indexed.")
             }
             .uiFont(size: 10)
             .foregroundColor(palette.textDim)
             .padding(.horizontal, 14).padding(.vertical, 6)
             if let error = model.error {
                 Text(error).uiFont(size: 11).foregroundColor(palette.orange).padding(8)
+            }
+            if model.results.filter({ $0.scope == .file }).count >= 75 || model.results.filter({ $0.scope == .content }).count >= 150 {
+                Text("Results are limited. Refine the search to see other matches.")
+                    .uiFont(size: 10).foregroundColor(palette.orange).padding(.horizontal, 14).padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -146,6 +187,10 @@ struct SharedSearchView: View {
                             searchResult(result)
                         }
                     }
+                    if !model.indexedDocuments.isEmpty {
+                        sectionTitle("Indexed documents")
+                        ForEach(model.indexedDocuments) { result in searchResult(result) }
+                    }
                     if !matchingCommands.isEmpty {
                         sectionTitle("Commands")
                         ForEach(matchingCommands) { command in
@@ -159,8 +204,8 @@ struct SharedSearchView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    if !model.query.isEmpty && matchingCommands.isEmpty && model.results.isEmpty && !model.indexing {
-                        Text("No matches in supported project files or available commands.")
+                    if !model.query.isEmpty && matchingCommands.isEmpty && model.results.isEmpty && model.indexedDocuments.isEmpty && !model.indexing {
+                        Text("No matches in searchable project files or available commands. Some binary or very large files may not be indexed.")
                             .foregroundColor(palette.textDim).padding(16)
                     }
                 }
@@ -172,6 +217,9 @@ struct SharedSearchView: View {
             await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders)
         }
         .onAppear { searchFocused = true }
+        .onReceive(workspaceManager.$semanticDatabase) { database in
+            if !model.query.isEmpty { model.scheduleSearch(documentDatabasePath: database?.dbPath) }
+        }
     }
 
     private func sectionTitle(_ title: String) -> some View {
@@ -185,7 +233,7 @@ struct SharedSearchView: View {
         Button { open(result) } label: {
             resultRow(symbol: result.scope == .file ? "doc" : "text.magnifyingglass",
                       scope: result.scope.rawValue, title: result.title,
-                      detail: (result.path ?? "") + (result.line.map { ":\($0)" } ?? "") +
+                      detail: (result.path ?? "") + (result.page.map { " · page \($0)" } ?? result.line.map { ":\($0)" } ?? "") +
                           (result.snippet.map { " · \($0)" } ?? ""))
         }
         .buttonStyle(.plain)

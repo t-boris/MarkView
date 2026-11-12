@@ -1,4 +1,8 @@
 import Foundation
+import AppKit
+import CoreText
+import PDFKit
+import SQLite3
 
 @main struct WorkspaceRedesignTests {
     static var checks = 0
@@ -16,6 +20,25 @@ import Foundation
             front.set("status", "ready")
             return (try? front.join(body: body).write(to: overview, atomically: true, encoding: .utf8)) != nil
         }
+    }
+
+    static func makeSearchPDF(at url: URL) throws {
+        let data = NSMutableData()
+        let consumer = CGDataConsumer(data: data)!
+        var box = CGRect(x: 0, y: 0, width: 400, height: 600)
+        let context = CGContext(consumer: consumer, mediaBox: &box, nil)!
+        for text in ["First page", "pdf_unified_needle"] {
+            context.beginPDFPage(nil)
+            let font = CTFontCreateWithName("Helvetica" as CFString, 16, nil)
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [
+                NSAttributedString.Key(kCTFontAttributeName as String): font
+            ]))
+            context.textPosition = CGPoint(x: 40, y: 500)
+            CTLineDraw(line, context)
+            context.endPDFPage()
+        }
+        context.closePDF()
+        try (data as Data).write(to: url)
     }
 
     static func main() async throws {
@@ -100,6 +123,28 @@ import Foundation
         check(gatedState.isReady && !gatedState.hasChanged, "a status written by the lifecycle matches the handed-off snapshot")
         check((try String(contentsOf: gatedOverview, encoding: .utf8)).contains("status: ready"), "the lifecycle write sets ready")
 
+        try makeSearchPDF(at: project.appendingPathComponent("report.pdf"))
+        let word = NSAttributedString(string: "word_unified_needle")
+        let wordData = try word.data(from: NSRange(location: 0, length: word.length),
+                                     documentAttributes: [.documentType: NSAttributedString.DocumentType.officeOpenXML])
+        try wordData.write(to: project.appendingPathComponent("report.docx"))
+        let largeText = String(repeating: "x", count: ProjectSearchIndex.maximumTextBytes + 10) + "\nlarge_deferred_needle\n"
+        try largeText.write(to: project.appendingPathComponent("large.swift"), atomically: true, encoding: .utf8)
+        let ftsURL = project.appendingPathComponent("document-search.sqlite")
+        var ftsDB: OpaquePointer?
+        check(sqlite3_open(ftsURL.path, &ftsDB) == SQLITE_OK, "document FTS fixture opens")
+        check(sqlite3_exec(ftsDB, "CREATE VIRTUAL TABLE fts_documents USING fts5(document_id, title, content)", nil, nil, nil) == SQLITE_OK,
+              "document FTS fixture is created")
+        check(sqlite3_exec(ftsDB, "INSERT INTO fts_documents VALUES ('docs/features/demo/overview.md', 'Demo', 'alpha distant beta')", nil, nil, nil) == SQLITE_OK,
+              "document FTS fixture is populated")
+        sqlite3_close(ftsDB)
+        let indexed = ProjectDocumentSearch.search(databasePath: ftsURL.path, query: "alpha beta")
+        check(indexed.contains { $0.path == "docs/features/demo/overview.md" },
+              "the shared search includes indexed documents matching separate terms")
+        check(ProjectDocumentSearch.search(databasePath: ftsURL.path, query: "\" OR *").isEmpty,
+              "special search characters cannot change the FTS expression")
+        check(ProjectDocumentSearch.search(databasePath: project.appendingPathComponent("missing.sqlite").path, query: "alpha").isEmpty,
+              "missing document index fails without creating a database")
         let search = ProjectSearchIndex()
         try await search.rebuild(root: project, progress: { _ in })
         let names = await search.search("main.swift")
@@ -107,6 +152,36 @@ import Foundation
         let contents = await search.search("workspaceSearch")
         check(contents.contains { $0.scope == .content && $0.path == "src/main.swift" && $0.line == 1 },
               "source content search with line")
+        let taskResults = await search.search("Gated overview")
+        check(taskResults.contains { $0.scope == .content && $0.path == "docs/features/gated/overview.md" },
+              "feature and task documents are included in project-wide search")
+        let deferredSearch = ProjectSearchIndex(textBudget: 0)
+        try await deferredSearch.rebuild(root: project, progress: { _ in })
+        let deferredPDF = await deferredSearch.search("pdf_unified_needle")
+        check(deferredPDF.contains { $0.path == "report.pdf" && $0.page == 2 },
+              "PDF text remains searchable after the memory budget is exhausted")
+        let deferredWord = await deferredSearch.search("word_unified_needle")
+        check(deferredWord.contains { $0.path == "report.docx" },
+              "Word text remains searchable after the memory budget is exhausted")
+        let pdfResults = await search.search("pdf_unified_needle")
+        check(pdfResults.contains { $0.scope == .content && $0.path == "report.pdf" && $0.page == 2 },
+              "PDF text search returns its page")
+        let wordResults = await search.search("word_unified_needle")
+        check(wordResults.contains { $0.scope == .content && $0.path == "report.docx" },
+              "Word document text is searchable")
+        let largeResults = await search.search("large_deferred_needle")
+        check(largeResults.contains { $0.scope == .content && $0.path == "large.swift" && $0.line == 2 },
+              "large source files are searched on demand beyond the memory index limit")
+        check(ProjectSearchIndex.snippet(String(repeating: "x", count: 300) + "needle", matching: "needle").contains("needle"),
+              "a long-line excerpt includes the match")
+        let outside = project.deletingLastPathComponent().appendingPathComponent("outside-" + UUID().uuidString + ".txt")
+        defer { try? FileManager.default.removeItem(at: outside) }
+        try "outside_private_needle".write(to: outside, atomically: true, encoding: .utf8)
+        let largeURL = project.appendingPathComponent("large.swift")
+        try FileManager.default.removeItem(at: largeURL)
+        try FileManager.default.createSymbolicLink(at: largeURL, withDestinationURL: outside)
+        check((await search.search("outside_private_needle")).isEmpty, "a deferred file replaced with an outside symlink is not read")
+        try FileManager.default.removeItem(at: largeURL)
         check((await search.search("secret-value")).isEmpty, "credential content excluded")
         check((await search.search("ignored-content")).isEmpty, "Git metadata excluded")
         check((await search.search("First answer")).isEmpty, "immutable handoff copies excluded from search")
