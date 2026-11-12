@@ -5734,3 +5734,15 @@ expresses a project's platform, complexity and bug burden. REQ-004 and DEC-003 i
   backed up outside Applications. Boris explicitly authorized installation.
   A detached graceful restart helper saves the app session and records its
   result in `/tmp/markview-570-install-receipt.json`.
+
+# Dense native QA current-panel recovery — 6.11.2 (2026-11-12)
+
+Owner's broker-fabric goal requires fixing the native baseline and complete paper entry/close acceptance. Specification: `docs/features/end-to-end-qa/design-native-observation.md`, REQ-018; external broker-fabric BUG-157. Continue the existing repair, preserving attachment, original orders and the paper boundary.
+
+- [x] Publish/install6.11.0 from PR#383 and confirm restarted host77471 and all restored project/agent sessions.
+- [x] Reload59-step consumer, review/approve30 paths among455 and run20261112-170416-41d7. Record2baseline blocks,1interruption and27unexecuted cases; complete broker order history unchanged.
+- [x] Measure complete low-level reads versus the8000-character prompt boundary and reproduce missing simultaneous panel state. Preserve noninteractive AXGroup captions whose child labels are hidden, alongside current controls before table details.
+- [x] Observe new multi-panel/wide-account regressions red before the repair; pass final pure/live native16/96-row handler/prompt checks, scopes, secure/current refs, retained branches/retry, deterministic transient discovery to the same PID and actual consumer prefix. QA model suite and Debug build pass.
+- [ ] Pass hosted checks and merge [PR#385](https://github.com/t-boris/MarkView/pull/385), head51a09a1, version6.11.2. Separate scanner fix PR#384 already uses6.11.1.
+- [ ] Pass exact-merge Build & Release on both architectures; run clean merged `release.sh --publish`, verify signatures/notarization/checksums and install/restart the delivered version safely.
+- [ ] Reload/approve and repeat actual native paper consumer. The full30-case matrix remains incomplete; a fixture, valid plan, Working order or previous manual pass is not a native fill. Keep REQ-018 final consumer criterion and external BUG-157 open until relevant acceptance exists.
