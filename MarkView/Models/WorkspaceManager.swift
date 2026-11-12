@@ -415,6 +415,11 @@ class WorkspaceManager: ObservableObject {
         showCenter.toggle()
     }
 
+    func toggleRightPanel() {
+        guard !terminalVisible || showFileTree || showCenter else { return }
+        terminalVisible.toggle()
+    }
+
     func toggleContext() {
         guard activeTab != nil else { return }
         showTOC = true

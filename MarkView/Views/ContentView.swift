@@ -407,12 +407,17 @@ struct ContentView: View {
             let compact = geometry.size.width < 1100 * max(1, appFontScale)
             let controlWidth = 32 * min(1.5, max(1, appFontScale))
             HStack(spacing: 6) {
-                headerButton("sidebar.leading", help: "Navigation (⌘1)", width: controlWidth) {
+                headerButton("sidebar.leading", help: "Navigation (⌘1)", width: controlWidth,
+                             selected: workspaceManager.showFileTree) {
                     workspaceManager.toggleNavigation()
                 }
                 headerButton("rectangle", help: "Workspace content", width: controlWidth,
                              selected: workspaceManager.showCenter) {
                     workspaceManager.toggleCenter()
+                }
+                headerButton("sidebar.trailing", help: "Right panel (⌘2)", width: controlWidth,
+                             selected: workspaceManager.terminalVisible) {
+                    workspaceManager.toggleRightPanel()
                 }
                 Button { workspaceManager.toggleAIConsole() } label: {
                     Group {
@@ -463,12 +468,6 @@ struct ContentView: View {
                 AgentActivityChip(monitor: workspaceManager.agentActivity, workspaceManager: workspaceManager, compact: compact)
                 // Claude Code and Codex quota, whatever the workspace shows and whether or not Agents is open (AC-6, AC-7).
                 AgentUsageBar()
-                if workspaceManager.layout.workspaceArea == .files && hasDocumentContents {
-                    headerButton("list.bullet.indent", help: "Contents of this tab (⌘2): headings, structure, page, entries, facts", width: controlWidth,
-                                 selected: workspaceManager.terminalVisible && workspaceManager.layout.navigatorTab == .contents) {
-                        workspaceManager.toggleContext()
-                    }
-                }
                 if workspaceManager.rootNode != nil {
                     projectMenu.frame(width: controlWidth, height: controlWidth)
                     headerButton("bubble.left.and.text.bubble.right", help: "Discussions (⌃⌘I): think an idea through before it is a feature", width: controlWidth,
@@ -642,10 +641,6 @@ struct ContentView: View {
                     .environmentObject(workspaceManager)
             }
         }
-    }
-
-    private var hasDocumentContents: Bool {
-        workspaceManager.activeTab != nil
     }
 
     private var workspaceCenter: some View {
