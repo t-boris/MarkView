@@ -1,4 +1,5 @@
 import AppKit
+import WebKit
 
 // A tiny AppKit application for checking the native QA player (feature end-to-end-qa, tools/tests/qa-native-tests.sh): a sign-in form with a
 // text field, a secure field, a pop-up, a checkbox, a button, a status label, a scrolling note and a File > Reset menu item. It is an
@@ -24,6 +25,10 @@ final class Demo: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
+        if let flag = CommandLine.arguments.firstIndex(of: "--dense"), flag + 1 < CommandLine.arguments.count {
+            showDense(rows: Int(CommandLine.arguments[flag + 1]) ?? 96)
+            return
+        }
         let content = window.contentView!
         nameLabel.frame = NSRect(x: 16, y: 224, width: 80, height: 17)
         let passwordLabel = NSTextField(labelWithString: "Password")
@@ -48,6 +53,32 @@ final class Demo: NSObject, NSApplicationDelegate {
         for view in [nameLabel, name, passwordLabel, password, roleLabel, role, remember, signIn, status, scroll] as [NSView] { content.addSubview(view) }
 
         window.title = "QA Native Demo"
+        window.isReleasedWhenClosed = false
+        if let screen = NSScreen.main {
+            window.setFrameOrigin(NSPoint(x: screen.visibleFrame.maxX - window.frame.width - 12, y: screen.visibleFrame.minY + 12))
+        }
+        window.orderBack(nil)
+    }
+
+    private func showDense(rows: Int) {
+        window.setContentSize(NSSize(width: 1000, height: 700))
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
+        window.contentView = web
+        let body = (1...rows).map { index in
+            "<tr aria-label='Option row \(index)' data-row='\(index)'><td>row-\(index)</td><td>\(7000 + index)</td><td>1.20</td><td>1.30</td><td>0.50</td><td>5</td><td>2.10</td><td>2.20</td></tr>"
+        }.joined()
+        let open = String(repeating: "<div role='group'>", count: 35)
+        let close = String(repeating: "</div>", count: 35)
+        web.loadHTMLString("""
+            <!doctype html><html><body>
+            \(open)<div role='group' aria-label='Demo workspace'>
+            <div role='group' aria-label='Accounts'><span>PAPER Connected</span></div>
+            <label>Visible strikes <select aria-label='Visible strikes'><option>\(rows)</option></select></label>
+            <div style='display:flex'><table aria-label='Option chain'><tr><th>Symbol</th><th>Strike</th><th>Bid</th><th>Ask</th><th>Delta</th><th>Volume</th><th>Put Bid</th><th>Put Ask</th></tr>\(body)</table>
+            <div role='group' aria-label='Position panels'><button>Positions</button><button>Activity</button><span id='fixture-status'>Zero test residue</span></div></div>
+            </div>\(close)<script>document.querySelectorAll('tr[data-row]').forEach(row => row.onclick = () => document.getElementById('fixture-status').textContent = 'Selected row ' + row.dataset.row);</script></body></html>
+            """, baseURL: nil)
+        window.title = "QA Native Dense \(rows)"
         window.isReleasedWhenClosed = false
         if let screen = NSScreen.main {
             window.setFrameOrigin(NSPoint(x: screen.visibleFrame.maxX - window.frame.width - 12, y: screen.visibleFrame.minY + 12))

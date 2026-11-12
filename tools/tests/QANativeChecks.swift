@@ -6,7 +6,7 @@ import ImageIO
 // Checks for the native player of the End-to-End QA feature (MarkView/Models/QANativeTree.swift, QANativeAccessibility.swift,
 // QANativeCapture.swift, QANativeActor.swift, QANativeFactory.swift), run by tools/tests/qa-native-tests.sh. The first part is pure: the text the
 // assistant is shown for an application's tree, its limits, the secure-field rule, the keys, the evidence and the permission rules. The second
-// part (live) drives the fixture application Tests/Fixtures/qa-native-demo with a real QANativeActor, without ever bringing it to the front:
+// part (live) drives the fixture application Tests/Fixtures/qa-native-demo with a real QANativeActor, activating only its own dense fixture for real click checks:
 // it is passed as the first argument, and left out when there is none.
 
 // MARK: - Fixtures
@@ -135,15 +135,17 @@ do {
         el("AXRow", "", selected: true, [el("AXCell", "", [el("AXStaticText", value: "Bob")])]),
     ])])
     check("rows: a row is named by the text inside it and that text is not shown twice",
-          rows.text.contains("[e1] row \"Alice | alice@example.com\"") && countOf(rows.text, "alice@example.com") == 1 && rows.text.contains("[e2] row \"Bob\" (selected)"))
-    check("rows: a table is shown as the frame of its rows", rows.text.contains("table\n  [e1] row"))
+          rows.text.contains("row \"Alice | alice@example.com\"") && countOf(rows.text, "alice@example.com") == 1 && rows.text.contains("row \"Bob\" (selected)"))
+    check("rows: a table is shown as the frame of its rows", rows.text.contains("table (inspectable") && rows.refs.values.contains { $0.kind == "table" })
     let pressable = render([el("AXGroup", "", press: true, [el("AXStaticText", value: "Open settings")]), el("AXGroup", "", [el("AXStaticText", value: "Plain")])])
-    check("rows: a group with a press action is something to click, a plain one is not",
-          pressable.text.contains("[e1] group \"Open settings\"") && pressable.text.contains("text \"Plain\"") && !pressable.text.contains("[e2]"))
+    check("rows: pressable groups remain clickable and captioned groups become inspectable",
+          pressable.text.contains("[e1] group \"Open settings\"") && pressable.text.contains("text \"Plain\"")
+          && pressable.text.contains("(inspectable"))
     check("rows: a disabled control and a focused one say so",
           render([el("AXButton", "Off", enabled: false)]).text.contains("[e1] button \"Off\" (disabled)")
           && render([el("AXTextField", desc: "Q", focused: true)]).text.contains("(focused)"))
-    check("rows: a named container is shown above what it holds", render([el("AXGroup", "Settings", [el("AXButton", "Save")])]).text.contains("group \"Settings\"\n  [e1] button \"Save\""))
+    check("rows: a named container is shown above what it holds", render([el("AXGroup", "Settings", [el("AXButton", "Save")])]).text.contains("group \"Settings\" (inspectable")
+          && render([el("AXGroup", "Settings", [el("AXButton", "Save")])]).text.contains("button \"Save\""))
     check("rows: an unnamed container adds no line", !render([el("AXGroup", "", [el("AXButton", "Save")])]).text.contains("group"))
     check("rows: an empty window says so", render([]).text.contains("(the window shows no readable elements)"))
     check("rows: a long text is cut", render([el("AXStaticText", value: String(repeating: "w", count: 500))]).text.contains(String(repeating: "w", count: 159) + "…\""))
@@ -180,6 +182,29 @@ do {
     let menus = (0..<130).map { QANativeMenuEntry(id: 1000 + $0, path: ["Menu", "Item \($0)"]) }
     let big = render([el("AXButton", "A")], menus: menus)
     check("limits: 120 menu entries are shown, the rest are counted", countOf(big.text, "] Menu > Item") == 120 && lines(big).last == "[… 10 more menu entries]" && big.refs.count == 121)
+}
+
+// REQ-018: layout depth is not semantic depth; scoped text/cell refs use actual AX geometry.
+do {
+    var deep = el("AXButton", "Late panel action")
+    for _ in 0..<35 { deep = el("AXGroup", "", [deep]) }
+    check("dense: unnamed physical wrappers do not hide a real control", render([deep]).text.contains("Late panel action"))
+    let partial = QANativeElement(id: 991, role: "AXTable", title: "Chain", childCount: 100, omittedChildren: 76)
+    let snapshot = render([partial, el("AXButton", "Positions")])
+    check("dense: an omitted table is inspectable and a later panel remains reachable", snapshot.refs.values.contains { $0.id == 991 }
+        && snapshot.text.contains("unread children: 76") && snapshot.text.contains("Positions"))
+    let scoped = QANativeSnapshot.render(app: "Demo", windowTitle: "Chain", elements: [
+        el("AXStaticText", value: "ACTIVITY", frame: CGRect(x: 10, y: 20, width: 80, height: 20)),
+        el("AXCell", "", frame: CGRect(x: 100, y: 20, width: 60, height: 20), [el("AXStaticText", value: "4.70")]),
+        el("AXTextField", sub: "AXSecureTextField", desc: "Password", value: "never-expose"),
+    ], menus: [], scoped: true)
+    check("dense: inspected text and prices have pointer refs from geometry", scoped.refs.values.contains { $0.summary == "text \"ACTIVITY\"" }
+        && scoped.refs.values.contains { $0.summary == "cell \"4.70\"" })
+    check("dense: inspected secure values stay hidden", !scoped.text.contains("never-expose"))
+    let denseTable = QANativeElement(id: 70001, role: "AXTable", title: "Long chain", children: (0..<350).map { el("AXStaticText", value: String(repeating: "quote ", count: 20) + String($0)) }, childCount: 350)
+    let later = QANativeElement(id: 70002, role: "AXTable", title: "Positions", childCount: 1)
+    let indexed = render([denseTable, later])
+    check("dense: a later panel's inspection ref precedes the long body", String(indexed.text.prefix(2000)).contains("Positions"))
 }
 
 // MARK: - Keys
@@ -319,6 +344,14 @@ func live(fixture: URL) async {
         await player.close()
         return
     }
+    var secureInspection = ""
+    do { _ = try await player.perform(QAAction(kind: .inspect, ref: passwordRef)) }
+    catch { secureInspection = error.localizedDescription }
+    check("live: inspection refuses a secure field without exposing its value", secureInspection.contains("not a field") && !secureInspection.contains("hunter2"))
+    var staleInspection = ""
+    do { _ = try await player.perform(QAAction(kind: .inspect, ref: "e9999")) }
+    catch { staleInspection = error.localizedDescription }
+    check("live: inspection refuses a reference absent from the current snapshot", staleInspection.contains("not an element"))
     let clickMark = await player.inputMark(for: QAAction(kind: .click, ref: signInRef))
     let fieldMark = await player.inputMark(for: QAAction(kind: .fill, ref: nameRef, text: "{{password}}"))
     check("live: input markers locate the native control and field", clickMark.target != nil && fieldMark.target != nil && clickMark.target != fieldMark.target)
@@ -555,10 +588,74 @@ func liveAttached(fixture: URL, identifier: String, singleInstance: Bool) async 
     if !userApp.isTerminated { userApp.forceTerminate() }
 }
 
+@MainActor
+func liveDense(fixture: URL, rows: Int) async {
+    let launch = NSWorkspace.OpenConfiguration()
+    launch.createsNewApplicationInstance = true
+    launch.activates = false
+    launch.arguments = ["--dense", String(rows)]
+    let application: NSRunningApplication
+    do { application = try await NSWorkspace.shared.openApplication(at: fixture, configuration: launch) }
+    catch { check("dense live: launch fixture", false); return }
+    let request = QADriverRequest(actor: nil, app: QAApp(id: "dense", name: "Dense"), address: "com.markview.qa-native-demo", login: nil, startupPolicy: .attach)
+    let player = QANativeActor(request: request, credentials: QACredentials(username: nil, password: nil), config: .init(bringToFront: true))
+    func ref(_ text: String, containing name: String) -> String? {
+        for line in text.components(separatedBy: "\n") where line.contains(name) {
+            if let range = line.range(of: #"\[e[0-9]+\]"#, options: .regularExpression) {
+                return String(line[range].dropFirst().dropLast())
+            }
+        }
+        return nil
+    }
+    do {
+        try await player.open(request.address)
+        var observed = try await player.observe()
+        for _ in 0..<30 where !observed.snapshot.contains("Visible strikes") {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            observed = try await player.observe()
+        }
+        check("dense live \(rows): deep layout exposes later controls", observed.snapshot.contains("Visible strikes") && observed.snapshot.contains("button \"Positions\"") && observed.snapshot.contains("button \"Activity\""))
+        if let table = ref(observed.snapshot, containing: "table \"Option chain\"") {
+            var invalidOffset = ""
+            do { _ = try await player.perform(QAAction(kind: .inspect, ref: table, amount: -1)) }
+            catch { invalidOffset = error.localizedDescription }
+            check("dense live: invalid continuation is rejected", invalidOffset.contains("offset"))
+            _ = try await player.perform(QAAction(kind: .inspect, ref: table))
+            var region = try await player.observe()
+            check("dense live \(rows): scoped table exposes price pointer refs", region.snapshot.contains("] cell \"1.20\""))
+            if let price = ref(region.snapshot, containing: "] cell \"1.20\"") {
+                _ = try await player.perform(QAAction(kind: .click, ref: price))
+                let clicked = try await player.observe()
+                check("dense live \(rows): real cell click runs the web handler", clicked.snapshot.contains("Selected row 1"))
+                if let chain = ref(clicked.snapshot, containing: "table \"Option chain\"") {
+                    _ = try await player.perform(QAAction(kind: .inspect, ref: chain))
+                }
+            } else { check("dense live \(rows): price is a native pointer target", false) }
+            region = try await player.observe()
+            if rows == 96, let page = ref(region.snapshot, containing: "table \"Option chain\"") {
+                check("dense live: first page does not pretend later rows were read", !region.snapshot.contains("row-48"))
+                _ = try await player.perform(QAAction(kind: .inspect, ref: page, amount: 48))
+                let later = try await player.observe()
+                check("dense live: continuation reaches later rows", later.snapshot.contains("row-48"))
+            }
+            _ = try await player.perform(QAAction(kind: .inspect))
+            let whole = try await player.observe()
+            check("dense live \(rows): return restores panel controls", whole.snapshot.contains("button \"Positions\""))
+        } else { check("dense live \(rows): table is inspectable", false) }
+    } catch { check("dense live \(rows): \(error.localizedDescription)", false) }
+    await player.close()
+    check("dense live \(rows): attached consumer remains running", !application.isTerminated)
+    application.terminate()
+    for _ in 0..<40 where !application.isTerminated { try? await Task.sleep(nanoseconds: 100_000_000) }
+    if !application.isTerminated { application.forceTerminate() }
+}
+
 if CommandLine.arguments.count > 1, !CommandLine.arguments[1].isEmpty {
     await live(fixture: URL(fileURLWithPath: CommandLine.arguments[1]))
     if QANativePermissions.current == .granted {
         await liveTwoPlayers()
+        await liveDense(fixture: URL(fileURLWithPath: CommandLine.arguments[1]), rows: 16)
+        await liveDense(fixture: URL(fileURLWithPath: CommandLine.arguments[1]), rows: 96)
         await liveAttached(fixture: URL(fileURLWithPath: CommandLine.arguments[1]), identifier: "com.markview.qa-native-demo", singleInstance: false)
         if CommandLine.arguments.count > 2, !CommandLine.arguments[2].isEmpty {
             await liveAttached(fixture: URL(fileURLWithPath: CommandLine.arguments[2]), identifier: "com.markview.qa-native-single", singleInstance: true)
@@ -566,6 +663,41 @@ if CommandLine.arguments.count > 1, !CommandLine.arguments[1].isEmpty {
     }
 } else {
     print("skip live: no fixture application given")
+}
+
+// Read-only diagnosis of an already running consumer. It never launches or closes it.
+if let identifier = ProcessInfo.processInfo.environment["QA_NATIVE_EXISTING_BUNDLE"] {
+    let matches = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter { !$0.isTerminated }
+    if let application = matches.first, matches.count == 1 {
+        let driver = QANativeAccessibility(pid: application.processIdentifier)
+        await driver.prepare()
+        do {
+            let reading = try await driver.read()
+            print(reading.diagnostics.summary)
+            let snapshot = QANativeSnapshot.render(app: "Existing consumer", windowTitle: "Consumer", elements: reading.elements, menus: reading.menus, omitted: reading.omitted)
+            for label in ["Positions", "POSITIONS", "Visible strikes", "Working order", "Active accounts only"] {
+                print("Existing consumer contains \(label): \(snapshot.text.contains(label))")
+            }
+            check("existing consumer reaches visible-strike and account controls", snapshot.text.contains("Visible strikes") && snapshot.text.contains("Active accounts only"))
+            print("Existing consumer rendered references: \(snapshot.refs.count)")
+            let partialTables = Set(QANativeTree.flatten(reading.elements, maxDepth: 64).nodes.filter { $0.element.role == "AXTable" && $0.element.omittedChildren > 0 }.map { $0.element.id })
+            if let region = snapshot.refs.first(where: { partialTables.contains($0.value.id) }) {
+                await driver.publish(snapshot.refs)
+                _ = try await driver.inspect(region.key, offset: 24)
+                let scopedReading = try await driver.read()
+                let scopedSnapshot = QANativeSnapshot.render(app: "Consumer", windowTitle: "Region", elements: scopedReading.elements, menus: scopedReading.menus, omitted: scopedReading.omitted, scoped: true)
+                check("existing consumer continuation has cell pointer refs", scopedSnapshot.refs.values.contains { $0.kind == "cell" })
+                _ = try await driver.inspect("")
+                let restored = try await driver.read()
+                check("existing consumer returns to whole window", !restored.scoped)
+            } else { check("existing consumer exposes truncated chain region", false) }
+            let raw = QANativeTree.flatten(reading.elements, maxDepth: 64).nodes
+            print("Existing consumer raw panels: \(raw.contains { $0.text == "POSITIONS" }), raw visible strikes: \(raw.contains { $0.name == "Visible strikes" })")
+            for line in snapshot.text.components(separatedBy: "\n").filter({ $0.contains("inspectable") }).prefix(8) {
+                print(String(line.prefix(220)))
+            }
+        } catch { check("existing consumer observation: \(error.localizedDescription)", false) }
+    } else { check("existing consumer has exactly one running instance", false) }
 }
 
 finish("QA native")

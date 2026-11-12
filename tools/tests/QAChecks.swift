@@ -953,6 +953,10 @@ do {
     check("native step answer: so is a request, even in preparation", fails(answer("act", action: ["kind": "http", "url": "/x"]), http: true, kind: .nativeMacOS) == .notAllowed(.http))
     check("native step answer: a click, a fill and a shortcut are read as on the web", parsed(answer("act", action: ["kind": "key", "text": "cmd+n"]), kind: .nativeMacOS)?.move == .act(QAAction(kind: .key, text: "cmd+n")))
 
+    check("native step answer: scoped read and whole-window reset are accepted", parsed(answer("act", action: ["kind": "inspect", "ref": "e7", "amount": 24]), kind: .nativeMacOS)?.move == .act(QAAction(kind: .inspect, ref: "e7", amount: 24))
+          && parsed(answer("act", action: ["kind": "inspect"]), kind: .nativeMacOS)?.move == .act(QAAction(kind: .inspect)))
+    check("native step answer: inspection is not offered to a web actor", fails(answer("act", action: ["kind": "inspect", "ref": "e7"]), kind: .web) == .notAllowed(.inspect))
+
     // Where a player finds its application
     let both = QALocation(url: "http://localhost:3000", application: QAApplication(bundleIdentifier: "com.example.shop", name: "Shop"))
     check("location: a web scenario opens the address, a native one the bundle identifier", both.address(for: .web) == "http://localhost:3000" && both.address(for: .nativeMacOS) == "com.example.shop")

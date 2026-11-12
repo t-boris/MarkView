@@ -6,6 +6,7 @@ enum QAActionKind: String, Codable, CaseIterable {
     case fill
     case select
     case scroll
+    case inspect
     case navigate
     case key
     case wait
@@ -31,6 +32,7 @@ struct QAInputMark: Equatable {
         case .scroll: action = direction == "up" ? "Scroll ↑" : "Scroll ↓"
         case .navigate: action = "Open address"
         case .key: action = "Key input"
+        case .inspect: action = "Inspect region"
         case .wait: action = "Wait"
         case .http: action = "HTTP request"
         }

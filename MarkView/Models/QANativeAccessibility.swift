@@ -18,6 +18,24 @@ final class QANativeAccessibility: @unchecked Sendable {
         var menus: [QANativeMenuEntry]
         /// Elements that were not read: past the depth, the count or the time allowed.
         var omitted: Int
+        var diagnostics: Diagnostics = Diagnostics()
+        var scoped: Bool = false
+    }
+
+    /// Counts describe observation completeness, never application field values.
+    struct Diagnostics {
+        var read = 0
+        var maxDepth = 0
+        var byDepth = 0
+        var byCount = 0
+        var byTime = 0
+        var byFailure = 0
+        var byPage = 0
+        var failedReads = 0
+        var elapsed: TimeInterval = 0
+        var summary: String {
+            "Native observation: read=\(read), depth=\(maxDepth), omitted(depth=\(byDepth), count=\(byCount), time=\(byTime), failure=\(byFailure), page=\(byPage)), failedReads=\(failedReads), elapsedMs=\(Int(elapsed * 1000))"
+        }
     }
 
     /// An application that does not answer within this many seconds (per call) is given up on.
@@ -29,6 +47,11 @@ final class QANativeAccessibility: @unchecked Sendable {
     static let maxMenuDepth = 3
     /// More text than this in a text area is not fetched: it is a document, not a value.
     static let longestValueRead = 20_000
+
+    /// Physical layout nesting is bounded separately from the meaningful snapshot depth.
+    static let maxPhysicalDepth = 64
+    private var inspectionRoot: AXUIElement?
+    private var inspectionOffset = 0
 
     private let pid: pid_t
     private let application: AXUIElement
@@ -79,27 +102,49 @@ final class QANativeAccessibility: @unchecked Sendable {
     func read() async throws -> Reading {
         try await run {
             guard let window = self.targetWindow() else {
-                if self.windows().isEmpty, self.string(self.application, "AXRole").isEmpty {
-                    throw QANativeError.failed("The application does not answer. It may be busy or have stopped.")
-                }
                 throw QANativeError.failed("The application has no window to look at.")
             }
-            let reader = Reader(deadline: Date().addingTimeInterval(Self.readBudget))
-            var elements: [QANativeElement] = []
+            let started = Date()
+            let reader = Reader(deadline: started.addingTimeInterval(Self.readBudget))
             let title = self.string(window, "AXTitle")
             let frame = self.frame(of: window)
-            for child in self.children(of: window) {
-                if let element = self.read(child, depth: 1, reader) { elements.append(element) }
-            }
-            if reader.count == 0 && reader.failures > 0 { throw QANativeError.failed("The application does not answer. It may be busy or have stopped.") }
+            // Menu access must not depend on how many rows precede another panel.
             let menus = self.readMenus(reader)
+            let elements = self.readForest(self.inspectionRoot ?? window, offset: self.inspectionOffset, reader)
+            if reader.count == 0 && reader.diagnostics.failedReads > 0 {
+                throw QANativeError.failed("The application does not answer. It may be busy or have stopped. Return to the window with inspect and an empty ref if an inspected element disappeared.")
+            }
             self.handles = reader.handles
             self.targets = [:]
-            return Reading(windowTitle: title, windowFrame: frame, elements: elements, menus: menus, omitted: reader.omitted)
+            reader.diagnostics.read = reader.count
+            reader.diagnostics.elapsed = Date().timeIntervalSince(started)
+            return Reading(windowTitle: title, windowFrame: frame, elements: elements, menus: menus, omitted: reader.omitted, diagnostics: reader.diagnostics, scoped: self.inspectionRoot != nil)
         }
     }
 
-    /// Tells which element or menu entry each reference of the text just shown stands for.
+    /// Bounded read-only navigation. The ref belongs to the most recently published snapshot.
+    func inspect(_ ref: String, offset: Int = 0) async throws -> String {
+        try await run {
+            if ref.isEmpty {
+                self.inspectionRoot = nil
+                self.inspectionOffset = 0
+                return "Inspecting the whole window"
+            }
+            let (element, target) = try self.lookup(ref)
+            let role = self.string(element, "AXRole")
+            guard !target.secure, !QANativeRoles.leaves.contains(role), !target.isMenuEntry else {
+                throw QANativeError.failed("Inspect a container, table or row, not a field or menu item.")
+            }
+            let count = self.children(of: element).count
+            guard offset >= 0, offset <= count else {
+                throw QANativeError.failed("The inspection offset exceeds this container's \(count) children.")
+            }
+            self.inspectionRoot = element
+            self.inspectionOffset = offset
+            return "Inspecting \(target.summary), direct-child offset \(offset) of \(count)"
+        }
+    }
+
     func publish(_ refs: [String: QANativeSnapshot.Target]) async {
         _ = try? await run { self.targets = refs }
     }
@@ -109,18 +154,23 @@ final class QANativeAccessibility: @unchecked Sendable {
         var count = 0
         var omitted = 0
         var failures = 0
+        var diagnostics = Diagnostics()
         var nextID = 1
         var handles: [Int: AXUIElement] = [:]
-
         init(deadline: Date) { self.deadline = deadline }
-
         var exhausted: Bool { count >= QANativeAccessibility.maxElementsRead || Date() >= deadline || failures >= 3 }
-
         func take(_ element: AXUIElement) -> Int {
             let id = nextID
             nextID += 1
             handles[id] = element
             return id
+        }
+        func omit(_ count: Int, depth: Bool = false) {
+            omitted += count
+            if depth { diagnostics.byDepth += count }
+            else if self.count >= QANativeAccessibility.maxElementsRead { diagnostics.byCount += count }
+            else if Date() >= deadline { diagnostics.byTime += count }
+            else { diagnostics.byFailure += count }
         }
     }
 
@@ -129,37 +179,78 @@ final class QANativeAccessibility: @unchecked Sendable {
         "AXIdentifier", "AXChildren",
     ]
 
-    private func read(_ element: AXUIElement, depth: Int, _ reader: Reader) -> QANativeElement? {
-        if reader.exhausted { reader.omitted += 1; return nil }
-        guard let values = self.values(element, Self.elementAttributes) else { reader.failures += 1; return nil }
-        reader.failures = 0
-        reader.count += 1
-        var node = QANativeElement()
-        node.id = reader.take(element)
-        node.role = string(values[0])
-        node.subrole = string(values[1])
-        node.title = string(values[2])
-        node.description = string(values[3])
-        node.placeholder = string(values[4])
-        node.enabled = bool(values[5]) ?? true
-        node.focused = bool(values[6]) ?? false
-        node.selected = bool(values[7]) ?? false
-        node.frame = frame(position: values[8], size: values[9])
-        node.identifier = string(values[10])
-        let children = (values[11] as? [AXUIElement]) ?? []
-
-        // A secure field's value is never asked for: it is not read, so it cannot get anywhere.
-        let secure = node.role == "AXTextField" && node.subrole == "AXSecureTextField"
-        if QANativeRoles.valued.contains(node.role), !secure { readValue(of: element, into: &node) }
-        if QANativeRoles.pressProbed.contains(node.role) { node.hasPress = actionNames(of: element).contains("AXPress") }
-        if node.title.isEmpty, node.description.isEmpty, node.placeholder.isEmpty { node.labelText = label(of: element, role: node.role, children: children) }
-
-        if QANativeRoles.leaves.contains(node.role) { return node }
-        if depth >= QANativeSnapshot.maxDepth { reader.omitted += children.count; return node }
-        for child in children {
-            if let read = self.read(child, depth: depth + 1, reader) { node.children.append(read) }
+    private final class ReadNode {
+        var value: QANativeElement
+        var children: [ReadNode] = []
+        init(_ value: QANativeElement) { self.value = value }
+        func freeze() -> QANativeElement {
+            var result = value
+            result.children = children.map { $0.freeze() }
+            return result
         }
-        return node
+    }
+
+    /// Breadth-first reads preserve later panels before spending the budget on a dense table's descendants.
+    private func readForest(_ root: AXUIElement, offset: Int, _ reader: Reader) -> [QANativeElement] {
+        var roots: [ReadNode] = []
+        var queue: [(AXUIElement, ReadNode?, Int)] = [(root, nil, 1)]
+        var cursor = 0
+        while cursor < queue.count {
+            let (element, parent, depth) = queue[cursor]
+            cursor += 1
+            if reader.exhausted {
+                parent?.value.omittedChildren += 1
+                reader.omit(1)
+                continue
+            }
+            guard let values = self.values(element, Self.elementAttributes) else {
+                reader.failures += 1
+                reader.diagnostics.failedReads += 1
+                parent?.value.omittedChildren += 1
+                reader.omitted += 1
+                reader.diagnostics.byFailure += 1
+                continue
+            }
+            reader.failures = 0
+            reader.count += 1
+            reader.diagnostics.maxDepth = max(reader.diagnostics.maxDepth, depth)
+            var node = QANativeElement()
+            node.id = reader.take(element)
+            node.role = string(values[0]); node.subrole = string(values[1])
+            node.title = string(values[2]); node.description = string(values[3]); node.placeholder = string(values[4])
+            node.enabled = bool(values[5]) ?? true; node.focused = bool(values[6]) ?? false; node.selected = bool(values[7]) ?? false
+            node.frame = frame(position: values[8], size: values[9]); node.identifier = string(values[10])
+            let children = (values[11] as? [AXUIElement]) ?? []
+            node.childCount = children.count
+            let secure = node.role == "AXTextField" && node.subrole == "AXSecureTextField"
+            if QANativeRoles.valued.contains(node.role), !secure { readValue(of: element, into: &node) }
+            if QANativeRoles.pressProbed.contains(node.role) { node.hasPress = actionNames(of: element).contains("AXPress") }
+            if node.title.isEmpty, node.description.isEmpty, node.placeholder.isEmpty {
+                node.labelText = label(of: element, role: node.role, children: children)
+            }
+            let result = ReadNode(node)
+            if let parent { parent.children.append(result) } else { roots.append(result) }
+            if QANativeRoles.leaves.contains(node.role) { continue }
+            let start = parent == nil ? offset : 0
+            let remaining = max(0, children.count - start)
+            if depth >= Self.maxPhysicalDepth {
+                result.value.omittedChildren = remaining
+                reader.omit(remaining, depth: true)
+                continue
+            }
+            // The pending queue is bounded too, even if an application returns a very wide AXChildren array.
+            let room = max(0, Self.maxElementsRead * 4 - queue.count)
+            let pageSize = ["AXTable", "AXOutline", "AXList"].contains(node.role) ? 24 : remaining
+            let scheduled = min(remaining, room, pageSize)
+            for child in children.dropFirst(start).prefix(scheduled) { queue.append((child, result, depth + 1)) }
+            let deferred = remaining - scheduled
+            result.value.omittedChildren += deferred
+            reader.omitted += deferred
+            let paged = max(0, remaining - pageSize)
+            reader.diagnostics.byPage += paged
+            reader.diagnostics.byCount += deferred - paged
+        }
+        return roots.map { $0.freeze() }
     }
 
     private func readValue(of element: AXUIElement, into node: inout QANativeElement) {
@@ -242,7 +333,7 @@ final class QANativeAccessibility: @unchecked Sendable {
         try? await run {
             guard let window = self.targetWindow(), let viewport = self.frame(of: window) else { return nil }
             let element: AXUIElement?
-            if kind == .scroll { element = self.mainScrollArea(in: window) }
+            if kind == .scroll { element = self.inspectionRoot ?? self.mainScrollArea(in: window) }
             else if kind == .key { element = self.copy(self.application, "AXFocusedUIElement").map { unsafeBitCast($0, to: AXUIElement.self) } }
             else { element = try? self.lookup(ref).0 }
             guard let element, let frame = self.frame(of: element) else { return nil }
@@ -263,9 +354,14 @@ final class QANativeAccessibility: @unchecked Sendable {
             let pressed = AXUIElementPerformAction(element, "AXPress" as CFString)
             if pressed == .success { return "Pressed \(target.summary)" }
             if pressed == .invalidUIElement { throw QANativeError.failed(Self.gone(target)) }
-            if role == "AXRow", AXUIElementSetAttributeValue(element, "AXSelected" as CFString, kCFBooleanTrue) == .success { return "Selected \(target.summary)" }
+            // AXSelected alone can leave a web row's click handler untouched.
+            _ = AXUIElementPerformAction(element, "AXScrollToVisible" as CFString)
             guard let frame = self.frame(of: element), frame.width > 0, frame.height > 0 else {
                 throw QANativeError.failed("\(target.summary) does not answer to a press and has no place on the screen to click.")
+            }
+            guard let window = self.targetWindow(), let viewport = self.frame(of: window),
+                  viewport.contains(CGPoint(x: frame.midX, y: frame.midY)) else {
+                throw QANativeError.failed("The target is outside the visible window. Inspect and scroll its region before clicking.")
             }
             self.postClick(at: CGPoint(x: frame.midX, y: frame.midY))
             return "Clicked \(target.summary)"
@@ -355,7 +451,7 @@ final class QANativeAccessibility: @unchecked Sendable {
     /// over it. Says what happened, including that the view was already at the end.
     func scroll(up: Bool) async throws -> String {
         try await run {
-            guard let window = self.targetWindow(), let area = self.mainScrollArea(in: window) else {
+            guard let window = self.targetWindow(), let area = self.inspectionRoot ?? self.mainScrollArea(in: window) else {
                 throw QANativeError.failed("There is nothing to scroll in this window.")
             }
             let bar = self.copy(area, "AXVerticalScrollBar").map { unsafeBitCast($0, to: AXUIElement.self) }
@@ -377,8 +473,10 @@ final class QANativeAccessibility: @unchecked Sendable {
                 guard let bar else { return "Scrolled \(up ? "up" : "down")" }
                 if self.number(self.copy(bar, "AXValue")) != before { return "Scrolled \(up ? "up" : "down")" }
             }
-            guard let frame = self.frame(of: area) else { throw QANativeError.failed("The view could not be scrolled.") }
-            self.postWheel(at: CGPoint(x: frame.midX, y: frame.midY), up: up)
+            guard let frame = self.frame(of: area), let viewport = self.frame(of: window) else { throw QANativeError.failed("The view could not be scrolled.") }
+            let visible = frame.intersection(viewport)
+            guard !visible.isNull, visible.width > 0, visible.height > 0 else { throw QANativeError.failed("The inspected region is outside the visible window.") }
+            self.postWheel(at: CGPoint(x: visible.midX, y: visible.midY), up: up)
             return "Scrolled \(up ? "up" : "down") with the mouse wheel"
         }
     }
@@ -465,9 +563,12 @@ final class QANativeAccessibility: @unchecked Sendable {
 
     private func mainScrollArea(in window: AXUIElement) -> AXUIElement? {
         var best: (area: AXUIElement, size: CGFloat)?
+        var count = 0
+        let deadline = Date().addingTimeInterval(Self.readBudget)
         func walk(_ element: AXUIElement, depth: Int) {
-            guard depth <= QANativeSnapshot.maxDepth else { return }
-            for child in children(of: element) {
+            guard depth <= Self.maxPhysicalDepth, count < Self.maxElementsRead, Date() < deadline else { return }
+            for child in children(of: element) where count < Self.maxElementsRead && Date() < deadline {
+                count += 1
                 let role = string(copy(child, "AXRole"))
                 if role == "AXScrollArea" {
                     let size = frame(of: child).map { $0.width * $0.height } ?? 0

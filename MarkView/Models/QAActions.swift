@@ -14,7 +14,7 @@ struct QAAction: Codable, Equatable {
     var method: String = ""
     /// `up` or `down` for a scroll.
     var direction: String = ""
-    /// Milliseconds to wait.
+    /// Milliseconds to wait, or direct-child offset for native inspection.
     var amount: Int = 0
 
     /// How the action reads in the history the assistant is shown: what was done, never more than the assistant itself wrote.
@@ -26,6 +26,7 @@ struct QAAction: Codable, Equatable {
         case .scroll: return "scroll \(direction.isEmpty ? "down" : direction)"
         case .navigate: return "open \(url)"
         case .key: return "press \(text)"
+        case .inspect: return ref.isEmpty ? "inspect whole window" : "inspect [\(ref)] from child \(amount)"
         case .wait: return "wait \(amount) ms"
         case .http: return "\(method.isEmpty ? "GET" : method) \(url)"
         }
@@ -39,7 +40,7 @@ struct QAAction: Codable, Equatable {
         case .scroll: effort.scrolls += 1
         case .navigate: effort.loads += 1
         case .key: effort.keys += 1
-        case .wait, .http: break
+        case .wait, .http, .inspect: break
         }
     }
 }
@@ -137,14 +138,15 @@ enum QAStepPrompt {
         You carry out one step of an end-to-end test of a native macOS application, with the mouse and the keyboard, as a careful person would. Every turn you are shown the application's window as text: the window title, its controls (each with a reference such as [e12], its role and its name), its text, and the entries of the menu bar written "Menu > Item" (they have references too). You answer with exactly one move.
 
         Moves:
-        - act: one action in the application. Actions: click (ref: a button, checkbox, radio button, tab, row or menu item), fill (ref, text: a text field), select (ref, text: the item of a pop-up button or combo box), scroll (direction up or down), key (text: a key or a shortcut such as Enter, Tab, Escape or cmd+n), wait (amount in milliseconds, only while the application is still busy).
+        - act: one action in the application. Actions: click (ref: a button, checkbox, radio button, tab, row or menu item), fill (ref, text: a text field), select (ref, text: the item of a pop-up button or combo box), scroll (direction up or down), inspect (ref: a container/table/row; empty ref returns to the whole window; amount: direct children to skip for continuation), key (text: a key or a shortcut such as Enter, Tab, Escape or cmd+n), wait (amount in milliseconds, only while the application is still busy).
         - done: the step is complete, or, for a check, the expectation holds on the window you see.
         - notMet: for a check, the expectation does not hold. Say what you see instead in reason. Use this only when the window really shows something different; if the application is still busy or you have not looked everywhere, act first.
         - blocked: you cannot go on (the control is not there, the sign-in was refused, an error dialog). Say why in reason and choose blockReason: elementNotFound, loginFailed or other.
 
         Rules:
         - Use only elements you were shown. Never invent a reference. The references are numbered afresh at every turn.
-        - For a check, do not change anything: look, scroll if needed, then answer done or notMet.
+        - For a check, do not change anything: look, inspect a relevant container or scroll if needed, then answer done or notMet.
+        - A partial Accessibility tree is not an empty application. Use inspect on the relevant container; an empty ref returns to the whole window. Use current refs only. Do not reload the app or repeatedly change zoom because controls were omitted.
         - To sign in, type the placeholders {{username}} and {{password}} where the credentials go. Never type, guess or write a real password. The value of a secure field is never shown to you.
         - Do not repeat an action that already had its effect. If the previous action did not change the window, try another way or answer blocked.
         - narration is one short sentence in the language of the step title: what you do now, which control or field it is (by the name a person sees) and why. It is shown as a subtitle. For done and notMet, narration says what you saw.
@@ -283,6 +285,8 @@ enum QAStepPrompt {
                 guard allowsHTTP, appKind != .nativeMacOS else { throw ParseError.notAllowed(kind) }
                 if action.url.isEmpty { throw ParseError.missingURL(kind) }
                 if action.method.isEmpty { action.method = "GET" }
+            case .inspect:
+                guard appKind == .nativeMacOS else { throw ParseError.notAllowed(kind) }
             case .scroll, .wait: break
             }
             return QADecision(move: .act(action), narration: narration)
