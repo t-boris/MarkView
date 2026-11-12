@@ -465,7 +465,6 @@ struct ContentView: View {
                 .background(palette.bgActive)
                 .cornerRadius(7)
                 Spacer(minLength: 4)
-                AgentActivityChip(monitor: workspaceManager.agentActivity, workspaceManager: workspaceManager, compact: compact)
                 // Claude Code and Codex quota, whatever the workspace shows and whether or not Agents is open (AC-6, AC-7).
                 AgentUsageBar()
                 if workspaceManager.rootNode != nil {
@@ -1205,6 +1204,7 @@ private struct FloatingAgentsView: View {
             .environmentObject(workspaceManager)
             .accessibilityHidden(minimized)
             .allowsHitTesting(!minimized)
+            .opacity(minimized ? 0 : 1)
             .frame(width: max(0, width), height: max(0, height), alignment: .top)
             .clipped()
             .background(palette.bg)
@@ -1225,8 +1225,14 @@ private struct FloatingAgentsView: View {
                                 state.set(Double(min(available.height - baseY, max(min(180, available.height), baseHeight - value.translation.height))), for: "layout.agentsHeight")
                                 resizeTranslation = .zero
                             })
-                    Color.clear
-                        .frame(maxWidth: .infinity, minHeight: headerHeight, maxHeight: headerHeight)
+                    Group {
+                        if minimized {
+                            MinimizedAgentStatus(monitor: workspaceManager.agentActivity)
+                        } else {
+                            Color.clear
+                        }
+                    }
+                        .frame(maxWidth: .infinity, minHeight: headerHeight, maxHeight: headerHeight, alignment: .leading)
                         .contentShape(Rectangle())
                         .help("Drag to move Agents")
                         .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
@@ -1264,5 +1270,28 @@ private struct FloatingAgentsView: View {
         .buttonStyle(.plain)
         .help(help)
         .accessibilityLabel(help)
+    }
+}
+
+/// Keep the same activity previously shown in the workspace toolbar visible while Agents is collapsed.
+private struct MinimizedAgentStatus: View {
+    @Environment(\.palette) private var palette
+    @ObservedObject var monitor: AgentActivityMonitor
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("Agents").uiFont(size: 11, weight: .semibold).foregroundColor(palette.text)
+            if let entry = monitor.headline {
+                AgentStatusDot(state: entry.activity.state)
+                Text(entry.name + ": " + entry.activity.text + (monitor.othersWorking > 0 ? "  +\(monitor.othersWorking)" : ""))
+                    .uiFont(size: 10, weight: .medium)
+                    .foregroundColor(entry.activity.state == .idle ? palette.textDim : palette.text)
+                    .lineLimit(1).truncationMode(.tail)
+                    .help(entry.activity.summary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 6)
+        .accessibilityElement(children: .combine)
     }
 }
