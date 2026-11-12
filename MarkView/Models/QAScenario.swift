@@ -373,21 +373,37 @@ struct QAScenario: Codable, Equatable, Identifiable {
         return taken.isEmpty ? "Main line" : taken.joined(separator: ", ")
     }
 
-    /// Include the choices at forks so parallel paths with the same alternative title remain distinguishable.
-    func displayLabel(of branch: QABranch) -> String {
-        var choices: [String] = []
-        for (from, to) in zip(branch.nodes, branch.nodes.dropFirst()) {
-            let outgoing = edges.filter { $0.from == from }
-            guard Set(outgoing.map(\.to)).count > 1,
-                  let edge = outgoing.first(where: { $0.to == to }) else { continue }
-            let label = edge.label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let title = label.isEmpty ? (node(to)?.title ?? to) : label
-            if !title.isEmpty && !choices.contains(title) { choices.append(title) }
+    /// Names the paths using the choices that differ within this run. Shared setup and success
+    /// choices do not hide the meaningful distinction between branches in a narrow result panel.
+    func displayLabels(for branches: [QABranch]) -> [String: String] {
+        let outgoing = Dictionary(grouping: edges, by: \.from)
+        func choices(_ branch: QABranch) -> [String] {
+            var result: [String] = []
+            for (from, to) in zip(branch.nodes, branch.nodes.dropFirst()) {
+                let options = outgoing[from] ?? []
+                guard Set(options.map(\.to)).count > 1, let edge = options.first(where: { $0.to == to }) else { continue }
+                let text = edge.label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let choice = text.isEmpty ? (node(to)?.title ?? to) : text
+                if !choice.isEmpty && !result.contains(choice) { result.append(choice) }
+            }
+            return result
         }
-        let original = label(of: branch)
-        guard !choices.isEmpty else { return original }
-        if original != "Main line" && !choices.contains(original) { choices.append(original) }
-        return choices.joined(separator: " · ")
+        let paths = branches.map(choices)
+        let validPaths = zip(branches, paths).compactMap { branch, path in branch.nodes.allSatisfy { node($0) != nil } ? path : nil }
+        let shared = validPaths.count > 1 ? validPaths.dropFirst().reduce(Set(validPaths.first ?? [])) { $0.intersection($1) } : []
+        let names = zip(branches, paths).map { branch, path -> String in
+            guard branch.nodes.allSatisfy({ node($0) != nil }) else { return branch.id }
+            let distinct = path.filter { !shared.contains($0) }
+            return distinct.isEmpty ? label(of: branch) : distinct.joined(separator: " · ")
+        }
+        let counts = Dictionary(grouping: names, by: { $0 }).mapValues(\.count)
+        var seen: [String: Int] = [:]
+        var result: [String: String] = [:]
+        for (branch, name) in zip(branches, names) {
+            seen[name, default: 0] += 1
+            result[branch.id] = counts[name, default: 0] > 1 ? "\(name) (\(seen[name]!))" : name
+        }
+        return result
     }
 
     // MARK: Problems

@@ -396,6 +396,7 @@ struct QARunReportView: View {
     let scenario: QAScenario
     let record: QARunRecord
     let onClose: () -> Void
+    @State private var showUncovered = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -423,31 +424,40 @@ struct QARunReportView: View {
     // MARK: Branches
 
     private var results: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Branches").uiFont(size: 11.5, weight: .semibold)
-            ForEach(record.lines, id: \.branch) { line in
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(line.outcome?.label ?? "Not run").uiFont(size: 10.5, weight: .semibold).foregroundColor(.white)
-                            .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(Capsule().fill(tint(line.outcome)))
-                        Text(label(line.branch)).uiFont(size: 11.5, weight: .medium).lineLimit(2)
-                        Spacer(minLength: 0)
-                        if let video = archive.video(of: line.branch, in: record) {
-                            Button { NSWorkspace.shared.open(video) } label: { Label("Video", systemImage: "play.rectangle") }
-                                .buttonStyle(.borderless).uiFont(size: 10.5)
-                        }
-                    }
-                    if let reason = line.reason, !reason.isEmpty {
-                        Text(reason).uiFont(size: 10.5).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
-                    }
-                }
+        let branches = record.lines.map { QABranch(nodes: $0.branch.components(separatedBy: ">")) }
+        let labels = scenario.displayLabels(for: branches)
+        let completed = record.lines.filter { $0.outcome != .uncovered && $0.outcome != nil }
+        let uncovered = record.lines.filter { $0.outcome == .uncovered || $0.outcome == nil }
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Branches (\(record.lines.count))").uiFont(size: 11.5, weight: .semibold)
+            ForEach(completed, id: \.branch) { line in resultLine(line, label: labels[line.branch] ?? line.branch) }
+            if !uncovered.isEmpty {
+                DisclosureGroup(isExpanded: $showUncovered) {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(uncovered, id: \.branch) { line in resultLine(line, label: labels[line.branch] ?? line.branch) }
+                    }.padding(.top, 6)
+                } label: { Text("Not executed (\(uncovered.count))").uiFont(size: 11, weight: .medium) }
             }
         }
     }
 
-    private func label(_ branch: String) -> String {
-        scenario.enumerateBranches().branches.first { $0.id == branch }.map { scenario.displayLabel(of: $0) } ?? branch
+    private func resultLine(_ line: QARunLine, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(line.outcome?.label ?? "Not run").uiFont(size: 10.5, weight: .semibold).foregroundColor(.white)
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(Capsule().fill(tint(line.outcome)))
+                Text(label).uiFont(size: 11.5, weight: .medium).lineLimit(2)
+                Spacer(minLength: 0)
+                if let video = archive.video(of: line.branch, in: record) {
+                    Button { NSWorkspace.shared.open(video) } label: { Label("Video", systemImage: "play.rectangle") }
+                        .buttonStyle(.borderless).uiFont(size: 10.5)
+                }
+            }
+            if let reason = line.reason, !reason.isEmpty {
+                Text(reason).uiFont(size: 10.5).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private func tint(_ outcome: QAOutcome?) -> Color {
