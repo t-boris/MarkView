@@ -15,6 +15,7 @@ fixtures="${QA_NATIVE_FIXTURE_ROOT:-build}/qa-native-demo-$$"
 lsregister=/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister
 cleanup() {
     if [ -d "$fixtures/QANativeDemo.app" ]; then "$lsregister" -u "$fixtures/QANativeDemo.app" >/dev/null 2>&1 || true; fi
+    if [ -d "$fixtures/QANativeSingle.app" ]; then "$lsregister" -u "$fixtures/QANativeSingle.app" >/dev/null 2>&1 || true; fi
     rm -rf "$out" "$fixtures"
 }
 trap cleanup EXIT
@@ -30,5 +31,13 @@ if [ "${QA_NATIVE_LIVE:-1}" != "0" ]; then
     mkdir -p "$fixtures"
     app=$(Tests/Fixtures/qa-native-demo/build.sh "$fixtures" | tail -1)
     "$lsregister" -f "$app"
+    single="$fixtures/QANativeSingle.app"
+    ditto "$app" "$single"
+    /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.markview.qa-native-single' "$single/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c 'Add :LSMultipleInstancesProhibited bool true' "$single/Contents/Info.plist"
+    codesign --force --sign - "$single" >/dev/null 2>&1
+    "$lsregister" -f "$single"
+else
+    single=""
 fi
-"$out/qa-native" "$app"
+"$out/qa-native" "$app" "$single"
