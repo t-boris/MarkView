@@ -175,8 +175,7 @@ struct TerminalStopButton: View {
     }
 }
 
-/// Shared terminal area: session tabs for assistant CLIs or a plain shell,
-/// with buttons that hand a ready-made prompt to the assistant.
+/// Shared terminal area: session tabs for assistant CLIs or a plain shell.
 struct AITerminalPanel: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
@@ -185,7 +184,6 @@ struct AITerminalPanel: View {
     /// project's changes, never another window's (BUG-021).
     @State private var seenChoice: (tool: String, model: String)?
     @State private var showRemoteConnections = false
-    @WindowStorage("layout.terminalPromptsExpanded.v3") private var promptsExpanded = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -212,10 +210,6 @@ struct AITerminalPanel: View {
                     .uiFont(size: 9).foregroundColor(palette.textDim)
                     .padding(.horizontal, 8).padding(.vertical, 4)
                     .background(palette.bgSidebar)
-                }
-                if workspaceManager.aiWorkspaceRoot != nil || workspaceManager.rootNode != nil {
-                    TerminalPromptBar(expanded: $promptsExpanded)
-                    Divider().background(palette.border)
                 }
                 if let session = workspaceManager.aiTerminal {
                     TerminalHostView(session: session).id(session.id)

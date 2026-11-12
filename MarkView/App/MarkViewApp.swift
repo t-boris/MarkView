@@ -337,13 +337,13 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut("1", modifiers: [.command])
 
-                Button("Toggle Table of Contents") {
-                    activeWorkspace?.toggleContext()
+                Button("Toggle Right Panel") {
+                    activeWorkspace?.toggleRightPanel()
                 }
                 .keyboardShortcut("2", modifiers: [.command])
 
                 Button("Agents") {
-                    activeWorkspace?.showAIConsole()
+                    activeWorkspace?.toggleAIConsole()
                 }
                 .keyboardShortcut("3", modifiers: [.command])
 

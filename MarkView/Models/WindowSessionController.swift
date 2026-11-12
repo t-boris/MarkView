@@ -114,7 +114,7 @@ final class WindowSessionController {
             window.center()
         }
 
-        workspace.objectWillChange.merge(with: workspace.layout.objectWillChange, workspace.theme.objectWillChange)
+        workspace.objectWillChange.merge(with: workspace.layout.objectWillChange, workspace.theme.objectWillChange, workspace.windowUI.objectWillChange)
             .sink { [weak self] _ in self?.scheduleSave() }
             .store(in: &entry.subscriptions)
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification,

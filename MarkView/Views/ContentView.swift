@@ -221,6 +221,7 @@ struct ContentView: View {
             GeometryReader { geometry in
                 let compact = geometry.size.width < 1280 * max(1, appFontScale)
                 let terminalMinimum = min(500, max(300, geometry.size.width - 700))
+                ZStack(alignment: .bottomTrailing) {
                 HSplitView {
                     if workspaceManager.showFileTree {
                         navigationPane
@@ -236,6 +237,10 @@ struct ContentView: View {
                         rightPane.frame(minWidth: terminalMinimum, idealWidth: max(500, terminalMinimum))
                             .background(RightPanelWidthKeeper(centerVisible: workspaceManager.showCenter, state: workspaceManager.windowUI))
                     }
+                }
+                if workspaceManager.agentsVisible {
+                    FloatingAgentsView(workspaceManager: workspaceManager, available: geometry.size)
+                }
                 }
                 .onAppear {
                     workspaceManager.compactLayout = compact
@@ -402,12 +407,17 @@ struct ContentView: View {
             let compact = geometry.size.width < 1100 * max(1, appFontScale)
             let controlWidth = 32 * min(1.5, max(1, appFontScale))
             HStack(spacing: 6) {
-                headerButton("sidebar.leading", help: "Navigation (⌘1)", width: controlWidth) {
+                headerButton("sidebar.leading", help: "Navigation (⌘1)", width: controlWidth,
+                             selected: workspaceManager.showFileTree) {
                     workspaceManager.toggleNavigation()
                 }
                 headerButton("rectangle", help: "Workspace content", width: controlWidth,
                              selected: workspaceManager.showCenter) {
                     workspaceManager.toggleCenter()
+                }
+                headerButton("sidebar.trailing", help: "Right panel (⌘2)", width: controlWidth,
+                             selected: workspaceManager.terminalVisible) {
+                    workspaceManager.toggleRightPanel()
                 }
                 Button { workspaceManager.toggleAIConsole() } label: {
                     Group {
@@ -416,10 +426,10 @@ struct ContentView: View {
                     }
                     .uiFont(size: 12, weight: .semibold)
                     .fixedSize()
-                    .foregroundColor(workspaceManager.terminalVisible && !workspaceManager.showTOC ? palette.blue : palette.text)
+                    .foregroundColor(workspaceManager.agentsVisible ? palette.blue : palette.text)
                     .padding(.horizontal, 9)
                     .frame(height: controlWidth)
-                    .background(workspaceManager.terminalVisible && !workspaceManager.showTOC ? palette.bgActive : Color.clear)
+                    .background(workspaceManager.agentsVisible ? palette.bgActive : Color.clear)
                     .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
@@ -458,12 +468,6 @@ struct ContentView: View {
                 AgentActivityChip(monitor: workspaceManager.agentActivity, workspaceManager: workspaceManager, compact: compact)
                 // Claude Code and Codex quota, whatever the workspace shows and whether or not Agents is open (AC-6, AC-7).
                 AgentUsageBar()
-                if workspaceManager.layout.workspaceArea == .files && hasDocumentContents {
-                    headerButton("list.bullet.indent", help: "Contents of this tab (⌘2): headings, structure, page, entries, facts", width: controlWidth,
-                                 selected: workspaceManager.terminalVisible && workspaceManager.layout.navigatorTab == .contents) {
-                        workspaceManager.toggleContext()
-                    }
-                }
                 if workspaceManager.rootNode != nil {
                     projectMenu.frame(width: controlWidth, height: controlWidth)
                     headerButton("bubble.left.and.text.bubble.right", help: "Discussions (⌃⌘I): think an idea through before it is a feature", width: controlWidth,
@@ -637,10 +641,6 @@ struct ContentView: View {
                     .environmentObject(workspaceManager)
             }
         }
-    }
-
-    private var hasDocumentContents: Bool {
-        workspaceManager.activeTab != nil
     }
 
     private var workspaceCenter: some View {
@@ -1165,4 +1165,82 @@ private struct AIToolsMenuItems: View {
                 .disabled(workspaceManager.rootNode == nil || !workspaceManager.hasMarkdownFiles)
         }
     }
+}
+
+/// A resizable surface over the workspace, independent of the right panel.
+private struct FloatingAgentsView: View {
+    @ObservedObject var workspaceManager: WorkspaceManager
+    @ObservedObject private var state: WindowUIState
+    let available: CGSize
+    @State private var resizeTranslation = CGSize.zero
+    @State private var moveTranslation = CGSize.zero
+    @Environment(\.palette) private var palette
+    @Environment(\.appFontScale) private var fontScale
+
+    init(workspaceManager: WorkspaceManager, available: CGSize) {
+        self.workspaceManager = workspaceManager
+        self.state = workspaceManager.windowUI
+        self.available = available
+    }
+
+    var body: some View {
+        let savedWidth = CGFloat(state.value("layout.agentsWidth", fallback: 650.0))
+        let savedHeight = CGFloat(state.value("layout.agentsHeight", fallback: 600.0))
+        let baseWidth = min(max(280, savedWidth), available.width)
+        let baseHeight = min(max(180, savedHeight), available.height)
+        let savedX = max(0, CGFloat(state.value("layout.agentsOffsetX", fallback: 0.0)))
+        let savedY = max(0, CGFloat(state.value("layout.agentsOffsetY", fallback: 0.0)))
+        let baseX = min(savedX, max(0, available.width - baseWidth))
+        let baseY = min(savedY, max(0, available.height - baseHeight))
+        let width = min(available.width - baseX, max(min(280, available.width), baseWidth - resizeTranslation.width))
+        let height = min(available.height - baseY, max(min(180, available.height), baseHeight - resizeTranslation.height))
+        let x = min(max(0, available.width - width), max(0, baseX - moveTranslation.width))
+        let y = min(max(0, available.height - height), max(0, baseY - moveTranslation.height))
+        return ModuleExplorerView()
+            .environmentObject(workspaceManager)
+            .frame(width: max(0, width), height: max(0, height))
+            .background(palette.bg)
+            .overlay(alignment: .topLeading) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .uiFont(size: 11, weight: .semibold)
+                    .foregroundColor(palette.textDim)
+                    .frame(width: 30, height: 26)
+                    .background(palette.bg)
+                    .contentShape(Rectangle())
+                    .help("Drag to resize Agents")
+                    .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                        .onChanged { resizeTranslation = $0.translation }
+                        .onEnded { value in
+                            state.set(Double(min(available.width - baseX, max(min(280, available.width), baseWidth - value.translation.width))), for: "layout.agentsWidth")
+                            state.set(Double(min(available.height - baseY, max(min(180, available.height), baseHeight - value.translation.height))), for: "layout.agentsHeight")
+                            resizeTranslation = .zero
+                        })
+            }
+            .overlay(alignment: .top) {
+                Color.clear
+                    .frame(height: 26 * min(1.5, max(1, fontScale)))
+                    .padding(.leading, 30).padding(.trailing, 28)
+                    .contentShape(Rectangle())
+                    .help("Drag to move Agents")
+                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { moveTranslation = $0.translation }
+                        .onEnded { value in
+                            state.set(Double(min(max(0, available.width - width), max(0, baseX - value.translation.width))), for: "layout.agentsOffsetX")
+                            state.set(Double(min(max(0, available.height - height), max(0, baseY - value.translation.height))), for: "layout.agentsOffsetY")
+                            moveTranslation = .zero
+                        })
+            }
+            .overlay(alignment: .topTrailing) {
+                Button { workspaceManager.agentsVisible = false } label: {
+                    Image(systemName: "xmark").uiFont(size: 10, weight: .bold)
+                        .foregroundColor(palette.textDim).frame(width: 28, height: 26)
+                }
+                .buttonStyle(.plain)
+                .help("Hide Agents")
+            }
+            .overlay(Rectangle().stroke(palette.border, lineWidth: 1).allowsHitTesting(false))
+            .shadow(color: .black.opacity(0.3), radius: 12, x: -3, y: -3)
+            .offset(x: -x, y: -y)
+    }
+
 }
