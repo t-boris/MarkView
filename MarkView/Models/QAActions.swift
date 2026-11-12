@@ -64,6 +64,8 @@ struct QAObservation: Equatable {
     var address: String
     var title: String
     var snapshot: String
+    /// Physical page position, kept separate from the text signature which deliberately ignores numbers.
+    var positionSignature: String = ""
 }
 
 /// One piece of work for the assistant: a step of the scenario, or a part of preparation (sign in, restore the baseline).

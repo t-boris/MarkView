@@ -1016,16 +1016,18 @@ final class FakeDriver: QAActorDriver {
     var closed = false
     var evidence: QAPageEvidence?
     var measured = 0
+    var viewportOnly = false
+    var scrollLimit: Int?
     private var changes = 0
     init(_ request: QADriverRequest) { self.request = request }
     func open(_ address: String) async throws { opened.append(address) }
     func observe() async throws -> QAObservation {
-        QAObservation(address: request.address + "/page", title: "Page", snapshot: "view " + String(repeating: "x", count: changes + 1) + "\n[e1] button \"Go\"")
+        QAObservation(address: request.address + "/page", title: "Page", snapshot: "view " + String(repeating: "x", count: viewportOnly ? 1 : changes + 1) + "\n[e1] button \"Go\"", positionSignature: viewportOnly ? String(changes) : "")
     }
     func perform(_ action: QAAction) async throws -> String {
         if failing.contains(action.summary) { throw RunTestError.refused }
         performed.append(action)
-        if action.kind != .http && action.kind != .wait { changes += 1 }
+        if action.kind != .http && action.kind != .wait { changes = min(changes + 1, scrollLimit ?? Int.max) }
         return "ok"
     }
     func screenshot() async -> Data? { Data([1, 2, 3]) }
@@ -1041,9 +1043,13 @@ final class FakeFactory: QADriverFactory {
     var failing: Set<String> = []
     var hits = 0
     var evidence: QAPageEvidence?
+    var viewportOnly = false
+    var scrollLimit: Int?
     func makeDriver(_ request: QADriverRequest) async throws -> QAActorDriver {
         if failFor.contains(request.actor?.id ?? "setup") { throw RunTestError.refused }
         let driver = FakeDriver(request)
+        driver.viewportOnly = viewportOnly
+        driver.scrollLimit = scrollLimit
         driver.failing = failing
         driver.evidence = evidence
         driver.hits = hits
@@ -1276,6 +1282,10 @@ do {
     check("run: a long step is not cut: thirty different actions that move the page on, then it is done", longForm.result?.verdict.outcome == .passed && longForm.factory.driver("buyer")?.performed.count == 30 && longForm.result?.steps.first?.effort.fills == 30)
     let sameClick = run(script: ["Add a product to the cart": Array(repeating: move("click", "e1"), count: 10) + [finished()]])
     check("run: the same click on a page that changes each time is progress, not a loop", sameClick.result?.verdict.outcome == .passed && sameClick.factory.driver("buyer")?.performed.count == 10)
+    let scrolling = run(script: ["Add a product to the cart": Array(repeating: move("scroll"), count: 10) + [finished()]], prepare: { factory, _ in factory.viewportOnly = true })
+    check("run: scrolling through unchanged DOM text remains progress", scrolling.result?.verdict.outcome == .passed && scrolling.factory.driver("buyer")?.performed.count == 10)
+    let bottom = run(script: ["Add a product to the cart": Array(repeating: move("scroll"), count: 10)], prepare: { factory, _ in factory.viewportOnly = true; factory.scrollLimit = 2 })
+    check("run: repeated scrolling at the bottom still blocks", bottom.result?.verdict.blockReason == .stepStuck && bottom.factory.driver("buyer")?.performed.count == 5)
     var patient = QARunner.Config(); patient.maxRepeats = 2
     check("run: how many repeats are allowed is a setting", run(script: ["Add a product to the cart": Array(repeating: move("wait"), count: 10)], config: patient).factory.driver("buyer")?.performed.count == 1)
 
