@@ -1103,6 +1103,7 @@ struct GitHubIssueView: View {
     @WindowStorage(EditorTextSize.mirrorKey) private var editorTextSize = EditorTextSize.defaultSize
     @State private var comment = ""
     @State private var starting = false
+    @State private var editing = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1127,6 +1128,9 @@ struct GitHubIssueView: View {
             } else {
                 EmptyList("Loading…")
             }
+        }
+        .sheet(isPresented: $editing) {
+            if let issue = model.issue { GitHubEditIssueSheet(model: model, issue: issue) }
         }
     }
 
@@ -1159,6 +1163,7 @@ struct GitHubIssueView: View {
                     Button("New Bug from #\(issue.number)…") { workspaceManager.startIntake(.bug, fromIssue: issue.number) }
                 }
                 .menuStyle(.borderlessButton).fixedSize()
+                Button("Edit") { editing = true }
                 Button(issue.isOpen ? "Close Issue" : "Reopen Issue") {
                     model.act(issue.isOpen ? "Close" : "Reopen") { try await $0.setIssueOpen(issue.number, open: !issue.isOpen) }
                 }
@@ -1218,8 +1223,9 @@ struct GitHubIssueView: View {
                 Spacer()
                 Button("Comment") {
                     let text = comment
-                    comment = ""
-                    model.act("Comment") { try await $0.commentIssue(issue.number, body: text) }
+                    model.act("Comment", onSuccess: {
+                        if comment == text { comment = "" }
+                    }) { try await $0.commentIssue(issue.number, body: text) }
                 }
                 .disabled(comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.busy)
             }
@@ -1233,6 +1239,53 @@ struct GitHubIssueView: View {
             let error = await workspaceManager.startIssueWithAI(issue)
             starting = false
             showError("Start with AI", error)
+        }
+    }
+}
+
+private struct GitHubEditIssueSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var model: GitHubIssueModel
+    let issue: GHIssue
+    @State private var title: String
+    @State private var bodyText: String
+    @State private var saving = false
+    @State private var error: String?
+
+    init(model: GitHubIssueModel, issue: GHIssue) {
+        self.model = model
+        self.issue = issue
+        _title = State(initialValue: issue.title)
+        _bodyText = State(initialValue: issue.body ?? "")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Edit Issue #\(issue.number)").uiFont(.headline)
+            TextField("Title", text: $title).textFieldStyle(.roundedBorder)
+            TextEditor(text: $bodyText).uiFont(size: 12).frame(minWidth: 480, minHeight: 220)
+            if let error { Text(error).foregroundColor(.red).textSelection(.enabled) }
+            HStack {
+                if saving { ProgressView().scaleEffect(0.6) }
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(saving)
+                Button("Save") { save() }.keyboardShortcut(.defaultAction)
+                    .disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }.padding(16)
+    }
+
+    private func save() {
+        saving = true
+        Task {
+            do {
+                try await model.client.editIssueContent(issue.number, title: title, body: bodyText)
+                model.contentDidChange()
+                dismiss()
+            } catch {
+                self.error = error.localizedDescription
+                saving = false
+            }
         }
     }
 }

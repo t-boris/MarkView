@@ -910,6 +910,10 @@ struct GitHubClient: Sendable {
         try await gh(["issue", open ? "reopen" : "close", String(number)] + r)
     }
 
+    func editIssueContent(_ number: Int, title: String, body: String) async throws {
+        try await gh(["issue", "edit", String(number)] + r + ["--title", title, "--body", body])
+    }
+
     /// Add or remove labels and assignees.
     func editIssue(_ number: Int, addLabels: [String] = [], removeLabels: [String] = [],
                    addAssignees: [String] = [], removeAssignees: [String] = []) async throws {

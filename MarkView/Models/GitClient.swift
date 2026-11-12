@@ -24,6 +24,9 @@ class GitClient: ObservableObject {
     @Published var showIgnored = false
     @Published var showTracked = false { didSet { if showTracked != oldValue { Task { await refresh() } } } }
     @Published var commitLog: [GitCommit] = []
+    @Published private(set) var hasMoreCommits = false
+    @Published private(set) var loadingHistory = false
+    private var historyLimit = 200
     @Published var isOperating = false
     /// What a running operation is doing, in words ("Pushing…"), for the progress line of the Git tab.
     @Published var activity: String?
@@ -60,7 +63,7 @@ class GitClient: ObservableObject {
     }
 
     struct GitCommit: Identifiable {
-        let id = UUID()
+        var id: String { hash }
         let hash: String
         let message: String
         let author: String
@@ -101,6 +104,8 @@ class GitClient: ObservableObject {
         cleanTracked = []
         stashCount = 0
         commitLog = []
+        historyLimit = 200
+        hasMoreCommits = false
         lastError = nil
     }
 
@@ -133,13 +138,29 @@ class GitClient: ObservableObject {
 
         await refreshStatus()
 
-        // Log (last 20)
-        let logOutput = await run("git", "log", "--oneline", "--format=%h|%s|%an|%ar", "-20", in: dir) ?? ""
-        commitLog = logOutput.components(separatedBy: "\n").compactMap { line in
-            let parts = line.components(separatedBy: "|")
-            guard parts.count >= 4 else { return nil }
+        await loadHistory(in: dir)
+
+    }
+
+    func loadMoreHistory() async {
+        guard let dir = workingDirectory, !loadingHistory else { return }
+        historyLimit += 200
+        await loadHistory(in: dir)
+    }
+
+    private func loadHistory(in dir: URL) async {
+        loadingHistory = true
+        defer { loadingHistory = false }
+        let limit = historyLimit, branchAtStart = branch
+        let logOutput = await run("git", "log", "--format=%H%x1f%s%x1f%an%x1f%ar%x1e", "-\(limit + 1)", in: dir) ?? ""
+        let commits: [GitCommit] = logOutput.components(separatedBy: "\u{1e}").compactMap { record in
+            let parts = record.trimmingCharacters(in: .newlines).components(separatedBy: "\u{1f}")
+            guard parts.count == 4, !parts[0].isEmpty else { return nil }
             return GitCommit(hash: parts[0], message: parts[1], author: parts[2], date: parts[3])
         }
+        guard workingDirectory == dir, historyLimit == limit, branch == branchAtStart else { return }
+        hasMoreCommits = commits.count > limit
+        commitLog = Array(commits.prefix(limit))
     }
 
     /// Only the work tree's state (no branches or log): cheap enough to repeat while the app is in front.
@@ -266,8 +287,24 @@ class GitClient: ObservableObject {
     func diff(file: String, staged: Bool = false) async -> String {
         guard let dir = workingDirectory else { return "" }
         if staged { return await run("git", "diff", "--cached", "--", file, in: dir) ?? "" }
-        if let d = await run("git", "diff", file, in: dir), !d.isEmpty { return d }
-        return await run("git", "diff", "--cached", file, in: dir) ?? ""
+        return await run("git", "diff", "--", file, in: dir) ?? ""
+    }
+
+    func untrackedDiff(file: String) async -> String {
+        guard let dir = workingDirectory else { return "" }
+        return await run(["git", "diff", "--no-index", "--", "/dev/null", file], in: dir) ?? ""
+    }
+
+    /// Files and patch in a commit, including root commits and merge first-parent changes.
+    func commitFiles(_ hash: String) async -> [String] {
+        guard let dir = workingDirectory else { return [] }
+        let output = await run(["git", "diff-tree", "--root", "-m", "--first-parent", "--no-commit-id", "--name-only", "-r", "-z", hash], in: dir) ?? ""
+        return output.split(separator: "\0").map(String.init)
+    }
+
+    func commitDiff(_ hash: String, file: String) async -> String {
+        guard let dir = workingDirectory else { return "" }
+        return await run(["git", "show", "--format=", "--first-parent", "--no-ext-diff", hash, "--", file], in: dir) ?? ""
     }
 
     // MARK: - Actions on single paths (the Changes list's context menu)
