@@ -2,9 +2,9 @@ import AppKit
 import Foundation
 
 // End-to-End QA (feature end-to-end-qa, DEC-008, DEC-012, DEC-017, DEC-023): one player of a scenario in a native macOS application. MarkView
-// launches the application the person chose, as an instance of its own, and drives that process by its id: it reads the window and the menus
-// through Accessibility, acts on them, and takes pictures of the window with ScreenCaptureKit. It never attaches to an application that is
-// running already, and it ends only the process it started. The player's password is typed by the player, never shown to the assistant, and a
+// attaches to an already-running application, or launches a separate instance when needed. It reads and operates the selected
+// process through Accessibility, and takes pictures with ScreenCaptureKit. Cleanup ends only an instance started by QA, never an attached
+// user process. The player's password is typed by the player, never shown to the assistant, and a
 // secure field's value is never read.
 
 enum QANativeError: Error, LocalizedError {
@@ -48,11 +48,14 @@ final class QANativeActor: QAActorDriver {
 
     /// The application reacts to an action for a moment before the next look.
     private static let settle: UInt64 = 200_000_000
+    /// One native process cannot represent two independent players at once.
+    private static var claimedProcesses: Set<pid_t> = []
 
     let request: QADriverRequest
     private let credentials: QACredentials
     private let config: Config
     private var process: NSRunningApplication?
+    private var ownsProcess = false
     private var accessibility: QANativeAccessibility?
     private var capture: QANativeCapture?
     private var bundleIdentifier = ""
@@ -82,20 +85,35 @@ final class QANativeActor: QAActorDriver {
         applicationName = (bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
             ?? (bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? url.deletingPathExtension().lastPathComponent
 
-        // An application that allows one instance would hand back the person's own copy, which is never touched.
-        let running = Set(NSRunningApplication.runningApplications(withBundleIdentifier: identifier).map(\.processIdentifier))
-        if !running.isEmpty, bundle?.object(forInfoDictionaryKey: "LSMultipleInstancesProhibited") as? Bool == true {
-            throw QANativeError.noSecondInstance(applicationName)
-        }
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.createsNewApplicationInstance = true
-        configuration.activates = false
-        configuration.addsToRecentItems = false
+        // Prefer the person's running application. Some apps enforce a single instance without
+        // declaring it in their bundle, so trying another launch can just hand control back to it.
+        // Never claim ownership of an attached process: close() releases capture without quitting it.
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter { !$0.isTerminated }
+        let prohibitsMultiple = bundle?.object(forInfoDictionaryKey: "LSMultipleInstancesProhibited") as? Bool == true
         let launched: NSRunningApplication
-        do { launched = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration) } catch {
-            throw QANativeError.launchFailed(error.localizedDescription)
+        if let existing = running.first(where: { !Self.claimedProcesses.contains($0.processIdentifier) }) {
+            launched = existing
+            ownsProcess = false
+        } else {
+            if prohibitsMultiple && !running.isEmpty {
+                throw QANativeError.failed("\(applicationName) is already in use by another QA player. A separate instance is required for each player.")
+            }
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.createsNewApplicationInstance = true
+            configuration.activates = false
+            configuration.addsToRecentItems = false
+            do { launched = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration) } catch {
+                throw QANativeError.launchFailed(error.localizedDescription)
+            }
+            // Launch Services may return an existing instance even when the bundle did not declare
+            // the restriction. A PID present before the request always belongs to the user.
+            ownsProcess = !running.contains { $0.processIdentifier == launched.processIdentifier }
         }
-        if running.contains(launched.processIdentifier) { throw QANativeError.noSecondInstance(applicationName) }
+        guard !Self.claimedProcesses.contains(launched.processIdentifier) else {
+            ownsProcess = false
+            throw QANativeError.failed("\(applicationName) is already in use by another QA player. A separate instance is required for each player.")
+        }
+        Self.claimedProcesses.insert(launched.processIdentifier)
         process = launched
 
         do {
@@ -199,7 +217,7 @@ final class QANativeActor: QAActorDriver {
         return QANativeEvidence.make(from: last.elements, windowFrame: frame)
     }
 
-    /// Stops the pictures and ends the process this player launched (never another one): asked to quit first, made to after a few seconds.
+    /// Stops the pictures and ends only a process this player launched; an attached process stays open.
     func close() async {
         guard !closed else { return }
         closed = true
@@ -207,7 +225,9 @@ final class QANativeActor: QAActorDriver {
         let recording = capture
         capture = nil
         await recording?.stop()
-        guard let process, !process.isTerminated else { return }
+        guard let process else { return }
+        defer { Self.claimedProcesses.remove(process.processIdentifier) }
+        guard ownsProcess, !process.isTerminated else { return }
         process.terminate()
         let deadline = Date().addingTimeInterval(config.terminationGrace)
         while !process.isTerminated, Date() < deadline { await Self.pause(0.1) }

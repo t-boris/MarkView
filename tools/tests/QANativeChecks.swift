@@ -467,9 +467,46 @@ func liveTwoPlayers() async {
     check("live two players: nothing is left running", none)
 }
 
+/// A user-owned single-instance application remains alive after a QA player attaches and closes.
+@MainActor
+func liveAttached(fixture: URL, identifier: String, singleInstance: Bool) async {
+    let config = NSWorkspace.OpenConfiguration()
+    config.activates = false
+    let userApp: NSRunningApplication
+    do { userApp = try await NSWorkspace.shared.openApplication(at: fixture, configuration: config) }
+    catch { check("attached: start fixture (\(error.localizedDescription))", false); return }
+    let request = QADriverRequest(actor: nil, app: QAApp(id: "demo", name: "Demo"), address: identifier, login: nil)
+    let player = QANativeActor(request: request, credentials: QACredentials(username: nil, password: nil), config: .init(bringToFront: false, launchTimeout: 15))
+    do {
+        try await player.open(identifier)
+        let observed = try await player.observe()
+        check("attached: reads the already-running application's window", observed.title == "QA Native Demo")
+        if singleInstance {
+            let second = QANativeActor(request: request, credentials: QACredentials(username: nil, password: nil), config: .init(bringToFront: false))
+            var rejected = false
+            do { try await second.open(identifier) } catch { rejected = error.localizedDescription.contains("another QA player") }
+            await second.close()
+            check("attached: another player cannot share the same process", rejected && !userApp.isTerminated)
+        }
+        await player.close()
+        check("attached: closing QA leaves the user's process running", !userApp.isTerminated)
+        await player.close()
+        check("attached: closing twice leaves the user's process running", !userApp.isTerminated)
+    } catch { check("attached: player connects (\(error.localizedDescription))", false); await player.close() }
+    userApp.terminate()
+    for _ in 0..<40 where !userApp.isTerminated { try? await Task.sleep(nanoseconds: 100_000_000) }
+    if !userApp.isTerminated { userApp.forceTerminate() }
+}
+
 if CommandLine.arguments.count > 1, !CommandLine.arguments[1].isEmpty {
     await live(fixture: URL(fileURLWithPath: CommandLine.arguments[1]))
-    if QANativePermissions.current == .granted { await liveTwoPlayers() }
+    if QANativePermissions.current == .granted {
+        await liveTwoPlayers()
+        await liveAttached(fixture: URL(fileURLWithPath: CommandLine.arguments[1]), identifier: "com.markview.qa-native-demo", singleInstance: false)
+        if CommandLine.arguments.count > 2, !CommandLine.arguments[2].isEmpty {
+            await liveAttached(fixture: URL(fileURLWithPath: CommandLine.arguments[2]), identifier: "com.markview.qa-native-single", singleInstance: true)
+        }
+    }
 } else {
     print("skip live: no fixture application given")
 }
