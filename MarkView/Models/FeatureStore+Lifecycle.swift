@@ -617,6 +617,8 @@ final class IssueLifecycleCoordinator {
             return
         }
         Self.recoveringProjects.insert(parts.root)
+        // Later requests set this again while the background pass is in progress.
+        reconcileRequested = false
         let snapshot = items().map { (kind: $0.kind, issue: $0.issue) }
         let revision = workflow.revision
         let loaded = store.hasLoaded
@@ -649,9 +651,10 @@ final class IssueLifecycleCoordinator {
                     return
                 }
             }
+            let needsAnotherPass = self.reconcileRequested
             self.reconcileRequested = false
             self.reconcileLocal(records: records)
-            if self.reconcileRequested { self.requestReconciliation() }
+            if needsAnotherPass || self.reconcileRequested { self.requestReconciliation() }
         }
     }
 
