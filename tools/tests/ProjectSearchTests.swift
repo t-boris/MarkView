@@ -22,6 +22,9 @@ try write("web/Widget.vue", "<template><p>needle in vue</p></template>\n")      
 try write("infra/main.tf", "resource \"x\" \"needle_in_terraform\" {}\n")           // not on the old list
 try write("Procfile", "web: needle_in_procfile\n")                                  // no extension
 try write("node_modules/pkg/index.js", "needle in node_modules\n")                  // excluded directory
+try write(".worktrees/feature/worktree-copy.swift", "needle worktree_only_token\n")
+try write("nested/.worktrees/feature/nested-copy.swift", "needle worktree_only_token\n")
+try write("worktrees/notes.md", "needle in an ordinary folder\n")
 try write(".env", "SECRET=needle_secret\n")                                          // excluded file
 try Data([0x4e, 0x45, 0x00, 0x44, 0x4c, 0x45]).write(to: root.appendingPathComponent("blob.dat"))   // binary with NUL, no known extension
 try Data("needle".utf8).write(to: root.appendingPathComponent("picture.png"))        // text bytes but a binary extension
@@ -44,6 +47,14 @@ let titles = Set(content.map(\.title))
 check(titles.contains("readme.md") && titles.contains("app.swift"), "markdown and swift are found")
 check(titles.contains("Widget.vue") && titles.contains("main.tf") && titles.contains("Procfile"), "text files of any extension are found: \(titles.sorted())")
 check(!titles.contains("index.js") && !titles.contains(".env"), "excluded directories and files stay out")
+let worktreeContent = await index.search("worktree_only_token")
+let worktreeNames = await index.search("worktree-copy")
+let nestedWorktreeNames = await index.search("nested-copy")
+check(!worktreeContent.contains { $0.scope == .content }
+      && !worktreeNames.contains { $0.scope == .file }
+      && !nestedWorktreeNames.contains { $0.scope == .file },
+      "root and nested .worktrees copies stay out of content and file-name search")
+check(content.contains { $0.path == "worktrees/notes.md" }, "an ordinary worktrees folder is still searched")
 check(!titles.contains("blob.dat") && !titles.contains("picture.png"), "binary files are not read")
 check(content.first { $0.title == "app.swift" }?.line == 1, "a content hit carries its line")
 
