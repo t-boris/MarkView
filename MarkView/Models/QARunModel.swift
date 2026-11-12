@@ -208,7 +208,7 @@ final class QARunModel: ObservableObject {
         dismissed = false
         runStart = Date()
         players = scenario.actors.map { Player(id: $0.id, name: $0.name) }
-        labels = Dictionary(uniqueKeysWithValues: plan.branches.map { ($0.id, scenario.label(of: $0)) })
+        labels = Dictionary(uniqueKeysWithValues: plan.branches.map { ($0.id, scenario.displayLabel(of: $0)) })
         branchCount = plan.branches.count
         QAStore.prepareLocalFolder(root)
 

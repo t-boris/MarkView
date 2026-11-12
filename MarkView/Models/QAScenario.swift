@@ -373,6 +373,23 @@ struct QAScenario: Codable, Equatable, Identifiable {
         return taken.isEmpty ? "Main line" : taken.joined(separator: ", ")
     }
 
+    /// Include the choices at forks so parallel paths with the same alternative title remain distinguishable.
+    func displayLabel(of branch: QABranch) -> String {
+        var choices: [String] = []
+        for (from, to) in zip(branch.nodes, branch.nodes.dropFirst()) {
+            let outgoing = edges.filter { $0.from == from }
+            guard Set(outgoing.map(\.to)).count > 1,
+                  let edge = outgoing.first(where: { $0.to == to }) else { continue }
+            let label = edge.label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let title = label.isEmpty ? (node(to)?.title ?? to) : label
+            if !title.isEmpty && !choices.contains(title) { choices.append(title) }
+        }
+        let original = label(of: branch)
+        guard !choices.isEmpty else { return original }
+        if original != "Main line" && !choices.contains(original) { choices.append(original) }
+        return choices.joined(separator: " · ")
+    }
+
     // MARK: Problems
 
     /// An id of a step, an actor or an application: plain letters, digits, - and _.
