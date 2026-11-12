@@ -362,9 +362,11 @@ final class QARunner {
                 } else if condition.isManual {
                     note(branch, nodeID, nil, .preparation, "Set up by the person: \(condition.establish)")
                 } else {
-                    let app = scenario.node(nodeID).flatMap { scenario.app(scenario.appID(of: $0) ?? "") } ?? firstApp(of: branch)
-                    note(branch, nodeID, nil, .preparation, condition.establish)
-                    let outcome = await runSetup(branch, app: app, establish: condition.establish, verify: condition.verify, title: "Bring about the condition")
+                    let node = scenario.node(nodeID)
+                    let actor = node?.actor.flatMap { id in scenario.actors.first { $0.id == id } }
+                    let app = node.flatMap { scenario.app(scenario.appID(of: $0) ?? "") } ?? firstApp(of: branch)
+                    note(branch, nodeID, actor?.id, .preparation, condition.establish)
+                    let outcome = await runSetup(branch, app: app, establish: condition.establish, verify: condition.verify, title: "Bring about the condition", actor: actor)
                     if case .interrupted = outcome { machine.apply(.interrupted(.stoppedByUser, "Stopped by the person.")); return result() }
                     if let failure = failure(of: outcome) {
                         machine.apply(.conditionNotAchieved(failure.message))
@@ -465,14 +467,14 @@ final class QARunner {
     // MARK: Setup tasks
 
     /// Carries out what the person wrote to prepare the application (restore a baseline, bring about a condition), then checks it.
-    private func runSetup(_ branch: QABranch, app: QAApp, establish: String, verify: String, title: String) async -> Outcome {
+    private func runSetup(_ branch: QABranch, app: QAApp, establish: String, verify: String, title: String, actor: QAActor? = nil) async -> Outcome {
         let driver: QAActorDriver
-        do { driver = try await session(for: nil, app: app) } catch { return .blocked(.launchFailed, "The application could not be opened: \(describe(error))") }
-        let doing = QAStepTask(id: "setup", kind: .act, title: title, detail: establish, actorName: "the test", appName: app.name, allowsHTTP: true)
-        let first = await perform(doing, branch: branch, node: nil, actor: nil, driver: driver, tally: Tally())
+        do { driver = try await session(for: actor, app: app) } catch { return .blocked(.launchFailed, "The application could not be opened: \(describe(error))") }
+        let doing = QAStepTask(id: "setup", kind: .act, title: title, detail: establish, actorName: actor?.name ?? "the test", appName: app.name, allowsHTTP: true)
+        let first = await perform(doing, branch: branch, node: nil, actor: actor?.id, driver: driver, tally: Tally())
         guard case .done = first else { return first }
-        let checking = QAStepTask(id: "setup", kind: .verify, title: "Confirm: \(title.lowercased())", detail: verify, actorName: "the test", appName: app.name, allowsHTTP: true)
-        return await perform(checking, branch: branch, node: nil, actor: nil, driver: driver, tally: Tally())
+        let checking = QAStepTask(id: "setup", kind: .verify, title: "Confirm: \(title.lowercased())", detail: verify, actorName: actor?.name ?? "the test", appName: app.name, allowsHTTP: true)
+        return await perform(checking, branch: branch, node: nil, actor: actor?.id, driver: driver, tally: Tally())
     }
 
     private func failure(of outcome: Outcome) -> (reason: QABlockReason, message: String)? {
@@ -510,7 +512,7 @@ final class QARunner {
             let decision: QADecision
             do {
                 let answer = try await assistant.decide(system: QAStepPrompt.systemPrompt(scenario.appKind),
-                                                        prompt: QAStepPrompt.prompt(kind: scenario.appKind, task: task, goal: scenario.goal, history: history, observation: observation, language: language, branchContext: branchContext),
+                                                        prompt: QAStepPrompt.prompt(kind: scenario.appKind, task: task, goal: scenario.goal, history: history, observation: observation, language: language, branchContext: branchContext, branchPlan: QAStepPrompt.branchPlan(scenario: scenario, branch: branch)),
                                                         schema: QAStepPrompt.schema)
                 decision = try QAStepPrompt.parse(answer, kind: scenario.appKind, allowsHTTP: task.allowsHTTP)
             } catch is CancellationError {

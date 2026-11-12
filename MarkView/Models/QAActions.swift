@@ -151,10 +151,35 @@ enum QAStepPrompt {
         - Fill only the fields the step needs. Prefer the plain, visible way a person would take. A dialog or sheet that opened must be dealt with before the window behind it.
         """
 
+    /// Scenario-wide instructions and the selected path are reference material, not tasks to execute.
+    static func branchPlan(scenario: QAScenario, branch: QABranch) -> String {
+        var lines = ["Active branch ID: \(branch.id)", "Ordered branch path (reference only):"]
+        for (index, id) in branch.nodes.enumerated() {
+            guard let node = scenario.node(id) else { continue }
+            let edge = index > 0 ? scenario.edges.first { $0.from == branch.nodes[index - 1] && $0.to == id }?.label : nil
+            lines.append("\(index + 1). [\(id)] \(node.title)" + (edge.map { " (route: \($0))" } ?? ""))
+        }
+        if let startID = scenario.start, let start = scenario.node(startID) {
+            lines.append("Initial step instructions and test data map (reference only):\n[\(start.id)] \(start.title)\n\(start.detail)")
+        }
+        let conditions = scenario.conditions(of: branch)
+        if !conditions.isEmpty {
+            lines.append("Active branch conditions (reference only):")
+            for (node, condition) in conditions {
+                lines.append("[\(node)] \(condition.kind.rawValue)\(condition.isManual ? " (person handles this condition)" : ""): establish: \(condition.establish); verify: \(condition.verify)")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// `language` is the name of the language the scenario is written in (`QALanguage`); the narration is asked for in it, whatever language the screen is in.
-    static func prompt(kind: QAAppKind, task: QAStepTask, goal: String, history: [QAHistoryItem], observation: QAObservation, language: String? = nil, branchContext: [String] = []) -> String {
+    static func prompt(kind: QAAppKind, task: QAStepTask, goal: String, history: [QAHistoryItem], observation: QAObservation, language: String? = nil, branchContext: [String] = [], branchPlan: String = "") -> String {
         var lines: [String] = []
         lines.append("Scenario goal: \(goal)")
+        if !branchPlan.isEmpty {
+            lines.append("\nSelected branch context (reference only):\n\(branchPlan)")
+            lines.append("Execute ONLY the current task below. Select the test data for this active branch, including when preparing it or executing a shared step. Do not execute future steps or prepare other conditions ahead of time. The path and initial instructions are context, not additional actions. Completed-step history does not replace this context.")
+        }
         lines.append("Application: \(task.appName). Player: \(task.actorName).")
         lines.append("Step (\(task.kind == .verify ? "a check: do not change anything" : "an action")): \(task.title)")
         if !task.detail.isEmpty { lines.append("Details: \(task.detail)") }
