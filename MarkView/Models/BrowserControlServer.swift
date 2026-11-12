@@ -255,6 +255,140 @@ enum BrowserControlServer {
 /// Performs the agent tools on a browser tab's web view.
 @MainActor
 enum BrowserAgentExecutor {
+    /// WebKit supplies each frame handle. Page messages can identify a visible
+    /// child element, but cannot manufacture a native handle for another tab.
+    final class Frames: NSObject, WKScriptMessageHandler {
+        static let handler = "markviewAgentFrame"
+        struct Hop { var parent: WKFrameInfo?; var token: String }
+        struct Entry { var number: Int; var info: WKFrameInfo; var chain: [Hop] = [] }
+        private var entries: [String: Entry] = [:]
+        private var active: Set<Int> = []
+        private var next = 0
+
+        func install(in controller: WKUserContentController) {
+            controller.add(self, contentWorld: .defaultClient, name: Self.handler)
+            controller.addUserScript(WKUserScript(source: Self.registration, injectionTime: .atDocumentStart,
+                                                  forMainFrameOnly: false, in: .defaultClient))
+        }
+        func reset() { entries = [:]; active = []; next = 0 }
+        func beginSnapshot() { active = [] }
+        func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard !message.frameInfo.isMainFrame, let token = message.body as? String,
+                  token.range(of: "^[a-zA-Z0-9-]{8,80}$", options: .regularExpression) != nil,
+                  entries[token] == nil, entries.count < 128 else { return }
+            next += 1
+            entries[token] = Entry(number: next, info: message.frameInfo)
+        }
+        func activate(_ token: String, chain: [Hop]) -> Entry? {
+            guard var entry = entries[token] else { return nil }
+            entry.chain = chain; entries[token] = entry; active.insert(entry.number)
+            return entry
+        }
+        func entry(for ref: String) -> Entry? {
+            guard let colon = ref.firstIndex(of: ":"), ref.hasPrefix("f"),
+                  let number = Int(ref[ref.index(after: ref.startIndex)..<colon]), active.contains(number) else { return nil }
+            return entries.values.first { $0.number == number }
+        }
+        static func localRef(_ ref: String) -> String { String(ref.split(separator: ":").last ?? Substring(ref)) }
+        static func validRef(_ ref: String) -> Bool {
+            ref.range(of: "^(?:f[0-9]{1,3}:)?e[0-9]{1,6}$", options: .regularExpression) != nil
+        }
+        private static let registration = #"""
+        addEventListener('message', event => {
+          const token = event.data && event.data.__markviewAgentFrame;
+          if (typeof token !== 'string' || !/^[a-zA-Z0-9-]{8,80}$/.test(token)) return;
+          for (const el of document.querySelectorAll('iframe,frame')) {
+            if (el.contentWindow === event.source) { el.setAttribute('data-mv-frame', token); break; }
+          }
+        });
+        if (window !== window.top) {
+          const token = 'mv-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+          window.webkit.messageHandlers.markviewAgentFrame.postMessage(token);
+          window.parent.postMessage({__markviewAgentFrame:token}, '*');
+        }
+        """#
+    }
+
+    private struct Target {
+        var arguments: [String: Any]
+        var entry: Frames.Entry?
+    }
+    private static func target(_ args: [String: Any], in session: BrowserSession) -> Target? {
+        guard let ref = (args["ref"] ?? args["frame_ref"]) as? String, ref.hasPrefix("f") else {
+            return Target(arguments: args)
+        }
+        guard Frames.validRef(ref), let entry = session.agentFrames.entry(for: ref) else { return nil }
+        var local = args
+        local["ref"] = Frames.localRef(ref)
+        return Target(arguments: local, entry: entry)
+    }
+
+    /// Bring the embedding frames into view and project child CSS coordinates
+    /// through their borders and any CSS scaling into the main viewport.
+    private static func frameGeometry(_ target: Target, web: WKWebView, scroll: Bool) async -> (x: Double, y: Double, sx: Double, sy: Double)? {
+        var result = (x: 0.0, y: 0.0, sx: 1.0, sy: 1.0)
+        for hop in target.entry?.chain ?? [] {
+            let reply = await script(web, #"""
+            const el = document.querySelector('[data-mv-frame="'+token+'"]');
+            if (!el) return null;
+            if (scroll) el.scrollIntoView({block:'center',inline:'center',behavior:'instant'});
+            const r = el.getBoundingClientRect();
+            const sx = r.width / (el.offsetWidth || r.width), sy = r.height / (el.offsetHeight || r.height);
+            return JSON.stringify({x:r.x+el.clientLeft*sx,y:r.y+el.clientTop*sy,sx,sy});
+            """#, ["token": hop.token, "scroll": scroll], in: hop.parent) { $0 as? String ?? "" }
+            guard !reply.isError, let data = reply.text.data(using: .utf8),
+                  let r = (try? JSONSerialization.jsonObject(with: data)) as? [String: Double],
+                  let x = r["x"], let y = r["y"], let sx = r["sx"], let sy = r["sy"] else { return nil }
+            result.x += x * result.sx; result.y += y * result.sy
+            result.sx *= sx; result.sy *= sy
+        }
+        return result
+    }
+
+    private static func snapshot(_ session: BrowserSession) async -> BrowserAgentTools.Reply {
+        let web = session.webView
+        func page(in frame: WKFrameInfo?) async -> [String: Any]? {
+            let reply = await script(web, Scripts.snapshot, [:], in: frame) { $0 as? String ?? "" }
+            guard !reply.isError, let data = reply.text.data(using: .utf8) else { return nil }
+            return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        }
+        guard let main = await page(in: nil) else { return .error("The page could not be read.") }
+        session.agentFrames.beginSnapshot()
+        var children: [String] = [], visited: Set<Int> = []
+        func collect(_ parent: [String: Any], frame: WKFrameInfo?, chain: [Frames.Hop], depth: Int) async {
+            guard depth < 8 else { return }
+            for child in parent["frames"] as? [[String: Any]] ?? [] {
+                guard visited.count < 16, let token = child["token"] as? String,
+                      let entry = session.agentFrames.activate(token, chain: chain + [Frames.Hop(parent: frame, token: token)]),
+                      visited.insert(entry.number).inserted, let content = await page(in: entry.info) else { continue }
+                let elements = (content["elements"] as? [String] ?? []).map { line -> String in
+                    guard line.hasPrefix("[e") else { return line }
+                    return "[f\(entry.number):" + line.dropFirst()
+                }.joined(separator: "\n")
+                let title = String((child["title"] as? String ?? "embedded page").prefix(120))
+                children.append("## Frame f\(entry.number): \(title) (\(entry.info.securityOrigin.host))\n\(elements)\n\nVisible text:\n\(content["viewportText"] ?? "")")
+                await collect(content, frame: entry.info, chain: entry.chain, depth: depth + 1)
+            }
+        }
+        await collect(main, frame: nil, chain: [], depth: 0)
+        let elements = (main["elements"] as? [String] ?? []).joined(separator: "\n")
+        return BrowserAgentTools.Reply(text: """
+        Tab: \(session.agentName)
+        URL: \(main["url"] ?? "")
+        Title: \(main["title"] ?? "")
+
+        ## Visible text
+        \(main["viewportText"] ?? "")
+
+        \(children.joined(separator: "\n\n"))
+
+        ## Elements
+        \(elements.isEmpty ? "(none)" : elements)
+
+        ## Text (full-page excerpt; scroll to bring more text into view)
+        \(main["text"] ?? "")
+        """)
+    }
     static func run(_ tool: String, _ args: [String: Any], in session: BrowserSession) async -> BrowserAgentTools.Reply {
         session.agentControlled = true
         let web = session.webView
@@ -267,12 +401,7 @@ enum BrowserAgentExecutor {
             await settle(session, started: true)
             return status(session)
         case "browser_snapshot":
-            return await script(web, Scripts.snapshot, [:]) { value in
-                guard let text = value as? String, let data = text.data(using: .utf8),
-                      let page = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return "" }
-                let elements = (page["elements"] as? [String] ?? []).joined(separator: "\n")
-                return "Tab: \(session.agentName)\nURL: \(page["url"] ?? "")\nTitle: \(page["title"] ?? "")\n\n## Elements\n\(elements.isEmpty ? "(none)" : elements)\n\n## Text\n\(page["text"] ?? "")"
-            }
+            return await snapshot(session)
         case "browser_click":
             return await click(args, in: session)
         case "browser_type":
@@ -294,7 +423,8 @@ enum BrowserAgentExecutor {
             return reply
         case "browser_evaluate":
             guard let body = args["script"] as? String, !body.isEmpty else { return .error("A script is required.") }
-            return await script(web, "return JSON.stringify(await (async () => { \(body)\n })(), null, 1) ?? 'undefined';", [:]) {
+            guard let chosen = target(args, in: session) else { return .error("The frame is no longer on the page. Take a new browser_snapshot.") }
+            return await script(web, "return JSON.stringify(await (async () => { \(body)\n })(), null, 1) ?? 'undefined';", [:], in: chosen.entry?.info) {
                 $0 as? String ?? "undefined"
             }
         case "browser_screenshot":
@@ -345,12 +475,17 @@ enum BrowserAgentExecutor {
     /// when the tab is not on screen or something else covers the element.
     private static func click(_ args: [String: Any], in session: BrowserSession) async -> BrowserAgentTools.Reply {
         let web = session.webView
-        let located = await script(web, Scripts.find + Scripts.locate, ["a": args]) { $0 as? String ?? "" }
+        guard let chosen = target(args, in: session), await frameGeometry(chosen, web: web, scroll: true) != nil else {
+            return .error("The frame is no longer on the page. Take a new browser_snapshot.")
+        }
+        let located = await script(web, Scripts.find + Scripts.locate, ["a": chosen.arguments], in: chosen.entry?.info) { $0 as? String ?? "" }
         guard !located.isError, let data = located.text.data(using: .utf8),
               let target = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return located }
         let description = target["describe"] as? String ?? "the element"
         if (target["disabled"] as? Bool) == true { return .error("\(description) is disabled.") }
-        let point = CGPoint(x: target["x"] as? Double ?? 0, y: target["y"] as? Double ?? 0)
+        guard let geometry = await frameGeometry(chosen, web: web, scroll: false) else { return .error("The embedding frame moved. Take a new browser_snapshot.") }
+        let point = CGPoint(x: geometry.x + (target["x"] as? Double ?? 0) * geometry.sx,
+                            y: geometry.y + (target["y"] as? Double ?? 0) * geometry.sy)
         var how = "with a mouse click"
         if canUseNativeInput(web), (target["hit"] as? Bool) == true, let window = web.window {
             let location = windowPoint(point, in: web)
@@ -366,7 +501,7 @@ enum BrowserAgentExecutor {
                 }
             }
         } else {
-            let reply = await script(web, Scripts.find + Scripts.click, ["a": args]) { $0 as? String ?? "" }
+            let reply = await script(web, Scripts.find + Scripts.click, ["a": chosen.arguments], in: chosen.entry?.info) { $0 as? String ?? "" }
             guard !reply.isError else { return reply }
             how = (target["hit"] as? Bool) == false ? "by script (another element covers it)" : "by script (the tab is not on screen)"
         }
@@ -379,17 +514,20 @@ enum BrowserAgentExecutor {
     private static func type(_ args: [String: Any], in session: BrowserSession) async -> BrowserAgentTools.Reply {
         let web = session.webView
         let value = args["value"] as? String ?? ""
-        let prepared = await script(web, Scripts.find + Scripts.prepareTyping, ["a": args]) { $0 as? String ?? "" }
+        guard let chosen = target(args, in: session), await frameGeometry(chosen, web: web, scroll: true) != nil else {
+            return .error("The frame is no longer on the page. Take a new browser_snapshot.")
+        }
+        let prepared = await script(web, Scripts.find + Scripts.prepareTyping, ["a": chosen.arguments], in: chosen.entry?.info) { $0 as? String ?? "" }
         guard !prepared.isError else { return prepared }
         var how = "as keystrokes"
         var typed = false
         if canUseNativeInput(web), let client = web as? NSTextInputClient {
             withFocus(web) { client.insertText(value, replacementRange: NSRange(location: NSNotFound, length: 0)) }
-            let current = await script(web, Scripts.focusedValue, [:]) { $0 as? String ?? "" }
-            typed = value.isEmpty || current.text.contains(value)
+            let current = await script(web, Scripts.typedValue, ["expected": value], in: chosen.entry?.info) { ($0 as? Bool) == true ? "yes" : "no" }
+            typed = value.isEmpty || current.text == "yes"
         }
         if !typed {
-            let reply = await script(web, Scripts.find + Scripts.type, ["a": args.merging(["submit": false]) { $1 }]) { $0 as? String ?? "" }
+            let reply = await script(web, Scripts.find + Scripts.type, ["a": chosen.arguments.merging(["submit": false]) { $1 }], in: chosen.entry?.info) { $0 as? String ?? "" }
             guard !reply.isError else { return reply }
             how = "by script"
         }
@@ -464,10 +602,10 @@ enum BrowserAgentExecutor {
         return BrowserAgentTools.Reply(text: "Tab \(session.agentName): \(session.webView.url?.absoluteString ?? "") — \(session.webView.title ?? "")")
     }
 
-    private static func script(_ web: WKWebView, _ body: String, _ arguments: [String: Any],
+    private static func script(_ web: WKWebView, _ body: String, _ arguments: [String: Any], in frame: WKFrameInfo? = nil,
                                format: (Any?) -> String) async -> BrowserAgentTools.Reply {
         do {
-            let value = try await web.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
+            let value = try await web.callAsyncJavaScript(body, arguments: arguments, in: frame, contentWorld: .page)
             let text = format(value)
             if text.hasPrefix("ERROR: ") { return .error(String(text.dropFirst(7))) }
             return BrowserAgentTools.Reply(text: text)
@@ -496,7 +634,10 @@ enum BrowserAgentExecutor {
         const visible = el => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
           return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
         const sel = 'a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=switch],[role=combobox],[contenteditable=true],[onclick]';
-        for (const el of document.querySelectorAll(sel)) {
+        const onScreen = el => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth; };
+        const candidates = [...document.querySelectorAll(sel)].filter(visible);
+        candidates.sort((a,b) => Number(onScreen(b)) - Number(onScreen(a)));
+        for (const el of candidates) {
           if (out.length >= 300) break;
           if (!visible(el)) continue;
           let ref = el.getAttribute('data-mv-ref');
@@ -508,7 +649,8 @@ enum BrowserAgentExecutor {
           if (tag === 'a') extra += ' -> ' + el.getAttribute('href');
           if (el.type === 'checkbox' || el.type === 'radio') extra += el.checked ? ' [checked]' : ' [unchecked]';
           else if ((tag === 'input' || tag === 'textarea' || tag === 'select') && el.value && el.type !== 'password') {
-            const value = String(el.value);
+            const sensitive = /cc-number|cc-csc/.test(el.autocomplete || '') || /^(cardnumber|cvc|cvv)$/i.test(el.name || '');
+            const value = sensitive ? '[entered]' : String(el.value);
             extra += ' value=' + JSON.stringify(value.slice(0, 4000));
             if (value.length > 4000) extra += ' [value truncated: ' + value.length + ' characters total]';
           }
@@ -516,8 +658,22 @@ enum BrowserAgentExecutor {
           out.push('[' + ref + '] ' + role + ' "' + name + '"' + extra);
         }
         window.__mvRefCounter = n;
+        const viewport = [];
+        const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+        let node, examined = 0, length = 0;
+        while ((node = walker.nextNode()) && examined++ < 30000 && length < 4000) {
+          const parent = node.parentElement, value = node.textContent.trim();
+          if (!value || !parent || /^(SCRIPT|STYLE|NOSCRIPT|OPTION)$/.test(parent.tagName) || getComputedStyle(parent).visibility === 'hidden') continue;
+          const range = document.createRange(); range.selectNodeContents(node);
+          if ([...range.getClientRects()].some(r => r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth)) {
+            viewport.push(value.slice(0, 4000-length)); length += value.length;
+          }
+        }
+        const frames = [...document.querySelectorAll('iframe,frame')].filter(el => visible(el) && el.clientWidth > 1 && el.clientHeight > 1)
+          .sort((a,b) => Number(onScreen(b)) - Number(onScreen(a)))
+          .map(el => ({token:el.getAttribute('data-mv-frame'),title:el.title || 'embedded page'})).filter(f => f.token);
         const text = (document.body ? document.body.innerText : '').replace(/\n{3,}/g, '\n\n').slice(0, 15000);
-        return JSON.stringify({ url: location.href, title: document.title, text, elements: out });
+        return JSON.stringify({ url: location.href, title: document.title, text, viewportText:viewport.join('\n'), elements: out, frames });
         """#
 
         static let find = #"""
@@ -534,7 +690,7 @@ enum BrowserAgentExecutor {
           }
           return null;
         };
-        const describe = (el) => el.tagName.toLowerCase() + ' "' + (el.getAttribute('aria-label') || el.innerText || (el.type === 'password' ? '' : el.value) || el.placeholder || '').trim().replace(/\s+/g, ' ').slice(0, 60) + '"';
+        const describe = (el) => el.tagName.toLowerCase() + ' "' + (el.getAttribute('aria-label') || el.innerText || el.placeholder || el.name || (/^(submit|button|reset)$/.test(el.type) ? el.value : '') || '').trim().replace(/\s+/g, ' ').slice(0, 60) + '"';
         const el = find(a);
         if (!el) return 'ERROR: No element matches ' + JSON.stringify(a.ref || a.selector || a.text || '(nothing given)') + '. Take a new browser_snapshot.';
         el.scrollIntoView({ block: 'center', inline: 'center' });
@@ -577,10 +733,19 @@ enum BrowserAgentExecutor {
         return describe(el);
         """#
 
-        static let focusedValue = #"""
+        /// Compare inside the frame: never return a password or card value.
+        /// Payment Elements format a pasted card/expiry, so whitespace and
+        /// separator changes are not evidence that native typing failed.
+        static let typedValue = #"""
         const el = document.activeElement;
-        if (!el || el.type === 'password') return '';
-        return el.isContentEditable ? el.textContent : String(el.value ?? '');
+        if (!el) return false;
+        const actual = el.isContentEditable ? el.textContent : String(el.value ?? '');
+        if (actual.includes(expected)) return true;
+        if (/cc-number|cc-exp|cc-csc|tel/.test(el.autocomplete || '') || /^(cardnumber|cardexpiry|cvc|cvv)$/i.test(el.name || '')) {
+          const digits = expected.replace(/\D/g, '');
+          return digits.length > 0 && actual.replace(/\D/g, '').includes(digits);
+        }
+        return false;
         """#
 
         static let type = #"""

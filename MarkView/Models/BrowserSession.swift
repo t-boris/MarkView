@@ -123,6 +123,7 @@ final class BrowserSession: NSObject, ObservableObject {
     /// recorded in `agentDialogs` instead of stopping the page behind a modal alert.
     var agentControlled = false
     var agentDialogs: [String] = []
+    let agentFrames = BrowserAgentExecutor.Frames()
     /// The name agents and the user call this tab by: T1, T2… or one the user gave ("Jira").
     @Published var agentName = "T1"
     /// The user stopped agents from using this tab; tool calls are refused until allowed again.
@@ -167,6 +168,7 @@ final class BrowserSession: NSObject, ObservableObject {
         configuration.preferences.isElementFullscreenEnabled = true
         // Sign-in pages (Google) refuse an embedded browser that does not name itself a Safari.
         configuration.applicationNameForUserAgent = "Version/17.0 Safari/605.1.15"
+        agentFrames.install(in: configuration.userContentController)
         // The page's console and uncaught errors, kept for agents (`browser_console`).
         configuration.userContentController.addUserScript(WKUserScript(
             source: Self.consoleCaptureScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
@@ -329,6 +331,8 @@ final class BrowserSession: NSObject, ObservableObject {
         passwordPrompt = nil
         for popup in popups { popup.close() }
         webView.configuration.userContentController.removeScriptMessageHandler(forName: BrowserPasswordScript.handlerName, contentWorld: .defaultClient)
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: BrowserAgentExecutor.Frames.handler, contentWorld: .defaultClient)
+        agentFrames.reset()
         webView.stopLoading()
         webView.loadHTMLString("", baseURL: nil)
     }
@@ -444,6 +448,7 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        agentFrames.reset()
         loadError = nil
         failedURL = nil
         fillOffer = nil
