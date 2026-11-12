@@ -1065,6 +1065,7 @@ final class ScriptedAssistant: QAAssistant {
     var systems: [String] = []
     var failure: Error?
     var cancelOnCall: Int?
+    var respond: ((String) -> [String: Any]?)?
     private var calls = 0
     init(_ script: [String: [[String: Any]]] = [:]) { self.script = script }
     func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any? {
@@ -1073,6 +1074,7 @@ final class ScriptedAssistant: QAAssistant {
         systems.append(system)
         if let failure { throw failure }
         if calls == cancelOnCall { withUnsafeCurrentTask { $0?.cancel() } }
+        if let response = respond?(prompt) { return response }
         for title in script.keys where prompt.contains("): \(title)\n") {
             if var queue = script[title], !queue.isEmpty { let next = queue.removeFirst(); script[title] = queue; return next }
         }
@@ -1168,6 +1170,34 @@ do {
     check("run: another player receives the baseline and new event from the customer's completed step", sellerPrompt.contains("/events/old-a") && sellerPrompt.contains("/events/old-b") && sellerPrompt.contains("/events/new-c") && sellerPrompt.contains("QA-PACKAGE-123"))
     check("run: a later check receives evidence across step and player changes", rememberedRun.assistant.prompts.first { $0.contains("Step (a check: do not change anything): The order is listed\n") }?.contains("QA-PACKAGE-123") == true)
     check("run: account preparation is not retained as shared scenario evidence", !(rememberedRun.assistant.prompts.first { $0.contains("Step (an action): Add a product to the cart\n") } ?? "").contains("Completed steps in this branch"))
+
+    // Preparation and the first common step must see the selected branch's data, before any steps finish.
+    let mapped = changed(local) { scenario in
+        scenario.nodes[0].detail = "Data map: main order ORDER-MAIN; declined order ORDER-DECLINED. Use the order for the selected branch."
+        scenario.nodes[2].condition = QACondition(kind: .data, establish: "Prepare ORDER-MAIN", verify: "ORDER-MAIN ready")
+        scenario.nodes[5].condition = QACondition(kind: .data, establish: "Prepare ORDER-DECLINED", verify: "ORDER-DECLINED ready")
+    }
+    let mappedRun = run(scenario: mapped, branches: [mainLine, declined], script: [
+        "Bring about the condition": [move("click", "e1"), finished(), move("click", "e1"), finished()]
+    ], prepare: { _, assistant in
+        assistant.respond = { prompt in
+            guard prompt.contains("Step (an action): Add a product to the cart\n") else { return nil }
+            if prompt.contains("What you did so far in this step:") { return finished() }
+            return move("fill", "e1", text: prompt.contains("Active branch ID: \(declined)") ? "ORDER-DECLINED" : "ORDER-MAIN")
+        }
+    })
+    let prepPrompts = mappedRun.assistant.prompts.filter { $0.contains("Step (an action): Bring about the condition\n") }
+    let firstPrompts = mappedRun.assistant.prompts.filter { $0.contains("Step (an action): Add a product to the cart\n") }
+    check("run: preparation sees branch ID, path, initial data map and its condition before the first step", prepPrompts.contains { $0.contains("Active branch ID: \(declined)") && $0.contains("ORDER-DECLINED") && $0.contains("Data map:") && !$0.contains("Prepare ORDER-MAIN") })
+    check("run: both first shared steps see their own branch and data map", firstPrompts.count == 4 && firstPrompts.contains { $0.contains("Active branch ID: \(mainLine)") && $0.contains("Prepare ORDER-MAIN") && !$0.contains("Prepare ORDER-DECLINED") } && firstPrompts.contains { $0.contains("Active branch ID: \(declined)") && $0.contains("Prepare ORDER-DECLINED") && !$0.contains("Prepare ORDER-MAIN") })
+    let buyerDrivers = mappedRun.factory.drivers.filter { $0.request.actor?.id == "buyer" }
+    check("run: each branch acts on its own order from the first common step", buyerDrivers.count == 2 && buyerDrivers[0].performed.contains { $0.text == "ORDER-MAIN" } && buyerDrivers[1].performed.contains { $0.text == "ORDER-DECLINED" })
+    check("run: branch path is reference and future steps must not be executed", firstPrompts.allSatisfy { $0.contains("Execute ONLY the current task") && $0.contains("Do not execute future steps") && $0.contains("Ordered branch path (reference only)") })
+    let declineDriver = mappedRun.factory.drivers.filter { $0.request.actor?.id == "buyer" }.last
+    check("run: condition uses the signed-in player's existing driver and saved login", declineDriver?.request.login == localBuyer && declineDriver?.performed.contains(where: { $0.kind == .click }) == true && mappedRun.factory.drivers.filter { $0.request.actor?.id == "buyer" }.count == 2 && mappedRun.factory.driver(nil) == nil)
+    let unassigned = changed(mapped) { $0.nodes[5].actor = nil }
+    let unassignedRun = run(scenario: unassigned, branches: [declined], script: ["Bring about the condition": [move("click", "e1"), finished()]])
+    check("run: a condition without an assigned player still uses the setup session", unassignedRun.factory.driver(nil)?.performed.contains(where: { $0.kind == .click }) == true)
 
     // A native macOS scenario runs through the same loop, with the application's own words
     let nativeShop = changed(local) { scenario in
@@ -1345,7 +1375,7 @@ do {
         s.nodes[s.nodes.firstIndex { $0.id == "f1" }!].condition = QACondition(kind: .state, establish: "Switch the payment gateway to its failing mode", verify: "", manual: true)
     }
     let manualConditionRun = run(scenario: manualCondition, branches: [slow], script: [:])
-    check("manual: a condition only a person can set is asked, not tried by the page assistant", manualConditionRun.asked.contains("condition:\(slow):f1") && !manualConditionRun.assistant.prompts.contains { $0.contains("failing mode") })
+    check("manual: a condition only a person can set is asked, not tried by the page assistant", manualConditionRun.asked.contains("condition:\(slow):f1") && !manualConditionRun.assistant.asked("Bring about the condition") && manualConditionRun.assistant.prompts.contains { $0.contains("person handles this condition") })
     let refusedLogin = run(script: ["Sign in as Buyer": [stuck("The password was refused", "loginFailed")]])
     check("run: a refused sign-in blocks the check before any step", refusedLogin.result?.verdict.blockReason == .loginFailed && refusedLogin.result?.verdict.outcome == .blocked && !refusedLogin.assistant.asked("Add a product to the cart"))
     let noAccount = run(script: ["Create a new test account for Seller and sign in": [stuck("Sign-up is closed", "other")]])
@@ -1372,7 +1402,7 @@ do {
     // Several branches, and a stop
     let several = run(branches: [mainLine, declined, slow], script: ["Confirmation is shown": [notMet("No confirmation")]], prepare: { factory, _ in factory.hits = 1 })
     check("run: each branch is a check of its own, with its own outcome", several.record.results.map(\.verdict.outcome) == [.failed, .passed, .passed] && several.record.isFinished && several.record.selected == [mainLine, declined, slow])
-    check("run: each branch starts from fresh sessions", several.factory.drivers.count == 5 && several.factory.drivers.allSatisfy(\.closed) && several.factory.drivers.allSatisfy { $0.opened.count == 1 })
+    check("run: each branch starts from fresh sessions", several.factory.drivers.count == 4 && several.factory.drivers.allSatisfy(\.closed) && several.factory.drivers.allSatisfy { $0.opened.count == 1 })
     let isolatedContext = run(branches: [mainLine, declined], script: ["Add a product to the cart": [finished("Only the first branch: QA-PACKAGE-first")]])
     let newBranchPrompt = isolatedContext.assistant.prompts.last { $0.contains("Step (an action): Add a product to the cart\n") } ?? ""
     check("run: a new branch never inherits a previous branch's event or marker", !newBranchPrompt.isEmpty && !newBranchPrompt.contains("QA-PACKAGE-first") && !newBranchPrompt.contains("Completed steps in this branch"))
