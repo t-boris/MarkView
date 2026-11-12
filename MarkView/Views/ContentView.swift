@@ -467,6 +467,10 @@ struct ContentView: View {
                                  selected: { if case .uiStudio? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openUIStudio()
                     }.disabled(workspaceManager.rootNode == nil)
+                    headerButton("square.on.square.dashed", help: "New Prototype…", width: controlWidth,
+                                 selected: { if case .prototype? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                        workspaceManager.openPrototypeCreator(mode: .requirements)
+                    }.disabled(workspaceManager.rootNode == nil)
                     browserMenu.frame(width: controlWidth, height: controlWidth)
                     headerButton("bubble.left.and.text.bubble.right", help: "Discussions (⌃⌘I)", width: controlWidth,
                                  selected: { if case .discussions? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
