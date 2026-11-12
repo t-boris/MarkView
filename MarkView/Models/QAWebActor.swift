@@ -63,12 +63,18 @@ final class QAWebActor: QAActorDriver {
 
     func observe() async throws -> QAObservation {
         let text = try await tool("browser_snapshot", [:])
+        let position = try await tool("browser_evaluate", ["script": """
+        return JSON.stringify({x:Math.round(window.scrollX),y:Math.round(window.scrollY),width:window.innerWidth,height:window.innerHeight,
+          maxY:Math.max(0,document.documentElement.scrollHeight-window.innerHeight),
+          containers:[...document.querySelectorAll('*')].filter(el=>el.scrollHeight>el.clientHeight+1&&/auto|scroll/.test(getComputedStyle(el).overflowY)).slice(0,20)
+            .map(el=>({x:Math.round(el.scrollLeft),y:Math.round(el.scrollTop),maxY:el.scrollHeight-el.clientHeight}))});
+        """])
         var address = "", title = ""
         for line in text.split(separator: "\n", omittingEmptySubsequences: false).prefix(5) {
             if line.hasPrefix("URL: ") { address = String(line.dropFirst(5)) }
             if line.hasPrefix("Title: ") { title = String(line.dropFirst(7)) }
         }
-        return QAObservation(address: address, title: title, snapshot: scrub(text))
+        return QAObservation(address: address, title: title, snapshot: "Viewport position (CSS pixels): \(position)\n\(scrub(text))", positionSignature: position)
     }
 
     func perform(_ action: QAAction) async throws -> String {

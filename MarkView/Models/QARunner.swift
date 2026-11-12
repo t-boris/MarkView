@@ -545,7 +545,9 @@ final class QARunner {
                 return .blocked(reason, message)
             case .act(let action):
                 // The same action on the same, unchanged page again and again is a loop; anything that moves the page on is progress.
-                let repeatKey = signature + "|" + action.summary
+                // A full DOM snapshot can stay identical across real scrolls. Screen grouping ignores numeric
+                // changes, but the loop guard must preserve the measured position, including the end of a page.
+                let repeatKey = signature + "|" + observation.positionSignature + "|" + action.summary
                 let times = (chosen[repeatKey] ?? 0) + 1
                 chosen[repeatKey] = times
                 if times >= config.maxRepeats {
