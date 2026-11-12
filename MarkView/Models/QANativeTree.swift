@@ -369,7 +369,21 @@ struct QANativeSnapshot: Equatable {
         if interactive.count + texts.count > maxElements {
             inspectable.formUnion(nodes.indices.filter { ["AXTable", "AXOutline", "AXWebArea"].contains(nodes[$0].element.role) })
         }
+        var inDenseTable = [Bool](repeating: false, count: nodes.count)
+        var inTable = [Bool](repeating: false, count: nodes.count)
+        var hasDenseTable = false
+        for index in nodes.indices {
+            let table = ["AXTable", "AXOutline", "AXList"].contains(nodes[index].element.role)
+            let dense = table && (nodes[index].element.childCount > 24 || nodes[index].element.omittedChildren > 0)
+            hasDenseTable = hasDenseTable || dense
+            inDenseTable[index] = dense || (nodes[index].parent.map { inDenseTable[$0] } ?? false)
+            inTable[index] = table || (nodes[index].parent.map { inTable[$0] } ?? false)
+        }
         kept = Set(inspectable.sorted().prefix(maxElements))
+        if !scoped, hasDenseTable {
+            for index in interactive where !inDenseTable[index] && kept.count < maxElements { kept.insert(index) }
+            for index in texts where !inDenseTable[index] && kept.count < maxElements { kept.insert(index) }
+        }
         for index in interactive where kept.count < maxElements { kept.insert(index) }
         let byLength = texts.sorted { (nodes[$0].text.count, $0) < (nodes[$1].text.count, $1) }
         for index in byLength where kept.count < maxElements { kept.insert(index) }
@@ -389,6 +403,42 @@ struct QANativeSnapshot: Equatable {
                 let summary = name.isEmpty ? node.kind : "\(node.kind) \"\(name)\""
                 let ref = reference(Target(id: node.element.id, summary: summary, kind: node.kind, secure: false, isMenuEntry: false))
                 lines.append("[\(ref)] \(summary); \(node.element.childCount) direct children, \(node.element.omittedChildren) unread")
+            }
+        }
+        // A prompt can end before the later panels even when their inspection routes fit.
+        // Keep current controls and compact row state together; repetitive grid bodies remain inspectable.
+        if !scoped {
+            if hasDenseTable {
+                let controls = nodes.indices.filter { kept.contains($0) && !inDenseTable[$0] && nodes[$0].interactive
+                    && !["AXRow", "AXCell", "AXStaticText"].contains(nodes[$0].element.role) && !nodes[$0].hidden }
+                let labels = texts.filter { kept.contains($0) && !inTable[$0] && !nodes[$0].hidden }
+                let rows = nodes.indices.filter { kept.contains($0) && !inDenseTable[$0] && nodes[$0].element.role == "AXRow" && !nodes[$0].hidden }
+                let captions = inspectable.filter { kept.contains($0) && !inDenseTable[$0] && nodes[$0].element.role == "AXGroup" }
+                let items = Set(controls + labels + rows + captions).sorted { (nodes[$0].depth, $0) < (nodes[$1].depth, $1) }
+                var overview: [String] = []
+                var remaining = 3600
+                var omittedOverview = 0
+                for index in items {
+                    let node = nodes[index]
+                    let line: String
+                    if node.interactive || inspectable.contains(index) {
+                        let name = QANativeTree.clip(node.name, maxName)
+                        let summary = name.isEmpty ? node.kind : "\(node.kind) \"\(name)\""
+                        let ref = reference(Target(id: node.element.id, summary: summary, kind: node.kind, secure: node.secure, isMenuEntry: false))
+                        line = "[\(ref)] \(summary)" + valueSuffix(node) + stateSuffix(node)
+                    } else {
+                        line = "\(node.kind) \"\(QANativeTree.clip(node.text, maxName))\""
+                    }
+                    if line.count + 1 <= remaining {
+                        overview.append(line)
+                        remaining -= line.count + 1
+                    } else { omittedOverview += 1 }
+                }
+                if !overview.isEmpty {
+                    lines.append("Current window overview (dense table details are below or available with inspect):")
+                    lines.append(contentsOf: overview)
+                    if omittedOverview > 0 { lines.append("[… \(omittedOverview) overview items omitted; inspect their current region]") }
+                }
             }
         }
         // A container is shown when something inside it is.
