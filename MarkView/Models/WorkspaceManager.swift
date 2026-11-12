@@ -1159,6 +1159,7 @@ class WorkspaceManager: ObservableObject {
             case .deployments: saved = .deployments
             case .discussions: saved = .discussions
             case .workflow: saved = .workflow
+            case .git: saved = .git
             case .qa: saved = .qa
             case .changeReview: saved = .changeReview
             case .data: saved = .data(tab.url)
@@ -1224,6 +1225,7 @@ class WorkspaceManager: ObservableObject {
             case .deployments: openDeployments()
             case .discussions: openDiscussions()
             case .workflow: openWorkflow()
+            case .git: openGit()
             case .qa: openQA()
             case .changeReview: openChangeReview()
             case .image(let url), .pdf(let url), .data(let url), .archive(let url):
@@ -1255,7 +1257,7 @@ class WorkspaceManager: ObservableObject {
             let restoredWorkSection = panels.workSection.flatMap(WorkSection.init) ?? .features
             layout.workSection = restoredWorkSection == .terminal ? .features : restoredWorkSection
             let restoredNavigator = TOCView.Tab(rawValue: panels.navigator) ?? .contents
-            layout.navigatorTab = restoredNavigator == .terminal ? .contents : restoredNavigator
+            layout.navigatorTab = [.terminal, .git, .search].contains(restoredNavigator) ? .contents : restoredNavigator
             layout.leftPanel = panels.left == "issues" ? "issues" : "files"
             layout.issuesFeature = panels.feature
             layout.gitSection = GitSection(rawValue: panels.git) ?? .changes
@@ -4728,14 +4730,12 @@ class WorkspaceManager: ObservableObject {
         guard let root = rootNode?.url ?? gitHub.root else { return }
         layout.workspaceArea = .files
         layout.workSection = .git
-        layout.navigatorTab = .git
         switch item {
         case .issue: layout.gitSection = .issues
         case .pullRequest: layout.gitSection = .pullRequests
         case .run: layout.gitSection = .actions
         }
         showCenter = true
-        terminalVisible = true
         let url = root.appendingPathComponent(item.marker)
         if tabsStore.selectTab(matching: url) != nil { return }
         var tab = OpenTab(url: url, content: "", originalContent: "")
@@ -5012,6 +5012,19 @@ class WorkspaceManager: ObservableObject {
         tab.kind = .deployments
         layout.workspaceArea = .files
         showCenter = true
+        tabsStore.appendTab(tab, activate: true)
+    }
+
+    /// Open the project Git workspace once per window.
+    func openGit() {
+        guard let root = rootNode?.url else { return }
+        layout.workspaceArea = .files
+        showCenter = true
+        for index in openTabs.indices {
+            if case .git = openTabs[index].kind { activeTabIndex = index; return }
+        }
+        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-git"), content: "", originalContent: "")
+        tab.kind = .git
         tabsStore.appendTab(tab, activate: true)
     }
 

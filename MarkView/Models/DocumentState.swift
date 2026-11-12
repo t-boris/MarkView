@@ -261,6 +261,8 @@ enum TabKind {
     /// The project's Workflow: statuses, transitions and processes of features and bugs, edited graphically or as JSON
     /// (`WorkflowTabView`).
     case workflow
+    /// Git status and GitHub lists in the central workspace.
+    case git
     /// The review of the file changes MarkView observed on disk since the project opened (BUG-109).
     case changeReview
     /// A GitHub Actions run or an issue, shown by `GitHubRunView` / `GitHubIssueView`.
@@ -344,6 +346,7 @@ struct OpenTab: Identifiable {
         if case .deployments = kind { return "Build & Deployment" }
         if case .discussions = kind { return "Discussions" }
         if case .workflow = kind { return "Workflow" }
+        if case .git = kind { return "Git" }
         if case .changeReview = kind { return "File changes" }
         if case .github(let item) = kind { return item.title }
         // The page title lives on the main actor; the tab bar shows it with `BrowserTabTitle`.
