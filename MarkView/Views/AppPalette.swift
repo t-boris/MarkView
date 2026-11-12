@@ -97,3 +97,32 @@ extension View {
         modifier(WindowThemeRoot(theme: theme))
     }
 }
+
+/// A project keeps its own transparency locally, shared by its open windows.
+@MainActor
+final class ProjectTransparencyStore: ObservableObject {
+    static let shared = ProjectTransparencyStore()
+    private static let key = "project.workspaceTransparency"
+    @Published private var values: [String: Double]
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.values = defaults.dictionary(forKey: Self.key) as? [String: Double] ?? [:]
+    }
+
+    private func key(for root: URL) -> String { root.resolvingSymlinksInPath().standardizedFileURL.path }
+    func value(for root: URL?) -> Double {
+        guard let root, let value = values[key(for: root)], value.isFinite else { return 0 }
+        return min(0.7, max(0, value))
+    }
+    func set(_ value: Double, for root: URL?) {
+        guard let root, value.isFinite else { return }
+        let amount = min(0.7, max(0, value))
+        values[key(for: root)] = amount == 0 ? nil : amount
+        defaults.set(values, forKey: Self.key)
+    }
+    func binding(for root: URL?) -> Binding<Double> {
+        Binding(get: { self.value(for: root) }, set: { self.set($0, for: root) })
+    }
+}

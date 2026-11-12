@@ -198,7 +198,8 @@ struct ContentView: View {
     /// Project color identity of the open project folder; nil without one (feature-2, DEC-012).
     @State private var projectKey: String?
     @ObservedObject private var projectColors = ProjectColorStore.shared
-    @AppStorage("appearance.workspaceTransparency") private var workspaceTransparency = 0.0
+    @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
+    private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
     @State private var sessionAttached = false
     @State private var restorationComplete = false
     @State private var lastFilesTab: UUID?
@@ -483,7 +484,7 @@ struct ContentView: View {
                 headerButton("paintpalette", help: "Theme (⇧⌘T)", width: controlWidth) {
                     workspaceManager.theme.showsPicker.toggle()
                 }
-                .themePicker(workspaceManager.theme)
+                .themePicker(workspaceManager.theme, project: workspaceManager.projectFolder)
             }
             .padding(.leading, 12)
             .padding(.trailing, 12)

@@ -7,7 +7,8 @@ struct EditorView: NSViewRepresentable {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @EnvironmentObject var windowTheme: WindowTheme
     @Environment(\.appFontScale) private var fontScale
-    @AppStorage("appearance.workspaceTransparency") private var workspaceTransparency = 0.0
+    @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
+    private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()

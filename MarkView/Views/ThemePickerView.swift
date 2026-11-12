@@ -6,7 +6,9 @@ import SwiftUI
 struct ThemePickerView: View {
     @EnvironmentObject var theme: WindowTheme
     @Environment(\.palette) private var palette
-    @AppStorage("appearance.workspaceTransparency") private var workspaceTransparency = 0.0
+    var project: URL? = nil
+    @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
+    private var workspaceTransparency: Double { transparencyStore.value(for: project) }
 
     /// Accents offered next to the appearance's own; any other colour comes from the colour well.
     private static let swatches: [(name: String, color: ThemeColor)] = [
@@ -31,9 +33,10 @@ struct ThemePickerView: View {
                 Spacer()
                 Text("\(Int(workspaceTransparency * 100))% ").uiFont(size: 11).foregroundColor(palette.text)
             }
-            Slider(value: $workspaceTransparency, in: 0...0.7, step: 0.05)
+            Slider(value: transparencyStore.binding(for: project), in: 0...0.7, step: 0.05)
+                .disabled(project == nil)
                 .accessibilityLabel("Workspace transparency")
-                .help("Show the welcome background behind panels in all windows")
+                .help("Show this project’s welcome background behind its panels")
         }
         .padding(14)
         .frame(width: 320)
@@ -132,10 +135,11 @@ private struct ThemePreview: View {
 /// Presents the picker as a popover of `theme.showsPicker`, so the header button and the View menu open the same one.
 private struct ThemePickerPresenter: ViewModifier {
     @ObservedObject var theme: WindowTheme
+    var project: URL?
 
     func body(content: Content) -> some View {
         content.popover(isPresented: $theme.showsPicker, arrowEdge: .bottom) {
-            ThemePickerView()
+            ThemePickerView(project: project)
                 .environmentObject(theme)
                 .environment(\.palette, theme.palette)
         }
@@ -144,7 +148,7 @@ private struct ThemePickerPresenter: ViewModifier {
 
 extension View {
     /// Attach the theme picker of `theme` to this view.
-    func themePicker(_ theme: WindowTheme) -> some View {
-        modifier(ThemePickerPresenter(theme: theme))
+    func themePicker(_ theme: WindowTheme, project: URL? = nil) -> some View {
+        modifier(ThemePickerPresenter(theme: theme, project: project))
     }
 }
