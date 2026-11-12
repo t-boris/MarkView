@@ -13,4 +13,17 @@
 3. Check the relevant action/runner call path and maintain attached process ownership across two branches/retries. Run pure/live native checks, QA model checks and Debug build. Review and merge a versioned PR only after checks pass, then follow the repository's Release/DMG/sign/notary workflow.
 4. Install/restart the updated local app without losing unrelated workspace work. Run the full existing StrikeDesk broker-paper matrix and record per-case entry/close IDs and residual checks in the consumer report. No broker order is submitted by fixture tests, and no risk/freshness/account check is weakened to obtain a pass.
 
-The previous observed source limits (8 seconds, 1500 read elements, depth 14, 400 rendered elements) are hypotheses, not a root-cause finding. Reducing rows to 16 did not fix the consumer. The exact reader failure must be evidenced before this design is finalized.
+## Measured root cause and repair
+
+The unchanged existing 96-strike StrikeDesk consumer read only 373 elements at physical depth 14, omitting 43 children by depth, with no count/time/failure exhaustion (89 ms). Decorative Electron layout wrappers exhausted the shared semantic depth limit. Reducing rows to 16 did not fix this failure.
+
+The repair separates physical depth (64) from meaningful snapshot depth (14), uses bounded breadth-first reading (1500 elements / 8 seconds / three failed reads), and pages table/list/outline children in groups of 24. It reports each omission reason. Current-snapshot native-only `inspect` reads a container and direct-child offset; empty ref restores the whole window. A compact region index precedes long table bodies to retain routes to later panels under prompt truncation. Scoped cell/text references use real AX frames; fallback clicks refuse coordinates outside the target window, and web rows are clicked rather than merely setting AXSelected. Secure values are never fetched, and inspection responses/errors are scrubbed.
+
+The repaired real consumer reads 1037 elements through depth 21 in about 134 ms, with zero depth/count/time/failure omissions and 130 table children explicitly deferred. Visible strikes, POSITIONS and Active accounts only are present. Read-only continuation exposes actual price-cell pointer references and returns to the whole window. This diagnosis submits no orders.
+
+## Verification progress
+
+- Pure/live native checks pass, including deep 16/96-row WKWebView fixtures, actual cell clicks invoking the web handler, later-page continuation, return to window, secure values, two attached branches and retry. QA model checks pass, including native-only inspect parsing. Final added boundary checks and the versioned build are tracked with the code PR.
+- Versioned Debug build 6.11.0 passes. Existing 6.10.0 remains installed until the merged signed/notarized Release is ready.
+- Consumer acceptance is pending: 30 explicit ES/SPX/SPY template/manual entry-and-close branches. Fixtures and read-only diagnosis do not satisfy the trading acceptance criterion.
+

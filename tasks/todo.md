@@ -1,3 +1,16 @@
+# Dense native QA consumer repair (2026-11-12)
+
+Owner-authorized full repair and local delivery; external broker-fabric BUG-157, end-to-end-qa REQ-018. Code branch `fix/native-qa-observation`.
+
+- [x] Measure actual existing consumer failure (depth 14, 43 omitted children; not count/time exhaustion).
+- [x] Repair bounded observation, current-ref scoped continuation, actual cell hit targets and compact region navigation.
+- [x] Pass pure/live dense 16/96 checks, real web click-handler checks, retained attach/retry checks and QA model checks.
+- [x] Bump to 6.11.0 and pass Debug build.
+- [ ] Finish post-review secure/stale/offset boundary regressions and merge a green PR.
+- [ ] Build/sign/notarize/publish from clean merged main and install the new local app, preserving unrelated sessions.
+- [ ] Complete real StrikeDesk broker-paper baseline plus all 30 entry/close cases; preserve old order 2072872 and all initial holdings.
+- [ ] Record exact release/installed versions and per-case fills and residual checks; only then close the external report.
+
 # UI Studio: missing Supabase key on a fresh checkout (2026-11-10)
 
 - Boris reproduced the master-portal login failure in 5.64.0. The earlier live check supplied a valid JWT in a synthetic `.env.local` and missed the real checkout's configuration: no real anon key exists, so Studio supplied a plain test string which `resolveSupabasePublicConfig` rejected before any Auth request. The page consequently showed “Wrong email or password”.
