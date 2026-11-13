@@ -245,3 +245,9 @@ DEC-008 written into REQ-002, REQ-006.
 - **B. Показать известные результаты и дать пользователю выбрать дальнейшее действие** — требует участия, но учитывает неизвестное состояние.
 
 Я предлагаю **B**.
+
+### Answer to Q-006 · 2026-11-13
+
+Where should the Temporal service used by Cockpit run?
+
+Provide a local Temporal service with the application.
