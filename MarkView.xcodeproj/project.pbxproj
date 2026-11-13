@@ -169,6 +169,7 @@
 		535F56C5E9AED7F130C90B75 /* markview-canvas.js in Resources */ = {isa = PBXBuildFile; fileRef = B5602C568336324C646AC72E /* markview-canvas.js */; };
 		55037F3A705A0F79302C4585 /* Discussion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AC5CF1253DBEECE6E44967D /* Discussion.swift */; };
 		555AB3A34426446C7A47E20D /* AgentUsageTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2844310A95C80FBE1E88187C /* AgentUsageTracker.swift */; };
+		5579B5AB66F8963B1955B045 /* CockpitRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC6819622B5D2A65E58893A1 /* CockpitRun.swift */; };
 		5597C3D2ADB9742C916ACFBE /* HistoricalBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6308D9F3A184573ADBEF4BFC /* HistoricalBaseline.swift */; };
 		565DC18EC38E186F6A41AA55 /* DocumentState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E3D6A8144A620B1B335381 /* DocumentState.swift */; };
 		568AB806AB9BA0DF81938494 /* StructureOutline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 659CA4BBD506746CE1B89857 /* StructureOutline.swift */; };
@@ -850,6 +851,7 @@
 		AA8E82029CBD23F4C986B612 /* IntakeAttachmentBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntakeAttachmentBar.swift; sourceTree = "<group>"; };
 		AAA5D1BB0D677AB3259D0471 /* LinkedFolders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkedFolders.swift; sourceTree = "<group>"; };
 		AB72A74E7D7E4D5BC095F9FF /* WorkflowDescription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowDescription.swift; sourceTree = "<group>"; };
+		AC6819622B5D2A65E58893A1 /* CockpitRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitRun.swift; sourceTree = "<group>"; };
 		ACC3096F5958199C147B4B2C /* GraphCreatorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphCreatorSheet.swift; sourceTree = "<group>"; };
 		AD11BE03C1B1516FA7E0C8E9 /* UIStudioDataFix.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioDataFix.swift; sourceTree = "<group>"; };
 		ADA371AF8ACDEABE2F93D359 /* markview-canvas.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "markview-canvas.css"; sourceTree = "<group>"; };
@@ -1126,6 +1128,7 @@
 				5C68AEF16B013848A18B3396 /* CockpitPlan.swift */,
 				544FA79A3A63EC5D3235A7FF /* CockpitPlanning.swift */,
 				F8EF6DAAB291A58DCE6D2A7B /* CockpitResults.swift */,
+				AC6819622B5D2A65E58893A1 /* CockpitRun.swift */,
 				72BACCBE46D42178D2B4CA76 /* CockpitSession.swift */,
 				26E37F916C227D94583C78C0 /* CodeArchitecture.swift */,
 				747C5366B2EBA397F5F91CF7 /* CodeExplainer.swift */,
@@ -1901,6 +1904,7 @@
 				DB08F1DB1DB4D8C8FDB87EAA /* CockpitPlan.swift in Sources */,
 				505E407B6DE7B607F9EC823B /* CockpitPlanning.swift in Sources */,
 				DC71A8776EC3232A422811B4 /* CockpitResults.swift in Sources */,
+				5579B5AB66F8963B1955B045 /* CockpitRun.swift in Sources */,
 				DC4A571FEE7ACDD11671FBD1 /* CockpitSession.swift in Sources */,
 				4C00BB630D23E84E8F1DA6C4 /* CockpitView.swift in Sources */,
 				4E4EEA45BED79A293018C81A /* CodeArchitecture.swift in Sources */,
