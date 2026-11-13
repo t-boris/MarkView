@@ -1390,6 +1390,12 @@ do {
     let separateBranches = run(scenario: nativeEvidenceScenario, branches: [mainLine, declined], saved: [], prepare: { factory, _ in factory.tagScopes = true })
     let branchChecks = separateBranches.assistant.prompts.filter { $0.contains("): Confirm: restore the baseline\n") }
     check("native setup: two branches receive only their own preparation observations", branchChecks.count == 2 && branchChecks[0].contains("scope-0") && !branchChecks[1].contains("scope-0"))
+    let twoActors = changed(nativeEvidenceScenario) { $0.nodes[3].condition = QACondition(kind: .data, establish: "Prepare seller", verify: "Seller ready") }
+    let actorRun = run(scenario: twoActors, saved: [], prepare: { factory, _ in factory.tagScopes = true })
+    let actorVerifier = actorRun.assistant.prompts.first { $0.contains("): Confirm: bring about the condition\n") } ?? ""
+    let sellerScope = actorRun.factory.driver("seller")?.scopeMarker ?? "missing seller"
+    let baselineScope = actorRun.factory.driver(nil)?.scopeMarker ?? "missing baseline"
+    check("native setup: a different actor sees only its own setup observations", sellerScope != baselineScope && actorVerifier.contains("Earlier observations from this same preparation") && actorVerifier.contains(sellerScope) && !actorVerifier.contains(baselineScope))
     let nativeFailedSetup = run(scenario: nativeEvidenceScenario, script: ["Restore the baseline": [stuck("Unable to inspect", "other")]])
     check("native setup: failed preparation never runs a verifier", !nativeFailedSetup.assistant.asked("Confirm: restore the baseline"))
     let boundedNative = QAPreparationEvidence()
