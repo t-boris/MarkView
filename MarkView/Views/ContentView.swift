@@ -267,7 +267,7 @@ struct ContentView: View {
             guard workspaceManager.openTabs.indices.contains(index) else { return }
             let tab = workspaceManager.openTabs[index]
             switch tab.kind {
-            case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .git, .changeReview, .terminal, .browser, .data, .prototype, .uiStudio, .qa:
+            case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .git, .changeReview, .terminal, .browser, .data, .prototype, .uiStudio, .cockpit, .qa:
                 lastFilesTab = tab.id
                 workspaceManager.layout.workspaceArea = .files
                 if case .file = tab.kind,
@@ -466,6 +466,10 @@ struct ContentView: View {
                     headerButton("macwindow.and.cursorarrow", help: "UI Studio (⌘7)", width: controlWidth,
                                  selected: { if case .uiStudio? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openUIStudio()
+                    }.disabled(workspaceManager.rootNode == nil)
+                    headerButton("point.3.connected.trianglepath.dotted", help: "Copilot Cockpit", width: controlWidth,
+                                 selected: { if case .cockpit? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                        workspaceManager.openCockpit()
                     }.disabled(workspaceManager.rootNode == nil)
                     headerButton("square.on.square.dashed", help: "New Prototype…", width: controlWidth,
                                  selected: { if case .prototype? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
@@ -705,6 +709,8 @@ struct ContentView: View {
                         UIStudioView(session: session)
                             .environmentObject(workspaceManager)
                             .id(activeTab.id)
+                    } else if case .cockpit(let session) = activeTab.kind {
+                        CockpitView(session: session).id(activeTab.id)
                     } else if case .github(let item) = activeTab.kind {
                         GitHubTabView(item: item)
                             .environmentObject(workspaceManager)
@@ -732,7 +738,7 @@ struct ContentView: View {
                 workspaceManager.activeTabIndex = index
             } else if let index = workspaceManager.openTabs.firstIndex(where: { tab in
                 switch tab.kind {
-                case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .git, .changeReview, .terminal, .browser, .prototype, .uiStudio, .qa: return true
+                case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .git, .changeReview, .terminal, .browser, .prototype, .uiStudio, .cockpit, .qa: return true
                 default: return false
                 }
             }) {

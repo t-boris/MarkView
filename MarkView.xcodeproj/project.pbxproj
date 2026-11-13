@@ -151,6 +151,7 @@
 		4B1CC5B8D2EBA7F0ADEEFB47 /* prism-swift.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 629AC491A02BE9A042CEF3D2 /* prism-swift.min.js */; };
 		4B6563478345F3CDF9FCB956 /* DeploymentToolRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08F1C10751459B0288159692 /* DeploymentToolRunner.swift */; };
 		4BC2DB65987F55B55E83314C /* ImageSiblings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45125D00F1E8300687141768 /* ImageSiblings.swift */; };
+		4C00BB630D23E84E8F1DA6C4 /* CockpitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EFCD1F86D5016B88C17570C /* CockpitView.swift */; };
 		4D5E9CBFD185E53AEC3A9A9E /* GitHubStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD5BAB7F45A97C4849A8C549 /* GitHubStore.swift */; };
 		4D698ACA5087AA8BD07F2A04 /* AgentActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9352C3EC3E8CCF2B38B41AF /* AgentActivity.swift */; };
 		4DFE55644DF8A088AD8C6688 /* KaTeX_Typewriter-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = B50F42A001DDEAC85D1AF123 /* KaTeX_Typewriter-Regular.woff2 */; };
@@ -429,6 +430,7 @@
 		DB08F1DB1DB4D8C8FDB87EAA /* CockpitPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C68AEF16B013848A18B3396 /* CockpitPlan.swift */; };
 		DC10071CBEB69D6C12FD024C /* NewProjectFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F34EA5D75C7F75E473333E /* NewProjectFlow.swift */; };
 		DC1AFFCE9EA17F235032DE55 /* prism.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 75EAFF59D525BADEE5D10341 /* prism.min.js */; };
+		DC4A571FEE7ACDD11671FBD1 /* CockpitSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72BACCBE46D42178D2B4CA76 /* CockpitSession.swift */; };
 		DC55330FB0996F5C23062435 /* BugValidity.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9CDC3A061835FA482444D4 /* BugValidity.swift */; };
 		DC5FB06B941F2FAC5FE795D0 /* BUILD_NOTES.md in Resources */ = {isa = PBXBuildFile; fileRef = 6CB6E44E2302C6E3A8508397 /* BUILD_NOTES.md */; };
 		DCB91AFB6ECAD91E5A2A5DBC /* BrowserDownloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F3720D5BC18F678F2F42FB /* BrowserDownloads.swift */; };
@@ -743,11 +745,13 @@
 		6D939016101CACDA109D5AD0 /* SemanticDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticDatabase.swift; sourceTree = "<group>"; };
 		6E10D6ADB4ADB8D0AE4BC89E /* XRaySearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRaySearch.swift; sourceTree = "<group>"; };
 		6ED484A68FCCB897811B8168 /* WindowTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTitle.swift; sourceTree = "<group>"; };
+		6EFCD1F86D5016B88C17570C /* CockpitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitView.swift; sourceTree = "<group>"; };
 		6F6EDEA395D89B943EAE23AF /* cytoscape.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = cytoscape.min.js; sourceTree = "<group>"; };
 		6F838E4C058CBCE7B35D7EBE /* PullRequestHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullRequestHistory.swift; sourceTree = "<group>"; };
 		713A7BA330E95450C16AA739 /* WorkflowTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowTemplate.swift; sourceTree = "<group>"; };
 		713EE985556D42A0799F6D5E /* QANativeTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QANativeTree.swift; sourceTree = "<group>"; };
 		72AB51EB3ECAD81FF35625CF /* QAAPIRequestEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAAPIRequestEditor.swift; sourceTree = "<group>"; };
+		72BACCBE46D42178D2B4CA76 /* CockpitSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitSession.swift; sourceTree = "<group>"; };
 		742C86DB2E06D30F04526A63 /* QABugs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QABugs.swift; sourceTree = "<group>"; };
 		747C5366B2EBA397F5F91CF7 /* CodeExplainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeExplainer.swift; sourceTree = "<group>"; };
 		75EAFF59D525BADEE5D10341 /* prism.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = prism.min.js; sourceTree = "<group>"; };
@@ -1119,6 +1123,7 @@
 				221F39018C2CA8AA7FA32473 /* CloudServices.swift */,
 				5C68AEF16B013848A18B3396 /* CockpitPlan.swift */,
 				544FA79A3A63EC5D3235A7FF /* CockpitPlanning.swift */,
+				72BACCBE46D42178D2B4CA76 /* CockpitSession.swift */,
 				26E37F916C227D94583C78C0 /* CodeArchitecture.swift */,
 				747C5366B2EBA397F5F91CF7 /* CodeExplainer.swift */,
 				E802C0AB5CDA33CD9676A804 /* CodeNavigation.swift */,
@@ -1395,6 +1400,7 @@
 				E73E1ED4442620DF23B12D37 /* BrowserTabView.swift */,
 				477DD53694435ADC874CA1A0 /* BugBasketView.swift */,
 				04EA701D2CEB5F5976D2E382 /* CloudServicesView.swift */,
+				6EFCD1F86D5016B88C17570C /* CockpitView.swift */,
 				EA0C02416AEB84C19FEA344E /* ContentsPanelView.swift */,
 				BC5216E2466E79A0507BEAE8 /* ContentView.swift */,
 				898CEDA5624F9A7F5E7B71EE /* CycleTimeViews.swift */,
@@ -1891,6 +1897,8 @@
 				A5190AB848B0ADF17DF3D784 /* CloudServicesView.swift in Sources */,
 				DB08F1DB1DB4D8C8FDB87EAA /* CockpitPlan.swift in Sources */,
 				505E407B6DE7B607F9EC823B /* CockpitPlanning.swift in Sources */,
+				DC4A571FEE7ACDD11671FBD1 /* CockpitSession.swift in Sources */,
+				4C00BB630D23E84E8F1DA6C4 /* CockpitView.swift in Sources */,
 				4E4EEA45BED79A293018C81A /* CodeArchitecture.swift in Sources */,
 				DE8C79F0949DBC49CE793975 /* CodeExplainer.swift in Sources */,
 				A5EF4EAAA485984C364ACDFC /* CodeNavigation.swift in Sources */,

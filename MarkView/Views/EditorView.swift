@@ -379,7 +379,7 @@ struct EditorView: NSViewRepresentable {
                 bridge.clearDocument(in: webView)
                 routeArchitecture(scope: scope, webView: webView)
                 return
-            case .terminal, .image, .pdf, .archive, .deployments, .discussions, .workflow, .git, .changeReview, .github, .browser, .prototype, .uiStudio, .qa:
+            case .terminal, .image, .pdf, .archive, .deployments, .discussions, .workflow, .git, .changeReview, .github, .browser, .prototype, .uiStudio, .cockpit, .qa:
                 // Drawn over the editor (TerminalTabView, ImageViewerView, GitHub views); it keeps its content.
                 return
             case .data:
