@@ -565,6 +565,30 @@ final class NativeFixtureAssistant: QAAssistant {
     }
 }
 
+final class NativeStopAssistant: QAAssistant {
+    let control: QARunControl
+    init(_ control: QARunControl) { self.control = control }
+    func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any? {
+        control.stop()
+        return ["move": "done", "narration": "Stopped.", "action": ["kind": "none"], "reason": "", "blockReason": ""] as [String: Any]
+    }
+}
+
+final class NativeFailAssistant: QAAssistant {
+    func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any? {
+        throw NSError(domain: "Fixture", code: 1)
+    }
+}
+
+final class NativeReadOnlyAssistant: QAAssistant {
+    let identifier: String
+    init(_ identifier: String) { self.identifier = identifier }
+    func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any? {
+        guard prompt.contains(identifier) else { throw NSError(domain: "Missing application observation", code: 1) }
+        return ["move": "done", "narration": "The running application was observed.", "action": ["kind": "none"], "reason": "", "blockReason": ""] as [String: Any]
+    }
+}
+
 /// A user-owned single-instance application remains alive after a QA player attaches and closes.
 @MainActor
 func liveAttached(fixture: URL, identifier: String, singleInstance: Bool) async {
@@ -622,6 +646,7 @@ func liveAttached(fixture: URL, identifier: String, singleInstance: Bool) async 
                 actors: [QAActor(id: "player", name: "Player")],
                 nodes: [QANode(id: "s", kind: .check, title: "Observe", detail: "The fixture is visible"), QANode(id: "a", kind: .check, title: "First", detail: "The fixture is visible"), QANode(id: "b", kind: .check, title: "Second", detail: "The fixture is visible")],
                 edges: [QAEdge(from: "s", to: "a"), QAEdge(from: "s", to: "b")], start: "s", created: now, updated: now)
+            scenario.baseline = QACondition(kind: .state, establish: "Observe the fixture", verify: "The fixture is visible")
             scenario.selectAllBranches()
             let plan = QAPlanner.make(scenario, targetID: "local", savedLogins: [])
             var gate = QAGate(plan: plan)
@@ -633,12 +658,30 @@ func liveAttached(fixture: URL, identifier: String, singleInstance: Bool) async 
             if !approved || record.results.count != 2 || record.results.contains(where: { $0.verdict.outcome != .passed }) {
                 print("attached runner diagnostics: approved=\(approved), problems=\(plan.problems.map(\.message)), results=\(record.results.map { "\($0.verdict.outcome.rawValue): \($0.verdict.reason)" })")
             }
-            check("attached runner: two branches reuse the running single-instance fixture", approved && record.results.count == 2 && record.results.allSatisfy { $0.verdict.outcome == .passed } && NSRunningApplication.runningApplications(withBundleIdentifier: identifier).count == 1 && !userApp.isTerminated)
+            let identities = record.timeline.filter { $0.text.contains("Attached to") }
+            check("attached runner: baseline and steps use the same PID across branches", approved && record.results.count == 2 && record.results.allSatisfy { $0.verdict.outcome == .passed } && identities.count == 2 && identities.allSatisfy { $0.text.contains("PID \(userApp.processIdentifier)") } && !userApp.isTerminated)
+            let afterRun = QANativeActor(request: request, credentials: QACredentials(username: nil, password: nil), config: .init(bringToFront: false))
+            do { try await afterRun.open(identifier); check("attached runner: completion releases the PID", true) }
+            catch { check("attached runner: completion releases the PID (\(error.localizedDescription))", false) }
+            await afterRun.close()
+            for (label, assistant, control) in [
+                ("Stop", NativeStopAssistant(QARunControl()) as QAAssistant, true),
+                ("error", NativeFailAssistant() as QAAssistant, false)
+            ] {
+                let runControl = (assistant as? NativeStopAssistant)?.control ?? QARunControl()
+                let stoppedRunner = QARunner(scenario: scenario, plan: plan, gate: gate, factory: factory, assistant: assistant, runID: "attach-\(label)", confirm: { _ in false }, config: options, control: runControl)
+                let stoppedRecord = await stoppedRunner.run()
+                let expected = control ? stoppedRecord.results.contains { $0.verdict.interruption == .stoppedByUser } : stoppedRecord.results.contains { $0.verdict.outcome == .blocked }
+                let next = QANativeActor(request: request, credentials: QACredentials(username: nil, password: nil), config: .init(bringToFront: false))
+                do { try await next.open(identifier); check("attached runner: \(label) releases the PID", expected) }
+                catch { check("attached runner: \(label) releases the PID (\(error.localizedDescription))", false) }
+                await next.close()
+            }
             if let firstBranch = plan.branches.first, let firstNode = firstBranch.nodes.first {
                 options.startPoint = QAStartPoint(branch: firstBranch.id, node: firstNode)
                 let retry = QARunner(scenario: scenario, plan: plan, gate: gate, factory: factory, assistant: NativeFixtureAssistant(), runID: "attach-retry", confirm: { _ in false }, config: options, sessions: runSessions)
                 let retried = await retry.run()
-                check("attached runner: retry reuses the retained process", retried.results.contains { $0.branch == firstBranch.id && $0.nodesMet.contains(firstNode) && $0.verdict.outcome == .uncovered } && NSRunningApplication.runningApplications(withBundleIdentifier: identifier).count == 1 && !userApp.isTerminated)
+                check("attached runner: retry reattaches to the user's process", retried.results.contains { $0.branch == firstBranch.id && $0.nodesMet.contains(firstNode) && $0.verdict.outcome == .uncovered } && NSRunningApplication.runningApplications(withBundleIdentifier: identifier).count == 1 && !userApp.isTerminated)
             }
             await runSessions.close()
             check("attached runner: releasing retained sessions preserves the fixture", !userApp.isTerminated)
@@ -726,6 +769,31 @@ if CommandLine.arguments.count > 1, !CommandLine.arguments[1].isEmpty {
     }
 } else {
     print("skip live: no fixture application given")
+}
+
+// Optional read-only, one-step consumer run. No input actions or tickets are created.
+if let identifier = ProcessInfo.processInfo.environment["QA_NATIVE_EXISTING_RUN"] {
+    let running = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter { !$0.isTerminated }
+    if running.count == 1 {
+        let now = Date()
+        var scenario = QAScenario(id: "read-only-attach", title: "Read-only attachment", goal: "Observe the running application", appKind: .nativeMacOS,
+            apps: [QAApp(id: "app", name: "Application")],
+            targets: [QATarget(id: "local", kind: .local, name: "Local", locations: ["app": QALocation(application: QAApplication(bundleIdentifier: identifier, name: "Application", startupPolicy: .attach))])],
+            actors: [QAActor(id: "player", name: "Player")],
+            nodes: [QANode(id: "observe", kind: .check, title: "Observe the application", detail: "The running application is visible")],
+            edges: [], start: "observe", created: now, updated: now)
+        scenario.baseline = QACondition(kind: .state, establish: "Observe the current application", verify: "The running application is visible")
+        scenario.selectAllBranches()
+        let plan = QAPlanner.make(scenario, targetID: "local", savedLogins: [])
+        var gate = QAGate(plan: plan)
+        let approved = gate.approve(acknowledgedProduction: false)
+        var options = QARunner.Config(); options.keepSessions = true; options.captureFrames = false; options.captureInputs = false; options.measureScreens = false
+        let runner = QARunner(scenario: scenario, plan: plan, gate: gate, factory: QANativeDriverFactory(), assistant: NativeReadOnlyAssistant(identifier), runID: "read-only-attach", confirm: { _ in false }, config: options)
+        let record = await runner.run()
+        let identity = record.timeline.filter { $0.text.contains("PID \(running[0].processIdentifier)") }
+        check("consumer: baseline and one read-only step pass on PID \(running[0].processIdentifier)", approved && record.results.count == 1 && record.results[0].verdict.outcome == .passed && record.results[0].nodesMet.contains("observe") && identity.count == 1 && !running[0].isTerminated)
+        if record.results.contains(where: { $0.verdict.outcome != .passed }) { print("consumer result: \(record.results.map { $0.verdict.reason })") }
+    } else { check("consumer: exactly one running process", false) }
 }
 
 // Read-only diagnosis of an already running consumer. It never launches or closes it.
