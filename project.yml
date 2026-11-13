@@ -36,6 +36,10 @@ targets:
         CODE_SIGN_ENTITLEMENTS: MarkView/MarkView.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     preBuildScripts:
+      - name: "Build Cockpit runtime"
+        script: |
+          "${SRCROOT}/tools/cockpit-temporal/scripts/build-runtime.sh"
+        basedOnDependencyAnalysis: false
       - name: "Build Web Editor (optional)"
         script: |
           set -e

@@ -1680,6 +1680,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 29470E4C883D1AFD2B3CDFC1 /* Build configuration list for PBXNativeTarget "MarkView" */;
 			buildPhases = (
+				E0AE88DFAFAA7D4E50C3D56E /* Build Cockpit runtime */,
 				8709D6C07BCDBE7C517E0938 /* Build Web Editor (optional) */,
 				2776339960AF9B470EDA298C /* Sources */,
 				79F72EFBC3B18E087E02052A /* Resources */,
@@ -1859,6 +1860,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -e\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Editor\"\nmkdir -p \"${DEST}\"\n/usr/bin/ditto \"${SRCROOT}/MarkView/Resources/Editor/index.html\" \"${DEST}/index.html\"\n/usr/bin/ditto \"${SRCROOT}/MarkView/Resources/Editor/terminal.html\" \"${DEST}/terminal.html\"\n/usr/bin/ditto \"${SRCROOT}/MarkView/Resources/Editor/discussion.html\" \"${DEST}/discussion.html\"\n/usr/bin/ditto \"${SRCROOT}/MarkView/Resources/Editor/book.html\" \"${DEST}/book.html\"\nif [ -d \"${SRCROOT}/MarkView/Resources/Editor/vendor\" ]; then\n  rm -rf \"${DEST}/vendor\"\n  /usr/bin/ditto \"${SRCROOT}/MarkView/Resources/Editor/vendor\" \"${DEST}/vendor\"\nfi\necho \"Copied pre-built Editor bundle\"\n";
+		};
+		E0AE88DFAFAA7D4E50C3D56E /* Build Cockpit runtime */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Cockpit runtime";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/tools/cockpit-temporal/scripts/build-runtime.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

@@ -63,9 +63,10 @@ xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Release \
 cp -R build/ReleaseDerivedData/Build/Products/Release/MarkView.app "$APP"
 
 echo "▸ Signing with $IDENTITY (hardened runtime)…"
+tools/cockpit-temporal/scripts/sign-runtime.sh "$APP" "$IDENTITY"
 codesign --force --options runtime --timestamp \
     --entitlements MarkView/MarkView.entitlements --sign "$IDENTITY" "$APP"
-codesign --verify --strict --verbose=2 "$APP"
+codesign --verify --deep --strict --verbose=2 "$APP"
 
 echo "▸ Creating the installer…"
 STAGE=$BUILD/dmg

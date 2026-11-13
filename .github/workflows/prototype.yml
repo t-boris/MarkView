@@ -24,6 +24,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/cockpit-temporal/go.mod
+          cache-dependency-path: tools/cockpit-temporal/go.sum
       - name: Check prototype files and complete build/revision/specification deadline policy
         run: |
           bash tools/tests/prototype-tests.sh

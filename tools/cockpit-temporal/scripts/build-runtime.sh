@@ -13,8 +13,13 @@ CACHE_DIR="${TMPDIR:-/tmp}/markview-cockpit-dependencies"
 DEST_DIR="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Cockpit"
 mkdir -p "$CACHE_DIR" "$DEST_DIR"
 
-# Release ships both Mac architectures. Debug only needs the machine running the build.
-if [ "$CONFIGURATION" = "Release" ]; then architectures="arm64 amd64"; else
+# Package the architectures actually being built; local Release normally builds both.
+architectures=""
+for requested in ${ARCHS:-}; do
+    case "$requested" in arm64) architectures="$architectures arm64" ;; x86_64) architectures="$architectures amd64" ;; *) echo "Unsupported Mac architecture: $requested" >&2; exit 1 ;; esac
+done
+if [ -z "$architectures" ] && [ "$CONFIGURATION" = "Release" ]; then architectures="arm64 amd64"; fi
+if [ -z "$architectures" ]; then
     case "$(uname -m)" in arm64) architectures="arm64" ;; x86_64) architectures="amd64" ;; *) echo "Unsupported Mac architecture" >&2; exit 1 ;; esac
 fi
 for arch in $architectures; do

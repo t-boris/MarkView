@@ -18,6 +18,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/cockpit-temporal/go.mod
+          cache-dependency-path: tools/cockpit-temporal/go.sum
       - name: Verify native PDF content, pagination, links and bookmarks
         run: bash tools/tests/book-pdf-tests.sh
       - name: Verify the PDF of a single document (title page, pages, pictures, diagrams, formulas, styles)
