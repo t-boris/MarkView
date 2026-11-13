@@ -1,0 +1,54 @@
+name: Copilot Cockpit Checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'MarkView/Models/Cockpit*.swift'
+      - 'MarkView/Models/FeatureReviewGate.swift'
+      - 'MarkView/Models/QARunCleanup.swift'
+      - 'tools/cockpit-temporal/**'
+      - 'tools/tests/Cockpit*'
+      - 'tools/tests/cockpit-*.sh'
+      - 'tools/tests/FeatureReviewGateChecks.swift'
+      - 'tools/tests/feature-review-gate-tests.sh'
+      - 'tools/tests/QARetentionChecks.swift'
+      - 'tools/tests/qa-retention-tests.sh'
+      - '.github/workflows/copilot-cockpit.yml'
+  pull_request:
+    paths:
+      - 'MarkView/Models/Cockpit*.swift'
+      - 'MarkView/Models/FeatureReviewGate.swift'
+      - 'MarkView/Models/QARunCleanup.swift'
+      - 'tools/cockpit-temporal/**'
+      - 'tools/tests/Cockpit*'
+      - 'tools/tests/cockpit-*.sh'
+      - 'tools/tests/FeatureReviewGateChecks.swift'
+      - 'tools/tests/feature-review-gate-tests.sh'
+      - 'tools/tests/QARetentionChecks.swift'
+      - 'tools/tests/qa-retention-tests.sh'
+      - '.github/workflows/copilot-cockpit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cockpit:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/cockpit-temporal/go.mod
+          cache-dependency-path: tools/cockpit-temporal/go.sum
+      - name: Check planning, approval, recovery and QA retention
+        run: |
+          tools/tests/cockpit-plan-tests.sh
+          tools/tests/cockpit-planning-tests.sh
+          tools/tests/cockpit-run-tests.sh
+          tools/tests/feature-review-gate-tests.sh
+          tools/tests/qa-retention-tests.sh
+      - name: Check Temporal workflow
+        working-directory: tools/cockpit-temporal
+        run: go test ./...
