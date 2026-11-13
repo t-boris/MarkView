@@ -200,6 +200,12 @@ do {
     ], menus: [], scoped: true)
     check("dense: inspected text and prices have pointer refs from geometry", scoped.refs.values.contains { $0.summary == "text \"ACTIVITY\"" }
         && scoped.refs.values.contains { $0.summary == "cell \"4.70\"" })
+    let tabGroup = el("AXGroup", "ACTIVITY", [el("AXStaticText", value: "ACTIVITY", frame: CGRect(x: 10, y: 20, width: 80, height: 20))])
+    let tabOverview = render([tabGroup])
+    let tabScoped = QANativeSnapshot.render(app: "Demo", windowTitle: "Activity", elements: [tabGroup], menus: [], scoped: true)
+    check("native group tab: the overview exposes an inspection route and its scoped label has a pointer ref",
+          tabOverview.refs.values.contains { $0.summary == "group \"ACTIVITY\"" }
+          && tabScoped.refs.values.contains { $0.summary == "text \"ACTIVITY\"" })
     check("dense: inspected secure values stay hidden", !scoped.text.contains("never-expose"))
     let denseTable = QANativeElement(id: 70001, role: "AXTable", title: "Long chain", children: (0..<350).map { el("AXStaticText", value: String(repeating: "quote ", count: 20) + String($0)) }, childCount: 350)
     let later = QANativeElement(id: 70002, role: "AXTable", title: "Positions", childCount: 1)
