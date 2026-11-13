@@ -125,6 +125,7 @@ struct UIStudioView: View {
                 .help("Recording: clicks, typing and Enter become steps. Stop with Interact, then save the scenario in the Scenarios panel.")
             }
             scenarioMenu
+            screensMenu
             viewportMenu
             zoomMenu
             Button { session.setTheme(session.scenario.theme == .dark ? .light : .dark) } label: {
@@ -197,11 +198,29 @@ struct UIStudioView: View {
             ForEach(StudioViewport.presets, id: \.name) { preset in
                 Button("\(preset.name) — \(preset.viewport.width)×\(preset.viewport.height)") { session.setViewport(preset.viewport) }
             }
+
         } label: {
             Text("\(session.viewport.width)×\(session.viewport.height)").uiFont(size: 10, design: .monospaced)
         }
         .controlSize(.small).fixedSize()
         .help("The application's viewport (its window size). Zoom never changes it.")
+    }
+
+    private var screensMenu: some View {
+        Menu {
+            ForEach(session.screens) { screen in
+                Button(screen.name + " — " + screen.route) { session.openScreen(screen) }
+                    .help(screen.description + "\n" + screen.source)
+            }
+            if !session.screens.isEmpty { Divider() }
+            Button(session.screens.isEmpty ? "Discover Application Screens…" : "Refresh Application Screens…") {
+                session.discoverScreens()
+            }
+        } label: {
+            Label("Screens", systemImage: "rectangle.on.rectangle")
+        }
+        .controlSize(.small).fixedSize().disabled(session.appURL == nil || session.busy != nil)
+        .help("Choose a source-backed application screen, including different states at the same route. Opening one creates and verifies a scenario.")
     }
 
     private var zoomMenu: some View {
@@ -800,8 +819,10 @@ struct UIStudioOperationRow: View {
             }
             if compact, !operation.checks.isEmpty, operation.checks.allSatisfy(\.passed) {
                 HStack(alignment: .top, spacing: 4) {
-                    Image(systemName: "checkmark.circle.fill").foregroundColor(palette.green).uiFont(size: 10)
-                    Text(operation.checks.count == 1 ? operation.checks[0].name : "\(operation.checks.count) checks passed")
+                    Image(systemName: operation.status == .undone ? "clock" : "checkmark.circle.fill")
+                        .foregroundColor(operation.status == .undone ? palette.textDim : palette.green).uiFont(size: 10)
+                    Text(operation.status == .undone ? "\(operation.checks.count) checks passed before Undo (not the current screen)"
+                         : operation.checks.count == 1 ? operation.checks[0].name : "\(operation.checks.count) checks passed")
                         .uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1)
                 }
                 .help(operation.checks.map(\.name).joined(separator: "\n"))

@@ -600,6 +600,24 @@ struct StudioFileChange: Codable, Hashable, Sendable {
     var after: String?
 }
 
+/// A source-backed destination, including distinct rendered states that share the same route.
+struct StudioScreen: Codable, Hashable, Identifiable, Sendable {
+    var id: String { name + "\n" + route + "\n" + selector }
+    var name: String
+    var route: String
+    var selector: String
+    var description: String
+    var instructions: String
+    var source: String
+
+    var request: String {
+        "Show the application screen \"\(name)\": \(description)\n"
+            + "Destination: \(route); visible screen-specific element: \(selector).\n"
+            + "Source evidence: \(source)\nPreparation and navigation: \(instructions)\n"
+            + "Change only the scenario, not the application's source code."
+    }
+}
+
 /// A question, a source change or a context change made from UI Studio (ChangeSet, §10.1; EDIT-06; REQ-013).
 struct StudioOperation: Codable, Hashable, Identifiable, Sendable {
     enum Kind: String, Codable, Sendable {
@@ -641,6 +659,7 @@ struct StudioOperation: Codable, Hashable, Identifiable, Sendable {
     var changeReason: String? = nil
     var tracking: Tracking? = nil
     var question: String? = nil
+    var destinationScreen: StudioScreen? = nil
     var options: [String] = []
     var selection: String = ""
     var scenarioId: String? = nil

@@ -1058,6 +1058,9 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
     <ul id="items"></ul>
     <button id="book" data-testid="open-booking" onclick="document.getElementById('booking-dialog').hidden = false">Book</button>
     <div id="booking-dialog" hidden>Booking</div>
+    <button id="transient-button" onclick="document.getElementById('transient-screen').hidden = false; setTimeout(() => document.getElementById('transient-screen').hidden = true, 450)">Transient screen</button>
+    <div id="transient-screen" hidden>Code entry</div>
+    <button id="runtime-button" onclick="throw new Error('Screen verification fixture')">Runtime error</button>
     <script>
     fetch('/api/items').then(r => r.json()).then(items => {
       document.getElementById('items').innerHTML = items.map(i => '<li>' + i.name + '</li>').join('');
@@ -1086,6 +1089,50 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
     let baseline = await items()
     check("REQ-013 the context page shows the baseline records", baseline == "Alpha,Beta" && session.selection == nil, baseline ?? "nil")
     let savedBefore = session.savedScenarios.count
+
+    let screenRows: [[String: Any]] = [
+        ["name": "Booking", "route": "/context.html", "selector": "#booking-dialog", "description": "Booking form",
+         "instructions": "Click [data-testid=open-booking].", "source": "web/context.html: booking-dialog"],
+        ["name": "Transient", "route": "/context.html", "selector": "#transient-screen", "description": "Code entry",
+         "instructions": "Click #transient-button.", "source": "web/context.html: transient-screen"]]
+    let previousScreenAnswer = CLICompletion.answer
+    CLICompletion.answer = { request in
+        if request.label == "ui-studio:screens" {
+            return CLICompletion.Result(text: "", structured: ["screens": screenRows + [screenRows[0],
+                ["name": "External", "route": "https://example.com", "selector": "body", "instructions": "Navigate", "source": "guess"]],
+                "notes": ""], inputTokens: 10, outputTokens: 5, costUSD: 0)
+        }
+        return assistant.respond(request)
+    }
+    session.discoverScreens()
+    _ = await idle()
+    CLICompletion.answer = previousScreenAnswer
+    check("screen discovery keeps distinct same-route states and rejects duplicates and external routes",
+          session.screens.count == 2 && session.scenario.id == base.id && session.savedScenarios.count == savedBefore)
+    let discovery = CLICompletion.requests.last { $0.label == "ui-studio:screens" }
+    check("screen discovery is read-only and includes the application folder",
+          discovery?.readableFolder?.standardizedFileURL == root.standardizedFileURL
+          && discovery?.prompt.contains("Application folder (relative to the project):") == true,
+          discovery?.prompt ?? "nil")
+
+    var ambiguousContext = contextPlan(name: "Main page")
+    ambiguousContext["needsClarification"] = true
+    ambiguousContext["question"] = "Which screen?"
+    ambiguousContext["options"] = ["Code entry", "Invalid QR code"]
+    assistant.lock.withLock { assistant.edits = [ambiguousContext] }
+    session.change("Show the main page")
+    _ = await idle()
+    let contextQuestion = session.history.last
+    check("ambiguous screen requests ask before changing or saving the scenario",
+          contextQuestion?.kind == .context && contextQuestion?.status == .clarification
+          && contextQuestion?.options == ["Code entry", "Invalid QR code"] && session.scenario.id == base.id
+          && session.savedScenarios.count == savedBefore)
+    if let contextQuestion {
+        assistant.lock.withLock { assistant.edits = [answerPlan("Code entry is the verification form.")] }
+        session.change(contextQuestion.request, clarification: "Code entry", replacing: contextQuestion)
+        _ = await idle()
+    }
+    session.clearConversation()
 
     // An answer without a selection changes nothing: no scenario, no file, the same page.
     assistant.lock.withLock { assistant.edits = [answerPlan("The list shows the items from /api/items.")] }
@@ -1201,6 +1248,33 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
           && session.savedScenarios.count == reachedCount && session.webView.url?.path == "/context.html",
           "\(missed?.status.rawValue ?? "nil") \(missed?.answer ?? "") \(session.webView.url?.path ?? "nil")")
     check("the failed trial did not replace the original scenario", beforeDestination != reachedScenario)
+    // A selected screen remains the destination even if the assistant substitutes the current page's generic selector.
+    let transientScreen = session.screens[1]
+    assistant.lock.withLock {
+        assistant.edits = [contextPlan(name: "Transient", steps: [["action": "click", "selector": "#transient-button"]],
+                                       expectedPath: "/context.html", expectedSelector: "body"),
+                           contextPlan(name: "Transient retry", steps: [["action": "click", "selector": "#transient-button"]],
+                                       expectedPath: "/context.html", expectedSelector: "body")]
+    }
+    session.openScreen(transientScreen)
+    _ = await idle()
+    check("a fleeting screen cannot pass and a selected screen's selector cannot be weakened",
+          session.history.last?.status == .failed && session.history.last?.answer.contains("#transient-screen") == true
+          && session.scenario.id == reachedScenario && session.savedScenarios.count == reachedCount,
+          session.history.last?.answer ?? "nil")
+    session.activate(base)
+    _ = await idle()
+    assistant.lock.withLock {
+        assistant.edits = [contextPlan(name: "Selected booking", steps: [["action": "click", "selector": "[data-testid=open-booking]"]])]
+    }
+    session.openScreen(session.screens[0])
+    _ = await idle()
+    check("opening a selected screen creates a scenario with enforced destination checks",
+          session.history.last?.status == .applied && session.scenario.expectedSelector == "#booking-dialog"
+          && session.scenario.expectedPath == "/context.html",
+          "\(session.history.last?.status.rawValue ?? "nil"): \(session.history.last?.answer ?? "")")
+    session.activate(session.savedScenarios.first { $0.id == reachedScenario } ?? previousDestinationScenario)
+    _ = await idle()
     assistant.lock.withLock {
         assistant.edits = [contextPlan(name: "Unreachable answer", expectedPath: "/missing"), answerPlan("I could not open it.")]
     }
@@ -1221,6 +1295,15 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
     check("a validation correction does not consume the destination correction", editRequests().count == beforeCombinedRetry + 3
           && session.history.last?.status == .applied && session.scenario.name == "Corrected destination",
           "\(session.history.last?.status.rawValue ?? "nil") \(session.scenario.name)")
+    assistant.lock.withLock {
+        assistant.edits = [contextPlan(name: "Runtime failure", steps: [["action": "click", "selector": "#runtime-button"]])]
+    }
+    session.change("Trigger the runtime error")
+    _ = await idle()
+    check("a saved scenario with a failed runtime check is not reported as applied",
+          session.history.last?.status == .failed
+          && session.history.last?.checks.contains { $0.name == "No runtime errors" && !$0.passed } == true,
+          session.history.last?.answer ?? "nil")
     session.activate(previousDestinationScenario)
     _ = await idle()
 
