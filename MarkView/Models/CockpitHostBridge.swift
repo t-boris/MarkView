@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
 
-struct CockpitHostStep: Codable, Sendable { var id: String; var agent: String; var assignment: String; var prerequisite: Bool }
+struct CockpitHostStep: Codable, Sendable { var id: String; var title: String = ""; var agent: String; var assignment: String; var completionCondition: String = ""; var prerequisite: Bool }
 struct CockpitHostResult: Codable, Sendable { var passed: Bool; var detail: String; var build: String }
 struct CockpitHostEntry: Codable, Sendable { var stepID: String; var result: CockpitHostResult }
 struct CockpitHostTask: Codable, Sendable {

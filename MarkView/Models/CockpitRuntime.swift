@@ -4,7 +4,7 @@ import Darwin
 
 struct CockpitTLSFiles: Codable { var ca: String; var cert: String; var key: String }
 struct CockpitEndpoint: Codable { var address: String; var tls: CockpitTLSFiles }
-struct CockpitTemporalStep: Codable { var id: String; var agent: String; var assignment: String; var prerequisite: Bool }
+struct CockpitTemporalStep: Codable { var id: String; var title: String; var agent: String; var assignment: String; var completionCondition: String; var prerequisite: Bool }
 struct CockpitTemporalPlan: Codable {
     var fingerprint: String
     var goal: String
@@ -19,7 +19,7 @@ struct CockpitTemporalPlan: Codable {
         goal = plan.goal
         controls = String(decoding: try encoder.encode(plan.controls), as: UTF8.self)
         successCriteria = plan.successCriteria
-        steps = plan.steps.map { CockpitTemporalStep(id: $0.id.uuidString, agent: $0.agent, assignment: $0.assignment, prerequisite: $0.isPrerequisite) }
+        steps = plan.steps.map { CockpitTemporalStep(id: $0.id.uuidString, title: $0.title, agent: $0.agent, assignment: $0.assignment, completionCondition: $0.completionCondition, prerequisite: $0.isPrerequisite) }
     }
 }
 struct CockpitTemporalApproval: Codable { var fingerprint: String; var step: Int }
@@ -49,7 +49,7 @@ final class CockpitService {
     }
     private static var services: [String: CockpitService] = [:]
     static func forProject(_ root: URL) -> CockpitService {
-        let root = root.standardizedFileURL.resolvingSymlinksInPath()
+        let root = root.standardizedFileURL
         if let existing = services[root.path] { return existing }
         let service = CockpitService(root: root); services[root.path] = service; return service
     }

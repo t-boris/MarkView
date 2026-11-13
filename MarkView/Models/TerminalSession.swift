@@ -100,6 +100,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// It is never typed into an ordinary terminal tab.
     let operationCommand: String?
     var onExit: ((Int32) -> Void)?
+    /// A cockpit assignment must be interrupted if its terminal is closed or restarted.
+    var onCockpitTermination: (() -> Void)?
     /// Everything the process prints, as it arrives (e.g. to find a dev server's address).
     var onOutput: ((Data) -> Void)?
     var onLaunchFailure: ((String) -> Void)?
@@ -482,7 +484,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     }
 
     /// End the shell and everything started in it.
-    func terminate() {
+    @discardableResult func terminate() -> Task<Void, Never>? {
+        let notifyCockpit = onCockpitTermination
+        onCockpitTermination = nil
+        notifyCockpit?()
         connection?.stop()
         let stoppedPID = childPID
         childPID = 0
@@ -490,12 +495,21 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         exitSource?.cancel(); exitSource = nil
         input?.cancel(); input = nil
         if masterFD >= 0 { close(masterFD); masterFD = -1 }
-        if stoppedPID > 0 {
-            _ = TerminalChildProcess.stopAndReap(stoppedPID)
-        }
+        let reaping = stoppedPID > 0 ? TerminalChildProcess.stopAndReap(stoppedPID) : nil
         isRunning = false
         exitCode = 130
         if pageReady { webView.evaluateJavaScript("window.mvExited && window.mvExited(130)") }
+        return reaping
+    }
+
+    /// A cockpit step has finished or was interrupted. Stop its foreground job before the
+    /// coordinator advances; the shell itself is reaped by the normal terminal shutdown.
+    @discardableResult func terminateCockpitStep() -> Task<Void, Never>? {
+        if masterFD >= 0 {
+            let foreground = tcgetpgrp(masterFD)
+            if foreground > 0 { _ = kill(-foreground, SIGKILL) }
+        }
+        return terminate()
     }
 
     // MARK: - Input and output

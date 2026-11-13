@@ -12,6 +12,16 @@ enum ProjectToolRunner {
         store.reloadSync()
         do {
             switch tool {
+            case "markview_cockpit_complete_step":
+                guard let raw = args["ticket"] as? String, let ticket = UUID(uuidString: raw),
+                      let passed = args["passed"] as? Bool, let detail = args["detail"] as? String else {
+                    return .error("A valid ticket, result and detail are required.")
+                }
+                let result = CockpitHostResult(passed: passed, detail: detail, build: args["build"] as? String ?? "")
+                guard CockpitAgentRegistry.complete(root: root, token: ticket, result: result) else {
+                    return .error("The ticket is invalid, expired, belongs to another project, or the result is too long.")
+                }
+                return .init(text: "The Cockpit step result was recorded.")
             case "markview_guide": return .init(text: ProjectAgentTools.guide(args["topic"] as? String, workflow: store.lifecycle.workflow))
             case "markview_project": return .init(text: project(store, root))
             case "markview_get_workflow": return getWorkflow(store)

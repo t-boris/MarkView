@@ -34,8 +34,8 @@ func TestApprovalAndPrerequisiteRetry(t *testing.T) {
 	}, 2*time.Second)
 	env.RegisterDelayedCallback(func() { env.SignalWorkflow("control", "retry") }, 3*time.Second)
 	env.ExecuteWorkflow(Execute, Plan{Fingerprint: "reviewed", Steps: []Step{
-		{ID: "pre", Agent: "Codex", Assignment: "Check", Prerequisite: true},
-		{ID: "work", Agent: "Claude", Assignment: "Do work"},
+		{ID: "pre", Title: "Step", Agent: "Codex", Assignment: "Check", CompletionCondition: "Done", Prerequisite: true},
+		{ID: "work", Title: "Step", Agent: "Claude", Assignment: "Do work", CompletionCondition: "Done"},
 	}})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestInterruptedActivityIsNotRetried(t *testing.T) {
 	env.RegisterDelayedCallback(func() { env.SignalWorkflow("approve", Start{Fingerprint: "x", Step: 0}) }, time.Second)
 	env.RegisterDelayedCallback(func() { env.SignalWorkflow("control", "resume") }, 2*time.Second)
 	env.RegisterDelayedCallback(func() { env.SignalWorkflow("control", "stop") }, 3*time.Second)
-	env.ExecuteWorkflow(Execute, Plan{Fingerprint: "x", Steps: []Step{{ID: "one", Agent: "Codex", Assignment: "Change"}}})
+	env.ExecuteWorkflow(Execute, Plan{Fingerprint: "x", Steps: []Step{{ID: "one", Title: "Step", Agent: "Codex", Assignment: "Change", CompletionCondition: "Done"}}})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatal(err)
 	}
@@ -83,8 +83,8 @@ func TestSelectedStepSkipsPrevious(t *testing.T) {
 	}, activity.RegisterOptions{Name: "cockpit.run-step"})
 	env.RegisterDelayedCallback(func() { env.SignalWorkflow("approve", Start{Fingerprint: "x", Step: 1}) }, time.Second)
 	env.ExecuteWorkflow(Execute, Plan{Fingerprint: "x", Steps: []Step{
-		{ID: "pre", Agent: "Codex", Assignment: "Check", Prerequisite: true},
-		{ID: "work", Agent: "Codex", Assignment: "Work"},
+		{ID: "pre", Title: "Step", Agent: "Codex", Assignment: "Check", CompletionCondition: "Done", Prerequisite: true},
+		{ID: "work", Title: "Step", Agent: "Codex", Assignment: "Work", CompletionCondition: "Done"},
 	}})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestStopBeforeApproval(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
 	env.RegisterDelayedCallback(func() { env.SignalWorkflow("control", "stop") }, time.Second)
-	env.ExecuteWorkflow(Execute, Plan{Fingerprint: "x", Steps: []Step{{ID: "one", Agent: "Codex", Assignment: "Work"}}})
+	env.ExecuteWorkflow(Execute, Plan{Fingerprint: "x", Steps: []Step{{ID: "one", Title: "Step", Agent: "Codex", Assignment: "Work", CompletionCondition: "Done"}}})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatal(err)
 	}

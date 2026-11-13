@@ -17,11 +17,12 @@ final class CockpitSession: ObservableObject {
         guard !busy, !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let goal = self.goal, controls = self.controls, previous = plan, refinement = self.refinement
         let root = self.root
+        let candidates = CLITool.allCases.filter { BrowserControlServer.agentToolsEnabled($0) }
         busy = true; error = nil
         task = Task { [weak self] in
             do {
                 var agents: [String] = []
-                for tool in CLITool.allCases {
+                for tool in candidates {
                     try Task.checkCancellation()
                     if await CLIToolLocator.resolveThorough(tool) != nil { agents.append(tool.displayName) }
                 }
@@ -57,6 +58,6 @@ final class CockpitSession: ObservableObject {
 
     enum PlanningFailure: LocalizedError {
         case noAgents
-        var errorDescription: String? { "No supported agent CLI was found." }
+        var errorDescription: String? { "No supported agent CLI with MarkView tools enabled was found." }
     }
 }

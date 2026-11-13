@@ -96,7 +96,7 @@ func TestLocalTemporalStartsAndRestarts(t *testing.T) {
 			defer w.Stop()
 			if n == 0 {
 				_, err = connection.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: "persistent-run", TaskQueue: "integration"}, cockpit.Execute,
-					cockpit.Plan{Fingerprint: "reviewed", Steps: []cockpit.Step{{ID: "one", Agent: "Codex", Assignment: "Work"}}})
+					cockpit.Plan{Fingerprint: "reviewed", Steps: []cockpit.Step{{ID: "one", Title: "Step", Agent: "Codex", Assignment: "Work", CompletionCondition: "Done"}}})
 				if err != nil {
 					t.Fatal(err)
 				}

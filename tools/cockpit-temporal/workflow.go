@@ -17,10 +17,12 @@ type Plan struct {
 	Steps           []Step   `json:"steps"`
 }
 type Step struct {
-	ID           string `json:"id"`
-	Agent        string `json:"agent"`
-	Assignment   string `json:"assignment"`
-	Prerequisite bool   `json:"prerequisite"`
+	ID                  string `json:"id"`
+	Title               string `json:"title"`
+	Agent               string `json:"agent"`
+	Assignment          string `json:"assignment"`
+	CompletionCondition string `json:"completionCondition"`
+	Prerequisite        bool   `json:"prerequisite"`
 }
 type Start struct {
 	Fingerprint string `json:"fingerprint"`
@@ -59,7 +61,7 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 	}
 	seen := make(map[string]bool)
 	for _, step := range plan.Steps {
-		if step.ID == "" || step.Agent == "" || step.Assignment == "" || seen[step.ID] {
+		if step.ID == "" || step.Title == "" || step.Agent == "" || step.Assignment == "" || step.CompletionCondition == "" || seen[step.ID] {
 			return state, fmt.Errorf("invalid step")
 		}
 		seen[step.ID] = true

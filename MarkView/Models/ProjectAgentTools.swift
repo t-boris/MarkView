@@ -41,6 +41,12 @@ enum ProjectAgentTools {
     }
 
     static let tools: [BrowserAgentTools.Tool] = [
+        tool("markview_cockpit_complete_step", "Report the outcome of the specific Cockpit assignment that supplied this one-use ticket. Call once after finishing the assigned work; this ends the agent session.",
+             ["ticket": ["type": "string", "description": "One-use ticket supplied with the assignment"],
+              "passed": ["type": "boolean", "description": "Whether the assigned completion condition was met"],
+              "detail": ["type": "string", "description": "Results, evidence and blockers for the next step"],
+              "build": ["type": "string", "description": "Identifier of the build under which the result was obtained, or empty"]],
+             required: ["ticket", "passed", "detail"]),
         tool("markview_guide", "What MarkView features, requirements, decisions, questions, bugs and prototypes are, their fields, statuses and the workflow. Read the overview first.",
              ["topic": ["type": "string", "enum": guideTopics, "description": "Default: overview"]]),
         tool("markview_project", "The project of this window: folder, number of features, bugs and prototypes."),

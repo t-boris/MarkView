@@ -361,6 +361,7 @@
 		B442742D59A52CE38F5FC022 /* UIStudioEnvironmentMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD36C8EC6805326FE6D91574 /* UIStudioEnvironmentMap.swift */; };
 		B5C2538AA47AD3CD46B16F31 /* RemoteWorkspaceTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31D3978C9FF22D2B5514E8DC /* RemoteWorkspaceTools.swift */; };
 		B62A636C3D15F3FCDADB4309 /* AgentModelMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F1056937343F57E558663BD /* AgentModelMenu.swift */; };
+		B6D51F539F8191276FD16E37 /* CockpitAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F86B1A719A8853CEF5BFE1F /* CockpitAgentRegistry.swift */; };
 		B7090FBCB5B6FE86CEF424F6 /* WorkflowFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED3A5171E73A5AE15C8A979E /* WorkflowFlow.swift */; };
 		B7604ECF4767B530E6DA96E4 /* UIStudioContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED38A3D93E96C54E2A3BCD06 /* UIStudioContext.swift */; };
 		B776ABDEC4DEBC3133A3FD1D /* KaTeX_Main-BoldItalic.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 4901BB46E719AF40B6110311 /* KaTeX_Main-BoldItalic.woff2 */; };
@@ -474,6 +475,7 @@
 		EDB3B2A3C50F91166FEA9DEB /* FeaturePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 779E8848F94EF650F4B206BD /* FeaturePanelView.swift */; };
 		EE15AC6DFBF5E8C537995A5F /* discussion.html in Resources */ = {isa = PBXBuildFile; fileRef = 35D0DD0A460F4B6F319D51D0 /* discussion.html */; };
 		EEF940F8CC7452E5B0D011FD /* ProjectOperationDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54B88089F2E7416767D42721 /* ProjectOperationDiscoveryService.swift */; };
+		EF42F54310EC6FE4C1EC5A64 /* CockpitAgentAttempt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761D2F74CBAC26745235692C /* CockpitAgentAttempt.swift */; };
 		EF49456C7DDBE5A38F1CC431 /* ResearchMapRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 115DC67845659B28A4FE3E34 /* ResearchMapRun.swift */; };
 		EFD0357B1249A5D014B893E4 /* WorkspaceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDC9210ADC47CAF918764DB3 /* WorkspaceManager.swift */; };
 		F02CFF15FB77E319202C89F0 /* terminal.html in Resources */ = {isa = PBXBuildFile; fileRef = 7D11CCE605051BBC0566CA2D /* terminal.html */; };
@@ -616,6 +618,7 @@
 		2DDC0BA825074D867C9D7697 /* OutputLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputLanguage.swift; sourceTree = "<group>"; };
 		2E9FB0D7D752EC0B14DA0019 /* QANativeFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QANativeFactory.swift; sourceTree = "<group>"; };
 		2EB46759349C74CBC6AA73CF /* KaTeX_SansSerif-Bold.woff2 */ = {isa = PBXFileReference; path = "KaTeX_SansSerif-Bold.woff2"; sourceTree = "<group>"; };
+		2F86B1A719A8853CEF5BFE1F /* CockpitAgentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitAgentRegistry.swift; sourceTree = "<group>"; };
 		30F638D998FE61AFADA97341 /* QAWebWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAWebWindow.swift; sourceTree = "<group>"; };
 		31031C9C0DD0A49B59264431 /* IssueLifecycleEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueLifecycleEvidence.swift; sourceTree = "<group>"; };
 		316A83CA88604AE6241AEEF5 /* QAAttachments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAAttachments.swift; sourceTree = "<group>"; };
@@ -763,6 +766,7 @@
 		747C5366B2EBA397F5F91CF7 /* CodeExplainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeExplainer.swift; sourceTree = "<group>"; };
 		75EAFF59D525BADEE5D10341 /* prism.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = prism.min.js; sourceTree = "<group>"; };
 		75FC7940299CE6E834BFE230 /* InsightArchiveExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightArchiveExporter.swift; sourceTree = "<group>"; };
+		761D2F74CBAC26745235692C /* CockpitAgentAttempt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitAgentAttempt.swift; sourceTree = "<group>"; };
 		76FB90DA3782A6E99BB4881B /* FileNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNode.swift; sourceTree = "<group>"; };
 		77905597C531DFE78D2D11EC /* data.bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = data.bundle.js; sourceTree = "<group>"; };
 		779E8848F94EF650F4B206BD /* FeaturePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelView.swift; sourceTree = "<group>"; };
@@ -1133,6 +1137,8 @@
 				BDD60B865C8AFD298FC5EB04 /* ClaudeSessionModel.swift */,
 				8617D6996AEA0B711F366A7C /* CLICompletion.swift */,
 				221F39018C2CA8AA7FA32473 /* CloudServices.swift */,
+				761D2F74CBAC26745235692C /* CockpitAgentAttempt.swift */,
+				2F86B1A719A8853CEF5BFE1F /* CockpitAgentRegistry.swift */,
 				EAC55BB9645FF3D3E1035CF4 /* CockpitChild.swift */,
 				BC4F236A394AFAFFCD86CAED /* CockpitHostBridge.swift */,
 				5C68AEF16B013848A18B3396 /* CockpitPlan.swift */,
@@ -1913,6 +1919,8 @@
 				279B4AA4056129EE40C5F2EB /* ClaudeSessionModel.swift in Sources */,
 				24A5F71CED74B803814EF7F6 /* CloudServices.swift in Sources */,
 				A5190AB848B0ADF17DF3D784 /* CloudServicesView.swift in Sources */,
+				EF42F54310EC6FE4C1EC5A64 /* CockpitAgentAttempt.swift in Sources */,
+				B6D51F539F8191276FD16E37 /* CockpitAgentRegistry.swift in Sources */,
 				6E706AD7C74BF0665414A8C6 /* CockpitChild.swift in Sources */,
 				0DDA41C1AED38C45D3DD8D35 /* CockpitHostBridge.swift in Sources */,
 				DB08F1DB1DB4D8C8FDB87EAA /* CockpitPlan.swift in Sources */,
