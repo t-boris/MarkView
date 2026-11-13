@@ -48,8 +48,22 @@ jobs:
           tools/tests/cockpit-planning-tests.sh
           tools/tests/cockpit-run-tests.sh
           tools/tests/cockpit-host-bridge-tests.sh
+          tools/tests/cockpit-child-tests.sh
           tools/tests/feature-review-gate-tests.sh
           tools/tests/qa-retention-tests.sh
       - name: Check Temporal workflow
         working-directory: tools/cockpit-temporal
         run: go test ./...
+      - name: Build and check the local runtime
+        run: |
+          export TARGET_BUILD_DIR="$RUNNER_TEMP/cockpit-product"
+          export UNLOCALIZED_RESOURCES_FOLDER_PATH="MarkView.app/Contents/Resources"
+          export CONFIGURATION=Debug
+          tools/cockpit-temporal/scripts/build-runtime.sh
+          case "$(uname -m)" in arm64) arch=arm64 ;; x86_64) arch=amd64 ;; *) exit 1 ;; esac
+          export MARKVIEW_TEST_RUNTIME="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Cockpit/$arch"
+          export MARKVIEW_TEST_SERVER="$MARKVIEW_TEST_RUNTIME/bin/server"
+          export MARKVIEW_TEST_POSTGRES="$MARKVIEW_TEST_RUNTIME/postgres"
+          export MARKVIEW_TEST_SUPERVISOR="$MARKVIEW_TEST_RUNTIME/bin/postgres-supervisor"
+          (cd tools/cockpit-temporal && go test -p 2 -tags integration -timeout 180s -run TestLocalTemporalStartsAndRestarts ./localserver)
+          tools/tests/cockpit-runtime-integration-tests.sh

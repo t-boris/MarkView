@@ -32,7 +32,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "local Temporal credentials unavailable")
 		os.Exit(1)
 	}
-	temporalClient, err := client.Dial(client.Options{HostPort: *address, ConnectionOptions: client.ConnectionOptions{TLS: tlsConfig}})
+	temporalClient, err := client.Dial(client.Options{HostPort: *address, Logger: cockpit.QuietSDKLogger{}, ConnectionOptions: client.ConnectionOptions{TLS: tlsConfig}})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -46,6 +46,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	fmt.Println(`{"ready":true}`)
 	// The app owns the write end of stdin; EOF shuts the worker down when the app exits or crashes.
 	_, _ = io.Copy(io.Discard, os.Stdin)
 	w.Stop()

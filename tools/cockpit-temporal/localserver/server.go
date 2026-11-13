@@ -12,6 +12,7 @@ import (
 	"time"
 
 	postgres "github.com/fergusstrange/embedded-postgres/v2"
+	cockpit "github.com/t-boris/MarkView/cockpit-temporal"
 	"github.com/t-boris/MarkView/cockpit-temporal/localtls"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/api/workflowservice/v1"
@@ -114,7 +115,7 @@ func Start(ctx context.Context, options Options) (_ *Server, resultErr error) {
 	}
 	dialCtx, dialCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer dialCancel()
-	c, err := client.DialContext(dialCtx, client.Options{HostPort: endpoint.Address, ConnectionOptions: client.ConnectionOptions{TLS: tlsConfig}})
+	c, err := client.DialContext(dialCtx, client.Options{HostPort: endpoint.Address, Logger: cockpit.QuietSDKLogger{}, ConnectionOptions: client.ConnectionOptions{TLS: tlsConfig}})
 	if err != nil {
 		return nil, fmt.Errorf("connect local Temporal: %w", err)
 	}

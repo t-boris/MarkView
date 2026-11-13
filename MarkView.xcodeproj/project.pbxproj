@@ -240,8 +240,10 @@
 		6CC857BDBF6BE8DAAF2CECD2 /* FileTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26726FF62649B52BE2384159 /* FileTreeView.swift */; };
 		6DD1BF0F96AE6F2587F23145 /* WorkflowEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D7DE35132DC0CA5FDDC9135 /* WorkflowEvents.swift */; };
 		6DE4C29D60E2575CF5D4CCD9 /* OutputLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DDC0BA825074D867C9D7697 /* OutputLanguage.swift */; };
+		6E706AD7C74BF0665414A8C6 /* CockpitChild.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAC55BB9645FF3D3E1035CF4 /* CockpitChild.swift */; };
 		6E8629CB6F865A9F4A9817A6 /* TerminalBrowserBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FA9A072A34C2A6381C48622 /* TerminalBrowserBridge.swift */; };
 		6FB910979981EED49A926F3F /* ConflictPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEC026508553C50ACDA4C8E3 /* ConflictPrompt.swift */; };
+		72656B2C10A2E60674F94C69 /* CockpitRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20084E74DB92381226899AB8 /* CockpitRuntime.swift */; };
 		7285247806416EF104B87B80 /* QAGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55FEAEC5DE537EF6BC479D3A /* QAGate.swift */; };
 		730F23C5B6F4B2F9CC919D04 /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ADCB63E2DE221E14BDFEC7C /* TabBarView.swift */; };
 		74421F227DDFABBFB9F463CE /* QANativePermissionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C09F7CEBCE9717896EDDD7 /* QANativePermissionsView.swift */; };
@@ -580,6 +582,7 @@
 		1F60ECCDB3C2E43001DA9567 /* tailwind-browser.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "tailwind-browser.js"; sourceTree = "<group>"; };
 		1FE056A3F4F31CCD6B594D3D /* IssueCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueCompletion.swift; sourceTree = "<group>"; };
 		1FE3D4429958A004ADFE5D2C /* FeatureReviewGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureReviewGate.swift; sourceTree = "<group>"; };
+		20084E74DB92381226899AB8 /* CockpitRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitRuntime.swift; sourceTree = "<group>"; };
 		208F3A1A41768480AD365DC2 /* BugBasket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugBasket.swift; sourceTree = "<group>"; };
 		20C09F7CEBCE9717896EDDD7 /* QANativePermissionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QANativePermissionsView.swift; sourceTree = "<group>"; };
 		22188BA397123474A73BE844 /* ExcludedFolders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExcludedFolders.swift; sourceTree = "<group>"; };
@@ -982,6 +985,7 @@
 		EA8528AC59F5DF6B456427AB /* PrototypeFeatureWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeFeatureWriter.swift; sourceTree = "<group>"; };
 		EA88118ECF6D4FADB320FA0B /* GitHubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubViews.swift; sourceTree = "<group>"; };
 		EA8DF6857E5E8CBFBDCAB042 /* RemoteProviderConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteProviderConfiguration.swift; sourceTree = "<group>"; };
+		EAC55BB9645FF3D3E1035CF4 /* CockpitChild.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitChild.swift; sourceTree = "<group>"; };
 		EB59453E1DB3C08D9B9344BB /* QANativeActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QANativeActor.swift; sourceTree = "<group>"; };
 		EBBC3BCA498B63EB02AAD0C3 /* KaTeX_Fraktur-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Fraktur-Regular.woff2"; sourceTree = "<group>"; };
 		EBF852F0FD6018D2E711401C /* PrototypeAI+Handoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PrototypeAI+Handoff.swift"; sourceTree = "<group>"; };
@@ -1129,12 +1133,14 @@
 				BDD60B865C8AFD298FC5EB04 /* ClaudeSessionModel.swift */,
 				8617D6996AEA0B711F366A7C /* CLICompletion.swift */,
 				221F39018C2CA8AA7FA32473 /* CloudServices.swift */,
+				EAC55BB9645FF3D3E1035CF4 /* CockpitChild.swift */,
 				BC4F236A394AFAFFCD86CAED /* CockpitHostBridge.swift */,
 				5C68AEF16B013848A18B3396 /* CockpitPlan.swift */,
 				544FA79A3A63EC5D3235A7FF /* CockpitPlanning.swift */,
 				F8EF6DAAB291A58DCE6D2A7B /* CockpitResults.swift */,
 				AC6819622B5D2A65E58893A1 /* CockpitRun.swift */,
 				B5612E561DAD2527239AB27E /* CockpitRunStore.swift */,
+				20084E74DB92381226899AB8 /* CockpitRuntime.swift */,
 				72BACCBE46D42178D2B4CA76 /* CockpitSession.swift */,
 				26E37F916C227D94583C78C0 /* CodeArchitecture.swift */,
 				747C5366B2EBA397F5F91CF7 /* CodeExplainer.swift */,
@@ -1907,12 +1913,14 @@
 				279B4AA4056129EE40C5F2EB /* ClaudeSessionModel.swift in Sources */,
 				24A5F71CED74B803814EF7F6 /* CloudServices.swift in Sources */,
 				A5190AB848B0ADF17DF3D784 /* CloudServicesView.swift in Sources */,
+				6E706AD7C74BF0665414A8C6 /* CockpitChild.swift in Sources */,
 				0DDA41C1AED38C45D3DD8D35 /* CockpitHostBridge.swift in Sources */,
 				DB08F1DB1DB4D8C8FDB87EAA /* CockpitPlan.swift in Sources */,
 				505E407B6DE7B607F9EC823B /* CockpitPlanning.swift in Sources */,
 				DC71A8776EC3232A422811B4 /* CockpitResults.swift in Sources */,
 				5579B5AB66F8963B1955B045 /* CockpitRun.swift in Sources */,
 				3BA06ECBFADD3E1E89187AB1 /* CockpitRunStore.swift in Sources */,
+				72656B2C10A2E60674F94C69 /* CockpitRuntime.swift in Sources */,
 				DC4A571FEE7ACDD11671FBD1 /* CockpitSession.swift in Sources */,
 				4C00BB630D23E84E8F1DA6C4 /* CockpitView.swift in Sources */,
 				4E4EEA45BED79A293018C81A /* CodeArchitecture.swift in Sources */,

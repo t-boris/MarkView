@@ -62,7 +62,7 @@ func run(req request) (any, error) {
 	if err != nil {
 		return nil, errors.New("local Temporal credentials unavailable")
 	}
-	c, err := client.Dial(client.Options{HostPort: req.Address, ConnectionOptions: client.ConnectionOptions{TLS: tlsConfig}})
+	c, err := client.Dial(client.Options{HostPort: req.Address, Logger: cockpit.QuietSDKLogger{}, ConnectionOptions: client.ConnectionOptions{TLS: tlsConfig}})
 	if err != nil {
 		return nil, err
 	}
