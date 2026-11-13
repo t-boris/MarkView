@@ -10,8 +10,11 @@ import (
 
 // Plan is the already reviewed process. The fingerprint ties a start signal to the reviewed plan.
 type Plan struct {
-	Fingerprint string
-	Steps       []Step
+	Fingerprint     string
+	Goal            string
+	Controls        string
+	SuccessCriteria []string
+	Steps           []Step
 }
 type Step struct {
 	ID           string
@@ -35,6 +38,9 @@ type Entry struct {
 type StepTask struct {
 	Step            Step
 	PlanFingerprint string
+	Goal            string
+	Controls        string
+	SuccessCriteria []string
 	PriorResults    []Entry
 }
 type State struct {
@@ -102,7 +108,7 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 		}
 		step := plan.Steps[state.Current]
 		var result Result
-		err := workflow.ExecuteActivity(ctx, "cockpit.run-step", StepTask{Step: step, PlanFingerprint: plan.Fingerprint, PriorResults: append([]Entry(nil), state.Results...)}).Get(ctx, &result)
+		err := workflow.ExecuteActivity(ctx, "cockpit.run-step", StepTask{Step: step, PlanFingerprint: plan.Fingerprint, Goal: plan.Goal, Controls: plan.Controls, SuccessCriteria: plan.SuccessCriteria, PriorResults: append([]Entry(nil), state.Results...)}).Get(ctx, &result)
 		if err != nil {
 			// The activity may have changed the world before failing. Never repeat it here.
 			state.Status = "interrupted"
