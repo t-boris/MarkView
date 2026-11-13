@@ -37,9 +37,8 @@ enum QANativeError: Error, LocalizedError {
 @MainActor
 final class QANativeActor: QAActorDriver {
     struct Config {
-        /// Brings the player's application to the front before every look and every action of this player: SwiftUI ignores clicks and keys
-        /// that are sent to it in the background. A check that must not take the focus (the live check of the player itself) turns it off.
-        var bringToFront = true
+        /// Some applications require foreground input. Normal runs stay in the background so they do not interrupt the person typing.
+        var bringToFront = false
         /// How long a launched application may take to show a window.
         var launchTimeout: TimeInterval = 20
         /// How long a closing application is given to quit before it is made to.
