@@ -423,9 +423,38 @@ actor DiskBugs: QABugSink {
     func applyTriage(key: String, _ change: QABugTriageChange) async throws -> QABugTriageOutcome { .noReport }
 }
 
+func cockpitChecks() async throws {
+    let root = tempProject()
+    defer { try? FileManager.default.removeItem(at: root) }
+    for n in 1...8 { try makeRun(root, n) }
+    let step = CockpitStep(title: "Check", agent: "Codex", assignment: "Check", completionCondition: "Pass")
+    let plan = CockpitPlan(goal: "Check", controls: CockpitControls(), scenarios: [], steps: [step], successCriteria: ["Pass"], unavailableOutcomes: [], alternatives: [], productionQA: nil)
+    let result = CockpitResult(plan: plan, build: "build-1", outcome: "passed", qaRunID: runName(1))
+    try CockpitResults.save(result, root: root)
+    let filer = QABugFiler(sink: KeysSink([]))
+    await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: filer)
+    check("cockpit: automatic cleanup retains a linked old run", exists(QAStore.runURL(root, runID: runName(1))))
+    let deletion = await QARunCleanup.plan(deleting: [runName(1)], root: root, filer: filer)
+    check("cockpit: manual deletion identifies the link for the warning", deletion.cockpitChecked && deletion.namedByCockpit == [runName(1)])
+    let deleted = await QARunCleanup.delete(deletion, root: root)
+    let savedURL = root.appendingPathComponent(".dde/cockpit/results/\(result.id.uuidString).json")
+    let retained = try JSONDecoder().decode(CockpitResult.self, from: Data(contentsOf: savedURL))
+    check("cockpit: manual deletion keeps the plan, build and outcome while details are gone", deleted.deleted == 1 && retained == result && !exists(QAStore.runURL(root, runID: runName(1))))
+
+    let beforeLink = await QARunCleanup.plan(deleting: [runName(5)], root: root, filer: filer)
+    try CockpitResults.save(CockpitResult(plan: plan, build: "build-2", outcome: "passed", qaRunID: runName(5)), root: root)
+    let refused = await QARunCleanup.delete(beforeLink, root: root)
+    check("cockpit: a link added after the warning blocks deletion until reviewed", refused.failed == 1 && exists(QAStore.runURL(root, runID: runName(5))))
+    try Data("bad json".utf8).write(to: savedURL)
+    let before = ids(root)
+    await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: filer)
+    check("cockpit: unreadable result references prevent automatic deletion", ids(root) == before)
+}
+
 ruleChecks()
 keyChecks()
 try storeChecks()
 try await cleanupChecks()
+try await cockpitChecks()
 try await indexChecks()
 finish("QA retention")

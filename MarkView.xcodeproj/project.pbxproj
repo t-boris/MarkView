@@ -433,6 +433,7 @@
 		DC4A571FEE7ACDD11671FBD1 /* CockpitSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72BACCBE46D42178D2B4CA76 /* CockpitSession.swift */; };
 		DC55330FB0996F5C23062435 /* BugValidity.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9CDC3A061835FA482444D4 /* BugValidity.swift */; };
 		DC5FB06B941F2FAC5FE795D0 /* BUILD_NOTES.md in Resources */ = {isa = PBXBuildFile; fileRef = 6CB6E44E2302C6E3A8508397 /* BUILD_NOTES.md */; };
+		DC71A8776EC3232A422811B4 /* CockpitResults.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8EF6DAAB291A58DCE6D2A7B /* CockpitResults.swift */; };
 		DCB91AFB6ECAD91E5A2A5DBC /* BrowserDownloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F3720D5BC18F678F2F42FB /* BrowserDownloads.swift */; };
 		DD340657514D81847227AF12 /* DiscussionThreadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC22FD03EF5D15C8F08F0491 /* DiscussionThreadView.swift */; };
 		DD6A29657B7E4CC7281A193B /* QAScenarioEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90FCA2443C336463EAA203D9 /* QAScenarioEdit.swift */; };
@@ -1009,6 +1010,7 @@
 		F58E38B38401EBC2C62DEA97 /* prism-yaml.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-yaml.min.js"; sourceTree = "<group>"; };
 		F5CBBFE5D52362BCDB63DB22 /* KaTeX_Caligraphic-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Caligraphic-Regular.woff2"; sourceTree = "<group>"; };
 		F60C9C4C8059F94B3523B916 /* RemoteFraming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteFraming.swift; sourceTree = "<group>"; };
+		F8EF6DAAB291A58DCE6D2A7B /* CockpitResults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitResults.swift; sourceTree = "<group>"; };
 		F9700BEC91B54521286648B4 /* codemirror.bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = codemirror.bundle.js; sourceTree = "<group>"; };
 		FA0D993DC9B6612A4012A73F /* KaTeX_Main-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Main-Regular.woff2"; sourceTree = "<group>"; };
 		FA1FF1C13F696948C3553311 /* BookPDFExportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookPDFExportView.swift; sourceTree = "<group>"; };
@@ -1123,6 +1125,7 @@
 				221F39018C2CA8AA7FA32473 /* CloudServices.swift */,
 				5C68AEF16B013848A18B3396 /* CockpitPlan.swift */,
 				544FA79A3A63EC5D3235A7FF /* CockpitPlanning.swift */,
+				F8EF6DAAB291A58DCE6D2A7B /* CockpitResults.swift */,
 				72BACCBE46D42178D2B4CA76 /* CockpitSession.swift */,
 				26E37F916C227D94583C78C0 /* CodeArchitecture.swift */,
 				747C5366B2EBA397F5F91CF7 /* CodeExplainer.swift */,
@@ -1897,6 +1900,7 @@
 				A5190AB848B0ADF17DF3D784 /* CloudServicesView.swift in Sources */,
 				DB08F1DB1DB4D8C8FDB87EAA /* CockpitPlan.swift in Sources */,
 				505E407B6DE7B607F9EC823B /* CockpitPlanning.swift in Sources */,
+				DC71A8776EC3232A422811B4 /* CockpitResults.swift in Sources */,
 				DC4A571FEE7ACDD11671FBD1 /* CockpitSession.swift in Sources */,
 				4C00BB630D23E84E8F1DA6C4 /* CockpitView.swift in Sources */,
 				4E4EEA45BED79A293018C81A /* CodeArchitecture.swift in Sources */,
