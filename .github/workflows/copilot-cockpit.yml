@@ -47,6 +47,7 @@ jobs:
           tools/tests/cockpit-plan-tests.sh
           tools/tests/cockpit-planning-tests.sh
           tools/tests/cockpit-run-tests.sh
+          tools/tests/cockpit-host-bridge-tests.sh
           tools/tests/feature-review-gate-tests.sh
           tools/tests/qa-retention-tests.sh
       - name: Check Temporal workflow

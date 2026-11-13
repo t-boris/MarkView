@@ -44,6 +44,7 @@
 		0D0DAF16A58014CC6DF7D96F /* UIStudioRealtimePrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1063B9D7CDA3A8ED21222035 /* UIStudioRealtimePrompts.swift */; };
 		0D0E7699A94DA632F228BFC7 /* GitStatusModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F51142258159DFBAE3D4E66 /* GitStatusModel.swift */; };
 		0D1620D4F638BFBE26F57280 /* IncrementalCompiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CE23AFAF75C072899E5648F /* IncrementalCompiler.swift */; };
+		0DDA41C1AED38C45D3DD8D35 /* CockpitHostBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC4F236A394AFAFFCD86CAED /* CockpitHostBridge.swift */; };
 		0ED25ED5BCFC0275EF437229 /* UIStudioPreviewHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6291D82348E4A264695D63 /* UIStudioPreviewHost.swift */; };
 		1024E357E18DFF4E233DC275 /* ProjectAgentTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89AF21E7EC037DF41CC973BB /* ProjectAgentTools.swift */; };
 		10A4C47515CDDAFD95074582 /* WorkflowTemplateLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4733EE4943A98D4C4C4B9C28 /* WorkflowTemplateLibrary.swift */; };
@@ -886,6 +887,7 @@
 		BA6120BA85CB715E5E810134 /* PrototypeReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeReference.swift; sourceTree = "<group>"; };
 		BA8F968A66CC85F478E65280 /* ProjectColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectColor.swift; sourceTree = "<group>"; };
 		BB11D14E6C7D38C077EA5F76 /* QAPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAPlan.swift; sourceTree = "<group>"; };
+		BC4F236A394AFAFFCD86CAED /* CockpitHostBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitHostBridge.swift; sourceTree = "<group>"; };
 		BC5216E2466E79A0507BEAE8 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		BC7E31914169E263C7E43C35 /* IssueGitHubSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueGitHubSync.swift; sourceTree = "<group>"; };
 		BCE051A679B2C439D859FF03 /* PrototypeFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeFiles.swift; sourceTree = "<group>"; };
@@ -1127,6 +1129,7 @@
 				BDD60B865C8AFD298FC5EB04 /* ClaudeSessionModel.swift */,
 				8617D6996AEA0B711F366A7C /* CLICompletion.swift */,
 				221F39018C2CA8AA7FA32473 /* CloudServices.swift */,
+				BC4F236A394AFAFFCD86CAED /* CockpitHostBridge.swift */,
 				5C68AEF16B013848A18B3396 /* CockpitPlan.swift */,
 				544FA79A3A63EC5D3235A7FF /* CockpitPlanning.swift */,
 				F8EF6DAAB291A58DCE6D2A7B /* CockpitResults.swift */,
@@ -1904,6 +1907,7 @@
 				279B4AA4056129EE40C5F2EB /* ClaudeSessionModel.swift in Sources */,
 				24A5F71CED74B803814EF7F6 /* CloudServices.swift in Sources */,
 				A5190AB848B0ADF17DF3D784 /* CloudServicesView.swift in Sources */,
+				0DDA41C1AED38C45D3DD8D35 /* CockpitHostBridge.swift in Sources */,
 				DB08F1DB1DB4D8C8FDB87EAA /* CockpitPlan.swift in Sources */,
 				505E407B6DE7B607F9EC823B /* CockpitPlanning.swift in Sources */,
 				DC71A8776EC3232A422811B4 /* CockpitResults.swift in Sources */,
