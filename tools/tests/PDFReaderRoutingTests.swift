@@ -8,6 +8,7 @@ struct BlockCompilationState {}
 struct BrowserSession {}
 struct PrototypeSession { let slug: String }
 struct StudioSession {}
+struct CockpitSession {}
 enum Archive { static func isArchive(_ url: URL) -> Bool { false } }
 struct WhisperClient {
     init() { preconditionFailure("PDF reading must never invoke audio transcription") }
