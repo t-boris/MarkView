@@ -41,7 +41,15 @@ enum CockpitPlanning {
         }
         let plan = CockpitPlan(goal: goal, controls: controls, scenarios: scenarios, steps: steps, successCriteria: criteria,
                                unavailableOutcomes: unavailable, alternatives: alternatives, productionQA: nil)
-        guard plan.problems.isEmpty else { throw ParseError.invalid(plan.problems) }
+        // An infeasible goal still needs an honest explanation and alternatives. It is not an
+        // approvable execution plan: CockpitApproval continues to reject its missing steps.
+        let problems = plan.problems
+        let explanationOnly = steps.isEmpty && !unavailable.isEmpty && problems.allSatisfy {
+            $0 == "At least one step is required." || $0 == "Explicit success criteria are required."
+        }
+        if !problems.isEmpty && !explanationOnly {
+            throw ParseError.invalid(problems)
+        }
         return plan
     }
 }
