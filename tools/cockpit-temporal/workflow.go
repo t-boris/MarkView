@@ -96,6 +96,7 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * 24 * time.Hour,
 		HeartbeatTimeout:    30 * time.Second,
+		WaitForCancellation: true,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
 	for state.Current < len(plan.Steps) {
@@ -124,7 +125,39 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 		}
 		step := plan.Steps[state.Current]
 		var result Result
-		err := workflow.ExecuteActivity(ctx, "cockpit.run-step", StepTask{Step: step, PlanFingerprint: plan.Fingerprint, Goal: plan.Goal, Controls: plan.Controls, SuccessCriteria: plan.SuccessCriteria, PriorResults: append([]Entry{}, state.Results...)}).Get(ctx, &result)
+		activityCtx, cancelActivity := workflow.WithCancel(ctx)
+		future := workflow.ExecuteActivity(activityCtx, "cockpit.run-step", StepTask{Step: step, PlanFingerprint: plan.Fingerprint, Goal: plan.Goal, Controls: plan.Controls, SuccessCriteria: plan.SuccessCriteria, PriorResults: append([]Entry{}, state.Results...)})
+		var err error
+		completed := false
+		interruption := ""
+		for !completed {
+			selector := workflow.NewSelector(ctx)
+			selector.AddFuture(future, func(f workflow.Future) { err = f.Get(ctx, &result); completed = true })
+			selector.AddReceive(controls, func(channel workflow.ReceiveChannel, _ bool) {
+				channel.Receive(ctx, &command)
+				if command == "stop" || (command == "pause" && interruption == "") {
+					interruption = command
+					cancelActivity()
+				}
+			})
+			selector.Select(ctx)
+		}
+		cancelActivity()
+		if interruption == "stop" {
+			state.Status = "stopped"
+			return state, nil
+		}
+		if interruption == "pause" {
+			state.Status = "interrupted"
+			state.Reason = "The agent was interrupted; detached background processes may still be running."
+			for {
+				controls.Receive(ctx, &command)
+				if command == "stop" {
+					state.Status = "stopped"
+					return state, nil
+				}
+			}
+		}
 		if err != nil {
 			// The activity may have changed the world before failing. Never repeat it here.
 			state.Status = "interrupted"

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"time"
 
 	cockpit "github.com/t-boris/MarkView/cockpit-temporal"
 	"github.com/t-boris/MarkView/cockpit-temporal/localtls"
@@ -38,7 +39,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer temporalClient.Close()
-	w := worker.New(temporalClient, *queue, worker.Options{})
+	w := worker.New(temporalClient, *queue, worker.Options{MaxHeartbeatThrottleInterval: time.Second})
 	w.RegisterWorkflow(cockpit.Execute)
 	hostActivity := cockpit.HostActivity{Socket: *socket}
 	w.RegisterActivityWithOptions(hostActivity.RunStep, activity.RegisterOptions{Name: "cockpit.run-step"})

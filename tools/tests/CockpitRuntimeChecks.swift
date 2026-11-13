@@ -4,7 +4,9 @@ private struct TemporalEntry: Decodable { let stepID: String }
 private struct TemporalState: Decodable { let status: String; let results: [TemporalEntry] }
 private actor Events {
     private(set) var tasks: [CockpitHostTask] = []
+    private(set) var cancellations = 0
     func add(_ task: CockpitHostTask) { tasks.append(task) }
+    func cancelled() { cancellations += 1 }
 }
 
 @main struct Checks {
@@ -17,6 +19,11 @@ private actor Events {
         let events = Events()
         let bridge = try CockpitHostBridge { task in
             await events.add(task)
+            if task.step.title == "Interrupt" {
+                do { try await Task.sleep(nanoseconds: 120_000_000_000) }
+                catch { await events.cancelled() }
+                return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "Interrupted", build: ""), error: "interrupted")
+            }
             return CockpitHostReply(result: CockpitHostResult(passed: true, detail: "Done", build: "build-1"), error: "")
         }
         defer { bridge.stop(); service.stop() }
@@ -44,6 +51,23 @@ private actor Events {
         guard final?.results.first?.stepID == step.id.uuidString, await events.tasks.count == 1 else { fatalError("workflow did not execute one host task") }
         let received = await events.tasks[0]
         guard received.planFingerprint == plan.fingerprint, received.goal == "Review", received.controls == plan.controls else { fatalError("host did not receive approved context") }
+        let interruptedStep = CockpitStep(title: "Interrupt", agent: "Codex", assignment: "Wait", completionCondition: "Done")
+        let interruptedPlan = try CockpitTemporalPlan(CockpitPlan(goal: "Interrupt", controls: CockpitControls(), scenarios: [], steps: [interruptedStep], successCriteria: ["Done"], unavailableOutcomes: [], alternatives: [], productionQA: nil))
+        let interruptedID = "test-" + UUID().uuidString
+        func interruptedRequest(_ action: String, command: String? = nil) -> CockpitTemporalRequest {
+            CockpitTemporalRequest(address: endpoint.address, queue: queue, workflowID: interruptedID, action: action,
+                plan: action == "start" ? interruptedPlan : nil,
+                approval: action == "approve" ? CockpitTemporalApproval(fingerprint: interruptedPlan.fingerprint, step: 0) : nil,
+                command: command, tls: endpoint.tls)
+        }
+        _ = try await service.request(interruptedRequest("start"))
+        _ = try await service.request(interruptedRequest("approve"))
+        for _ in 0..<60 where await events.tasks.count < 2 { try await Task.sleep(nanoseconds: 100_000_000) }
+        guard await events.tasks.count == 2 else { fatalError("interruptible step did not start") }
+        _ = try await service.request(interruptedRequest("control", command: "pause"))
+        for _ in 0..<150 where await events.cancellations == 0 { try await Task.sleep(nanoseconds: 100_000_000) }
+        guard await events.cancellations == 1 else { fatalError("pausing did not cancel the active host task") }
+        _ = try await service.request(interruptedRequest("control", command: "stop"))
         worker.stop(); bridge.stop(); service.stop()
         for _ in 0..<300 where AgentProcesses.count != 0 { try await Task.sleep(nanoseconds: 100_000_000) }
         guard AgentProcesses.count == 0 else { fatalError("local helper processes did not stop") }

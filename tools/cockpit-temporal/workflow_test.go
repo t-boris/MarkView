@@ -9,6 +9,7 @@ import (
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/worker"
 )
 
 func TestApprovalAndPrerequisiteRetry(t *testing.T) {
@@ -108,5 +109,43 @@ func TestStopBeforeApproval(t *testing.T) {
 	}
 	if state.Status != "stopped" {
 		t.Fatalf("unexpected state: %+v", state)
+	}
+}
+
+func TestPauseInterruptsActiveStep(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetWorkerOptions(worker.Options{MaxHeartbeatThrottleInterval: time.Millisecond})
+	var calls, cancelled atomic.Int32
+	release := make(chan struct{})
+	defer close(release)
+	env.SetOnActivityCanceledListener(func(*activity.Info) { cancelled.Add(1) })
+	env.RegisterActivityWithOptions(func(ctx context.Context, _ StepTask) (Result, error) {
+		calls.Add(1)
+		for {
+			activity.RecordHeartbeat(ctx, "running")
+			select {
+			case <-ctx.Done():
+				return Result{}, ctx.Err()
+			case <-release:
+				return Result{}, errors.New("test ended")
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+	}, activity.RegisterOptions{Name: "cockpit.run-step"})
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("approve", Start{Fingerprint: "x", Step: 0}) }, time.Second)
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("control", "pause") }, 2*time.Second)
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("control", "resume") }, 3*time.Second)
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("control", "stop") }, 4*time.Second)
+	env.ExecuteWorkflow(Execute, Plan{Fingerprint: "x", Steps: []Step{{ID: "one", Title: "Step", Agent: "Codex", Assignment: "Work", CompletionCondition: "Done"}}})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatal(err)
+	}
+	var state State
+	if err := env.GetWorkflowResult(&state); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 || cancelled.Load() != 1 || state.Status != "stopped" {
+		t.Fatalf("active step was not interrupted exactly once: %+v, calls %d, cancellations %d", state, calls.Load(), cancelled.Load())
 	}
 }
