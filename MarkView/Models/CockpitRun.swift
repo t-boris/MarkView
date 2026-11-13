@@ -2,8 +2,9 @@ import Foundation
 
 /// Persisted process state. The executor delivers step results; this value never runs an agent itself.
 struct CockpitRun: Codable, Equatable {
+    private(set) var id: UUID
     enum Status: String, Codable { case awaitingApproval, running, paused, stopped, finished }
-    enum StepStatus: String, Codable { case waiting, running, passed, failed, skipped }
+    enum StepStatus: String, Codable { case waiting, running, interrupted, passed, failed, skipped }
     struct StepRecord: Codable, Equatable {
         var stepID: UUID
         var status: StepStatus = .waiting
@@ -26,6 +27,7 @@ struct CockpitRun: Codable, Equatable {
     private(set) var approval: CockpitApproval?
 
     init(plan: CockpitPlan) {
+        id = UUID()
         self.plan = plan
         steps = plan.steps.map { StepRecord(stepID: $0.id) }
     }
@@ -78,4 +80,15 @@ struct CockpitRun: Codable, Equatable {
     }
 
     mutating func stop() { status = .stopped; waitingReason = "" }
+
+    /// A process recovered after the app exited must not run by itself. An in-flight step may
+    /// have had partial effects, so its outcome remains unknown until recovery is decided.
+    mutating func prepareAfterRestart() {
+        guard status == .running else { return }
+        if let index = currentIndex, steps.indices.contains(index), steps[index].status == .running {
+            steps[index].status = .interrupted
+        }
+        status = .paused
+        waitingReason = "The previous step was interrupted; its outcome is unknown."
+    }
 }

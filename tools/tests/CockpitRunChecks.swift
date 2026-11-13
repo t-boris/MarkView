@@ -24,4 +24,14 @@ var other = CockpitRun(plan: changed)
 check(!other.start(approval: approved, at: 0), "an approval cannot start a changed plan")
 let restored = try JSONDecoder().decode(CockpitRun.self, from: JSONEncoder().encode(run))
 check(restored == run, "run state and historical results round-trip")
+var recovered = restored
+recovered.prepareAfterRestart()
+check(recovered.status == .paused && recovered.steps[1].status == .interrupted && !recovered.resumeAtBoundary(),
+      "recovery pauses an interrupted step without replaying it")
+let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+defer { try? FileManager.default.removeItem(at: root) }
+try CockpitRunStore.save(run, root: root)
+let diskRun = try CockpitRunStore.load(run.id, root: root)
+check(diskRun.status == .paused && diskRun.steps[1].status == .interrupted && diskRun.results == run.results,
+      "disk recovery preserves results and presents an interrupted run paused")
 print("All cockpit run checks passed")

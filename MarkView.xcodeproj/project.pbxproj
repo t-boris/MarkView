@@ -119,6 +119,7 @@
 		3A43CF8E02C2DF872B9AE1CC /* RemoteConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0FDF0218260B5BA3F8CABD2 /* RemoteConnectionsView.swift */; };
 		3A7797858C429A08562B496E /* FeatureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DE180277E01B9DBC61C4110 /* FeatureModels.swift */; };
 		3A8553BD0417A4C3DED64762 /* QARunCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40EC4D0B33F766DF89989E1 /* QARunCleanup.swift */; };
+		3BA06ECBFADD3E1E89187AB1 /* CockpitRunStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5612E561DAD2527239AB27E /* CockpitRunStore.swift */; };
 		3C66B42CE08BE7AD585AC81A /* BrowserElementPick.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1BAC4896C73C835E150997 /* BrowserElementPick.swift */; };
 		3D26245935F584FAE724710E /* EditorDocumentRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AF52C251F7D6ADAE2EE8DED /* EditorDocumentRouting.swift */; };
 		3D61655E00D985F83F3745AB /* prism-typescript.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 9E66DDC9C3E486A4C1201D62 /* prism-typescript.min.js */; };
@@ -873,6 +874,7 @@
 		B50F42A001DDEAC85D1AF123 /* KaTeX_Typewriter-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Typewriter-Regular.woff2"; sourceTree = "<group>"; };
 		B51DE8014E6E4B9D5269BD52 /* QARunAssistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QARunAssistant.swift; sourceTree = "<group>"; };
 		B5602C568336324C646AC72E /* markview-canvas.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-canvas.js"; sourceTree = "<group>"; };
+		B5612E561DAD2527239AB27E /* CockpitRunStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitRunStore.swift; sourceTree = "<group>"; };
 		B5A3D891D5D7F1EBFC61ACF4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B5FE2B5578EB5A351D1AC228 /* EmbeddingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingClient.swift; sourceTree = "<group>"; };
 		B6B0748CACE05B758D369F89 /* ArchitectureModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureModel.swift; sourceTree = "<group>"; };
@@ -1129,6 +1131,7 @@
 				544FA79A3A63EC5D3235A7FF /* CockpitPlanning.swift */,
 				F8EF6DAAB291A58DCE6D2A7B /* CockpitResults.swift */,
 				AC6819622B5D2A65E58893A1 /* CockpitRun.swift */,
+				B5612E561DAD2527239AB27E /* CockpitRunStore.swift */,
 				72BACCBE46D42178D2B4CA76 /* CockpitSession.swift */,
 				26E37F916C227D94583C78C0 /* CodeArchitecture.swift */,
 				747C5366B2EBA397F5F91CF7 /* CodeExplainer.swift */,
@@ -1905,6 +1908,7 @@
 				505E407B6DE7B607F9EC823B /* CockpitPlanning.swift in Sources */,
 				DC71A8776EC3232A422811B4 /* CockpitResults.swift in Sources */,
 				5579B5AB66F8963B1955B045 /* CockpitRun.swift in Sources */,
+				3BA06ECBFADD3E1E89187AB1 /* CockpitRunStore.swift in Sources */,
 				DC4A571FEE7ACDD11671FBD1 /* CockpitSession.swift in Sources */,
 				4C00BB630D23E84E8F1DA6C4 /* CockpitView.swift in Sources */,
 				4E4EEA45BED79A293018C81A /* CodeArchitecture.swift in Sources */,
