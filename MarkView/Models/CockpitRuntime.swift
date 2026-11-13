@@ -92,7 +92,10 @@ final class CockpitService {
             }.value
             guard available else { throw Failure.missingRuntime }
             let (child, data) = try await CockpitChild.launch(executable: serverURL, arguments: ["--runtime", runtime.path, "--state", state.path,
-                                                                                              "--postgres", postgres.path, "--supervisor", supervisor.path])
+                                                                                              "--postgres", postgres.path, "--supervisor", supervisor.path], onExit: {
+                // Only remove the app-created per-launch directory, after its server has exited.
+                try? FileManager.default.removeItem(at: runtime)
+            })
             guard let endpoint = try? JSONDecoder().decode(CockpitEndpoint.self, from: data) else { child.stop(); throw Failure.invalidResponse }
             self?.server = child
             return endpoint

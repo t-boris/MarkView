@@ -7,6 +7,15 @@ import Foundation
         child.stop()
         for _ in 0..<100 where AgentProcesses.count != 0 { try await Task.sleep(nanoseconds: 20_000_000) }
         guard AgentProcesses.count == 0 else { fatalError("helper did not stop on EOF") }
+        let removed = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try Data().write(to: removed)
+        do {
+            _ = try await CockpitChild.launch(executable: URL(fileURLWithPath: "/not-a-cockpit-helper"), arguments: [], onExit: {
+                try? FileManager.default.removeItem(at: removed)
+            })
+            fatalError("a missing helper was accepted")
+        } catch {}
+        guard !FileManager.default.fileExists(atPath: removed.path) else { fatalError("failed helper did not clean up") }
         do {
             _ = try await CockpitChild.launch(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "exit 1"], timeout: 3)
             fatalError("an early exit was accepted")

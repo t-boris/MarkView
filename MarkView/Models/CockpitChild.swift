@@ -22,19 +22,20 @@ final class CockpitChild: @unchecked Sendable {
     private var stopped = false
     var isRunning: Bool { process.isRunning }
 
-    static func launch(executable: URL, arguments: [String], timeout: TimeInterval = 120) async throws -> (CockpitChild, Data) {
+    static func launch(executable: URL, arguments: [String], timeout: TimeInterval = 120,
+                       onExit: @escaping @Sendable () -> Void = {}) async throws -> (CockpitChild, Data) {
         let child = CockpitChild()
         let ready = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
-                DispatchQueue.global(qos: .userInitiated).async { child.start(executable: executable, arguments: arguments, timeout: timeout, continuation: continuation) }
+                DispatchQueue.global(qos: .userInitiated).async { child.start(executable: executable, arguments: arguments, timeout: timeout, onExit: onExit, continuation: continuation) }
             }
         } onCancel: { child.stop() }
         return (child, ready)
     }
 
-    private func start(executable: URL, arguments: [String], timeout: TimeInterval, continuation: CheckedContinuation<Data, Error>) {
+    private func start(executable: URL, arguments: [String], timeout: TimeInterval, onExit: @escaping @Sendable () -> Void, continuation: CheckedContinuation<Data, Error>) {
         lock.lock()
-        if stopped { lock.unlock(); continuation.resume(throwing: CancellationError()); return }
+        if stopped { lock.unlock(); onExit(); continuation.resume(throwing: CancellationError()); return }
         self.continuation = continuation
         lock.unlock()
         process.executableURL = executable
@@ -49,6 +50,7 @@ final class CockpitChild: @unchecked Sendable {
         // Drain diagnostics without storing them: helper messages must not enter app logs.
         errors.fileHandleForReading.readabilityHandler = { handle in _ = handle.availableData }
         process.terminationHandler = { [weak self] process in
+            onExit()
             AgentProcesses.remove(process)
             self?.finish(.failure(Failure.exited))
             self?.output.fileHandleForReading.readabilityHandler = nil
@@ -61,6 +63,7 @@ final class CockpitChild: @unchecked Sendable {
         } catch {
             output.fileHandleForReading.readabilityHandler = nil
             errors.fileHandleForReading.readabilityHandler = nil
+            onExit()
             finish(.failure(Failure.launch))
             return
         }
