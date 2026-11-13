@@ -95,6 +95,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @Published private(set) var limitations: [String] = []
     @Published private(set) var spec: StudioEnvironmentSpec
     @Published private(set) var savedScenarios: [StudioScenario] = []
+    @Published private(set) var screens: [StudioScreen] = []
     @Published private(set) var scenario: StudioScenario {
         didSet { if !tryingScenario { rememberActiveScenario() } }
     }
@@ -333,6 +334,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         // A server this session started for another target never outlives the switch.
         await stopOwnedServer()
         self.target = target
+        screens = []
         sessionLog.add(.notice, "Opening \(target.label): `\(target.command)`")
         disclosures = StudioTargetLimits.disclosures(for: target)
         if target.isElectron {
@@ -843,6 +845,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         guard scenario.expectedPath != nil || scenario.expectedSelector != nil else { return nil }
         let deadline = Date().addingTimeInterval(Self.expectedStateTimeout)
         var pathOK = false, elementOK = scenario.expectedSelector == nil
+        var stableSince: Date?
         repeat {
             let appPage = webView.url.flatMap(StudioBridge.Origin.init(url:)).flatMap { origin in
                 appURL.flatMap(StudioBridge.Origin.init(url:)).map { origin.sameServer($0) }
@@ -856,7 +859,16 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                     """, ["selector": selector]) as? Bool
                 elementOK = result == true
             }
-            if pathOK && elementOK { return nil }
+            let pageState = try? await call("return window.__markviewStudio.state();") as? [String: Any]
+            let settled = pageState?["loaded"] as? Bool == true
+                && (pageState?["pending"] as? NSNumber)?.intValue == 0
+                && (pageState?["buildError"] as? String)?.isEmpty == true
+            if pathOK && elementOK && settled {
+                if stableSince == nil { stableSince = Date() }
+                if let stableSince, Date().timeIntervalSince(stableSince) >= min(1, Self.expectedStateTimeout / 2) { return nil }
+            } else {
+                stableSince = nil
+            }
             guard !Task.isCancelled, !closed else { break }
             try? await Task.sleep(nanoseconds: 200_000_000)
         } while Date() < deadline
@@ -864,7 +876,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             let actual = webView.url.map { $0.path + ($0.query.map { "?" + $0 } ?? "") } ?? "no page"
             return redactor.redact(text: "Expected page \(expected), but the application is at \(actual).")
         }
-        return redactor.redact(text: "The expected element \(scenario.expectedSelector ?? "") did not become visible on the page.")
+        return redactor.redact(text: "The requested screen did not settle with its expected element \(scenario.expectedSelector ?? "") visible on the page.")
     }
 
     /// Compare the observed page, including a requested query or fragment, without allowing another origin.
@@ -2324,6 +2336,44 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         return "op-\(stamp)-\(UUID().uuidString.prefix(4).lowercased())"
     }
 
+    /// Inventory screens without changing the page or writing project files.
+    func discoverScreens() {
+        guard appURL != nil, busy == nil else { return }
+        runWork("Finding application screens") { session in
+            let folder = session.appFolder.standardizedFileURL.path.dropFirst(session.root.path.count)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            var request = CLICompletion.Request(project: session.root,
+                                                prompt: "Application folder (relative to the project): \(folder.isEmpty ? "." : folder)\n"
+                                                    + "Current route: \(session.route)\nFind the application's selectable screens and their prerequisites.",
+                                                systemPrompt: StudioPrompts.screensSystem, jsonSchema: StudioPrompts.screensSchema,
+                                                readableFolder: session.root)
+            request.label = "ui-studio:screens"
+            request.timeout = 900
+            request.effort = "medium"
+            do {
+                let result = try await CLICompletion.run(request, onActivity: { activity in
+                    Task { @MainActor in session.progress(activity) }
+                })
+                guard !Task.isCancelled else { return }
+                session.recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
+                let found = StudioPrompts.screens(from: result.structured)
+                session.screens = found
+                let notes = (result.structured as? [String: Any])?["notes"] as? String ?? ""
+                session.notice = found.isEmpty ? "No screens with source-backed destination selectors were found. " + notes
+                    : "Found \(found.count) screens. Choose one in the Screens menu." + (notes.isEmpty ? "" : " " + notes)
+            } catch is CancellationError {
+                return
+            } catch {
+                session.notice = "Screen discovery failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func openScreen(_ screen: StudioScreen) {
+        clearSelection()
+        change(screen.request, destination: screen)
+    }
+
     /// One request of the request box (DEC-010; EDIT-01…EDIT-08, AC-11…AC-15, REQ-013). The assistant chooses its kind: an
     /// answer changes nothing; a context change is checked (and corrected once) and becomes a new saved scenario derived
     /// from the current one; a code change names the scope and proposes exact edits, which MarkView checks against the
@@ -2332,9 +2382,11 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// attached to the request (REQ-005) are saved under `.dde/studio/attachments/`, recorded on the turn, given to the
     /// assistant with the request, and named in its prompt; a request of images alone is allowed. Answering a clarification
     /// sends the images of the turn again.
-    func change(_ text: String, attachments: [ImageAttachment] = [], clarification: String? = nil, replacing pending: StudioOperation? = nil) {
+    func change(_ text: String, attachments: [ImageAttachment] = [], clarification: String? = nil,
+                replacing pending: StudioOperation? = nil, destination: StudioScreen? = nil) {
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let request = typed.isEmpty && !attachments.isEmpty ? StudioPrompts.imageOnlyRequest : typed
+        let destination = destination ?? pending?.destinationScreen
         guard !request.isEmpty, appURL != nil else { return }
         var selection = self.selection
         let pageRoute = route
@@ -2345,6 +2397,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         runWork("Working on the request", pending: turn) { session in
             let (revision, snapshot) = await StudioRevisionProbe.compute(root: session.root, editorBuffers: session.editorBuffers())
             var operation = pending ?? StudioOperation(id: session.newOperationID(), kind: .edit, request: request, status: .applied)
+            operation.destinationScreen = destination
             operation.status = .applied
             operation.question = nil
             operation.options = []
@@ -2414,12 +2467,28 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                     operation.answer = error.localizedDescription
                     return session.append(operation)
                 }
+                if plan.needsClarification && clarification == nil {
+                    operation.kind = plan.kind == .context ? .context : .edit
+                    operation.scope = plan.scope
+                    operation.scopeNote = plan.scopeNote
+                    operation.summary = plan.summary
+                    operation.status = .clarification
+                    operation.question = plan.question
+                    operation.options = plan.options
+                    return session.append(operation)
+                }
                 if let failure = trialFailure, plan.kind != .context {
                     operation.kind = .context
                     operation.status = .failed
                     operation.answer = "The requested page was not reached, so the new scenario was not saved: " + failure
                     let explanation = plan.answer.isEmpty ? plan.summary : plan.answer
                     if !explanation.isEmpty { operation.answer += "\n\n" + explanation }
+                    return session.append(operation)
+                }
+                if destination != nil && plan.kind != .context {
+                    operation.kind = .context
+                    operation.status = .failed
+                    operation.answer = "The selected screen was not opened: the assistant did not propose a scenario change."
                     return session.append(operation)
                 }
                 switch plan.kind {
@@ -2433,7 +2502,11 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                                                     detail: after.id == revision.id ? "" : "The working tree changed while the request ran; the assistant itself had read-only access.")]
                     return session.append(operation)
                 case .context:
-                    let context = plan.context ?? StudioContextPlan(structured: nil)
+                    var context = plan.context ?? StudioContextPlan(structured: nil)
+                    if let destination {
+                        context.expectedPath = destination.route
+                        context.expectedSelector = destination.selector
+                    }
                     var problems = StudioContextValidator.problems(context, current: session.scenario, spec: session.spec)
                     // Giving up on data the application can change is asked about once, and never blocks a second answer.
                     if contextValidationRetries == 0 {
@@ -2488,12 +2561,6 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                 operation.summary = plan.summary
                 operation.changeKind = plan.changeKind
                 operation.changeReason = plan.changeReason.isEmpty ? nil : plan.changeReason
-                if plan.needsClarification && clarification == nil {
-                    operation.status = .clarification
-                    operation.question = plan.question
-                    operation.options = plan.options
-                    return session.append(operation)
-                }
                 if plan.edits.isEmpty {
                     operation.status = .answered
                     operation.answer = plan.scope == .recordData
@@ -2672,6 +2739,13 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         checks.append(StudioCheck(name: "Project files unchanged", passed: same,
                                   detail: same ? "" : "The working tree changed while the request ran; the context change itself writes no source file."))
         operation.checks = checks
+        if checks.contains(where: { !$0.passed }) {
+            operation.status = .failed
+            if operation.answer.isEmpty {
+                operation.answer = "The scenario was saved, but verification failed: "
+                    + checks.filter { !$0.passed }.map { $0.name + ($0.detail.isEmpty ? "" : ": " + $0.detail) }.joined(separator: "\n")
+            }
+        }
         operation.finalRevision = revision
         if pageLoaded, let capture = await capture(label: "After: " + String(operation.request.prefix(60)), operationId: operation.id) {
             operation.afterCapture = capture.id
