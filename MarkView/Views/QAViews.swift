@@ -366,7 +366,7 @@ struct QAGraphCanvas: View {
     private func fitScale(_ layout: QAGraphLayout, in size: CGSize) -> CGFloat {
         let width = (size.width - 2 * Self.margin) / max(1, layout.size.width)
         let height = (size.height - 2 * Self.margin) / max(1, layout.size.height)
-        return max(Self.zoomRange.lowerBound, min(1, width, height))
+        return max(0.001, min(1, width, height))
     }
 
     /// A point of the area in the graph's own coordinates.
@@ -386,7 +386,8 @@ struct QAGraphCanvas: View {
         let centre = CGPoint(x: viewport.width / 2, y: viewport.height / 2)
         return HStack(spacing: 2) {
             Button { zoom(by: 1 / 1.25, around: centre, scale: scale) } label: { Image(systemName: "minus") }.help("Zoom out")
-            Button { zoom = nil; pan = .zero } label: { Text("\(Int((scale * 100).rounded()))%").frame(minWidth: 34) }.help("Fit the whole graph")
+            Text("\(Int((scale * 100).rounded()))%").frame(minWidth: 34)
+            Button { zoom = nil; pan = .zero } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }.help("Fit the whole graph").accessibilityLabel("Fit the whole graph")
             Button { zoom(by: 1.25, around: centre, scale: scale) } label: { Image(systemName: "plus") }.help("Zoom in")
         }
         .buttonStyle(.borderless).uiFont(size: 10.5)
