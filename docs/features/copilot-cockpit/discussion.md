@@ -251,3 +251,9 @@ DEC-008 written into REQ-002, REQ-006.
 Where should the Temporal service used by Cockpit run?
 
 Provide a local Temporal service with the application.
+
+### Answer to Q-007 · 2026-11-13
+
+How should the cockpit describe and handle work that an unrestricted agent detaches from its terminal when MarkView closes?
+
+Stop the terminal and its process group; warn that separately detached background processes may continue, and ask the person before continuing.
