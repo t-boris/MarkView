@@ -474,10 +474,11 @@ final class QARunner {
         let driver: QAActorDriver
         do { driver = try await session(for: actor, app: app) } catch { return .blocked(.launchFailed, "The application could not be opened: \(describe(error))") }
         let doing = QAStepTask(id: "setup", kind: .act, title: title, detail: establish, actorName: actor?.name ?? "the test", appName: app.name, allowsHTTP: true)
-        let first = await perform(doing, branch: branch, node: nil, actor: actor?.id, driver: driver, tally: Tally())
+        let evidence = scenario.appKind == .nativeMacOS ? QAPreparationEvidence() : nil
+        let first = await perform(doing, branch: branch, node: nil, actor: actor?.id, driver: driver, tally: Tally(), capturePreparation: evidence)
         guard case .done = first else { return first }
         let checking = QAStepTask(id: "setup", kind: .verify, title: "Confirm: \(title.lowercased())", detail: verify, actorName: actor?.name ?? "the test", appName: app.name, allowsHTTP: true)
-        return await perform(checking, branch: branch, node: nil, actor: actor?.id, driver: driver, tally: Tally())
+        return await perform(checking, branch: branch, node: nil, actor: actor?.id, driver: driver, tally: Tally(), preparationEvidence: evidence?.observations ?? [])
     }
 
     private func failure(of outcome: Outcome) -> (reason: QABlockReason, message: String)? {
@@ -491,7 +492,7 @@ final class QARunner {
     // MARK: One step: look, ask, do
 
     private func perform(_ task: QAStepTask, branch: QABranch, node: String?, actor: String?, driver: QAActorDriver, tally: Tally,
-                         branchBefore: QAEffort = QAEffort()) async -> Outcome {
+                         branchBefore: QAEffort = QAEffort(), capturePreparation: QAPreparationEvidence? = nil, preparationEvidence: [String] = []) async -> Outcome {
         var history: [QAHistoryItem] = []
         var failed = 0, bad = 0
         var chosen: [String: Int] = [:]
@@ -502,6 +503,7 @@ final class QARunner {
             do { observation = try await driver.observe() } catch is CancellationError { return .interrupted } catch {
                 return .blocked(.other, "The page could not be read: \(describe(error))")
             }
+            capturePreparation?.record(observation)
             let key = actor ?? "setup"
             let signature = QAScreen.signature(address: observation.address, snapshot: observation.snapshot)
             let isNew = lastScreen[key] != signature
@@ -515,7 +517,7 @@ final class QARunner {
             let decision: QADecision
             do {
                 let answer = try await assistant.decide(system: QAStepPrompt.systemPrompt(scenario.appKind),
-                                                        prompt: QAStepPrompt.prompt(kind: scenario.appKind, task: task, goal: scenario.goal, history: history, observation: observation, language: language, branchContext: branchContext, branchPlan: QAStepPrompt.branchPlan(scenario: scenario, branch: branch)),
+                                                        prompt: QAStepPrompt.prompt(kind: scenario.appKind, task: task, goal: scenario.goal, history: history, observation: observation, language: language, branchContext: branchContext, branchPlan: QAStepPrompt.branchPlan(scenario: scenario, branch: branch), preparationEvidence: preparationEvidence),
                                                         schema: QAStepPrompt.schema)
                 decision = try QAStepPrompt.parse(answer, kind: scenario.appKind, allowsHTTP: task.allowsHTTP)
             } catch is CancellationError {
