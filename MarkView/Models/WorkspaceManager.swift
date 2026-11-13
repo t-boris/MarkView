@@ -351,7 +351,7 @@ class WorkspaceManager: ObservableObject {
     }
     @Published var compactLayout = false
     @Published var showCenter = true
-    @Published var terminalVisible = true
+    @Published var terminalVisible = false
     @Published var agentsVisible = false
     @Published var handoffResume: HandoffResume?
     @Published var showGlobalSearch = false
