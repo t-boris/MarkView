@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -56,6 +57,11 @@ func Start(ctx context.Context, options Options) (_ *Server, resultErr error) {
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if resultErr != nil {
+			removeTLS(certs)
+		}
+	}()
 	pg := postgres.NewDatabase(postgres.DefaultConfig().Version(postgres.V17).Port(0).Username("markview").Password(password).
 		Storage(postgres.Storage{DataDir: filepath.Join(options.State, "postgres"), WorkDir: options.Runtime}).
 		Provider(postgres.LocalProvider(options.PostgresBinaries)).Supervisor(options.PostgresSupervisor).Logger(io.Discard))
@@ -124,5 +130,13 @@ func Start(ctx context.Context, options Options) (_ *Server, resultErr error) {
 }
 
 func (s *Server) Close() error {
-	return errors.Join(s.temporal.Stop(), s.postgres.Close())
+	err := errors.Join(s.temporal.Stop(), s.postgres.Close())
+	removeTLS(s.Endpoint.TLS)
+	return err
+}
+
+func removeTLS(files localtls.Files) {
+	for _, path := range []string{files.Key, files.Cert, files.CA} {
+		_ = os.Remove(path)
+	}
 }
