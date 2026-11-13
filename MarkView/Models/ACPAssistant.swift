@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// Assistants driven over the Agent Client Protocol (`<cli> --acp`): JSON-RPC 2.0 over
 /// stdio — Cline and GitHub Copilot.
@@ -615,7 +616,12 @@ private final class ACPConnection: @unchecked Sendable {
     private func terminate() {
         try? stdin?.close()
         stdin = nil
-        if process.isRunning { process.terminate() }
+        if process.isRunning {
+            process.terminate()
+            queue.asyncAfter(deadline: .now() + 2) { [self] in
+                if process.isRunning { _ = kill(process.processIdentifier, SIGKILL) }
+            }
+        }
     }
 
     private func failAll(_ error: Error) {

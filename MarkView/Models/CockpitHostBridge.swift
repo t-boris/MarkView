@@ -83,18 +83,21 @@ final class CockpitHostBridge: @unchecked Sendable {
     }
 
     private static func readLine(_ fd: Int32) -> Data? {
+        let limit = 1_048_576
         var data = Data(), buffer = [UInt8](repeating: 0, count: 4096)
-        while data.count <= 1_048_576 {
-            let n = Darwin.read(fd, &buffer, buffer.count)
+        while true {
+            // Read at most one byte past the limit so an unterminated request is rejected immediately.
+            let n = Darwin.read(fd, &buffer, min(buffer.count, limit - data.count + 1))
             if n < 0 && errno == EINTR { continue }
             guard n > 0 else { return nil }
             if let end = buffer[..<n].firstIndex(of: 10) {
+                guard data.count + end <= limit else { return nil }
                 data.append(contentsOf: buffer[..<end])
-                return data.count <= 1_048_576 ? data : nil
+                return data
             }
+            guard data.count + n <= limit else { return nil }
             data.append(contentsOf: buffer[..<n])
         }
-        return nil
     }
 
     private func finish(_ client: Connection) {

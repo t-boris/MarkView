@@ -24,11 +24,11 @@ enum CockpitPlanning {
     static var schema: [String: Any] {
         let string: [String: Any] = ["type": "string"]
         let strings: [String: Any] = ["type": "array", "items": string]
-        let step: [String: Any] = ["type": "object", "properties": [
+        let step: [String: Any] = ["type": "object", "required": ["title", "agent", "assignment", "completionCondition", "isPrerequisite"], "properties": [
             "title": string, "agent": string, "assignment": string, "completionCondition": string,
             "isPrerequisite": ["type": "boolean"]
         ]]
-        return ["type": "object", "properties": [
+        return ["type": "object", "required": ["scenarios", "steps", "successCriteria", "unavailableOutcomes", "alternatives"], "properties": [
             "scenarios": strings, "steps": ["type": "array", "items": step], "successCriteria": strings,
             "unavailableOutcomes": strings, "alternatives": strings
         ]]

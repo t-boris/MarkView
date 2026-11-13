@@ -33,6 +33,22 @@ private func waitForSignal(_ semaphore: DispatchSemaphore) -> Bool { semaphore.w
         guard result.result.passed && result.result.detail == "one" else { fatalError("wrong reply") }
         let mode = try FileManager.default.attributesOfItem(atPath: bridge.path)[.posixPermissions] as? NSNumber
         guard mode?.intValue == 0o600 else { fatalError("socket is not private") }
+        try await Task.detached {
+            let oversized = try connect(bridge.path); defer { Darwin.close(oversized) }
+            var noSignal: Int32 = 1
+            setsockopt(oversized, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
+            let bytes = [UInt8](repeating: 65, count: 1_048_577)
+            var offset = 0
+            while offset < bytes.count {
+                let n = bytes.withUnsafeBytes { Darwin.write(oversized, $0.baseAddress!.advanced(by: offset), bytes.count - offset) }
+                guard n > 0 else { break }
+                offset += n
+            }
+            var timeout = timeval(tv_sec: 3, tv_usec: 0)
+            setsockopt(oversized, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+            var byte: UInt8 = 0
+            guard Darwin.read(oversized, &byte, 1) == 0 else { fatalError("oversized request was not closed without a newline") }
+        }.value
         bridge.stop()
         guard !FileManager.default.fileExists(atPath: bridge.path) else { fatalError("socket remained after stop") }
         let started = DispatchSemaphore(value: 0), cancelled = DispatchSemaphore(value: 0)

@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// One-shot, non-interactive completion through the Claude Code or Codex CLI.
 ///
@@ -352,7 +353,12 @@ private final class Invocation: @unchecked Sendable {
     func cancel() {
         queue.async {
             self.cancelled = true
-            if self.process.isRunning { self.process.terminate() }
+            if self.process.isRunning {
+                self.process.terminate()
+                self.queue.asyncAfter(deadline: .now() + 2) {
+                    if self.process.isRunning { _ = kill(self.process.processIdentifier, SIGKILL) }
+                }
+            }
         }
     }
 
