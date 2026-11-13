@@ -10,5 +10,5 @@ import sys
 source = Path('MarkView/Models/DeploymentExecutor.swift').read_text()
 Path(sys.argv[1]).write_text(source.split('protocol DeploymentExecutor')[0])
 PY
-swiftc -parse-as-library -o "$out/checks" "$out/ProcessRunner.swift" MarkView/Models/AgentProcesses.swift MarkView/Models/CockpitPlan.swift MarkView/Models/CockpitChild.swift MarkView/Models/CockpitHostBridge.swift MarkView/Models/CockpitRuntime.swift tools/tests/CockpitRuntimeChecks.swift
+swiftc -parse-as-library -o "$out/checks" "$out/ProcessRunner.swift" MarkView/Models/AgentProcesses.swift MarkView/Models/CockpitPlan.swift MarkView/Models/CockpitRun.swift MarkView/Models/CockpitRunStore.swift MarkView/Models/CockpitChild.swift MarkView/Models/CockpitHostBridge.swift MarkView/Models/CockpitRuntime.swift MarkView/Models/CockpitExecution.swift tools/tests/CockpitRuntimeChecks.swift
 "$out/checks"

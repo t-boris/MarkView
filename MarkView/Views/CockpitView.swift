@@ -10,6 +10,23 @@ struct CockpitView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Copilot Cockpit").uiFont(size: 18, weight: .semibold)
+                if !session.savedRuns.isEmpty {
+                    GroupBox("Saved runs") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(session.savedRuns, id: \.id) { run in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(run.plan.goal).uiFont(size: 12, weight: .semibold)
+                                    Text("Status: \(run.status.rawValue)")
+                                    if !run.waitingReason.isEmpty { Text(run.waitingReason).foregroundColor(palette.orange) }
+                                    ForEach(Array(run.results.enumerated()), id: \.offset) { _, result in
+                                        Text("\(result.passed ? "Passed" : "Failed"): \(result.detail) · Build: \(result.build)")
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(6)
+                    }
+                }
                 Text("Goal").uiFont(size: 12, weight: .semibold)
                 DictationInput(text: $session.goal, isFocused: { goalFocused }) { voice in
                     VStack(alignment: .leading) {

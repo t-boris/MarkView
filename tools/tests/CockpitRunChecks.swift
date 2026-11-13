@@ -34,4 +34,7 @@ try CockpitRunStore.save(run, root: root)
 let diskRun = try CockpitRunStore.load(run.id, root: root)
 check(diskRun.status == .paused && diskRun.steps[1].status == .interrupted && diskRun.results == run.results,
       "disk recovery preserves results and presents an interrupted run paused")
+let listed = try CockpitRunStore.loadAll(root: root)
+check(listed.count == 1 && listed[0].id == run.id && listed[0].status == .paused && listed[0].waitingReason.contains("background processes"),
+      "listing saved runs warns about interruption and detached processes without resuming")
 print("All cockpit run checks passed")

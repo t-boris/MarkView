@@ -89,6 +89,6 @@ struct CockpitRun: Codable, Equatable {
             steps[index].status = .interrupted
         }
         status = .paused
-        waitingReason = "The previous step was interrupted; its outcome is unknown."
+        waitingReason = "The previous step was interrupted; its outcome is unknown. Separately detached background processes may still be running."
     }
 }

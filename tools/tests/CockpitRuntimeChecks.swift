@@ -28,6 +28,7 @@ private actor Events {
         }
         defer { bridge.stop(); service.stop() }
         let endpoint = try await service.start()
+        let runtimeDirectory = URL(fileURLWithPath: endpoint.tls.key).deletingLastPathComponent()
         let queue = "test-" + UUID().uuidString
         let worker = try await service.worker(socket: bridge.path, queue: queue)
         defer { worker.stop() }
@@ -68,9 +69,21 @@ private actor Events {
         for _ in 0..<150 where await events.cancellations == 0 { try await Task.sleep(nanoseconds: 100_000_000) }
         guard await events.cancellations == 1 else { fatalError("pausing did not cancel the active host task") }
         _ = try await service.request(interruptedRequest("control", command: "stop"))
+        let executionEvents = Events()
+        let execution = CockpitExecution(root: root, service: service) { task in
+            await executionEvents.add(task)
+            return CockpitHostReply(result: CockpitHostResult(passed: true, detail: "Done", build: "build-2"), error: "")
+        }
+        guard let approval = CockpitApproval(plan: original, productionConfirmed: false) else { fatalError("valid approval rejected") }
+        try await execution.start(plan: original, approval: approval, step: 0)
+        for _ in 0..<150 where execution.state?.status != "finished" { try await Task.sleep(nanoseconds: 100_000_000) }
+        guard execution.state?.status == "finished", await executionEvents.tasks.count == 1 else { fatalError("execution coordinator did not complete the approved step") }
+        let saved = try CockpitRunStore.loadAll(root: root)
+        guard saved.count == 1, saved[0].status == .finished, saved[0].results.first?.build == "build-2" else { fatalError("execution history was not persisted") }
         worker.stop(); bridge.stop(); service.stop()
         for _ in 0..<300 where AgentProcesses.count != 0 { try await Task.sleep(nanoseconds: 100_000_000) }
         guard AgentProcesses.count == 0 else { fatalError("local helper processes did not stop") }
+        guard !FileManager.default.fileExists(atPath: runtimeDirectory.path) else { fatalError("per-launch runtime directory remained after shutdown") }
         print("Cockpit packaged runtime integration checks passed")
     }
 }

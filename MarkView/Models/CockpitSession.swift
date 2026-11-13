@@ -9,9 +9,18 @@ final class CockpitSession: ObservableObject {
     @Published private(set) var plan: CockpitPlan?
     @Published private(set) var busy = false
     @Published private(set) var error: String?
+    @Published private(set) var savedRuns: [CockpitRun] = []
     private var task: Task<Void, Never>?
 
-    init(root: URL) { self.root = root }
+    init(root: URL) { self.root = root; loadRuns() }
+
+    func loadRuns() {
+        let root = self.root
+        Task { [weak self] in
+            do { self?.savedRuns = try await Task.detached { try CockpitRunStore.loadAll(root: root) }.value }
+            catch { self?.error = "Saved cockpit runs could not be loaded: \(error.localizedDescription)" }
+        }
+    }
 
     func generate(refining: Bool = false) {
         guard !busy, !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
