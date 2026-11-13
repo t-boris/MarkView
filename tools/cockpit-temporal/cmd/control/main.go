@@ -11,17 +11,19 @@ import (
 	"time"
 
 	cockpit "github.com/t-boris/MarkView/cockpit-temporal"
+	"github.com/t-boris/MarkView/cockpit-temporal/localtls"
 	"go.temporal.io/sdk/client"
 )
 
 type request struct {
-	Address    string        `json:"address"`
-	Queue      string        `json:"queue"`
-	WorkflowID string        `json:"workflowID"`
-	Action     string        `json:"action"`
-	Plan       cockpit.Plan  `json:"plan"`
-	Approval   cockpit.Start `json:"approval"`
-	Command    string        `json:"command"`
+	Address    string         `json:"address"`
+	Queue      string         `json:"queue"`
+	WorkflowID string         `json:"workflowID"`
+	Action     string         `json:"action"`
+	Plan       cockpit.Plan   `json:"plan"`
+	Approval   cockpit.Start  `json:"approval"`
+	Command    string         `json:"command"`
+	TLS        localtls.Files `json:"tls"`
 }
 
 func validate(req request) error {
@@ -56,7 +58,11 @@ func run(req request) (any, error) {
 	if err := validate(req); err != nil {
 		return nil, err
 	}
-	c, err := client.Dial(client.Options{HostPort: req.Address})
+	tlsConfig, err := localtls.Client(req.TLS)
+	if err != nil {
+		return nil, errors.New("local Temporal credentials unavailable")
+	}
+	c, err := client.Dial(client.Options{HostPort: req.Address, ConnectionOptions: client.ConnectionOptions{TLS: tlsConfig}})
 	if err != nil {
 		return nil, err
 	}

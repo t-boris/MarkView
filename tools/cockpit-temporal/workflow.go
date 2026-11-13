@@ -10,50 +10,50 @@ import (
 
 // Plan is the already reviewed process. The fingerprint ties a start signal to the reviewed plan.
 type Plan struct {
-	Fingerprint     string
-	Goal            string
-	Controls        string
-	SuccessCriteria []string
-	Steps           []Step
+	Fingerprint     string   `json:"fingerprint"`
+	Goal            string   `json:"goal"`
+	Controls        string   `json:"controls"`
+	SuccessCriteria []string `json:"successCriteria"`
+	Steps           []Step   `json:"steps"`
 }
 type Step struct {
-	ID           string
-	Agent        string
-	Assignment   string
-	Prerequisite bool
+	ID           string `json:"id"`
+	Agent        string `json:"agent"`
+	Assignment   string `json:"assignment"`
+	Prerequisite bool   `json:"prerequisite"`
 }
 type Start struct {
-	Fingerprint string
-	Step        int
+	Fingerprint string `json:"fingerprint"`
+	Step        int    `json:"step"`
 }
 type Result struct {
-	Passed bool
-	Detail string
-	Build  string
+	Passed bool   `json:"passed"`
+	Detail string `json:"detail"`
+	Build  string `json:"build"`
 }
 type Entry struct {
-	StepID string
-	Result Result
+	StepID string `json:"stepID"`
+	Result Result `json:"result"`
 }
 type StepTask struct {
-	Step            Step
-	PlanFingerprint string
-	Goal            string
-	Controls        string
-	SuccessCriteria []string
-	PriorResults    []Entry
+	Step            Step     `json:"step"`
+	PlanFingerprint string   `json:"planFingerprint"`
+	Goal            string   `json:"goal"`
+	Controls        string   `json:"controls"`
+	SuccessCriteria []string `json:"successCriteria"`
+	PriorResults    []Entry  `json:"priorResults"`
 }
 type State struct {
-	Status  string
-	Current int
-	Reason  string
-	Results []Entry
+	Status  string  `json:"status"`
+	Current int     `json:"current"`
+	Reason  string  `json:"reason"`
+	Results []Entry `json:"results"`
 }
 
 // Execute coordinates separate host activities in order. Activities are never retried by Temporal:
 // a lost worker may have made changes, and an automatic replay could repeat them.
 func Execute(ctx workflow.Context, plan Plan) (State, error) {
-	state := State{Status: "awaiting-approval", Current: -1}
+	state := State{Status: "awaiting-approval", Current: -1, Results: []Entry{}}
 	if plan.Fingerprint == "" || len(plan.Steps) == 0 {
 		return state, fmt.Errorf("invalid plan")
 	}
@@ -122,7 +122,7 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 		}
 		step := plan.Steps[state.Current]
 		var result Result
-		err := workflow.ExecuteActivity(ctx, "cockpit.run-step", StepTask{Step: step, PlanFingerprint: plan.Fingerprint, Goal: plan.Goal, Controls: plan.Controls, SuccessCriteria: plan.SuccessCriteria, PriorResults: append([]Entry(nil), state.Results...)}).Get(ctx, &result)
+		err := workflow.ExecuteActivity(ctx, "cockpit.run-step", StepTask{Step: step, PlanFingerprint: plan.Fingerprint, Goal: plan.Goal, Controls: plan.Controls, SuccessCriteria: plan.SuccessCriteria, PriorResults: append([]Entry{}, state.Results...)}).Get(ctx, &result)
 		if err != nil {
 			// The activity may have changed the world before failing. Never repeat it here.
 			state.Status = "interrupted"

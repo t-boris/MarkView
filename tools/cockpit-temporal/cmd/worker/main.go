@@ -8,6 +8,7 @@ import (
 	"os"
 
 	cockpit "github.com/t-boris/MarkView/cockpit-temporal"
+	"github.com/t-boris/MarkView/cockpit-temporal/localtls"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -17,13 +18,21 @@ func main() {
 	address := flag.String("address", "127.0.0.1:7233", "local Temporal address")
 	queue := flag.String("queue", "", "task queue for this app instance")
 	socket := flag.String("socket", "", "private MarkView host socket")
+	ca := flag.String("ca", "", "local server CA")
+	cert := flag.String("cert", "", "local client certificate")
+	key := flag.String("key", "", "local client key")
 	flag.Parse()
 	host, _, err := net.SplitHostPort(*address)
 	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() || *queue == "" || *socket == "" {
 		fmt.Fprintln(os.Stderr, "a loopback address, task queue and host socket are required")
 		os.Exit(2)
 	}
-	temporalClient, err := client.Dial(client.Options{HostPort: *address})
+	tlsConfig, err := localtls.Client(localtls.Files{CA: *ca, Cert: *cert, Key: *key})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "local Temporal credentials unavailable")
+		os.Exit(1)
+	}
+	temporalClient, err := client.Dial(client.Options{HostPort: *address, ConnectionOptions: client.ConnectionOptions{TLS: tlsConfig}})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
