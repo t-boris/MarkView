@@ -1035,11 +1035,12 @@ final class FakeDriver: QAActorDriver {
     var measured = 0
     var viewportOnly = false
     var scrollLimit: Int?
+    var scopeMarker = ""
     private var changes = 0
     init(_ request: QADriverRequest) { self.request = request }
     func open(_ address: String) async throws { opened.append(address) }
     func observe() async throws -> QAObservation {
-        QAObservation(address: request.address + "/page", title: "Page", snapshot: "view " + String(repeating: "x", count: viewportOnly ? 1 : changes + 1) + "\n[e1] button \"Go\"", positionSignature: viewportOnly ? String(changes) : "")
+        QAObservation(address: request.address + "/page", title: "Page", snapshot: "view " + String(repeating: "x", count: viewportOnly ? 1 : changes + 1) + "\n[e1] button \"Go\"" + scopeMarker, positionSignature: viewportOnly ? String(changes) : "")
     }
     func perform(_ action: QAAction) async throws -> String {
         if failing.contains(action.summary) { throw RunTestError.refused }
@@ -1056,6 +1057,7 @@ final class FakeDriver: QAActorDriver {
 
 final class FakeFactory: QADriverFactory {
     var drivers: [FakeDriver] = []
+    var tagScopes = false
     var failFor: Set<String> = []
     var failing: Set<String> = []
     var hits = 0
@@ -1065,6 +1067,7 @@ final class FakeFactory: QADriverFactory {
     func makeDriver(_ request: QADriverRequest) async throws -> QAActorDriver {
         if failFor.contains(request.actor?.id ?? "setup") { throw RunTestError.refused }
         let driver = FakeDriver(request)
+        if tagScopes { driver.scopeMarker = "\nscope-\(drivers.count)" }
         driver.viewportOnly = viewportOnly
         driver.scrollLimit = scrollLimit
         driver.failing = failing
@@ -1379,6 +1382,27 @@ do {
     check("run: a step of the scenario cannot send requests of its own", sneaky.result?.verdict.outcome == .blocked && sneaky.factory.drivers.allSatisfy { $0.performed.allSatisfy { $0.kind != .http } })
 
     // Baseline, sign-in, launch
+    let nativeEvidenceScenario = changed(nativeShop) { $0.baseline = QACondition(kind: .state, establish: "Observe original order", verify: "Confirm identity and positions") }
+    let nativeEvidenceRun = run(scenario: nativeEvidenceScenario, script: ["Restore the baseline": [move("click", "e1"), move("click", "e1"), finished()], "Confirm: restore the baseline": [finished()]])
+    let nativeVerifier = nativeEvidenceRun.assistant.prompts.first { $0.contains("): Confirm: restore the baseline\n") } ?? ""
+    check("native setup: verifier receives actual earlier observations and the current window separately", nativeVerifier.contains("Earlier observations from this same preparation") && nativeVerifier.contains("Observation 1:\nTitle: Page\nview x\n") && nativeVerifier.contains("Window now:") && nativeVerifier.contains("references are expired"))
+    check("native setup: recorded observations do not leak into later scenario steps", nativeEvidenceRun.assistant.prompts.filter { !$0.contains("): Confirm: restore the baseline\n") }.allSatisfy { !$0.contains("Earlier observations from this same preparation") })
+    let separateBranches = run(scenario: nativeEvidenceScenario, branches: [mainLine, declined], saved: [], prepare: { factory, _ in factory.tagScopes = true })
+    let branchChecks = separateBranches.assistant.prompts.filter { $0.contains("): Confirm: restore the baseline\n") }
+    check("native setup: two branches receive only their own preparation observations", branchChecks.count == 2 && branchChecks[0].contains("scope-0") && !branchChecks[1].contains("scope-0"))
+    let twoActors = changed(nativeEvidenceScenario) { $0.nodes[3].condition = QACondition(kind: .data, establish: "Prepare seller", verify: "Seller ready") }
+    let actorRun = run(scenario: twoActors, saved: [], prepare: { factory, _ in factory.tagScopes = true })
+    let actorVerifier = actorRun.assistant.prompts.first { $0.contains("): Confirm: bring about the condition\n") } ?? ""
+    let sellerScope = actorRun.factory.driver("seller")?.scopeMarker ?? "missing seller"
+    let baselineScope = actorRun.factory.driver(nil)?.scopeMarker ?? "missing baseline"
+    check("native setup: a different actor sees only its own setup observations", sellerScope != baselineScope && actorVerifier.contains("Earlier observations from this same preparation") && actorVerifier.contains(sellerScope) && !actorVerifier.contains(baselineScope))
+    let nativeFailedSetup = run(scenario: nativeEvidenceScenario, script: ["Restore the baseline": [stuck("Unable to inspect", "other")]])
+    check("native setup: failed preparation never runs a verifier", !nativeFailedSetup.assistant.asked("Confirm: restore the baseline"))
+    let boundedNative = QAPreparationEvidence()
+    for n in 0..<12 { boundedNative.record(QAObservation(address: "", title: "Page", snapshot: "frame-\(n)" + String(repeating:"x",count:9000))) }
+    check("native setup: historical observations retain first and latest and have a strict bound", boundedNative.observations.count == 7 && boundedNative.observations.contains("[… other preparation observations omitted]") && boundedNative.observations.first?.contains("frame-0") == true && boundedNative.observations.last?.contains("frame-11") == true && boundedNative.observations.allSatisfy { $0.count < 8100 })
+    check("native setup: independent scopes do not inherit evidence", QAPreparationEvidence().observations.isEmpty)
+
     let withBaseline = changed(local) { $0.baseline = QACondition(kind: .state, establish: "POST /api/reset", verify: "GET /api/orders is empty") }
     let reset = run(scenario: withBaseline, script: ["Restore the baseline": [move("http", url: "/api/reset", method: "POST"), finished()], "Confirm: restore the baseline": [finished()]])
     check("run: the baseline is restored by a session of nobody's, with the person's words, before anything else", reset.factory.drivers.first?.request.actor == nil && reset.factory.drivers.first?.performed.map(\.kind) == [.http]
