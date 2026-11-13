@@ -70,12 +70,26 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 	starts := workflow.GetSignalChannel(ctx, "approve")
 	controls := workflow.GetSignalChannel(ctx, "control")
 	for state.Status == "awaiting-approval" {
-		var start Start
-		starts.Receive(ctx, &start)
-		if start.Fingerprint == plan.Fingerprint && start.Step >= 0 && start.Step < len(plan.Steps) {
-			state.Current = start.Step
-			state.Status = "running"
-		}
+		selector := workflow.NewSelector(ctx)
+		selector.AddReceive(starts, func(channel workflow.ReceiveChannel, _ bool) {
+			var start Start
+			channel.Receive(ctx, &start)
+			if start.Fingerprint == plan.Fingerprint && start.Step >= 0 && start.Step < len(plan.Steps) {
+				state.Current = start.Step
+				state.Status = "running"
+			}
+		})
+		selector.AddReceive(controls, func(channel workflow.ReceiveChannel, _ bool) {
+			var command string
+			channel.Receive(ctx, &command)
+			if command == "stop" {
+				state.Status = "stopped"
+			}
+		})
+		selector.Select(ctx)
+	}
+	if state.Status == "stopped" {
+		return state, nil
 	}
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * 24 * time.Hour,

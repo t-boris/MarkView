@@ -93,3 +93,20 @@ func TestSelectedStepSkipsPrevious(t *testing.T) {
 		t.Fatalf("wrong step: %s", called)
 	}
 }
+
+func TestStopBeforeApproval(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("control", "stop") }, time.Second)
+	env.ExecuteWorkflow(Execute, Plan{Fingerprint: "x", Steps: []Step{{ID: "one", Agent: "Codex", Assignment: "Work"}}})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatal(err)
+	}
+	var state State
+	if err := env.GetWorkflowResult(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Status != "stopped" {
+		t.Fatalf("unexpected state: %+v", state)
+	}
+}
