@@ -46,11 +46,13 @@ struct RuleEvent: RawRepresentable, Codable, Hashable, Sendable {
     static let workStarted = RuleEvent(rawValue: "work-started")
     /// The investigation of a bug by the app produced its result.
     static let investigationFinished = RuleEvent(rawValue: "investigation-finished")
+    /// A full feature review found no new problems and has no unresolved blocking work.
+    static let reviewPassed = RuleEvent(rawValue: "review-passed")
     /// GitHub shows that a pull request of the item has been merged since MarkView last looked while it was running (needs the GitHub
     /// integration). A pull request that was merged before, or while MarkView was closed, is not an event.
     static let pullRequestMerged = RuleEvent(rawValue: "pull-request-merged")
 
-    static let known: [RuleEvent] = [.workStarted, .investigationFinished, .pullRequestMerged]
+    static let known: [RuleEvent] = [.workStarted, .investigationFinished, .pullRequestMerged, .reviewPassed]
 
     var isKnown: Bool { Self.known.contains(self) }
 
@@ -59,6 +61,7 @@ struct RuleEvent: RawRepresentable, Codable, Hashable, Sendable {
         switch self {
         case .workStarted: return "work is started"
         case .investigationFinished: return "an investigation finishes"
+        case .reviewPassed: return "a feature review passes"
         case .pullRequestMerged: return "a pull request is merged"
         default: return "\u{201C}\(rawValue)\u{201D} happens"
         }
@@ -69,6 +72,7 @@ struct RuleEvent: RawRepresentable, Codable, Hashable, Sendable {
         switch self {
         case .workStarted: return "The item was started: a hand-off to an agent was accepted, an agent started it, or a person did."
         case .investigationFinished: return "The investigation of a bug report by MarkView produced its result (bugs only)."
+        case .reviewPassed: return "A full feature review found no new problems and no blocking questions, serious findings or proposed decisions remain (features only)."
         case .pullRequestMerged: return "GitHub shows that a pull request of the item was merged while MarkView was running (needs the GitHub integration); one merged earlier is not an event."
         default: return "Not known to this app: it never fires."
         }
@@ -720,6 +724,9 @@ extension ProjectWorkflow {
                 }
                 if event == .investigationFinished, kind != IssueKind.bug.rawValue {
                     add("The event \u{201C}\(event.rawValue)\u{201D} exists only for bugs, so the \(label) transition \(rule.id) cannot use it.")
+                }
+                if event == .reviewPassed, kind != IssueKind.feature.rawValue {
+                    add("The event \u{201C}\(event.rawValue)\u{201D} exists only for features, so the \(label) transition \(rule.id) cannot use it.")
                 }
             }
             if !seen.insert(rule.id).inserted { add("The \(label) transition \(rule.id) is listed twice.") }
