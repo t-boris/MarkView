@@ -162,6 +162,7 @@ enum QAStepPrompt {
         - Use only elements you were shown. Never invent a reference. The references are numbered afresh at every turn.
         - For a check, do not change anything: look, inspect a relevant container or scroll if needed, then answer done or notMet.
         - A partial Accessibility tree is not an empty application. Use inspect on the relevant container; an empty ref returns to the whole window. Use current refs only. Do not reload the app or repeatedly change zoom because controls were omitted.
+        - When a task explicitly asks you to open a named tab but its label is shown as an inspectable group, inspect that exact group and click the matching framed text reference inside it. A text reference alone does not prove it is actionable: look again and verify the requested tab opened. Do not click unrelated labels or order-action controls.
         - To sign in, type the placeholders {{username}} and {{password}} where the credentials go. Never type, guess or write a real password. The value of a secure field is never shown to you.
         - Do not repeat an action that already had its effect. If the previous action did not change the window, try another way or answer blocked.
         - narration is one short sentence in the language of the step title: what you do now, which control or field it is (by the name a person sees) and why. It is shown as a subtitle. For done and notMet, narration says what you saw.
