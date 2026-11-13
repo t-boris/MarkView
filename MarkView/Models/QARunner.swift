@@ -147,6 +147,11 @@ final class QARunSessions {
         let open = Array(drivers.values); drivers = [:]
         for driver in open { await driver.close() }
     }
+    func closeAttached() async {
+        let keys = drivers.keys.filter { $0.hasPrefix("attach|") }
+        let open = keys.compactMap { drivers.removeValue(forKey: $0) }
+        for driver in open { await driver.close() }
+    }
 }
 
 final class QARunner {
@@ -250,6 +255,8 @@ final class QARunner {
             record.record(result)
             emit(.branchFinished(result))
         }
+        // An attached user process is leased only for this execution, including on Stop and failure.
+        await sessions.closeAttached()
         record.finishedAt = now()
         record.timeline = timeline
         emit(.runFinished(record))
@@ -587,12 +594,21 @@ final class QARunner {
     // MARK: Helpers
 
     private func session(for actor: QAActor?, app: QAApp) async throws -> QAActorDriver {
-        let key = scenario.appKind == .api ? "\(actor?.id ?? "setup"):\(app.id)" : (actor?.id ?? "setup")
-        if let existing = drivers[key] { return existing }
         guard let address = plan.target?.locations[app.id]?.address(for: scenario.appKind) else { throw QARunnerError.noAddress(app.name) }
         let policy = plan.target?.locations[app.id]?.application?.effectiveStartupPolicy ?? .launch
-        let request = QADriverRequest(actor: actor, app: app, address: address, login: actor?.login, startupPolicy: policy)
-        let sessionKey = scenario.appKind == .nativeMacOS && policy == .attach && config.keepSessions
+        // Baseline preparation belongs to the first player using this application in the branch.
+        // It must not acquire a second lease before that player's first step.
+        let owner: QAActor? = if actor == nil && scenario.appKind == .nativeMacOS && policy == .attach,
+                                 let branch = plan.branches.first(where: { $0.id == activeBranch }),
+                                 let node = branch.nodes.compactMap({ scenario.node($0) }).first(where: { scenario.appID(of: $0) == app.id }),
+                                 let id = scenario.actorID(of: node) {
+            scenario.actors.first { $0.id == id }
+        } else { actor }
+        let key = scenario.appKind == .api || (scenario.appKind == .nativeMacOS && policy == .attach)
+            ? "\(owner?.id ?? "setup"):\(app.id)" : (owner?.id ?? "setup")
+        if let existing = drivers[key] { return existing }
+        let request = QADriverRequest(actor: owner, app: app, address: address, login: owner?.login, startupPolicy: policy)
+        let sessionKey = scenario.appKind == .nativeMacOS && policy == .attach
             ? "attach|\(scenario.id)|\(plan.target?.id ?? "")|\(address)|\(key)" : activeBranch + "|" + key
         let created = try await sessions.session(key: sessionKey, request: request, factory: factory)
         drivers[key] = created
@@ -603,10 +619,9 @@ final class QARunner {
     }
 
     private func closeDrivers() async {
-        let open = Array(drivers.values)
         drivers = [:]
         lastScreen = [:]
-        if !config.keepSessions { for driver in open { await driver.close() } }
+        if !config.keepSessions { await sessions.close() }
     }
 
     /// nil means proceed. A jump is accepted only within the current approved branch, never during preparation.
