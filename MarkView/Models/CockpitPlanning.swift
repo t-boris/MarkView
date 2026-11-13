@@ -2,7 +2,15 @@ import Foundation
 
 // The assistant proposes a whole plan. Controls always come from the person, not from its response.
 enum CockpitPlanning {
-    enum ParseError: Error { case malformed, invalid([String]) }
+    enum ParseError: LocalizedError {
+        case malformed, invalid([String])
+        var errorDescription: String? {
+            switch self {
+            case .malformed: return "The assistant returned an incomplete plan. Try again."
+            case .invalid(let problems): return problems.joined(separator: " ")
+            }
+        }
+    }
 
     static let systemPrompt = """
     Turn the person's goal into a sequential plan. Inspect the project and use only the available capabilities and agent names supplied.

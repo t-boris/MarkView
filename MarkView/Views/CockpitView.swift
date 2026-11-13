@@ -43,6 +43,10 @@ struct CockpitView: View {
                 }
                 if let error = session.error { Text(error).foregroundColor(palette.red).textSelection(.enabled) }
                 if let plan = session.plan {
+                    if !plan.scenarios.isEmpty {
+                        Text("Selected scenarios").uiFont(size: 12, weight: .semibold)
+                        ForEach(plan.scenarios, id: \.self) { Text("• " + $0) }
+                    }
                     GroupBox("Proposed flow") {
                         VStack(alignment: .leading, spacing: 8) {
                             ForEach(Array(plan.steps.enumerated()), id: \.element.id) { index, step in
