@@ -2,15 +2,24 @@
 
 Boris installed 6.22.0 and wrote "Не работает" with two screenshots (product-promotion-desk, screen "Products – list and detail"): the Products page shows `undefined is not an object (evaluating 'envelope.error.code')`, every screen is covered by the dialog "The AI is waiting for you", the screen request ends `failed` ("Override 1 names POST .../passport.get, which no rule serves"), Fix problems is greyed. Plan `/Users/boris/.claude/plans/calm-whistling-eich.md` APPROVED. This is finding (a) of the 6.22.0 report that I had left as "needs approval"; it blocks his two requests for any Electron/IPC app.
 
-- [ ] Records: DEC-015 (service envelope), REQ-022 (answers in the application's envelope), criteria ticked only for what is proven.
-- [ ] 1. Model + simulator: `StudioEnvelope`, optional `envelopes` in the environment; generated answers wrapped by prefix, `respond` and overrides verbatim, no double wrap when the rule's `envelope` equals the result key.
-- [ ] 2. Assistant contract: `envelope` explained, `envelopes` in the preparation schema, validator rejects a template string in `envelope`.
-- [ ] 3. One-time detection for existing environments (`envelopes == nil`), cleans template `envelope` strings, after the map, respects `autoRepair`.
-- [ ] 4. A context change naming a request no rule serves prepares that rule and retries.
-- [ ] 5. Screen request / preparation prompt: a screen is not covered by a blocking dialog (prompt-level, model-dependent).
-- [ ] Checks: pure, session, live run on a clone of product-promotion-desk with the real assistant; every script of every triggered workflow; Debug build.
-- [ ] 6.23.0: PR, merge, release, DMG; install only on Boris's "reinstall".
+- [x] Records: DEC-015 (service envelope), REQ-022 (answers in the application's envelope), criteria ticked only for what is proven.
+- [x] 1. Model + simulator: `StudioEnvelope`, optional `envelopes` in the environment; generated answers wrapped by prefix, `respond` and overrides verbatim, no double wrap when the rule's `envelope` equals the result key.
+- [x] 2. Assistant contract: `envelope` explained, `envelopes` in the preparation schema, validator rejects a template string in `envelope`.
+- [x] 3. One-time detection for existing environments (`envelopes == nil`), cleans template `envelope` strings, after the map, respects `autoRepair`.
+- [x] 4. A context change naming a request no rule serves prepares that rule and retries.
+- [x] 5. Screen request / preparation prompt: a screen is not covered by a blocking dialog (prompt-level, model-dependent).
+- [x] Checks: pure, session, live run on a clone of product-promotion-desk with the real assistant; every script of every triggered workflow; Debug build.
+- [x] 6.23.0: PR #409 merged (`d6a0510`); `Build & Release` of the merge commit passed. Release https://github.com/t-boris/MarkView/releases/tag/v6.23.0 (Latest, signed, notarized, stapled, `spctl` accepted), copy `build/MarkView-6.23.0.dmg`. NOT installed (6.22.0 is running): waiting for Boris's "reinstall".
 - Not included: the page rendering its own caught error as a problem (no event to repair); `{{studio.records}}` placeholders; the mapper's 240 s timeouts.
+
+## Review (6.23.0, 2026-11-14)
+
+- Verified on an APFS clone of product-promotion-desk with the app's own assistant: the one-time review found the `{ok, result}` envelope (transport.ts `unwrap`) and re-modelled `agent.questions` / `agent.answer` / `agent.stop` as an entity `agentQuestions` with a channel link `{type: "changed", scope: "accounts"}` (the event hooks.ts `useQuery` listens to); the Products page renders; pressing "I'm done" took the dialog from 1 of 6 to 5, 4, 3, 2. The automatic repair of 6.22.0 then fixed the `opportunity.kind` data error by itself ($0.03). The review costs about $0.1-0.2 once per project (one call, 30-50 s, background banner).
+- Mutation checks: wrap and body id disabled turned 10 pure checks red; review and unserved-rule preparation disabled turned 13 session checks red.
+- The first design held the busy state during the review and broke the existing Map Again check; it is background work now (banner, screens wait for it).
+- Prompt-level and model-dependent: how the assistant models a dialog's write rule and which event it links (the deterministic parts are the validator, the atomic apply and the replay in the harness). A second real run of the review gave one envelope instead of two (`/api/` was added the first time): another review of the same project may differ in detail.
+- Not hand-checked: the installed app (banner "Checking how the application reads responses", the Screens menu after the review), a project whose transport is not wrapped (the review answers "none" and is not repeated), the Products page on Boris's own project (only on a clone).
+- Still open, needs Boris's approval: pages crash on records that lack nested fields the application reads (`reason.startsWith`, `card.data.opportunity.channelId` in the Attention page); the auto repair handles one error at a time and only when the page logs it; scenarios incompatible with the environment ("needs update") are not updated automatically; DEC-015 is `proposed`.
 
 # UI Studio: Problems with Fix, automatic repair at open, main screens ready (2026-11-14, 6.22.0)
 

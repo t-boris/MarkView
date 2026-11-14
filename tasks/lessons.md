@@ -1,5 +1,20 @@
 # Lessons
 
+## A simulation must answer in the application's own shape, and a background step must not hold the busy state (UI Studio 6.23.0, 2026-11-14)
+
+- Boris: "Не работает" after 6.22.0 on product-promotion-desk: the page showed `undefined is not an object (evaluating 'envelope.error.code')`, and a dialog "The AI is waiting for you (1 of 6)" sat over
+  every screen with a button that did nothing. Causes: the simulator could only wrap a list as `{result: [...]}` (the app's transport needs `{ok, result}`), and the dialog's list and its answer were
+  fixed `respond` bodies with no state and no change event. A field the assistant must fill (`envelope`) needs a definition in the prompt and a validator; without both it wrote templates into it.
+- Rules: describe how the application reads answers once, in the environment (`envelopes`), not in every rule; never wrap what is already written in the application's shape (`respond`, overrides);
+  anything a button changes must be state plus a change event, never a fixed body. A fix that adds a field to the stored environment needs a one-time review of the environments already saved,
+  and "looked at, nothing to change" must be stored as an answer (an empty list), or the review repeats forever.
+- A step that runs by itself after the map must be background work with a banner, like the screens' preparation, not `runWork`: holding `busy` blocked the person's own Map Again in the harness
+  (found only because the session suite exercises it). Later background steps wait for earlier ones (screens wait for the review).
+- The live run on a clone with the app's own assistant finds what fixtures cannot: the real review answer, the real change event the dialog listens to, a second data error behind the first.
+  Run it before saying "fixed" for anything the person saw on a real project.
+- Starting a suite as `( cmd > log ) &` inside a background Bash call returns at once; the work keeps running, and a second start writes the same log (interleaved lines, a false failure).
+  Start the command itself as the background call and read its log only when it ends.
+
 ## A screen the person supervises must show the thing, not its raw data, and be looked at before it is called done (Cockpit plan, 2026-11-14)
 
 - Boris: the plan "looks terrible ... I thought it would be more graphic"; the run "is unclear ... it can run for days and I need to see what happens". The 6.17 plan was text cards with
