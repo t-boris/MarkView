@@ -59,7 +59,7 @@ mkdir -p "$BUILD"
 
 echo "▸ Building MarkView $VERSION (Release)…"
 xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Release \
-    -derivedDataPath build/ReleaseDerivedData CODE_SIGNING_ALLOWED=NO -quiet build
+    -derivedDataPath build/ReleaseDerivedData CODE_SIGNING_ALLOWED=NO MARKVIEW_BUILD_COCKPIT_RUNTIME=1 -quiet build
 cp -R build/ReleaseDerivedData/Build/Products/Release/MarkView.app "$APP"
 
 echo "▸ Signing with $IDENTITY (hardened runtime)…"

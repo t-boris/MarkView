@@ -13,19 +13,15 @@ CACHE_DIR="${TMPDIR:-/tmp}/markview-cockpit-dependencies"
 DEST_DIR="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Cockpit"
 mkdir -p "$CACHE_DIR" "$DEST_DIR"
 
-# Package the architectures actually being built; local Release normally builds both.
+# The app and its release currently target Apple Silicon only.
 architectures=""
 for requested in ${ARCHS:-}; do
-    case "$requested" in arm64) architectures="$architectures arm64" ;; x86_64) architectures="$architectures amd64" ;; *) echo "Unsupported Mac architecture: $requested" >&2; exit 1 ;; esac
+    case "$requested" in arm64) architectures="$architectures arm64" ;; *) echo "Only the Apple Silicon architecture is supported: $requested" >&2; exit 1 ;; esac
 done
-if [ -z "$architectures" ] && [ "$CONFIGURATION" = "Release" ]; then architectures="arm64 amd64"; fi
-if [ -z "$architectures" ]; then
-    case "$(uname -m)" in arm64) architectures="arm64" ;; x86_64) architectures="amd64" ;; *) echo "Unsupported Mac architecture" >&2; exit 1 ;; esac
-fi
+if [ -z "$architectures" ]; then architectures="arm64"; fi
 for arch in $architectures; do
     case "$arch" in
         arm64) target="aarch64-apple-darwin"; expected="f4b2ff0587d80b6f22bf09ec2d133a3c2949b6423318d3fed0f4ddddddf2f004" ;;
-        amd64) target="x86_64-apple-darwin"; expected="edb44b25cf8bffec60fa300fbe100fa4238bf2cab4f4bd98d4b7255c61780df3" ;;
     esac
     archive="postgresql-17.11.1-$target.tar.gz"
     cached="$CACHE_DIR/$archive"

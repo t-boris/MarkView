@@ -29,10 +29,6 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: tools/cockpit-temporal/go.mod
-          cache-dependency-path: tools/cockpit-temporal/go.sum
       - name: Verify the palettes (contrast, accents), migration, tolerant decoding and what a new window inherits
         run: bash tools/tests/theme-model-tests.sh
       - name: Verify two windows with two themes at once, window appearance, the web payload and the picker (off-screen)

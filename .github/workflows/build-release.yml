@@ -24,13 +24,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64, x86_64]
+        arch: [arm64]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: tools/cockpit-temporal/go.mod
-          cache-dependency-path: tools/cockpit-temporal/go.sum
 
       # The image's default Xcode, as in the pull request checks; the log records which one built the app.
       - name: Show Xcode

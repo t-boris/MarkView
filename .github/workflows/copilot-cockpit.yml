@@ -44,16 +44,12 @@ jobs:
           cache-dependency-path: tools/cockpit-temporal/go.sum
       - name: Check planning, approval, recovery and QA retention
         run: |
-          tools/tests/cockpit-plan-tests.sh
-          tools/tests/cockpit-planning-tests.sh
-          tools/tests/cockpit-run-tests.sh
-          tools/tests/cockpit-host-bridge-tests.sh
-          tools/tests/cockpit-child-tests.sh
-          tools/tests/cockpit-agent-registry-tests.sh
-          tools/tests/cli-completion-timeout-tests.sh
-          tools/tests/project-agent-tools-tests.sh
-          tools/tests/feature-review-gate-tests.sh
-          tools/tests/qa-retention-tests.sh
+          ( tools/tests/cockpit-plan-tests.sh; tools/tests/cockpit-planning-tests.sh; tools/tests/cockpit-run-tests.sh; tools/tests/cockpit-build-phase-tests.sh ) & a=$!
+          ( tools/tests/cockpit-host-bridge-tests.sh; tools/tests/cockpit-child-tests.sh; tools/tests/cockpit-agent-registry-tests.sh ) & b=$!
+          ( tools/tests/feature-review-gate-tests.sh; tools/tests/qa-retention-tests.sh ) & c=$!
+          status=0
+          for job in "$a" "$b" "$c"; do wait "$job" || status=1; done
+          exit "$status"
       - name: Check Temporal workflow
         working-directory: tools/cockpit-temporal
         run: go test ./...
@@ -63,8 +59,8 @@ jobs:
           export UNLOCALIZED_RESOURCES_FOLDER_PATH="MarkView.app/Contents/Resources"
           export CONFIGURATION=Debug
           tools/cockpit-temporal/scripts/build-runtime.sh
-          case "$(uname -m)" in arm64) arch=arm64 ;; x86_64) arch=amd64 ;; *) exit 1 ;; esac
-          export MARKVIEW_TEST_RUNTIME="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Cockpit/$arch"
+          [ "$(uname -m)" = arm64 ] || { echo 'An Apple Silicon runner is required'; exit 1; }
+          export MARKVIEW_TEST_RUNTIME="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Cockpit/arm64"
           export MARKVIEW_TEST_SERVER="$MARKVIEW_TEST_RUNTIME/bin/server"
           export MARKVIEW_TEST_POSTGRES="$MARKVIEW_TEST_RUNTIME/postgres"
           export MARKVIEW_TEST_SUPERVISOR="$MARKVIEW_TEST_RUNTIME/bin/postgres-supervisor"

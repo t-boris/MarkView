@@ -19,10 +19,6 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: tools/cockpit-temporal/go.mod
-          cache-dependency-path: tools/cockpit-temporal/go.sum
       - name: Check the main baseline, the evidence rules, the closure record and the three entry points
         run: bash tools/tests/bug-validity-tests.sh
       - name: Build application
