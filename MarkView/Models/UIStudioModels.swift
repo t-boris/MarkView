@@ -163,8 +163,53 @@ struct StudioEnvironmentSpec: Codable, Equatable, Sendable {
     var prepareScreens: Bool? = nil
 
     var preparesScreens: Bool { prepareScreens ?? true }
+    /// How the application's transport wraps what the simulator generates from state (DEC-015). Optional, so older files still
+    /// decode; absent = not looked at yet (a one-time review of the environment fills it, an empty list meaning "none").
+    var envelopes: [StudioEnvelope]? = nil
 
     func entity(_ name: String) -> StudioEntity? { entities.first { $0.name == name } }
+
+    /// The envelope that answers `path` (a rule's path): the usable one with the longest matching prefix.
+    func envelope(forPath path: String) -> StudioEnvelope? {
+        (envelopes ?? []).filter { $0.isUsable && path.hasPrefix($0.prefix) }.max { $0.prefix.count < $1.prefix.count }
+    }
+}
+
+/// How an application's transport wraps every answer, which no single rule can say: `{ok:true,result:X}` on success and
+/// `{ok:false,error:{code,message}}` on failure (an Electron IPC bridge, an RPC-style `/api/<method>`). It wraps only what the
+/// simulator generates from state (list, get, create, update, delete, session, a document without a template). A fixed
+/// (`respond`) answer and a scenario's override are written as the application sees them and stay as they are (DEC-015).
+struct StudioEnvelope: Codable, Hashable, Sendable {
+    /// Rules whose path starts with it: `http://electron.ipc/` or `/api/`.
+    var prefix: String
+    /// The key the body goes under (`result`). A rule whose own `envelope` is this key already holds its list there: only the
+    /// fields are added, so the body is never wrapped twice.
+    var resultKey: String
+    /// Fields beside it on success (`{"ok": true}`).
+    var successFields: [String: StudioJSON]
+    /// The body of a failed answer; `{{status}}` and `{{message}}` are filled in. Nil keeps the plain error body.
+    var failure: StudioJSON?
+
+    init(prefix: String, resultKey: String, successFields: [String: StudioJSON] = [:], failure: StudioJSON? = nil) {
+        self.prefix = prefix
+        self.resultKey = resultKey
+        self.successFields = successFields
+        self.failure = failure
+    }
+
+    enum CodingKeys: String, CodingKey { case prefix, resultKey, successFields, failure }
+
+    /// Lenient: a hand-edited or damaged envelope must not make environment.json unreadable; one without a prefix or a key is
+    /// not usable and is ignored.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        prefix = (try? container.decode(String.self, forKey: .prefix)) ?? ""
+        resultKey = (try? container.decode(String.self, forKey: .resultKey)) ?? ""
+        successFields = (try? container.decode([String: StudioJSON].self, forKey: .successFields)) ?? [:]
+        failure = try? container.decode(StudioJSON.self, forKey: .failure)
+    }
+
+    var isUsable: Bool { !prefix.isEmpty && !resultKey.isEmpty }
 }
 
 /// An answer a scenario puts in place of a rule's normal one: an error, an empty list, a delay (loading) (SIM-11).
@@ -633,6 +678,8 @@ struct StudioScreen: Codable, Hashable, Identifiable, Sendable {
         "Show the application screen \"\(name)\": \(description)\n"
             + "Destination: \(route); visible screen-specific element: \(selector).\n"
             + "Source evidence: \(source)\nPreparation and navigation: \(instructions)\n"
+            + "The screen must be visible, not covered by a blocking dialog or notice that the simulated data raises (a pending question, an alert); "
+            + "take such a cover away in the scenario unless this screen is that dialog.\n"
             + "Change only the scenario, not the application's source code."
     }
 }

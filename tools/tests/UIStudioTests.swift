@@ -3168,6 +3168,8 @@ Task { @MainActor in
     dataFixChecks()
     repairChecks()
     screenBookChecks()
+    envelopeChecks()
+    reviewChecks()
     done.signal()
 }
 while done.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }

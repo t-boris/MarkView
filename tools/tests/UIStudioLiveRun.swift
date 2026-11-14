@@ -1,5 +1,5 @@
 // Manual check against the real assistant (not part of the automatic checks): opens a copy of an application in a real UI Studio
-// session, lets Studio repair what it can by itself (REQ-020) or prepare the main screens (REQ-021), and prints what happened, how long
+// session, lets Studio repair what it can by itself (REQ-020) or prepare the main screens (REQ-021), or review the environment (DEC-015), and prints what happened, how long
 // it took and what the assistant cost. Run by tools/tests/ui-studio-live-run.sh on a COPY of the project.
 import AppKit
 import Foundation
@@ -13,7 +13,7 @@ final class LiveTotals: @unchecked Sendable {
 func liveRun() async {
     let args = CommandLine.arguments
     guard args.count >= 4 else {
-        print("usage: ui-studio-live-run <markview-ui-studio.js> <project copy> repair|screens|load [scenario name]")
+        print("usage: ui-studio-live-run <markview-ui-studio.js> <project copy> repair|screens|load|review [scenario name]")
         exit(2)
     }
     StudioSession.runtimeURL = URL(fileURLWithPath: args[1])
@@ -118,12 +118,51 @@ func liveRun() async {
         let text = (try? await session.call("return document.body.innerText.slice(0, 500);")) as? String ?? "(no text)"
         print("page text: \(text.replacingOccurrences(of: "\n", with: " | "))")
         print("problems: \(problems().count) \(problems().prefix(4))")
+        // STUDIO_EVAL: a JavaScript function body evaluated on the page, for looking at one answer of the simulation.
+        if let script = ProcessInfo.processInfo.environment["STUDIO_EVAL"] {
+            let value = try? await session.call(script)
+            print("eval: \(String(describing: value).prefix(1500))")
+        }
         for saved in session.savedScenarios where !saved.id.hasPrefix("screen-") {
             print("compatibility of \(saved.name): \(StudioScenarioCompatibility.problems(saved, spec: session.spec))")
         }
         session.sessionLog.entries.filter { $0.kind == .navigation || $0.kind == .notice || $0.problem }.suffix(14).forEach {
             print("   \($0.kind.rawValue) \($0.problem ? "!" : "-") \(String($0.text.prefix(200)))")
         }
+    case "review":
+        // The one-time review of the environment (DEC-015) and what the page does with it: the response envelope, then a blocking dialog
+        // that must go when its button is pressed. `dialog` and `button` are CSS selectors; the defaults are those of product-promotion-desk.
+        let dialog = ProcessInfo.processInfo.environment["STUDIO_DIALOG"] ?? "[data-testid=\"agent-question\"]"
+        let button = ProcessInfo.processInfo.environment["STUDIO_DIALOG_BUTTON"] ?? "[data-testid=\"agent-question-done\"]"
+        let reviewed = await waitUntil(900) { session.spec.envelopes != nil && session.busy == nil && session.reviewTask == nil }
+        print("[\(elapsed())] reviewed: \(reviewed), envelopes \(session.spec.envelopes.map { "\($0.count)" } ?? "none")")
+        session.spec.envelopes?.forEach { print("   envelope \($0.prefix) → \($0.resultKey) \($0.successFields.keys.sorted()) failure \($0.failure != nil)") }
+        session.sessionLog.entries.map(\.text).filter { $0.hasPrefix("Reviewed") || $0.contains("review of the environment") }
+            .forEach { print("   log: \(String($0.prefix(300)))") }
+        print("rules: \(session.spec.rules.count) (fixed answers \(session.spec.rules.filter { $0.operation == .respond }.count)), entities \(session.spec.entities.map(\.name))")
+        // The page loads again on the reviewed answers: give it time to draw.
+        _ = await waitUntil(60) { session.busy == nil && !session.isPreparing }
+        try? await Task.sleep(nanoseconds: 6_000_000_000)
+        print("route \(session.route), scenario \(session.scenario.name)")
+        func shown() async -> String {
+            ((try? await session.call("const d = document.querySelector(selector); return d ? d.innerText.replace(/\\s+/g, ' ').slice(0, 160) : '(no dialog)';", ["selector": dialog])) as? String) ?? "(no answer)"
+        }
+        print("page text: \(((try? await session.call("return document.body.innerText.slice(0, 300);")) as? String ?? "(no text)").replacingOccurrences(of: "\n", with: " | "))")
+        var before = await shown()
+        for _ in 0..<40 where before == "(no dialog)" {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            before = await shown()
+        }
+        print("dialog before: \(before)")
+        for step in 1...4 {
+            let clicked = (try? await session.call("const b = document.querySelector(selector); if (!b) return false; b.click(); return true;", ["selector": button])) as? Bool ?? false
+            if !clicked { print("press \(step): no button"); break }
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            print("press \(step): \(await shown())")
+        }
+        print("page html: \(((try? await session.call("return document.body.innerHTML.slice(0, 240);")) as? String ?? "(none)").replacingOccurrences(of: "\n", with: " "))")
+        print("problems: \(problems().count)")
+        problems().prefix(10).forEach { print("   ! \($0)") }
     default:
         print("unknown mode \(mode)")
     }
