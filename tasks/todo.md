@@ -1,3 +1,20 @@
+# Copilot Cockpit: enforced controls, limits and the supervisor (2026-11-14)
+
+Boris: stop the toolbar icon clash, enforce the controls through MarkView's MCP tools, drop the budget limit, and let the Copilot itself answer the step agents' questions without waiting for anyone. Released as v6.17.0 (PR #399 icon 6.16.1, PR #400 limits and supervisor 6.17.0, PR #401 test-only fix). DEC-026 proposed, supersedes DEC-006.
+
+- [x] Cockpit toolbar button and tab use the `airplane` symbol (Workflow kept its own).
+- [x] Gate: a Cockpit step's MarkView MCP calls are classified and refused by the controls (file bugs, move a bug into fixing, deployment, always starting other agents); unclassified tools are refused; matched by the process ancestry of the step terminal, so other terminals are untouched.
+- [x] Audit after each step: source changes or a moved HEAD with fixing off, new scenarios with creating scenarios off.
+- [x] Time limit (total agent minutes, kept across interruptions) and fix cycle limit are typed numbers; reaching one stops the step through the existing pause. Budget limit removed; old free-text limits are read where they are a clear amount.
+- [x] Supervisor: `markview_cockpit_ask`, control on by default, project assistant read-only with a 90 s limit, out-of-scope answered "do not, record a blocker", 25 questions per step, repeat cache, failure text, every exchange logged in the run and shown in the Cockpit.
+- [x] Tests: `tools/tests/cockpit-policy-tests.sh` and the other Cockpit scripts, the packaged-runtime integration test, and `tools/tests/cockpit-e2e` (S5, S7-S12) on a hidden copy of the Debug app. It found and fixed a per-run (not per-step) supervisor ledger. The supervisor prompt was also run 16 times through the real `claude -p`: all answers usable, every trap (production deploy, a secret, an injected instruction, deleting data) refused.
+- [x] Remote Workspace Checks failed on #400 only because the test's stub slice of BrowserControlServer lacked the gate's dependencies; fixed in #401 (test only).
+- [x] Release v6.17.0 published (signed, notarized, stapled DMG, `spctl` accepts it); copy at `build/MarkView-6.17.0.dmg`. Not installed: Boris's running app was not touched.
+- [ ] Boris checks the limits himself (not covered by the end-to-end checks: time limit stop and resume, fix cycle limit, the gate and the audit on a real run, per-CLI pid ancestry for Codex/Copilot/Cline/Antigravity).
+- [ ] Boris accepts or rejects DEC-026; REQ-001 and REQ-003 still say the controls are advisory and need new wording after that.
+- [ ] Known gaps: a question an agent prints into the terminal and the agent CLI's own permission prompts are not seen (the step stalls until the time limit or Pause); builds and deployments from the agent's shell are neither stopped nor detected.
+- [ ] Nothing hand-checked in the installed app. Merge-commit CI of #400 and #401 was still running when this was written.
+
 # Dense native QA consumer repair (2026-11-12)
 
 Owner-authorized full repair and local delivery; external broker-fabric BUG-157, end-to-end-qa REQ-018. Code branch `fix/native-qa-observation`.
