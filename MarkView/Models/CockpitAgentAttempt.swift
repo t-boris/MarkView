@@ -51,6 +51,8 @@ final class CockpitAgentAttempt {
         audited = (before, Self.controls(of: task))
         session = terminal
         progress = nil
+        // One attempt object serves every step of the run: what a step asked the supervisor is not carried into the next.
+        ledger = CockpitSupervisor.Ledger()
         workspace.showAIConsole()
         terminal.start()
         guard let pty = terminal.duplicateCockpitPTY() else {
