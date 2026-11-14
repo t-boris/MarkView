@@ -1,10 +1,19 @@
-# Compiles the Release configuration on every push to main. It publishes nothing: the only installer on GitHub is the
-# signed, notarized DMG of a release made by ./release.sh --publish (or publish-release.yml).
+# Compiles the Release configuration on every push to main that changes more than documentation. It publishes nothing:
+# the only installer on GitHub is the signed, notarized DMG of a release made by ./release.sh --publish (or
+# publish-release.yml).
 name: Build & Release
 
 on:
   push:
     branches: [main]
+    # A push builds nothing when every changed file is documentation: docs/, tasks/, Markdown files in the repository
+    # root, and the presentation. One changed file outside this list is enough to build. MarkView/README.md and the
+    # other Markdown files under MarkView/ are part of the app target, so they are deliberately not listed.
+    paths-ignore:
+      - 'docs/**'
+      - 'tasks/**'
+      - '*.md'
+      - 'MarkView-Presentation.*'
   pull_request:
     paths:
       - '.github/workflows/build-release.yml'
