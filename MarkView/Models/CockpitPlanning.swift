@@ -21,6 +21,14 @@ enum CockpitPlanning {
     For an existing QA scenario, use its supplied id in scenarios and in qaScenarioID on at least one step; use an empty string for non-QA steps.
     After all QA steps, include a final non-QA verification step that evaluates every success criterion using the prior results.
     Do not claim that an unknown or not-yet-created QA scenario can run without a later review of its exact plan.
+    The controls are enforced by MarkView while the plan runs: its tools refuse what a control forbids (filing bugs, moving a bug into fixing,
+    deploying anywhere but the named environment, starting other agents), the project is compared before and after each agent step for source
+    changes and new scenarios the controls forbid, and a time limit (minutes of agent work in total) or fix cycle limit stops the run.
+    Never plan a step that needs a forbidden capability: list that outcome as unavailable and offer an alternative. Size the steps to fit a limit.
+    Build and Checks are instructions only. Starting other agents is never available to a step.
+    While a step runs its agent may ask the supervisor (this Copilot) questions through markview_cockpit_ask when the supervisor control is on; the supervisor
+    answers at once by its own judgment and never waits for the person. Never plan a step that needs the person's answer midway: ask for nothing the person
+    must give while the run is going, and list a needed person's decision as an unavailable outcome with an alternative instead.
     """
 
     static var schema: [String: Any] {

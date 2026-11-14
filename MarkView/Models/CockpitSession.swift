@@ -117,6 +117,16 @@ final class CockpitSession: ObservableObject {
             do { try await publishProgress(progress) }
             catch { return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: "Progress could not be saved.") }
         }
+        attempt.onFixCycle = { [weak self] count in self?.execution?.noteFixCycles(fromGate: count) }
+        attempt.planOutline = reviewed.plan.steps.map { "\($0.title) (\($0.agent))" }
+        attempt.onExchange = { [weak self] exchange in Task { await self?.execution?.recordExchange(exchange) } }
+        attempt.askSupervisor = { [root] prompt in
+            let result = try await CLICompletion.run(CLICompletion.Request(project: root, prompt: prompt,
+                systemPrompt: CockpitSupervisor.systemPrompt, jsonSchema: CockpitSupervisor.schema, readableFolder: root,
+                timeout: CockpitSupervisor.timeoutSeconds, effort: "medium", label: "cockpit-supervisor"))
+            guard let answer = CockpitSupervisor.parse(result.structured) else { throw CockpitSupervisor.Failure.unusable }
+            return answer
+        }
         let result = await attempt.run(task)
         guard result.error.isEmpty, result.result.passed, let id = task.step.qaScenarioID, !id.isEmpty else { return result }
         let qa = CockpitQAAttempt(workspace: workspace, root: root, plan: reviewed.plan, productionConfirmed: reviewed.productionConfirmed) { [weak self] activity, coverage, blockers in
@@ -296,7 +306,7 @@ final class CockpitSession: ObservableObject {
                 }
                 let scenarioData = try JSONSerialization.data(withJSONObject: scenarios, options: [.sortedKeys])
                 let settings = String(decoding: try encoder.encode(controls), as: UTF8.self)
-                var prompt = "Goal: \(goal)\nAvailable agents: \(agents.joined(separator: ", "))\nAdvisory controls: \(settings)\n"
+                var prompt = "Goal: \(goal)\nAvailable agents: \(agents.joined(separator: ", "))\nControls (MarkView enforces them while the plan runs): \(settings)\n"
                 prompt += "Existing QA scenarios and targets (JSON): \(String(decoding: scenarioData, as: UTF8.self))\n"
                 prompt += "Available project actions include the MarkView MCP project, browser and control tools and the user's agent terminal. Check project capabilities before asserting an action is available.\n"
                 if refining, let previous {

@@ -32,6 +32,23 @@ enum ProjectToolRunner {
         return .init(text: "Cockpit progress saved.")
     }
 
+    /// A step agent's question for the supervisor. The reply is the answer, or the instruction to decide alone.
+    static func askCockpitSupervisor(_ args: [String: Any], store: FeatureStore) async -> BrowserAgentTools.Reply {
+        guard let root = store.root else { return .error("This window has no project folder open.") }
+        guard let raw = args["ticket"] as? String, let ticket = UUID(uuidString: raw),
+              let text = (args["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            return .error("A valid ticket and a question are required.")
+        }
+        let question = CockpitSupervisor.Question(
+            text: CockpitSupervisor.clip(text, to: 3_000),
+            options: Array(((args["options"] as? [String]) ?? []).prefix(10)),
+            proposed: ((args["proposed"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+        guard let reply = await CockpitAgentRegistry.ask(root: root, token: ticket, question: question) else {
+            return .error("The ticket is invalid, expired, or belongs to another project.")
+        }
+        return .init(text: reply)
+    }
+
     static func run(_ tool: String, _ args: [String: Any], store: FeatureStore) -> BrowserAgentTools.Reply {
         guard let root = store.root else { return .error("This window has no project folder open.") }
         // The files may have changed since the app last looked (an agent, git, the user's editor).

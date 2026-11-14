@@ -161,8 +161,25 @@ enum BrowserControlServer {
         return json
     }
 
+    /// The reason a call is refused when it comes from the agent of a running Cockpit step (its shell is among `pids`), else nil.
+    /// The step's terminal belongs to a window, which knows the project's bug workflow and its deployment environments.
+    private static func cockpitRefusal(_ tool: String, _ args: [String: Any], pids: [Int32]) -> String? {
+        guard !pids.isEmpty else { return nil }
+        let window = TerminalBrowserBridge.windowID(forAncestors: pids).flatMap { windows[$0] }
+        let workflow = window?.features()?.lifecycle.workflow ?? .standard
+        let deployments = window?.deployments()
+        let decision = CockpitAgentRegistry.gate(
+            tool: tool, arguments: args, ancestors: pids,
+            isFixingStatus: { status in workflow.role(.bug, status) == .active },
+            environmentNames: { id in deployments?.environment(id).map { [$0.name] } ?? [] })
+        if case .refuse(let reason)? = decision { return reason }
+        return nil
+    }
+
     private static func perform(_ tool: String, _ args: [String: Any], window id: UUID?, pids: [Int32], cwd: String,
                                  declared: Bool = false, cwdTrusted: Bool = true) async -> BrowserAgentTools.Reply {
+        // The agent of a Cockpit step gets only the tools its controls allow, whichever family a tool belongs to.
+        if let refusal = cockpitRefusal(tool, args, pids: pids) { return .error(refusal) }
         // The control tools name their window themselves (`window`), or take the caller's folder when it says one.
         if ControlAgentTools.names.contains(tool) {
             return await ControlToolRunner.run(tool, args, caller: .init(pids: pids, folder: declared || cwdTrusted ? cwd : ""))
@@ -200,6 +217,7 @@ enum BrowserControlServer {
         if isProjectTool {
             guard let store = window.features() else { return .error("This window has no project open.") }
             if tool == "markview_cockpit_report_progress" { return await ProjectToolRunner.reportCockpitProgress(args, store: store) }
+            if tool == "markview_cockpit_ask" { return await ProjectToolRunner.askCockpitSupervisor(args, store: store) }
             if LifecycleToolRunner.handles(tool, args) { return await LifecycleToolRunner.run(tool, args, store: store) }
             return ProjectToolRunner.run(tool, args, store: store)
         }

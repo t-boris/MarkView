@@ -82,20 +82,32 @@ struct CockpitView: View {
                         voice.status
                     }
                 }
-                GroupBox("Advisory controls") {
+                GroupBox("Controls") {
                     VStack(alignment: .leading, spacing: 6) {
-                        Toggle("Create scenarios", isOn: $session.controls.createScenarios)
-                        TextField("Checks", text: $session.controls.checks)
-                        Toggle("File bugs", isOn: $session.controls.fileBugs)
-                        Toggle("Fix bugs", isOn: $session.controls.fixBugs)
-                        Toggle("Build", isOn: $session.controls.build)
-                        TextField("Deployment environment (Disabled for none)", text: $session.controls.deployment)
-                        TextField("Time limit", text: $session.controls.timeLimit)
-                        TextField("Budget limit", text: $session.controls.budgetLimit)
-                        TextField("Fix cycle limit", text: $session.controls.fixCycleLimit)
+                        controlRow("Checked after each step") { Toggle("Create scenarios", isOn: $session.controls.createScenarios) }
+                        controlRow("Instruction only") { TextField("Checks", text: $session.controls.checks) }
+                        controlRow("Enforced") { Toggle("File bugs", isOn: $session.controls.fileBugs) }
+                        controlRow("Enforced, source changes checked") { Toggle("Fix bugs", isOn: $session.controls.fixBugs) }
+                        controlRow("Instruction only") { Toggle("Build", isOn: $session.controls.build) }
+                        controlRow("Enforced") { TextField("Deployment environment (Disabled for none)", text: $session.controls.deployment) }
+                        controlRow("Enforced") {
+                            TextField("Time limit, minutes (empty: none)", value: $session.controls.timeLimitMinutes, format: .number)
+                        }
+                        controlRow("Enforced") {
+                            TextField("Fix cycle limit (empty: none)", value: $session.controls.fixCycleLimit, format: .number)
+                        }
+                        controlRow("Answers by its own judgment, waits for nobody") {
+                            Toggle("Supervisor answers the agents' questions", isOn: $session.controls.supervisor)
+                        }
                     }.padding(6)
                 }
-                Text("The agent runs in a terminal with your full permissions. These controls are instructions, not enforced restrictions; disabling fixes or deployment does not guarantee they will not happen.")
+                .onChange(of: session.controls.timeLimitMinutes) { value in
+                    if let value, value <= 0 { session.controls.timeLimitMinutes = nil }
+                }
+                .onChange(of: session.controls.fixCycleLimit) { value in
+                    if let value, value <= 0 { session.controls.fixCycleLimit = nil }
+                }
+                Text("MarkView refuses the MarkView tools a control forbids, and starting other agents is always refused. The agent still has its own shell and editor with your full permissions: source files and scenarios changed against a control are detected after the step, but a build or a deployment run from the agent's own shell is neither stopped nor detected.")
                     .uiFont(size: 11).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
                 if !session.controls.build {
                     Text("Checks requiring a newly built version are unavailable while builds are disabled.")
@@ -112,6 +124,14 @@ struct CockpitView: View {
                     }
                     if let state = execution.state {
                         Text("Execution: \(state.status)")
+                        // The clock runs between publishes of the run's state, so the line refreshes on its own.
+                        TimelineView(.periodic(from: .now, by: 15)) { _ in
+                            if let usage = Self.usageLine(execution: execution, controls: session.runningPlan?.controls) {
+                                Text(usage).foregroundColor(palette.textDim)
+                            }
+                        }
+                        if let notice = execution.limitNotice { Text(notice).foregroundColor(palette.orange) }
+                        supervisorLog(execution.supervisorLog)
                         if state.status == "finished", let running = session.runningPlan {
                             switch CockpitOutcome.evaluate(criteria: running.successCriteria, progress: state.results.last?.result.progress) {
                             case .success: Text("Outcome: success against the stated criteria")
@@ -208,6 +228,13 @@ struct CockpitView: View {
                             }
                         }.padding(6)
                     }
+                    Text("During every step MarkView refuses").uiFont(size: 12, weight: .semibold)
+                    ForEach(CockpitStepPolicy(controls: plan.controls).enforced, id: \.self) { Text("• " + $0) }
+                    Text(Self.limitsLine(plan.controls)).foregroundColor(palette.textDim)
+                    Text(plan.controls.supervisor
+                         ? "Supervisor on: the Copilot answers the step agents' questions by its own judgment and waits for nobody. What is outside this plan and its controls is answered \"do not\" and recorded as a blocker. Its answers are advice; only the refusals above are enforced."
+                         : "Supervisor off: step agents cannot ask anything. They decide conservatively inside the controls or record a blocker.")
+                        .foregroundColor(palette.textDim)
                     Text("Success criteria").uiFont(size: 12, weight: .semibold)
                     ForEach(plan.successCriteria, id: \.self) { Text("• " + $0) }
                     if !plan.unavailableOutcomes.isEmpty {
@@ -272,6 +299,50 @@ struct CockpitView: View {
         } message: {
             Text(reviewingRecovery ? "Your chosen step and all following steps may run with your full permissions. Repeating a step may repeat partial actions, and detached background processes may still be running." : "The selected step and all following steps may run with your full permissions. Controls are advisory. Detached background processes may continue after a pause or after MarkView closes.")
         }
+    }
+
+    /// One control with a note on how far MarkView holds the agent to it.
+    private func controlRow<Content: View>(_ note: String, @ViewBuilder _ content: () -> Content) -> some View {
+        HStack {
+            content()
+            Spacer(minLength: 8)
+            Text(note).uiFont(size: 10).foregroundColor(palette.textDim)
+        }
+    }
+
+    static func limitsLine(_ controls: CockpitControls) -> String {
+        var parts: [String] = []
+        if let minutes = controls.timeLimitMinutes { parts.append("\(minutes) min of agent time") }
+        if let cycles = controls.fixCycleLimit { parts.append("\(cycles) fix cycle\(cycles == 1 ? "" : "s")") }
+        return parts.isEmpty ? "No time or fix cycle limit." : "Limits: " + parts.joined(separator: ", ") + ". A step that reaches one is stopped and the run pauses."
+    }
+
+    /// What the supervisor was asked and said, latest first.
+    @ViewBuilder private func supervisorLog(_ log: [CockpitSupervisorExchange]) -> some View {
+        if !log.isEmpty {
+            let outside = log.filter(\.outOfScope).count, unanswered = log.filter(\.failed).count
+            DisclosureGroup("Supervisor: \(log.count) question\(log.count == 1 ? "" : "s")"
+                            + (outside > 0 ? ", \(outside) outside the plan" : "") + (unanswered > 0 ? ", \(unanswered) unanswered" : "")) {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(log.suffix(30).reversed().enumerated()), id: \.offset) { _, item in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Q: " + item.question).textSelection(.enabled)
+                            Text("A: " + item.answer).textSelection(.enabled)
+                                .foregroundColor(item.outOfScope || item.failed ? palette.orange : palette.textDim)
+                        }
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
+            }
+        }
+    }
+
+    /// What the run has used of its limits, shown only when it has any.
+    static func usageLine(execution: CockpitExecution, controls: CockpitControls?) -> String? {
+        guard let controls else { return nil }
+        var parts: [String] = []
+        if let minutes = controls.timeLimitMinutes { parts.append("Agent time \(Int(execution.usedSeconds / 60)) of \(minutes) min") }
+        if let cycles = controls.fixCycleLimit { parts.append("Fix cycles \(execution.usedFixCycles) of \(cycles)") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     @ViewBuilder private func progressDetails(_ progress: CockpitProgress) -> some View {

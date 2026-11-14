@@ -37,7 +37,16 @@ final class CockpitExecution: ObservableObject {
     private var starting = false
     private var shutdownRequested = false
     private var mutatingRecord = false
-    private var record: CockpitRun?
+    private var record: CockpitRun? { didSet { supervisorLog = record?.exchanges ?? [] } }
+    /// What the supervisor answered the step agents in this run, for the run view.
+    @Published private(set) var supervisorLog: [CockpitSupervisorExchange] = []
+    /// Set when a limit stopped the running step, so the run's pause says why; shown while the run is open.
+    @Published private(set) var limitNotice: String?
+    private var limitReason: String?
+    private var limitWatch: Task<Void, Never>?
+    /// The running step: when it began (monotonic seconds) and what it has used of the fix cycle limit.
+    private var stepClock: (id: UUID, began: TimeInterval)?
+    private var meter: CockpitStepMeter?
     var isActive: Bool { starting || worker != nil }
     var runID: UUID? { record?.id }
     func stepStatus(_ id: UUID) -> String? { record?.steps.first(where: { $0.stepID == id })?.status.rawValue }
@@ -65,6 +74,7 @@ final class CockpitExecution: ObservableObject {
         try await save(initial)
         record = initial
         state = nil
+        limitNotice = nil; limitReason = nil
         workflowID = "cockpit-" + UUID().uuidString.lowercased()
         queue = "cockpit-" + UUID().uuidString.lowercased()
         var approvalMayHaveBeenSent = false
@@ -72,7 +82,11 @@ final class CockpitExecution: ObservableObject {
             try Task.checkCancellation()
             let handler = self.handler
             let bridge = try CockpitHostBridge { [weak self] task in
+                if let blocked = await self?.stepBegan(task) {
+                    return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: blocked)
+                }
                 let reply = await handler(task)
+                await self?.stepEnded()
                 guard reply.error.isEmpty else { return reply }
                 guard let self, let stepID = UUID(uuidString: task.step.id) else {
                     return CockpitHostReply(result: reply.result, error: "The step result could not be saved.")
@@ -136,6 +150,7 @@ final class CockpitExecution: ObservableObject {
     }
 
     func saveProgress(_ progress: CockpitProgress, stepID: UUID, planFingerprint: String) async throws {
+        noteReportedFixes(progress)
         try await waitForRecord(planFingerprint: planFingerprint)
         mutatingRecord = true
         defer { mutatingRecord = false }
@@ -195,6 +210,102 @@ final class CockpitExecution: ObservableObject {
         _ = try await request("replan", revision: CockpitTemporalRevision(expectedFingerprint: current.fingerprint, plan: updated, step: step))
     }
 
+    // MARK: - Limits
+
+    /// Seconds the run's agents have worked, including the step that is running now.
+    var usedSeconds: Double {
+        (record?.activeSeconds ?? 0) + (stepClock.map { ProcessInfo.processInfo.systemUptime - $0.began } ?? 0)
+    }
+
+    /// Fix cycles the run has used, including the running step's.
+    var usedFixCycles: Int { (record?.fixCyclesUsed ?? 0) + (meter?.stepCycles ?? 0) }
+
+    /// A step is about to run. Returns the reason when it must not (the run's time is already used up); otherwise starts its clock
+    /// and a watch that pauses the step when the time limit is reached. Pausing is the cancel the person's own Pause uses.
+    private func stepBegan(_ task: CockpitHostTask) -> String? {
+        limitWatch?.cancel(); limitWatch = nil
+        guard let id = UUID(uuidString: task.step.id) else { return nil }
+        let controls = (try? JSONDecoder().decode(CockpitControls.self, from: Data(task.controls.utf8))) ?? CockpitControls()
+        meter = CockpitStepMeter(cycleLimit: controls.fixCycleLimit, cyclesBefore: record?.fixCyclesUsed ?? 0)
+        if let minutes = controls.timeLimitMinutes, let remaining = CockpitStepMeter.remainingSeconds(limitMinutes: minutes, used: record?.activeSeconds ?? 0) {
+            guard remaining > 0 else {
+                let text = Self.timeNotice(minutes)
+                limitReason = text; limitNotice = text
+                return text
+            }
+            limitWatch = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                await self?.stopStep(reason: Self.timeNotice(minutes))
+            }
+        }
+        stepClock = (id, ProcessInfo.processInfo.systemUptime)
+        return nil
+    }
+
+    /// The step has ended, whatever the way: what it used is added to the run and saved.
+    private func stepEnded() async {
+        limitWatch?.cancel(); limitWatch = nil
+        guard let clock = stepClock else { return }
+        let seconds = ProcessInfo.processInfo.systemUptime - clock.began
+        let cycles = meter?.stepCycles ?? 0
+        // A fresh task: a step that was cancelled (a limit pause) must still be recorded, and a cancelled task would not wait for the record.
+        await Task { await addUsage(seconds: seconds, fixCycles: cycles) }.value
+        stepClock = nil; meter = nil
+    }
+
+    private func addUsage(seconds: Double, fixCycles: Int) async {
+        await updateRecord({ $0.addUsage(seconds: seconds, fixCycles: fixCycles) }, failure: "The time and fix cycles this step used could not be saved")
+    }
+
+    /// One question of a step agent and the supervisor's answer join the run's log.
+    func recordExchange(_ exchange: CockpitSupervisorExchange) async {
+        await updateRecord({ $0.addExchange(exchange) }, failure: "A supervisor answer could not be saved")
+    }
+
+    /// Changes the saved run once no other change is in flight, waiting a little for it.
+    private func updateRecord(_ change: (inout CockpitRun) -> Void, failure: String) async {
+        let give = Date().addingTimeInterval(30)
+        while mutatingRecord, Date() < give { try? await Task.sleep(nanoseconds: 50_000_000) }
+        guard !mutatingRecord, var next = record else { return }
+        mutatingRecord = true
+        defer { mutatingRecord = false }
+        change(&next)
+        do { try await save(next); record = next }
+        catch { self.error = "\(failure): \(error.localizedDescription)" }
+    }
+
+    /// The gate saw the agent move a bug into fixing: `count` such moves in this step.
+    func noteFixCycles(fromGate count: Int) {
+        meter?.noteGate(cycles: count)
+        checkCycleLimit()
+    }
+
+    /// A progress report that lists a fix not seen before in this step is a pass with a fix: one fix cycle.
+    private func noteReportedFixes(_ progress: CockpitProgress) {
+        guard stepClock != nil else { return }
+        meter?.noteReport(pass: progress.passNumber, fixes: progress.fixes)
+        checkCycleLimit()
+    }
+
+    private func checkCycleLimit() {
+        guard let limit = meter?.cycleLimit, stepClock != nil, meter?.overCycleLimit == true else { return }
+        let text = "Fix cycle limit reached: \(limit) cycle\(limit == 1 ? "" : "s") allowed and another one started. "
+            + "Raise the limit, propose the plan again and continue from the interrupted step."
+        Task { await stopStep(reason: text) }
+    }
+
+    private func stopStep(reason: String) async {
+        guard limitReason == nil, worker != nil else { return }
+        limitReason = reason; limitNotice = reason
+        _ = try? await request("control", command: "pause")
+    }
+
+    private static func timeNotice(_ minutes: Int) -> String {
+        "Time limit reached: the agents of this run have worked the \(minutes) minutes allowed. "
+            + "Raise the limit, propose the plan again and continue from the interrupted step."
+    }
+
     /// Closing a project must disconnect the host and stop its worker immediately.
     func shutdown() {
         shutdownRequested = true
@@ -224,7 +335,7 @@ final class CockpitExecution: ObservableObject {
         defer { mutatingRecord = false }
         guard var next = record else { throw Failure.unavailable }
         if state.results.count < next.results.count {
-            if state.status == "interrupted" { next.prepareAfterRestart() }
+            if state.status == "interrupted" { next.prepareAfterRestart(reason: limitReason) }
             else if state.status == "stopped" { next.stop() }
             else { return false }
             try await save(next)
@@ -244,7 +355,7 @@ final class CockpitExecution: ObservableObject {
         if state.fingerprint != (try CockpitTemporalPlan(next.plan).fingerprint) {
             guard next.applyRevision(fingerprint: state.fingerprint) else { throw Failure.unavailable }
         }
-        if state.status == "interrupted" { next.prepareAfterRestart() }
+        if state.status == "interrupted" { next.prepareAfterRestart(reason: limitReason) }
         if state.status == "stopped" { next.stop() }
         if ["finished", "stopped"].contains(state.status), next.pendingRevision != nil {
             next.discardPendingRevision(reason: "The run ended before the approved changes were applied.")

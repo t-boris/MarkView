@@ -10,11 +10,22 @@ final class CockpitAgentAttempt {
     private var ticket: UUID?
     private var continuation: CheckedContinuation<CockpitHostReply, Never>?
     private var progress: CockpitProgress?
+    /// The project as it was when the step began, and the controls it is held to; compared when the step ends.
+    private var audited: (before: CockpitStepAudit.Snapshot, controls: CockpitControls)?
     private var watchdog: CockpitChild?
     private var watchdogTask: Task<Void, Never>?
     private var watchdogExited: CockpitExitSignal?
     private var terminationTask: Task<Void, Never>?
     private let onProgress: (CockpitProgress) async throws -> Void
+    /// Told how many times the step's agent has moved a bug into fixing; set by the session before each step.
+    var onFixCycle: (Int) -> Void = { _ in }
+    /// The supervisor: set by the session. Takes the prompt built for a question and returns the model's answer, or throws.
+    var askSupervisor: ((String) async throws -> CockpitSupervisor.Answer)?
+    /// Told of every question the step asked and what came back, for the run's log.
+    var onExchange: (CockpitSupervisorExchange) -> Void = { _ in }
+    /// One line per step of the plan, for the supervisor's context.
+    var planOutline: [String] = []
+    private var ledger = CockpitSupervisor.Ledger()
 
     init(workspace: WorkspaceManager, root: URL, onProgress: @escaping (CockpitProgress) async throws -> Void = { _ in }) {
         self.workspace = workspace; self.root = root.standardizedFileURL; self.onProgress = onProgress
@@ -31,8 +42,17 @@ final class CockpitAgentAttempt {
             terminal.terminateCockpitStep()
             return Self.failure("The agent terminal is not in the cockpit's project.")
         }
+        // Before the agent starts, so nothing it does can be missing from the "before" picture.
+        let before = await Self.snapshot(of: root)
+        guard !Task.isCancelled else {
+            terminal.terminateCockpitStep()
+            return Self.failure("The step was interrupted.")
+        }
+        audited = (before, Self.controls(of: task))
         session = terminal
         progress = nil
+        // One attempt object serves every step of the run: what a step asked the supervisor is not carried into the next.
+        ledger = CockpitSupervisor.Ledger()
         workspace.showAIConsole()
         terminal.start()
         guard let pty = terminal.duplicateCockpitPTY() else {
@@ -55,17 +75,27 @@ final class CockpitAgentAttempt {
                     guard let self else { throw CancellationError() }
                     self.progress = value
                     try await self.onProgress(value)
+                }, ask: { [weak self] question in
+                    await self?.supervise(question, task: task) ?? CockpitSupervisor.failureReply("the step has ended")
                 }, waitForShutdown: { [weak self] in await self?.terminationTask?.value }) { [weak self] reply in self?.finish(reply) }
                 self.ticket = ticket
+                CockpitAgentRegistry.restrict(ticket, policy: CockpitStepPolicy(controls: Self.controls(of: task)), shell: pty.shell,
+                                              onFixCycle: { [weak self] count in self?.onFixCycle(count) })
                 terminal.onExit = { [weak self] _ in self?.cancel(reason: "The agent terminal exited before reporting a result.") }
                 terminal.onCockpitTermination = { [weak self] in self?.cancel(reason: "The agent terminal was closed before reporting a result.") }
                 do {
                     let data = try JSONEncoder().encode(task)
                     let assignment = String(decoding: data, as: UTF8.self)
                     let prompt = """
-                    This is one step of a user-approved Copilot Cockpit plan. Work only on the assignment below; the selected controls are advisory instructions.
-                    Follow the controls in the assignment: when fixes are disabled, report findings without fixing them; when deployment is disabled, do not deploy.
-                    When building is disabled, do not claim checks against a newly built version were performed.
+                    This is one step of a user-approved Copilot Cockpit plan. Work only on the assignment below.
+                    The controls in the assignment bind you. MarkView refuses the MarkView tools they forbid and compares the project before and after your step:
+                    when fixes are disabled, report findings without changing source files; when deployment is disabled, do not deploy by any route;
+                    when filing bugs is disabled, describe problems in your report instead. A refused call is not a puzzle to get around: report it as a blocker.
+                    You cannot start or drive other agents through MarkView during a step.
+                    \(Self.controls(of: task).supervisor
+                        ? "When you need a decision you cannot make from the assignment and the controls, call markview_cockpit_ask with project_folder \(root.path), ticket \(ticket.uuidString) and your question: the supervisor answers at once. Nobody else will be asked and nothing waits for a person, so do not print a question into the terminal and wait for it. If the answer says the matter is outside the plan, do not act on it: record it as a blocker."
+                        : "There is no supervisor in this run and nobody to ask: decide conservatively inside the controls, say what you decided in your step report, or record a blocker.")
+                    When building is disabled, do not claim checks against a newly built version were performed. Build and checks are instructions only: MarkView cannot check them.
                     If this assignment names qaScenarioID, MarkView will run that exact reviewed QA scenario after your report; do not run it separately.
                     If isFinalStep is true, explicitly evaluate each success criterion against evidence, report unmet criteria as blockers, and report passed only if the criteria are met.
                     Use the available MarkView project and browser tools as appropriate. Once you have finished this step, call markview_cockpit_complete_step
@@ -106,6 +136,7 @@ final class CockpitAgentAttempt {
     private func finish(_ reply: CockpitHostReply) {
         guard let continuation else { return }
         self.continuation = nil
+        let refusals = ticket.map(CockpitAgentRegistry.refusals) ?? []
         ticket = nil
         watchdogTask?.cancel(); watchdogTask = nil
         watchdog?.stop(); watchdog = nil
@@ -117,13 +148,74 @@ final class CockpitAgentAttempt {
         session = nil
         var reported = reply
         reported.result.progress = progress
-        let finalized = reported
-        // The next Temporal step must not start while this terminal's process group is still stopping.
+        if !refusals.isEmpty {
+            reported.result.detail += (reported.result.detail.isEmpty ? "" : "\n\n")
+                + "MarkView refused \(refusals.count) tool call(s) during this step under the Cockpit controls:\n"
+                + refusals.map { "- " + $0 }.joined(separator: "\n")
+        }
+        let audit = reply.error.isEmpty ? audited : nil
+        audited = nil
+        let root = self.root
+        let base = reported
+        // The next Temporal step must not start while this terminal's process group is still stopping. The "after" picture is
+        // taken only then, so the agent cannot still be changing files.
         terminationTask = Task {
             await reaping?.value
             await exited?.wait()
+            var finalized = base
+            if let audit {
+                let after = await Self.snapshot(of: root)
+                let found = CockpitStepAudit.violations(before: audit.before, after: after, controls: audit.controls)
+                let notes = CockpitStepAudit.limits(of: after, controls: audit.controls)
+                if !found.isEmpty {
+                    finalized.result.passed = false
+                    finalized.result.detail += (finalized.result.detail.isEmpty ? "" : "\n\n")
+                        + "Cockpit control violation, found by comparing the project before and after the step:\n" + found.map { "- " + $0 }.joined(separator: "\n")
+                }
+                if !notes.isEmpty {
+                    finalized.result.detail += (finalized.result.detail.isEmpty ? "" : "\n\n") + notes.joined(separator: "\n")
+                }
+            }
             continuation.resume(returning: finalized)
         }
+    }
+
+    /// The agent's question to the supervisor: asked once per distinct question, at most `questionsPerStep` of them, and never waited on.
+    private func supervise(_ question: CockpitSupervisor.Question, task: CockpitHostTask) async -> String {
+        guard Self.controls(of: task).supervisor, let askSupervisor else { return CockpitSupervisor.disabledReply }
+        switch ledger.admit(question.text) {
+        case .repeated(let reply): return reply
+        case .exhausted: return CockpitSupervisor.exhaustedReply
+        case .ask: break
+        }
+        let prompt = CockpitSupervisor.prompt(task: task, outline: planOutline, question: question, progress: progress)
+        var exchange = CockpitSupervisorExchange(stepID: task.step.id, asked: Date(), question: CockpitSupervisor.clip(question.text, to: CockpitSupervisor.textLimit),
+                                                 answer: "", outOfScope: false, failed: false)
+        let reply: String
+        do {
+            let answer = try await askSupervisor(prompt)
+            reply = CockpitSupervisor.reply(for: answer)
+            ledger.remember(question.text, reply: reply)
+            exchange.answer = answer.text; exchange.outOfScope = answer.outOfScope
+        } catch {
+            reply = CockpitSupervisor.failureReply(CockpitSupervisor.clip((error as? LocalizedError)?.errorDescription ?? "no usable answer", to: 200))
+            exchange.answer = reply; exchange.failed = true
+        }
+        onExchange(exchange)
+        return reply
+    }
+
+    /// Controls that cannot be read are replaced by the defaults, which are the restrictive ones.
+    private static func controls(of task: CockpitHostTask) -> CockpitControls {
+        (try? JSONDecoder().decode(CockpitControls.self, from: Data(task.controls.utf8))) ?? CockpitControls()
+    }
+
+    /// The git-changed files with their content hashes (UI Studio's revision probe), and the QA scenarios that exist.
+    private static func snapshot(of root: URL) async -> CockpitStepAudit.Snapshot {
+        let (_, working) = await StudioRevisionProbe.compute(root: root)
+        let scenarios = await Task.detached { Set(QAStore.loadScenarios(root).scenarios.map(\.id)) }.value
+        return CockpitStepAudit.Snapshot(isGitRepository: working.gitRoot != nil, head: working.head,
+                                         files: working.files.mapValues { $0 ?? "deleted" }, scenarios: scenarios)
     }
 
     private static func failure(_ message: String) -> CockpitHostReply {
