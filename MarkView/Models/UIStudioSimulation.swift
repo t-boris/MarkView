@@ -24,6 +24,49 @@ struct StudioHTTPRequest: Equatable {
 }
 
 /// An answer of the simulation.
+extension StudioEnvelope {
+    /// `response` of a rule that generates its body, in the envelope: success `{...successFields, resultKey: body}`, failure the
+    /// `failure` template. A 204 has no body and becomes a 200 whose result is null, because the application reads JSON.
+    func wrap(_ response: StudioSimResponse, rule: StudioRule) -> StudioSimResponse {
+        var wrapped = response
+        let body = response.body.flatMap { StudioJSON(text: $0) }
+        if (200..<300).contains(response.status) {
+            var object = successFields
+            if rule.envelope == resultKey, let inner = body?.objectValue {
+                // The rule's list is already under the result key.
+                for (name, value) in inner { object[name] = value }
+            } else {
+                object[resultKey] = body ?? .null
+            }
+            wrapped.body = StudioJSON.object(object).text
+            if response.status == 204 { wrapped.status = 200 }
+            return wrapped
+        }
+        guard let failure else { return response }
+        wrapped.body = Self.fill(failure, status: response.status, message: Self.message(of: body)).text
+        return wrapped
+    }
+
+    /// What a plain error body says: its `error` or `message` text, or its validation `errors` joined.
+    static func message(of body: StudioJSON?) -> String {
+        guard let object = body?.objectValue else { return body?.stringValue ?? "" }
+        if let text = object["error"]?.stringValue ?? object["message"]?.stringValue { return text }
+        if case .array(let errors)? = object["errors"] { return errors.compactMap(\.stringValue).joined(separator: " ") }
+        return ""
+    }
+
+    /// `{{status}}` and `{{message}}` in every string of the template, however deep.
+    static func fill(_ template: StudioJSON, status: Int, message: String) -> StudioJSON {
+        switch template {
+        case .string(let text):
+            return .string(text.replacingOccurrences(of: "{{status}}", with: String(status)).replacingOccurrences(of: "{{message}}", with: message))
+        case .array(let items): return .array(items.map { fill($0, status: status, message: message) })
+        case .object(let fields): return .object(fields.mapValues { fill($0, status: status, message: message) })
+        default: return template
+        }
+    }
+}
+
 struct StudioSimResponse: Equatable, Codable {
     var status: Int
     var headers: [String: String] = ["content-type": "application/json"]
@@ -229,12 +272,12 @@ struct StudioSimulator {
         } else if let override, let status = override.status {
             response = .json(status, override.body ?? .object(["error": .string("Simulated error \(status)")]))
         } else if let override, override.empty == true {
-            response = emptyAnswer(rule)
+            response = enveloped(emptyAnswer(rule), rule: rule)
         } else {
             var next = state
             var retired = retiredIDs
-            response = Self.apply(rule, parameters: parameters, request: request, state: &next, retired: &retired, spec: spec, role: scenario.role,
-                                  baseline: baseline)
+            response = enveloped(Self.apply(rule, parameters: parameters, request: request, state: &next, retired: &retired, spec: spec, role: scenario.role,
+                                            baseline: baseline), rule: rule)
             if (200..<300).contains(response.status) {
                 state = next
                 retiredIDs = retired
@@ -250,6 +293,14 @@ struct StudioSimulator {
         if let id = override.ruleId { return id == rule.id }
         guard let method = override.method, let path = override.path else { return false }
         return method.uppercased() == rule.method.uppercased() && path == rule.path
+    }
+
+    /// What the simulator generated from state, in the application's own envelope (DEC-015). A fixed answer, a document template and
+    /// an override are written as the application sees them and are never wrapped.
+    private func enveloped(_ response: StudioSimResponse, rule: StudioRule) -> StudioSimResponse {
+        if rule.operation == .respond || (rule.operation == .document && rule.response != nil) { return response }
+        guard let envelope = spec.envelope(forPath: rule.path) else { return response }
+        return envelope.wrap(response, rule: rule)
     }
 
     private func emptyAnswer(_ rule: StudioRule) -> StudioSimResponse {
@@ -289,7 +340,10 @@ struct StudioSimulator {
         let entityName = rule.entity ?? ""
         let entity = spec.entity(entityName) ?? StudioEntity(name: entityName)
         let idField = entity.idField
-        let wantedID = parameters[rule.idParam ?? "id"] ?? parameters.values.first
+        // A call that carries its arguments in the body (`agent.answer {accountId}`, an IPC invoke) names its record there: a rule with an
+        // explicit `idParam` that the path does not have reads it from the body, then the query (DEC-015).
+        let wantedID = parameters[rule.idParam ?? "id"] ?? rule.idParam.flatMap { request.jsonBody?.objectValue?[$0]?.identityKey ?? request.query[$0] }
+            ?? parameters.values.first
         var records = state[entityName] ?? []
         let notFound = StudioSimResponse.json(404, .object(["error": .string("\(entityName) \(wantedID ?? "") was not found")]))
 
@@ -414,6 +468,12 @@ struct StudioSimulator {
         nextSpec.rules += proposal.rules
         if let channels = proposal.channels, !channels.isEmpty { nextSpec.channels = (nextSpec.channels ?? []) + channels }
         if let operations = proposal.graphQL, !operations.isEmpty { nextSpec.graphQL = (nextSpec.graphQL ?? []) + operations }
+        if let envelopes = proposal.envelopes {
+            // Looked at, even when the answer is "none": an empty list is kept, so the review of the environment never repeats.
+            var kept = (nextSpec.envelopes ?? []).filter { old in !envelopes.contains { $0.prefix == old.prefix } }
+            kept += envelopes
+            nextSpec.envelopes = kept
+        }
         nextSpec.updated = Date()
         spec = nextSpec
         state = nextState
@@ -447,6 +507,8 @@ struct StudioProposal: Codable, Equatable, Sendable {
     var channels: [StudioChannel]? = nil
     /// GraphQL operations (REQ-015).
     var graphQL: [StudioGraphQLOperation]? = nil
+    /// How the application's transport wraps every answer (DEC-015); one per service, replacing the one with the same prefix.
+    var envelopes: [StudioEnvelope]? = nil
     /// The request needs a dependency the simulation cannot serve.
     var unsupported = false
     var reason = ""
@@ -486,12 +548,21 @@ enum StudioValidator {
         return problems
     }
 
+    /// A name a body key can have: a list's wrapper (`items`) or an envelope's result key, never a template or JSON text.
+    static func isPlainKey(_ text: String) -> Bool {
+        text.range(of: #"^[A-Za-z_][A-Za-z0-9_.-]{0,63}$"#, options: .regularExpression) != nil
+    }
+
     /// Everything wrong with a proposal against the current environment and state; empty = it may be registered.
     static func problems(proposal: StudioProposal, spec: StudioEnvironmentSpec, state: [String: [StudioJSON]]) -> [String] {
         if proposal.unsupported { return ["The request needs a dependency UI Studio does not simulate: \(proposal.reason)"] }
         var problems: [String] = []
-        if proposal.rules.isEmpty, (proposal.channels ?? []).isEmpty, (proposal.graphQL ?? []).isEmpty {
+        if proposal.rules.isEmpty, (proposal.channels ?? []).isEmpty, (proposal.graphQL ?? []).isEmpty, proposal.envelopes == nil {
             problems.append("The proposal has no rule")
+        }
+        for envelope in proposal.envelopes ?? [] {
+            if !envelope.isUsable { problems.append("An envelope needs a prefix and a result key") }
+            if !isPlainKey(envelope.resultKey) { problems.append("Envelope \(envelope.prefix): the result key \"\(envelope.resultKey)\" must be a plain name such as result or data") }
         }
         if proposal.rules.count > maxRules { problems.append("Too many rules (\(proposal.rules.count) > \(maxRules))") }
         if proposal.entities.count > maxEntities { problems.append("Too many entities (\(proposal.entities.count) > \(maxEntities))") }
@@ -525,6 +596,10 @@ enum StudioValidator {
             let (_, path) = StudioRoute.split(rule.path)
             if !path.hasPrefix("/") { problems.append("\(rule.id): the path must start with / or be a full URL") }
             if path.contains("..") || path.contains(" ") { problems.append("\(rule.id): the path \(rule.path) is not a plain route") }
+            if let envelope = rule.envelope, !isPlainKey(envelope) {
+                problems.append("\(rule.id): `envelope` is only the name of the key a list is wrapped in (items, data, result), not a template; "
+                                + "the transport's own wrapper belongs in `envelopes`")
+            }
             if !seen.insert("\(method) \(rule.path)").inserted { problems.append("\(rule.id): \(method) \(rule.path) already has a rule") }
             if !ids.insert(rule.id).inserted || rule.id.isEmpty { problems.append("Rule id \"\(rule.id)\" is empty or already used") }
             switch rule.operation {
@@ -538,9 +613,10 @@ enum StudioValidator {
                     problems.append("\(rule.id): \(rule.operation.rawValue) needs a defined entity (got \(rule.entity ?? "none"))")
                     break
                 }
-                if [.get, .update, .delete].contains(rule.operation),
+                if [.get, .update, .delete].contains(rule.operation), rule.idParam?.isEmpty != false,
                    StudioRoute.segments(path).allSatisfy({ !$0.hasPrefix(":") }) {
-                    problems.append("\(rule.id): \(rule.operation.rawValue) needs an id parameter in the path")
+                    problems.append("\(rule.id): \(rule.operation.rawValue) needs an id parameter in the path, or `idParam` naming the body field "
+                                    + "that holds the id")
                 }
                 for include in rule.include ?? [] where nextSpec.entity(include.entity) == nil {
                     problems.append("\(rule.id): included entity \(include.entity) is not defined")

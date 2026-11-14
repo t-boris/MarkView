@@ -104,6 +104,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @Published var screenWork: ScreenWork?
     @Published var screenHashes: [String: String] = [:]
     var screenTask: Task<Void, Never>?
+    /// The one-time review of the environment (DEC-015): the task waiting to run it, and whether this open already tried.
+    var reviewTask: Task<Void, Never>?
+    var environmentReviewTried = false
     var screens: [StudioScreen] { screenBook.entries.map(\.screen) }
 
     /// What the background screen work is doing now, for its banner.
@@ -362,6 +365,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         await stopOwnedServer()
         self.target = target
         repairLedger.reset()
+        environmentReviewTried = false
+        reviewTask?.cancel()
+        reviewTask = nil
         screenTask?.cancel()
         screenTask = nil
         screenWork = nil
@@ -395,6 +401,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         beginMapping()
         set(.starting, "Loading the application")
         await restore()
+        scheduleEnvironmentReview()
         scheduleScreenWork()
     }
 
@@ -694,6 +701,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         workTask?.cancel()
         startTask?.cancel()
         screenTask?.cancel()
+        reviewTask?.cancel()
         autoRepairTask?.cancel()
         preparation.cancelEverything()
         mapping.close()
@@ -1714,6 +1722,28 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         }
     }
 
+    /// Prepares the rule for a request a scenario names although no rule serves it (a context change). It waits for the preparation,
+    /// which has its own deadlines, and returns whether a rule now serves the request. There is no real request to show the assistant,
+    /// only its method and address; the rule is prepared from the application's code like any other.
+    func prepareNamedRequest(method: String, path: String) async -> Bool {
+        let text = path.hasPrefix("/") ? (appOrigin?.text ?? "") + path : path
+        guard let url = URL(string: text), url.host != nil else { return false }
+        let generation = simulator.generation
+        let contract = StudioRoute.contractKey(method: method, url: url, appOrigin: appOrigin?.text)
+        let shown = redactor.redact(text: StudioConnections.redact(url.absoluteString, hashes: secretHashes))
+        let context = StudioPreparationContext(contract: contract, method: method.uppercased(), url: shown, headers: [:], body: nil, attempt: 1,
+                                               problems: [], group: StudioBridge.Origin(url: url)?.text)
+        showBusyDetail("Preparing the rule for \(contract)")
+        if let group = context.group { await preparation.waitForGroup(group) }
+        let outcome = await preparation.resolve(context, generation: generation, preparer: makePreparer(), currentGeneration: { generation },
+                                                commit: { [weak self] proposal in self?.commit(proposal) ?? ["The session is closed."] })
+        guard !closed else { return false }
+        if case .registered = outcome { updateReadiness(); return spec.rules.contains { $0.method.uppercased() == method.uppercased() && $0.path == path } }
+        let reason = preparation.records[contract]?.message ?? "it could not be prepared."
+        sessionLog.add(.preparation, problem: true, "The rule for \(contract) could not be prepared for the scenario: \(reason)")
+        return false
+    }
+
     /// A request that was answered "preparing" has its rule (or has none): once every such request of the generation has ended and
     /// one of them has a rule, the page is loaded again so that it renders with the real answers (BUG-089). Text typed into the
     /// page since its route is never thrown away: the banner offers the reload instead.
@@ -1896,6 +1926,20 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private func persistEnvironment() {
         let spec = simulator.spec, root = root
         io.async { try? StudioStore.saveEnvironment(spec, root: root) }
+    }
+
+    /// Takes a reviewed environment in one step (DEC-015): the simulator, the saved file, the dependencies and the channels that wait. The
+    /// review has already been applied to a copy; nothing is adopted when it was refused.
+    func adoptReview(_ outcome: StudioReview.Outcome) -> [String] {
+        var trial = simulator
+        let problems = StudioReview.apply(outcome, to: &trial)
+        guard problems.isEmpty else { return problems }
+        simulator = trial
+        spec = simulator.spec
+        persistEnvironment()
+        rebuildDependencies()
+        channels.openListeners()
+        return []
     }
 
     private func handle(_ event: StudioBridge.Event) {
@@ -2656,6 +2700,11 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                     if let destination {
                         context.expectedPath = destination.expectedPath ?? ""
                         context.expectedSelector = destination.selector
+                    }
+                    // A scenario may name a request that has no rule yet (the page failed before it asked): the rule is prepared once, not refused.
+                    for request in StudioContextValidator.unservedRequests(context.overrides, spec: session.spec).prefix(3) {
+                        guard !Task.isCancelled, !session.closed else { return }
+                        _ = await session.prepareNamedRequest(method: request.method, path: request.path)
                     }
                     var problems = StudioContextValidator.problems(context, current: session.scenario, spec: session.spec)
                     // Giving up on data the application can change is asked about once, and never blocks a second answer.
@@ -3480,6 +3529,7 @@ extension StudioSession {
     private func mappingFinished(_ summary: String, refilled: Bool, requested: Bool) {
         guard !closed else { return }
         scheduleAutoRepair()
+        scheduleEnvironmentReview()
         scheduleScreenWork()
         if requested, refilled, busy == nil {
             sessionLog.add(.preparation, "The scenario is reset to show the refilled data")

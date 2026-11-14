@@ -76,10 +76,10 @@ func answerPlan(_ text: String) -> [String: Any] {
 /// A context change as the assistant returns it (REQ-013): the whole strict answer with kind `context`. `edits` are stray
 /// edits a confused assistant might add; a context change never writes them.
 func contextPlan(name: String, data: String = "", addData: String = "", steps: [[String: Any]] = [], expectedPath: String = "", expectedSelector: String = "", unsupported: [String] = [],
-                 edits: [[String: Any]] = []) -> [String: Any] {
+                 edits: [[String: Any]] = [], overrides: [[String: Any]] = []) -> [String: Any] {
     ["kind": "context", "answer": "", "scope": "unknown", "scopeNote": "", "needsClarification": false, "question": "", "options": [],
      "summary": "Context: \(name)", "edits": edits,
-     "context": ["name": name, "description": "", "route": "", "expectedPath": expectedPath, "expectedSelector": expectedSelector, "data": data, "addData": addData, "userJSON": "", "overrides": [],
+     "context": ["name": name, "description": "", "route": "", "expectedPath": expectedPath, "expectedSelector": expectedSelector, "data": data, "addData": addData, "userJSON": "", "overrides": overrides,
                  "steps": steps, "testTime": "", "locale": "", "timeZone": "", "theme": "", "unsupported": unsupported]]
 }
 
@@ -88,6 +88,9 @@ final class Assistant: @unchecked Sendable {
     let lock = NSLock()
     var edits: [[String: Any]] = []
     var proposal: [String: Any] = [:]
+    /// The answer of the one-time review of an environment that says nothing needs correcting (DEC-015).
+    static let nothingToReview: [String: Any] = ["unsupported": false, "reason": "", "assumptions": [], "entities": [], "records": [], "rules": [],
+                                                 "envelopes": [], "replaces": [], "links": [], "notes": ""]
 
     func respond(_ request: CLICompletion.Request) -> CLICompletion.Result {
         lock.withLock {
@@ -95,6 +98,9 @@ final class Assistant: @unchecked Sendable {
             case "ui-studio:edit":
                 let next = edits.isEmpty ? answerPlan("This is the Add button; it posts a new item.") : edits.removeFirst()
                 return CLICompletion.Result(text: "", structured: next, inputTokens: 10, outputTokens: 5, costUSD: 0)
+            case "ui-studio:review":
+                // DEC-015: nothing to correct, unless a check queued another answer.
+                return CLICompletion.Result(text: "", structured: Assistant.nothingToReview, inputTokens: 10, outputTokens: 5, costUSD: 0)
             default:
                 return CLICompletion.Result(text: "", structured: proposal, inputTokens: 10, outputTokens: 5, costUSD: 0)
             }
@@ -1320,6 +1326,40 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
     check("a validation correction does not consume the destination correction", editRequests().count == beforeCombinedRetry + 3
           && session.history.last?.status == .applied && session.scenario.name == "Corrected destination",
           "\(session.history.last?.status.rawValue ?? "nil") \(session.scenario.name)")
+    // DEC-015: a scenario naming a request that no rule serves gets the rule prepared, once, instead of being refused.
+    assistant.lock.withLock {
+        assistant.proposal = ["rules": [["id": "passport", "method": "GET", "path": "/api/passport", "operation": "respond",
+                                         "responseStatus": 200, "responseBody": #"{"holder":"Ada"}"#,
+                                         "evidence": [["kind": "observation", "detail": "Named by the scenario"]]]],
+                              "assumptions": []]
+        assistant.edits = [contextPlan(name: "Passport unavailable",
+                                       overrides: [["ruleId": "", "method": "GET", "path": "/api/passport", "status": 503, "body": #"{"message":"down"}"#,
+                                                    "empty": false, "hang": false, "delayMs": 0]])]
+    }
+    let preparedBefore = CLICompletion.requests.filter { $0.label == "ui-studio:prepare" }.count
+    session.change("Make the passport service fail")
+    _ = await idle()
+    let named = session.history.last
+    check("DEC-015 a scenario naming a request no rule serves has the rule prepared, not refused", named?.status == .applied
+          && session.spec.rules.contains { $0.id == "passport" && $0.path == "/api/passport" } && session.scenario.name == "Passport unavailable"
+          && session.scenario.overrides.contains { $0.path == "/api/passport" && $0.status == 503 }
+          && CLICompletion.requests.filter { $0.label == "ui-studio:prepare" }.count == preparedBefore + 1,
+          "\(named?.status.rawValue ?? "nil") \(named?.answer ?? "")")
+    assistant.lock.withLock {
+        assistant.proposal = [:]
+        assistant.edits = [contextPlan(name: "Ghost unavailable",
+                                       overrides: [["ruleId": "", "method": "GET", "path": "/api/ghost", "status": 503, "body": #"{"message":"down"}"#,
+                                                    "empty": false, "hang": false, "delayMs": 0]]),
+                           contextPlan(name: "Ghost unavailable again",
+                                       overrides: [["ruleId": "", "method": "GET", "path": "/api/ghost", "status": 503, "body": #"{"message":"down"}"#,
+                                                    "empty": false, "hang": false, "delayMs": 0]])]
+    }
+    session.change("Make the ghost service fail")
+    _ = await idle()
+    let refusedNamed = session.history.last
+    check("DEC-015 when the rule cannot be prepared the scenario is refused as before", refusedNamed?.status == .failed
+          && refusedNamed?.answer.contains("no rule serves") == true && session.scenario.name == "Passport unavailable",
+          "\(refusedNamed?.status.rawValue ?? "nil") \(refusedNamed?.answer ?? "")")
     assistant.lock.withLock {
         assistant.edits = [contextPlan(name: "Runtime failure", steps: [["action": "click", "selector": "#runtime-button"]])]
     }
@@ -1754,6 +1794,7 @@ func finish(_ session: StudioSession, port: Int? = nil) {
             await ipcSessionChecks()
             await fixDataChecks()
             await autoRepairChecks()
+            await environmentReviewChecks()
             await hashRouteChecks()
             await signInRepairChecks()
             await screenPreparationChecks()
@@ -1934,6 +1975,9 @@ final class MapAssistant: @unchecked Sendable {
             }
             try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             structured = mapGroupAnswer(id)
+        case "ui-studio:review":
+            // DEC-015: the one-time review of a mapped environment has nothing to correct here.
+            structured = Assistant.nothingToReview
         default:
             structured = mapRefillAnswer(request.prompt)
         }
@@ -2734,6 +2778,153 @@ func fixDataChecks() async {
 
 /// The page of the Fix data checks, with Studio's own repair on (the default): the error is repaired at open, shown with Undo, never
 /// repeated, and what the person undid is not repaired again; an error the assistant judges not caused by data is asked about once.
+/// DEC-015: an environment prepared before envelopes and state-following lists existed is reviewed once, and the page then works.
+@MainActor
+func environmentReviewChecks() async {
+    watchdog.reached("DEC-015 an environment prepared before envelopes existed is reviewed once and the page then works")
+    let page = """
+    <!doctype html><html><head><meta charset="utf-8"><title>Review</title></head><body>
+    <ul id="list"></ul><div id="dialog"></div><button id="done">I'm done</button>
+    <script>
+    async function call(url, body) {
+      const r = await fetch(url, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {});
+      const j = await r.json();
+      if (!j.ok) throw new Error('envelope: ' + (j.error ? j.error.code : 'no ok'));
+      return j.result;
+    }
+    async function load() {
+      try {
+        const items = await call('/api/items');
+        document.getElementById('list').innerHTML = items.map(i => '<li>' + i.name + '</li>').join('');
+        const pending = await call('/api/pending');
+        document.getElementById('dialog').textContent = pending.length ? 'Pending: ' + pending.length : 'Clear';
+      } catch (e) { document.getElementById('list').textContent = 'ERROR ' + e.message; }
+    }
+    document.getElementById('done').onclick = async () => {
+      const pending = await call('/api/pending');
+      if (pending.length) { await call('/api/pending/answer', { id: pending[0].id, answer: 'done' }); }
+      await load();
+    };
+    load();
+    </script></body></html>
+    """
+    let fm = FileManager.default
+    func makeRoot(_ name: String, reviewed: Bool) -> URL {
+        let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-\(name)-\(UUID().uuidString)").resolvingSymlinksInPath()
+        try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try? page.write(to: root.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        func record(_ id: Int, _ name: String) -> StudioJSON { .object(["id": .number(Double(id)), "name": .string(name)]) }
+        func fixed(_ result: StudioJSON) -> StudioFixedResponse { StudioFixedResponse(status: 200, body: .object(["ok": .bool(true), "result": result])) }
+        var env = StudioEnvironmentSpec()
+        env.entities = [StudioEntity(name: "items", fields: [StudioField(name: "name", type: "string", required: true)])]
+        var list = StudioRule(id: "list-items", method: "GET", path: "/api/items", operation: .list, entity: "items")
+        list.envelope = #"{"ok":true,"result":{{data}}}"#
+        env.rules = [list,
+                     StudioRule(id: "pending-fixed", method: "GET", path: "/api/pending", operation: .respond,
+                                response: fixed(.array([record(1, "Solve the CAPTCHA"), record(2, "Confirm the email")]))),
+                     StudioRule(id: "answer-fixed", method: "POST", path: "/api/pending/answer", operation: .respond, response: fixed(.null))]
+        env.seed = ["items": [record(1, "Atlas"), record(2, "Borealis")]]
+        env.map = StudioEnvironmentMap(status: .complete, appFolder: ".", inventoried: true)
+        env.prepareScreens = false
+        if reviewed { env.envelopes = [] }
+        try? StudioStore.saveEnvironment(env, root: root)
+        return root
+    }
+    let answer: [String: Any] = [
+        "unsupported": false, "reason": "", "assumptions": [],
+        "entities": [["name": "pending", "idField": "id", "fields": [["name": "name", "type": "string", "required": false, "enumValues": [], "references": ""]]]],
+        "records": [["entity": "pending", "json": #"[{"id":1,"name":"Solve the CAPTCHA"},{"id":2,"name":"Confirm the email"}]"#]],
+        "rules": [["id": "pending-list", "method": "GET", "path": "/api/pending", "operation": "list", "entity": "pending", "envelope": "", "idParam": "",
+                   "filters": [], "include": [], "responseStatus": 0, "responseBody": "", "evidence": [["kind": "contract", "detail": "the page lists them"]]],
+                  ["id": "pending-answer", "method": "POST", "path": "/api/pending/answer", "operation": "delete", "entity": "pending", "envelope": "",
+                   "idParam": "id", "filters": [], "include": [], "responseStatus": 0, "responseBody": "", "evidence": [["kind": "contract", "detail": "the dialog's button"]]]],
+        "envelopes": [["prefix": "/api/", "resultKey": "result", "successFields": #"{"ok": true}"#, "failure": ""]],
+        "replaces": ["pending-fixed", "answer-fixed"], "links": [], "notes": "The answers are wrapped in ok/result; the pending list is state.",
+    ]
+    let previous = CLICompletion.answer
+    defer { CLICompletion.answer = previous }
+    CLICompletion.answer = { request in
+        if request.label == "ui-studio:review" { return CLICompletion.Result(text: "", structured: answer, inputTokens: 10, outputTokens: 5, costUSD: 0.01) }
+        return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+    }
+    func reviews() -> [CLICompletion.Request] { CLICompletion.requests.filter { $0.label == "ui-studio:review" } }
+
+    let root = makeRoot("review", reviewed: false)
+    defer { try? fm.removeItem(at: root) }
+    let before = reviews().count
+    let port = freePort()
+    let session = StudioSession(root: root)
+    session.start(WebAppTarget(folder: root, label: "review", command: "python3 -m http.server \(port) --bind 127.0.0.1", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    check("DEC-015 the session opens", session.appURL != nil, "\(session.state) \(session.stateDetail)")
+    let reviewed = await waitUntil(120) { session.spec.envelopes != nil && session.busy == nil }
+    check("DEC-015 the environment is reviewed once at open, with one assistant call", reviewed && reviews().count == before + 1,
+          "\(reviews().count - before) \(session.sessionLog.entries.suffix(4).map(\.text).joined(separator: " | "))")
+    let request = reviews().last
+    check("DEC-015 the review is read-only and shows the rules and the fixed bodies", request?.allowWeb == false
+          && request?.prompt.contains("pending-fixed") == true && request?.prompt.contains("[fixed: ") == true,
+          String(request?.prompt.prefix(300) ?? "nil"))
+    check("DEC-015 the review's work is in the environment: envelope, state, no fixed answers, cleaned template",
+          session.spec.envelopes?.first?.prefix == "/api/" && session.spec.rules.contains { $0.id == "pending-answer" && $0.idParam == "id" }
+            && !session.spec.rules.contains { $0.id == "pending-fixed" } && session.spec.rules.first { $0.id == "list-items" }?.envelope == nil,
+          "\(session.spec.rules.map(\.id))")
+    check("DEC-015 the log says what was reviewed", session.sessionLog.entries.contains { $0.text.hasPrefix("Reviewed how the application reads responses") },
+          session.sessionLog.entries.suffix(5).map(\.text).joined(separator: " | "))
+    func shown(_ id: String) async -> String { ((try? await session.call("return document.getElementById('\(id)').textContent;")) as? String) ?? "" }
+    var list = ""
+    for _ in 0..<100 where list != "AtlasBorealis" {
+        list = await shown("list")
+        if list != "AtlasBorealis" { try? await Task.sleep(nanoseconds: 200_000_000) }
+    }
+    check("DEC-015 the page that showed an envelope error lists the items", list == "AtlasBorealis", list)
+    let dialog = await shown("dialog")
+    check("DEC-015 the pending dialog shows both questions", dialog == "Pending: 2", dialog)
+    _ = try? await session.call("document.getElementById('done').click(); return true;")
+    var afterOne = ""
+    for _ in 0..<50 where afterOne != "Pending: 1" {
+        afterOne = await shown("dialog")
+        if afterOne != "Pending: 1" { try? await Task.sleep(nanoseconds: 200_000_000) }
+    }
+    check("DEC-015 pressing I'm done removes that question", afterOne == "Pending: 1", afterOne)
+    _ = try? await session.call("document.getElementById('done').click(); return true;")
+    var cleared = ""
+    for _ in 0..<50 where cleared != "Clear" {
+        cleared = await shown("dialog")
+        if cleared != "Clear" { try? await Task.sleep(nanoseconds: 200_000_000) }
+    }
+    check("DEC-015 the dialog is gone once every question is answered", cleared == "Clear", cleared)
+    let saved = StudioStore.loadEnvironment(root)
+    check("DEC-015 the review is saved with the project", saved?.envelopes?.count == 1 && saved?.rules.contains { $0.id == "pending-answer" } == true)
+    await session.close()
+
+    // Opened again: it is not asked again.
+    let againPort = freePort()
+    let again = StudioSession(root: root)
+    again.start(WebAppTarget(folder: root, label: "review", command: "python3 -m http.server \(againPort) --bind 127.0.0.1", ports: [againPort]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(again.state) && again.busy == nil }
+    try? await Task.sleep(nanoseconds: 4_000_000_000)
+    check("DEC-015 a reviewed environment is not reviewed again", reviews().count == before + 1, "\(reviews().count - before)")
+    await again.close()
+
+    // An environment that says it was looked at ("none") is left alone, and so is one where the person turned the automation off.
+    let seen = makeRoot("review-seen", reviewed: true)
+    defer { try? fm.removeItem(at: seen) }
+    let off = makeRoot("review-off", reviewed: false)
+    defer { try? fm.removeItem(at: off) }
+    var offSpec = StudioStore.loadEnvironment(off) ?? StudioEnvironmentSpec()
+    offSpec.autoRepair = false
+    try? StudioStore.saveEnvironment(offSpec, root: off)
+    for folder in [seen, off] {
+        let otherPort = freePort()
+        let other = StudioSession(root: folder)
+        other.start(WebAppTarget(folder: folder, label: "review", command: "python3 -m http.server \(otherPort) --bind 127.0.0.1", ports: [otherPort]))
+        _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(other.state) && other.busy == nil }
+        try? await Task.sleep(nanoseconds: 4_000_000_000)
+        await other.close()
+    }
+    check("DEC-015 an environment already looked at, or with automatic repair off, is not reviewed", reviews().count == before + 1, "\(reviews().count - before)")
+}
+
 @MainActor
 func autoRepairChecks() async {
     watchdog.reached("REQ-020 Studio repairs a page error caused by the simulated data by itself, with Undo")

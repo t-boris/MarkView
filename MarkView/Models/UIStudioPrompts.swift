@@ -128,6 +128,26 @@ enum StudioPrompts {
           A connection test or another check (`testConnection`) succeeds (DEC-007). A method that takes a callback \
           (`onDocumentApplied(cb)`) is a `raw` channel at its own address (`\(StudioIPC.origin)/<global>/<path>/<method>`): \
           link it to the entity whose writes it reports, with the record as the message's data.
+        - `envelope` on a rule is only the name of the one key its list is wrapped in (`{"items": [...]}`): a plain name such as \
+          `items`, `data` or `result`, never a template or JSON text.
+        - When the application's transport wraps every answer the same way (an Electron preload bridge that resolves \
+          `{ok: true, result}` or `{ok: false, error: {code, message}}`; an RPC style `/api/<method>`), say it once in \
+          `envelopes`, not in each rule. Find the function that unwraps results (`unwrap`, `invoke`, a fetch helper) first. \
+          `prefix` is the start of the paths of the rules it covers (`\(StudioIPC.origin)/<global>/` or `/api/`), `resultKey` \
+          the key the answer goes under (`result`), `successFields` JSON text of the fields beside it (`{"ok": true}`), `failure` \
+          JSON text of a failed answer with the placeholders `{{status}}` and `{{message}}` (`{"ok": false, "error": {"code": \
+          "{{status}}", "message": "{{message}}"}}`), or empty. MarkView wraps what the list, get, create, update, delete and \
+          session rules answer, so those rules describe the entity's plain data; the body of a `respond` rule is written exactly \
+          as the application receives it, wrapper included.
+        - A call whose argument is an object (`agent.answer({accountId, answer})`, `products.get({productId})`) carries it in the \
+          JSON body: `idParam` names the body field that holds the record's id, and a get, update or delete rule then needs no \
+          `:id` in its path.
+        - When a request answers, dismisses, confirms, stops or otherwise changes what another request lists (a pending \
+          question the person answers, a notification, a task, a draft), model both on one entity: the list is `list` over the \
+          entity, the write is `delete` (the record goes) or `update` (it changes), and a channel `links` the entity to the \
+          event the application listens to for changes (the message its listener expects, such as \
+          `{"type": "changed", "scope": "accounts"}`), so the page loads the list again. Never answer such a list with a fixed \
+          `respond` body: it would never change, and a dialog the person answered would stay on the screen.
         - Add rules only for the requests you are asked about and the closely related ones (their lists, details and writes).
         \(StudioPlaceholders.promptGuide)
         """ + "\n" + dataNotInstructions
@@ -203,7 +223,9 @@ enum StudioPrompts {
         let rule: [String: Any] = ["type": "object", "properties": [
             "id": ["type": "string"], "method": ["type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]],
             "path": ["type": "string"], "operation": ["type": "string", "enum": StudioRule.Operation.allCases.map(\.rawValue)],
-            "entity": ["type": "string"], "envelope": ["type": "string"],
+            "entity": ["type": "string"],
+            "envelope": ["type": "string", "description": "A list's wrapper: the plain name of one key (items, data, result); never a template"],
+            "idParam": ["type": "string", "description": "The name of the parameter or body field that holds the record's id, when the path has no :id"],
             "documentAction": ["type": "string", "enum": [""] + StudioRule.DocumentAction.allCases.map(\.rawValue),
                                "description": "A document rule's action when its method does not say it; empty otherwise"],
             "filters": ["type": "array", "items": ["type": "string"]],
@@ -221,7 +243,13 @@ enum StudioPrompts {
             "records": ["type": "array", "items": ["type": "object", "properties": [
                 "entity": ["type": "string"], "json": ["type": "string", "description": "JSON array of the records"]],
                 "required": ["entity", "json"]]],
-            "rules": ["type": "array", "items": rule]], "required": ["unsupported", "reason", "assumptions", "entities", "records", "rules"]]
+            "rules": ["type": "array", "items": rule],
+            "envelopes": ["type": "array", "items": ["type": "object", "properties": [
+                "prefix": ["type": "string"], "resultKey": ["type": "string"],
+                "successFields": ["type": "string", "description": "JSON text of an object: the fields beside the result key on success"],
+                "failure": ["type": "string", "description": "JSON text of a failed answer with {{status}} and {{message}}, or empty"]],
+                "required": ["prefix", "resultKey"]]]],
+                "required": ["unsupported", "reason", "assumptions", "entities", "records", "rules"]]
     }()
 
     /// The proposal in an answer of `preparationSchema` (records and fixed bodies arrive as JSON text, so the schema stays
@@ -256,6 +284,7 @@ enum StudioPrompts {
             var parsed = StudioRule(id: id, method: method.uppercased(), path: path, operation: operation)
             parsed.entity = nonEmpty("entity")
             parsed.envelope = nonEmpty("envelope")
+            parsed.idParam = nonEmpty("idParam")
             parsed.filters = (rule["filters"] as? [String]).flatMap { $0.isEmpty ? nil : $0 }
             parsed.include = (rule["include"] as? [[String: Any]])?.compactMap { item in
                 guard let field = item["field"] as? String, let entity = item["entity"] as? String,
@@ -282,6 +311,14 @@ enum StudioPrompts {
             }
             parsed.origin = .agent
             proposal.rules.append(parsed)
+        }
+        if let items = object["envelopes"] as? [[String: Any]] {
+            proposal.envelopes = items.compactMap { item in
+                guard let prefix = item["prefix"] as? String, let key = item["resultKey"] as? String else { return nil }
+                let fields = (item["successFields"] as? String).flatMap { StudioJSON(text: $0)?.objectValue } ?? [:]
+                let failure = (item["failure"] as? String).flatMap { $0.isEmpty ? nil : StudioJSON(text: $0) }
+                return StudioEnvelope(prefix: prefix, resultKey: key, successFields: fields, failure: failure)
+            }
         }
         return proposal
     }
@@ -375,6 +412,10 @@ enum StudioPrompts {
         10. What cannot be done (an entity no rule serves, data no listed rule answers, a state no step reaches) goes in \
            `unsupported` in plain words, naming the rule or request; do the rest. Never fake it with records, overrides or \
            steps that only look right.
+        11. A screen the person asks to see is shown with nothing in front of it. When simulated data raises a blocking \
+           dialog or notice over it (a pending question, an alert, a first-run prompt, an open modal), take that cover away in \
+           the scenario, unless the request is about that dialog: override the fixed answer that raises it (the same shape, an \
+           empty list), or add steps that press the dialog's own button. Check the page's source for what raises it.
         """ + "\n" + dataNotInstructions
 
     /// The answer schema of a request (DEC-010). Records, the user and bodies are JSON text: a strict structured-output

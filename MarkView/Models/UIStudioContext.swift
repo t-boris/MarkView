@@ -272,6 +272,19 @@ enum StudioContextValidator {
         return problems
     }
 
+    /// The requests the overrides name by method and path although no rule serves them, once each. A scenario may legitimately name a
+    /// request the page never made (it failed before it asked); the session prepares the rule for it instead of refusing the scenario.
+    static func unservedRequests(_ overrides: [StudioOverride], spec: StudioEnvironmentSpec) -> [(method: String, path: String)] {
+        var seen = Set<String>()
+        var result: [(method: String, path: String)] = []
+        for override in overrides where override.ruleId == nil {
+            guard let method = override.method, let path = override.path, !method.isEmpty, !path.isEmpty else { continue }
+            let served = spec.rules.contains { $0.method.uppercased() == method.uppercased() && $0.path == path }
+            if !served, seen.insert("\(method.uppercased()) \(path)").inserted { result.append((method.uppercased(), path)) }
+        }
+        return result
+    }
+
     /// An override names a rule that exists, once, and changes its answer.
     static func overrideProblems(_ overrides: [StudioOverride], spec: StudioEnvironmentSpec) -> [String] {
         var problems: [String] = []

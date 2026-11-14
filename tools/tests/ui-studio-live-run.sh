@@ -1,13 +1,13 @@
 #!/bin/bash
 # Manual check against the REAL assistant (not part of the automatic checks): runs a real UI Studio session on a COPY of an application
 # and prints what Studio repaired by itself (REQ-020) or prepared ahead (REQ-021), how long it took and what the assistant cost.
-#   tools/tests/ui-studio-live-run.sh <project copy> repair|screens|load [scenario name]
+#   tools/tests/ui-studio-live-run.sh <project copy> repair|screens|load|review [scenario name]
 #   load: only opens the scenario, then prints the page text, the problems and each saved scenario's compatibility (no assistant call).
 # Make the copy with `cp -cR <project> <copy>` (an APFS clone: instant, and nothing in the original is touched). The assistant is the one
 # the app uses (`~/Library/Application Support/MarkView/ai-calls.jsonl` records every call).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-[ $# -ge 2 ] || { echo "usage: $0 <project copy> repair|screens|load [scenario name]"; exit 2; }
+[ $# -ge 2 ] || { echo "usage: $0 <project copy> repair|screens|load|review [scenario name]"; exit 2; }
 export PYTHONDONTWRITEBYTECODE=1
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
@@ -23,7 +23,7 @@ swiftc -o "$out/ui-studio-live-run" \
   MarkView/Models/ImageAttachments.swift \
   MarkView/Models/UIStudioEnvironmentMap.swift MarkView/Models/UIStudioEnvironmentMapper.swift \
   MarkView/Models/UIStudioGraphQL.swift MarkView/Models/UIStudioChannels.swift \
-  MarkView/Models/UIStudioGatewayStreams.swift MarkView/Models/UIStudioRealtimePrompts.swift MarkView/Models/UIStudioDataFix.swift MarkView/Models/UIStudioRepair.swift MarkView/Models/UIStudioScreens.swift MarkView/Models/UIStudioSession+Repair.swift MarkView/Models/UIStudioSession+Screens.swift \
+  MarkView/Models/UIStudioGatewayStreams.swift MarkView/Models/UIStudioRealtimePrompts.swift MarkView/Models/UIStudioDataFix.swift MarkView/Models/UIStudioRepair.swift MarkView/Models/UIStudioScreens.swift MarkView/Models/UIStudioReview.swift MarkView/Models/UIStudioSession+Repair.swift MarkView/Models/UIStudioSession+Screens.swift MarkView/Models/UIStudioSession+Review.swift \
   MarkView/Views/UIStudioPreviewHost.swift MarkView/Models/AIAssistants.swift MarkView/Models/ProjectColor.swift MarkView/Models/LinkedFolders.swift MarkView/Models/AICallLog.swift \
   MarkView/Models/CLICompletion.swift MarkView/Models/ACPAssistant.swift MarkView/Models/AgentProcesses.swift \
   tools/tests/UIStudioLiveStubs.swift "$out/main.swift"

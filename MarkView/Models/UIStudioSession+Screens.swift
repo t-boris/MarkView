@@ -65,7 +65,7 @@ extension StudioSession {
 
     private func runScreenWork() async {
         // The application and the map come first: they have the assistant's attention.
-        while !closed, !Task.isCancelled, state != .failed, appURL == nil || mapping.isRunning || restoringPage || ![.ready, .degraded].contains(state) {
+        while !closed, !Task.isCancelled, state != .failed, appURL == nil || mapping.isRunning || restoringPage || reviewTask != nil || ![.ready, .degraded].contains(state) {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
         guard !closed, !Task.isCancelled, state != .failed else { return }
