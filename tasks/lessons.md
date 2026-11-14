@@ -1,5 +1,17 @@
 # Lessons
 
+## A change to a shared source file must run every workflow's test scripts that compile it, before the merge (Cockpit gate, 2026-11-14)
+
+- Boris, twice: "Remote Workspace failed", "CI failed". PR #400 (Cockpit gate and supervisor) was merged after the Cockpit scripts, the integration test, the Debug build and the
+  end-to-end run were green, but two other workflows were red: `Remote Workspace Checks` (`remote-browser-tests.sh` compiles `BrowserControlServer.swift` with stubs, and the server now
+  used `CockpitAgentRegistry`, the workflow and the deployment lookup) and `Issue Lifecycle Checks` (`ProjectAgentToolsTests.swift` hard-codes the number of tools; one new tool made 41 into 42).
+  Neither was an app defect; both were found by reading the CI log, not by the checks I ran. I had also merged without waiting for the PR checks, which is allowed, but then I
+  must read them right after the merge, not only when told.
+- Rules: when a change touches a file listed in any `.github/workflows/*.yml` `paths:`, run every `bash tools/tests/...` line of that workflow locally before merging (not only the
+  scripts named after the feature). Adding a tool means updating the tool-count tests and the classification table in the same change. Adding a dependency to a file that a test
+  compiles in a slice means adding it (or a stub) to that script. After a merge without waiting, look at `gh pr checks` within minutes and fix a red check at once.
+- A CI step that fails hides the steps after it: run the whole workflow's scripts, because the remaining ones may fail for the same change.
+
 ## The invisible probe cannot drive non-button gestures; say so instead of reporting a feature as checked (2026-11-10)
 
 - `tools/tests/app-probe` keeps the app inactive on purpose. Synthetic mouse events then reach SwiftUI Buttons (click, and a drag that starts on one) but not other gestures
