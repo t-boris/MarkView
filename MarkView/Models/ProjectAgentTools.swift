@@ -59,6 +59,14 @@ enum ProjectAgentTools {
               "detail": ["type": "string", "description": "Results, evidence and blockers for the next step"],
               "build": ["type": "string", "description": "Identifier of the build under which the result was obtained, or empty"]],
              required: ["ticket", "passed", "detail"]),
+        tool("markview_cockpit_ask", "Ask the Cockpit supervisor (the Copilot that approved this run's plan) a question about the step you are working on and get its answer at once. "
+             + "Use it when you need a decision you cannot make from the assignment and the controls. Nobody else is asked and nothing waits for a person; "
+             + "an answer that says the matter is outside the plan means: do not do it, and record it as a blocker in your step report.",
+             ["ticket": ["type": "string", "description": "Ticket supplied with the assignment"],
+              "question": ["type": "string", "description": "The decision you need, with the context the supervisor needs to judge it"],
+              "options": ["type": "array", "items": ["type": "string"], "description": "The choices you see, if there are some"],
+              "proposed": ["type": "string", "description": "The answer you would give yourself, if you have one"]],
+             required: ["ticket", "question"]),
         tool("markview_guide", "What MarkView features, requirements, decisions, questions, bugs and prototypes are, their fields, statuses and the workflow. Read the overview first.",
              ["topic": ["type": "string", "enum": guideTopics, "description": "Default: overview"]]),
         tool("markview_project", "The project of this window: folder, number of features, bugs and prototypes."),

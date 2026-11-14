@@ -96,6 +96,9 @@ struct CockpitView: View {
                         controlRow("Enforced") {
                             TextField("Fix cycle limit (empty: none)", value: $session.controls.fixCycleLimit, format: .number)
                         }
+                        controlRow("Answers by its own judgment, waits for nobody") {
+                            Toggle("Supervisor answers the agents' questions", isOn: $session.controls.supervisor)
+                        }
                     }.padding(6)
                 }
                 .onChange(of: session.controls.timeLimitMinutes) { value in
@@ -128,6 +131,7 @@ struct CockpitView: View {
                             }
                         }
                         if let notice = execution.limitNotice { Text(notice).foregroundColor(palette.orange) }
+                        supervisorLog(execution.supervisorLog)
                         if state.status == "finished", let running = session.runningPlan {
                             switch CockpitOutcome.evaluate(criteria: running.successCriteria, progress: state.results.last?.result.progress) {
                             case .success: Text("Outcome: success against the stated criteria")
@@ -227,6 +231,10 @@ struct CockpitView: View {
                     Text("During every step MarkView refuses").uiFont(size: 12, weight: .semibold)
                     ForEach(CockpitStepPolicy(controls: plan.controls).enforced, id: \.self) { Text("• " + $0) }
                     Text(Self.limitsLine(plan.controls)).foregroundColor(palette.textDim)
+                    Text(plan.controls.supervisor
+                         ? "Supervisor on: the Copilot answers the step agents' questions by its own judgment and waits for nobody. What is outside this plan and its controls is answered \"do not\" and recorded as a blocker. Its answers are advice; only the refusals above are enforced."
+                         : "Supervisor off: step agents cannot ask anything. They decide conservatively inside the controls or record a blocker.")
+                        .foregroundColor(palette.textDim)
                     Text("Success criteria").uiFont(size: 12, weight: .semibold)
                     ForEach(plan.successCriteria, id: \.self) { Text("• " + $0) }
                     if !plan.unavailableOutcomes.isEmpty {
@@ -307,6 +315,25 @@ struct CockpitView: View {
         if let minutes = controls.timeLimitMinutes { parts.append("\(minutes) min of agent time") }
         if let cycles = controls.fixCycleLimit { parts.append("\(cycles) fix cycle\(cycles == 1 ? "" : "s")") }
         return parts.isEmpty ? "No time or fix cycle limit." : "Limits: " + parts.joined(separator: ", ") + ". A step that reaches one is stopped and the run pauses."
+    }
+
+    /// What the supervisor was asked and said, latest first.
+    @ViewBuilder private func supervisorLog(_ log: [CockpitSupervisorExchange]) -> some View {
+        if !log.isEmpty {
+            let outside = log.filter(\.outOfScope).count, unanswered = log.filter(\.failed).count
+            DisclosureGroup("Supervisor: \(log.count) question\(log.count == 1 ? "" : "s")"
+                            + (outside > 0 ? ", \(outside) outside the plan" : "") + (unanswered > 0 ? ", \(unanswered) unanswered" : "")) {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(log.suffix(30).reversed().enumerated()), id: \.offset) { _, item in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Q: " + item.question).textSelection(.enabled)
+                            Text("A: " + item.answer).textSelection(.enabled)
+                                .foregroundColor(item.outOfScope || item.failed ? palette.orange : palette.textDim)
+                        }
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
+            }
+        }
     }
 
     /// What the run has used of its limits, shown only when it has any.

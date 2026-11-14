@@ -217,6 +217,7 @@ enum BrowserControlServer {
         if isProjectTool {
             guard let store = window.features() else { return .error("This window has no project open.") }
             if tool == "markview_cockpit_report_progress" { return await ProjectToolRunner.reportCockpitProgress(args, store: store) }
+            if tool == "markview_cockpit_ask" { return await ProjectToolRunner.askCockpitSupervisor(args, store: store) }
             if LifecycleToolRunner.handles(tool, args) { return await LifecycleToolRunner.run(tool, args, store: store) }
             return ProjectToolRunner.run(tool, args, store: store)
         }

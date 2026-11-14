@@ -7,6 +7,8 @@ enum CockpitAgentRegistry {
         let root: URL
         let finish: (CockpitHostReply) -> Void
         let progress: (CockpitProgress) async throws -> Void
+        /// The text the agent gets back for a question it asked the supervisor.
+        let ask: (CockpitSupervisor.Question) async -> String
         let waitForShutdown: () async -> Void
     }
     private static var pending: [UUID: Pending] = [:]
@@ -24,10 +26,17 @@ enum CockpitAgentRegistry {
     private static let refusalLimit = 50
 
     static func register(root: URL, progress: @escaping (CockpitProgress) async throws -> Void = { _ in },
+                         ask: @escaping (CockpitSupervisor.Question) async -> String = { _ in CockpitSupervisor.disabledReply },
                          waitForShutdown: @escaping () async -> Void = {}, finish: @escaping (CockpitHostReply) -> Void) -> UUID {
         let token = UUID()
-        pending[token] = Pending(root: root.standardizedFileURL, finish: finish, progress: progress, waitForShutdown: waitForShutdown)
+        pending[token] = Pending(root: root.standardizedFileURL, finish: finish, progress: progress, ask: ask, waitForShutdown: waitForShutdown)
         return token
+    }
+
+    /// The supervisor's answer to the step's question; nil when the ticket is not a running step of this project.
+    static func ask(root: URL, token: UUID, question: CockpitSupervisor.Question) async -> String? {
+        guard let item = pending[token], item.root == root.standardizedFileURL else { return nil }
+        return await item.ask(question)
     }
 
     @discardableResult static func report(root: URL, token: UUID, progress: CockpitProgress) async -> Bool {

@@ -38,6 +38,8 @@ struct CockpitControls: Codable, Equatable {
     var fixBugs = false
     var build = false
     var deployment = "Disabled"
+    /// Whether the Copilot answers the questions the step agents ask (`CockpitSupervisor`). Runs saved before it existed get it on.
+    var supervisor = true
     /// How long the run's agents may work in total, in minutes; nil means no limit.
     var timeLimitMinutes: Int?
     /// How many fix cycles the run may use; nil means no limit.
@@ -55,6 +57,7 @@ struct CockpitControls: Codable, Equatable {
         fixBugs = try container.decodeIfPresent(Bool.self, forKey: .fixBugs) ?? false
         build = try container.decodeIfPresent(Bool.self, forKey: .build) ?? false
         deployment = try container.decodeIfPresent(String.self, forKey: .deployment) ?? "Disabled"
+        supervisor = try container.decodeIfPresent(Bool.self, forKey: .supervisor) ?? true
         if let minutes = try container.decodeIfPresent(Int.self, forKey: .timeLimitMinutes) {
             timeLimitMinutes = minutes > 0 ? minutes : nil
         } else if let text = try container.decodeIfPresent(String.self, forKey: .timeLimit) {
@@ -68,7 +71,7 @@ struct CockpitControls: Codable, Equatable {
     }
 
     private enum Key: String, CodingKey {
-        case createScenarios, checks, fileBugs, fixBugs, build, deployment, timeLimitMinutes, fixCycleLimit
+        case createScenarios, checks, fileBugs, fixBugs, build, deployment, supervisor, timeLimitMinutes, fixCycleLimit
         /// Only read, from runs saved with a free-text time limit.
         case timeLimit
     }
@@ -81,6 +84,7 @@ struct CockpitControls: Codable, Equatable {
         try container.encode(fixBugs, forKey: .fixBugs)
         try container.encode(build, forKey: .build)
         try container.encode(deployment, forKey: .deployment)
+        try container.encode(supervisor, forKey: .supervisor)
         try container.encodeIfPresent(timeLimitMinutes, forKey: .timeLimitMinutes)
         try container.encodeIfPresent(fixCycleLimit, forKey: .fixCycleLimit)
     }

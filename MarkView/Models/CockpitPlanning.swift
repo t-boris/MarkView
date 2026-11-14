@@ -26,6 +26,9 @@ enum CockpitPlanning {
     changes and new scenarios the controls forbid, and a time limit (minutes of agent work in total) or fix cycle limit stops the run.
     Never plan a step that needs a forbidden capability: list that outcome as unavailable and offer an alternative. Size the steps to fit a limit.
     Build and Checks are instructions only. Starting other agents is never available to a step.
+    While a step runs its agent may ask the supervisor (this Copilot) questions through markview_cockpit_ask when the supervisor control is on; the supervisor
+    answers at once by its own judgment and never waits for the person. Never plan a step that needs the person's answer midway: ask for nothing the person
+    must give while the run is going, and list a needed person's decision as an unavailable outcome with an alternative instead.
     """
 
     static var schema: [String: Any] {

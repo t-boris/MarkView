@@ -37,7 +37,9 @@ final class CockpitExecution: ObservableObject {
     private var starting = false
     private var shutdownRequested = false
     private var mutatingRecord = false
-    private var record: CockpitRun?
+    private var record: CockpitRun? { didSet { supervisorLog = record?.exchanges ?? [] } }
+    /// What the supervisor answered the step agents in this run, for the run view.
+    @Published private(set) var supervisorLog: [CockpitSupervisorExchange] = []
     /// Set when a limit stopped the running step, so the run's pause says why; shown while the run is open.
     @Published private(set) var limitNotice: String?
     private var limitReason: String?
@@ -253,14 +255,24 @@ final class CockpitExecution: ObservableObject {
     }
 
     private func addUsage(seconds: Double, fixCycles: Int) async {
+        await updateRecord({ $0.addUsage(seconds: seconds, fixCycles: fixCycles) }, failure: "The time and fix cycles this step used could not be saved")
+    }
+
+    /// One question of a step agent and the supervisor's answer join the run's log.
+    func recordExchange(_ exchange: CockpitSupervisorExchange) async {
+        await updateRecord({ $0.addExchange(exchange) }, failure: "A supervisor answer could not be saved")
+    }
+
+    /// Changes the saved run once no other change is in flight, waiting a little for it.
+    private func updateRecord(_ change: (inout CockpitRun) -> Void, failure: String) async {
         let give = Date().addingTimeInterval(30)
         while mutatingRecord, Date() < give { try? await Task.sleep(nanoseconds: 50_000_000) }
         guard !mutatingRecord, var next = record else { return }
         mutatingRecord = true
         defer { mutatingRecord = false }
-        next.addUsage(seconds: seconds, fixCycles: fixCycles)
+        change(&next)
         do { try await save(next); record = next }
-        catch { self.error = "The time and fix cycles this step used could not be saved: \(error.localizedDescription)" }
+        catch { self.error = "\(failure): \(error.localizedDescription)" }
     }
 
     /// The gate saw the agent move a bug into fixing: `count` such moves in this step.

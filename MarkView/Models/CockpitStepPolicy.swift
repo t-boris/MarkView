@@ -34,7 +34,7 @@ struct CockpitStepPolicy: Equatable {
     }
 
     static let classes: [String: ToolClass] = [
-        "markview_cockpit_report_progress": .report, "markview_cockpit_complete_step": .report,
+        "markview_cockpit_report_progress": .report, "markview_cockpit_complete_step": .report, "markview_cockpit_ask": .report,
 
         "markview_guide": .read, "markview_project": .read, "markview_list_features": .read, "markview_get_feature": .read,
         "markview_list_bugs": .read, "markview_get_bug": .read, "markview_list_prototypes": .read, "markview_get_prototype": .read,

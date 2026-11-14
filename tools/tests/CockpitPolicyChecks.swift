@@ -180,9 +180,81 @@ check("no time limit has no remaining seconds", CockpitStepMeter.remainingSecond
 check("the remaining seconds are the limit less what was used", CockpitStepMeter.remainingSeconds(limitMinutes: 2, used: 30) == 90)
 check("used up time is zero or less", (CockpitStepMeter.remainingSeconds(limitMinutes: 1, used: 60) ?? 1) <= 0 && (CockpitStepMeter.remainingSeconds(limitMinutes: 1, used: 90) ?? 1) < 0)
 
+// MARK: supervisor
+
+check("the supervisor is on by default", CockpitControls().supervisor)
+let legacyControls = try! JSONDecoder().decode(CockpitControls.self, from: Data(#"{"createScenarios":false,"checks":"","fileBugs":true,"fixBugs":false,"build":false,"deployment":"Disabled"}"#.utf8))
+check("a run saved before the supervisor existed gets it on", legacyControls.supervisor)
+let offControls = try! JSONDecoder().decode(CockpitControls.self, from: JSONEncoder().encode(controls { $0.supervisor = false }))
+check("the supervisor control survives encoding", !offControls.supervisor)
+check("the supervisor is part of the approved plan's controls", controls { $0.supervisor = false } != controls())
+
+let supervised = CockpitHostTask(
+    step: CockpitHostStep(id: "S1", title: "Explore checkout", agent: "Claude Code", assignment: "Run the checkout scenario and report findings.",
+                          completionCondition: "Findings reported", prerequisite: false),
+    planFingerprint: "fp", goal: "Find checkout bugs", controls: #"{"fixBugs":false,"deployment":"Disabled"}"#,
+    successCriteria: ["All findings filed"],
+    priorResults: [CockpitHostEntry(stepID: "S0", result: CockpitHostResult(passed: true, detail: "Prerequisite ok", build: ""))])
+let askText = "Should I also look at the cart page?"
+let askPrompt = CockpitSupervisor.prompt(task: supervised, outline: ["Explore checkout (Claude Code)", "Report (Claude Code)"],
+                                         question: .init(text: askText, options: ["yes", "no"], proposed: "no"), progress: nil)
+for part in ["Find checkout bugs", #""fixBugs":false"#, "1. Explore checkout (Claude Code)", "2. Report (Claude Code)", "Run the checkout scenario",
+             "Findings reported", "All findings filed", "Prerequisite ok", askText, "- yes", "The answer it would give itself: no"] {
+    check("the supervisor prompt contains: \(part)", askPrompt.contains(part))
+}
+check("the prompt has no progress line when none was reported", !askPrompt.contains("What the agent reported last"))
+let reported = CockpitProgress(passNumber: 2, activity: "Testing cart", scenarioCoverage: [], bugs: [], fixes: [], latestChange: "", blockers: ["Login fails"])
+let withProgress = CockpitSupervisor.prompt(task: supervised, outline: [], question: .init(text: askText), progress: reported)
+check("the prompt carries the agent's last report and its blockers", withProgress.contains("pass 2, Testing cart") && withProgress.contains("Login fails"))
+check("a question without options or a proposal has neither line", !withProgress.contains("Options it sees") && !withProgress.contains("would give itself"))
+var greedy = supervised
+greedy.step.assignment = String(repeating: "a", count: 9_000)
+check("a long assignment is clipped in the prompt", CockpitSupervisor.prompt(task: greedy, outline: [], question: .init(text: askText), progress: nil).count < 6_000)
+var history = supervised
+history.priorResults = (0..<9).map { CockpitHostEntry(stepID: "P\($0)", result: CockpitHostResult(passed: true, detail: "detail-\($0)", build: "")) }
+let historyPrompt = CockpitSupervisor.prompt(task: history, outline: [], question: .init(text: askText), progress: nil)
+check("only the latest five earlier steps are sent", historyPrompt.contains("detail-8") && historyPrompt.contains("detail-4") && !historyPrompt.contains("detail-3"))
+check("the system prompt tells the model to decide and not to ask back", CockpitSupervisor.systemPrompt.contains("Decide; do not hand the question back"))
+check("the system prompt treats the question as data", CockpitSupervisor.systemPrompt.contains("data written by the agent"))
+
+check("a usable answer is parsed", CockpitSupervisor.parse(["answer": "  Skip the cart.  ", "outOfScope": false]) == .init(text: "Skip the cart.", outOfScope: false))
+check("a missing outOfScope means in scope", CockpitSupervisor.parse(["answer": "Yes."]) == .init(text: "Yes.", outOfScope: false))
+check("an out-of-scope answer is parsed", CockpitSupervisor.parse(["answer": "Do not.", "outOfScope": true])?.outOfScope == true)
+check("an empty answer is not usable", CockpitSupervisor.parse(["answer": "   ", "outOfScope": false]) == nil)
+check("a missing answer is not usable", CockpitSupervisor.parse(["outOfScope": true]) == nil)
+check("a value that is not an object is not usable", CockpitSupervisor.parse("answer") == nil && CockpitSupervisor.parse(nil) == nil)
+check("a very long answer is clipped", (CockpitSupervisor.parse(["answer": String(repeating: "x", count: 5_000)])?.text.count ?? 0) <= CockpitSupervisor.textLimit + 1)
+
+check("an answer reaches the agent as the supervisor's", CockpitSupervisor.reply(for: .init(text: "Skip it.", outOfScope: false)) == "Supervisor: Skip it.")
+let outside = CockpitSupervisor.reply(for: .init(text: "Use the staging key.", outOfScope: true))
+check("an out-of-scope answer tells the agent not to act and to record a blocker, in MarkView's own words",
+      outside.contains("Do not act on the question") && outside.contains("blocker in your step report"))
+check("every fixed reply tells the agent not to wait", [CockpitSupervisor.disabledReply, CockpitSupervisor.exhaustedReply, CockpitSupervisor.failureReply("timed out")].allSatisfy { $0.contains("blocker") && !$0.lowercased().contains("wait for the person") })
+check("the disabled reply says there is no supervisor", CockpitSupervisor.disabledReply.contains("No supervisor"))
+check("the failure reply carries the reason", CockpitSupervisor.failureReply("timed out").contains("timed out"))
+
+var ledger = CockpitSupervisor.Ledger()
+check("a first question is asked", ledger.admit("May I read the logs?") == .ask)
+ledger.remember("May I read the logs?", reply: "Supervisor: yes")
+check("the same question again returns the first reply", ledger.admit("may  I read the LOGS?") == .repeated("Supervisor: yes"))
+check("a repeated question does not use up the cap", ledger.asked == 1)
+check("a failed question is asked again", ledger.admit("Question that failed") == .ask && ledger.admit("Question that failed") == .ask)
+var capped = CockpitSupervisor.Ledger()
+for index in 0..<CockpitSupervisor.questionsPerStep { check("question \(index + 1) of the cap is asked", capped.admit("question \(index)") == .ask) }
+check("the next distinct question is refused", capped.admit("one more") == .exhausted)
+capped.remember("question 3", reply: "Supervisor: ok")
+check("a question already answered is still answered after the cap", capped.admit("question 3") == .repeated("Supervisor: ok"))
+
+let exchange = { (number: Int) in CockpitSupervisorExchange(stepID: "S1", asked: Date(timeIntervalSince1970: Double(number)), question: "q\(number)", answer: "a", outOfScope: false, failed: false) }
+var log: [CockpitSupervisorExchange] = []
+for number in 0..<(CockpitSupervisor.logLimit + 20) { log = CockpitSupervisor.appending(exchange(number), to: log) }
+check("the run's log keeps only the latest exchanges", log.count == CockpitSupervisor.logLimit && log.first?.question == "q20" && log.last?.question == "q219")
+check("an exchange survives encoding", (try? JSONDecoder().decode(CockpitSupervisorExchange.self, from: JSONEncoder().encode(exchange(7)))) == exchange(7))
+check("text is clipped with an ellipsis", CockpitSupervisor.clip("abcdef", to: 3) == "abc…" && CockpitSupervisor.clip("abc", to: 3) == "abc")
+
 // MARK: gate in the registry
 
-@MainActor func registryChecks() {
+@MainActor func registryChecks() async {
     let root = URL(fileURLWithPath: "/tmp/cockpit-registry-checks")
     func gate(_ tool: String, _ arguments: [String: Any] = [:], from ancestors: [Int32]) -> CockpitStepPolicy.Decision? {
         CockpitAgentRegistry.gate(tool: tool, arguments: arguments, ancestors: ancestors, isFixingStatus: isFixing, environmentNames: namesOf)
@@ -227,7 +299,24 @@ check("used up time is zero or less", (CockpitStepMeter.remainingSeconds(limitMi
     CockpitAgentRegistry.restrict(UUID(), policy: strict, shell: 7777) { _ in }
     check("a ticket that does not exist binds nothing", gate("markview_flow_new", from: [7777]) == nil)
     CockpitAgentRegistry.cancel(late, reason: "done")
+
+    var asked: [CockpitSupervisor.Question] = []
+    let asking = CockpitAgentRegistry.register(root: root, ask: { question in asked.append(question); return "Supervisor: fine" }) { _ in }
+    let question = CockpitSupervisor.Question(text: "May I?", options: ["a"], proposed: "a")
+    let answer = await CockpitAgentRegistry.ask(root: root, token: asking, question: question)
+    check("a question is answered by the step's supervisor", answer == "Supervisor: fine" && asked == [question])
+    let elsewhere = await CockpitAgentRegistry.ask(root: URL(fileURLWithPath: "/tmp/elsewhere"), token: asking, question: question)
+    check("a question from another project is not answered", elsewhere == nil && asked.count == 1)
+    let unknown = await CockpitAgentRegistry.ask(root: root, token: UUID(), question: question)
+    check("a question with an unknown ticket is not answered", unknown == nil)
+    let silent = CockpitAgentRegistry.register(root: root) { _ in }
+    let byDefault = await CockpitAgentRegistry.ask(root: root, token: silent, question: question)
+    check("a step with no supervisor is told so", byDefault == CockpitSupervisor.disabledReply)
+    check("a finished step takes no more questions", CockpitAgentRegistry.complete(root: root, token: asking, result: CockpitHostResult(passed: true, detail: "ok", build: "")))
+    let afterEnd = await CockpitAgentRegistry.ask(root: root, token: asking, question: question)
+    check("a question after the step ended is not answered", afterEnd == nil)
+    CockpitAgentRegistry.cancel(silent, reason: "done")
 }
-MainActor.assumeIsolated { registryChecks() }
+await registryChecks()
 
 finish("cockpit policy")

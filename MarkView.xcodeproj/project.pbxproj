@@ -183,6 +183,7 @@
 		593E5060624CF47A0F338B97 /* KaTeX_Fraktur-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = EBBC3BCA498B63EB02AAD0C3 /* KaTeX_Fraktur-Regular.woff2 */; };
 		598C33AB8B8DA0A9FC3D8315 /* PrototypeAI+Handoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF852F0FD6018D2E711401C /* PrototypeAI+Handoff.swift */; };
 		5A2CFFAE2DD498F851B8B3FE /* UIStudioBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEFD6DFD2725A8E5CA0B9E6B /* UIStudioBridge.swift */; };
+		5A4DC5400393A8C98C6B772D /* CockpitSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AA334BA57EC259D6371FD03 /* CockpitSupervisor.swift */; };
 		5A61FA46DD9D7AD21D9D4EEF /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58148304B78246A455B450C /* TerminalView.swift */; };
 		5A7331CB270C34FF1EB66620 /* IssueSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ED15DDB619C352BEA2D90F4 /* IssueSync.swift */; };
 		5BB57E2F91B30007A94877C7 /* ChangeExplanation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5AB3B32AD80B0DC35219D3 /* ChangeExplanation.swift */; };
@@ -821,6 +822,7 @@
 		89E15210EC0B4B920554FD0D /* FeatureVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureVocabulary.swift; sourceTree = "<group>"; };
 		8A691B8C8A96CED660607A98 /* UIStudioPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioPrompts.swift; sourceTree = "<group>"; };
 		8A74BF648F92E620A92909DF /* CodePathTags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodePathTags.swift; sourceTree = "<group>"; };
+		8AA334BA57EC259D6371FD03 /* CockpitSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitSupervisor.swift; sourceTree = "<group>"; };
 		8B4AFC52AD5122C2A42B6749 /* FeatureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureStore.swift; sourceTree = "<group>"; };
 		8D10759E6114CC3E831EE66D /* TerminalChildProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalChildProcess.swift; sourceTree = "<group>"; };
 		8DE180277E01B9DBC61C4110 /* FeatureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureModels.swift; sourceTree = "<group>"; };
@@ -1166,6 +1168,7 @@
 				494C09FD5CF09A63F3AABF0D /* CockpitStepAudit.swift */,
 				7BAA76B186D05014A4757AC6 /* CockpitStepMeter.swift */,
 				00C9C532902F213FC8436DC5 /* CockpitStepPolicy.swift */,
+				8AA334BA57EC259D6371FD03 /* CockpitSupervisor.swift */,
 				26E37F916C227D94583C78C0 /* CodeArchitecture.swift */,
 				747C5366B2EBA397F5F91CF7 /* CodeExplainer.swift */,
 				E802C0AB5CDA33CD9676A804 /* CodeNavigation.swift */,
@@ -1974,6 +1977,7 @@
 				2DB2F9F438F103A3F604C93D /* CockpitStepAudit.swift in Sources */,
 				D79A4C4B9D8FF423B3D0BE3F /* CockpitStepMeter.swift in Sources */,
 				05A50659D7D1F493403938D5 /* CockpitStepPolicy.swift in Sources */,
+				5A4DC5400393A8C98C6B772D /* CockpitSupervisor.swift in Sources */,
 				4C00BB630D23E84E8F1DA6C4 /* CockpitView.swift in Sources */,
 				4E4EEA45BED79A293018C81A /* CodeArchitecture.swift in Sources */,
 				DE8C79F0949DBC49CE793975 /* CodeExplainer.swift in Sources */,

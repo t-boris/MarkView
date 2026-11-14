@@ -41,6 +41,8 @@ struct CockpitRun: Codable, Equatable {
     private(set) var activeSeconds: Double? = nil
     /// Fix cycles the run's steps have used: what the fix cycle limit is measured against. Absent in older runs.
     private(set) var fixCyclesUsed: Int? = nil
+    /// What the supervisor answered the agents, the latest `CockpitSupervisor.logLimit`. Absent in older runs.
+    private(set) var exchanges: [CockpitSupervisorExchange]? = nil
 
     init(plan: CockpitPlan) {
         id = UUID()
@@ -100,6 +102,10 @@ struct CockpitRun: Codable, Equatable {
         status = .stopped
         if let index = currentIndex, steps.indices.contains(index), steps[index].status == .interrupted { return }
         waitingReason = ""
+    }
+
+    mutating func addExchange(_ exchange: CockpitSupervisorExchange) {
+        exchanges = CockpitSupervisor.appending(exchange, to: exchanges ?? [])
     }
 
     mutating func addUsage(seconds: Double, fixCycles: Int) {
