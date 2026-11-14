@@ -1,3 +1,5 @@
+import AppKit
+import QuartzCore
 import SwiftUI
 
 /// The instrument panel of the run screen (DEC-028, REQ-009): dials, a trip readout, a pulse trace and the annunciator lamps. Every
@@ -169,11 +171,8 @@ struct CockpitPulseTrace: View {
         VStack(spacing: 5) {
             Text("PULSE").uiFont(size: 10, weight: .semibold, design: .monospaced).tracking(1.4).foregroundColor(CockpitGlass.dim)
             VStack(spacing: 6) {
-                if animated {
-                    TimelineView(.periodic(from: .now, by: 0.25)) { context in trace(phase: context.date.timeIntervalSinceReferenceDate * 0.35) }
-                } else {
-                    trace(phase: 0)
-                }
+                CockpitPulseLayer(amplitude: pulse.band == .idle ? 0 : strength, color: pulse.band == .idle ? CockpitGlass.line : tint, animated: animated)
+                    .frame(height: 70)
                 Text(readout).uiFont(size: 12, weight: .medium, design: .monospaced).foregroundColor(pulse.band == .idle ? CockpitGlass.dim : tint)
                     .lineLimit(1).minimumScaleFactor(0.5)
             }
@@ -204,29 +203,101 @@ struct CockpitPulseTrace: View {
         guard let quiet = pulse.quietSeconds else { return "The run is not going" }
         return "Quiet for " + CockpitFormat.duration(quiet) + (pulse.band == .silent ? ", silent" : "")
     }
+}
 
-    private func trace(phase: Double) -> some View {
-        Canvas { context, size in
-            let amplitude = pulse.band == .idle ? 0.0 : strength
-            let mid = size.height / 2
-            var path = Path()
-            let samples = 96
-            for index in 0...samples {
-                let x = Double(index) / Double(samples)
-                // One beat per 0.33 of the width, scrolling to the left.
-                let t = (x * 3 + phase).truncatingRemainder(dividingBy: 1)
-                let y = mid - CGFloat(Self.beat(t) * amplitude) * (size.height * 0.45)
-                if index == 0 { path.move(to: CGPoint(x: 0, y: y)) } else { path.addLine(to: CGPoint(x: CGFloat(x) * size.width, y: y)) }
-            }
-            context.stroke(path, with: .color(pulse.band == .idle ? CockpitGlass.line : tint), style: StrokeStyle(lineWidth: 1.6, lineJoin: .round))
-        }
-        .frame(height: 70)
-    }
-
-    /// One heartbeat: a small bump, a spike with a dip, a rounder bump; 0 in between.
-    private static func beat(_ t: Double) -> Double {
+/// One heartbeat: a small bump, a spike with a dip, a rounder bump; 0 in between. `t` is the place in the beat, 0...1.
+enum CockpitHeartbeat {
+    static func value(_ t: Double) -> Double {
         func bump(_ centre: Double, _ width: Double, _ height: Double) -> Double { height * exp(-pow((t - centre) / width, 2)) }
         return bump(0.18, 0.045, 0.18) + bump(0.40, 0.012, 1.0) - bump(0.44, 0.014, 0.28) + bump(0.66, 0.06, 0.3)
+    }
+}
+
+/// The trace itself, as a Core Animation layer. The path is drawn twice as wide as the view and the layer slides left by one view width,
+/// forever, in the render server: the app does no work per frame, and the trace is rebuilt only when the strength or the size changes.
+/// (A SwiftUI `TimelineView` redrawing four times a second cost about 10% of a core in a live run.)
+private struct CockpitPulseLayer: NSViewRepresentable {
+    var amplitude: Double
+    var color: Color
+    var animated: Bool
+
+    func makeNSView(context: Context) -> CockpitPulseHostView { CockpitPulseHostView() }
+
+    func updateNSView(_ view: CockpitPulseHostView, context: Context) {
+        view.update(amplitude: amplitude, color: NSColor(color), animated: animated)
+    }
+}
+
+private final class CockpitPulseHostView: NSView {
+    private static let scrollKey = "scroll"
+    /// Seconds for the trace to slide one view width (three beats).
+    private static let secondsPerWidth = 3.0
+
+    private let line = CAShapeLayer()
+    private var amplitude = 0.0
+    private var animated = false
+    private var drawnAmplitude = -1.0
+    private var drawnSize = CGSize.zero
+    private var animatedWidth: CGFloat = 0
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        line.fillColor = nil
+        line.lineWidth = 1.6
+        line.lineJoin = .round
+        line.actions = ["position": NSNull(), "bounds": NSNull(), "path": NSNull(), "strokeColor": NSNull()]
+        layer?.addSublayer(line)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func layout() {
+        super.layout()
+        rebuild()
+    }
+
+    func update(amplitude: Double, color: NSColor, animated: Bool) {
+        line.strokeColor = color.cgColor
+        self.amplitude = amplitude
+        self.animated = animated
+        rebuild()
+    }
+
+    private func rebuild() {
+        let size = bounds.size
+        guard size.width > 1, size.height > 1 else { return }
+        let steps = (amplitude * 20).rounded() / 20
+        if steps != drawnAmplitude || size != drawnSize {
+            let width = size.width, mid = size.height / 2
+            let samples = 192
+            let path = CGMutablePath()
+            for index in 0...samples {
+                let x = Double(index) / Double(samples) * 2
+                let t = (x * 3).truncatingRemainder(dividingBy: 1)
+                let point = CGPoint(x: CGFloat(x) * width, y: mid + CGFloat(CockpitHeartbeat.value(t) * steps) * size.height * 0.45)
+                if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+            }
+            line.frame = CGRect(x: 0, y: 0, width: width * 2, height: size.height)
+            line.path = path
+            drawnAmplitude = steps
+            drawnSize = size
+        }
+        let scrolling = line.animation(forKey: Self.scrollKey) != nil
+        if animated && (!scrolling || animatedWidth != size.width) {
+            let slide = CABasicAnimation(keyPath: "transform.translation.x")
+            slide.fromValue = 0
+            slide.toValue = -size.width
+            slide.duration = Self.secondsPerWidth
+            slide.repeatCount = .infinity
+            slide.timingFunction = CAMediaTimingFunction(name: .linear)
+            slide.isRemovedOnCompletion = false
+            line.add(slide, forKey: Self.scrollKey)
+            animatedWidth = size.width
+        } else if !animated && scrolling {
+            line.removeAnimation(forKey: Self.scrollKey)
+        }
     }
 }
 
