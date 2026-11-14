@@ -23,7 +23,7 @@ final class Watchdog: @unchecked Sendable {
         print("--  \(name)")
     }
 }
-let watchdog = Watchdog(seconds: 480)
+let watchdog = Watchdog(seconds: 600)
 
 var failures = 0
 func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
@@ -202,6 +202,22 @@ render();
 
 """
 
+/// The session's page in a window nobody can see or click, as in the app. A page with no window cannot be photographed, and the
+/// assistant's requests (change, fix) start with a picture of the page.
+@MainActor
+func hostPageInvisibly(_ session: StudioSession) -> NSWindow {
+    let window = NSWindow(contentRect: CGRect(x: 60, y: 60, width: 1100, height: 860), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+    let host = StudioPreviewScrollView(webView: session.webView)
+    host.frame = window.contentView!.bounds
+    host.autoresizingMask = [.width, .height]
+    window.contentView!.addSubview(host)
+    host.viewport = CGSize(width: session.viewport.width, height: session.viewport.height)
+    window.alphaValue = 0
+    window.ignoresMouseEvents = true
+    window.orderFrontRegardless()
+    return window
+}
+
 @MainActor
 func waitUntil(_ timeout: TimeInterval, _ condition: () -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
@@ -250,6 +266,10 @@ func run() async {
     // Mapped before (REQ-014), at the current version (REQ-016): this session does not map the application, so the
     // environment file stays as committed.
     spec.map = StudioEnvironmentMap(status: .complete, appFolder: "web", inventoried: true)
+    // The checks of this session count the assistant's calls and the files a request writes; Studio's own repair (REQ-020) and the
+    // preparation of screens ahead (REQ-021) have their own sessions below.
+    spec.autoRepair = false
+    spec.prepareScreens = false
     try? StudioStore.saveEnvironment(spec, root: root)
     _ = shell("git init -q && git add -A && git -c user.email=t@example.com -c user.name=Test commit -qm init", in: root)
 
@@ -1072,7 +1092,10 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
     try? page.write(to: web.appendingPathComponent("context.html"), atomically: true, encoding: .utf8)
     // A clean tree, so that what a request writes is all that `git status` shows.
     _ = shell("git add -A && git -c user.email=t@example.com -c user.name=Test commit -qm context", in: root)
-    func status() -> String { shell("git status --porcelain", in: root).1 }
+    // The saved list of screens (REQ-021) is a file of its own, written when the screens are listed or opened: not part of what a request writes.
+    func status() -> String {
+        shell("git status --porcelain", in: root).1.split(separator: "\n").filter { !$0.contains(".markview/studio/screens") }.joined(separator: "\n")
+    }
     func items() async -> String? { await text("return Array.from(document.querySelectorAll('#items li')).map(l => l.textContent).join(',');") }
     func editRequests() -> [CLICompletion.Request] { CLICompletion.requests.filter { $0.label == "ui-studio:edit" } }
     var base = session.scenario
@@ -1104,6 +1127,8 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
         }
         return assistant.respond(request)
     }
+    // This part checks the request box's own path; the preparation ahead has its checks below (REQ-021).
+    session.setPrepareScreens(false)
     session.discoverScreens()
     _ = await idle()
     CLICompletion.answer = previousScreenAnswer
@@ -1728,6 +1753,11 @@ func finish(_ session: StudioSession, port: Int? = nil) {
             await authWithoutRealKeyChecks()
             await ipcSessionChecks()
             await fixDataChecks()
+            await autoRepairChecks()
+            await hashRouteChecks()
+            await signInRepairChecks()
+            await screenPreparationChecks()
+            await placeholderScreenChecks()
             await dependencyInstallChecks()
             await dynamicServerChecks()
         }
@@ -2451,6 +2481,31 @@ func targetChecks() {
           djangoNotes.contains { $0.contains("its database is not") && $0.contains("only Node servers") }, djangoNotes.joined(separator: " | "))
 }
 
+// Constants live above the entry point below: a top-level `let` after it is not initialized yet when `run()` starts.
+/// REQ-020: an application that sends every page to its sign-in page until the form is submitted (a cookie then signs the user in).
+let signInServer = #"""
+import http.server, sys
+class Handler(http.server.BaseHTTPRequestHandler):
+    def page(self, status, body, location=None):
+        self.send_response(status)
+        if location:
+            self.send_header('Location', location)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def do_GET(self):
+        signed = 'session=ok' in (self.headers.get('Cookie') or '')
+        if self.path.startswith('/auth/login'):
+            return self.page(200, b'<!doctype html><html><head><title>Sign in</title></head><body><input id="email"><input id="password" type="password"><button id="go" type="button" onclick="document.cookie=\'session=ok; path=/\'; location.href=\'/dashboard\'">Sign in</button></body></html>')
+        if not signed:
+            return self.page(302, b'', '/auth/login')
+        self.page(200, b'<!doctype html><html><head><title>Dashboard</title></head><body><p id="dash">Dashboard</p></body></html>')
+    def log_message(self, *args):
+        pass
+http.server.HTTPServer(('127.0.0.1', int(sys.argv[1])), Handler).serve_forever()
+"""#
+
 let application = NSApplication.shared
 application.setActivationPolicy(.accessory)
 Task { @MainActor in await run() }
@@ -2572,6 +2627,8 @@ func fixDataChecks() async {
     env.rules = [StudioRule(id: "list-bundles", method: "GET", path: "/api/bundles", operation: .list, entity: "bundles")]
     env.seed = ["bundles": [bundle(1, "One"), bundle(2, "Two"), bundle(3, "Three")]]
     env.map = StudioEnvironmentMap(status: .complete, appFolder: ".", inventoried: true)
+    // This part checks the person's click; Studio's own repair is switched off for it (REQ-020 has its own checks below).
+    env.autoRepair = false
     try? StudioStore.saveEnvironment(env, root: root)
     var mine = StudioScenario(id: "mine", name: "Mine", kind: .custom)
     mine.data = ["bundles": [bundle(1, "Mine one"), bundle(7, "Only mine")]]
@@ -2602,7 +2659,7 @@ func fixDataChecks() async {
     check("REQ-017 a page error caused by the simulated data is offered Fix data", offered && error?.key.contains("LABELS") == true, "\(session.fixableErrors.map(\.key))")
     check("REQ-017 its row in the Log carries the action", session.sessionLog.entries.contains { $0.errorKey == error?.key && $0.kind == .page && $0.problem })
     try? await Task.sleep(nanoseconds: 1_000_000_000)
-    check("REQ-017 nothing is sent to the assistant without a click", fixRequests().isEmpty)
+    check("REQ-017 with the automatic repair off nothing is sent to the assistant without a click", fixRequests().isEmpty)
 
     // AC3: an error that data did not cause changes nothing, and the same error is offered again.
     let seedBefore = session.spec.seed
@@ -2671,6 +2728,480 @@ func fixDataChecks() async {
     check("REQ-017 the page shows the scenario's corrected records", shown == "EDITABLE,EDITABLE", shown)
     check("REQ-017 the seed of the other scenarios stays corrected too", session.spec.seed["bundles"]?.allSatisfy { $0["status"] == .string("editable") } == true)
     await session.close()
+}
+
+// MARK: - Automatic repair (REQ-020, DEC-013)
+
+/// The page of the Fix data checks, with Studio's own repair on (the default): the error is repaired at open, shown with Undo, never
+/// repeated, and what the person undid is not repaired again; an error the assistant judges not caused by data is asked about once.
+@MainActor
+func autoRepairChecks() async {
+    watchdog.reached("REQ-020 Studio repairs a page error caused by the simulated data by itself, with Undo")
+    let fixPage = """
+    <!doctype html><html><head><meta charset="utf-8"><title>Bundles</title></head><body>
+    <ul id="list"></ul>
+    <script>
+    const LABELS = { editable: 'Editable', locked: 'Locked' };
+    (async () => {
+      const bundles = await (await fetch('/api/bundles')).json();
+      document.getElementById('list').innerHTML = bundles.map(b => '<li>' + LABELS[b.status].toUpperCase() + '</li>').join('');
+    })();
+    </script></body></html>
+    """
+    let fm = FileManager.default
+    func makeRoot(_ name: String, autoRepair: Bool? = nil) -> URL {
+        let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-\(name)-\(UUID().uuidString)").resolvingSymlinksInPath()
+        try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try? fixPage.write(to: root.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        func bundle(_ id: Int, _ name: String) -> StudioJSON { .object(["id": .number(Double(id)), "name": .string(name), "status": .string("draft")]) }
+        var env = StudioEnvironmentSpec()
+        env.entities = [StudioEntity(name: "bundles", fields: [StudioField(name: "name", type: "string", required: true), StudioField(name: "status", type: "string")])]
+        env.rules = [StudioRule(id: "list-bundles", method: "GET", path: "/api/bundles", operation: .list, entity: "bundles")]
+        env.seed = ["bundles": [bundle(1, "One"), bundle(2, "Two"), bundle(3, "Three")]]
+        env.map = StudioEnvironmentMap(status: .complete, appFolder: ".", inventoried: true)
+        env.autoRepair = autoRepair
+        try? StudioStore.saveEnvironment(env, root: root)
+        return root
+    }
+    let answers = FixAnswers()
+    let previous = CLICompletion.answer
+    defer { CLICompletion.answer = previous }
+    CLICompletion.answer = { request in
+        if request.label == "ui-studio:fix-data" {
+            return CLICompletion.Result(text: "", structured: answers.next(), inputTokens: 10, outputTokens: 5, costUSD: 0)
+        }
+        return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+    }
+    func fixRequests() -> [CLICompletion.Request] { CLICompletion.requests.filter { $0.label == "ui-studio:fix-data" } }
+
+    // At open, with the answer the assistant gives for the vivaa case.
+    let root = makeRoot("auto")
+    defer { try? fm.removeItem(at: root) }
+    func environmentFile() -> String { (try? String(contentsOf: StudioStore.environmentURL(root), encoding: .utf8)) ?? "" }
+    answers.set([fixAnswer(["1", "2", "3"])])
+    let before = fixRequests().count
+    let port = freePort()
+    let session = StudioSession(root: root)
+    session.start(WebAppTarget(folder: root, label: "bundles", command: "python3 -m http.server \(port) --bind 127.0.0.1", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    check("REQ-020 the session opens", session.appURL != nil, "\(session.state) \(session.stateDetail)")
+    func listText() async -> String {
+        ((try? await session.call("return Array.from(document.querySelectorAll('#list li')).map(l => l.textContent).join(',');")) as? String) ?? ""
+    }
+    let repaired = await waitUntil(180) { session.repairUndo != nil && session.busy == nil }
+    check("REQ-020 the error is repaired by itself, with one assistant call", repaired && fixRequests().count == before + 1, "\(fixRequests().count - before) \(session.notice ?? "nil")")
+    check("REQ-020 the repair is marked automatic and says what it did",
+          session.repairUndo?.automatic == true && session.repairUndo?.summary.contains("bundles.status") == true, session.repairUndo?.summary ?? "nil")
+    let logged = session.sessionLog.entries.map(\.text)
+    check("REQ-020 the log says that Studio repaired it by itself",
+          logged.contains { $0.hasPrefix("Repairing by itself:") } && logged.contains { $0.hasPrefix("Repaired by itself:") } && logged.contains("Fixed data: bundles.status draft → editable in 3 records"),
+          logged.suffix(14).joined(separator: "\n"))
+    var shown = ""
+    for _ in 0..<100 where shown != "EDITABLE,EDITABLE,EDITABLE" {
+        shown = await listText()
+        if shown != "EDITABLE,EDITABLE,EDITABLE" { try? await Task.sleep(nanoseconds: 200_000_000) }
+    }
+    check("REQ-020 the page shows the repaired data", shown == "EDITABLE,EDITABLE,EDITABLE", shown)
+    check("REQ-020 the repaired data is saved", environmentFile().contains("editable") && !environmentFile().contains("draft"))
+    try? await Task.sleep(nanoseconds: 4_500_000_000)
+    check("REQ-020 nothing is repeated once the page is clean", fixRequests().count == before + 1 && session.fixableErrors.isEmpty, "\(fixRequests().count - before)")
+
+    // Undo: the old values are back, the page shows the error again, and the person's decision stands.
+    session.undoRepair()
+    _ = await waitUntil(120) { session.busy == nil }
+    check("REQ-020 Undo writes the records back as they were", session.spec.seed["bundles"]?.allSatisfy { $0["status"] == .string("draft") } == true
+          && environmentFile().contains("draft") && !environmentFile().contains("editable") && session.repairUndo == nil, environmentFile().prefix(200).description)
+    let erred = await waitUntil(30) { !session.fixableErrors.isEmpty }
+    check("REQ-020 the undone error is reported again by the page", erred)
+    try? await Task.sleep(nanoseconds: 5_500_000_000)
+    check("REQ-020 what the person undid is not repaired again by itself", fixRequests().count == before + 1, "\(fixRequests().count - before)")
+    check("REQ-020 the Log still offers the click", session.repairItems(automatic: false).contains { $0.kind == .dataError })
+
+    // Fix problems is the click, and it repairs what the person asked for although Studio would not.
+    answers.set([fixAnswer(["1", "2", "3"])])
+    session.fixProblems()
+    _ = await waitUntil(180) { session.busy == nil && fixRequests().count == before + 2 }
+    _ = await waitUntil(30) { session.repairUndo != nil && session.busy == nil }
+    check("REQ-019 Fix problems repairs the error on the click", fixRequests().count == before + 2 && session.repairUndo?.automatic == false
+          && session.spec.seed["bundles"]?.allSatisfy { $0["status"] == .string("editable") } == true, "\(fixRequests().count - before)")
+
+    // The switch: off means nothing by itself, and the choice is saved with the project.
+    session.setAutoRepair(false)
+    let switchSaved = await waitUntil(15) { environmentFile().contains("\"autoRepair\" : false") }
+    check("REQ-020 the switch is saved in the environment", session.spec.autoRepair == false && switchSaved, environmentFile().prefix(200).description)
+    session.undoRepair()
+    _ = await waitUntil(120) { session.busy == nil }
+    _ = await waitUntil(30) { !session.fixableErrors.isEmpty }
+    try? await Task.sleep(nanoseconds: 4_500_000_000)
+    check("REQ-020 with the switch off nothing is repaired by itself", fixRequests().count == before + 2, "\(fixRequests().count - before)")
+    await session.close()
+
+    // An error the assistant judges not caused by data is asked about once, and says where to look.
+    let second = makeRoot("notdata")
+    defer { try? fm.removeItem(at: second) }
+    answers.set([["kind": "not_data", "summary": "The label table has no entry for the status.", "codePointer": "index.html:9", "changes": []]])
+    let askedBefore = fixRequests().count
+    let secondPort = freePort()
+    let other = StudioSession(root: second)
+    other.start(WebAppTarget(folder: second, label: "bundles", command: "python3 -m http.server \(secondPort) --bind 127.0.0.1", ports: [secondPort]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(other.state) && other.busy == nil }
+    let asked = await waitUntil(120) { fixRequests().count == askedBefore + 1 && other.busy == nil }
+    check("REQ-020 an error is asked about once at open", asked, "\(fixRequests().count - askedBefore)")
+    try? await Task.sleep(nanoseconds: 5_500_000_000)
+    check("REQ-020 a not-data answer is never asked again by itself", fixRequests().count == askedBefore + 1, "\(fixRequests().count - askedBefore)")
+    check("REQ-020 nothing was changed and no Undo is offered", other.repairUndo == nil && other.spec.seed["bundles"]?.allSatisfy { $0["status"] == .string("draft") } == true)
+    let key = other.sessionLog.entries.compactMap(\.errorKey).first ?? ""
+    check("REQ-019 the Log marks the row as not caused by data", !key.isEmpty && other.notDataKeys.contains(key)
+          && StudioProblem.classify(kind: .page, problem: true, text: "runtimeError: x", errorKey: key, notData: other.notDataKeys) == .notData, "\(other.notDataKeys)")
+    check("REQ-019 the click is still allowed", other.repairItems(automatic: false).isEmpty == false || other.fixableKeys.contains(key))
+    await other.close()
+}
+
+/// A hash-routed application: moving between its screens changes only the fragment, which WebKit treats as a navigation inside the
+/// same document. The page must still start again, or its requests are rejected as stale and the load never finishes.
+@MainActor
+func hashRouteChecks() async {
+    watchdog.reached("REQ-020 a hash-routed application starts a fresh page for every scenario")
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-hash-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    try? """
+        <!doctype html><html><head><meta charset="utf-8"><title>Hash</title></head><body>
+        <p id="where"></p><p id="data">loading</p>
+        <script>
+        document.getElementById('where').textContent = location.hash;
+        fetch('/api/items').then(r => r.json()).then(items => { document.getElementById('data').textContent = 'items:' + items.length; })
+          .catch(e => { document.getElementById('data').textContent = 'failed:' + e.message; });
+        </script></body></html>
+        """.write(to: root.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+    var env = StudioEnvironmentSpec()
+    env.entities = [StudioEntity(name: "items", fields: [StudioField(name: "name", type: "string")])]
+    env.rules = [StudioRule(id: "list-items", method: "GET", path: "/api/items", operation: .list, entity: "items")]
+    env.seed = ["items": [.object(["id": .number(1), "name": .string("a")]), .object(["id": .number(2), "name": .string("b")])]]
+    env.map = StudioEnvironmentMap(status: .complete, appFolder: ".", inventoried: true)
+    env.autoRepair = false
+    try? StudioStore.saveEnvironment(env, root: root)
+    func scenario(_ id: String, _ route: String) -> StudioScenario {
+        var made = StudioScenario(id: id, name: id, kind: .custom)
+        made.route = route
+        made.contractFingerprint = StudioScenarioCompatibility.fingerprint(made, spec: env)
+        try? StudioStore.saveScenario(made, root: root)
+        return made
+    }
+    let attention = scenario("attention", "/#/attention")
+    let accounts = scenario("accounts", "/#/accounts")
+    let port = freePort()
+    let session = StudioSession(root: root)
+    session.start(WebAppTarget(folder: root, label: "hash", command: "python3 -m http.server \(port) --bind 127.0.0.1", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    func page() async -> String {
+        ((try? await session.call("return document.getElementById('where').textContent + '|' + document.getElementById('data').textContent;")) as? String) ?? ""
+    }
+    session.activate(attention)
+    _ = await waitUntil(120) { session.busy == nil && session.scenario.id == "attention" }
+    var shown = ""
+    for _ in 0..<60 where shown != "#/attention|items:2" {
+        shown = await page()
+        if shown != "#/attention|items:2" { try? await Task.sleep(nanoseconds: 250_000_000) }
+    }
+    check("REQ-020 the first hash route loads and its request is answered", shown == "#/attention|items:2", shown)
+    let generation = session.pageGeneration
+    session.activate(accounts)
+    _ = await waitUntil(120) { session.busy == nil && session.scenario.id == "accounts" }
+    shown = ""
+    for _ in 0..<60 where shown != "#/accounts|items:2" {
+        shown = await page()
+        if shown != "#/accounts|items:2" { try? await Task.sleep(nanoseconds: 250_000_000) }
+    }
+    check("REQ-020 another hash route starts the page again, so its script runs and its request is answered", shown == "#/accounts|items:2", shown)
+    check("REQ-020 the new page has a new generation", session.pageGeneration > generation, "\(generation) → \(session.pageGeneration)")
+    check("REQ-020 the session is ready, not waiting for a load that never finishes", session.state == .ready
+          && !session.sessionLog.entries.contains { $0.text.contains("did not finish loading") }, "\(session.state) \(session.stateDetail)")
+    check("REQ-020 the log says why an empty page was loaded first",
+          session.sessionLog.entries.contains { $0.text.contains("differs from the page's only by its fragment") })
+    check("REQ-019 no rejection of an earlier generation is counted as a problem",
+          !session.sessionLog.entries.contains { $0.problem && $0.text.contains("of an earlier generation") })
+    await session.close()
+}
+
+// MARK: - Main screens ready (REQ-021, DEC-014)
+
+/// Counts the stand-in assistant's calls for the screens, and how many ran at once.
+final class ScreenCalls: @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var listed = 0
+    private(set) var prepared: [String] = []
+    private(set) var running = 0
+    private(set) var peak = 0
+    func list() { lock.withLock { listed += 1 } }
+    func begin(_ name: String) { lock.withLock { prepared.append(name); running += 1; peak = max(peak, running) } }
+    func end() { lock.withLock { running -= 1 } }
+}
+
+
+final class SignInCalls: @unchecked Sendable {
+    private let lock = NSLock()
+    private var prompts: [String] = []
+    func add(_ prompt: String) { lock.withLock { prompts.append(prompt) } }
+    var all: [String] { lock.withLock { prompts } }
+}
+
+@MainActor
+func signInRepairChecks() async {
+    watchdog.reached("REQ-020 a sign-in page nobody asked for is repaired by itself, through a signed-in scenario")
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-signin-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    try? signInServer.write(to: root.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
+    var env = StudioEnvironmentSpec()
+    env.map = StudioEnvironmentMap(status: .complete, appFolder: ".", inventoried: true)
+    env.prepareScreens = false
+    try? StudioStore.saveEnvironment(env, root: root)
+    let calls = SignInCalls()
+    let previous = CLICompletion.answer
+    defer { CLICompletion.answer = previous }
+    CLICompletion.answer = { request in
+        if request.label == "ui-studio:edit" {
+            calls.add(request.prompt)
+            let plan = contextPlan(name: "Signed in", steps: [["action": "type", "selector": "#email", "text": "test@example.com", "ms": 0],
+                                                            ["action": "type", "selector": "#password", "text": "simulated", "ms": 0],
+                                                            ["action": "click", "selector": "#go", "text": "", "ms": 0]],
+                                   expectedPath: "/dashboard", expectedSelector: "#dash")
+            return CLICompletion.Result(text: "", structured: plan, inputTokens: 10, outputTokens: 5, costUSD: 0)
+        }
+        return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+    }
+    func scenarioFiles() -> [String] {
+        ((try? fm.contentsOfDirectory(atPath: StudioStore.scenariosFolder(root).path)) ?? []).filter { $0.hasSuffix(".json") }
+    }
+    let port = freePort()
+    let session = StudioSession(root: root)
+    let window = hostPageInvisibly(session)
+    defer { window.orderOut(nil) }
+    session.start(WebAppTarget(folder: root, label: "portal", command: "python3 server.py \(port)", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    check("REQ-020 the session opens on the sign-in page the application sent it to", session.appURL != nil, "\(session.state) \(session.stateDetail)")
+    let repaired = await waitUntil(120) { scenarioFiles().count == 1 && session.busy == nil && session.scenario.name == "Signed in" }
+    check("REQ-020 the sign-in is repaired by itself, with one assistant call", repaired && calls.all.count == 1, "\(calls.all.count) \(scenarioFiles())")
+    check("REQ-020 the request names the sign-in page and asks for the application's own form",
+          calls.all.first.map { $0.contains("/auth/login") && $0.contains("sign-in form") } == true, calls.all.first.map { String($0.prefix(160)) } ?? "none")
+    var shown = ""
+    for _ in 0..<40 where shown != "Dashboard" {
+        shown = ((try? await session.call("return document.getElementById('dash') ? document.getElementById('dash').textContent : '';")) as? String) ?? ""
+        if shown != "Dashboard" { try? await Task.sleep(nanoseconds: 250_000_000) }
+    }
+    check("REQ-020 the page after the sign-in is shown", shown == "Dashboard", shown)
+    check("REQ-020 the sign-in is a saved scenario with the form's steps", session.savedScenarios.first { $0.name == "Signed in" }.map { $0.steps.count == 3 } == true)
+    check("REQ-020 no sign-in page is offered any more", session.signInWall == nil && !session.repairItems(automatic: false).contains { $0.kind == .signInRedirect },
+          "\(session.signInWall ?? "nil")")
+    try? await Task.sleep(nanoseconds: 4_500_000_000)
+    check("REQ-020 nothing more is asked once the page is signed in", calls.all.count == 1, "\(calls.all.count)")
+    check("REQ-020 the log says that Studio repaired the sign-in by itself", session.sessionLog.entries.contains { $0.text.hasPrefix("Repaired by itself") })
+
+    // The next open replays the sign-in: the scenario the session ended on is the signed-in one.
+    await session.close()
+    let again = StudioSession(root: root)
+    let secondWindow = hostPageInvisibly(again)
+    defer { secondWindow.orderOut(nil) }
+    let secondPort = freePort()
+    again.start(WebAppTarget(folder: root, label: "portal", command: "python3 server.py \(secondPort)", ports: [secondPort]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(again.state) && again.busy == nil }
+    var next = ""
+    for _ in 0..<40 where next != "Dashboard" {
+        next = ((try? await again.call("return document.getElementById('dash') ? document.getElementById('dash').textContent : '';")) as? String) ?? ""
+        if next != "Dashboard" { try? await Task.sleep(nanoseconds: 250_000_000) }
+    }
+    check("REQ-020 the next open replays the saved sign-in and needs no assistant call", next == "Dashboard" && calls.all.count == 1, "\(next) \(calls.all.count)")
+    await again.close()
+}
+
+
+/// REQ-021: a screen whose address has a placeholder (`/items/<id>`) cannot be reached by a scenario with no steps, so it is not saved as
+/// prepared (found on a real project, where such a scenario never reached its page).
+@MainActor
+func placeholderScreenChecks() async {
+    watchdog.reached("REQ-021 a screen whose address has a placeholder is not saved as prepared")
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-placeholder-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    try? "<!doctype html><html><head><meta charset=\"utf-8\"><title>Desk</title></head><body><div id=\"item\">Item</div></body></html>\n"
+        .write(to: root.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+    var env = StudioEnvironmentSpec()
+    env.map = StudioEnvironmentMap(status: .complete, appFolder: ".", inventoried: true)
+    env.autoRepair = false
+    try? StudioStore.saveEnvironment(env, root: root)
+    let row: [String: Any] = ["name": "Item", "route": "/items/<id>", "selector": "#item", "description": "One item", "instructions": "Open it.",
+                              "source": "index.html: item", "main": true]
+    let previous = CLICompletion.answer
+    defer { CLICompletion.answer = previous }
+    CLICompletion.answer = { request in
+        switch request.label {
+        case "ui-studio:screens":
+            return CLICompletion.Result(text: "", structured: ["screens": [row], "notes": ""], inputTokens: 10, outputTokens: 5, costUSD: 0.01)
+        case "ui-studio:screen":
+            return CLICompletion.Result(text: "", structured: contextPlan(name: "Item", expectedPath: "/items/<id>", expectedSelector: "#item"), inputTokens: 10, outputTokens: 5, costUSD: 0.02)
+        default:
+            return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+        }
+    }
+    let port = freePort()
+    let session = StudioSession(root: root)
+    session.start(WebAppTarget(folder: root, label: "desk", command: "python3 -m http.server \(port) --bind 127.0.0.1", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    let tried = await waitUntil(120) { session.screenBook.entries.count == 1 && session.screenBook.entries.first?.status == .failed && session.screenWork == nil }
+    let entry = session.screenBook.entries.first
+    check("REQ-021 the screen is marked failed, not prepared", tried, "\(entry?.status.map(\.rawValue) ?? "nil")")
+    check("REQ-021 the reason names the placeholder", entry?.failure?.contains("placeholder") == true, entry?.failure ?? "nil")
+    let scenarios = ((try? fm.contentsOfDirectory(atPath: StudioStore.scenariosFolder(root).path)) ?? []).filter { $0.hasPrefix("screen-") }
+    check("REQ-021 no scenario is saved for it", scenarios.isEmpty, "\(scenarios)")
+    check("REQ-021 the menu offers it as failed, to be opened through the assistant", session.state(of: StudioScreen(name: "Item", route: "/items/<id>", selector: "#item", description: "One item", instructions: "Open it.", source: "index.html: item", main: true)) == .failed)
+    await session.close()
+}
+
+@MainActor
+func screenPreparationChecks() async {
+    watchdog.reached("REQ-021 the main screens are prepared ahead and open without the assistant")
+    let fm = FileManager.default
+    func makeRoot(_ name: String, prepareScreens: Bool? = nil) -> URL {
+        let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-\(name)-\(UUID().uuidString)").resolvingSymlinksInPath()
+        try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try? "<!doctype html><html><head><meta charset=\"utf-8\"><title>Desk</title></head><body><div id=\"home\">Home</div></body></html>\n"
+            .write(to: root.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        try? "<!doctype html><html><head><meta charset=\"utf-8\"><title>Accounts</title></head><body><div id=\"accounts\">Accounts</div></body></html>\n"
+            .write(to: root.appendingPathComponent("accounts.html"), atomically: true, encoding: .utf8)
+        var env = StudioEnvironmentSpec()
+        // A seed that breaks its own entity (a record without the required field), as the seed of a real project often does: that is a
+        // problem of the environment, not a reason to distrust a scenario made just now, so the prepared screens must open all the same.
+        env.entities = [StudioEntity(name: "items", fields: [StudioField(name: "name", type: "string", required: true)])]
+        env.seed = ["items": [.object(["id": .number(1)])]]
+        env.map = StudioEnvironmentMap(status: .complete, appFolder: ".", inventoried: true)
+        env.autoRepair = false
+        env.prepareScreens = prepareScreens
+        try? StudioStore.saveEnvironment(env, root: root)
+        return root
+    }
+    let calls = ScreenCalls()
+    let rows: [[String: Any]] = [
+        ["name": "Home", "route": "/index.html", "selector": "#home", "description": "The home screen", "instructions": "Open it.", "source": "index.html: home", "main": true],
+        ["name": "Accounts", "route": "/accounts.html", "selector": "#accounts", "description": "The accounts list", "instructions": "Open it.", "source": "accounts.html: accounts", "main": true],
+        ["name": "Ghost", "route": "/index.html", "selector": "#ghost", "description": "A screen no page shows", "instructions": "Open it.", "source": "index.html: ghost", "main": true],
+        ["name": "About", "route": "/index.html", "selector": "#about", "description": "Not a main screen", "instructions": "Open it.", "source": "index.html: about", "main": false]]
+    let previous = CLICompletion.answer
+    defer { CLICompletion.answer = previous }
+    CLICompletion.answer = { request in
+        switch request.label {
+        case "ui-studio:screens":
+            calls.list()
+            return CLICompletion.Result(text: "", structured: ["screens": rows, "notes": ""], inputTokens: 10, outputTokens: 5, costUSD: 0.01)
+        case "ui-studio:screen":
+            let name = rows.compactMap { $0["name"] as? String }.first { request.prompt.contains("Show the application screen \"\($0)\"") } ?? "?"
+            calls.begin(name)
+            Thread.sleep(forTimeInterval: 0.4)
+            calls.end()
+            let row = rows.first { ($0["name"] as? String) == name }
+            return CLICompletion.Result(text: "", structured: contextPlan(name: name, expectedPath: row?["route"] as? String ?? "", expectedSelector: row?["selector"] as? String ?? ""),
+                                        inputTokens: 10, outputTokens: 5, costUSD: 0.02)
+        case "ui-studio:edit":
+            return CLICompletion.Result(text: "", structured: answerPlan("Nothing to change."), inputTokens: 1, outputTokens: 1, costUSD: 0)
+        default:
+            return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+        }
+    }
+    func requests(_ label: String) -> Int { CLICompletion.requests.filter { $0.label == label }.count }
+    func screensFile(_ root: URL) -> StudioScreenBook? { StudioStore.loadScreenBook(root, appFolder: "") }
+
+    let root = makeRoot("screens")
+    defer { try? fm.removeItem(at: root) }
+    let port = freePort()
+    let session = StudioSession(root: root)
+    let window = hostPageInvisibly(session)
+    defer { window.orderOut(nil) }
+    let baseID = session.scenario.id
+    let listedBefore = requests("ui-studio:screens"), preparedBefore = requests("ui-studio:screen")
+    session.start(WebAppTarget(folder: root, label: "desk", command: "python3 -m http.server \(port) --bind 127.0.0.1", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    check("REQ-021 the session opens", session.appURL != nil, "\(session.state) \(session.stateDetail)")
+    let generation = session.pageGeneration
+
+    // Ahead of the click: the assistant lists the screens once and prepares each main one, one at a time, without the page.
+    let done = await waitUntil(240) { session.screenBook.entries.count == 4 && session.screenBook.main.allSatisfy { $0.status == .prepared } && session.screenWork == nil }
+    check("REQ-021 the screens are listed and every main one is prepared in the background", done,
+          session.screenBook.entries.map { "\($0.screen.name):\($0.status?.rawValue ?? "-")" }.joined(separator: " "))
+    check("REQ-021 the list is asked for once and one call is made per main screen",
+          requests("ui-studio:screens") == listedBefore + 1 && requests("ui-studio:screen") == preparedBefore + 3 && Set(calls.prepared) == ["Home", "Accounts", "Ghost"],
+          "\(calls.prepared)")
+    check("REQ-021 the screens are prepared one at a time", calls.peak == 1, "\(calls.peak)")
+    check("REQ-021 preparing screens does not touch the page or the scenario", session.pageGeneration == generation && session.scenario.id == baseID && session.busy == nil,
+          "\(generation) → \(session.pageGeneration) \(session.scenario.id)")
+    check("REQ-021 the screen that is not main is not prepared", session.screenBook.entries.first { $0.screen.name == "About" }?.status == nil)
+    let saved = await waitUntil(15) { screensFile(root)?.entries.count == 4 && screensFile(root)?.main.allSatisfy { $0.status == .prepared } == true }
+    check("REQ-021 the list and its statuses are saved in .markview/studio/screens.json", saved, "\(String(describing: screensFile(root)?.entries.map(\.status)))")
+    let homeEntry = session.screenBook.entries.first { $0.screen.name == "Home" }
+    let homeScenario = session.savedScenarios.first { $0.id == homeEntry?.scenarioID }
+    check("REQ-021 each prepared screen is an ordinary saved scenario with its destination",
+          homeScenario?.route == "/index.html" && homeScenario?.expectedPath == "/index.html" && homeScenario?.expectedSelector == "#home"
+            && homeScenario?.id.hasPrefix("screen-home-") == true && homeScenario?.kind == .custom, "\(String(describing: homeScenario?.route)) \(String(describing: homeScenario?.id))")
+    check("REQ-021 the menu says prepared", session.screens.map { session.state(of: $0) } == [.prepared, .prepared, .prepared, .notPrepared])
+
+    // The click: no assistant, the page proves the scenario, and the screen is then ready.
+    let accounts = session.screens[1]
+    let beforeClick = CLICompletion.requests.count
+    session.openScreen(accounts)
+    _ = await waitUntil(120) { session.busy == nil && session.screenBook.entry(for: accounts)?.status == .verified }
+    let shown = (try? await session.call("return !!document.querySelector('#accounts');")) as? Bool
+    check("REQ-021 a prepared screen opens on the page without the assistant", CLICompletion.requests.count == beforeClick && shown == true,
+          "\(CLICompletion.requests.count - beforeClick) new requests, shown \(String(describing: shown))")
+    check("REQ-021 the opened scenario is the screen's own and the screen is ready", session.scenario.id == session.screenBook.entry(for: accounts)?.scenarioID
+          && session.state(of: accounts) == .ready)
+    let verified = await waitUntil(15) { screensFile(root)?.entries.first { $0.screen.name == "Accounts" }?.status == .verified }
+    check("REQ-021 the verification is saved", verified)
+
+    // A prepared scenario that does not reach its screen falls back to the assistant's own path and says so.
+    let ghost = session.screens[2]
+    let editsBefore = requests("ui-studio:edit")
+    session.openScreen(ghost)
+    _ = await waitUntil(180) { session.busy == nil && requests("ui-studio:edit") > editsBefore }
+    _ = await waitUntil(60) { session.busy == nil }
+    check("REQ-021 a prepared scenario that does not reach its screen is opened through the assistant instead", requests("ui-studio:edit") > editsBefore
+          && session.sessionLog.entries.contains { $0.problem && $0.text.contains("did not reach the screen") },
+          session.sessionLog.entries.suffix(6).map(\.text).joined(separator: "\n"))
+    check("REQ-021 a screen that never reached its page is not marked ready", session.state(of: ghost) != .ready)
+
+    // A changed source file asks for a new preparation; a restart keeps the list and asks for nothing.
+    try? "<!doctype html><html><head><meta charset=\"utf-8\"><title>Desk</title></head><body><div id=\"home\">Home v2</div></body></html>\n"
+        .write(to: root.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+    await session.refreshScreenHashes()
+    check("REQ-021 a changed source file makes the screens made from it need a refresh",
+          session.state(of: session.screens[0]) == .needsRefresh && session.state(of: session.screens[1]) == .ready, "\(session.screens.map { session.state(of: $0).rawValue })")
+    await session.close()
+
+    let again = StudioSession(root: root)
+    let secondPort = freePort()
+    let listedAfter = requests("ui-studio:screens")
+    again.start(WebAppTarget(folder: root, label: "desk", command: "python3 -m http.server \(secondPort) --bind 127.0.0.1", ports: [secondPort]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(again.state) && again.busy == nil }
+    check("REQ-021 a new session starts with the saved list and its statuses", again.screenBook.entries.count == 4 && again.screenBook.discovered != nil
+          && again.screenBook.entry(for: again.screens[1])?.status == .verified, again.screenBook.entries.map { "\($0.screen.name):\($0.status?.rawValue ?? "-")" }.joined(separator: " "))
+    _ = await waitUntil(240) { again.screenWork == nil && again.preparingScreens.isEmpty && again.screenTask == nil && again.state(of: again.screens[0]) != .needsRefresh }
+    check("REQ-021 the list is not asked for again, and only the screen whose source changed is prepared again",
+          requests("ui-studio:screens") == listedAfter && calls.prepared.filter { $0 == "Home" }.count == 2 && calls.prepared.filter { $0 == "Accounts" }.count == 1,
+          "\(calls.prepared)")
+    await again.close()
+
+    // The switch: off means the assistant is not asked for anything ahead.
+    let quiet = makeRoot("screens-off", prepareScreens: false)
+    defer { try? fm.removeItem(at: quiet) }
+    let quietPort = freePort()
+    let off = StudioSession(root: quiet)
+    let listedBeforeOff = requests("ui-studio:screens")
+    off.start(WebAppTarget(folder: quiet, label: "desk", command: "python3 -m http.server \(quietPort) --bind 127.0.0.1", ports: [quietPort]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(off.state) && off.busy == nil }
+    try? await Task.sleep(nanoseconds: 4_500_000_000)
+    check("REQ-021 with the switch off nothing is listed or prepared ahead", requests("ui-studio:screens") == listedBeforeOff && off.screens.isEmpty && off.screenWork == nil)
+    await off.close()
 }
 
 // MARK: - Electron preload bridge (REQ-016)

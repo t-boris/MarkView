@@ -38,14 +38,17 @@ enum StudioPrompts {
         for another assistant to reach it using the simulated environment. Never invent identifiers or selectors. \
         Exclude screens for which you cannot find a reliable distinguishing selector. Report genuine discovery \
         limitations in `notes`. Discover up to 30 primary screens, including error states; never read secrets.
+        Mark `main` true for at most 8 screens: the ones a person using the application opens most often (its home or dashboard, its \
+        main lists and their detail pages, its settings), never an error state. Every other screen has `main` false.
         """ + "\n" + dataNotInstructions
 
     static let screensSchema: [String: Any] = [
         "type": "object", "properties": [
             "screens": ["type": "array", "items": ["type": "object", "properties": [
                 "name": ["type": "string"], "route": ["type": "string"], "selector": ["type": "string"],
-                "description": ["type": "string"], "instructions": ["type": "string"], "source": ["type": "string"]],
-                "required": ["name", "route", "selector", "description", "instructions", "source"]]],
+                "description": ["type": "string"], "instructions": ["type": "string"], "source": ["type": "string"],
+                "main": ["type": "boolean"]],
+                "required": ["name", "route", "selector", "description", "instructions", "source", "main"]]],
             "notes": ["type": "string"]],
         "required": ["screens", "notes"]]
 
@@ -55,7 +58,8 @@ enum StudioPrompts {
         return rows.prefix(30).compactMap { row in
             func text(_ key: String) -> String { (row[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
             let screen = StudioScreen(name: text("name"), route: text("route"), selector: text("selector"),
-                                      description: text("description"), instructions: text("instructions"), source: text("source"))
+                                      description: text("description"), instructions: text("instructions"), source: text("source"),
+                                      main: row["main"] as? Bool)
             guard !screen.name.isEmpty, screen.name.count <= 100, StudioContextValidator.isPath(screen.route),
                   !screen.selector.isEmpty, screen.selector.count <= 500, !screen.selector.contains(where: \.isNewline),
                   !["body", "html", "*", ":root"].contains(screen.selector.lowercased()),

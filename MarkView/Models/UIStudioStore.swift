@@ -9,6 +9,12 @@ enum StudioStore {
     static func environmentURL(_ root: URL) -> URL { configFolder(root).appendingPathComponent("environment.json") }
     static func scenariosFolder(_ root: URL) -> URL { configFolder(root).appendingPathComponent("scenarios", isDirectory: true) }
     static func packagesFolder(_ root: URL) -> URL { configFolder(root).appendingPathComponent("packages", isDirectory: true) }
+    /// The application's screens and what is prepared for each (REQ-021). The first application of a project (its folder `.`) has
+    /// `screens.json`; another application folder of the same project has its own file.
+    static func screensURL(_ root: URL, appFolder: String) -> URL {
+        let folder = appFolder.trimmingCharacters(in: CharacterSet(charactersIn: "/."))
+        return configFolder(root).appendingPathComponent(folder.isEmpty ? "screens.json" : "screens-\(safeID(folder)).json")
+    }
 
     static func localFolder(_ root: URL) -> URL { root.appendingPathComponent(".dde/studio", isDirectory: true) }
     static func historyURL(_ root: URL) -> URL { localFolder(root).appendingPathComponent("history.json") }
@@ -69,6 +75,14 @@ enum StudioStore {
     static func saveActiveScenarioID(_ id: String, root: URL) {
         prepareLocalFolder(root)
         try? save(ActiveScenario(id: id), to: activeScenarioURL(root))
+    }
+
+    static func loadScreenBook(_ root: URL, appFolder: String) -> StudioScreenBook? {
+        guard let book = load(StudioScreenBook.self, from: screensURL(root, appFolder: appFolder)), book.version <= StudioScreenBook.currentVersion else { return nil }
+        return book
+    }
+    static func saveScreenBook(_ book: StudioScreenBook, root: URL) throws {
+        try save(book, to: screensURL(root, appFolder: book.appFolder))
     }
 
     static func loadEnvironment(_ root: URL) -> StudioEnvironmentSpec? { load(StudioEnvironmentSpec.self, from: environmentURL(root)) }
@@ -157,10 +171,16 @@ enum StudioScenarioCompatibility {
         return StudioHash.sha256(text)
     }
 
+    /// Whether the contracts the scenario was saved against are still the environment's. The records inside are not judged here: a
+    /// seed that breaks its own entity is a problem of the environment, not a sign that a scenario made just now has gone stale.
+    static func isCurrent(_ scenario: StudioScenario, spec: StudioEnvironmentSpec) -> Bool {
+        scenario.contractFingerprint.isEmpty || scenario.contractFingerprint == fingerprint(scenario, spec: spec)
+    }
+
     /// Why the scenario no longer fits; empty when it does.
     static func problems(_ scenario: StudioScenario, spec: StudioEnvironmentSpec) -> [String] {
         var problems: [String] = []
-        if !scenario.contractFingerprint.isEmpty, scenario.contractFingerprint != fingerprint(scenario, spec: spec) {
+        if !isCurrent(scenario, spec: spec) {
             problems.append("The contracts this scenario was saved against changed.")
         }
         let data = scenario.data ?? spec.seed

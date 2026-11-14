@@ -155,6 +155,14 @@ struct StudioEnvironmentSpec: Codable, Equatable, Sendable {
     var channels: [StudioChannel]? = nil
     /// Simulated GraphQL operations (REQ-015). Optional, like `channels`.
     var graphQL: [StudioGraphQLOperation]? = nil
+    /// Whether page errors are repaired without a click (REQ-020, DEC-013). Optional, so older files still decode; absent = on.
+    var autoRepair: Bool? = nil
+
+    var repairsAutomatically: Bool { autoRepair ?? true }
+    /// Whether the application's main screens are prepared ahead, in the background, as scenarios (REQ-021). Optional; absent = on.
+    var prepareScreens: Bool? = nil
+
+    var preparesScreens: Bool { prepareScreens ?? true }
 
     func entity(_ name: String) -> StudioEntity? { entities.first { $0.name == name } }
 }
@@ -609,6 +617,17 @@ struct StudioScreen: Codable, Hashable, Identifiable, Sendable {
     var description: String
     var instructions: String
     var source: String
+    /// One of the application's main screens: prepared ahead of the first click (REQ-021). Optional, so lists saved before it decode.
+    var main: Bool? = nil
+
+    /// The route names a family of pages (`/products/<productId>/sources`, `/items/:id`, `/post/{slug}`, `/blog/[id]`), not one page
+    /// that can be loaded.
+    var hasPlaceholderRoute: Bool {
+        route.range(of: #"<[^>]+>|\{[^}]+\}|/:[A-Za-z_]|\[[A-Za-z_.]+\]"#, options: .regularExpression) != nil
+    }
+
+    /// The page the check after opening the screen wants: its route, unless the route has a placeholder, which no page has.
+    var expectedPath: String? { hasPlaceholderRoute ? nil : route }
 
     var request: String {
         "Show the application screen \"\(name)\": \(description)\n"

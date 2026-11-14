@@ -44,11 +44,22 @@ enum StudioDataFix {
     }
 
     /// An uncaught error or rejection, or an Error the application logged, that says what went wrong. A build error is never
-    /// offered (it is not data), nor is a crash WebKit hid without anything readable logged next to it.
+    /// offered (it is not data), nor is a crash WebKit hid without anything readable logged next to it, nor a module that failed to load.
     static func isFixable(kind: StudioBridge.Event.Kind, detail: String) -> Bool {
         guard kind == .runtimeError || kind == .logged else { return false }
         if detail.hasPrefix("Script error. WebKit hides"), detail.contains("logged no Error object") { return false }
+        if isModuleLoadFailure(detail) { return false }
         return !detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// A module the page could not load: a development server's hot reload that failed, a chunk that is gone. It is the code or the
+    /// server, never a record, and a Vite application shows one right after its own first reload (found on a real project, where it
+    /// cost an assistant call at every open).
+    static func isModuleLoadFailure(_ detail: String) -> Bool {
+        let markers = ["Importing a module script failed", "Failed to fetch dynamically imported module", "error loading dynamically imported module",
+                       "ChunkLoadError", "[vite] Failed to reload"]
+        if markers.contains(where: { detail.contains($0) }) { return true }
+        return detail.contains("Loading chunk") && detail.contains("failed")
     }
 
     /// The identity of an error: its message, without the way it was reported (`console.error:`, `Uncaught`, `Unhandled

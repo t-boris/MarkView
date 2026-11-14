@@ -2951,6 +2951,14 @@ func dataFixChecks() {
     check("REQ-017 routes, idle, blocked resources, browser notes and stand-ins are not offered",
           [StudioBridge.Event.Kind.route, .idle, .blocked, .browser, .standIn, .unsupported, .electron, .recorded].allSatisfy { !StudioDataFix.isFixable(kind: $0, detail: "x") })
     check("REQ-017 an empty error is not offered", !StudioDataFix.isFixable(kind: .runtimeError, detail: "  \n"))
+    check("REQ-017 a module that failed to load is not data, so it is not offered",
+          ["TypeError: Importing a module script failed.\nimportUpdatedModule@http://localhost:5173/@vite/client:1015:30",
+           "TypeError: Failed to fetch dynamically imported module: http://localhost:3000/assets/Page-1a2b.js",
+           "ChunkLoadError: Loading chunk 42 failed.", "Error: Loading chunk app failed. (error: /static/js/app.js)",
+           "console.error: [vite] Failed to reload /src/pages/Settings.tsx. This could be due to syntax errors"]
+              .allSatisfy { !StudioDataFix.isFixable(kind: .runtimeError, detail: $0) && !StudioDataFix.isFixable(kind: .logged, detail: $0) })
+    check("REQ-017 an error that only mentions loading is still offered",
+          StudioDataFix.isFixable(kind: .runtimeError, detail: "TypeError: Cannot read properties of undefined (reading 'name') while loading the page"))
     let hidden = "Script error. WebKit hides the message and stack of this error: it was thrown by a script of another origin or one without an address."
     check("REQ-017 a crash WebKit hid with nothing logged beside it is not offered",
           !StudioDataFix.isFixable(kind: .runtimeError, detail: hidden + " The application logged no Error object with it."))
@@ -3158,6 +3166,8 @@ Task { @MainActor in
     documentChecks()
     routeScannerChecks()
     dataFixChecks()
+    repairChecks()
+    screenBookChecks()
     done.signal()
 }
 while done.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }

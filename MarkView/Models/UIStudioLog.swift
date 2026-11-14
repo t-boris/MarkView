@@ -243,7 +243,9 @@ final class StudioLog: ObservableObject {
     func add(_ kind: StudioLogEntry.Kind, problem: Bool = false, errorKey: String? = nil, _ text: String) {
         let shown = StudioLogFormat.clean(StudioLogFormat.redact(text, redactor: redactor, hashes: secretHashes))
         guard !shown.isEmpty else { return }
-        let entry = StudioLogEntry(id: next, date: Date(), kind: kind, problem: problem, text: shown, errorKey: errorKey)
+        // A message of an earlier page generation is what a reload leaves behind (REQ-019): kept in the log, never a problem.
+        let entry = StudioLogEntry(id: next, date: Date(), kind: kind, problem: problem && !StudioProblem.isNoise(shown), text: shown,
+                                   errorKey: errorKey)
         next += 1
         ring.append(entry)
         guard let file else { return }
