@@ -1,14 +1,16 @@
 # CI build performance
 
-Measured on 2026-11-05. The target is at most five minutes for the complete
-Build & Release workflow, including both Release architectures. Cold builds
-still exceed that target; the task is not complete.
+The target is at most five minutes for the complete Build & Release workflow.
+Since 2026-11-14 the app and installer target Apple Silicon only. Runner queue
+delays and cold builds can still exceed the target.
 
 ## Current implementation
 
-`.github/workflows/build-release.yml` builds arm64 and x86_64 on separate
-standard macOS runners. Swift uses optimized incremental compilation (`-O`)
-for CI. Installer builds retain the project's whole-module optimization.
+`.github/workflows/build-release.yml` builds arm64 on one standard macOS
+runner. Swift uses optimized incremental compilation (`-O`) for CI. Installer
+builds retain the project's whole-module optimization. Ordinary CI app builds
+skip the bundled Cockpit runtime; a dedicated Cockpit check builds and tests it,
+and the signed release explicitly includes it.
 
 DerivedData is cached separately by architecture and Xcode build version. An
 exact cache key also includes the application, Xcode project and project.yml
@@ -33,7 +35,8 @@ gh workflow run build-release.yml --ref main -f verify_cache=true
 | Initial cache population | Both jobs succeeded; arm64 job took 7:26, excluding its queue wait | [First attempt](https://github.com/t-boris/MarkView/actions/runs/41945571979/attempts/1) |
 | Same inputs on fresh runners | Complete workflow approximately 1:25 | [Second attempt](https://github.com/t-boris/MarkView/actions/runs/41945571979/attempts/2) |
 | Changed Swift input, previous cache | Complete workflow 1:20; logs show WindowTitle.swift compiled for both architectures and 405 unchanged inputs restored | [Verification run](https://github.com/t-boris/MarkView/actions/runs/41947055788) |
-| Current configuration | Complete workflow 1:04; both architectures succeeded | [Main run](https://github.com/t-boris/MarkView/actions/runs/41949405510) |
+| Previous two-architecture configuration | Complete workflow 1:04; both architectures succeeded | [Main run](https://github.com/t-boris/MarkView/actions/runs/41949405510) |
+| Apple Silicon only | Build step 1:08; runner work 1:44; 5:34 waiting for a runner | [PR run](https://github.com/t-boris/MarkView/actions/runs/43532575855) |
 
 Workflow duration uses creation to final completion, including runner setup and
 queue delay. Individual job durations are identified separately above. These

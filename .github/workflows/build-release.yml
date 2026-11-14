@@ -51,7 +51,7 @@ jobs:
       - name: Restore unchanged build input timestamps
         run: python3 tools/ci/build-cache-mtimes.py restore "$RUNNER_TEMP/MarkViewDerivedData/source-mtimes.json"
 
-      # Build each architecture on its own runner. Incremental compilation retains
+      # Build Apple Silicon on one runner. Incremental compilation retains
       # Release optimization while allowing Swift to compile files in parallel.
       # The published installer still uses the project's whole-module settings.
       - name: Build Release (${{ matrix.arch }})
