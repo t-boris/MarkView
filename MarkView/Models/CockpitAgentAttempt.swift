@@ -57,15 +57,21 @@ final class CockpitAgentAttempt {
                     try await self.onProgress(value)
                 }, waitForShutdown: { [weak self] in await self?.terminationTask?.value }) { [weak self] reply in self?.finish(reply) }
                 self.ticket = ticket
+                // Controls that cannot be read are replaced by the defaults, which are the restrictive ones.
+                let controls = (try? JSONDecoder().decode(CockpitControls.self, from: Data(task.controls.utf8))) ?? CockpitControls()
+                CockpitAgentRegistry.restrict(ticket, policy: CockpitStepPolicy(controls: controls), shell: pty.shell)
                 terminal.onExit = { [weak self] _ in self?.cancel(reason: "The agent terminal exited before reporting a result.") }
                 terminal.onCockpitTermination = { [weak self] in self?.cancel(reason: "The agent terminal was closed before reporting a result.") }
                 do {
                     let data = try JSONEncoder().encode(task)
                     let assignment = String(decoding: data, as: UTF8.self)
                     let prompt = """
-                    This is one step of a user-approved Copilot Cockpit plan. Work only on the assignment below; the selected controls are advisory instructions.
-                    Follow the controls in the assignment: when fixes are disabled, report findings without fixing them; when deployment is disabled, do not deploy.
-                    When building is disabled, do not claim checks against a newly built version were performed.
+                    This is one step of a user-approved Copilot Cockpit plan. Work only on the assignment below.
+                    The controls in the assignment bind you. MarkView refuses the MarkView tools they forbid and compares the project before and after your step:
+                    when fixes are disabled, report findings without changing source files; when deployment is disabled, do not deploy by any route;
+                    when filing bugs is disabled, describe problems in your report instead. A refused call is not a puzzle to get around: report it as a blocker.
+                    You cannot start or drive other agents through MarkView during a step.
+                    When building is disabled, do not claim checks against a newly built version were performed. Build and checks are instructions only: MarkView cannot check them.
                     If this assignment names qaScenarioID, MarkView will run that exact reviewed QA scenario after your report; do not run it separately.
                     If isFinalStep is true, explicitly evaluate each success criterion against evidence, report unmet criteria as blockers, and report passed only if the criteria are met.
                     Use the available MarkView project and browser tools as appropriate. Once you have finished this step, call markview_cockpit_complete_step
@@ -106,6 +112,7 @@ final class CockpitAgentAttempt {
     private func finish(_ reply: CockpitHostReply) {
         guard let continuation else { return }
         self.continuation = nil
+        let refusals = ticket.map(CockpitAgentRegistry.refusals) ?? []
         ticket = nil
         watchdogTask?.cancel(); watchdogTask = nil
         watchdog?.stop(); watchdog = nil
@@ -117,6 +124,11 @@ final class CockpitAgentAttempt {
         session = nil
         var reported = reply
         reported.result.progress = progress
+        if !refusals.isEmpty {
+            reported.result.detail += (reported.result.detail.isEmpty ? "" : "\n\n")
+                + "MarkView refused \(refusals.count) tool call(s) during this step under the Cockpit controls:\n"
+                + refusals.map { "- " + $0 }.joined(separator: "\n")
+        }
         let finalized = reported
         // The next Temporal step must not start while this terminal's process group is still stopping.
         terminationTask = Task {

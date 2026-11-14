@@ -38,9 +38,74 @@ struct CockpitControls: Codable, Equatable {
     var fixBugs = false
     var build = false
     var deployment = "Disabled"
-    var timeLimit = ""
-    var budgetLimit = ""
-    var fixCycleLimit = ""
+    /// How long the run's agents may work in total, in minutes; nil means no limit.
+    var timeLimitMinutes: Int?
+    /// How many fix cycles the run may use; nil means no limit.
+    var fixCycleLimit: Int?
+
+    init() {}
+
+    /// Runs saved before the limits were enforced hold free text ("2h", "3") and a budget limit that no longer exists.
+    /// Text that is not a clear amount is read as "no limit"; unknown keys are ignored.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: Key.self)
+        createScenarios = try container.decodeIfPresent(Bool.self, forKey: .createScenarios) ?? false
+        checks = try container.decodeIfPresent(String.self, forKey: .checks) ?? ""
+        fileBugs = try container.decodeIfPresent(Bool.self, forKey: .fileBugs) ?? true
+        fixBugs = try container.decodeIfPresent(Bool.self, forKey: .fixBugs) ?? false
+        build = try container.decodeIfPresent(Bool.self, forKey: .build) ?? false
+        deployment = try container.decodeIfPresent(String.self, forKey: .deployment) ?? "Disabled"
+        if let minutes = try container.decodeIfPresent(Int.self, forKey: .timeLimitMinutes) {
+            timeLimitMinutes = minutes > 0 ? minutes : nil
+        } else if let text = try container.decodeIfPresent(String.self, forKey: .timeLimit) {
+            timeLimitMinutes = Self.minutes(in: text)
+        }
+        if let count = try? container.decodeIfPresent(Int.self, forKey: .fixCycleLimit) {
+            fixCycleLimit = count > 0 ? count : nil
+        } else if let text = try? container.decodeIfPresent(String.self, forKey: .fixCycleLimit) {
+            fixCycleLimit = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0 > 0 ? $0 : nil }
+        }
+    }
+
+    private enum Key: String, CodingKey {
+        case createScenarios, checks, fileBugs, fixBugs, build, deployment, timeLimitMinutes, fixCycleLimit
+        /// Only read, from runs saved with a free-text time limit.
+        case timeLimit
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: Key.self)
+        try container.encode(createScenarios, forKey: .createScenarios)
+        try container.encode(checks, forKey: .checks)
+        try container.encode(fileBugs, forKey: .fileBugs)
+        try container.encode(fixBugs, forKey: .fixBugs)
+        try container.encode(build, forKey: .build)
+        try container.encode(deployment, forKey: .deployment)
+        try container.encodeIfPresent(timeLimitMinutes, forKey: .timeLimitMinutes)
+        try container.encodeIfPresent(fixCycleLimit, forKey: .fixCycleLimit)
+    }
+
+    /// "90", "90 min", "2h", "1h30m", "1.5 hours": the minutes they name, or nil when the text is not just an amount of time.
+    static func minutes(in text: String) -> Int? {
+        let value = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty,
+              let pattern = try? NSRegularExpression(pattern: #"(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)?"#) else { return nil }
+        let whole = NSRange(value.startIndex..., in: value)
+        var total = 0.0, covered = 0
+        for match in pattern.matches(in: value, range: whole) {
+            guard let numberRange = Range(match.range(at: 1), in: value), let number = Double(value[numberRange]) else { return nil }
+            let unit = Range(match.range(at: 2), in: value).map { String(value[$0]) } ?? "m"
+            total += unit.hasPrefix("h") ? number * 60 : number
+            covered += match.range.length
+        }
+        // Whatever the amounts do not cover must be only separators ("1h and 30m", "1h, 30m").
+        let rest = value.replacingOccurrences(of: #"(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)?"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "and", with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ,;+"))
+        guard covered > 0, rest.isEmpty else { return nil }
+        let minutes = Int(total.rounded())
+        return minutes > 0 ? minutes : nil
+    }
 }
 
 struct CockpitProductionQA: Codable, Equatable {
