@@ -1,3 +1,17 @@
+# Toolbar "open tab" marks and the Cockpit instrument panel (2026-11-14, planned as 6.19.0)
+
+Boris, dictated: (1) the toolbar buttons of singleton tabs (Git, Build & Deployment, Workflow, End-to-End QA, UI Studio, Cockpit, Discussions) must stay highlighted while their tab is open, because he cannot tell whether it is open without clicking; (2) the Cockpit run should look like a cockpit: altitude, turns, wind strength, distance to destination, levers to switch things on and off, and messages to the supervisor ("curator"). Decisions of 2026-11-14: two-level toolbar marks (current = filled, open in the background = dot); the dials show real values of the run; levers can only switch OFF what the approved plan allows, at once, never beyond it; a message to the supervisor is a note (kept in the run, used in its later answers and in the next step's briefing, never interrupts the running agent). Plan: `~/.claude/plans/calm-whistling-eich.md`; one branch `feat/cockpit-instrument-panel`, one PR, one release.
+
+- [x] Docs: DEC-028 (proposed), REQ-009 (draft), REQ-008 updated, in `copilot-cockpit`.
+- [ ] Toolbar: `open` mark next to `selected` in `ContentView.workspaceHeader` for the 7 singleton buttons; Browser and New Prototype unchanged; accessibility value "open"/"current".
+- [ ] Readings: `Models/CockpitInstruments.swift` (Foundation only) + `tools/tests/cockpit-instruments-tests.sh`.
+- [ ] Levers: `CockpitLiveSwitches` (cuts only), `CockpitStepPolicy.narrowed(by:)`, registry evaluates the narrowed policy on every call, supervisor checks its cut, `CockpitExecution.setSwitches`, event kind `switched`; checks in `cockpit-policy-tests.sh` and `cockpit-run-tests.sh`.
+- [ ] Notes: `CockpitRun.notes`, event kind `note`, supervisor prompt block, next-step briefing, `DictationInput` field.
+- [ ] Views: `CockpitInstrumentPanel`, `CockpitFlightPath` (replaces the flow strip), `CockpitLeverPanel`; the four role cards removed, their facts moved; saved runs parked; labels kept for `tools/tests/cockpit-e2e` and `scenarios.py` updated.
+- [ ] Checks: build; the new scripts, every `cockpit-*-tests.sh` and every script of each workflow whose `paths:` include a changed file; app-probe for the toolbar; cockpit-e2e pictures of every state in light and dark and at a large font scale; CPU of the hidden app during a run; two windows.
+- [ ] Version bump (minor), PR, merge, check the PR's checks right after, `./release.sh --publish` from a clean `origin/main` worktree, report the PR and release links; do not install; remove my worktrees.
+- Not included: a graceful hold after the current step and a Resume (the runtime accepts only pause, stop and retry), live change of limits and of create scenarios / build / checks, pasting a note into the running agent's terminal.
+
 # Copilot Cockpit: an editable plan screen and a run control room (2026-11-14, 6.18.0)
 
 Boris, with a screenshot: the plan "looks terrible" (a text scroll, only `Claude Code` per step, raw JSON for QA, nothing editable) and the run is just as unclear although it may last days. Decisions of 2026-11-14: a list of runs on the left plus two screens; the model is chosen for every step, the supervisor and the planner (the planner may propose one per step); macOS notifications and a silence warning (the Mac is not kept awake). PR #404 merged (d6d1b4a), branch `feat/cockpit-plan-editor`.
