@@ -341,11 +341,9 @@ class WorkspaceManager: ObservableObject {
         if store.runs.isEmpty { operationConsoleVisible = false }
     }
 
-    /// The left panel. A change the user makes is also the default for windows opened later; see `showDocumentOnly()`.
-    @Published var showFileTree: Bool = true {
-        didSet { if remembersFileTreeChoice { UserDefaults.standard.set(showFileTree, forKey: "layout.showFileTree") } }
-    }
-    private var remembersFileTreeChoice = true
+    /// The left panel. Every window starts with it closed, so a new window shows the center panel only. The window keeps its own
+    /// choice in its saved session; it is not a default for other windows.
+    @Published var showFileTree: Bool = false
     @Published var showTOC: Bool = false {
         didSet { UserDefaults.standard.set(showTOC, forKey: "layout.showTOC.v3") }
     }
@@ -387,21 +385,12 @@ class WorkspaceManager: ObservableObject {
     }
 
     /// Hide the file tree and the agents panel of this window and leave the document, as for a file opened from Finder.
-    /// The panels come back with their usual toggles. It is the window's state only: unlike the user hiding the left
-    /// panel, it is not remembered as the default for other windows or the next launch.
+    /// The panels come back with their usual toggles.
     func showDocumentOnly() {
-        setFileTreeForThisWindow(false)
+        showFileTree = false
         terminalVisible = false
         agentsVisible = false
         showCenter = true
-    }
-
-    /// The left panel of this window only: not the default for other windows. Used where the app, not the user, sets it
-    /// (a file opened from Finder, a window restored after a restart).
-    private func setFileTreeForThisWindow(_ visible: Bool) {
-        remembersFileTreeChoice = false
-        showFileTree = visible
-        remembersFileTreeChoice = true
     }
 
     /// Files opened from outside the app on their own (Finder, Quick Action): the documents, nothing around them.
@@ -678,9 +667,6 @@ class WorkspaceManager: ObservableObject {
 
         // Restore layout from UserDefaults
         let ud = UserDefaults.standard
-        if ud.object(forKey: "layout.showFileTree") != nil {
-            showFileTree = ud.bool(forKey: "layout.showFileTree")
-        }
         if ud.object(forKey: "layout.showTOC.v3") != nil {
             showTOC = ud.bool(forKey: "layout.showTOC.v3")
         }
@@ -1266,7 +1252,7 @@ class WorkspaceManager: ObservableObject {
             layout.featureStage = FeatureStage.stored(panels.stage)
             // A session saved before BUG-120 has none: the window keeps the starting choice it was created with.
             if let backdrop = panels.welcomeBackdrop { layout.welcomeBackdrop = WelcomeBackdrop.stored(backdrop) }
-            setFileTreeForThisWindow(panels.showFiles)
+            showFileTree = panels.showFiles
             showTOC = panels.contentsVisible ?? false
             showCenter = panels.showCenter ?? true
             let oldVisible = panels.terminalVisible ?? panels.showNavigator
