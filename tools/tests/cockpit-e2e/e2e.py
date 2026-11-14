@@ -7,11 +7,16 @@ For every scenario: a fresh fixture project, a COPY of the app (own bundle id, e
 transparent and click-through), `fake-claude.py` as the `claude` command, a probe script that clicks through the Cockpit tab, and
 checks on the files the app and the fake agent left behind. See README.md.
 """
-import argparse, glob, json, os, plistlib, shutil, signal, subprocess, sys, threading, time
+import argparse, glob, json, os, plistlib, shlex, shutil, signal, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 BUNDLE_ID = "com.markview.CockpitE2E"
+
+
+# Extra defaults for the app copy (`--app-args "-AppleInterfaceStyle Light -appFontScalePercent 150"`), to look at a screen in another
+# appearance or at a larger text size. Empty by default.
+EXTRA_APP_ARGS = []
 
 
 def sh(*args, **kw):
@@ -159,7 +164,7 @@ def run_scenario(sc, app, dylib, work, keep):
         hook.start()
     with open(os.path.join(ctx.out, "stdout.txt"), "w") as out:
         proc = subprocess.Popen([os.path.join(app, "Contents/MacOS/MarkView"), "-ApplePersistenceIgnoreState", "YES",
-                                 "-settings.cli.claudePath", claude], env=env, stdout=out, stderr=subprocess.STDOUT, cwd=ctx.dir)
+                                 "-settings.cli.claudePath", claude] + EXTRA_APP_ARGS, env=env, stdout=out, stderr=subprocess.STDOUT, cwd=ctx.dir)
         try:
             proc.wait(timeout=sc["seconds"] + 20)
         except subprocess.TimeoutExpired:
@@ -188,8 +193,10 @@ def main():
     parser.add_argument("--app", required=True, help="a Debug build of MarkView.app (it is copied, never run in place)")
     parser.add_argument("--work", default="/tmp/cockpit-e2e")
     parser.add_argument("--keep", action="store_true")
+    parser.add_argument("--app-args", default="", help='extra defaults for the app copy, e.g. "-AppleInterfaceStyle Light -appFontScalePercent 150"')
     parser.add_argument("names", nargs="+")
     args = parser.parse_args()
+    EXTRA_APP_ARGS.extend(shlex.split(args.app_args))
     import scenarios
     os.makedirs(args.work, exist_ok=True)
     app, dylib = prepare_app(args.app, args.work)

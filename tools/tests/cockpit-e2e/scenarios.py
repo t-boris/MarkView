@@ -9,6 +9,9 @@ S11  the supervisor fails (exit, garbage, once): the agent gets the instruction 
 S12  a wrong ticket, from inside a step and from a process outside any step
 S13  a step's model reaches the agent's command line; the run records a timeline with times
 S14  pictures of both screens (plan, step editor, running, finished, each tab) for a look; checks only that the run finished
+S15  the instrument panel: a lever switched off mid-step refuses the agent's next call, a note reaches the supervisor and the next step
+S16  the instrument panel with a failed step and a paused run (lamps, banners, Pause)
+S17  the toolbar marks of the singleton tabs: current, open in the background, closed
 """
 import glob, json, os, re, subprocess, time
 
@@ -393,6 +396,130 @@ def s14_verify(ctx):
               [n for n in wanted if not os.path.exists(os.path.join(ctx.out, n + ".png"))])
 
 
+# S15 -----------------------------------------------------------------------------------------------------------------------------
+
+S15_NOTE = "Prefer the dash, and keep the change small."
+S15_QUESTION = "Comma or dash for the greeting?"
+S15_PLAN = plan(
+    step("Cruise", [
+        {"progress": {"passNumber": 1, "activity": "Cruising", "latestChange": "none", "bugs": [], "fixes": [], "blockers": []}},
+        {"sleep": 40},
+        {"call": "markview_create_bug", "args": {"title": "A bug the lever should refuse", "description": "Filed after the lever was switched off."}},
+        ask(S15_QUESTION, options=["comma", "dash"], proposed="comma"),
+        done("Cruised.")]),
+    step("Land", [done("Landed.")]))
+
+BIG = "size 2200 2400"
+
+
+def s15_script(ctx):
+    cockpit = ["wait 6", "snap cp-running", "dump %s/dump-cp-running.txt" % ctx.out,
+               "press label:File bugs", "wait 2", "snap cp-lever-cut", "dump %s/dump-cp-lever.txt" % ctx.out,
+               "settext label:Note to the supervisor | " + S15_NOTE, "wait 1", "press label:Send note", "wait 2", "snap cp-note-sent",
+               "dump %s/dump-cp-note.txt" % ctx.out]
+    return script(opening(ctx, "Fly the scripted route.") + [BIG, "wait 1"] + propose_and_approve(ctx) + cockpit
+                  + finish(ctx, "finished", 200) + ["snap cp-finished"] + quit_app())
+
+
+def s15_verify(ctx):
+    run = the_run(ctx)
+    controls = (run or {}).get("plan", {}).get("controls", {})
+    ctx.check("the approved plan still has filing bugs on (a lever never edits the plan)", controls.get("fileBugs") is True, controls)
+    ctx.check("the run kept the lever as a cut", ((run or {}).get("switches") or {}).get("fileBugsCut") is True, (run or {}).get("switches"))
+    events = (run or {}).get("events") or []
+    ctx.check("the timeline says the lever was switched off", any(e["kind"] == "switched" and "Filing bugs" in e["text"] for e in events),
+              [e["text"] for e in events if e["kind"] == "switched"])
+    refused = ctx.result_of("markview_create_bug")
+    ctx.check("the agent's next call was refused at the gate, in the middle of the step",
+              bool(refused) and refused["exit"] != 0 and "Filing bugs is turned off" in refused["output"], refused)
+    ctx.check("the refusal is in the run's timeline", any(e["kind"] == "refusal" for e in events), [e["kind"] for e in events][:12])
+    notes = (run or {}).get("notes") or []
+    ctx.check("the note is saved with its text", len(notes) == 1 and notes[0]["text"] == S15_NOTE, notes)
+    ctx.check("the timeline says a note was sent", any(e["kind"] == "note" for e in events), [e["kind"] for e in events][:12])
+    ctx.check("the note did not interrupt the agent (the step went on to pass)", all(x["status"] == "passed" for x in (run or {}).get("steps", [])), "")
+    prompt = ctx.supervisor_prompt(1)
+    ctx.check("the supervisor's prompt carries the note", "Notes from the person who supervises this run" in prompt and S15_NOTE in prompt, prompt[-400:])
+    prompts = ctx.step_prompts()
+    ctx.check("the next step's briefing carries the note, the first step's does not",
+              len(prompts) >= 2 and S15_NOTE in prompts[1] and S15_NOTE not in prompts[0], [len(p) for p in prompts])
+    for name in ("cp-running", "cp-lever-cut", "cp-note-sent", "cp-finished"):
+        ctx.check("picture " + name, os.path.exists(os.path.join(ctx.out, name + ".png")), "")
+    lever = ctx.dump("dump-cp-lever.txt")
+    ctx.check("the lever panel shows File bugs off", "File bugs" in lever, [l for l in lever.splitlines() if "File bugs" in l][:3])
+    end = ctx.dump("dump-end.txt")
+    ctx.check("the radio panel counts the question", "1 asked" in end, [l for l in end.splitlines() if "asked" in l][:2])
+
+
+# S16 -----------------------------------------------------------------------------------------------------------------------------
+
+S16_PLAN = plan(
+    step("Doomed", [
+        {"progress": {"passNumber": 1, "activity": "About to fail", "latestChange": "none", "bugs": [], "fixes": [], "blockers": ["Nothing works"]}},
+        {"complete": {"passed": False, "detail": "The check failed.", "build": ""}}]),
+    step("Never reached", [done("Unreachable.")]))
+
+
+def s16_script(ctx):
+    return script(opening(ctx, "Fly into trouble.") + [BIG, "wait 1"] + propose_and_approve(ctx)
+                  + ["waitfor 90 has:A step failed", "wait 3", "snap cp-failed", "dump %s/dump-cp-failed.txt" % ctx.out]
+                  + quit_app())
+
+
+def s16_verify(ctx):
+    run = only_run(ctx)
+    steps = [x["status"] for x in (run or {}).get("steps", [])]
+    ctx.check("the first step failed and the second was never started", steps[:1] == ["failed"] and "passed" not in steps, steps)
+    ctx.check("picture cp-failed", os.path.exists(os.path.join(ctx.out, "cp-failed.png")), "")
+    dump = ctx.dump("dump-cp-failed.txt")
+    lamp = [l for l in dump.splitlines() if "label=Step Failed" in l]
+    ctx.check("the banner is shown and the STEP FAILED lamp reads 'on'", "A step failed" in dump and bool(lamp) and "Step Failed: on" in lamp[0], lamp[:2])
+    ctx.check("the PAUSED lamp is on too (a failed step pauses the run) and LIMIT is off",
+              any("Paused: on" in l for l in dump.splitlines()) and any("Limit: off" in l for l in dump.splitlines()), [l for l in dump.splitlines() if "label=Paused" in l or "label=Limit" in l])
+
+
+# S17 -----------------------------------------------------------------------------------------------------------------------------
+
+TOOLBAR = ("Git", "Build & Deployment (⌃⌘D)", "Workflow", "End-to-End QA (⌘8)", "UI Studio (⌘7)", "Copilot Cockpit", "Discussions (⌃⌘I)", "Tasks")
+
+
+def s17_script(ctx):
+    def look(name):
+        return ["wait 2", "dump %s/dump-%s.txt" % (ctx.out, name), "snap %s" % name]
+    lines = ["wait 2", "key", "openurl " + ctx.fx, "wait 4", "picktitle " + os.path.basename(ctx.fx), "size 1280 900"]
+    lines += look("tb-none")
+    lines += ["press label:Copilot Cockpit", "waitfor 20 label:Propose plan"] + look("tb-cockpit")
+    lines += ["press label:Git"] + look("tb-git-cockpit")
+    lines += ["press label:Tasks"] + look("tb-tasks")
+    lines += ["press label:Git"] + look("tb-git-again")
+    # The first "Close" button of the tab strip belongs to the first tab, the Cockpit.
+    lines += ["press label:Close"] + look("tb-cockpit-closed")
+    return script(lines + quit_app())
+
+
+def toolbar_value(ctx, dump, label):
+    for line in ctx.dump(dump).splitlines():
+        if line.startswith("AXButton | label=%s |" % label):
+            return line.rsplit("value=", 1)[1]
+    return None
+
+
+def s17_verify(ctx):
+    steps = [
+        ("dump-tb-none.txt", "nothing is open", {}),
+        ("dump-tb-cockpit.txt", "the Cockpit tab is the current one", {"Copilot Cockpit": "current"}),
+        ("dump-tb-git-cockpit.txt", "Git is current, the Cockpit tab stays open", {"Copilot Cockpit": "open", "Git": "current"}),
+        ("dump-tb-tasks.txt", "the Tasks area hides both tabs: both are only open", {"Copilot Cockpit": "open", "Git": "open"}),
+        ("dump-tb-git-again.txt", "choosing Git again shows its tab", {"Copilot Cockpit": "open", "Git": "current"}),
+        ("dump-tb-cockpit-closed.txt", "closing the Cockpit tab clears its mark", {"Git": "current"}),
+    ]
+    for dump, title, want in steps:
+        # "Tasks" is an area, not a tab: it has its own selected state and is not part of this mark.
+        got = {label: toolbar_value(ctx, dump, label) for label in TOOLBAR if label != "Tasks"}
+        ctx.check("%s (%s)" % (title, dump), all((got[label] or "") == want.get(label, "") for label in got), got)
+    for name in ("tb-none", "tb-cockpit", "tb-git-cockpit", "tb-tasks", "tb-git-again", "tb-cockpit-closed"):
+        ctx.check("picture " + name, os.path.exists(os.path.join(ctx.out, name + ".png")), "")
+
+
 ALL.update({
     "S7": supervisor_scenario("S7", "an answered question is logged and shown", [S7_PLAN], verify=s7_verify),
     "S8": supervisor_scenario("S8", "a question about deploying is out of scope", [S8_PLAN], verify=s8_verify),
@@ -402,4 +529,7 @@ ALL.update({
     "S12": supervisor_scenario("S12", "wrong tickets", [S12_PLAN], verify=s12_verify, during=s12_during),
     "S13": supervisor_scenario("S13", "a step's model and the run's timeline", [S13_PLAN], verify=s13_verify),
     "S14": {"name": "S14", "title": "pictures of both screens", "seconds": 220, "plans": [S14_PLAN], "script": s14_script, "verify": s14_verify, "during": None},
+    "S15": {"name": "S15", "title": "levers and notes on the instrument panel", "seconds": 300, "plans": [S15_PLAN], "script": s15_script, "verify": s15_verify, "during": None},
+    "S17": {"name": "S17", "title": "toolbar marks of the singleton tabs", "seconds": 120, "plans": [], "script": s17_script, "verify": s17_verify, "during": None},
+    "S16": {"name": "S16", "title": "a failed step on the instrument panel", "seconds": 200, "plans": [S16_PLAN], "script": s16_script, "verify": s16_verify, "during": None},
 })
