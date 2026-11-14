@@ -2,12 +2,19 @@
 
 Boris, dictated: at the top of the Cockpit, where the name of the run is written, show the AI's own understanding of what the flow is, not the text he originally typed; "let the AI decide what is written". Plan: `~/.claude/plans/calm-whistling-eich.md`; branch `feat/cockpit-ai-title`, one PR, one release.
 
-- [ ] Model: optional `CockpitPlan.title` (omitted when nil, so the fingerprint of every saved plan is unchanged), `displayTitle` (title, else the goal's first line), one shared first-line helper.
-- [ ] Planner: `title` in the schema (required) and in the prompt (3 to 8 words, the goal's language, not a copy of the goal, kept on a refinement); `parse` cleans it and never fails the plan over it.
-- [ ] Views: run header (goal as a hover tooltip), run list row, QA evidence line, plan screen header, notification body.
-- [ ] Checks: planning, plan and run scripts; e2e S18 (title and not the goal in the header and the list; no title falls back to the goal's first line); pictures dark and light.
-- [ ] 6.20.0: PR, merge, release, DMG; not installed until Boris says "reinstall".
+- [x] Model: optional `CockpitPlan.title` (omitted when nil, so the fingerprint of every saved plan is unchanged), `displayTitle` (title, else the goal's first line), one shared first-line helper (`CockpitText.firstLine`, three copies removed).
+- [x] Planner: `title` in the schema (required) and in the prompt (3 to 8 words, the goal's language, not a copy of the goal, kept on a refinement); `parse` cleans it and never fails the plan over it.
+- [x] Views: run header (goal as a hover tooltip), run list row, QA evidence line, plan screen header, notification body.
+- [x] Checks: planning, plan and run scripts extended; every `cockpit-*-tests.sh` (with the runtime integration and watchdog), the qa-tests, feature-review-gate, qa-retention checks and every script of the pdf-book, pdf-reader and themes workflows; e2e S18 (new), S5 (no title falls back to the goal), S7, S13-S17; pictures of the plan screen and the finished run; one real planning call (Russian goal, the app's own schema and prompt) returned a Russian title.
+- [x] 6.20.0: PR #406 merged (`603fbbf`); its four checks (cockpit, pdf-book, pdf-reader, themes) and `Build & Release` and `Copilot Cockpit Checks` of the merge commit passed. Release v6.20.0 published from the merged main (signed, notarized, stapled, `spctl` accepts it): https://github.com/t-boris/MarkView/releases/tag/v6.20.0 (Latest); copy at `build/MarkView-6.20.0.dmg`.
+- [ ] Install 6.20.0: waiting for Boris's "reinstall" (the running app is not touched). 6.19.0 is also not installed yet.
 - Not included: a manual rename field; AI titles for runs saved before this release (they keep the first line of their goal).
+
+Review (2026-11-14):
+- A title is a suggestion: a missing, blank or wrong-typed one gives no title and the plan still parses (same rule as a proposed model the agent does not offer).
+- The e2e dump shows static text as `value=` and buttons as `label=`; my first S5/S18 checks looked for `label=` and failed on a working feature. The hover tooltip is not in the dump, so the check is "the goal text is not on the run screen".
+- I staged a Python bytecode file with `git add -A` and removed it in a second commit; stage named files after an e2e run.
+- Not hand-checked: the installed app, a run saved before this release reopened (by code and by S5's no-title path only), a refinement keeping the title on a real model (the prompt asks; not run), whether the title reads well for long mixed-language goals.
 
 # Toolbar "open tab" marks and the Cockpit instrument panel (2026-11-14, 6.19.0)
 
