@@ -23,15 +23,18 @@ type Step struct {
 	Assignment          string `json:"assignment"`
 	CompletionCondition string `json:"completionCondition"`
 	Prerequisite        bool   `json:"prerequisite"`
+	QAScenarioID        string `json:"qaScenarioID,omitempty"`
 }
 type Start struct {
 	Fingerprint string `json:"fingerprint"`
 	Step        int    `json:"step"`
 }
 type Result struct {
-	Passed bool   `json:"passed"`
-	Detail string `json:"detail"`
-	Build  string `json:"build"`
+	Passed     bool   `json:"passed"`
+	Detail     string `json:"detail"`
+	Build      string `json:"build"`
+	ScenarioID string `json:"scenarioID,omitempty"`
+	QARunID    string `json:"qaRunID,omitempty"`
 }
 type Entry struct {
 	StepID string `json:"stepID"`

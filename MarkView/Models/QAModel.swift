@@ -52,6 +52,7 @@ final class QAModel: ObservableObject {
     let archive = QARunArchive()
 
     private var saveTask: Task<Void, Never>?
+    private var cockpitReservation: UUID?
     private var writeTail: Task<Void, Never>?
     private var writesPending = 0
     private var diskVersions: [String: QAScenario] = [:]
@@ -81,6 +82,7 @@ final class QAModel: ObservableObject {
     /// Points the model at a project. The scenarios are read off the main thread.
     func attach(root newRoot: URL?) {
         guard newRoot != root else { return }
+        cockpitReservation = nil
         flush()
         run.releaseSessions()
         generation?.cancel()
@@ -202,7 +204,17 @@ final class QAModel: ObservableObject {
     func withdrawApproval() { gate = nil }
 
     /// Starts the check of the chosen branches. Only an approved plan runs; the run takes its own copy of the scenario and the approval.
-    func startRun(from point: QAStartPoint? = nil) {
+    func reserveForCockpit() -> UUID? {
+        guard cockpitReservation == nil, !run.isRunning else { return nil }
+        let token = UUID(); cockpitReservation = token; return token
+    }
+
+    func releaseCockpitReservation(_ token: UUID) {
+        if cockpitReservation == token { cockpitReservation = nil }
+    }
+
+    func startRun(from point: QAStartPoint? = nil, cockpitToken: UUID? = nil) {
+        guard cockpitReservation == cockpitToken else { return }
         guard let current, let plan, let gate, let root, gate.canPrepare, !run.isRunning else { return }
         // A native check drives and watches another application, which the system has to allow first (the Run panel says what is missing).
         if current.appKind == .nativeMacOS && QANativePermissions.current != .granted { return }
@@ -214,9 +226,14 @@ final class QAModel: ObservableObject {
     /// Reads the saved logins (user names and hosts only) off the main thread.
     func loadSavedLogins() {
         Task { [weak self] in
-            let logins = await Task.detached(priority: .utility) { BrowserPasswordStore.shared.all() }.value
-            self?.savedLogins = logins
+            await self?.refreshSavedLogins()
         }
+    }
+
+    func refreshSavedLogins() async {
+        let logins = await Task.detached(priority: .utility) { BrowserPasswordStore.shared.all() }.value
+        savedLogins = logins
+        refreshGate()
     }
 
     /// Saves a login in the browser's Keychain store (the one a scenario's login reference points into) off the main thread and refreshes the list.

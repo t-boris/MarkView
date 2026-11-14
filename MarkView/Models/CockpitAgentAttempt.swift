@@ -37,6 +37,9 @@ final class CockpitAgentAttempt {
                     let assignment = String(decoding: data, as: UTF8.self)
                     let prompt = """
                     This is one step of a user-approved Copilot Cockpit plan. Work only on the assignment below; the selected controls are advisory instructions.
+                    Follow the controls in the assignment: when fixes are disabled, report findings without fixing them; when deployment is disabled, do not deploy.
+                    When building is disabled, do not claim checks against a newly built version were performed.
+                    If this assignment names qaScenarioID, MarkView will run that exact reviewed QA scenario after your report; do not run it separately.
                     Use the available MarkView project and browser tools as appropriate. Once you have finished this step, call markview_cockpit_complete_step
                     with project_folder \(root.path), ticket \(ticket.uuidString), passed, detail (evidence and blockers), and build (the build identifier or an empty string).
                     Report whether the completion condition was actually met. Your terminal session ends after your report; do not start subsequent steps.

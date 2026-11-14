@@ -396,6 +396,7 @@
 		C736E5E1FFFB0156CDA82E01 /* AgentUsageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB9D81DA338A806D3B356A8 /* AgentUsageViews.swift */; };
 		C78F412DCE44DBB2D9137206 /* FeatureAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19E031440F6D9721BE887B99 /* FeatureAI.swift */; };
 		C833761DF72AB6FA2DC6AFF8 /* WelcomeBackdropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F6E10AE97C18F7EEB04788 /* WelcomeBackdropView.swift */; };
+		C8D761DED15082703FA8E5C6 /* CockpitQAAttempt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB7FC2BBEC8B6870ED7B974 /* CockpitQAAttempt.swift */; };
 		C9523B5782A018A9C09C78E7 /* PrototypeReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA6120BA85CB715E5E810134 /* PrototypeReference.swift */; };
 		C9956E7AE6B4CD7C52DC8548 /* SemanticModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E489E1DDD498F75FC258CB3 /* SemanticModel.swift */; };
 		CA30E1B3588833C97092A0AF /* PrototypeHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D0CE8C153AC9E7F3B14145B /* PrototypeHandoff.swift */; };
@@ -459,6 +460,7 @@
 		E4180A4A4BFB984356C01CEC /* RemoteChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1ED1471F59C8FDD227A510 /* RemoteChannel.swift */; };
 		E479DD4A1D4057828DE86630 /* PTYWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0E8670B2DD2EE667B3BDF94 /* PTYWriter.swift */; };
 		E4EDBA7F9B7901B37F4550E1 /* KaTeX_Size1-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = E07A192D1CE2A501179DD937 /* KaTeX_Size1-Regular.woff2 */; };
+		E50AB0F829D3286EF731D88F /* CockpitQAReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C35CD22C10D06C9DB15AA4 /* CockpitQAReview.swift */; };
 		E59346E0530802C409358F0A /* DatabaseCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6816210E785FAC871633C655 /* DatabaseCardView.swift */; };
 		E5ED77DE6531880AA6E5FF7E /* QARunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D57F87F4A8D759C0EF2BB08 /* QARunner.swift */; };
 		E606218C0130063A42DC52BF /* FeatureIngest.swift in Sources */ = {isa = PBXBuildFile; fileRef = F05A80044FC2B47870FD0C5A /* FeatureIngest.swift */; };
@@ -545,6 +547,7 @@
 		0A28452C289DFE5AEBFA6D3D /* FileTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTransfer.swift; sourceTree = "<group>"; };
 		0BE4C0AC709F37DFC849F5F9 /* KaTeX_SansSerif-Italic.woff2 */ = {isa = PBXFileReference; path = "KaTeX_SansSerif-Italic.woff2"; sourceTree = "<group>"; };
 		0C4D3C742B40A8271FF18684 /* prism-java.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-java.min.js"; sourceTree = "<group>"; };
+		0CB7FC2BBEC8B6870ED7B974 /* CockpitQAAttempt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitQAAttempt.swift; sourceTree = "<group>"; };
 		0D546EC06B2191E8ABAC9DD0 /* markview-state.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-state.js"; sourceTree = "<group>"; };
 		0D54B115714DE50CAF6CDA0F /* UIStudioRedaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioRedaction.swift; sourceTree = "<group>"; };
 		0D57F87F4A8D759C0EF2BB08 /* QARunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QARunner.swift; sourceTree = "<group>"; };
@@ -794,6 +797,7 @@
 		83713ABBC45576A41F1E8B61 /* WorkflowFlowPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowFlowPicker.swift; sourceTree = "<group>"; };
 		83829D1752CE48AE3223142A /* UIStudioEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioEvidence.swift; sourceTree = "<group>"; };
 		83A467FF2FEC9862D7D5B972 /* markview-init.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-init.js"; sourceTree = "<group>"; };
+		83C35CD22C10D06C9DB15AA4 /* CockpitQAReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitQAReview.swift; sourceTree = "<group>"; };
 		83C8AE85C96F4CB7538464D4 /* QATriage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QATriage.swift; sourceTree = "<group>"; };
 		83D82BEDE854FFB9C40E29EC /* WindowSessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSessionController.swift; sourceTree = "<group>"; };
 		8421855E8332BB08B24E2153 /* PrototypeFidelity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeFidelity.swift; sourceTree = "<group>"; };
@@ -1146,6 +1150,8 @@
 				BC4F236A394AFAFFCD86CAED /* CockpitHostBridge.swift */,
 				5C68AEF16B013848A18B3396 /* CockpitPlan.swift */,
 				544FA79A3A63EC5D3235A7FF /* CockpitPlanning.swift */,
+				0CB7FC2BBEC8B6870ED7B974 /* CockpitQAAttempt.swift */,
+				83C35CD22C10D06C9DB15AA4 /* CockpitQAReview.swift */,
 				F8EF6DAAB291A58DCE6D2A7B /* CockpitResults.swift */,
 				AC6819622B5D2A65E58893A1 /* CockpitRun.swift */,
 				B5612E561DAD2527239AB27E /* CockpitRunStore.swift */,
@@ -1949,6 +1955,8 @@
 				0DDA41C1AED38C45D3DD8D35 /* CockpitHostBridge.swift in Sources */,
 				DB08F1DB1DB4D8C8FDB87EAA /* CockpitPlan.swift in Sources */,
 				505E407B6DE7B607F9EC823B /* CockpitPlanning.swift in Sources */,
+				C8D761DED15082703FA8E5C6 /* CockpitQAAttempt.swift in Sources */,
+				E50AB0F829D3286EF731D88F /* CockpitQAReview.swift in Sources */,
 				DC71A8776EC3232A422811B4 /* CockpitResults.swift in Sources */,
 				5579B5AB66F8963B1955B045 /* CockpitRun.swift in Sources */,
 				3BA06ECBFADD3E1E89187AB1 /* CockpitRunStore.swift in Sources */,

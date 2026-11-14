@@ -16,6 +16,8 @@ struct CockpitRun: Codable, Equatable {
         var passed: Bool
         var detail: String
         var build: String
+        var scenarioID: String? = nil
+        var qaRunID: String? = nil
     }
 
     private(set) var plan: CockpitPlan
@@ -42,9 +44,9 @@ struct CockpitRun: Codable, Equatable {
     }
 
     /// A failed prerequisite never advances; the user can retry after resolving the issue.
-    mutating func completeCurrent(passed: Bool, detail: String, build: String) -> Bool {
+    mutating func completeCurrent(passed: Bool, detail: String, build: String, scenarioID: String? = nil, qaRunID: String? = nil) -> Bool {
         guard status == .running, let index = currentIndex, steps.indices.contains(index), steps[index].status == .running else { return false }
-        results.append(StepResult(plan: plan, stepID: steps[index].stepID, passed: passed, detail: detail, build: build))
+        results.append(StepResult(plan: plan, stepID: steps[index].stepID, passed: passed, detail: detail, build: build, scenarioID: scenarioID, qaRunID: qaRunID))
         steps[index].status = passed ? .passed : .failed
         steps[index].detail = detail
         if !passed {

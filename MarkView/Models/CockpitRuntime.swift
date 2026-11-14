@@ -4,7 +4,7 @@ import Darwin
 
 struct CockpitTLSFiles: Codable { var ca: String; var cert: String; var key: String }
 struct CockpitEndpoint: Codable { var address: String; var tls: CockpitTLSFiles }
-struct CockpitTemporalStep: Codable { var id: String; var title: String; var agent: String; var assignment: String; var completionCondition: String; var prerequisite: Bool }
+struct CockpitTemporalStep: Codable { var id: String; var title: String; var agent: String; var assignment: String; var completionCondition: String; var prerequisite: Bool; var qaScenarioID: String? }
 struct CockpitTemporalPlan: Codable {
     var fingerprint: String
     var goal: String
@@ -19,7 +19,7 @@ struct CockpitTemporalPlan: Codable {
         goal = plan.goal
         controls = String(decoding: try encoder.encode(plan.controls), as: UTF8.self)
         successCriteria = plan.successCriteria
-        steps = plan.steps.map { CockpitTemporalStep(id: $0.id.uuidString, title: $0.title, agent: $0.agent, assignment: $0.assignment, completionCondition: $0.completionCondition, prerequisite: $0.isPrerequisite) }
+        steps = plan.steps.map { CockpitTemporalStep(id: $0.id.uuidString, title: $0.title, agent: $0.agent, assignment: $0.assignment, completionCondition: $0.completionCondition, prerequisite: $0.isPrerequisite, qaScenarioID: $0.qaScenarioID) }
     }
 }
 struct CockpitTemporalApproval: Codable { var fingerprint: String; var step: Int }

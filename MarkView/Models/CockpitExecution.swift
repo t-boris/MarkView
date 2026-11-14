@@ -33,7 +33,10 @@ final class CockpitExecution: ObservableObject {
     private var queue = ""
     private var poll: Task<Void, Never>?
     private var starting = false
+    private var shutdownRequested = false
     private var record: CockpitRun?
+    var isActive: Bool { starting || worker != nil }
+    var runID: UUID? { record?.id }
 
     init(root: URL, service: CockpitService, handler: @escaping @Sendable (CockpitHostTask) async -> CockpitHostReply) {
         self.root = root
@@ -42,9 +45,11 @@ final class CockpitExecution: ObservableObject {
     }
 
     func start(plan: CockpitPlan, approval: CockpitApproval, step: Int) async throws {
+        try Task.checkCancellation()
         guard !starting, worker == nil else { throw Failure.alreadyRunning }
         guard approval.permits(plan), plan.steps.indices.contains(step) else { throw Failure.approval }
         starting = true
+        shutdownRequested = false
         defer { starting = false }
         let temporalPlan = try CockpitTemporalPlan(plan)
         var initial = CockpitRun(plan: plan)
@@ -54,13 +59,20 @@ final class CockpitExecution: ObservableObject {
         state = nil
         workflowID = "cockpit-" + UUID().uuidString.lowercased()
         queue = "cockpit-" + UUID().uuidString.lowercased()
+        var approvalMayHaveBeenSent = false
         do {
+            try Task.checkCancellation()
             let bridge = try CockpitHostBridge(handler: handler)
             self.bridge = bridge
             endpoint = try await service.start()
+            guard !shutdownRequested, !Task.isCancelled else { throw CancellationError() }
             worker = try await service.worker(socket: bridge.path, queue: queue)
+            guard !shutdownRequested, !Task.isCancelled else { throw CancellationError() }
             _ = try await request("start", plan: temporalPlan)
+            guard !shutdownRequested, !Task.isCancelled else { throw CancellationError() }
+            approvalMayHaveBeenSent = true
             _ = try await request("approve", approval: CockpitTemporalApproval(fingerprint: temporalPlan.fingerprint, step: step))
+            guard !shutdownRequested, !Task.isCancelled else { throw CancellationError() }
             error = nil
             poll = Task { [weak self] in
                 while !Task.isCancelled, let self {
@@ -82,7 +94,11 @@ final class CockpitExecution: ObservableObject {
                 }
             }
         } catch {
-            if var record { record.stop(); try? await save(record); self.record = record }
+            if var record {
+                if approvalMayHaveBeenSent { record.prepareAfterRestart() } else { record.stop() }
+                try? await save(record)
+                self.record = record
+            }
             releaseWorker()
             throw error
         }
@@ -91,6 +107,13 @@ final class CockpitExecution: ObservableObject {
     func control(_ command: String) async throws {
         guard ["pause", "stop", "retry"].contains(command), worker != nil else { throw Failure.unavailable }
         _ = try await request("control", command: command)
+    }
+
+    /// Closing a project must disconnect the host and stop its worker immediately.
+    func shutdown() {
+        shutdownRequested = true
+        poll?.cancel(); poll = nil
+        releaseWorker()
     }
 
     private func request(_ action: String, plan: CockpitTemporalPlan? = nil, approval: CockpitTemporalApproval? = nil, command: String? = nil) async throws -> Data {
@@ -114,7 +137,8 @@ final class CockpitExecution: ObservableObject {
         for entry in state.results.dropFirst(next.results.count) {
             if next.status == .paused { _ = next.retryPrerequisite() }
             guard let index = next.currentIndex, next.steps[index].stepID.uuidString == entry.stepID,
-                  next.completeCurrent(passed: entry.result.passed, detail: entry.result.detail, build: entry.result.build) else { throw Failure.unavailable }
+                  next.completeCurrent(passed: entry.result.passed, detail: entry.result.detail, build: entry.result.build,
+                                       scenarioID: entry.result.scenarioID, qaRunID: entry.result.qaRunID) else { throw Failure.unavailable }
         }
         if state.status == "interrupted" { next.prepareAfterRestart() }
         if state.status == "stopped" { next.stop() }

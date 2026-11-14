@@ -153,6 +153,7 @@ final class QARunModel: ObservableObject {
     private var videoStarts: [String: Double] = [:]
 
     var isRunning: Bool { phase == .running }
+    var activeRunID: String? { isRunning ? runID : nil }
 
     init() {
         recordVideo = UserDefaults.standard.object(forKey: Self.videoKey) as? Bool ?? true

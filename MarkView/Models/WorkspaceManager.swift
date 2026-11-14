@@ -469,6 +469,7 @@ class WorkspaceManager: ObservableObject {
     let workflowEditor = WorkflowEditorModel()
     /// End-to-End QA: the scenarios of the project and the one being edited.
     let qa = QAModel()
+    private var cockpitSession: CockpitSession?
     /// Questions asked before there is a feature, answered as pages (the Discussions tab).
     let discussions = DiscussionStore()
     private var discussionTask: Task<Void, Never>?
@@ -2105,6 +2106,8 @@ class WorkspaceManager: ObservableObject {
 
     /// Drop the database and every engine bound to the current workspace.
     private func releaseWorkspaceEngines() {
+        cockpitSession?.closeProject()
+        cockpitSession = nil
         semanticDatabase = nil
         incrementalCompiler = nil
         graphRAG = nil
@@ -5063,7 +5066,15 @@ class WorkspaceManager: ObservableObject {
             return
         }
         var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-cockpit"), content: "", originalContent: "")
-        tab.kind = .cockpit(CockpitSession(root: root))
+        let session: CockpitSession
+        if let existing = cockpitSession, existing.root.standardizedFileURL == root.standardizedFileURL {
+            session = existing
+            if existing.execution?.isActive != true { existing.loadRuns() }
+        } else {
+            session = CockpitSession(root: root, workspace: self)
+            cockpitSession = session
+        }
+        tab.kind = .cockpit(session)
         tabsStore.appendTab(tab, activate: true)
     }
 
