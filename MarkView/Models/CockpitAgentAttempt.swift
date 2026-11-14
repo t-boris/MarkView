@@ -19,12 +19,16 @@ final class CockpitAgentAttempt {
     private let onProgress: (CockpitProgress) async throws -> Void
     /// Told how many times the step's agent has moved a bug into fixing; set by the session before each step.
     var onFixCycle: (Int) -> Void = { _ in }
+    /// Told of every MarkView tool call of the step's agent (the tool, and the reason when it was refused), for the run's timeline.
+    var onGate: (String, String?) -> Void = { _, _ in }
     /// The supervisor: set by the session. Takes the prompt built for a question and returns the model's answer, or throws.
     var askSupervisor: ((String) async throws -> CockpitSupervisor.Answer)?
     /// Told of every question the step asked and what came back, for the run's log.
     var onExchange: (CockpitSupervisorExchange) -> Void = { _ in }
     /// One line per step of the plan, for the supervisor's context.
     var planOutline: [String] = []
+    /// The model of the step about to run, from the approved plan: the runtime does not carry it, so the session sets it before each step.
+    var stepModel: String?
     private var ledger = CockpitSupervisor.Ledger()
 
     init(workspace: WorkspaceManager, root: URL, onProgress: @escaping (CockpitProgress) async throws -> Void = { _ in }) {
@@ -35,7 +39,7 @@ final class CockpitAgentAttempt {
         guard !Task.isCancelled, let workspace,
               let tool = CLITool.allCases.first(where: { $0.displayName == task.step.agent }),
               BrowserControlServer.agentToolsEnabled(tool),
-              let terminal = workspace.openAITerminal(TerminalProfile(tool)) else {
+              let terminal = workspace.openAITerminal(TerminalProfile(tool), model: stepModel) else {
             return Self.failure("The assigned agent or its MarkView project tools are unavailable.")
         }
         guard terminal.directory.standardizedFileURL == root else {
@@ -80,7 +84,8 @@ final class CockpitAgentAttempt {
                 }, waitForShutdown: { [weak self] in await self?.terminationTask?.value }) { [weak self] reply in self?.finish(reply) }
                 self.ticket = ticket
                 CockpitAgentRegistry.restrict(ticket, policy: CockpitStepPolicy(controls: Self.controls(of: task)), shell: pty.shell,
-                                              onFixCycle: { [weak self] count in self?.onFixCycle(count) })
+                                              onFixCycle: { [weak self] count in self?.onFixCycle(count) },
+                                              onActivity: { [weak self] tool, refusal in self?.onGate(tool, refusal) })
                 terminal.onExit = { [weak self] _ in self?.cancel(reason: "The agent terminal exited before reporting a result.") }
                 terminal.onCockpitTermination = { [weak self] in self?.cancel(reason: "The agent terminal was closed before reporting a result.") }
                 do {

@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Combine
 
 @MainActor
@@ -8,6 +9,18 @@ final class CockpitSession: ObservableObject {
     @Published var controls = CockpitControls()
     @Published var refinement = ""
     @Published private(set) var plan: CockpitPlan?
+    /// Which of the Cockpit's two screens is open: the plan editor, the run this window is running, or a saved run.
+    enum Screen: Equatable { case plan, live, saved(UUID) }
+    @Published var screen: Screen = .plan
+    /// The goal or the controls on screen changed after the plan was written, so its steps were not re-checked against them.
+    @Published private(set) var planNeedsRecheck = false
+    /// The agents that can run a step here, with their models: what the pickers offer.
+    @Published private(set) var agents: [CockpitAgentChoice] = []
+    /// Who writes the plan: an agent's display name and one of its models; nil is the project's own assistant. Kept per project.
+    @Published var plannerAgent: String? { didSet { savePlannerChoice() } }
+    @Published var plannerModel: String? { didSet { savePlannerChoice() } }
+    private var restoringPlannerChoice = true
+    private var choseInitialScreen = false
     @Published private(set) var busy = false
     @Published private(set) var error: String?
     @Published private(set) var savedRuns: [CockpitRun] = []
@@ -25,6 +38,10 @@ final class CockpitSession: ObservableObject {
     private var qaLogins: Set<QALoginReference> = []
     @Published private(set) var startingExecution = false
     private weak var workspace: WorkspaceManager?
+    private let notifier = CockpitNotifier()
+    private var observedRecord: CockpitRun?
+    private var silenceWatch: Task<Void, Never>?
+    private var noticeClicks: AnyCancellable?
     private var executionChange: AnyCancellable?
     private var executionTask: Task<Void, Never>?
     private var loadedTerminalStatus: String?
@@ -33,7 +50,116 @@ final class CockpitSession: ObservableObject {
     private var reportingStep: (id: UUID, fingerprint: String)?
     private var task: Task<Void, Never>?
 
-    init(root: URL, workspace: WorkspaceManager) { self.root = root; self.workspace = workspace; loadRuns() }
+    init(root: URL, workspace: WorkspaceManager) {
+        self.root = root; self.workspace = workspace
+        let defaults = UserDefaults.standard, key = ProjectAIChoice.key(root)
+        plannerAgent = defaults.string(forKey: "cockpit.plannerAgent.\(key)")
+        plannerModel = defaults.string(forKey: "cockpit.plannerModel.\(key)")
+        restoringPlannerChoice = false
+        loadRuns()
+        noticeClicks = NotificationCenter.default.publisher(for: .cockpitNoticeOpened).sink { [weak self] note in
+            guard let self, let path = note.userInfo?["cockpitRoot"] as? String,
+                  URL(fileURLWithPath: path).standardizedFileURL == self.root.standardizedFileURL else { return }
+            let id = (note.userInfo?["cockpitRunID"] as? String).flatMap(UUID.init(uuidString:))
+            Task { @MainActor in self.showRun(id) }
+        }
+    }
+
+    /// Brings the running step's agent terminal forward: where its questions and permission prompts are.
+    func showAgentTerminal() {
+        workspace?.hostWindow?.makeKeyAndOrderFront(nil)
+        workspace?.showAIConsole()
+    }
+
+    /// A notification was clicked: bring this window forward and open the run it was about.
+    private func showRun(_ id: UUID?) {
+        workspace?.hostWindow?.makeKeyAndOrderFront(nil)
+        workspace?.openCockpit()
+        if let id { screen = execution?.runID == id ? .live : .saved(id) }
+    }
+
+    // MARK: Telling the person
+
+    /// Whether the person is looking at the Cockpit right now: then the screen says it and a notification would only repeat it.
+    private var watching: Bool {
+        guard NSApp.isActive, let workspace, workspace.hostWindow?.isKeyWindow == true, case .cockpit? = workspace.activeTab?.kind else { return false }
+        return true
+    }
+
+    private func observe(_ execution: CockpitExecution) {
+        guard let record = execution.record else { return }
+        let before = observedRecord?.id == record.id ? observedRecord : nil
+        observedRecord = record
+        let limitReached = execution.limitNotice.map { record.waitingReason == $0 } ?? false
+        if let notice = CockpitNotice.transition(from: before, to: record, limitReached: limitReached), !watching {
+            notifier.send(notice, root: root, runID: record.id)
+        }
+    }
+
+    /// A step that shows no sign of life for a long time may be waiting for an answer in its terminal, which nothing else here can see.
+    private func watchSilence(_ execution: CockpitExecution) {
+        silenceWatch?.cancel()
+        silenceWatch = Task { [weak self, weak execution] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                guard let self, let execution, let record = execution.record else { return }
+                let now = Date()
+                if record.isSilent(now: now, activity: execution.lastSignal), let quiet = record.quietSeconds(now: now, activity: execution.lastSignal),
+                   let notice = CockpitNotice.silence(of: record, minutes: Int(quiet / 60)), !self.watching {
+                    self.notifier.send(notice, root: self.root, runID: record.id)
+                }
+            }
+        }
+    }
+
+    private func savePlannerChoice() {
+        guard !restoringPlannerChoice else { return }
+        let defaults = UserDefaults.standard, key = ProjectAIChoice.key(root)
+        defaults.set(plannerAgent, forKey: "cockpit.plannerAgent.\(key)")
+        defaults.set(plannerModel, forKey: "cockpit.plannerModel.\(key)")
+    }
+
+    /// The agents that can run a step in this project, each with the models it offers and what "default" means for it here.
+    /// The model lists are read off the main thread: Codex's catalog is a large file.
+    func loadAgents() async -> [CockpitAgentChoice] {
+        let root = self.root
+        var found: [CockpitAgentChoice] = []
+        for tool in CLITool.allCases where BrowserControlServer.agentToolsEnabled(tool) {
+            guard await CLIToolLocator.resolveThorough(tool) != nil else { continue }
+            let models = await Task.detached { AIAssistantPreferences.modelOptions(for: tool) }.value
+            let defaultModel = AIAssistantPreferences.model(for: tool, project: root) ?? AIAssistantPreferences.configuredModel(for: tool)
+            found.append(CockpitAgentChoice(tool: tool, models: models, defaultModel: defaultModel))
+        }
+        return found
+    }
+
+    func refreshAgents() {
+        Task { [weak self] in
+            guard let self else { return }
+            let found = await self.loadAgents()
+            if found != self.agents { self.agents = found }
+        }
+    }
+
+    // MARK: Editing the plan
+
+    /// The person changes the plan. It keeps its identity; the scenarios it lists follow its steps (`CockpitPlan.normalizeScenarios`).
+    func editPlan(_ change: (inout CockpitPlan) -> Void) {
+        guard var edited = plan else { return }
+        change(&edited)
+        edited.normalizeScenarios()
+        if edited != plan { plan = edited }
+    }
+
+    /// The goal or the controls on screen changed after a plan was written. The plan is kept, since the person may have edited it by hand,
+    /// and takes the new values (the approval covers exactly what is on screen); the screen says its steps were not re-checked.
+    func goalOrControlsChanged() {
+        guard var current = plan, current.goal != goal || current.controls != controls else { return }
+        if current.goal != goal || current.controls.affectsSteps(comparedTo: controls) { planNeedsRecheck = true }
+        current.goal = goal
+        current.controls = controls
+        plan = current
+    }
 
     func preparedPlan(startingAt index: Int) throws -> CockpitPlan {
         guard var plan = plan?.selectingStart(index) else { throw CockpitPlanning.ParseError.invalid(["Choose a starting step."]) }
@@ -75,6 +201,7 @@ final class CockpitSession: ObservableObject {
             self?.objectWillChange.send()
             Task { @MainActor [weak self, weak execution] in
                 await Task.yield()
+                if let self, let execution { self.observe(execution) }
                 if let self, let fingerprint = execution?.state?.fingerprint,
                    let reviewed = self.reviewedExecutions[fingerprint], self.runningPlan != reviewed.plan {
                     self.runningPlan = reviewed.plan
@@ -91,6 +218,10 @@ final class CockpitSession: ObservableObject {
             }
         }
         self.execution = execution
+        observedRecord = nil
+        notifier.requestAuthorization()
+        watchSilence(execution)
+        screen = .live
         runningPlan = plan
         currentProgress = CockpitProgress(passNumber: 1, activity: "Starting the selected step", scenarioCoverage: [], bugs: [], fixes: [], latestChange: "", blockers: [], buildLogPath: nil)
         startingExecution = true
@@ -118,12 +249,17 @@ final class CockpitSession: ObservableObject {
             catch { return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: "Progress could not be saved.") }
         }
         attempt.onFixCycle = { [weak self] count in self?.execution?.noteFixCycles(fromGate: count) }
+        attempt.onGate = { [weak self] tool, refusal in self?.execution?.noteGate(tool: tool, refusal: refusal) }
+        // The runtime does not carry the model (it only knows the fields it declares), so it comes from the approved plan by the step's id.
+        attempt.stepModel = reviewed.plan.steps.first { $0.id.uuidString == task.step.id }?.chosenModel
         attempt.planOutline = reviewed.plan.steps.map { "\($0.title) (\($0.agent))" }
         attempt.onExchange = { [weak self] exchange in Task { await self?.execution?.recordExchange(exchange) } }
+        let supervisorTool = CLITool.allCases.first { $0.displayName == reviewed.plan.controls.supervisorAgent }
+        let supervisorModel = reviewed.plan.controls.supervisorModel
         attempt.askSupervisor = { [root] prompt in
             let result = try await CLICompletion.run(CLICompletion.Request(project: root, prompt: prompt,
                 systemPrompt: CockpitSupervisor.systemPrompt, jsonSchema: CockpitSupervisor.schema, readableFolder: root,
-                timeout: CockpitSupervisor.timeoutSeconds, effort: "medium", label: "cockpit-supervisor"))
+                timeout: CockpitSupervisor.timeoutSeconds, toolOverride: supervisorTool, model: supervisorModel, effort: "medium", label: "cockpit-supervisor"))
             guard let answer = CockpitSupervisor.parse(result.structured) else { throw CockpitSupervisor.Failure.unusable }
             return answer
         }
@@ -176,6 +312,7 @@ final class CockpitSession: ObservableObject {
     }
 
     func closeProject() {
+        silenceWatch?.cancel()
         cancel()
         executionTask?.cancel()
         execution?.shutdown()
@@ -194,6 +331,13 @@ final class CockpitSession: ObservableObject {
                 }
                 let activeID = self.execution?.isActive == true ? self.execution?.runID : nil
                 self.savedRuns = runs.filter { $0.id != activeID }
+                    .sorted { ($0.lastKnownActivity ?? .distantPast) > ($1.lastKnownActivity ?? .distantPast) }
+                if !self.choseInitialScreen {
+                    // Coming back to the Cockpit: a run that is going or waiting for the person comes first, not an empty plan form.
+                    self.choseInitialScreen = true
+                    if self.execution != nil { self.screen = .live }
+                    else if self.screen == .plan, self.plan == nil, let waiting = self.savedRuns.first(where: { $0.status == .paused }) { self.screen = .saved(waiting.id) }
+                }
                 let ids = Set(runs.flatMap { $0.results.compactMap(\.qaRunID) })
                 self.deletedQARuns = await Task.detached {
                     Set(ids.filter { id in
@@ -225,6 +369,8 @@ final class CockpitSession: ObservableObject {
             self.controls = selected.controls
             self.plan = selected
             self.recoveryRun = run
+            self.planNeedsRecheck = false
+            self.screen = .plan
             self.loadingRecovery = false
         }
     }
@@ -287,16 +433,16 @@ final class CockpitSession: ObservableObject {
         guard !busy, !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let goal = self.goal, controls = self.controls, previous = plan, refinement = self.refinement
         let root = self.root
-        let candidates = CLITool.allCases.filter { BrowserControlServer.agentToolsEnabled($0) }
+        let plannerTool = CLITool.allCases.first { $0.displayName == plannerAgent }, plannerModel = self.plannerModel
         busy = true; error = nil
         task = Task { [weak self] in
             do {
-                var agents: [String] = []
-                for tool in candidates {
-                    try Task.checkCancellation()
-                    if await CLIToolLocator.resolveThorough(tool) != nil { agents.append(tool.displayName) }
-                }
-                guard !agents.isEmpty else { throw PlanningFailure.noAgents }
+                let choices = await self?.loadAgents() ?? []
+                try Task.checkCancellation()
+                guard !choices.isEmpty else { throw PlanningFailure.noAgents }
+                self?.agents = choices
+                let agents = choices.map(\.name)
+                let models = Dictionary(uniqueKeysWithValues: choices.map { ($0.name, Set($0.models.map(\.id).filter { !$0.isEmpty })) })
                 let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
                 let listing = await Task.detached { QAStore.loadScenarios(root) }.value
                 try Task.checkCancellation()
@@ -306,7 +452,11 @@ final class CockpitSession: ObservableObject {
                 }
                 let scenarioData = try JSONSerialization.data(withJSONObject: scenarios, options: [.sortedKeys])
                 let settings = String(decoding: try encoder.encode(controls), as: UTF8.self)
-                var prompt = "Goal: \(goal)\nAvailable agents: \(agents.joined(separator: ", "))\nControls (MarkView enforces them while the plan runs): \(settings)\n"
+                let offered = choices.map { choice in
+                    let ids = choice.models.map(\.id).filter { !$0.isEmpty }
+                    return ids.isEmpty ? choice.name : "\(choice.name) (models: \(ids.joined(separator: ", ")))"
+                }
+                var prompt = "Goal: \(goal)\nAvailable agents and their models: \(offered.joined(separator: "; "))\nControls (MarkView enforces them while the plan runs): \(settings)\n"
                 prompt += "Existing QA scenarios and targets (JSON): \(String(decoding: scenarioData, as: UTF8.self))\n"
                 prompt += "Available project actions include the MarkView MCP project, browser and control tools and the user's agent terminal. Check project capabilities before asserting an action is available.\n"
                 if refining, let previous {
@@ -314,8 +464,8 @@ final class CockpitSession: ObservableObject {
                 }
                 let result = try await CLICompletion.run(CLICompletion.Request(project: root, prompt: prompt,
                     systemPrompt: CockpitPlanning.systemPrompt, jsonSchema: CockpitPlanning.schema,
-                    readableFolder: root, timeout: nil, label: "cockpit-plan"))
-                let plan = try CockpitPlanning.parse(result.structured, goal: goal, controls: controls, availableAgents: Set(agents))
+                    readableFolder: root, timeout: nil, toolOverride: plannerTool, model: plannerModel, label: "cockpit-plan"))
+                let plan = try CockpitPlanning.parse(result.structured, goal: goal, controls: controls, availableAgents: Set(agents), models: models)
                 guard Set(plan.scenarios).isSubset(of: Set(listing.scenarios.map(\.id))) else {
                     throw CockpitPlanning.ParseError.invalid(["The proposed QA scenario is not available in this project."])
                 }
@@ -329,7 +479,7 @@ final class CockpitSession: ObservableObject {
                     self?.busy = false
                     return
                 }
-                self?.plan = plan; self?.refinement = ""; self?.busy = false
+                self?.plan = plan; self?.planNeedsRecheck = false; self?.refinement = ""; self?.busy = false
             } catch is CancellationError {
                 self?.busy = false
             } catch {
@@ -339,10 +489,27 @@ final class CockpitSession: ObservableObject {
     }
 
     func cancel() { task?.cancel() }
-    func invalidatePlan() { plan = nil }
 
     enum PlanningFailure: LocalizedError {
         case noAgents
         var errorDescription: String? { "No supported agent CLI with MarkView tools enabled was found." }
+    }
+}
+
+/// An agent that can run a step in this project: its models, and the one "default" means for it here.
+struct CockpitAgentChoice: Identifiable, Equatable {
+    let tool: CLITool
+    let models: [AIModelOption]
+    /// The model the agent runs when a step names none: the project's chosen model, or the agent's own configured one; nil when neither is known.
+    let defaultModel: String?
+
+    var id: String { tool.displayName }
+    var name: String { tool.displayName }
+
+    /// How a step's model reads: its own name, or what the default is right now.
+    func label(forModel model: String?) -> String {
+        let chosen = model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !chosen.isEmpty { return models.first { $0.id == chosen }?.name ?? chosen }
+        return defaultModel.map { "default (\($0))" } ?? "default model"
     }
 }

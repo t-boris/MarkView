@@ -3973,12 +3973,13 @@ class WorkspaceManager: ObservableObject {
     /// The command that starts `profile` in the shell with the model chosen for it, or nil
     /// for a plain shell. Every assistant runs without permission prompts; Claude updates itself first.
     /// `continuing` adds the assistant's option that picks up its last session in the folder.
-    private func startupCommand(for profile: TerminalProfile, continuing: Bool = false) -> String? {
+    /// `model` replaces the model chosen for the project: a Cockpit step runs with the model its plan names.
+    private func startupCommand(for profile: TerminalProfile, continuing: Bool = false, model: String? = nil) -> String? {
         guard let tool = profile.tool else { return nil }
         let path = CLIToolLocator.resolve(tool) ?? tool.binaryName
         let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let linked = tool.additionalFolderArgs(linkedFolders.map(\.url)).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-        let run = ([quoted] + (continuing ? tool.continueArgs : []) + tool.modelArgs(chosenModel(for: profile))
+        let run = ([quoted] + (continuing ? tool.continueArgs : []) + tool.modelArgs(model ?? chosenModel(for: profile))
                    + tool.fullAccessArgs + linked + browserToolArgs(for: tool)).joined(separator: " ")
         switch tool {
         case .claude: return "\(quoted) update && \(run)"
@@ -4141,14 +4142,15 @@ class WorkspaceManager: ObservableObject {
 
     /// Open another terminal in the AI panel and show it.
     /// `resuming` continues the assistant's last session in the folder (terminals restored after a relaunch).
+    /// `model` starts the assistant with that model instead of the one chosen for the project (a Cockpit step's own).
     @discardableResult
-    func openAITerminal(_ profile: TerminalProfile, resuming: Bool = false) -> TerminalSession? {
+    func openAITerminal(_ profile: TerminalProfile, resuming: Bool = false, model: String? = nil) -> TerminalSession? {
         guard let directory = aiWorkspaceRoot ?? rootNode?.url else { return nil }
         let session = TerminalSession(directory: directory, profile: profile,
-                                      startupCommand: startupCommand(for: profile),
+                                      startupCommand: startupCommand(for: profile, model: model),
                                       resumeCommand: resuming ? resumeCommand(for: profile, in: directory) : nil,
                                       title: terminalTitle(for: profile),
-                                      model: chosenModel(for: profile))
+                                      model: model ?? chosenModel(for: profile))
         session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
         session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
         session.browserWindowID = browserControlID

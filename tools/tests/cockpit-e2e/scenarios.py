@@ -7,6 +7,8 @@ S9   the supervisor control is off: nobody answers, the agent is told so
 S10  a repeated question is answered once; the 25-question cap; a new step starts a new count
 S11  the supervisor fails (exit, garbage, once): the agent gets the instruction to decide alone, the run goes on
 S12  a wrong ticket, from inside a step and from a process outside any step
+S13  a step's model reaches the agent's command line; the run records a timeline with times
+S14  pictures of both screens (plan, step editor, running, finished, each tab) for a look; checks only that the run finished
 """
 import glob, json, os, re, subprocess, time
 
@@ -35,15 +37,18 @@ def opening(ctx, goal, controls=()):
 
 
 def propose_and_approve(ctx, tag=""):
-    return ["press label:Propose plan", "waitfor 60 label:Review and approve execution",
+    return ["press label:Propose plan", "waitfor 60 label:Review and approve",
             "dump %s/dump-plan%s.txt" % (ctx.out, tag),
-            "press label:Review and approve execution", "waitfor 10 label:Approve and start",
+            "press label:Review and approve", "waitfor 10 label:Approve and start",
             "press label:Approve and start"]
 
 
+PHASES = {"finished": "Finished", "stopped": "Stopped", "paused": "Paused", "interrupted": "Interrupted"}
+
+
 def finish(ctx, status_label, seconds, tag=""):
-    """Wait for `Execution: <status>` then take the picture of the tab and quit."""
-    return ["waitfor %d has:Execution: %s" % (seconds, status_label), "wait 3", "dump %s/dump-end%s.txt" % (ctx.out, tag)]
+    """Wait for the run screen's status chip, then take the picture of the tab and quit."""
+    return ["waitfor %d has:%s" % (seconds, PHASES[status_label]), "wait 3", "dump %s/dump-end%s.txt" % (ctx.out, tag)]
 
 
 def quit_app():
@@ -100,8 +105,8 @@ def s5_verify(ctx):
     ctx.check("time was measured (activeSeconds > 5)", (run.get("activeSeconds") or 0) > 5, run.get("activeSeconds"))
     ctx.check("no limit reason, no waiting reason", run["waitingReason"] == "", run["waitingReason"])
     end = ctx.dump("dump-end.txt")
-    ctx.check("the tab shows the success outcome", "Outcome: success against the stated criteria" in end,
-              [l for l in end.splitlines() if "Outcome" in l or "Execution:" in l])
+    ctx.check("the run screen shows the success outcome", "Success against the stated criteria" in end,
+              [l for l in end.splitlines() if "Success" in l or "Finished" in l][:4])
     ctx.check("the bug the agent filed exists", len(os.listdir(os.path.join(ctx.fx, "docs/bugs"))) == 1 if os.path.isdir(os.path.join(ctx.fx, "docs/bugs")) else False,
               os.listdir(os.path.join(ctx.fx, "docs")) if os.path.isdir(os.path.join(ctx.fx, "docs")) else "no docs")
     ctx.check("git working tree has no source change", ctx.git("status", "--porcelain", "--", "src", "README.md").strip() == "", ctx.git("status", "--porcelain"))
@@ -176,7 +181,7 @@ def s7_verify(ctx):
     planner = open(os.path.join(ctx.e2e, "planner-prompt-1.txt")).read()
     ctx.check("the planner was told about the supervisor", ASK in planner and "supervisor" in planner.lower(), "planner prompt %d chars" % len(planner))
     end = ctx.dump("dump-end.txt")
-    ctx.check("the tab shows the disclosure 'Supervisor: 1 question'", "Supervisor: 1 question" in end,
+    ctx.check("the control room shows '1 asked'", "1 asked" in end,
               [l for l in end.splitlines() if "Supervisor" in l][:4])
 
 
@@ -216,8 +221,8 @@ def s9_verify(ctx):
               prompts and "There is no supervisor in this run" in prompts[0] and "call markview_cockpit_ask" not in prompts[0], prompts[0][:80] if prompts else "no prompt")
     ctx.check("the approved plan has the control off", bool(run) and run["plan"]["controls"].get("supervisor") is False,
               (run or {}).get("plan", {}).get("controls"))
-    ctx.check("the review text says 'Supervisor off'", "Supervisor off:" in ctx.dump("dump-plan.txt"), [l for l in ctx.dump("dump-plan.txt").splitlines() if "Supervisor" in l][:2])
-    ctx.check("the tab shows no supervisor disclosure", "Supervisor: " not in ctx.dump("dump-end.txt").replace("Supervisor: off", ""), "")
+    ctx.check("the plan screen says the supervisor is off", "Off: step agents cannot ask anything" in ctx.dump("dump-plan.txt"), [l for l in ctx.dump("dump-plan.txt").splitlines() if "Supervisor" in l][:2])
+    ctx.check("the control room says the supervisor is off", "Off. Step agents cannot ask anything" in ctx.dump("dump-end.txt"), "")
 
 
 # S10 -----------------------------------------------------------------------------------------------------------------------------
@@ -275,7 +280,7 @@ def s11_verify(ctx):
     ctx.check("the exchanges record failed true for the three failures and false for the answers",
               flags == [(True, False), (False, False), (True, False), (True, False), (False, False)], flags)
     ctx.check("the supervisor was called once per ask (5), the failed one again after the failure", len(ctx.supervisor_calls()) == 5, len(ctx.supervisor_calls()))
-    ctx.check("the tab shows '5 questions' and '3 unanswered'", "Supervisor: 5 questions" in ctx.dump("dump-end.txt") and "3 unanswered" in ctx.dump("dump-end.txt"),
+    ctx.check("the control room shows '5 asked' and '3 unanswered'", "5 asked" in ctx.dump("dump-end.txt") and "3 unanswered" in ctx.dump("dump-end.txt"),
               [l for l in ctx.dump("dump-end.txt").splitlines() if "Supervisor" in l][:3])
 
 
@@ -313,6 +318,81 @@ def s12_verify(ctx):
     ctx.check("none of the wrong-ticket calls reached the supervisor; the real one did", questions == ["A real question with the real ticket?"], questions)
 
 
+# S13 -----------------------------------------------------------------------------------------------------------------------------
+
+def modelled(title, actions, model):
+    return dict(step(title, actions), model=model)
+
+
+S13_PLAN = plan(
+    modelled("With a model", [
+        {"progress": {"passNumber": 1, "activity": "Reading the fixture", "latestChange": "none", "bugs": [], "fixes": [], "blockers": []}},
+        ask("Should the greeting use a comma?", options=["comma", "dash"], proposed="comma"),
+        done("The first step is done.")], "opus"),
+    step("Without a model", [done("The second step is done.")]))
+
+
+def s13_verify(ctx):
+    run = the_run(ctx)
+    starts = [e for e in ctx.agent_log() if e.get("event") == "step start"]
+    argv = [e["argv"] for e in starts]
+    ctx.check("the step with a model starts the agent with --model opus", len(argv) == 2 and "--model" in argv[0] and argv[0][argv[0].index("--model") + 1] == "opus", argv)
+    ctx.check("the step without a model starts the agent with no --model flag", len(argv) == 2 and "--model" not in argv[1], argv[1:] )
+    plan_text = ctx.dump("dump-plan.txt")
+    ctx.check("the plan screen shows the agent and the model on the step card", "Claude Code · Opus" in plan_text,
+              [l for l in plan_text.splitlines() if "Claude Code" in l][:4])
+    if not run:
+        return
+    events = run.get("events") or []
+    kinds = [e["kind"] for e in events]
+    ctx.check("the timeline holds the run's story in order",
+              kinds[:2] == ["started", "stepStarted"] and kinds[-1] == "finished" and kinds.count("stepPassed") == 2 and kinds.count("stepStarted") == 2
+              and "report" in kinds and "question" in kinds, kinds)
+    times = [e["at"] for e in events]
+    ctx.check("event times never go backwards", times == sorted(times), times[:6])
+    ctx.check("the run, its steps and its last sign of life are dated",
+              run.get("startedAt") is not None and run.get("lastSignal") is not None
+              and all(s.get("startedAt") is not None and s.get("endedAt") is not None for s in run["steps"]),
+              (run.get("startedAt"), run.get("lastSignal"), [(s.get("startedAt"), s.get("endedAt")) for s in run["steps"]]))
+    ctx.check("the saved plan keeps the step's model", run["plan"]["steps"][0].get("model") == "opus" and "model" not in run["plan"]["steps"][1], [s.get("model") for s in run["plan"]["steps"]])
+    end = ctx.dump("dump-end.txt")
+    ctx.check("the run screen shows the finished run and the question", "Finished" in end and "1 asked" in end,
+              [l for l in end.splitlines() if "Finished" in l or "asked" in l][:4])
+
+
+# S14 -----------------------------------------------------------------------------------------------------------------------------
+
+S14_PLAN = plan(
+    modelled("Investigate", [
+        {"progress": {"passNumber": 1, "activity": "Reading the fixture", "latestChange": "none", "bugs": [], "fixes": [], "blockers": []}},
+        ask("Should the greeting use a comma?", options=["comma", "dash"], proposed="comma"),
+        {"sleep": 25},
+        done("Investigation done.")], "opus"),
+    step("Verify", [
+        {"progress": {"passNumber": 2, "activity": "Verified", "latestChange": "none", "bugs": [], "fixes": [], "blockers": [],
+                      "criteriaResults": [{"criterion": "Every step reported passed.", "met": True, "evidence": "both steps passed"}]}},
+        done("Final verification passed.")]))
+
+
+def s14_script(ctx):
+    pictures = ["size 1280 900", "wait 1", "snap plan-empty"]
+    plan_steps = ["press label:Propose plan", "waitfor 60 label:Review and approve", "wait 1", "snap plan-collapsed",
+                  "press label:Edit step 1", "wait 1", "snap plan-step-editor"]
+    approve = ["press label:Review and approve", "waitfor 10 label:Approve and start", "press label:Approve and start", "wait 12", "snap run-running"]
+    tabs = ["snap run-finished"]
+    for tab in ("Steps", "Questions", "Findings"):
+        tabs += ["press label:%s" % tab, "wait 1", "snap run-%s" % tab.lower()]
+    return script(opening(ctx, "Investigate the fixture and verify it.") + pictures + plan_steps + approve
+                  + finish(ctx, "finished", 150) + tabs + quit_app())
+
+
+def s14_verify(ctx):
+    the_run(ctx)
+    wanted = ["plan-empty", "plan-collapsed", "plan-step-editor", "run-running", "run-finished", "run-steps", "run-questions", "run-findings"]
+    ctx.check("every picture was taken", all(os.path.exists(os.path.join(ctx.out, n + ".png")) for n in wanted),
+              [n for n in wanted if not os.path.exists(os.path.join(ctx.out, n + ".png"))])
+
+
 ALL.update({
     "S7": supervisor_scenario("S7", "an answered question is logged and shown", [S7_PLAN], verify=s7_verify),
     "S8": supervisor_scenario("S8", "a question about deploying is out of scope", [S8_PLAN], verify=s8_verify),
@@ -320,4 +400,6 @@ ALL.update({
     "S10": supervisor_scenario("S10", "repeat, cap, a new step", [S10_PLAN], seconds=300, verify=s10_verify),
     "S11": supervisor_scenario("S11", "supervisor failures", [S11_PLAN], verify=s11_verify),
     "S12": supervisor_scenario("S12", "wrong tickets", [S12_PLAN], verify=s12_verify, during=s12_during),
+    "S13": supervisor_scenario("S13", "a step's model and the run's timeline", [S13_PLAN], verify=s13_verify),
+    "S14": {"name": "S14", "title": "pictures of both screens", "seconds": 220, "plans": [S14_PLAN], "script": s14_script, "verify": s14_verify, "during": None},
 })

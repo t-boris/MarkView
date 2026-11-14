@@ -787,6 +787,12 @@ do {
     let production = plan(all, "prod")
     let cockpitReview = try! CockpitQAReviewBuilder.make(scenario: all, targetID: "prod", savedLogins: [buyer, localBuyer])
     check("cockpit QA: review binds the exact scenario, target and production actions", cockpitReview.fingerprint == production.fingerprint && cockpitReview.production && cockpitReview.productionConfirmationRequired && cockpitReview.exactPlan.contains("\"targetID\" : \"prod\"") && cockpitReview.dataChangingActions.count == production.confirmations.count)
+    // The plan screen draws the approved text: it must decode to what was reviewed.
+    let drawn = CockpitQAPresented(exactPlan: cockpitReview.exactPlan)
+    check("cockpit QA: the exact plan decodes to the structure the plan screen draws",
+          drawn != nil && drawn?.scenario == all && drawn?.targetID == "prod" && drawn?.selectedBranches == production.branches.map(\.id)
+          && drawn?.preparation.map(\.id) == production.preparation.map(\.id) && drawn?.confirmations.map(\.id) == production.confirmations.map(\.id))
+    check("cockpit QA: text that is not an exact plan does not decode", CockpitQAPresented(exactPlan: "{}") == nil && CockpitQAPresented(exactPlan: "not json") == nil)
     let changedQA = changed(all) { $0.nodes[0].title += " changed"; $0.nodes[0].detail += " changed" }
     let changedReview = try! CockpitQAReviewBuilder.make(scenario: changedQA, targetID: "prod", savedLogins: [buyer, localBuyer])
     check("cockpit QA: changing executable work changes the reviewed fingerprint", cockpitReview.fingerprint != changedReview.fingerprint)

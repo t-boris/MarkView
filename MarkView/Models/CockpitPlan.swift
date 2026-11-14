@@ -44,6 +44,10 @@ struct CockpitControls: Codable, Equatable {
     var timeLimitMinutes: Int?
     /// How many fix cycles the run may use; nil means no limit.
     var fixCycleLimit: Int?
+    /// Who answers the step agents' questions: an agent's display name (`CLITool.displayName`) and one of its models.
+    /// nil means the project's own assistant and model. Runs saved before the choice existed have neither.
+    var supervisorAgent: String?
+    var supervisorModel: String?
 
     init() {}
 
@@ -58,6 +62,8 @@ struct CockpitControls: Codable, Equatable {
         build = try container.decodeIfPresent(Bool.self, forKey: .build) ?? false
         deployment = try container.decodeIfPresent(String.self, forKey: .deployment) ?? "Disabled"
         supervisor = try container.decodeIfPresent(Bool.self, forKey: .supervisor) ?? true
+        supervisorAgent = Self.chosen(try container.decodeIfPresent(String.self, forKey: .supervisorAgent))
+        supervisorModel = Self.chosen(try container.decodeIfPresent(String.self, forKey: .supervisorModel))
         if let minutes = try container.decodeIfPresent(Int.self, forKey: .timeLimitMinutes) {
             timeLimitMinutes = minutes > 0 ? minutes : nil
         } else if let text = try container.decodeIfPresent(String.self, forKey: .timeLimit) {
@@ -71,7 +77,7 @@ struct CockpitControls: Codable, Equatable {
     }
 
     private enum Key: String, CodingKey {
-        case createScenarios, checks, fileBugs, fixBugs, build, deployment, supervisor, timeLimitMinutes, fixCycleLimit
+        case createScenarios, checks, fileBugs, fixBugs, build, deployment, supervisor, supervisorAgent, supervisorModel, timeLimitMinutes, fixCycleLimit
         /// Only read, from runs saved with a free-text time limit.
         case timeLimit
     }
@@ -85,8 +91,23 @@ struct CockpitControls: Codable, Equatable {
         try container.encode(build, forKey: .build)
         try container.encode(deployment, forKey: .deployment)
         try container.encode(supervisor, forKey: .supervisor)
+        try container.encodeIfPresent(Self.chosen(supervisorAgent), forKey: .supervisorAgent)
+        try container.encodeIfPresent(Self.chosen(supervisorModel), forKey: .supervisorModel)
         try container.encodeIfPresent(timeLimitMinutes, forKey: .timeLimitMinutes)
         try container.encodeIfPresent(fixCycleLimit, forKey: .fixCycleLimit)
+    }
+
+    /// An empty choice is no choice: the same value everywhere, so a plan that never chose encodes exactly as before.
+    private static func chosen(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
+    }
+
+    /// Whether the steps the planner chose may no longer fit: what the planner was told differs. The limits and the supervisor are applied
+    /// by MarkView while the plan runs and change no step.
+    func affectsSteps(comparedTo other: CockpitControls) -> Bool {
+        createScenarios != other.createScenarios || checks != other.checks || fileBugs != other.fileBugs
+            || fixBugs != other.fixBugs || build != other.build || deployment != other.deployment
     }
 
     /// "90", "90 min", "2h", "1h30m", "1.5 hours": the minutes they name, or nil when the text is not just an amount of time.
@@ -137,6 +158,15 @@ struct CockpitStep: Codable, Equatable, Identifiable {
     var isPrerequisite: Bool = false
     /// An existing scenario this step will run through MarkView's QA gate, if any.
     var qaScenarioID: String? = nil
+    /// The model the step's agent runs with: one of `AIAssistantPreferences.modelOptions(for:)`'s ids. nil or empty means the
+    /// project's chosen model for that agent, or the agent's own default. Runs saved before the choice existed have none.
+    var model: String? = nil
+
+    /// `model` with an empty choice read as no choice.
+    var chosenModel: String? {
+        guard let value = model?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
+    }
 }
 
 struct CockpitPlan: Codable, Equatable {
@@ -163,20 +193,127 @@ struct CockpitPlan: Codable, Equatable {
         return copy
     }
 
-    var problems: [String] {
-        var result: [String] = []
+    /// Why the plan cannot be approved, and which step each reason belongs to (nil: the plan as a whole).
+    struct Blocker: Equatable {
+        var stepID: UUID?
+        var message: String
+    }
+
+    /// What is missing in the plan itself, whatever the QA environments chosen or the person's confirmations.
+    var structuralBlockers: [Blocker] {
+        var result: [Blocker] = []
         func empty(_ value: String) -> Bool { value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        if empty(goal) { result.append("A goal is required.") }
-        if steps.isEmpty { result.append("At least one step is required.") }
-        if Set(steps.map(\.id)).count != steps.count { result.append("Step identifiers must be unique.") }
+        if empty(goal) { result.append(Blocker(stepID: nil, message: "A goal is required.")) }
+        if steps.isEmpty { result.append(Blocker(stepID: nil, message: "At least one step is required.")) }
+        if Set(steps.map(\.id)).count != steps.count { result.append(Blocker(stepID: nil, message: "Step identifiers must be unique.")) }
         for (index, step) in steps.enumerated() where empty(step.title) || empty(step.agent) || empty(step.assignment) || empty(step.completionCondition) {
-            result.append("Step \(index + 1) needs a title, agent, assignment and completion condition.")
+            result.append(Blocker(stepID: step.id, message: "Step \(index + 1) needs a title, agent, assignment and completion condition."))
         }
-        if successCriteria.isEmpty || successCriteria.contains(where: empty) { result.append("Explicit success criteria are required.") }
+        if successCriteria.isEmpty || successCriteria.contains(where: empty) { result.append(Blocker(stepID: nil, message: "Explicit success criteria are required.")) }
         if let qa = productionQA, empty(qa.exactPlan) || qa.dataChangingActions.contains(where: empty) {
-            result.append("Production QA needs the exact plan and data-changing actions.")
+            result.append(Blocker(stepID: nil, message: "Production QA needs the exact plan and data-changing actions."))
         }
         return result
+    }
+
+    var problems: [String] { structuralBlockers.map(\.message) }
+
+    /// Everything that keeps `CockpitApproval` from existing for this plan, in the order the checks run. `CockpitApproval`
+    /// is created only when this is empty, so the screen can say why instead of leaving a button grey.
+    func approvalBlockers(productionConfirmed: Bool) -> [Blocker] {
+        let structural = structuralBlockers
+        guard structural.isEmpty else { return structural }
+        guard Set(steps.compactMap(\.qaScenarioID)) == Set(scenarios) else {
+            return [Blocker(stepID: nil, message: "Each selected QA scenario must be assigned to a step.")]
+        }
+        guard scenarios.isEmpty || steps.last?.qaScenarioID == nil else {
+            return [Blocker(stepID: steps.last?.id, message: "QA must be followed by a final verification step.")]
+        }
+        if scenarios.isEmpty, qaReviews?.isEmpty == false {
+            return [Blocker(stepID: nil, message: "The plan carries a QA review for a scenario it does not run.")]
+        }
+        if !scenarios.isEmpty {
+            guard let reviews = qaReviews, reviews.count == scenarios.count,
+                  Set(reviews.map(\.scenarioID)) == Set(scenarios), Set(scenarios).count == scenarios.count,
+                  reviews.allSatisfy({ !$0.fingerprint.isEmpty && !$0.exactPlan.isEmpty && !$0.targetID.isEmpty }) else {
+                return [Blocker(stepID: nil, message: "Choose an environment for each QA scenario and review its exact plan.")]
+            }
+            let production = reviews.filter(\.production)
+            if production.contains(where: \.productionConfirmationRequired) && !productionConfirmed {
+                return [Blocker(stepID: nil, message: "Production QA needs your confirmation of the data-changing actions.")]
+            }
+            if !production.isEmpty,
+               productionQA != CockpitProductionQA(exactPlan: production.map(\.exactPlan).joined(separator: "\n\n"),
+                                                   dataChangingActions: production.flatMap(\.dataChangingActions)) {
+                return [Blocker(stepID: nil, message: "The production QA plan does not match the reviewed scenarios.")]
+            }
+        }
+        if let qa = productionQA, !qa.dataChangingActions.isEmpty, !productionConfirmed {
+            return [Blocker(stepID: nil, message: "Production QA needs your confirmation of the data-changing actions.")]
+        }
+        return []
+    }
+
+    // MARK: Editing
+    //
+    // The person edits the plan step by step. Every helper keeps the plan's own rules: the QA scenarios the plan lists are exactly
+    // the ones its steps name, once each, in step order; the values derived from a review (`qaReviews`, `productionQA`) are dropped,
+    // and `CockpitSession.preparedPlan` builds them again.
+
+    /// Makes `scenarios` equal to the QA scenarios the steps name.
+    mutating func normalizeScenarios() {
+        var seen = Set<String>()
+        scenarios = steps.compactMap(\.qaScenarioID).filter { seen.insert($0).inserted }
+        qaReviews = nil
+        productionQA = nil
+    }
+
+    /// Moves a step by `offset` places; false when it would leave the plan.
+    @discardableResult mutating func moveStep(at index: Int, by offset: Int) -> Bool {
+        let target = index + offset
+        guard steps.indices.contains(index), steps.indices.contains(target), offset != 0 else { return false }
+        steps.swapAt(index, target)
+        normalizeScenarios()
+        return true
+    }
+
+    /// Puts `step` at `index` (the end when it is past it).
+    mutating func insertStep(_ step: CockpitStep, at index: Int) {
+        steps.insert(step, at: min(max(0, index), steps.count))
+        normalizeScenarios()
+    }
+
+    /// A copy of the step just after it, with its own identifier. The copy runs no QA scenario: a scenario is run by one step.
+    @discardableResult mutating func duplicateStep(at index: Int) -> UUID? {
+        guard steps.indices.contains(index) else { return nil }
+        var copy = steps[index]
+        copy.id = UUID()
+        copy.qaScenarioID = nil
+        copy.isPrerequisite = false
+        steps.insert(copy, at: index + 1)
+        normalizeScenarios()
+        return copy.id
+    }
+
+    @discardableResult mutating func removeStep(at index: Int) -> Bool {
+        guard steps.indices.contains(index) else { return false }
+        steps.remove(at: index)
+        normalizeScenarios()
+        return true
+    }
+
+    /// Sets a step's agent. The model belongs to an agent, so it is cleared when the agent changes.
+    mutating func setAgent(_ agent: String, forStep id: UUID) {
+        guard let index = steps.firstIndex(where: { $0.id == id }), steps[index].agent != agent else { return }
+        steps[index].agent = agent
+        steps[index].model = nil
+    }
+
+    /// Sets a step's model; an empty one means the default.
+    mutating func setModel(_ model: String?, forStep id: UUID) {
+        guard let index = steps.firstIndex(where: { $0.id == id }) else { return }
+        let value = model?.trimmingCharacters(in: .whitespacesAndNewlines)
+        steps[index].model = (value?.isEmpty ?? true) ? nil : value
     }
 }
 
@@ -185,22 +322,7 @@ struct CockpitApproval: Codable, Equatable {
     let productionConfirmed: Bool
 
     init?(plan: CockpitPlan, productionConfirmed: Bool) {
-        guard plan.problems.isEmpty else { return nil }
-        guard Set(plan.steps.compactMap(\.qaScenarioID)) == Set(plan.scenarios) else { return nil }
-        guard plan.scenarios.isEmpty || plan.steps.last?.qaScenarioID == nil else { return nil }
-        if plan.scenarios.isEmpty, plan.qaReviews?.isEmpty == false { return nil }
-        if !plan.scenarios.isEmpty {
-            guard let reviews = plan.qaReviews, reviews.count == plan.scenarios.count,
-                  Set(reviews.map(\.scenarioID)) == Set(plan.scenarios), Set(plan.scenarios).count == plan.scenarios.count,
-                  reviews.allSatisfy({ !$0.fingerprint.isEmpty && !$0.exactPlan.isEmpty && !$0.targetID.isEmpty }) else { return nil }
-            let production = reviews.filter(\.production)
-            if production.contains(where: \.productionConfirmationRequired) && !productionConfirmed { return nil }
-            if !production.isEmpty {
-                guard plan.productionQA == CockpitProductionQA(exactPlan: production.map(\.exactPlan).joined(separator: "\n\n"),
-                                                               dataChangingActions: production.flatMap(\.dataChangingActions)) else { return nil }
-            }
-        }
-        if let qa = plan.productionQA, !qa.dataChangingActions.isEmpty, !productionConfirmed { return nil }
+        guard plan.approvalBlockers(productionConfirmed: productionConfirmed).isEmpty else { return nil }
         self.plan = plan
         self.productionConfirmed = productionConfirmed
     }

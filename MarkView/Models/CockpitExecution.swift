@@ -37,7 +37,12 @@ final class CockpitExecution: ObservableObject {
     private var starting = false
     private var shutdownRequested = false
     private var mutatingRecord = false
-    private var record: CockpitRun? { didSet { supervisorLog = record?.exchanges ?? [] } }
+    /// The run as saved: the timeline, the steps' times and results. Published, so the run screen follows it.
+    @Published private(set) var record: CockpitRun? { didSet { supervisorLog = record?.exchanges ?? [] } }
+    /// The coordinator's status as last put on the timeline, so a pause or a resume is logged once.
+    private var loggedStatus: String?
+    /// The last time the running step's agent called a MarkView tool: a sign of life too small to save each time.
+    private var lastActivity: Date?
     /// What the supervisor answered the step agents in this run, for the run view.
     @Published private(set) var supervisorLog: [CockpitSupervisorExchange] = []
     /// Set when a limit stopped the running step, so the run's pause says why; shown while the run is open.
@@ -49,6 +54,8 @@ final class CockpitExecution: ObservableObject {
     private var meter: CockpitStepMeter?
     var isActive: Bool { starting || worker != nil }
     var runID: UUID? { record?.id }
+    /// When the run last showed a sign of life: a report, a question, a refused or an allowed MarkView call. What "no report for N minutes" counts from.
+    var lastSignal: Date? { [record?.lastSignal, lastActivity].compactMap { $0 }.max() }
     func stepStatus(_ id: UUID) -> String? { record?.steps.first(where: { $0.stepID == id })?.status.rawValue }
 
     init(root: URL, service: CockpitService, handler: @escaping @Sendable (CockpitHostTask) async -> CockpitHostReply) {
@@ -74,6 +81,7 @@ final class CockpitExecution: ObservableObject {
         try await save(initial)
         record = initial
         state = nil
+        loggedStatus = "running"; lastActivity = nil
         limitNotice = nil; limitReason = nil
         workflowID = "cockpit-" + UUID().uuidString.lowercased()
         queue = "cockpit-" + UUID().uuidString.lowercased()
@@ -231,6 +239,7 @@ final class CockpitExecution: ObservableObject {
             guard remaining > 0 else {
                 let text = Self.timeNotice(minutes)
                 limitReason = text; limitNotice = text
+                Task { await updateRecord({ $0.noteLimit(text) }, failure: "The limit notice could not be saved") }
                 return text
             }
             limitWatch = Task { [weak self] in
@@ -275,6 +284,13 @@ final class CockpitExecution: ObservableObject {
         catch { self.error = "\(failure): \(error.localizedDescription)" }
     }
 
+    /// The gate saw a call of the running step's agent: a sign of life, and a refusal goes on the timeline.
+    func noteGate(tool: String, refusal: String?) {
+        lastActivity = Date()
+        guard let refusal else { return }
+        Task { await updateRecord({ $0.noteRefusal("\(tool) refused: \(refusal)") }, failure: "A refusal could not be saved") }
+    }
+
     /// The gate saw the agent move a bug into fixing: `count` such moves in this step.
     func noteFixCycles(fromGate count: Int) {
         meter?.noteGate(cycles: count)
@@ -298,6 +314,7 @@ final class CockpitExecution: ObservableObject {
     private func stopStep(reason: String) async {
         guard limitReason == nil, worker != nil else { return }
         limitReason = reason; limitNotice = reason
+        await updateRecord({ $0.noteLimit(reason) }, failure: "The limit notice could not be saved")
         _ = try? await request("control", command: "pause")
     }
 
@@ -342,6 +359,12 @@ final class CockpitExecution: ObservableObject {
             record = next
             return true
         }
+        // The run's own status follows only at a step's end; a pause or a resume the coordinator made goes on the timeline here.
+        var seenStatus: String?
+        if ["running", "paused"].contains(state.status), state.status != loggedStatus {
+            if loggedStatus != nil { next.notePauseState(paused: state.status == "paused", reason: limitReason ?? state.reason) }
+            seenStatus = state.status
+        }
         for entry in state.results.dropFirst(next.results.count) {
             let current = try CockpitTemporalPlan(next.plan).fingerprint
             if let fingerprint = entry.planFingerprint, !fingerprint.isEmpty, fingerprint != current {
@@ -369,6 +392,7 @@ final class CockpitExecution: ObservableObject {
             }
             record = next
         }
+        if let seenStatus { loggedStatus = seenStatus }
         return true
     }
 }

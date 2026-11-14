@@ -15,6 +15,9 @@ enum CockpitPlanning {
     static let systemPrompt = """
     Turn the person's goal into a sequential plan. Inspect the project and use only the available capabilities and agent names supplied.
     Each step needs a specific assignment, an agent, and a verifiable completion condition. Include explicit success criteria.
+    A step may also name a model for its agent, chosen only from the models listed for that agent; use an empty string for the agent's own default.
+    Prefer a lighter, faster model for checks, listings and the final verification and the most capable one for implementation and diagnosis;
+    when unsure leave it empty. The person can change any agent or model before approving.
     State outcomes you know cannot be achieved and offer alternatives; do not present them as achievable. If a prerequisite is uncertain,
     a first step may check it. Use a prerequisite step only for a check whose failure must pause later steps.
     Return a complete plan, not a patch, including after a refinement. Do not execute the plan or modify project files during planning.
@@ -34,8 +37,8 @@ enum CockpitPlanning {
     static var schema: [String: Any] {
         let string: [String: Any] = ["type": "string"]
         let strings: [String: Any] = ["type": "array", "items": string]
-        let step: [String: Any] = ["type": "object", "required": ["title", "agent", "assignment", "completionCondition", "isPrerequisite", "qaScenarioID"], "properties": [
-            "title": string, "agent": string, "assignment": string, "completionCondition": string,
+        let step: [String: Any] = ["type": "object", "required": ["title", "agent", "model", "assignment", "completionCondition", "isPrerequisite", "qaScenarioID"], "properties": [
+            "title": string, "agent": string, "model": string, "assignment": string, "completionCondition": string,
             "isPrerequisite": ["type": "boolean"], "qaScenarioID": string
         ]]
         return ["type": "object", "required": ["scenarios", "steps", "successCriteria", "unavailableOutcomes", "alternatives"], "properties": [
@@ -44,7 +47,10 @@ enum CockpitPlanning {
         ]]
     }
 
-    static func parse(_ value: Any?, goal: String, controls: CockpitControls, availableAgents: Set<String>) throws -> CockpitPlan {
+    /// `models` holds, for each available agent, the model ids it offers. A model the assistant proposes that is not among them is read as
+    /// "the agent's default": a suggestion that cannot be used must not cost the whole plan.
+    static func parse(_ value: Any?, goal: String, controls: CockpitControls, availableAgents: Set<String>,
+                      models: [String: Set<String>] = [:]) throws -> CockpitPlan {
         guard let object = value as? [String: Any], let scenarios = object["scenarios"] as? [String],
               let rawSteps = object["steps"] as? [[String: Any]], rawSteps.count <= 100,
               let criteria = object["successCriteria"] as? [String], let unavailable = object["unavailableOutcomes"] as? [String],
@@ -55,8 +61,10 @@ enum CockpitPlanning {
                   let assignment = raw["assignment"] as? String, let condition = raw["completionCondition"] as? String,
                   let prerequisite = raw["isPrerequisite"] as? Bool, let qaID = raw["qaScenarioID"] as? String else { throw ParseError.malformed }
             guard availableAgents.contains(agent) else { throw ParseError.invalid(["Unknown agent: \(agent)"]) }
+            let proposed = (raw["model"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let model = !proposed.isEmpty && models[agent]?.contains(proposed) == true ? proposed : nil
             steps.append(CockpitStep(title: title, agent: agent, assignment: assignment, completionCondition: condition, isPrerequisite: prerequisite,
-                                     qaScenarioID: qaID.isEmpty ? nil : qaID))
+                                     qaScenarioID: qaID.isEmpty ? nil : qaID, model: model))
         }
         guard Set(steps.compactMap(\.qaScenarioID)) == Set(scenarios), Set(scenarios).count == scenarios.count else {
             throw ParseError.invalid(["Each selected QA scenario must be assigned to a step."])
