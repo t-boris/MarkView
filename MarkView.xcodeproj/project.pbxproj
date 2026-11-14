@@ -99,6 +99,7 @@
 		2DE08563095A28F0F19331AE /* RemoteFraming.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60C9C4C8059F94B3523B916 /* RemoteFraming.swift */; };
 		2E476CE6A3046AAAF2B1D631 /* DiagnosticsBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0746BDFCEB6533D5705C4BC /* DiagnosticsBarView.swift */; };
 		2EA8BD7113E8A11E3198C036 /* markview-insight-handlers.js in Resources */ = {isa = PBXBuildFile; fileRef = B1896DB2BE326B5758D19B8C /* markview-insight-handlers.js */; };
+		2F5B627F741DAFF862891870 /* UIStudioScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AFAF46FDFE5330333E05163 /* UIStudioScreens.swift */; };
 		2FA409A1B784ECDB6359C349 /* markview-panels.js in Resources */ = {isa = PBXBuildFile; fileRef = 4B79AFECAF59E74251EEB369 /* markview-panels.js */; };
 		303108A29592F0A0B797254D /* markview-insight-srcdoc.js in Resources */ = {isa = PBXBuildFile; fileRef = 5E240F8B955EB833FBFEF31A /* markview-insight-srcdoc.js */; };
 		313EE15AC17827AE8BCE7D36 /* ControlToolRunner+Flow.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB69044578578FA31DB44B14 /* ControlToolRunner+Flow.swift */; };
@@ -328,6 +329,7 @@
 		992B61ED8B1C843E2630C47C /* ListSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C18592F11080A421A6A1EC86 /* ListSelection.swift */; };
 		9993ACD45A01343042A2B4C4 /* EvidenceTimings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25283AC5B0D94581E1ACA701 /* EvidenceTimings.swift */; };
 		99C90D6D88A9F9AE4D8AF123 /* UIStudioAuthMock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE30F452BE6F56F06FCC972E /* UIStudioAuthMock.swift */; };
+		99CF71AB5AEF477B76F1DCDA /* UIStudioRepair.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0335E31B1C2B59E03A268CA0 /* UIStudioRepair.swift */; };
 		99DD5F497472D878BE428651 /* WorkflowProposalBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = E12BBBBEA87F29E297401651 /* WorkflowProposalBanner.swift */; };
 		9BC6E14F104CFF0A722A0BB1 /* IssueListing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0283B26E80EA8FB9388E0688 /* IssueListing.swift */; };
 		9BD3F97234F4629796CACC03 /* QAActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 823643E6B47C049231687A8C /* QAActions.swift */; };
@@ -335,6 +337,7 @@
 		9C4DA44F3BEA0F4D04B30E15 /* ProjectWorkflowStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EFED0AF1527B1A44DD95C1A /* ProjectWorkflowStore.swift */; };
 		9C59A1E999EB653E03478FA0 /* PrototypeFeatureWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8528AC59F5DF6B456427AB /* PrototypeFeatureWriter.swift */; };
 		9CE756F50996950EE520D986 /* RemoteTerminalConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173CDBCF76BA471F54B8A3A7 /* RemoteTerminalConnection.swift */; };
+		9D40554AB2880901FF7C9BC1 /* UIStudioSession+Repair.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07EBD7652AC5527C7701C211 /* UIStudioSession+Repair.swift */; };
 		9E23615DDB835FE6E9DC2B37 /* ControlToolRunner+Agents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EBD8CA222E37B957D752DD0 /* ControlToolRunner+Agents.swift */; };
 		9EAA8A126FA8F27267BBA0B0 /* ResearchPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69D1C231E9DC47C097CBBA6 /* ResearchPrompt.swift */; };
 		A04D482E27A41747B95841CA /* QAAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33B1794ED37907C706DA17A1 /* QAAPIClient.swift */; };
@@ -517,6 +520,7 @@
 		F63C0E358BA0DC70F47DFC73 /* CockpitExecution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4B94CC4460A1C2CAFC5FBC /* CockpitExecution.swift */; };
 		F69C7136BBCF2382FC423260 /* BookPDFExportModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58204F3C068030E1598BED42 /* BookPDFExportModel.swift */; };
 		F71AD30EA5690CB0BA397664 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = B22463A74DBAA149985AFD0B /* README.md */; };
+		F7C237D81054F6484BFF4968 /* UIStudioSession+Screens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D0228F8BD26A840109C0420 /* UIStudioSession+Screens.swift */; };
 		F90E29074E472035B10C3421 /* PrototypeTailwind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B6BEBAADD6CD8BA0A85088E /* PrototypeTailwind.swift */; };
 		F96FA6D72A28C0FBEB8491CF /* QAEffort.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34C9EA4B55C391A7586BFF09 /* QAEffort.swift */; };
 		F9DB0D1D862F55F68889E54F /* SemanticDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D939016101CACDA109D5AD0 /* SemanticDatabase.swift */; };
@@ -552,6 +556,7 @@
 		01DB1D3BC3146A00A3212838 /* GitHubPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubPublisher.swift; sourceTree = "<group>"; };
 		0283B26E80EA8FB9388E0688 /* IssueListing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueListing.swift; sourceTree = "<group>"; };
 		0289B6B9616C87F5733E87D2 /* KaTeX_Main-Bold.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Main-Bold.woff2"; sourceTree = "<group>"; };
+		0335E31B1C2B59E03A268CA0 /* UIStudioRepair.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioRepair.swift; sourceTree = "<group>"; };
 		03C366A9013B412C265A07FA /* DeploymentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentModels.swift; sourceTree = "<group>"; };
 		04EA701D2CEB5F5976D2E382 /* CloudServicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudServicesView.swift; sourceTree = "<group>"; };
 		050417CE286D0AFEA786B2BF /* prism-line-numbers.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "prism-line-numbers.css"; sourceTree = "<group>"; };
@@ -559,6 +564,7 @@
 		058C1D9A87ABFF23F7C02515 /* LifecycleStatusChange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleStatusChange.swift; sourceTree = "<group>"; };
 		05D306BABCE732DB48917D5D /* prism-line-numbers.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-line-numbers.min.js"; sourceTree = "<group>"; };
 		07E6C73E57B66F2FC4DCD08F /* ModuleExplorerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleExplorerView.swift; sourceTree = "<group>"; };
+		07EBD7652AC5527C7701C211 /* UIStudioSession+Repair.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIStudioSession+Repair.swift"; sourceTree = "<group>"; };
 		08D9CF1EF8614080AAF298EE /* DocumentFileSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentFileSchemeHandler.swift; sourceTree = "<group>"; };
 		08E4B120E755FF9AED5F57E0 /* FeatureBugValidity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureBugValidity.swift; sourceTree = "<group>"; };
 		08F1C10751459B0288159692 /* DeploymentToolRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentToolRunner.swift; sourceTree = "<group>"; };
@@ -661,6 +667,7 @@
 		3A41351EB21A8BB60C9A0A83 /* DependencyGraphScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DependencyGraphScheduler.swift; sourceTree = "<group>"; };
 		3A5536B20A2DD735F6BA815A /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
 		3A6FFAB86BF5B4D5D9533CB1 /* markview-code.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-code.js"; sourceTree = "<group>"; };
+		3AFAF46FDFE5330333E05163 /* UIStudioScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioScreens.swift; sourceTree = "<group>"; };
 		3B668CCF19220EBA5609ABCC /* WebClip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebClip.swift; sourceTree = "<group>"; };
 		3C130B3890F584C0D4CCD2D4 /* UIStudioAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioAgents.swift; sourceTree = "<group>"; };
 		3C1A7D7E3414B22FEF3836BD /* UIStudioConnections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioConnections.swift; sourceTree = "<group>"; };
@@ -872,6 +879,7 @@
 		9C0F0778AC373BF137EF446E /* QARun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QARun.swift; sourceTree = "<group>"; };
 		9C2274FA0138402D44C1B4ED /* NewProject.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProject.swift; sourceTree = "<group>"; };
 		9C501ACCB7ED2B026E7B473E /* BugBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugBatch.swift; sourceTree = "<group>"; };
+		9D0228F8BD26A840109C0420 /* UIStudioSession+Screens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIStudioSession+Screens.swift"; sourceTree = "<group>"; };
 		9DFB18E00AEC2AEE73280110 /* markview-mdext.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-mdext.js"; sourceTree = "<group>"; };
 		9E489E1DDD498F75FC258CB3 /* SemanticModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticModel.swift; sourceTree = "<group>"; };
 		9E66DDC9C3E486A4C1201D62 /* prism-typescript.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-typescript.min.js"; sourceTree = "<group>"; };
@@ -1419,9 +1427,13 @@
 				8A691B8C8A96CED660607A98 /* UIStudioPrompts.swift */,
 				1063B9D7CDA3A8ED21222035 /* UIStudioRealtimePrompts.swift */,
 				0D54B115714DE50CAF6CDA0F /* UIStudioRedaction.swift */,
+				0335E31B1C2B59E03A268CA0 /* UIStudioRepair.swift */,
+				3AFAF46FDFE5330333E05163 /* UIStudioScreens.swift */,
 				437E30B3E5F2185484ADA2D6 /* UIStudioSelection.swift */,
 				872961C48C130402739DD233 /* UIStudioServer.swift */,
 				F3E5C37B252C850C8583ED83 /* UIStudioSession.swift */,
+				07EBD7652AC5527C7701C211 /* UIStudioSession+Repair.swift */,
+				9D0228F8BD26A840109C0420 /* UIStudioSession+Screens.swift */,
 				D40D799A352C7767B5450F9E /* UIStudioSession+Tracking.swift */,
 				62CFDF9FD40076EEACC1B7E5 /* UIStudioSimulation.swift */,
 				4290F1912EB67F6DD7EB9033 /* UIStudioStore.swift */,
@@ -2328,8 +2340,12 @@
 				7CCA2D80C0C226010DFFE03C /* UIStudioPrompts.swift in Sources */,
 				0D0DAF16A58014CC6DF7D96F /* UIStudioRealtimePrompts.swift in Sources */,
 				FD1C0F289E9ACBBE25E0BE8A /* UIStudioRedaction.swift in Sources */,
+				99CF71AB5AEF477B76F1DCDA /* UIStudioRepair.swift in Sources */,
+				2F5B627F741DAFF862891870 /* UIStudioScreens.swift in Sources */,
 				8FE54D4E55AA567CEA794978 /* UIStudioSelection.swift in Sources */,
 				68978C2FAA308134A818B87D /* UIStudioServer.swift in Sources */,
+				9D40554AB2880901FF7C9BC1 /* UIStudioSession+Repair.swift in Sources */,
+				F7C237D81054F6484BFF4968 /* UIStudioSession+Screens.swift in Sources */,
 				BBA239505DF73DB59192DC2E /* UIStudioSession+Tracking.swift in Sources */,
 				E37B57F00EDBD629DF3E4065 /* UIStudioSession.swift in Sources */,
 				CB62EEE11756D6ED1D103D2C /* UIStudioSimulation.swift in Sources */,
@@ -2417,7 +2433,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.21.0;
+				CURRENT_PROJECT_VERSION = 6.22.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -2432,7 +2448,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.21.0;
+				MARKETING_VERSION = 6.22.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -2496,7 +2512,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.21.0;
+				CURRENT_PROJECT_VERSION = 6.22.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -2517,7 +2533,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.21.0;
+				MARKETING_VERSION = 6.22.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

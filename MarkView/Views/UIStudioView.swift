@@ -46,8 +46,18 @@ struct UIStudioView: View {
                     preview.frame(maxWidth: .infinity, maxHeight: .infinity)
                     if showingLog {
                         Divider().background(palette.border)
-                        UIStudioLogDrawer(log: session.sessionLog, fixable: Set(session.fixableErrors.map(\.key)), busy: session.busy != nil,
-                                          fix: { session.fixData($0) }) { showingLog = false }
+                        UIStudioLogDrawer(log: session.sessionLog, fixable: session.fixableKeys, notData: session.notDataKeys,
+                                          hasSignInWall: session.signInWall != nil,
+                                          hasMissingRules: session.dependencies.contains { $0.mode == .unresolved },
+                                          canFixAll: !session.repairItems(automatic: false).isEmpty, busy: session.busy != nil,
+                                          act: { kind, key in
+                                              if kind == .dataError {
+                                                  session.fixData(key)
+                                              } else if let item = session.repairItems(automatic: false).first(where: { $0.kind == kind }) {
+                                                  session.repairProblem(item)
+                                              }
+                                          },
+                                          fixAll: { session.fixProblems() }) { showingLog = false }
                     }
                 }
                 resizeHandle
@@ -209,18 +219,46 @@ struct UIStudioView: View {
     private var screensMenu: some View {
         Menu {
             ForEach(session.screens) { screen in
-                Button(screen.name + " — " + screen.route) { session.openScreen(screen) }
-                    .help(screen.description + "\n" + screen.source)
+                let state = session.state(of: screen)
+                Button(Self.mark(state) + screen.name + " — " + screen.route + (state == .notPrepared ? "" : "  ·  " + state.title)) { session.openScreen(screen) }
+                    .help(screen.description + "\n" + screen.source + "\n\n" + Self.explain(state, failure: session.screenBook.entry(for: screen)?.failure))
             }
             if !session.screens.isEmpty { Divider() }
             Button(session.screens.isEmpty ? "Discover Application Screens…" : "Refresh Application Screens…") {
                 session.discoverScreens()
+            }
+            if !session.screens.isEmpty {
+                Button("Prepare Main Screens") { session.prepareMainScreens() }
+                    .disabled(session.screenWork != nil)
+                    .help("The assistant prepares a scenario for each main screen that is not ready, in the background, without opening the page")
             }
         } label: {
             Label("Screens", systemImage: "rectangle.on.rectangle")
         }
         .controlSize(.small).fixedSize().disabled(session.appURL == nil || session.busy != nil)
         .help("Choose a source-backed application screen, including different states at the same route. Opening one creates and verifies a scenario.")
+    }
+
+    private static func mark(_ state: StudioScreenBook.State) -> String {
+        switch state {
+        case .ready: return "✓ "
+        case .prepared: return "○ "
+        case .preparing: return "… "
+        case .needsRefresh: return "↻ "
+        case .failed: return "⚠ "
+        case .notPrepared: return "   "
+        }
+    }
+
+    private static func explain(_ state: StudioScreenBook.State, failure: String?) -> String {
+        switch state {
+        case .ready: return "Ready: a prepared scenario that reached this screen opens at once."
+        case .prepared: return "Prepared: a scenario is saved for it and opens at once; the first opening checks that it reaches the screen."
+        case .preparing: return "The assistant is preparing this screen now."
+        case .needsRefresh: return "A source file this screen was made from changed: the assistant prepares it again when you open it."
+        case .failed: return "Preparing it failed" + (failure.map { ": " + $0 } ?? "") + ". Opening it asks the assistant again."
+        case .notPrepared: return "Not prepared yet: opening it asks the assistant, which takes about half a minute."
+        }
     }
 
     private var zoomMenu: some View {
@@ -248,16 +286,34 @@ struct UIStudioView: View {
                 panel = .environment
             }
         }
-        if let error = session.fixableErrors.first, session.busy == nil {
-            // REQ-017: nothing happens until the person clicks.
-            let others = session.fixableErrors.count - 1
+        if let undo = session.repairUndo, session.busy == nil {
             HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "wrench.and.screwdriver").uiFont(size: 10).foregroundColor(palette.orange)
-                Text("The page reported an error: " + String(error.key.prefix(160)) + (others > 0 ? " (and \(others) more)" : ""))
+                Image(systemName: "checkmark.circle").uiFont(size: 10).foregroundColor(palette.green)
+                Text((undo.automatic ? "Fixed automatically: " : "Fixed: ") + undo.summary)
                     .uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 Spacer()
-                Button("Fix data") { session.fixData(error.key) }.controlSize(.small)
-                    .help("The assistant reads the error and the code and corrects the simulated records that caused it, or says the error is not caused by data. Nothing changes until you click.")
+                Button("Undo") { session.undoRepair() }.controlSize(.small)
+                    .help("Write the records back as they were, and load the page again")
+                Button { session.dismissRepairNotice() } label: { Image(systemName: "xmark").uiFont(size: 9) }
+                    .buttonStyle(.plain).foregroundColor(palette.textDim)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(palette.bgBanner)
+        }
+        // A problem Studio repairs by itself is not offered here (it is about to be repaired); one it will not repair again, or any
+        // problem when the automatic repair is off, is (REQ-019).
+        let offered = session.repairItems(automatic: false).filter { item in
+            !session.spec.repairsAutomatically || !session.repairItems(automatic: true).contains { $0.id == item.id }
+        }
+        if let problem = offered.first, session.busy == nil {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "wrench.and.screwdriver").uiFont(size: 10).foregroundColor(palette.orange)
+                Text("The page reported a problem: " + String(problem.text.prefix(160)) + (offered.count > 1 ? " (and \(offered.count - 1) more)" : ""))
+                    .uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                Spacer()
+                Button("Fix problems") { session.fixProblems() }.controlSize(.small)
+                    .help("Repairs what Studio can: signs the test user in, prepares missing rules, corrects simulated records that caused a page error")
+                Button("Open Log") { showingLog = true }.controlSize(.small)
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
             .background(palette.bgBanner)
@@ -296,6 +352,21 @@ struct UIStudioView: View {
             .background(palette.bgBanner)
         }
         UIStudioMapBanner(mapper: session.mapping) { session.cancelMapping() }
+        if let work = session.screenWork {
+            HStack(spacing: 8) {
+                if work.total > 0 {
+                    ProgressView(value: Double(min(work.done, work.total)), total: Double(work.total)).progressViewStyle(.linear).frame(width: 90)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+                Text(work.text + (work.total > 0 ? " (\(min(work.done + 1, work.total)) of \(work.total))" : "")).uiFont(size: 10).foregroundColor(palette.text).lineLimit(1)
+                Spacer()
+                Button("Cancel") { session.cancelScreenWork() }.controlSize(.small)
+                    .help("Stop preparing screens: what is prepared stays; the others are prepared when you open them")
+            }
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(palette.bgBanner)
+        }
     }
 
     private func banner(_ text: String, symbol: String, color: Color, action: @escaping () -> Void) -> some View {
@@ -1283,6 +1354,18 @@ struct UIStudioEnvironmentPanel: View {
                         .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 }
 
+                section("Errors")
+                Toggle("Repair errors automatically", isOn: Binding(get: { session.spec.repairsAutomatically },
+                                                                  set: { session.setAutoRepair($0) }))
+                    .toggleStyle(.switch).controlSize(.small).uiFont(size: 10)
+                    .help("When the application opens and when the page reports an error: corrects the simulated records that caused it, prepares missing rules, signs the test user in. Never more than three repairs per open.")
+                Text("Studio repairs what simulated data, a missing rule or a sign-in page causes, shows what it did and keeps Undo. Code errors and blocked services are only reported.")
+                    .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+
+                Toggle("Prepare the main screens ahead", isOn: Binding(get: { session.spec.preparesScreens }, set: { session.setPrepareScreens($0) }))
+                    .toggleStyle(.switch).controlSize(.small).uiFont(size: 10)
+                    .help("After the application opens, the assistant lists its screens and prepares a scenario for each main one in the background (about 30 seconds and $0.30 each, up to 8). Without it a screen is prepared when you open it.")
+
                 section("Application connections")
                 Text("Allowed: the development server, data: and blob: resources, and these addresses. Everything else is blocked.")
                     .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
@@ -1770,10 +1853,17 @@ struct UIStudioLogButton: View {
 struct UIStudioLogDrawer: View {
     @Environment(\.palette) private var palette
     @ObservedObject var log: StudioLog
-    /// The page errors Fix data may be offered for now (REQ-017), whether the session is busy, and what the action does.
+    /// The page errors Fix may be offered for (REQ-017: those of this scenario, also of an earlier page), the ones the assistant judged not
+    /// caused by data, whether a sign-in page or requests without a rule are waiting for a repair now, whether anything can be repaired
+    /// at all, whether the session is busy, and what an action does (REQ-019).
     var fixable: Set<String> = []
+    var notData: Set<String> = []
+    var hasSignInWall = false
+    var hasMissingRules = false
+    var canFixAll = false
     var busy = false
-    var fix: (String) -> Void = { _ in }
+    var act: (StudioProblem.Kind, String) -> Void = { _, _ in }
+    var fixAll: () -> Void = {}
     let close: () -> Void
     @State private var filter: Filter = .all
 
@@ -1812,6 +1902,9 @@ struct UIStudioLogDrawer: View {
                 .pickerStyle(.segmented).labelsHidden().fixedSize().controlSize(.small)
                 .help("Requests include rule preparations; Problems are errors, failures and requests nothing could answer")
                 Text("\(shown.count) of \(log.entries.count)").uiFont(size: 9).foregroundColor(palette.textDim)
+                Button("Fix problems", action: fixAll)
+                    .controlSize(.small).disabled(!canFixAll || busy)
+                    .help("Repairs every problem Studio can, one after the other: signs the test user in, prepares missing rules, corrects simulated records that caused a page error. Code errors and blocked services are only reported.")
                 Spacer()
                 Button("Copy") {
                     NSPasteboard.general.clearContents()
@@ -1836,8 +1929,17 @@ struct UIStudioLogDrawer: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 1) {
-                        let newest = Dictionary(log.entries.compactMap { entry in entry.errorKey.map { ($0, entry.id) } }, uniquingKeysWith: max)
-                        ForEach(shown.reversed()) { entry in row(entry, offersFix: entry.errorKey.map { fixable.contains($0) && newest[$0] == entry.id } ?? false) }
+                        let kinds = Dictionary(uniqueKeysWithValues: log.entries.map { entry in
+                            (entry.id, StudioProblem.classify(kind: entry.kind, problem: entry.problem, text: entry.text, errorKey: entry.errorKey, notData: notData))
+                        })
+                        // One action per problem: on its latest row.
+                        let newestError = Dictionary(log.entries.compactMap { entry in entry.errorKey.map { ($0, entry.id) } }, uniquingKeysWith: max)
+                        let newestRules = log.entries.last { kinds[$0.id] == .missingRule }?.id
+                        let newestSignIn = log.entries.last { kinds[$0.id] == .signInRedirect }?.id
+                        ForEach(shown.reversed()) { entry in
+                            let kind = kinds[entry.id] ?? .other
+                            row(entry, kind: kind, offers: offer(entry, kind: kind, newestError: newestError, newestRules: newestRules, newestSignIn: newestSignIn))
+                        }
                     }
                     .padding(.horizontal, 10).padding(.vertical, 4)
                 }
@@ -1845,18 +1947,37 @@ struct UIStudioLogDrawer: View {
         }
         .frame(height: 220)
         .background(palette.bg)
+        .onAppear { if canFixAll { filter = .problems } }
     }
 
-    /// `offersFix`: the page still reports this error, and this is its latest row (REQ-017).
-    private func row(_ entry: StudioLogEntry, offersFix: Bool) -> some View {
+    /// The action a row carries, if any: the one that fits its kind, on the latest row of its problem, while a repair can still help.
+    private func offer(_ entry: StudioLogEntry, kind: StudioProblem.Kind, newestError: [String: Int], newestRules: Int?,
+                       newestSignIn: Int?) -> StudioProblem.Action? {
+        switch kind {
+        case .dataError:
+            guard let key = entry.errorKey, fixable.contains(key), newestError[key] == entry.id else { return nil }
+            return .fix
+        case .missingRule: return hasMissingRules && newestRules == entry.id ? .prepare : nil
+        case .signInRedirect: return hasSignInWall && newestSignIn == entry.id ? .signIn : nil
+        case .blockedService, .notData, .noise, .other: return nil
+        }
+    }
+
+    private func row(_ entry: StudioLogEntry, kind: StudioProblem.Kind, offers action: StudioProblem.Action?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(Self.time.string(from: entry.date)).foregroundColor(palette.textDim)
             Text(entry.kind.rawValue).foregroundColor(color(entry.kind)).frame(width: 72, alignment: .leading)
             Text(entry.text).foregroundColor(entry.problem ? palette.red : palette.text)
                 .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
-            if offersFix, let key = entry.errorKey {
-                Button("Fix data") { fix(key) }.controlSize(.mini).disabled(busy)
-                    .help("The assistant reads this error and the code and corrects the simulated records that caused it. Nothing changes until you click.")
+            if let action {
+                Button(action.title) { act(kind, entry.errorKey ?? "") }.controlSize(.mini).disabled(busy)
+                    .help(action.help + " Nothing is saved until every correction has been checked.")
+            } else if kind == .notData {
+                Text("not data").foregroundColor(palette.textDim)
+                    .help("The assistant judged that simulated data did not cause this error: look at the code it pointed at.")
+            } else if kind == .blockedService {
+                Text("blocked service").foregroundColor(palette.textDim)
+                    .help("The connection policy blocks this third-party service; nothing Studio repairs can change that.")
             }
         }
         .uiFont(size: 9, design: .monospaced)

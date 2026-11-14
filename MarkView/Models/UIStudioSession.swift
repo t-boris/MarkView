@@ -30,6 +30,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         var detail: String
         var generation: Int
         var date = Date()
+        /// The scenario the page showed when the event arrived: a row of an earlier page keeps its Fix while the scenario is the same.
+        var scenarioID = ""
     }
 
     struct RequestRecord: Identifiable, Hashable {
@@ -95,9 +97,26 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @Published private(set) var limitations: [String] = []
     @Published private(set) var spec: StudioEnvironmentSpec
     @Published private(set) var savedScenarios: [StudioScenario] = []
-    @Published private(set) var screens: [StudioScreen] = []
+    /// The application's screens and what is prepared for each (REQ-021).
+    @Published var screenBook = StudioScreenBook()
+    /// The screens being prepared ahead by the assistant, and the sources' current hashes (staleness).
+    @Published var preparingScreens: Set<String> = []
+    @Published var screenWork: ScreenWork?
+    @Published var screenHashes: [String: String] = [:]
+    var screenTask: Task<Void, Never>?
+    var screens: [StudioScreen] { screenBook.entries.map(\.screen) }
+
+    /// What the background screen work is doing now, for its banner.
+    struct ScreenWork: Equatable {
+        var text: String
+        var done = 0
+        var total = 0
+    }
     @Published private(set) var scenario: StudioScenario {
-        didSet { if !tryingScenario { rememberActiveScenario() } }
+        didSet {
+            if !tryingScenario { rememberActiveScenario() }
+            if let undo = repairUndo, undo.scenarioID != scenario.id { repairUndo = nil }
+        }
     }
     private var tryingScenario = false
     /// The scenario id last written to the project's session data (BUG-087).
@@ -173,7 +192,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     var featureStore: () -> FeatureStore? = { nil }
     var onFeatureExported: (String) -> Void = { _ in }
 
-    private var simulator: StudioSimulator
+    private(set) var simulator: StudioSimulator
     private var server: StudioDevServer?
     private var failedInstallFolder: URL?
     private var ruleListID: String?
@@ -209,7 +228,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// The server was just started and has not compiled a page yet, so the next load may take minutes (BUG-076).
     private var firstLoadAfterStart = false
     /// A restore is preparing, loading or replaying the page: its own end decides the state (BUG-076).
-    private var restoringPage = false
+    private(set) var restoringPage = false
     /// The generation that already reloaded for rules that arrived late (at most once per generation).
     private var reloadedForRules: Int?
     /// Rules arrived for a server request after its page had rendered, and the page was not reloaded by itself because the
@@ -231,9 +250,17 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private var startTask: Task<Void, Never>?
     private var loadWaiters: [CheckedContinuation<Bool, Never>] = []
     private let handler = StudioMessageHandler()
-    private let redactor: StudioRedactor
+    let redactor: StudioRedactor
     private let io = DispatchQueue(label: "markview.ui-studio.io")
-    private var closed = false
+    private(set) var closed = false
+    /// What came of this open's repairs, so that nothing loops (REQ-020).
+    var repairLedger = StudioRepairLedger()
+    /// The last fix, for Undo (REQ-020); nil once undone, dismissed or the scenario changed.
+    @Published var repairUndo: StudioRepairUndo?
+    /// The sign-in page the application sent the current page to, when the scenario did not ask for it (REQ-020).
+    @Published var signInWall: String?
+    /// The debounced automatic repair waiting to look at the page.
+    var autoRepairTask: Task<Void, Never>?
 
     /// The page runtime, from the editor bundle (overridable for tests outside the app).
     static var runtimeURL = Bundle.main.url(forResource: "markview-ui-studio", withExtension: "js", subdirectory: "Editor/vendor/js")
@@ -334,7 +361,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         // A server this session started for another target never outlives the switch.
         await stopOwnedServer()
         self.target = target
-        screens = []
+        repairLedger.reset()
+        screenTask?.cancel()
+        screenTask = nil
+        screenWork = nil
+        preparingScreens = []
+        screenBook = StudioStore.loadScreenBook(root, appFolder: relativeAppFolder) ?? StudioScreenBook(appFolder: relativeAppFolder)
         sessionLog.add(.notice, "Opening \(target.label): `\(target.command)`")
         disclosures = StudioTargetLimits.disclosures(for: target)
         if target.isElectron {
@@ -363,6 +395,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         beginMapping()
         set(.starting, "Loading the application")
         await restore()
+        scheduleScreenWork()
     }
 
     private func startServer(_ target: WebAppTarget) async -> URL? {
@@ -587,6 +620,28 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         restartServer()
     }
 
+    /// Turns the automatic repair of page errors on or off for the project (REQ-020).
+    func setAutoRepair(_ on: Bool) {
+        guard on != spec.repairsAutomatically else { return }
+        var next = simulator.spec
+        next.autoRepair = on ? nil : false
+        simulator.replaceSpec(next)
+        spec = next
+        persistEnvironment()
+        if on { scheduleAutoRepair() } else { autoRepairTask?.cancel() }
+    }
+
+    /// Turns the preparation of the main screens ahead on or off for the project (REQ-021).
+    func setPrepareScreens(_ on: Bool) {
+        guard on != spec.preparesScreens else { return }
+        var next = simulator.spec
+        next.prepareScreens = on ? nil : false
+        simulator.replaceSpec(next)
+        spec = next
+        persistEnvironment()
+        if on { scheduleScreenWork() } else { cancelScreenWork() }
+    }
+
     /// Keeps a secret's real value for the server instead of its test value, or gives it the test value again (REQ-007).
     func setSecretKeptReal(_ name: String, _ kept: Bool) {
         var next = simulator.spec
@@ -638,6 +693,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         pickTask?.cancel()
         workTask?.cancel()
         startTask?.cancel()
+        screenTask?.cancel()
+        autoRepairTask?.cancel()
         preparation.cancelEverything()
         mapping.close()
         resumeLoadWaiters(false)
@@ -752,16 +809,30 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         var page = URLRequest(url: target)
         // A fresh server render: Next.js serves cached server fetches in development unless the request says no-cache.
         StudioConnectionPolicy.frameworkRequestHeaders.forEach { page.setValue($0.value, forHTTPHeaderField: $0.key) }
-        webView.load(page)
+        await loadDocument(page)
         // The first load after MarkView started the server includes the framework's first compile (BUG-076).
         let timeout: TimeInterval = firstLoadAfterStart ? 180 : 45
         firstLoadAfterStart = false
         return await waitForLoad(timeout: timeout)
     }
 
+    /// Starts loading `page` as a new document. A hash-routed application (`/#/attention` → `/#/accounts`) is the catch: an address that
+    /// differs only by its fragment is a navigation inside the same document. WebKit keeps the old page, which keeps the old generation,
+    /// so every request it makes is rejected as stale ("Failed to fetch … a message of an earlier generation") and the load never
+    /// finishes. An empty page first makes the next load a new page.
+    private func loadDocument(_ page: URLRequest) async {
+        if let target = page.url, StudioPageLoad.isFragmentNavigation(from: webView.url, to: target) {
+            sessionLog.add(.navigation, "The address differs from the page's only by its fragment: an empty page is loaded first so that the page starts again")
+            webView.load(URLRequest(url: URL(string: "about:blank")!))
+            _ = await waitForLoad(timeout: 10)
+            }
+        webView.load(page)
+    }
+
     private func waitForLoad(timeout: TimeInterval) async -> Bool {
         let timer = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            // A timer cancelled because the load ended must not wake the next wait: that one has its own timer.
+            do { try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000)) } catch { return }
             self?.resumeLoadWaiters(false)
         }
         defer { timer.cancel() }
@@ -797,6 +868,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         mode = mode == .record ? .interact : mode
         pickTask?.cancel()
         simulator.reset()
+        signInWall = nil
         servedAnswers = []
         // A preparation in flight is not cancelled: its rules belong to the environment, not to the scenario, and the minute the
         // assistant has spent on them is not thrown away by switching scenarios (BUG-089).
@@ -834,9 +906,14 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         if problem == nil { problem = await expectedStateProblem() }
         if let problem { notice = problem }
         await refreshPageState()
+        // The load may have been sent to the sign-in page before the scenario's own steps signed the user in: once the page is
+        // somewhere else, there is no sign-in wall to repair.
+        if signInWall != nil, let path = webView.url?.path, !StudioLogFormat.isSignInPath(path) { signInWall = nil }
         restoringPage = false
         updateReadiness()
         if mode == .select { startPicking() }
+        // The page has settled: look at what it reported (the check waits until nothing else is working on the session).
+        scheduleAutoRepair()
         return problem
     }
 
@@ -987,6 +1064,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let from = navigationURL, to = webView.url
         navigationURL = to
         let signIn = to.map { StudioLogFormat.isSignInPath($0.path) } ?? false
+        if signIn, let to { noteSignInWall(to.path) }
         sessionLog.add(.navigation, problem: signIn, "Server redirect \(from?.absoluteString ?? "?") → \(to?.absoluteString ?? "?")"
                        + (signIn ? " (a sign-in page)" : ""))
     }
@@ -1167,18 +1245,56 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                               generation: simulator.generation)
     }
 
-    /// Repairs the simulated data a page error came from (REQ-017), only when the person asks. The assistant reads the error,
-    /// what the page was answered with, the records and the code (read-only) and either corrects existing records or says
-    /// that data did not cause the error. MarkView checks every correction on a copy; nothing is saved unless all of them pass.
+    /// The page error the data fix of `key` is about: one of the page as it is now, or an earlier page of the same scenario (a reload or
+    /// a fix starts a new page, not a new scenario), so a row of the Log keeps its action.
+    func fixError(for key: String) -> StudioDataFix.PageError? {
+        if let current = fixableErrors.first(where: { $0.key == key }) { return current }
+        let seen = events.filter { $0.scenarioID == scenario.id }
+            .map { StudioDataFix.Seen(kind: $0.kind, detail: $0.detail, generation: $0.generation, date: $0.date) }
+        return StudioDataFix.latest(seen, key: key)
+    }
+
+    /// Repairs the simulated data a page error came from (REQ-017). The person's click; the same repair runs by itself at open and
+    /// after later errors (REQ-020, DEC-013). The assistant reads the error, what the page was answered with, the records and the
+    /// code (read-only) and either corrects existing records or says that data did not cause the error. MarkView checks every
+    /// correction on a copy; nothing is saved unless all of them pass.
     func fixData(_ key: String? = nil) {
-        guard let error = fixableErrors.first(where: { key == nil || $0.key == key }) else {
+        guard let error = fixableErrors.first(where: { key == nil || $0.key == key }) ?? key.flatMap({ fixError(for: $0) }) else {
             notice = "The page reports no error that data could have caused."
             return
         }
-        runWork("Fixing data") { session in await session.performDataFix(error) }
+        repairProblem(StudioProblem.Item(kind: .dataError, key: error.key, text: error.key))
     }
 
-    private func performDataFix(_ error: StudioDataFix.PageError) async {
+    /// Whether an automatic repair may start now (REQ-020): the page has settled and nothing else is working on the session. Never
+    /// inside a restore, a trial of a scenario, the map or a preparation (they own the data and the page for that time).
+    var isSettled: Bool {
+        !closed && !restoringPage && !tryingScenario && busy == nil && appURL != nil && !mapping.isRunning && !isPreparing
+            && [.ready, .degraded].contains(state)
+    }
+
+    /// The generation of the page the simulator serves now.
+    var pageGeneration: Int { simulator.generation }
+
+    /// Waits for the work `runWork` started.
+    func awaitWork() async { await workTask?.value }
+
+    /// What the busy banner says the work is doing now.
+    func showBusyDetail(_ text: String) { busyDetail = text }
+
+    /// Forgets the requests nothing could answer, so that the next request prepares them again; their contracts. Like the Retry of the
+    /// environment panel, without the Reset that follows it (the repair loads the page itself).
+    func forgetUnresolvedDependencies() -> [String] {
+        let contracts = dependencies.filter { $0.mode == .unresolved }.map(\.id)
+        for contract in contracts {
+            preparation.retry(contract)
+            observed[contract] = nil
+        }
+        rebuildDependencies()
+        return contracts
+    }
+
+    func performDataFix(_ error: StudioDataFix.PageError) async -> StudioFixResult {
         let generation = simulator.generation, scenarioID = scenario.id
         var retryProblems: [String] = []
         sessionLog.add(.notice, "Fix data: asking the assistant about \"\(String(error.key.prefix(160)))\"")
@@ -1200,30 +1316,29 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                 recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
                 guard let parsed = StudioDataFix.plan(from: result.structured) else {
                     notice = "Fix data: the assistant's answer was not a set of corrections. Nothing was changed."
-                    return
+                    return .failed("The answer was not a set of corrections.")
                 }
                 plan = parsed
             } catch is CancellationError {
-                return
+                return .cancelled
             } catch {
                 notice = "Fix data failed: \(error.localizedDescription) Nothing was changed."
-                return
+                return .failed(error.localizedDescription)
             }
             // The page the assistant looked at is gone (a Reset, another scenario): its corrections would be for other data.
             guard !closed, simulator.generation == generation, scenario.id == scenarioID else {
                 notice = "Fix data was dropped: the scenario was reset while the assistant worked. Nothing was changed."
-                return
+                return .dropped
             }
             if plan.kind == .notData {
                 let where_ = plan.codePointer.isEmpty ? "" : " Look at \(plan.codePointer)."
                 notice = "Fix data: data did not cause this error. \(plan.summary)\(where_) Nothing was changed."
-                return
+                return .notData(plan.summary + where_)
             }
             let outcome = StudioDataFix.apply(plan.changes, spec: spec, scenarioData: scenario.data, redactor: redactor)
             let problems = plan.unreadable + outcome.problems
             if problems.isEmpty, outcome.ok {
-                await commitDataFix(outcome, error: error)
-                return
+                return await commitDataFix(outcome, error: error)
             }
             if attempt == 1 {
                 retryProblems = problems
@@ -1232,11 +1347,13 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             for problem in problems.prefix(10) { sessionLog.add(.notice, problem: true, "Fix data refused a correction: " + problem) }
             notice = "Fix data: the assistant's corrections were refused (\(problems.first ?? "no correction")). Nothing was changed."
         }
+        return .refused("The corrections were refused.")
     }
 
     /// Saves checked corrections and reloads the page on them: the scenario's own records first (a failure there changes
     /// nothing), then the environment's seed, then a restore, which is a new page generation.
-    private func commitDataFix(_ outcome: StudioDataFix.Outcome, error: StudioDataFix.PageError) async {
+    func commitDataFix(_ outcome: StudioDataFix.Outcome, error: StudioDataFix.PageError?, undoing: Bool = false,
+                       automatic: Bool = false) async -> StudioFixResult {
         busyDetail = "Saving the corrected data"
         var changedScenario: StudioScenario?
         if outcome.applied.contains(where: \.inScenario), let data = outcome.scenarioData {
@@ -1253,7 +1370,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                     }.value
                 } catch {
                     notice = "Fix data: the scenario could not be saved (\(error.localizedDescription)). Nothing was changed."
-                    return
+                    return .failed("The scenario could not be saved.")
                 }
             }
             changedScenario = next
@@ -1273,14 +1390,17 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             simulator.activate(changedScenario)
         }
         notice = nil
-        notice = StudioDataFix.summary(outcome.applied)
-        for reason in StudioDataFix.reasons(outcome.applied) { sessionLog.add(.notice, reason) }
+        notice = undoing ? "Undone: the records have their earlier values again." : StudioDataFix.summary(outcome.applied)
+        for reason in StudioDataFix.reasons(outcome.applied) where !undoing { sessionLog.add(.notice, reason) }
         busyDetail = "Reloading the page on the corrected data"
         let problem = await restore()
         if let problem { sessionLog.add(.notice, problem: true, "After Fix data the page was not restored completely: " + problem) }
-        if fixableErrors.contains(where: { $0.key == error.key }) {
+        if let error, fixableErrors.contains(where: { $0.key == error.key }) {
             sessionLog.add(.notice, problem: true, "The page still reports \"\(String(error.key.prefix(160)))\" on the corrected data. Fix data can run again.")
         }
+        guard !undoing else { return .fixed(nil) }
+        return .fixed(StudioRepairUndo(summary: StudioDataFix.summary(outcome.applied), scenarioID: scenario.id, applied: outcome.applied,
+                                       automatic: automatic))
     }
 
     // MARK: - Channels (REQ-015)
@@ -1736,7 +1856,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         sessionLog.add(.navigation, "Loading \(url.absoluteString) again")
         var page = URLRequest(url: url)
         StudioConnectionPolicy.frameworkRequestHeaders.forEach { page.setValue($0.value, forHTTPHeaderField: $0.key) }
-        webView.load(page)
+        Task { [weak self] in await self?.loadDocument(page) }
     }
 
     /// Registers a proposal atomically and keeps it for later sessions (rules are reusable: SIM-05).
@@ -1784,6 +1904,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         case .route:
             if detail != route { sessionLog.add(.navigation, "Route \(route) → \(detail)") }
             route = detail
+            noteSignInWall(detail)
             return
         case .idle:
             updateReadiness()
@@ -1828,10 +1949,11 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         logPageEvent(event.kind, detail)
         note(event.kind, detail)
         updateReadiness()
+        if event.kind == .runtimeError || event.kind == .logged { scheduleAutoRepair() }
     }
 
     private func note(_ kind: StudioBridge.Event.Kind, _ detail: String) {
-        events.append(EventRecord(kind: kind, detail: detail, generation: simulator.generation))
+        events.append(EventRecord(kind: kind, detail: detail, generation: simulator.generation, scenarioID: scenario.id))
         if events.count > 300 { events.removeFirst(events.count - 300) }
     }
 
@@ -1965,6 +2087,24 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         recordedSteps = []
         // Another scenario keeps the application signed in as the same test user (BUG-088); Reset starts signed out, as before.
         runWork("Resetting the scenario") { session in _ = await session.restore(keepingSignIn: true) }
+    }
+
+    /// Makes `next` the scenario and restores the page on it, keeping the sign-in, and says what went wrong, if anything: the check a
+    /// prepared screen's first opening needs (REQ-021). Called inside `runWork`.
+    func activateReturningProblem(_ next: StudioScenario) async -> String? {
+        scenario = next
+        simulator.activate(next)
+        recordedSteps = []
+        return await restore(keepingSignIn: true)
+    }
+
+    /// Replaces the list of saved scenarios with what is on disk now (after a file was written off the main thread).
+    func reloadSavedScenarios(_ scenarios: [StudioScenario]) { savedScenarios = scenarios }
+
+    /// Writes the screen book, off the main thread.
+    func persistScreenBook() {
+        let book = screenBook, root = root
+        io.async { try? StudioStore.saveScreenBook(book, root: root) }
     }
 
     func setViewport(_ viewport: StudioViewport) {
@@ -2320,7 +2460,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         preparation.cancelEverything()
     }
 
-    private func progress(_ activity: CLICompletion.Activity) {
+    func progress(_ activity: CLICompletion.Activity) {
         switch activity {
         case .read(let path): busyDetail = "Reading " + (path as NSString).lastPathComponent
         case .search(let pattern): busyDetail = "Searching for " + String(pattern.prefix(40))
@@ -2336,42 +2476,52 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         return "op-\(stamp)-\(UUID().uuidString.prefix(4).lowercased())"
     }
 
-    /// Inventory screens without changing the page or writing project files.
+    /// The application folder relative to the project: empty for the project itself.
+    var relativeAppFolder: String {
+        appFolder.standardizedFileURL.path.dropFirst(root.path.count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    /// Asks the assistant for the application's screens: read-only, without the page. The Screens menu's Refresh and the background
+    /// discovery both use it.
+    func requestScreens(reportProgress: Bool) async throws -> (screens: [StudioScreen], notes: String) {
+        let folder = relativeAppFolder
+        var request = CLICompletion.Request(project: root,
+                                            prompt: "Application folder (relative to the project): \(folder.isEmpty ? "." : folder)\n"
+                                                + "Current route: \(route)\nFind the application's selectable screens and their prerequisites.",
+                                            systemPrompt: StudioPrompts.screensSystem, jsonSchema: StudioPrompts.screensSchema,
+                                            readableFolder: root)
+        request.label = "ui-studio:screens"
+        request.timeout = 900
+        request.effort = "medium"
+        let result: CLICompletion.Result
+        if reportProgress {
+            result = try await CLICompletion.run(request, onActivity: { [weak self] activity in
+                Task { @MainActor in self?.progress(activity) }
+            })
+        } else {
+            result = try await CLICompletion.run(request)
+        }
+        recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
+        return (StudioPrompts.screens(from: result.structured), (result.structured as? [String: Any])?["notes"] as? String ?? "")
+    }
+
+    /// Inventory screens without changing the page or writing project files. The list is kept in `.markview/studio/screens.json`.
     func discoverScreens() {
         guard appURL != nil, busy == nil else { return }
         runWork("Finding application screens") { session in
-            let folder = session.appFolder.standardizedFileURL.path.dropFirst(session.root.path.count)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            var request = CLICompletion.Request(project: session.root,
-                                                prompt: "Application folder (relative to the project): \(folder.isEmpty ? "." : folder)\n"
-                                                    + "Current route: \(session.route)\nFind the application's selectable screens and their prerequisites.",
-                                                systemPrompt: StudioPrompts.screensSystem, jsonSchema: StudioPrompts.screensSchema,
-                                                readableFolder: session.root)
-            request.label = "ui-studio:screens"
-            request.timeout = 900
-            request.effort = "medium"
             do {
-                let result = try await CLICompletion.run(request, onActivity: { activity in
-                    Task { @MainActor in session.progress(activity) }
-                })
+                let (found, notes) = try await session.requestScreens(reportProgress: true)
                 guard !Task.isCancelled else { return }
-                session.recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
-                let found = StudioPrompts.screens(from: result.structured)
-                session.screens = found
-                let notes = (result.structured as? [String: Any])?["notes"] as? String ?? ""
+                session.adoptScreens(found)
                 session.notice = found.isEmpty ? "No screens with source-backed destination selectors were found. " + notes
                     : "Found \(found.count) screens. Choose one in the Screens menu." + (notes.isEmpty ? "" : " " + notes)
+                session.scheduleScreenWork()
             } catch is CancellationError {
                 return
             } catch {
                 session.notice = "Screen discovery failed: \(error.localizedDescription)"
             }
         }
-    }
-
-    func openScreen(_ screen: StudioScreen) {
-        clearSelection()
-        change(screen.request, destination: screen)
     }
 
     /// One request of the request box (DEC-010; EDIT-01…EDIT-08, AC-11…AC-15, REQ-013). The assistant chooses its kind: an
@@ -2504,7 +2654,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                 case .context:
                     var context = plan.context ?? StudioContextPlan(structured: nil)
                     if let destination {
-                        context.expectedPath = destination.route
+                        context.expectedPath = destination.expectedPath ?? ""
                         context.expectedSelector = destination.selector
                     }
                     var problems = StudioContextValidator.problems(context, current: session.scenario, spec: session.spec)
@@ -3038,7 +3188,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 // MARK: - Sign-in and pages outside the application (REQ-010)
 
 extension StudioSession {
-    private var hasRealSupabase: Bool {
+    var hasRealSupabase: Bool {
         serverConnections.contains { $0.variable.uppercased().contains("SUPABASE") && $0.mode == .real }
     }
 
@@ -3329,6 +3479,8 @@ extension StudioSession {
 
     private func mappingFinished(_ summary: String, refilled: Bool, requested: Bool) {
         guard !closed else { return }
+        scheduleAutoRepair()
+        scheduleScreenWork()
         if requested, refilled, busy == nil {
             sessionLog.add(.preparation, "The scenario is reset to show the refilled data")
             return reset()

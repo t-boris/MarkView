@@ -32,6 +32,6 @@ jobs:
         timeout-minutes: 8
       - name: Run a session against a real development server
         run: bash tools/tests/ui-studio-session-tests.sh
-        timeout-minutes: 12
+        timeout-minutes: 15
       - name: Build application
         run: xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug -derivedDataPath /tmp/MarkViewUIStudioCI CODE_SIGNING_ALLOWED=NO build
