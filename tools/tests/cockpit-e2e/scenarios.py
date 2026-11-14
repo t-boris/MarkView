@@ -46,6 +46,10 @@ def propose_and_approve(ctx, tag=""):
             "press label:Approve and start"]
 
 
+# A window tall enough for the whole run screen: the radio and switch panels sit below the fold of a 900 px window, and a lazy grid
+# keeps what is not on the screen out of the accessibility tree, so the checks that read their text need the full height.
+BIG = "size 2200 2400"
+
 PHASES = {"finished": "Finished", "stopped": "Stopped", "paused": "Paused", "interrupted": "Interrupted"}
 
 
@@ -138,7 +142,7 @@ def done(detail="Done."):
 
 def supervisor_scenario(name, title, plans, controls=(), seconds=150, verify=None, during=None):
     def run_script(ctx):
-        return script(opening(ctx, "Work the scripted step and ask the supervisor.", controls) + propose_and_approve(ctx)
+        return script(opening(ctx, "Work the scripted step and ask the supervisor.", controls) + [BIG, "wait 1"] + propose_and_approve(ctx)
                       + finish(ctx, "finished", seconds - 40) + quit_app())
     return {"name": name, "title": title, "seconds": seconds, "plans": plans, "script": run_script, "verify": verify, "during": during}
 
@@ -408,9 +412,6 @@ S15_PLAN = plan(
         ask(S15_QUESTION, options=["comma", "dash"], proposed="comma"),
         done("Cruised.")]),
     step("Land", [done("Landed.")]))
-
-BIG = "size 2200 2400"
-
 
 def s15_script(ctx):
     cockpit = ["wait 6", "snap cp-running", "dump %s/dump-cp-running.txt" % ctx.out,
