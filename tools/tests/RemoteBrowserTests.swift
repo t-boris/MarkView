@@ -9,8 +9,21 @@ enum CLITool: String { case claude, codex }
     var rootNode: Node?
     struct Node { let url: URL }
 }
-final class FeatureStore {}
-final class DeploymentStore {}
+// The Cockpit gate in BrowserControlServer asks the project's workflow which bug statuses mean "fixing" and the deployments for names.
+struct ProjectWorkflow {
+    enum Kind { case bug }
+    enum Role { case active, completed, notStarted }
+    static let standard = ProjectWorkflow()
+    func role(_ kind: Kind, _ status: String) -> Role? { nil }
+}
+final class FeatureStore {
+    struct Lifecycle { var workflow = ProjectWorkflow.standard }
+    var lifecycle = Lifecycle()
+}
+final class DeploymentStore {
+    struct Environment { var name: String }
+    func environment(_ id: String) -> Environment? { nil }
+}
 final class DiscussionStore {}
 enum ProjectAgentTools { static let toolNames: Set<String> = [] }
 enum DeploymentAgentTools { static let names: Set<String> = [] }
@@ -23,6 +36,7 @@ enum ControlToolRunner {
 enum ProjectToolRunner {
     static func run(_ tool: String, _ args: [String: Any], store: FeatureStore) -> BrowserAgentTools.Reply { .error("Unexpected project tool") }
     static func reportCockpitProgress(_ args: [String: Any], store: FeatureStore) async -> BrowserAgentTools.Reply { .error("Unexpected project tool") }
+    static func askCockpitSupervisor(_ args: [String: Any], store: FeatureStore) async -> BrowserAgentTools.Reply { .error("Unexpected project tool") }
 }
 enum LifecycleToolRunner {
     static func handles(_ tool: String, _ args: [String: Any]) -> Bool { false }
