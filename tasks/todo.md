@@ -1,3 +1,13 @@
+# Tab bar: "Close Documents" and scroll arrows (2026-11-14, 6.21.0)
+
+Boris, dictated: (1) the right-click menu of a tab gets "Close Documents": every document closes, the tool tabs (End-to-End QA, Workflow, Build & Deployment, Git, X-Ray, ...) stay; (2) with many tabs he cannot scroll them: small arrows at the left and the right of the tabs that move the strip. Plan: `~/.claude/plans/calm-whistling-eich.md`; branch `feat/tab-close-documents-scroll`, one PR, one release.
+
+- [ ] Model: `TabClosing.activeIndex` (pure, checked), `OpenTab.isDocument` (file, image, pdf, archive, data), `WorkspaceTabsStore.keepTabs(where:)`, `closeDocuments()` with one "Save changes to N documents?" question shared with `closeFolder`.
+- [ ] Tab bar: "Close Documents" in the tab context menu (greyed out with no document open); arrows on both ends of the strip, shown only while the tabs overflow, the reached end dimmed, a click moves the strip by 60% of its width.
+- [ ] Checks: `tab-closing-tests.sh` (added to the pdf-reader workflow), every script of the workflows triggered by the change; the real app on hidden windows (arrows appear, move the strip, dim at the ends, go away when the window is wide); pictures dark/light/150%.
+- [ ] 6.21.0: PR, merge, release, DMG; not installed unless Boris asks.
+- Not included: the existing Close Others / Tabs to the Right / All still drop unsaved documents without asking; Close Documents in the ▾ menu or the menu bar.
+
 # Cockpit: the AI names the run (2026-11-14, 6.20.0)
 
 Boris, dictated: at the top of the Cockpit, where the name of the run is written, show the AI's own understanding of what the flow is, not the text he originally typed; "let the AI decide what is written". Plan: `~/.claude/plans/calm-whistling-eich.md`; branch `feat/cockpit-ai-title`, one PR, one release.
