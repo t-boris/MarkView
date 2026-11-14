@@ -52,6 +52,10 @@ struct CockpitRun: Codable, Equatable {
     private(set) var lastSignal: Date? = nil
     /// What happened, the latest `CockpitRunEvent.capacity`. Absent in older runs.
     private(set) var events: [CockpitRunEvent]? = nil
+    /// What the person switched off on the run screen while the run was going (DEC-028). Absent in older runs and until a lever is used.
+    private(set) var switches: CockpitLiveSwitches? = nil
+    /// What the person told the supervisor, the latest `CockpitCuratorNote.capacity`. Absent in older runs.
+    private(set) var notes: [CockpitCuratorNote]? = nil
 
     /// When the run began, or its first event for a run saved before the start time was kept.
     var began: Date? { startedAt ?? events?.first?.at }
@@ -156,6 +160,25 @@ struct CockpitRun: Codable, Equatable {
         exchanges = CockpitSupervisor.appending(exchange, to: exchanges ?? [])
         let outcome = exchange.failed ? "no answer" : (exchange.outOfScope ? "outside the plan: " : "") + exchange.answer
         log(.question, stepID: exchange.stepID, "Asked: \(exchange.question) — \(outcome)", at: exchange.asked, signal: true)
+    }
+
+    /// The person switched levers on the run screen. Each lever that changed goes on the timeline; nothing here widens the controls
+    /// (`CockpitLiveSwitches` can only say "off").
+    mutating func setSwitches(_ cuts: CockpitLiveSwitches, now: Date = Date()) {
+        let before = switches ?? CockpitLiveSwitches()
+        guard before != cuts else { return }
+        switches = cuts.isEmpty ? nil : cuts
+        for change in CockpitLiveSwitches.changes(from: before, to: cuts) {
+            log(.switched, step: currentIndex, change.off ? "\(change.name) was switched off by you." : "\(change.name) was switched back on.", at: now)
+        }
+    }
+
+    /// The person told the supervisor something.
+    mutating func addNote(_ note: CockpitCuratorNote) {
+        guard !note.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !(notes ?? []).contains(where: { $0.id == note.id }) else { return }
+        notes = CockpitCuratorNote.appending(note, to: notes ?? [])
+        log(.note, step: currentIndex, "Note to the supervisor: " + CockpitSupervisor.clip(note.text, to: 120), at: note.at)
     }
 
     /// The gate refused a tool call of the step's agent. A refusal is also a sign that the agent is working.
@@ -280,7 +303,7 @@ struct CockpitRun: Codable, Equatable {
 /// One thing that happened in a run, for its timeline.
 struct CockpitRunEvent: Codable, Equatable, Sendable {
     enum Kind: String, Codable, Sendable {
-        case started, stepStarted, stepPassed, stepFailed, report, question, bug, fix, refusal, limit, paused, resumed, stopped, finished, recovered, revised
+        case started, stepStarted, stepPassed, stepFailed, report, question, bug, fix, refusal, limit, paused, resumed, stopped, finished, recovered, revised, switched, note
     }
     var at: Date
     var kind: Kind
@@ -361,5 +384,27 @@ struct CockpitNotice: Equatable {
 
     private static func firstLine(_ text: String) -> String {
         text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
+    }
+}
+
+// MARK: Where a note to the supervisor has got to
+
+extension CockpitRun {
+    /// What happened to a note since the person sent it: how many supervisor answers were written after it (each carried it), and the
+    /// first step that began after it (its briefing carried it). Both zero/nil means it is still queued.
+    struct NoteDelivery: Equatable {
+        var answersAfter: Int
+        var briefedStep: Int?
+        var isQueued: Bool { answersAfter == 0 && briefedStep == nil }
+    }
+
+    func delivery(of note: CockpitCuratorNote) -> NoteDelivery {
+        let answers = (exchanges ?? []).filter { $0.asked > note.at }.count
+        var briefed: Int?
+        if let began = (events ?? []).first(where: { $0.kind == .stepStarted && $0.at > note.at }),
+           let id = began.stepID, let index = steps.firstIndex(where: { $0.stepID.uuidString == id }) {
+            briefed = index + 1
+        }
+        return NoteDelivery(answersAfter: answers, briefedStep: briefed)
     }
 }

@@ -17,6 +17,8 @@ enum CockpitAgentRegistry {
     /// Removed with the ticket, so a finished or cancelled step leaves no restriction behind.
     private struct StepGuard {
         let policy: CockpitStepPolicy
+        /// What the person has switched off during the run, asked on every call so that a cut bites at the agent's next call.
+        let cuts: () -> CockpitLiveSwitches
         let shell: pid_t
         let onFixCycle: (Int) -> Void
         /// Told of every call of the agent: the tool, and the reason when the call was refused (and kept for the step's report).
@@ -62,10 +64,11 @@ enum CockpitAgentRegistry {
 
     /// Binds the step's restrictions to the shell of its terminal. Calls made from processes under that shell go through `gate`.
     /// `onFixCycle` hears how many times the agent has moved a bug into fixing during this step; `onActivity` hears every call.
-    static func restrict(_ token: UUID, policy: CockpitStepPolicy, shell: pid_t, onFixCycle: @escaping (Int) -> Void,
+    static func restrict(_ token: UUID, policy: CockpitStepPolicy, cuts: @escaping () -> CockpitLiveSwitches = { CockpitLiveSwitches() },
+                         shell: pid_t, onFixCycle: @escaping (Int) -> Void,
                          onActivity: @escaping (String, String?) -> Void = { _, _ in }) {
         guard pending[token] != nil, shell > 0 else { return }
-        guards[token] = StepGuard(policy: policy, shell: shell, onFixCycle: onFixCycle, onActivity: onActivity)
+        guards[token] = StepGuard(policy: policy, cuts: cuts, shell: shell, onFixCycle: onFixCycle, onActivity: onActivity)
     }
 
     /// The decision on one MarkView tool call, or nil when the caller is not the agent of a restricted step (a person's own
@@ -74,7 +77,7 @@ enum CockpitAgentRegistry {
                      environmentNames: (String) -> [String]) -> CockpitStepPolicy.Decision? {
         let among = Set(ancestors)
         guard let token = guards.first(where: { among.contains($0.value.shell) })?.key, var step = guards[token] else { return nil }
-        let decision = step.policy.decision(tool: tool, arguments: arguments, isFixingStatus: isFixingStatus, environmentNames: environmentNames)
+        let decision = step.policy.narrowed(by: step.cuts()).decision(tool: tool, arguments: arguments, isFixingStatus: isFixingStatus, environmentNames: environmentNames)
         switch decision {
         case .refuse(let reason):
             let kept = step.refusals.count < refusalLimit

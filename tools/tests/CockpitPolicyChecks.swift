@@ -319,4 +319,70 @@ check("text is clipped with an ellipsis", CockpitSupervisor.clip("abcdef", to: 3
 }
 await registryChecks()
 
+// MARK: what the person switched off during the run (DEC-028)
+
+func cuts(_ edit: (inout CockpitLiveSwitches) -> Void) -> CockpitLiveSwitches {
+    var value = CockpitLiveSwitches()
+    edit(&value)
+    return value
+}
+check("no cuts change nothing", strict.narrowed(by: CockpitLiveSwitches()) == strict && open.narrowed(by: CockpitLiveSwitches()) == open)
+check("an empty set of cuts says so", CockpitLiveSwitches().isEmpty && !cuts { $0.fixBugsCut = true }.isEmpty)
+let cutAll = cuts { $0.fileBugsCut = true; $0.fixBugsCut = true; $0.deploymentCut = true; $0.supervisorCut = true }
+check("cutting everything leaves the policy of a strict plan", open.narrowed(by: cutAll) == strict)
+check("a cut cannot give a strict plan more than it was approved", strict.narrowed(by: CockpitLiveSwitches()) == strict && strict.narrowed(by: cutAll) == strict)
+check("filing bugs can be cut alone", !allowed(open.narrowed(by: cuts { $0.fileBugsCut = true }), "markview_create_bug")
+      && allowed(open.narrowed(by: cuts { $0.fileBugsCut = true }), "markview_list_bugs"))
+check("fixing bugs can be cut alone", !allowed(open.narrowed(by: cuts { $0.fixBugsCut = true }), "markview_set_bug_status", ["status": "fixing"])
+      && allowed(open.narrowed(by: cuts { $0.fixBugsCut = true }), "markview_create_bug"))
+check("deployment can be cut alone", !allowed(open.narrowed(by: cuts { $0.deploymentCut = true }), "markview_deployments_run", ["environment": "prod"])
+      && allowed(open, "markview_deployments_run", ["environment": "prod"]))
+let fullControls = controls { $0.fileBugs = true; $0.fixBugs = true; $0.deployment = "Production"; $0.supervisor = true; $0.timeLimitMinutes = 90; $0.fixCycleLimit = 3 }
+let narrowedControls = fullControls.narrowed(by: cutAll)
+check("the controls under the cuts are off where cut", !narrowedControls.fileBugs && !narrowedControls.fixBugs && !narrowedControls.supervisor
+      && CockpitStepPolicy.isDeploymentDisabled(narrowedControls.deployment))
+check("limits and the other controls are not touched by cuts", narrowedControls.timeLimitMinutes == 90 && narrowedControls.fixCycleLimit == 3
+      && narrowedControls.build == fullControls.build && narrowedControls.checks == fullControls.checks)
+check("the policy of the narrowed controls equals the narrowed policy", CockpitStepPolicy(controls: narrowedControls) == CockpitStepPolicy(controls: fullControls).narrowed(by: cutAll))
+check("a cut that is put back returns exactly the approved controls", fullControls.narrowed(by: CockpitLiveSwitches()) == fullControls)
+check("cuts that differ are named for the timeline", CockpitLiveSwitches.changes(from: CockpitLiveSwitches(), to: cuts { $0.fixBugsCut = true; $0.supervisorCut = true }).map(\.name) == ["Fixing bugs", "The supervisor"])
+check("cuts survive a round trip", (try? JSONDecoder().decode(CockpitLiveSwitches.self, from: JSONEncoder().encode(cutAll))) == cutAll)
+check("cuts written before a lever existed still read", (try? JSONDecoder().decode(CockpitLiveSwitches.self, from: Data(#"{"fileBugsCut":true}"#.utf8))) == cuts { $0.fileBugsCut = true })
+
+@MainActor func liveCutChecks() async {
+    let root = URL(fileURLWithPath: "/tmp/cockpit-live-cut-checks")
+    var current = CockpitLiveSwitches()
+    let ticket = CockpitAgentRegistry.register(root: root) { _ in }
+    CockpitAgentRegistry.restrict(ticket, policy: open, cuts: { current }, shell: 6262, onFixCycle: { _ in })
+    func gate(_ tool: String, _ arguments: [String: Any] = [:]) -> CockpitStepPolicy.Decision? {
+        CockpitAgentRegistry.gate(tool: tool, arguments: arguments, ancestors: [6262], isFixingStatus: isFixing, environmentNames: namesOf)
+    }
+    func allows(_ decision: CockpitStepPolicy.Decision?) -> Bool { if case .allow? = decision { return true } else { return false } }
+    func refuses(_ decision: CockpitStepPolicy.Decision?) -> Bool { if case .refuse? = decision { return true } else { return false } }
+    check("before a cut the step may file bugs", allows(gate("markview_create_bug")))
+    current.fileBugsCut = true
+    check("a cut bites at the agent's next call, in the middle of the step", refuses(gate("markview_create_bug")))
+    check("the refusal tells the agent what to do", CockpitAgentRegistry.refusals(ticket).last?.contains("Describe the problem in your step report") == true)
+    check("what is not cut is still allowed", allows(gate("markview_list_bugs")))
+    current.fileBugsCut = false
+    check("a lever put back returns what the plan allows", allows(gate("markview_create_bug")))
+    CockpitAgentRegistry.cancel(ticket, reason: "done")
+}
+await liveCutChecks()
+
+// MARK: notes to the supervisor (DEC-028)
+
+let noted = [CockpitCuratorNote(at: Date(timeIntervalSince1970: 100), text: "Do not touch the billing page."),
+             CockpitCuratorNote(at: Date(timeIntervalSince1970: 200), text: "Prefer short test runs.")]
+let notedPrompt = CockpitSupervisor.prompt(task: supervised, outline: [], question: .init(text: askText), progress: nil, notes: noted)
+check("the supervisor prompt carries the person's notes, oldest first", notedPrompt.contains("Do not touch the billing page.")
+      && notedPrompt.range(of: "billing")!.lowerBound < notedPrompt.range(of: "short test runs")!.lowerBound)
+check("a note is called guidance, never a permission", notedPrompt.contains("never a permission") && CockpitSupervisor.systemPrompt.contains("never when they would widen"))
+check("without notes the prompt has no notes block", !CockpitSupervisor.prompt(task: supervised, outline: [], question: .init(text: askText), progress: nil).contains("Notes from the person"))
+check("the briefing block is the same text", CockpitCuratorNote.block(noted)?.contains("Prefer short test runs.") == true && CockpitCuratorNote.block([]) == nil)
+let manyNotes = (0..<80).reduce([CockpitCuratorNote]()) { CockpitCuratorNote.appending(CockpitCuratorNote(at: Date(timeIntervalSince1970: Double($1)), text: "note \($1)"), to: $0) }
+check("a run keeps the latest notes only", manyNotes.count == CockpitCuratorNote.capacity && manyNotes.last?.text == "note 79")
+check("a prompt carries the latest notes only", CockpitCuratorNote.block(manyNotes)!.components(separatedBy: "\n- ").count - 1 == CockpitCuratorNote.promptCount)
+check("a long note is clipped", CockpitCuratorNote.appending(CockpitCuratorNote(at: Date(), text: String(repeating: "n", count: 5_000)), to: []).first!.text.count <= CockpitCuratorNote.textLimit + 1)
+
 finish("cockpit policy")

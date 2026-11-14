@@ -47,6 +47,11 @@ final class CockpitExecution: ObservableObject {
     @Published private(set) var supervisorLog: [CockpitSupervisorExchange] = []
     /// Set when a limit stopped the running step, so the run's pause says why; shown while the run is open.
     @Published private(set) var limitNotice: String?
+    /// What the person has switched off during this run (DEC-028). The gate and the supervisor read it on every call, so a cut bites at
+    /// once; the run's record keeps it too, so it survives a restart. It can only remove what the approved plan allows.
+    @Published private(set) var liveCuts = CockpitLiveSwitches()
+    /// What the person told the supervisor during this run, newest last; the supervisor and the next step's briefing read it.
+    @Published private(set) var liveNotes: [CockpitCuratorNote] = []
     private var limitReason: String?
     private var limitWatch: Task<Void, Never>?
     /// The running step: when it began (monotonic seconds) and what it has used of the fix cycle limit.
@@ -80,6 +85,8 @@ final class CockpitExecution: ObservableObject {
         let temporalPlan = try CockpitTemporalPlan(plan, prior: recovering == nil ? [] : initial.results)
         try await save(initial)
         record = initial
+        liveCuts = initial.switches ?? CockpitLiveSwitches()
+        liveNotes = initial.notes ?? []
         state = nil
         loggedStatus = "running"; lastActivity = nil
         limitNotice = nil; limitReason = nil
@@ -270,6 +277,23 @@ final class CockpitExecution: ObservableObject {
     /// One question of a step agent and the supervisor's answer join the run's log.
     func recordExchange(_ exchange: CockpitSupervisorExchange) async {
         await updateRecord({ $0.addExchange(exchange) }, failure: "A supervisor answer could not be saved")
+    }
+
+    /// The person moved a lever. The change applies at once (the gate asks for `liveCuts` on every call) and is saved with the run.
+    func setLiveCuts(_ cuts: CockpitLiveSwitches) {
+        guard isActive, cuts != liveCuts else { return }
+        liveCuts = cuts
+        Task { await updateRecord({ $0.setSwitches(self.liveCuts) }, failure: "A lever could not be saved") }
+    }
+
+    /// The person sent the supervisor a note. It is heard from the next answer on and is in the briefing of the next step; the running
+    /// agent is not interrupted.
+    func sendNote(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isActive, !trimmed.isEmpty else { return }
+        let note = CockpitCuratorNote(at: Date(), text: trimmed)
+        liveNotes = CockpitCuratorNote.appending(note, to: liveNotes)
+        Task { await updateRecord({ $0.addNote(note) }, failure: "A note could not be saved") }
     }
 
     /// Changes the saved run once no other change is in flight, waiting a little for it.
