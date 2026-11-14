@@ -174,7 +174,20 @@ actor RemoteChannel {
             request.httpBody = try JSONEncoder().encode(body)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        let (data, response) = try await session.data(for: request)
+        // Create the URLSession task before suspending the actor. Otherwise close()
+        // can invalidate the session while data(for:) is still scheduling its task,
+        // and Foundation raises an Objective-C exception instead of a Swift error.
+        let responses = AsyncThrowingStream<(Data, URLResponse), Error> { continuation in
+            let task = session.dataTask(with: request) { data, response, error in
+                if let error { continuation.finish(throwing: error) }
+                else if let data, let response { continuation.yield((data, response)); continuation.finish() }
+                else { continuation.finish(throwing: RemoteFailure.disconnected) }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+            task.resume()
+        }
+        var iterator = responses.makeAsyncIterator()
+        guard let (data, response) = try await iterator.next() else { throw CancellationError() }
         guard let http = response as? HTTPURLResponse else { throw RemoteFailure.invalid("Invalid relay response.") }
         if method == "POST", path == "v1/rooms", [401, 403].contains(http.statusCode) {
             throw RemoteFailure.invalid("The relay access key was rejected. Check the home connection settings.")

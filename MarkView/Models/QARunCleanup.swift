@@ -15,16 +15,36 @@ enum QARunCleanup {
         var namedByBugs: [String]
         /// False when the bug reports could not be read, so it is not known whether any of the runs is named.
         var bugsChecked: Bool
+        /// Runs linked from cockpit results, and whether those references could be read.
+        var namedByCockpit: [String] = []
+        var cockpitChecked: Bool = true
     }
 
     static func plan(deleting runIDs: [String], root: URL, filer: QABugFiler?) async -> Plan {
         let named = await runsNamedByBugs(filer)
-        let bytes = await Task.detached(priority: .userInitiated) { QAStore.sizeOfRuns(root, runIDs: runIDs) }.value
-        return Plan(runIDs: runIDs, bytes: bytes, namedByBugs: runIDs.filter { named?.contains($0) == true }, bugsChecked: named != nil)
+        let details = await Task.detached(priority: .userInitiated) {
+            let bytes = QAStore.sizeOfRuns(root, runIDs: runIDs)
+            let linked = try? CockpitResults.withLock(root) { try CockpitResults.linkedRunIDsLocked(root) }
+            return (bytes, linked)
+        }.value
+        return Plan(runIDs: runIDs, bytes: details.0, namedByBugs: runIDs.filter { named?.contains($0) == true }, bugsChecked: named != nil,
+                    namedByCockpit: runIDs.filter { details.1?.contains($0) == true }, cockpitChecked: details.1 != nil)
     }
 
     static func delete(_ plan: Plan, root: URL) async -> QARunDeletion {
-        await Task.detached(priority: .userInitiated) { QAStore.deleteRuns(root, runIDs: plan.runIDs) }.value
+        await Task.detached(priority: .userInitiated) {
+            do {
+                return try CockpitResults.withLock(root) {
+                    let linked = try CockpitResults.linkedRunIDsLocked(root)
+                    guard plan.cockpitChecked, Set(plan.runIDs).intersection(linked).isSubset(of: Set(plan.namedByCockpit)) else {
+                        return QARunDeletion(deleted: 0, failed: plan.runIDs.count, firstFailure: "Cockpit links changed or could not be checked; review the deletion again.")
+                    }
+                    return QAStore.deleteRuns(root, runIDs: plan.runIDs)
+                }
+            } catch {
+                return QARunDeletion(deleted: 0, failed: plan.runIDs.count, firstFailure: "Cockpit links could not be checked; nothing was deleted.")
+            }
+        }.value
     }
 
     /// Deletes the runs of `scenarioID` that the rule gives up, for a run that is starting (`runInProgress`, which holds one of the kept
@@ -33,9 +53,12 @@ enum QARunCleanup {
     static func prune(root: URL, scenarioID: String, runInProgress: String, filer: QABugFiler?) async {
         guard let named = await runsNamedByBugs(filer) else { return }
         await Task.detached(priority: .utility) {
-            let runs = QAStore.loadRuns(root).filter { $0.scenarioID == scenarioID }
-                .map { QARunRetention.Entry(id: $0.id, startedAt: $0.startedAt, isFinished: $0.finishedAt != nil) }
-            _ = QAStore.deleteRuns(root, runIDs: QARunRetention.runsToDelete(runs, referencedByBugs: named, inProgress: runInProgress))
+            try? CockpitResults.withLock(root) {
+                let linked = try CockpitResults.linkedRunIDsLocked(root)
+                let runs = QAStore.loadRuns(root).filter { $0.scenarioID == scenarioID }
+                    .map { QARunRetention.Entry(id: $0.id, startedAt: $0.startedAt, isFinished: $0.finishedAt != nil) }
+                _ = QAStore.deleteRuns(root, runIDs: QARunRetention.runsToDelete(runs, referencedByBugs: named.union(linked), inProgress: runInProgress))
+            }
         }.value
     }
 

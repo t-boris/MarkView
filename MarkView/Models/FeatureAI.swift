@@ -1138,6 +1138,13 @@ final class FeatureAssistant: ObservableObject {
         if let feature = store.feature(slug), ["exploring", "draft", "idea"].contains(feature.status) {
             store.moveFeature(slug, to: "review", by: .system("Review"))
         }
+        if focus == nil, let feature = store.feature(slug),
+           FeatureReviewGate.passed(newFindings: created,
+                                    openBlockingQuestions: feature.list(.question).filter { $0.isBlocking && !$0.isClosed }.count,
+                                    openSeriousFindings: feature.list(.finding).filter { ["blocker", "high"].contains($0.front.string("severity")) && !$0.isClosed }.count,
+                                    proposedDecisions: feature.list(.decision).filter { $0.status == "proposed" }.count) {
+            store.lifecycle.fire(.reviewPassed, .feature, slug, cause: UUID().uuidString)
+        }
     }
 
     /// Acceptance criteria for a requirement that has none (or more of them).

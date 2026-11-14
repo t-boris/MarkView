@@ -469,6 +469,7 @@ class WorkspaceManager: ObservableObject {
     let workflowEditor = WorkflowEditorModel()
     /// End-to-End QA: the scenarios of the project and the one being edited.
     let qa = QAModel()
+    private var cockpitSession: CockpitSession?
     /// Questions asked before there is a feature, answered as pages (the Discussions tab).
     let discussions = DiscussionStore()
     private var discussionTask: Task<Void, Never>?
@@ -1174,6 +1175,7 @@ class WorkspaceManager: ObservableObject {
             case .insight: continue // in-memory jobs have their own export workflow
             case .prototype: continue // reopened from AI Tools → Prototype
             case .uiStudio: continue // a live session with a development server: opened again from View → UI Studio
+            case .cockpit: continue // reopened from the toolbar
             }
             if index == activeTabIndex { state.activeTabIndex = state.tabs.count }
             state.tabs.append(saved)
@@ -2104,6 +2106,8 @@ class WorkspaceManager: ObservableObject {
 
     /// Drop the database and every engine bound to the current workspace.
     private func releaseWorkspaceEngines() {
+        cockpitSession?.closeProject()
+        cockpitSession = nil
         semanticDatabase = nil
         incrementalCompiler = nil
         graphRAG = nil
@@ -2322,6 +2326,11 @@ class WorkspaceManager: ObservableObject {
             tabsStore.removeTab(at: index)
             return
         }
+        if case .cockpit(let session) = tab.kind {
+            session.cancel()
+            tabsStore.removeTab(at: index)
+            return
+        }
         if case .insight(let session) = tab.kind {
             let releaseHook = self.releaseInsightBlobsHook
             let sessionId = session.id
@@ -2392,16 +2401,19 @@ class WorkspaceManager: ObservableObject {
 
     /// Close all tabs except the one at the given index
     func closeOtherTabs(except index: Int) {
+        for (i, tab) in openTabs.enumerated() where i != index { if case .cockpit(let session) = tab.kind { session.cancel() } }
         tabsStore.keepOnlyTab(at: index)
     }
 
     /// Close all tabs to the right of the given index
     func closeTabsToRight(of index: Int) {
+        for (i, tab) in openTabs.enumerated() where i > index { if case .cockpit(let session) = tab.kind { session.cancel() } }
         tabsStore.keepTabs(through: index)
     }
 
     /// Close all tabs
     func closeAllTabs() {
+        for tab in openTabs { if case .cockpit(let session) = tab.kind { session.cancel() } }
         closeUIStudioSessions()
         tabsStore.reset()
     }
@@ -5041,6 +5053,28 @@ class WorkspaceManager: ObservableObject {
         tab.kind = .workflow
         layout.workspaceArea = .files
         showCenter = true
+        tabsStore.appendTab(tab, activate: true)
+    }
+
+    /// One cockpit belongs to this window; the toolbar returns to the existing tab.
+    func openCockpit() {
+        guard let root = rootNode?.url else { return }
+        layout.workspaceArea = .files
+        showCenter = true
+        if let index = openTabs.firstIndex(where: { if case .cockpit = $0.kind { return true }; return false }) {
+            activeTabIndex = index
+            return
+        }
+        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-cockpit"), content: "", originalContent: "")
+        let session: CockpitSession
+        if let existing = cockpitSession, existing.root.standardizedFileURL == root.standardizedFileURL {
+            session = existing
+            if existing.execution?.isActive != true { existing.loadRuns() }
+        } else {
+            session = CockpitSession(root: root, workspace: self)
+            cockpitSession = session
+        }
+        tab.kind = .cockpit(session)
         tabsStore.appendTab(tab, activate: true)
     }
 

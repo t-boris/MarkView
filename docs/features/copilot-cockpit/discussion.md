@@ -245,3 +245,25 @@ DEC-008 written into REQ-002, REQ-006.
 - **B. Показать известные результаты и дать пользователю выбрать дальнейшее действие** — требует участия, но учитывает неизвестное состояние.
 
 Я предлагаю **B**.
+
+### Answer to Q-006 · 2026-11-13
+
+Where should the Temporal service used by Cockpit run?
+
+Provide a local Temporal service with the application.
+
+### Answer to Q-007 · 2026-11-13
+
+How should the cockpit describe and handle work that an unrestricted agent detaches from its terminal when MarkView closes?
+
+Stop the terminal and its process group; warn that separately detached background processes may continue, and ask the person before continuing.
+
+### Answer to Q-005 · 2026-11-14
+
+How should a run continue after a step is interrupted with unknown partial effects?
+
+B. Show known results and let the user choose how to proceed.
+
+### Agent · 2026-11-14
+
+Implementation plan I-6 still says interruption handling is undecided; that historical wording is superseded by the person's answer to Q-005 and accepted DEC-024. The implementation must show known interrupted-step evidence and require an explicit choice of continuation. Production QA changes remain governed by DEC-008 and REQ-002.

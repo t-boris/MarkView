@@ -2,7 +2,7 @@
 type: feature
 id: native-qa-existing-application
 title: Native QA existing application
-status: backlog
+status: wont-do
 owner: Boris Tsekinovsky
 created: 2026-11-12
 provenance: Created by an AI agent through MarkView from broker-fabric/docs/research/markview-native-qa-attachment-requirements.md

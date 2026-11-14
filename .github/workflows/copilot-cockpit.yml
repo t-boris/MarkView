@@ -1,0 +1,67 @@
+name: Copilot Cockpit Checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'MarkView/Models/Cockpit*.swift'
+      - 'MarkView/Models/FeatureReviewGate.swift'
+      - 'MarkView/Models/QARunCleanup.swift'
+      - 'tools/cockpit-temporal/**'
+      - 'tools/tests/Cockpit*'
+      - 'tools/tests/cockpit-*.sh'
+      - 'tools/tests/cockpit-*.py'
+      - 'tools/tests/FeatureReviewGateChecks.swift'
+      - 'tools/tests/feature-review-gate-tests.sh'
+      - 'tools/tests/QARetentionChecks.swift'
+      - 'tools/tests/qa-retention-tests.sh'
+      - '.github/workflows/copilot-cockpit.yml'
+  pull_request:
+    paths:
+      - 'MarkView/Models/Cockpit*.swift'
+      - 'MarkView/Models/FeatureReviewGate.swift'
+      - 'MarkView/Models/QARunCleanup.swift'
+      - 'tools/cockpit-temporal/**'
+      - 'tools/tests/Cockpit*'
+      - 'tools/tests/cockpit-*.sh'
+      - 'tools/tests/cockpit-*.py'
+      - 'tools/tests/FeatureReviewGateChecks.swift'
+      - 'tools/tests/feature-review-gate-tests.sh'
+      - 'tools/tests/QARetentionChecks.swift'
+      - 'tools/tests/qa-retention-tests.sh'
+      - '.github/workflows/copilot-cockpit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cockpit:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/cockpit-temporal/go.mod
+          cache-dependency-path: tools/cockpit-temporal/go.sum
+      - name: Check planning, approval, recovery and QA retention
+        run: |
+          ( tools/tests/cockpit-plan-tests.sh; tools/tests/cockpit-planning-tests.sh; tools/tests/cockpit-run-tests.sh; tools/tests/cockpit-build-phase-tests.sh ) & a=$!
+          ( tools/tests/cockpit-host-bridge-tests.sh; tools/tests/cockpit-child-tests.sh; tools/tests/cockpit-agent-registry-tests.sh; tools/tests/cockpit-qa-attempt-tests.sh ) & b=$!
+          ( tools/tests/qa-tests.sh; tools/tests/feature-review-gate-tests.sh; tools/tests/qa-retention-tests.sh ) & c=$!
+          status=0
+          for job in "$a" "$b" "$c"; do wait "$job" || status=1; done
+          exit "$status"
+      - name: Check Temporal workflow
+        working-directory: tools/cockpit-temporal
+        run: go test ./...
+      - name: Build and check the local runtime
+        run: |
+          export TARGET_BUILD_DIR="$RUNNER_TEMP/cockpit-product"
+          export UNLOCALIZED_RESOURCES_FOLDER_PATH="MarkView.app/Contents/Resources"
+          export CONFIGURATION=Debug
+          tools/cockpit-temporal/scripts/build-runtime.sh
+          [ "$(uname -m)" = arm64 ] || { echo 'An Apple Silicon runner is required'; exit 1; }
+          export MARKVIEW_TEST_RUNTIME="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Cockpit/arm64"
+          MARKVIEW_TEST_WATCHDOG="$MARKVIEW_TEST_RUNTIME/bin/terminal-watchdog" python3 tools/tests/cockpit-watchdog-tests.py
+          tools/tests/cockpit-runtime-integration-tests.sh

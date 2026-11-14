@@ -29,6 +29,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/cockpit-temporal/go.mod
+          cache-dependency-path: tools/cockpit-temporal/go.sum
 
       # The image's default Xcode, as in the pull request checks; the log records which one built the app.
       - name: Show Xcode
@@ -85,16 +89,17 @@ jobs:
       - name: Build Release
         run: |
           xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Release \
-            -derivedDataPath build/ReleaseDerivedData CODE_SIGNING_ALLOWED=NO -quiet build
+            -derivedDataPath build/ReleaseDerivedData CODE_SIGNING_ALLOWED=NO MARKVIEW_BUILD_COCKPIT_RUNTIME=1 -quiet build
           mkdir -p build/release
           cp -R build/ReleaseDerivedData/Build/Products/Release/MarkView.app build/release/MarkView.app
 
       - name: Sign the app
         if: steps.meta.outputs.signed == '1'
         run: |
+          tools/cockpit-temporal/scripts/sign-runtime.sh build/release/MarkView.app "$SIGN_IDENTITY"
           codesign --force --options runtime --timestamp \
             --entitlements MarkView/MarkView.entitlements --sign "$SIGN_IDENTITY" build/release/MarkView.app
-          codesign --verify --strict --verbose=2 build/release/MarkView.app
+          codesign --verify --deep --strict --verbose=2 build/release/MarkView.app
 
       - name: Create the installer
         run: |

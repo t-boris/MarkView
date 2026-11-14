@@ -11,7 +11,8 @@ enum TerminalChildProcess {
         while fd < limit { _ = close(fd); fd += 1 }
     }
 
-    static func stopAndReap(_ pid: pid_t, graceNanoseconds: UInt64 = 2_000_000_000) -> Task<Void, Never>? {
+    static func stopAndReap(_ pid: pid_t, graceNanoseconds: UInt64 = 2_000_000_000,
+                            beforeReap: (@Sendable () async -> Void)? = nil) -> Task<Void, Never>? {
         guard pid > 0 else { return nil }
         _ = kill(-pid, SIGHUP)
         _ = kill(pid, SIGHUP)
@@ -19,6 +20,7 @@ enum TerminalChildProcess {
             try? await Task.sleep(nanoseconds: graceNanoseconds)
             _ = kill(-pid, SIGKILL)
             _ = kill(pid, SIGKILL)
+            await beforeReap?()
             var status: Int32 = 0
             while waitpid(pid, &status, 0) < 0 && errno == EINTR {}
         }

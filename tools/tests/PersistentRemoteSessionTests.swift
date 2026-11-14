@@ -51,6 +51,14 @@ enum RemoteRelayKeychain { static func account(for text: String) throws -> Strin
     @MainActor static func main() async throws {
         let relay = URL(string: "http://127.0.0.1:16393")!
         let first = try RemoteInvitation(relay: relay, persistent: true), second = try RemoteInvitation(relay: relay, persistent: true)
+        for _ in 0..<50 {
+            let channel = RemoteChannel(invitation: first, role: .work)
+            let receiver = Task { try? await channel.receive { _ in } }
+            await Task.yield()
+            await channel.close()
+            _ = await receiver.value
+        }
+        print("PASS: Closing a channel while requests start does not use an invalidated URLSession")
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("mv-persistent-sessions-" + UUID().uuidString)
         let a = root.appendingPathComponent("a"), b = root.appendingPathComponent("b")
         for (folder, text) in [(a, "WORK A"), (b, "WORK B")] {

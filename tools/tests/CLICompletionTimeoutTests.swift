@@ -57,6 +57,22 @@ import Darwin
             do { _ = try await task.value; preconditionFailure("Stop must cancel unbounded requests.") }
             catch is CancellationError {}
         }
+        for tool in [CLITool.codex, .copilot] {
+            var stubborn = request(tool, timeout: nil)
+            stubborn.prompt = "[ignores-term]"
+            let ready = root.appendingPathComponent("stubborn-ready")
+            try? FileManager.default.removeItem(at: ready)
+            let stubbornTask = Task { try await CLICompletion.run(stubborn) }
+            for _ in 0..<200 where !FileManager.default.fileExists(atPath: ready.path) {
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            precondition(FileManager.default.fileExists(atPath: ready.path), "Test CLI did not start")
+            stubbornTask.cancel()
+            do { _ = try await stubbornTask.value; preconditionFailure("Cancellation must kill an uncooperative CLI") }
+            catch is CancellationError {}
+            for _ in 0..<400 where AgentProcesses.count != 0 { try await Task.sleep(nanoseconds: 10_000_000) }
+            precondition(AgentProcesses.count == 0, "An uncooperative test CLI was not terminated")
+        }
         var failed = request(.copilot, timeout: nil)
         failed.prompt = "[provider-error]"
         do { _ = try await CLICompletion.run(failed); preconditionFailure("Provider errors must still fail the run.") }
@@ -82,6 +98,11 @@ import Darwin
             case "session/prompt":
                 let params = message["params"] as! [String: Any]
                 let text = ((params["prompt"] as! [[String: Any]]).first?["text"] as? String) ?? ""
+                if text.contains("[ignores-term]") {
+                    signal(SIGTERM, SIG_IGN)
+                    FileManager.default.createFile(atPath: "stubborn-ready", contents: Data())
+                    sleep(30)
+                }
                 if text.contains("[provider-error]") {
                     try send(["id": id, "error": ["code": -32000, "message": "fixture provider error"]]); continue
                 }
@@ -93,7 +114,12 @@ import Darwin
         }
     }
     static func serveCodex() throws {
-        _ = FileHandle.standardInput.readDataToEndOfFile()
+        let input = FileHandle.standardInput.readDataToEndOfFile()
+        if String(decoding: input, as: UTF8.self).contains("[ignores-term]") {
+            signal(SIGTERM, SIG_IGN)
+            FileManager.default.createFile(atPath: "stubborn-ready", contents: Data())
+            sleep(30)
+        }
         usleep(350_000)
         try send(["type": "item.completed", "item": ["type": "agent_message", "text": "{\"ok\":true}"]])
         try send(["type": "turn.completed"])

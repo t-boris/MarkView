@@ -59,13 +59,14 @@ mkdir -p "$BUILD"
 
 echo "▸ Building MarkView $VERSION (Release)…"
 xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Release \
-    -derivedDataPath build/ReleaseDerivedData CODE_SIGNING_ALLOWED=NO -quiet build
+    -derivedDataPath build/ReleaseDerivedData CODE_SIGNING_ALLOWED=NO MARKVIEW_BUILD_COCKPIT_RUNTIME=1 -quiet build
 cp -R build/ReleaseDerivedData/Build/Products/Release/MarkView.app "$APP"
 
 echo "▸ Signing with $IDENTITY (hardened runtime)…"
+tools/cockpit-temporal/scripts/sign-runtime.sh "$APP" "$IDENTITY"
 codesign --force --options runtime --timestamp \
     --entitlements MarkView/MarkView.entitlements --sign "$IDENTITY" "$APP"
-codesign --verify --strict --verbose=2 "$APP"
+codesign --verify --deep --strict --verbose=2 "$APP"
 
 echo "▸ Creating the installer…"
 STAGE=$BUILD/dmg

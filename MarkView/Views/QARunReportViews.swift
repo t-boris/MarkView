@@ -376,6 +376,8 @@ struct QARunsList: View {
                                     : "\(named) of them \(named == 1 ? "is" : "are") named by filed bugs: the videos those bugs point to will be gone.")
         }
         if !plan.bugsChecked { parts.append("The bug reports could not be read, so it is not known whether a bug names \(count == 1 ? "this run" : "any of them").") }
+        if !plan.namedByCockpit.isEmpty { parts.append("Copilot Cockpit results link to \(count == 1 ? "this run" : "some of these runs"); their detailed QA data will no longer be available.") }
+        if !plan.cockpitChecked { parts.append("Cockpit links could not be checked; deletion will be refused until they can be read.") }
         return parts.joined(separator: " ")
     }
 

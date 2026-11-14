@@ -275,6 +275,7 @@ enum TabKind {
     case prototype(PrototypeSession)
     /// UI Studio: the project's real web interface with simulated dependencies, shown by `UIStudioView`.
     case uiStudio(StudioSession)
+    case cockpit(CockpitSession)
     /// End-to-End QA: scenarios written from a goal, edited as a graph and checked branch by branch (`QATabView`).
     case qa
 
@@ -353,6 +354,7 @@ struct OpenTab: Identifiable {
         if case .browser = kind { return "Browser" }
         if case .prototype(let session) = kind { return "Prototype: " + session.slug }
         if case .uiStudio = kind { return "UI Studio" }
+        if case .cockpit = kind { return "Copilot Cockpit" }
         if case .qa = kind { return "End-to-End QA" }
         if case .architecture(let scope) = kind {
             if scope == TabKind.pullRequestScope { return "PR X-Ray" }

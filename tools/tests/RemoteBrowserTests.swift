@@ -22,6 +22,7 @@ enum ControlToolRunner {
 }
 enum ProjectToolRunner {
     static func run(_ tool: String, _ args: [String: Any], store: FeatureStore) -> BrowserAgentTools.Reply { .error("Unexpected project tool") }
+    static func reportCockpitProgress(_ args: [String: Any], store: FeatureStore) async -> BrowserAgentTools.Reply { .error("Unexpected project tool") }
 }
 enum LifecycleToolRunner {
     static func handles(_ tool: String, _ args: [String: Any]) -> Bool { false }

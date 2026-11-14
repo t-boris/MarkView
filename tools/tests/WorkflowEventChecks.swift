@@ -14,6 +14,9 @@ check("an event finds the rule that names it and starts at the status", RuleEven
 check("the status is compared normalised", RuleEventPlanner.step(for: .workStarted, in: table, status: " Fixing ")?.id == inProgress.id)
 check("an item in another status gets no step", RuleEventPlanner.step(for: .workStarted, in: table, status: "closed") == nil)
 check("an event that no rule names changes nothing", RuleEventPlanner.step(for: .investigationFinished, in: table, status: "fixing") == nil)
+let reviewed = LifecycleRule(from: ["backlog"], to: "ready", kind: .spec, needs: [.system: []], event: .reviewPassed)
+let featureReview = IssueLifecycleDefinition(statuses: [WorkflowStatus(id: "backlog", role: .notStarted), WorkflowStatus(id: "ready", role: .notStarted)], rules: [reviewed])
+check("a passed review selects the configured ready transition", RuleEventPlanner.step(for: .reviewPassed, in: featureReview, status: "backlog")?.to == "ready")
 check("a rule that MarkView may not make is not an event step", RuleEventPlanner.step(for: .workStarted, in: table, status: "fixed") == nil)
 check("a rule with several from-statuses applies from each", RuleEventPlanner.step(for: .pullRequestMerged, in: table, status: "open")?.to == "fixed")
 check("the standard workflow has no event steps",

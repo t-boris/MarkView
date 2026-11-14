@@ -6,12 +6,48 @@ import Foundation
 /// window's project is ever named by a tool: features are chosen by slug among the project's own.
 @MainActor
 enum ProjectToolRunner {
+    static func reportCockpitProgress(_ args: [String: Any], store: FeatureStore) async -> BrowserAgentTools.Reply {
+        guard let root = store.root else { return .error("This window has no project folder open.") }
+        guard let raw = args["ticket"] as? String, let ticket = UUID(uuidString: raw), let pass = args["passNumber"] as? Int,
+              let coverage = args["scenarioCoverage"] as? [String] ?? (args["scenarioCoverage"] == nil ? [] : nil),
+              let bugs = args["bugs"] as? [String] ?? (args["bugs"] == nil ? [] : nil),
+              let fixes = args["fixes"] as? [String] ?? (args["fixes"] == nil ? [] : nil),
+              let blockers = args["blockers"] as? [String] ?? (args["blockers"] == nil ? [] : nil),
+              let rawCriteria = args["criteriaResults"] as? [[String: Any]] ?? (args["criteriaResults"] == nil ? [] : nil) else {
+            return .error("A valid ticket, pass number and string lists are required.")
+        }
+        var criteria: [CockpitCriterionResult] = []
+        for item in rawCriteria {
+            guard let criterion = item["criterion"] as? String, let met = item["met"] as? Bool, let evidence = item["evidence"] as? String else {
+                return .error("Each criterion needs text, a result and evidence.")
+            }
+            criteria.append(CockpitCriterionResult(criterion: criterion, met: met, evidence: evidence))
+        }
+        let progress = CockpitProgress(passNumber: pass, activity: args["activity"] as? String ?? "", scenarioCoverage: coverage,
+                                       bugs: bugs, fixes: fixes, latestChange: args["latestChange"] as? String ?? "",
+                                       blockers: blockers, buildLogPath: args["buildLogPath"] as? String, criteriaResults: criteria)
+        guard await CockpitAgentRegistry.report(root: root, token: ticket, progress: progress) else {
+            return .error("The ticket or progress is invalid, expired, belongs to another project, or could not be saved.")
+        }
+        return .init(text: "Cockpit progress saved.")
+    }
+
     static func run(_ tool: String, _ args: [String: Any], store: FeatureStore) -> BrowserAgentTools.Reply {
         guard let root = store.root else { return .error("This window has no project folder open.") }
         // The files may have changed since the app last looked (an agent, git, the user's editor).
-        store.reloadSync()
+        if tool != "markview_cockpit_report_progress" && tool != "markview_cockpit_complete_step" { store.reloadSync() }
         do {
             switch tool {
+            case "markview_cockpit_complete_step":
+                guard let raw = args["ticket"] as? String, let ticket = UUID(uuidString: raw),
+                      let passed = args["passed"] as? Bool, let detail = args["detail"] as? String else {
+                    return .error("A valid ticket, result and detail are required.")
+                }
+                let result = CockpitHostResult(passed: passed, detail: detail, build: args["build"] as? String ?? "")
+                guard CockpitAgentRegistry.complete(root: root, token: ticket, result: result) else {
+                    return .error("The ticket is invalid, expired, belongs to another project, or the result is too long.")
+                }
+                return .init(text: "The Cockpit step result was recorded.")
             case "markview_guide": return .init(text: ProjectAgentTools.guide(args["topic"] as? String, workflow: store.lifecycle.workflow))
             case "markview_project": return .init(text: project(store, root))
             case "markview_get_workflow": return getWorkflow(store)
