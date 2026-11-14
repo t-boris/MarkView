@@ -467,7 +467,7 @@ struct ContentView: View {
                                  selected: { if case .uiStudio? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openUIStudio()
                     }.disabled(workspaceManager.rootNode == nil)
-                    headerButton("point.3.connected.trianglepath.dotted", help: "Copilot Cockpit", width: controlWidth,
+                    headerButton("airplane", help: "Copilot Cockpit", width: controlWidth,
                                  selected: { if case .cockpit? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openCockpit()
                     }.disabled(workspaceManager.rootNode == nil)
