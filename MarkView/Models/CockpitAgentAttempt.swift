@@ -25,6 +25,10 @@ final class CockpitAgentAttempt {
     var askSupervisor: ((String) async throws -> CockpitSupervisor.Answer)?
     /// Told of every question the step asked and what came back, for the run's log.
     var onExchange: (CockpitSupervisorExchange) -> Void = { _ in }
+    /// What the person has switched off, and what the person told the supervisor, as of now; set by the session. Asked on every gate
+    /// call and every question, so a lever or a note counts from the agent's next move.
+    var liveCuts: () -> CockpitLiveSwitches = { CockpitLiveSwitches() }
+    var liveNotes: () -> [CockpitCuratorNote] = { [] }
     /// One line per step of the plan, for the supervisor's context.
     var planOutline: [String] = []
     /// The model of the step about to run, from the approved plan: the runtime does not carry it, so the session sets it before each step.
@@ -52,7 +56,8 @@ final class CockpitAgentAttempt {
             terminal.terminateCockpitStep()
             return Self.failure("The step was interrupted.")
         }
-        audited = (before, Self.controls(of: task))
+        // The file audit holds the step to the controls with the cuts in force when it begins; a cut made during the step is the gate's.
+        audited = (before, Self.controls(of: task).narrowed(by: liveCuts()))
         session = terminal
         progress = nil
         // One attempt object serves every step of the run: what a step asked the supervisor is not carried into the next.
@@ -83,7 +88,8 @@ final class CockpitAgentAttempt {
                     await self?.supervise(question, task: task) ?? CockpitSupervisor.failureReply("the step has ended")
                 }, waitForShutdown: { [weak self] in await self?.terminationTask?.value }) { [weak self] reply in self?.finish(reply) }
                 self.ticket = ticket
-                CockpitAgentRegistry.restrict(ticket, policy: CockpitStepPolicy(controls: Self.controls(of: task)), shell: pty.shell,
+                CockpitAgentRegistry.restrict(ticket, policy: CockpitStepPolicy(controls: Self.controls(of: task)),
+                                              cuts: { [weak self] in self?.liveCuts() ?? CockpitLiveSwitches() }, shell: pty.shell,
                                               onFixCycle: { [weak self] count in self?.onFixCycle(count) },
                                               onActivity: { [weak self] tool, refusal in self?.onGate(tool, refusal) })
                 terminal.onExit = { [weak self] _ in self?.cancel(reason: "The agent terminal exited before reporting a result.") }
@@ -97,7 +103,7 @@ final class CockpitAgentAttempt {
                     when fixes are disabled, report findings without changing source files; when deployment is disabled, do not deploy by any route;
                     when filing bugs is disabled, describe problems in your report instead. A refused call is not a puzzle to get around: report it as a blocker.
                     You cannot start or drive other agents through MarkView during a step.
-                    \(Self.controls(of: task).supervisor
+                    \(Self.controls(of: task).narrowed(by: liveCuts()).supervisor
                         ? "When you need a decision you cannot make from the assignment and the controls, call markview_cockpit_ask with project_folder \(root.path), ticket \(ticket.uuidString) and your question: the supervisor answers at once. Nobody else will be asked and nothing waits for a person, so do not print a question into the terminal and wait for it. If the answer says the matter is outside the plan, do not act on it: record it as a blocker."
                         : "There is no supervisor in this run and nobody to ask: decide conservatively inside the controls, say what you decided in your step report, or record a blocker.")
                     When building is disabled, do not claim checks against a newly built version were performed. Build and checks are instructions only: MarkView cannot check them.
@@ -107,7 +113,7 @@ final class CockpitAgentAttempt {
                     with project_folder \(root.path), ticket \(ticket.uuidString), passed, detail (evidence and blockers), and build (the build identifier or an empty string).
                     While working, call markview_cockpit_report_progress with the same ticket to report the pass number, activity, scenario coverage, bugs, confirmed fixes, latest change, blockers, and build log path where known. On the final step include criteriaResults for every stated success criterion, with exact criterion text, met or unmet, and supporting evidence.
                     Report whether the completion condition was actually met. Your terminal session ends after your report; do not start subsequent steps.
-
+                    \(CockpitCuratorNote.block(liveNotes()).map { "\n" + $0 + "\n" } ?? "")
                     Assignment and prior results (JSON):
                     \(assignment)
                     """
@@ -187,13 +193,13 @@ final class CockpitAgentAttempt {
 
     /// The agent's question to the supervisor: asked once per distinct question, at most `questionsPerStep` of them, and never waited on.
     private func supervise(_ question: CockpitSupervisor.Question, task: CockpitHostTask) async -> String {
-        guard Self.controls(of: task).supervisor, let askSupervisor else { return CockpitSupervisor.disabledReply }
+        guard Self.controls(of: task).narrowed(by: liveCuts()).supervisor, let askSupervisor else { return CockpitSupervisor.disabledReply }
         switch ledger.admit(question.text) {
         case .repeated(let reply): return reply
         case .exhausted: return CockpitSupervisor.exhaustedReply
         case .ask: break
         }
-        let prompt = CockpitSupervisor.prompt(task: task, outline: planOutline, question: question, progress: progress)
+        let prompt = CockpitSupervisor.prompt(task: task, outline: planOutline, question: question, progress: progress, notes: liveNotes())
         var exchange = CockpitSupervisorExchange(stepID: task.step.id, asked: Date(), question: CockpitSupervisor.clip(question.text, to: CockpitSupervisor.textLimit),
                                                  answer: "", outOfScope: false, failed: false)
         let reply: String

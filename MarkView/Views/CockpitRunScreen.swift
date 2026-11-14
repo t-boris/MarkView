@@ -31,8 +31,7 @@ struct CockpitRunScreen: View {
                     VStack(alignment: .leading, spacing: 16) {
                         header(run, now: context.date)
                         attention(run, now: context.date)
-                        controlRoom(run, now: context.date)
-                        flowStrip(run)
+                        cockpit(run, now: context.date)
                         tabs(run)
                     }.padding(20).frame(maxWidth: 1000, alignment: .leading).frame(maxWidth: .infinity)
                 }
@@ -152,45 +151,25 @@ struct CockpitRunScreen: View {
         }
     }
 
-    // MARK: Control room
+    // MARK: Cockpit
 
-    private func controlRoom(_ run: CockpitRun, now: Date) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            CockpitSectionTitle(title: "Control room", detail: "Who does what in this run, right now.")
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
-                coordinatorCard(run)
-                stepAgentCard(run, now: now)
-                supervisorCard(run)
-                guardCard(run)
-            }
-        }
-    }
-
-    private func roleCard<Content: View>(icon: String, title: String, subtitle: String, @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: icon).foregroundColor(palette.accent)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(title).uiFont(size: 13, weight: .semibold)
-                    Text(subtitle).uiFont(size: 10).foregroundColor(palette.textDim)
-                }
-            }
-            content()
-        }.cockpitCard().frame(maxHeight: .infinity, alignment: .top)
-    }
-
-    private func coordinatorCard(_ run: CockpitRun) -> some View {
-        let state = execution?.state?.status
-        return roleCard(icon: "gearshape.2", title: "Coordinator", subtitle: "The local runtime that moves from step to step") {
-            Text(coordinatorText(run, status: state)).uiFont(size: 12).fixedSize(horizontal: false, vertical: true)
-            if activeNow {
-                HStack(spacing: 8) {
-                    if state == "running" { Button { session.control("pause") } label: { Label("Pause", systemImage: "pause.fill") } }
-                    Button(role: .destructive) { session.control("stop") } label: { Label("Stop", systemImage: "stop.fill") }
-                }.buttonStyle(.bordered).controlSize(.small)
-                if state == "running" {
-                    Text("Pause interrupts the running step. You then choose which step to continue from.").uiFont(size: 10).foregroundColor(palette.textDim)
-                }
+    /// The instrument panel, the route, who is flying the step, the switches and the radio to the supervisor (DEC-028, REQ-009).
+    private func cockpit(_ run: CockpitRun, now: Date) -> some View {
+        let phase = phase(run)
+        let cuts = (isLive ? execution?.liveCuts : nil) ?? run.switches ?? CockpitLiveSwitches()
+        let readings = CockpitReadings(run: run, live: activeNow, now: now, usedSeconds: isLive ? execution?.usedSeconds : nil,
+                                       usedFixCycles: isLive ? execution?.usedFixCycles : nil, cuts: cuts, activity: isLive ? execution?.lastSignal : nil)
+        let notes = isLive ? (execution?.liveNotes ?? run.notes ?? []) : (run.notes ?? [])
+        let signal = isLive ? (execution?.lastSignal ?? run.lastSignal) : run.lastSignal
+        return VStack(alignment: .leading, spacing: 12) {
+            CockpitSectionTitle(title: "Cockpit", detail: "Real readings of this run. Hover a dial to see what it measures.")
+            CockpitInstrumentPanel(readings: readings, live: activeNow)
+            CockpitFlightPath(run: run, tint: phase.tint(palette), selectedStepID: $selectedStepID)
+            CockpitFlightStrip(run: run, now: now, lastSignal: signal, activeNow: activeNow) { session.showAgentTerminal() }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
+                CockpitLeverPanel(session: session, run: run, live: activeNow, cuts: cuts,
+                                  coordinatorLine: coordinatorText(run, status: execution?.state?.status), canPause: execution?.state?.status == "running")
+                CockpitRadioPanel(session: session, run: run, live: activeNow, cuts: cuts, notes: notes)
             }
         }
     }
@@ -203,107 +182,6 @@ struct CockpitRunScreen: View {
         case "stopped": return "The run was stopped."
         case "finished": return "Every step has run."
         default: return activeNow ? "Starting." : "Not running. The runtime stops when MarkView quits; a run continues only when you choose to."
-        }
-    }
-
-    private func stepAgentCard(_ run: CockpitRun, now: Date) -> some View {
-        roleCard(icon: "cpu", title: "Step agent", subtitle: "The agent working on the current step") {
-            if let index = run.currentIndex, run.plan.steps.indices.contains(index), run.steps.indices.contains(index) {
-                let plan = run.plan.steps[index], record = run.steps[index]
-                Text(plan.title).uiFont(size: 12, weight: .semibold)
-                Text("\(plan.agent) · \(plan.chosenModel ?? "default model")").uiFont(size: 11).foregroundColor(palette.textDim)
-                if record.status == .running, let started = record.startedAt {
-                    Text("Working for \(CockpitFormat.duration(now.timeIntervalSince(started)))").uiFont(size: 11)
-                }
-                if let signal = isLive ? (execution?.lastSignal ?? run.lastSignal) : run.lastSignal {
-                    Text("Last sign of life \(CockpitFormat.duration(now.timeIntervalSince(signal))) ago").uiFont(size: 11).foregroundColor(palette.textDim)
-                }
-                if activeNow && record.status == .running { Button("Show agent terminal") { session.showAgentTerminal() }.buttonStyle(.bordered).controlSize(.small) }
-            } else {
-                Text(run.status == .finished ? "No step is running; the run finished." : "No step is running.").uiFont(size: 12).foregroundColor(palette.textDim)
-            }
-        }
-    }
-
-    private func supervisorCard(_ run: CockpitRun) -> some View {
-        let log = run.exchanges ?? []
-        let controls = run.plan.controls
-        return roleCard(icon: "person.badge.shield.checkmark", title: "Supervisor", subtitle: "Answers the step agents' questions") {
-            if controls.supervisor {
-                let tool = controls.supervisorAgent ?? "Project's assistant"
-                Text("\(tool) · \(controls.supervisorModel ?? "default model")").uiFont(size: 11).foregroundColor(palette.textDim)
-                Text("\(log.count) asked · \(log.filter(\.outOfScope).count) outside the plan · \(log.filter(\.failed).count) unanswered").uiFont(size: 11)
-                if let last = log.last {
-                    Text("Last: \(last.question)").uiFont(size: 11).lineLimit(2).foregroundColor(palette.textDim)
-                    Text("→ \(last.answer)").uiFont(size: 11).lineLimit(2).foregroundColor(last.outOfScope || last.failed ? palette.orange : palette.textDim)
-                }
-            } else {
-                Text("Off. Step agents cannot ask anything; they decide inside the controls or record a blocker.").uiFont(size: 12).foregroundColor(palette.textDim)
-            }
-        }
-    }
-
-    private func guardCard(_ run: CockpitRun) -> some View {
-        let refusals = (run.events ?? []).filter { $0.kind == .refusal }.count
-        return roleCard(icon: "lock.shield", title: "Guard", subtitle: "What MarkView enforces during every step") {
-            Text(CockpitStepPolicy(controls: run.plan.controls).enforced.joined(separator: " · ")).uiFont(size: 11).foregroundColor(palette.textDim).lineLimit(4)
-            Text("\(refusals) call\(refusals == 1 ? "" : "s") refused so far").uiFont(size: 11)
-            Text(limitsLine(run.plan.controls)).uiFont(size: 11).foregroundColor(palette.textDim)
-        }
-    }
-
-    private func limitsLine(_ controls: CockpitControls) -> String {
-        var parts: [String] = []
-        if let minutes = controls.timeLimitMinutes { parts.append("\(CockpitFormat.duration(Double(minutes) * 60)) of agent time") }
-        if let cycles = controls.fixCycleLimit { parts.append("\(cycles) fix cycle\(cycles == 1 ? "" : "s")") }
-        return parts.isEmpty ? "No time or fix cycle limit." : "Limits: " + parts.joined(separator: ", ")
-    }
-
-    // MARK: Flow
-
-    private func flowStrip(_ run: CockpitRun) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(Array(run.plan.steps.enumerated()), id: \.element.id) { index, plan in
-                    if index > 0 { Image(systemName: "chevron.right").font(.system(size: 9)).foregroundColor(palette.textDim) }
-                    flowChip(index: index, plan: plan, record: run.steps.indices.contains(index) ? run.steps[index] : nil, current: run.currentIndex == index)
-                }
-            }.padding(.vertical, 2)
-        }
-    }
-
-    private func flowChip(index: Int, plan: CockpitStep, record: CockpitRun.StepRecord?, current: Bool) -> some View {
-        let tint = stepTint(record?.status)
-        let selected = selectedStepID == plan.id.uuidString
-        return Button { selectedStepID = selected ? nil : plan.id.uuidString } label: {
-            HStack(spacing: 5) {
-                Image(systemName: stepIcon(record?.status)).font(.system(size: 11))
-                Text("\(index + 1). \(plan.title)").uiFont(size: 11, weight: current ? .semibold : .regular).lineLimit(1)
-            }
-            .foregroundColor(tint).padding(.horizontal, 9).padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 6).fill(tint.opacity(0.14)))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? palette.accent : (current ? tint : Color.clear), lineWidth: 1.5))
-        }.buttonStyle(.plain).help(plan.assignment)
-    }
-
-    private func stepTint(_ status: CockpitRun.StepStatus?) -> Color {
-        switch status {
-        case .running: return palette.accent
-        case .passed: return palette.green
-        case .failed: return palette.red
-        case .interrupted: return palette.orange
-        case .skipped, .waiting, .none: return palette.textDim
-        }
-    }
-
-    private func stepIcon(_ status: CockpitRun.StepStatus?) -> String {
-        switch status {
-        case .running: return "play.circle.fill"
-        case .passed: return "checkmark.circle.fill"
-        case .failed: return "xmark.circle.fill"
-        case .interrupted: return "bolt.circle.fill"
-        case .skipped: return "arrow.right.circle"
-        case .waiting, .none: return "circle"
         }
     }
 
@@ -328,7 +206,7 @@ struct CockpitRunScreen: View {
                 let result = run.results.last { $0.stepID == plan.id }
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
-                        Image(systemName: stepIcon(record?.status)).foregroundColor(stepTint(record?.status))
+                        Image(systemName: (record?.status ?? .waiting).icon).foregroundColor((record?.status ?? .waiting).tint(palette))
                         Text("\(index + 1). \(plan.title)").uiFont(size: 13, weight: .semibold)
                         Spacer()
                         CockpitChip(text: "\(plan.agent) · \(plan.chosenModel ?? "default model")", icon: "cpu")

@@ -4,7 +4,7 @@ Drive the real Debug MarkView app (a copy of it) through the Copilot Cockpit: UI
 planner, a fake step agent on a real PTY, real Temporal workflow, real tool gate, real tickets. Nothing touches the user's
 running app, the network or a real agent CLI.
 
-    python3 tools/tests/cockpit-e2e/e2e.py --app <Debug MarkView.app> [--work DIR] [--keep] S5 S7 S8 S9 S10 S11 S12 S13 S14
+    python3 tools/tests/cockpit-e2e/e2e.py --app <Debug MarkView.app> [--work DIR] [--keep] S5 S7 S8 S9 S10 S11 S12 S13 S14 S15 S16
 
 | Scenario | What it proves |
 |---|---|
@@ -17,6 +17,8 @@ running app, the network or a real agent CLI.
 | S12 | wrong ticket from inside a step and from a process outside every step: refused, supervisor never called |
 | S13 | a step's model reaches the agent command (`--model opus`, none for a step without one); the run records a dated timeline; the plan screen shows agent and model |
 | S14 | takes pictures of both screens (plan, step editor, running run, finished run, each tab) for a look; checks only that the run finished |
+| S15 | instrument panel: a lever switched off mid-step makes the gate refuse the agent's next call (plan untouched), a note is saved, read by the supervisor and in the next step's briefing |
+| S16 | instrument panel with a failed step: banner and lamp, pictures |
 
 Files: `e2e.py` (orchestrator), `scenarios.py` (plans, probe scripts, checks), `fake-claude.py` (`claude` stand-in: planner,
 step agent and supervisor modes), `e2eprobe.m` (probe dylib with AX steps), `make-fixture.sh` (fixture git project).

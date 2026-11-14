@@ -75,6 +75,16 @@ struct CockpitStepPolicy: Equatable {
             ? nil : controls.deployment.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    /// The policy with the levers the person switched off during the run applied. A cut only removes what the step may do; the gate
+    /// asks for this on every call, so a cut bites at the agent's next call, even in the middle of a step.
+    func narrowed(by cuts: CockpitLiveSwitches) -> CockpitStepPolicy {
+        var narrowed = self
+        if cuts.fileBugsCut { narrowed.fileBugs = false }
+        if cuts.fixBugsCut { narrowed.fixBugs = false }
+        if cuts.deploymentCut { narrowed.deploymentTarget = nil }
+        return narrowed
+    }
+
     /// `isFixingStatus` says whether a bug status of the project's workflow means work on the fix is going on. A move to "fixed" is
     /// not refused: MarkView itself demands merge and check evidence for it, and closing a duplicate is not fixing.
     /// `environmentNames` gives the names an environment id goes by, so "Production" in the controls matches the id `prod`.

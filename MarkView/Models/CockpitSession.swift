@@ -249,6 +249,8 @@ final class CockpitSession: ObservableObject {
             catch { return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: "Progress could not be saved.") }
         }
         attempt.onFixCycle = { [weak self] count in self?.execution?.noteFixCycles(fromGate: count) }
+        attempt.liveCuts = { [weak self] in self?.execution?.liveCuts ?? CockpitLiveSwitches() }
+        attempt.liveNotes = { [weak self] in self?.execution?.liveNotes ?? [] }
         attempt.onGate = { [weak self] tool, refusal in self?.execution?.noteGate(tool: tool, refusal: refusal) }
         // The runtime does not carry the model (it only knows the fields it declares), so it comes from the approved plan by the step's id.
         attempt.stepModel = reviewed.plan.steps.first { $0.id.uuidString == task.step.id }?.chosenModel

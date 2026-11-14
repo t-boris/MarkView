@@ -447,28 +447,22 @@ struct ContentView: View {
                     headerButton("checklist", help: "Tasks", width: controlWidth,
                                  selected: workspaceManager.layout.workspaceArea == .work) { activate(.work) }
                         .disabled(workspaceManager.rootNode == nil)
-                    headerButton("arrow.triangle.branch", help: "Git", width: controlWidth,
-                                 selected: { if case .git? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                    tabButton("arrow.triangle.branch", help: "Git", width: controlWidth, matches: { if case .git = $0 { return true } else { return false } }) {
                         workspaceManager.openGit()
                     }.disabled(workspaceManager.rootNode == nil)
-                    headerButton("server.rack", help: "Build & Deployment (⌃⌘D)", width: controlWidth,
-                                 selected: { if case .deployments? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                    tabButton("server.rack", help: "Build & Deployment (⌃⌘D)", width: controlWidth, matches: { if case .deployments = $0 { return true } else { return false } }) {
                         workspaceManager.openDeployments()
                     }.disabled(workspaceManager.rootNode == nil)
-                    headerButton("point.3.connected.trianglepath.dotted", help: "Workflow", width: controlWidth,
-                                 selected: { if case .workflow? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                    tabButton("point.3.connected.trianglepath.dotted", help: "Workflow", width: controlWidth, matches: { if case .workflow = $0 { return true } else { return false } }) {
                         workspaceManager.openWorkflow()
                     }.disabled(workspaceManager.rootNode == nil)
-                    headerButton("checkmark.shield", help: "End-to-End QA (⌘8)", width: controlWidth,
-                                 selected: { if case .qa? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                    tabButton("checkmark.shield", help: "End-to-End QA (⌘8)", width: controlWidth, matches: { if case .qa = $0 { return true } else { return false } }) {
                         workspaceManager.openQA()
                     }.disabled(workspaceManager.rootNode == nil)
-                    headerButton("macwindow.and.cursorarrow", help: "UI Studio (⌘7)", width: controlWidth,
-                                 selected: { if case .uiStudio? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                    tabButton("macwindow.and.cursorarrow", help: "UI Studio (⌘7)", width: controlWidth, matches: { if case .uiStudio = $0 { return true } else { return false } }) {
                         workspaceManager.openUIStudio()
                     }.disabled(workspaceManager.rootNode == nil)
-                    headerButton("airplane", help: "Copilot Cockpit", width: controlWidth,
-                                 selected: { if case .cockpit? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                    tabButton("airplane", help: "Copilot Cockpit", width: controlWidth, matches: { if case .cockpit = $0 { return true } else { return false } }) {
                         workspaceManager.openCockpit()
                     }.disabled(workspaceManager.rootNode == nil)
                     headerButton("square.on.square.dashed", help: "New Prototype…", width: controlWidth,
@@ -476,8 +470,7 @@ struct ContentView: View {
                         workspaceManager.openPrototypeCreator(mode: .requirements)
                     }.disabled(workspaceManager.rootNode == nil)
                     browserMenu.frame(width: controlWidth, height: controlWidth)
-                    headerButton("bubble.left.and.text.bubble.right", help: "Discussions (⌃⌘I)", width: controlWidth,
-                                 selected: { if case .discussions? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                    tabButton("bubble.left.and.text.bubble.right", help: "Discussions (⌃⌘I)", width: controlWidth, matches: { if case .discussions = $0 { return true } else { return false } }) {
                         workspaceManager.openDiscussions()
                     }.disabled(workspaceManager.rootNode == nil)
                     headerButton("terminal", help: "Agents (⌘3)", width: controlWidth,
@@ -525,24 +518,47 @@ struct ContentView: View {
 
     private var toolbarIconWidth: CGFloat { 28 * min(1.5, max(1, appFontScale)) }
 
-    private func toolbarIcon(_ symbol: String, width: CGFloat, selected: Bool = false) -> some View {
+    /// `selected`: the tab or panel this button stands for is what the window shows now. `open`: its tab is open in the background.
+    private func toolbarIcon(_ symbol: String, width: CGFloat, selected: Bool = false, open: Bool = false) -> some View {
         Image(systemName: symbol)
             .uiFont(size: 14)
-            .foregroundColor(selected ? palette.blue : palette.text)
+            .foregroundColor(selected || open ? palette.blue : palette.text)
             .frame(width: width, height: width)
             .background(selected ? palette.bgActive : Color.clear)
+            .overlay(alignment: .bottom) {
+                if open && !selected { Circle().fill(palette.blue).frame(width: 4, height: 4).padding(.bottom, 2) }
+            }
             .cornerRadius(6)
             .contentShape(Rectangle())
     }
 
     private func headerButton(_ symbol: String, help: String, width: CGFloat,
-                              selected: Bool = false, action: @escaping () -> Void) -> some View {
+                              selected: Bool = false, open: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            toolbarIcon(symbol, width: width, selected: selected)
+            toolbarIcon(symbol, width: width, selected: selected, open: open)
         }
         .buttonStyle(.plain)
-        .help(help)
+        .help(open && !selected ? help + " (open)" : help)
         .accessibilityLabel(help)
+        .accessibilityValue(selected ? "current" : (open ? "open" : ""))
+    }
+
+    /// How a tab shows on its button: not open, open in the background, or the tab the centre shows now. A tab that is the window's
+    /// active one but is hidden behind Tasks, the project map or a closed centre panel is only open.
+    private enum TabMark { case closed, open, current }
+
+    private func tabMark(_ matches: (TabKind) -> Bool) -> TabMark {
+        guard workspaceManager.openTabs.contains(where: { matches($0.kind) }) else { return .closed }
+        if let active = workspaceManager.activeTab, matches(active.kind),
+           workspaceManager.showCenter, workspaceManager.layout.workspaceArea == .files { return .current }
+        return .open
+    }
+
+    /// The button of a tab that exists once per window: it stays marked while the tab is open, so the person does not have to click to find out.
+    private func tabButton(_ symbol: String, help: String, width: CGFloat, matches: (TabKind) -> Bool,
+                           action: @escaping () -> Void) -> some View {
+        let mark = tabMark(matches)
+        return headerButton(symbol, help: help, width: width, selected: mark == .current, open: mark == .open, action: action)
     }
 
     /// Less frequent window tools, kept alongside the direct project buttons.

@@ -329,3 +329,51 @@ struct CockpitApproval: Codable, Equatable {
 
     func permits(_ candidate: CockpitPlan) -> Bool { candidate == plan && candidate.problems.isEmpty }
 }
+
+// MARK: What the person switches off while a run is going (DEC-028)
+
+/// What the person turned OFF on the run screen. It can only say "off": applying it to the approved controls never gives a step more than
+/// the person approved, and putting a lever back up returns to exactly what the plan allows. Limits and the instruction-only controls
+/// (create scenarios, build, checks) are not here: they change only through a revised plan.
+struct CockpitLiveSwitches: Codable, Equatable, Sendable {
+    var fileBugsCut = false
+    var fixBugsCut = false
+    var deploymentCut = false
+    var supervisorCut = false
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: Key.self)
+        fileBugsCut = try container.decodeIfPresent(Bool.self, forKey: .fileBugsCut) ?? false
+        fixBugsCut = try container.decodeIfPresent(Bool.self, forKey: .fixBugsCut) ?? false
+        deploymentCut = try container.decodeIfPresent(Bool.self, forKey: .deploymentCut) ?? false
+        supervisorCut = try container.decodeIfPresent(Bool.self, forKey: .supervisorCut) ?? false
+    }
+
+    private enum Key: String, CodingKey { case fileBugsCut, fixBugsCut, deploymentCut, supervisorCut }
+
+    var isEmpty: Bool { !fileBugsCut && !fixBugsCut && !deploymentCut && !supervisorCut }
+
+    /// The names of the levers that differ between two states, for the timeline: ("File bugs", now off).
+    static func changes(from old: CockpitLiveSwitches, to new: CockpitLiveSwitches) -> [(name: String, off: Bool)] {
+        var found: [(String, Bool)] = []
+        if old.fileBugsCut != new.fileBugsCut { found.append(("Filing bugs", new.fileBugsCut)) }
+        if old.fixBugsCut != new.fixBugsCut { found.append(("Fixing bugs", new.fixBugsCut)) }
+        if old.deploymentCut != new.deploymentCut { found.append(("Deployment", new.deploymentCut)) }
+        if old.supervisorCut != new.supervisorCut { found.append(("The supervisor", new.supervisorCut)) }
+        return found
+    }
+}
+
+extension CockpitControls {
+    /// The controls the run is under now: what the plan approved, minus what the person has switched off.
+    func narrowed(by cuts: CockpitLiveSwitches) -> CockpitControls {
+        var narrowed = self
+        if cuts.fileBugsCut { narrowed.fileBugs = false }
+        if cuts.fixBugsCut { narrowed.fixBugs = false }
+        if cuts.deploymentCut { narrowed.deployment = "Disabled" }
+        if cuts.supervisorCut { narrowed.supervisor = false }
+        return narrowed
+    }
+}

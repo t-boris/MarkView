@@ -163,4 +163,45 @@ let quiet = CockpitNotice.silence(of: live, minutes: 25)
 check(quiet?.kind == .silent && quiet?.body.contains("25 min") == true, "silence is announced with its length")
 check(CockpitNotice.silence(of: pausedRun, minutes: 25) == nil, "a paused run is never called silent")
 check(quiet?.key == CockpitNotice.silence(of: live, minutes: 45)?.key, "one quiet stretch is one notice, however long it lasts")
+// MARK: levers and notes (DEC-028)
+
+var levered = CockpitRun(plan: plan)
+check(levered.start(approval: approved, at: 0, now: Date(timeIntervalSince1970: 1_000)), "a run to move levers on")
+var fixOff = CockpitLiveSwitches(); fixOff.fixBugsCut = true
+levered.setSwitches(fixOff, now: Date(timeIntervalSince1970: 1_100))
+check(levered.switches == fixOff && levered.events?.last?.kind == .switched && levered.events?.last?.text == "Fixing bugs was switched off by you.",
+      "switching a lever off is kept and goes on the timeline")
+let eventCount = levered.events?.count ?? 0
+levered.setSwitches(fixOff, now: Date(timeIntervalSince1970: 1_200))
+check(levered.events?.count == eventCount, "the same lever state is not logged twice")
+levered.setSwitches(CockpitLiveSwitches(), now: Date(timeIntervalSince1970: 1_300))
+check(levered.switches == nil && levered.events?.last?.text == "Fixing bugs was switched back on.", "a lever put back is logged and leaves no cuts")
+levered.setSwitches(fixOff, now: Date(timeIntervalSince1970: 1_400))
+let note = CockpitCuratorNote(at: Date(timeIntervalSince1970: 1_500), text: "  Keep the runs short.  ")
+levered.addNote(note)
+levered.addNote(note)
+check(levered.notes?.count == 1 && levered.notes?.first?.text == "Keep the runs short." && levered.events?.last?.kind == .note, "a note is kept once, trimmed, and goes on the timeline")
+levered.addNote(CockpitCuratorNote(at: Date(), text: "   "))
+check(levered.notes?.count == 1, "an empty note is not kept")
+let leveredBack = try JSONDecoder().decode(CockpitRun.self, from: JSONEncoder().encode(levered))
+check(leveredBack == levered && leveredBack.switches == fixOff && leveredBack.notes == levered.notes, "levers and notes round-trip with the run")
+
+// A run saved before levers and notes existed has neither key.
+var legacy = try JSONSerialization.jsonObject(with: JSONEncoder().encode(levered)) as! [String: Any]
+legacy.removeValue(forKey: "switches"); legacy.removeValue(forKey: "notes")
+let legacyRun = try JSONDecoder().decode(CockpitRun.self, from: JSONSerialization.data(withJSONObject: legacy))
+check(legacyRun.switches == nil && legacyRun.notes == nil && legacyRun.status == levered.status, "a run saved before levers and notes still loads")
+
+// Where a note has got to.
+var delivered = CockpitRun(plan: plan)
+_ = delivered.start(approval: approved, at: 0, now: Date(timeIntervalSince1970: 2_000))
+let early = CockpitCuratorNote(at: Date(timeIntervalSince1970: 2_100), text: "early")
+delivered.addNote(early)
+check(delivered.delivery(of: early).isQueued, "a note nobody has used yet is queued")
+delivered.addExchange(CockpitSupervisorExchange(stepID: first.id.uuidString, asked: Date(timeIntervalSince1970: 2_200), question: "q", answer: "a", outOfScope: false, failed: false))
+check(delivered.delivery(of: early) == CockpitRun.NoteDelivery(answersAfter: 1, briefedStep: nil), "a supervisor answer after the note means it was heard")
+_ = delivered.completeCurrent(passed: true, detail: "ok", build: "", now: Date(timeIntervalSince1970: 2_300))
+check(delivered.delivery(of: early).briefedStep == 2 && !delivered.delivery(of: early).isQueued, "the step that begins after the note carries it in its briefing")
+check(delivered.delivery(of: CockpitCuratorNote(at: Date(timeIntervalSince1970: 3_000), text: "late")).isQueued, "a note sent after everything is queued")
+
 print("All cockpit run checks passed")
