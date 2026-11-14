@@ -1,16 +1,24 @@
-# Toolbar "open tab" marks and the Cockpit instrument panel (2026-11-14, planned as 6.19.0)
+# Toolbar "open tab" marks and the Cockpit instrument panel (2026-11-14, 6.19.0)
 
 Boris, dictated: (1) the toolbar buttons of singleton tabs (Git, Build & Deployment, Workflow, End-to-End QA, UI Studio, Cockpit, Discussions) must stay highlighted while their tab is open, because he cannot tell whether it is open without clicking; (2) the Cockpit run should look like a cockpit: altitude, turns, wind strength, distance to destination, levers to switch things on and off, and messages to the supervisor ("curator"). Decisions of 2026-11-14: two-level toolbar marks (current = filled, open in the background = dot); the dials show real values of the run; levers can only switch OFF what the approved plan allows, at once, never beyond it; a message to the supervisor is a note (kept in the run, used in its later answers and in the next step's briefing, never interrupts the running agent). Plan: `~/.claude/plans/calm-whistling-eich.md`; one branch `feat/cockpit-instrument-panel`, one PR, one release.
 
 - [x] Docs: DEC-028 (proposed), REQ-009 (draft), REQ-008 updated, in `copilot-cockpit`.
-- [ ] Toolbar: `open` mark next to `selected` in `ContentView.workspaceHeader` for the 7 singleton buttons; Browser and New Prototype unchanged; accessibility value "open"/"current".
-- [ ] Readings: `Models/CockpitInstruments.swift` (Foundation only) + `tools/tests/cockpit-instruments-tests.sh`.
-- [ ] Levers: `CockpitLiveSwitches` (cuts only), `CockpitStepPolicy.narrowed(by:)`, registry evaluates the narrowed policy on every call, supervisor checks its cut, `CockpitExecution.setSwitches`, event kind `switched`; checks in `cockpit-policy-tests.sh` and `cockpit-run-tests.sh`.
-- [ ] Notes: `CockpitRun.notes`, event kind `note`, supervisor prompt block, next-step briefing, `DictationInput` field.
-- [ ] Views: `CockpitInstrumentPanel`, `CockpitFlightPath` (replaces the flow strip), `CockpitLeverPanel`; the four role cards removed, their facts moved; saved runs parked; labels kept for `tools/tests/cockpit-e2e` and `scenarios.py` updated.
-- [ ] Checks: build; the new scripts, every `cockpit-*-tests.sh` and every script of each workflow whose `paths:` include a changed file; app-probe for the toolbar; cockpit-e2e pictures of every state in light and dark and at a large font scale; CPU of the hidden app during a run; two windows.
-- [ ] Version bump (minor), PR, merge, check the PR's checks right after, `./release.sh --publish` from a clean `origin/main` worktree, report the PR and release links; do not install; remove my worktrees.
+- [x] Toolbar: `open` mark next to `selected` in `ContentView.workspaceHeader` for the 7 singleton buttons; Browser and New Prototype unchanged; accessibility value "open"/"current". Checked in the real app (S17): all six states (none open, current, current + open, hidden behind Tasks, re-chosen, closed).
+- [x] Readings: `Models/CockpitInstruments.swift` (Foundation only) + `tools/tests/cockpit-instruments-tests.sh`.
+- [x] Levers: `CockpitLiveSwitches` (cuts only), `CockpitStepPolicy.narrowed(by:)`, registry evaluates the narrowed policy on every call, supervisor checks its cut, `CockpitExecution.setSwitches`, event kind `switched`; checks in `cockpit-policy-tests.sh` and `cockpit-run-tests.sh`.
+- [x] Notes: `CockpitRun.notes`, event kind `note`, supervisor prompt block, next-step briefing, `DictationInput` field.
+- [x] Views: `CockpitInstrumentPanel`, `CockpitFlightPath` (replaces the flow strip), `CockpitLeverPanel`; the four role cards removed, their facts moved; saved runs parked; labels kept for `tools/tests/cockpit-e2e` and `scenarios.py` updated.
+- [x] Checks: Debug build; every `cockpit-*-tests.sh` (new `cockpit-instruments-tests.sh`, extended policy and run checks), the packaged-runtime integration and watchdog checks, every script of the pdf-book, pdf-reader and themes workflows; cockpit-e2e S5, S7-S17 on a hidden copy of the Debug app; pictures of running, lever cut, note sent, finished and failed, dark and light, text 100% / 150% / 200%; CPU compared with main.
+- [x] 6.19.0: PR #405 merged (`bc0c54c`); its four checks (cockpit, pdf-book, pdf-reader, themes) and `Build & Release` passed. Release v6.19.0 published from the merged main (signed, notarized, stapled, `spctl` accepts it): https://github.com/t-boris/MarkView/releases/tag/v6.19.0 (Latest); copy at `build/MarkView-6.19.0.dmg`.
+- [ ] Install 6.19.0: waiting for Boris's "reinstall" (the running app is not touched).
 - Not included: a graceful hold after the current step and a Resume (the runtime accepts only pause, stop and retry), live change of limits and of create scenarios / build / checks, pasting a note into the running agent's terminal.
+
+Review (2026-11-14):
+- A first pulse trace redrawn four times a second by a SwiftUI `TimelineView` raised the CPU of a live run from 5.5% (main) to 16%; found by comparing with a build of main, fixed by drawing the trace as a Core Animation layer (back to 5.6-6.4%).
+- `cockpit-policy-tests.sh` was not run by any CI job; it and `cockpit-instruments-tests.sh` now run in the existing Cockpit job.
+- The lamps and dials carry their reading in the accessibility label: an element without children exposes no separate value to the probe.
+- Not hand-checked: a saved run reopened later (parked panel, levers and notes disabled: by code, no picture), two windows of the same project, the silent state on a live run (its rule is checked, no 20-minute run), a real mouse on the switches, the panel in the installed app. REQ-009 criteria stay unticked until Boris has seen it; DEC-028 stays proposed.
+- Honest limits: a note reaches an agent only on its next question or at the next step; wind counts refusals and unanswered questions of the last hour only; the Distance estimate appears after the first step has passed.
 
 # Copilot Cockpit: an editable plan screen and a run control room (2026-11-14, 6.18.0)
 
