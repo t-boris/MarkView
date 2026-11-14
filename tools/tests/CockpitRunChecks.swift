@@ -152,6 +152,11 @@ var failed = live; _ = failed.completeCurrent(passed: false, detail: "Unavailabl
 check(CockpitNotice.transition(from: live, to: failed)?.kind == .stepFailed && CockpitNotice.transition(from: live, to: failed)?.body.contains("Unavailable") == true, "a failed step is announced with its reason")
 var done = live; _ = done.completeCurrent(passed: true, detail: "ok", build: "b", now: at(3)); _ = done.completeCurrent(passed: true, detail: "ok", build: "b", now: at(4))
 check(CockpitNotice.transition(from: live, to: done)?.kind == .finished, "a finished run is announced")
+check(CockpitNotice.transition(from: live, to: done)?.body == "Work", "an untitled run is named by its goal in a notice")
+var namedPlan = plan; namedPlan.title = "Weekly release checklist"
+var namedLive = CockpitRun(plan: namedPlan); _ = namedLive.start(approval: CockpitApproval(plan: namedPlan, productionConfirmed: false)!, at: 0, now: at(0))
+var namedDone = namedLive; _ = namedDone.completeCurrent(passed: true, detail: "ok", build: "b", now: at(3)); _ = namedDone.completeCurrent(passed: true, detail: "ok", build: "b", now: at(4))
+check(CockpitNotice.transition(from: namedLive, to: namedDone)?.body == "Weekly release checklist", "a titled run is named by its title in a notice")
 check(CockpitNotice.transition(from: done, to: done) == nil, "a finished run is announced once")
 var passing = live; _ = passing.completeCurrent(passed: true, detail: "ok", build: "b", now: at(3))
 check(CockpitNotice.transition(from: live, to: passing) == nil, "a step that passes does not interrupt the person")

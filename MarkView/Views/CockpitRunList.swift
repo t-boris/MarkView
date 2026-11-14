@@ -104,7 +104,7 @@ struct CockpitRunList: View {
                     Image(systemName: phase.icon).foregroundColor(phase.tint(palette)).font(.system(size: 12))
                     Text(phase.title).uiFont(size: 11, weight: .semibold).foregroundColor(phase.tint(palette))
                 }
-                Text(CockpitFormat.firstLine(run.plan.goal)).uiFont(size: 12, weight: .medium).lineLimit(2).multilineTextAlignment(.leading)
+                Text(run.plan.displayTitle).uiFont(size: 12, weight: .medium).lineLimit(2).multilineTextAlignment(.leading)
                 Text(detail(run, phase: phase)).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(10).contentShape(Rectangle())
@@ -125,7 +125,7 @@ struct CockpitRunList: View {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(session.savedQAResults) { item in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(item.result.outcome) · \(CockpitFormat.firstLine(item.result.plan.goal))").uiFont(size: 10).lineLimit(2)
+                        Text("\(item.result.outcome) · \(item.result.plan.displayTitle)").uiFont(size: 10).lineLimit(2)
                         if item.detailsDeleted { Text("Details deleted").uiFont(size: 10).foregroundColor(palette.orange) }
                         else if let scenario = item.result.scenarioID, let id = item.result.qaRunID {
                             Button("Open QA result") { session.openQAResult(scenarioID: scenario, runID: id) }.buttonStyle(.borderless).uiFont(size: 10)

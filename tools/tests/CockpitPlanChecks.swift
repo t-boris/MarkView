@@ -78,6 +78,25 @@ withModel.steps[0].model = "gpt-5"
 let freshApproval = CockpitApproval(plan: freshPlan, productionConfirmed: false)
 check(freshApproval?.permits(freshPlan) == true && freshApproval?.permits(withModel) == false, "changing only a step's model invalidates the approval")
 
+// MARK: The flow's title
+
+check(CockpitText.firstLine("\n  First line  \nSecond") == "First line" && CockpitText.firstLine(" \n ") == "", "the first non-empty line of a text")
+var named = CockpitPlan(goal: "  \nWrite the quarterly report\nwith charts", controls: CockpitControls(), scenarios: [], steps: [], successCriteria: [], unavailableOutcomes: [], alternatives: [], productionQA: nil)
+check(named.title == nil && named.displayTitle == "Write the quarterly report", "a plan without a title is named by the first line of its goal")
+named.title = "  "
+check(named.displayTitle == "Write the quarterly report", "a blank title is no title")
+named.title = "Quarterly report"
+check(named.displayTitle == "Quarterly report" && named.goal.hasPrefix("  \n"), "the title names the flow and the goal stays what the person typed")
+let namedBack = try JSONDecoder().decode(CockpitPlan.self, from: JSONEncoder().encode(named))
+check(namedBack == named, "a plan keeps its title through persistence")
+let encodedNames = try JSONSerialization.jsonObject(with: JSONEncoder().encode(named)) as? [String: Any] ?? [:]
+check(encodedNames["title"] as? String == "Quarterly report", "a title is saved with the plan")
+named.title = nil
+let encodedUntitled = try JSONSerialization.jsonObject(with: JSONEncoder().encode(named)) as? [String: Any] ?? [:]
+check(encodedUntitled["title"] == nil, "a plan without a title saves no title key, so the fingerprint of every earlier plan is unchanged")
+let oldPlanBack = try JSONDecoder().decode(CockpitPlan.self, from: JSONEncoder().encode(named))
+check(oldPlanBack.title == nil && oldPlanBack == named, "a plan saved before titles existed loads with none")
+
 // MARK: Approval blockers keep the old guards' outcome
 
 /// The guards `CockpitApproval.init?` held before they became `approvalBlockers`: the oracle the list must agree with.

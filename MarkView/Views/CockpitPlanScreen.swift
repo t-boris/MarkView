@@ -62,7 +62,10 @@ struct CockpitPlanScreen: View {
                 Spacer()
                 if let plan = session.plan { stateChip(plan) }
             }
-            if let plan = session.plan { Text(summary(plan)).uiFont(size: 12).foregroundColor(palette.textDim) }
+            if let plan = session.plan {
+                if plan.title != nil { Text(plan.displayTitle).uiFont(size: 14, weight: .semibold).fixedSize(horizontal: false, vertical: true).textSelection(.enabled) }
+                Text(summary(plan)).uiFont(size: 12).foregroundColor(palette.textDim)
+            }
             else { Text("Describe the goal, choose who plans and who supervises, then let the Copilot propose steps you can edit.").uiFont(size: 12).foregroundColor(palette.textDim) }
         }
     }

@@ -169,9 +169,20 @@ struct CockpitStep: Codable, Equatable, Identifiable {
     }
 }
 
+/// Small text helpers shared by the Cockpit's models and views.
+enum CockpitText {
+    /// The first non-empty line of `text`, trimmed; empty when there is none.
+    static func firstLine(_ text: String) -> String {
+        text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
+    }
+}
+
 struct CockpitPlan: Codable, Equatable {
     var id: UUID = UUID()
     var goal: String
+    /// The assistant's own name for this flow, chosen when it wrote the plan. nil on plans saved before it existed: the key is then
+    /// left out of the saved JSON, which keeps the fingerprint of every such plan as it was.
+    var title: String? = nil
     var controls: CockpitControls
     var scenarios: [String]
     var steps: [CockpitStep]
@@ -180,6 +191,12 @@ struct CockpitPlan: Codable, Equatable {
     var alternatives: [String]
     var productionQA: CockpitProductionQA?
     var qaReviews: [CockpitQAReview]? = nil
+
+    /// What names this flow on screen and in notifications: the assistant's title, or the first line of the goal when there is none.
+    var displayTitle: String {
+        if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { return title }
+        return CockpitText.firstLine(goal)
+    }
 
     /// Earlier steps are skipped, so their QA must not appear as production work in this approval.
     func selectingStart(_ index: Int) -> CockpitPlan? {

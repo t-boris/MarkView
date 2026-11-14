@@ -68,10 +68,6 @@ enum CockpitFormat {
     static func moment(_ date: Date, now: Date = Date()) -> String {
         Calendar.current.isDate(date, inSameDayAs: now) ? date.formatted(date: .omitted, time: .shortened) : date.formatted(date: .abbreviated, time: .shortened)
     }
-
-    static func firstLine(_ text: String) -> String {
-        text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
-    }
 }
 
 /// An editable list of short texts: success criteria, unavailable outcomes, alternatives.
