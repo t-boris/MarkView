@@ -270,6 +270,15 @@ final class WorkspaceTabsStore: ObservableObject {
         activeTabIndex = 0
     }
 
+    /// Keeps the tabs `isIncluded` accepts, in their order. The active tab stays active when it stays open; otherwise `TabClosing` picks
+    /// the neighbour (or the Welcome tab).
+    func keepTabs(where isIncluded: (OpenTab) -> Bool) {
+        let keep = openTabs.map(isIncluded)
+        let active = TabClosing.activeIndex(afterKeeping: keep, active: activeTabIndex)
+        openTabs = zip(openTabs, keep).filter(\.1).map(\.0)
+        activeTabIndex = active
+    }
+
     func keepTabs(through index: Int) {
         guard index >= 0 && index < openTabs.count else { return }
         openTabs = Array(openTabs.prefix(index + 1))
@@ -2126,33 +2135,7 @@ class WorkspaceManager: ObservableObject {
                 return false
             }
         }
-        let unsaved = openTabs.indices.filter { openTabs[$0].isModified }
-        if !unsaved.isEmpty {
-            let alert = NSAlert()
-            alert.messageText = unsaved.count == 1
-                ? "Save changes to \(openTabs[unsaved[0]].displayName) before closing the folder?"
-                : "Save changes to \(unsaved.count) documents before closing the folder?"
-            alert.informativeText = "Your changes will be lost if you don't save them."
-            alert.addButton(withTitle: "Save")
-            alert.addButton(withTitle: "Don't Save")
-            alert.addButton(withTitle: "Cancel")
-            switch alert.runModal() {
-            case .alertFirstButtonReturn:
-                unsaved.forEach { saveFile(at: $0) }
-                // saveFile only logs write errors — never close over unsaved work.
-                if let failed = openTabs.first(where: { $0.isModified }) {
-                    let error = NSAlert()
-                    error.messageText = "Couldn't save \(failed.displayName)"
-                    error.informativeText = "The folder was left open so no changes are lost."
-                    error.runModal()
-                    return false
-                }
-            case .alertSecondButtonReturn:
-                break
-            default:
-                return false
-            }
-        }
+        guard resolveUnsavedChanges(at: Array(openTabs.indices), before: "closing the folder") else { return false }
 
         Self.debugLog("closeFolder: \(rootNode?.url.path ?? "(no folder)")")
         UserDefaults.standard.removeObject(forKey: Self.lastFolderKey)
@@ -2395,6 +2378,47 @@ class WorkspaceManager: ObservableObject {
     func closeTabsToRight(of index: Int) {
         for (i, tab) in openTabs.enumerated() where i > index { if case .cockpit(let session) = tab.kind { session.cancel() } }
         tabsStore.keepTabs(through: index)
+    }
+
+    /// Close every tab that shows a file and keep the tool tabs (Git, Workflow, X-Ray, QA, ...). Unsaved changes are asked about first,
+    /// once for all the documents; nothing closes when the person cancels or a save fails.
+    func closeDocuments() {
+        let documents = openTabs.indices.filter { openTabs[$0].isDocument }
+        guard !documents.isEmpty, resolveUnsavedChanges(at: documents, before: "closing the documents") else { return }
+        tabsStore.keepTabs { !$0.isDocument }
+    }
+
+    /// Asks what to do with the unsaved changes of the tabs at `indices` before they close; `closing` finishes the question
+    /// ("Save changes to ... before closing the folder?"). True when closing is safe: nothing was unsaved, everything was saved, or the person chose
+    /// not to save. False when they cancelled or a save failed, so nothing is closed over unsaved work.
+    private func resolveUnsavedChanges(at indices: [Int], before closing: String) -> Bool {
+        let unsaved = indices.filter { openTabs.indices.contains($0) && openTabs[$0].isModified }
+        guard !unsaved.isEmpty else { return true }
+        let alert = NSAlert()
+        alert.messageText = unsaved.count == 1
+            ? "Save changes to \(openTabs[unsaved[0]].displayName) before \(closing)?"
+            : "Save changes to \(unsaved.count) documents before \(closing)?"
+        alert.informativeText = "Your changes will be lost if you don't save them."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Don't Save")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            unsaved.forEach { saveFile(at: $0) }
+            // saveFile only logs write errors — never close over unsaved work.
+            if let failed = unsaved.compactMap({ openTabs.indices.contains($0) ? openTabs[$0] : nil }).first(where: { $0.isModified }) {
+                let error = NSAlert()
+                error.messageText = "Couldn't save \(failed.displayName)"
+                error.informativeText = "Nothing was closed, so no changes are lost."
+                error.runModal()
+                return false
+            }
+            return true
+        case .alertSecondButtonReturn:
+            return true
+        default:
+            return false
+        }
     }
 
     /// Close all tabs

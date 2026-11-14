@@ -2,17 +2,23 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-/// Open tabs: they scroll sideways (trackpad, or the plain mouse wheel), the active one is kept
-/// in view, the ▾ menu on the right lists every tab, and tabs are reordered by dragging.
+/// The empty strip after the last tab: a tab dropped there goes to the end.
+private let tabDropZoneWidth: CGFloat = 40
+
+/// Open tabs: they scroll sideways (trackpad, the plain mouse wheel, or the ‹ › buttons that appear while the tabs do not fit),
+/// the active one is kept in view, the ▾ menu on the right lists every tab, and tabs are reordered by dragging.
 struct TabBarView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    /// What the ‹ › buttons need to know about this window's strip.
+    @StateObject private var scroller = TabStripScroller(endInset: tabDropZoneWidth)
     /// The tab a drag is over (a blue line marks where the dragged tab lands).
     @State private var dropTarget: UUID?
 
     var body: some View {
         HStack(spacing: 0) {
             homeTab
+            if scroller.overflows { scrollButton(.left) }
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 0) {
@@ -20,27 +26,51 @@ struct TabBarView: View {
                             tabItem(tab: tab, index: index).id(tab.id)
                         }
                         // Dropping after the last tab puts the dragged one at the end.
-                        Color.clear.frame(width: 40, height: 24)
+                        Color.clear.frame(width: tabDropZoneWidth, height: 24)
                             .onDrop(of: [UTType.plainText], isTargeted: nil) { providers in
                                 drop(providers, before: workspaceManager.openTabs.count)
                             }
                     }
                 }
-                .background(WheelScrollsHorizontally())
-                .onChange(of: workspaceManager.activeTabIndex) { index in
-                    guard workspaceManager.openTabs.indices.contains(index) else { return }
-                    withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(workspaceManager.openTabs[index].id) }
-                }
-                .onAppear {
-                    let index = workspaceManager.activeTabIndex
-                    if workspaceManager.openTabs.indices.contains(index) { proxy.scrollTo(workspaceManager.openTabs[index].id) }
-                }
+                .background(TabStripScrollHook(scroller: scroller))
+                .onChange(of: workspaceManager.activeTabIndex) { _ in revealActiveTab(proxy, animated: true) }
+                // The buttons take room from the strip when they appear: keep the active tab in view.
+                .onChange(of: scroller.overflows) { _ in revealActiveTab(proxy, animated: false) }
+                .onAppear { revealActiveTab(proxy, animated: false) }
             }
+            if scroller.overflows { scrollButton(.right) }
             tabsMenu
         }
         .frame(height: 24)
         .background(palette.bg)
         .overlay(Rectangle().frame(height: 1).foregroundColor(palette.border), alignment: .bottom)
+    }
+
+    private func revealActiveTab(_ proxy: ScrollViewProxy, animated: Bool) {
+        let index = workspaceManager.activeTabIndex
+        guard workspaceManager.openTabs.indices.contains(index) else { return }
+        let id = workspaceManager.openTabs[index].id
+        if animated { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) } } else { proxy.scrollTo(id) }
+    }
+
+    /// A small arrow at one end of the strip; it moves the tabs by most of the visible width and is dimmed once that end is reached.
+    private func scrollButton(_ side: TabStripScroller.Side) -> some View {
+        let enabled = side == .left ? scroller.canScrollLeft : scroller.canScrollRight
+        let name = side == .left ? "left" : "right"
+        return Button { scroller.page(side) } label: {
+            Image(systemName: "chevron.\(name)")
+                .uiFont(size: 9, weight: .semibold)
+                .foregroundColor(palette.textDim)
+                .opacity(enabled ? 1 : 0.35)
+                .frame(width: 18, height: 24)
+                .background(palette.bg)
+                .overlay(Rectangle().frame(width: 1).foregroundColor(palette.border), alignment: side == .left ? .trailing : .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .help("Show the tabs on the \(name)")
+        .accessibilityLabel("Scroll tabs \(name)")
     }
 
     /// The welcome screen stays pinned even when the other tabs scroll or close.
@@ -186,6 +216,11 @@ struct TabBarView: View {
             Button("Close Tabs to the Right") {
                 workspaceManager.closeTabsToRight(of: index)
             }
+            // Every file tab goes; Git, Workflow, X-Ray, QA and the other tool tabs stay.
+            Button("Close Documents") {
+                workspaceManager.closeDocuments()
+            }
+            .disabled(!workspaceManager.openTabs.contains(where: \.isDocument))
             Button("Close All") {
                 workspaceManager.closeAllTabs()
             }
@@ -226,29 +261,129 @@ struct TabBarView: View {
     }
 }
 
-/// The plain mouse wheel (vertical) scrolls the enclosing horizontal scroll view sideways while
-/// the pointer is over it; trackpad swipes keep working as they do.
-private struct WheelScrollsHorizontally: NSViewRepresentable {
+/// What the ‹ › buttons need from the tab strip: whether there is more to see on either side, and a move by a page. It watches the
+/// `NSScrollView` SwiftUI made for the strip (found by `TabStripScrollHook`) and publishes a flag only when it changes, so scrolling
+/// does not redraw the bar on every tick. Main thread only.
+final class TabStripScroller: ObservableObject {
+    enum Side { case left, right }
+
+    @Published private(set) var canScrollLeft = false
+    @Published private(set) var canScrollRight = false
+    private weak var scrollView: NSScrollView?
+    private var observers: [NSObjectProtocol] = []
+    /// Empty room after the last tab that does not count as something more to see: the right end is reached when only it is hidden.
+    private let endInset: CGFloat
+
+    init(endInset: CGFloat = 0) { self.endInset = endInset }
+
+    /// True while the tabs do not all fit.
+    var overflows: Bool { canScrollLeft || canScrollRight }
+
+    deinit { detach() }
+
+    func attach(_ scroll: NSScrollView) {
+        guard scroll !== scrollView else { return }
+        detach()
+        scrollView = scroll
+        let clip = scroll.contentView
+        clip.postsBoundsChangedNotifications = true
+        clip.postsFrameChangedNotifications = true
+        var watched: [(Notification.Name, NSView)] = [(NSView.boundsDidChangeNotification, clip), (NSView.frameDidChangeNotification, clip)]
+        if let document = scroll.documentView {
+            document.postsFrameChangedNotifications = true
+            watched.append((NSView.frameDidChangeNotification, document))
+        }
+        observers = watched.map { name, view in
+            NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) { [weak self] _ in self?.refresh() }
+        }
+        refresh()
+    }
+
+    func detach() {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers = []
+        scrollView = nil
+    }
+
+    private func refresh() {
+        guard let scroll = scrollView, let document = scroll.documentView else { return }
+        let clip = scroll.contentView
+        let maxX = lastOffset(document: document, clip: clip)
+        let left = clip.bounds.origin.x > 0.5, right = clip.bounds.origin.x < maxX - 0.5
+        if left != canScrollLeft { canScrollLeft = left }
+        if right != canScrollRight { canScrollRight = right }
+    }
+
+    /// The offset at which the last tab is fully in view.
+    private func lastOffset(document: NSView, clip: NSClipView) -> CGFloat {
+        max(0, document.frame.width - endInset - clip.bounds.width)
+    }
+
+    /// Moves the strip by 60% of its visible width (animated), never past either end.
+    func page(_ side: Side) {
+        guard let scroll = scrollView, let document = scroll.documentView else { return }
+        let clip = scroll.contentView
+        let maxX = lastOffset(document: document, clip: clip)
+        let step = clip.bounds.width * 0.6 * (side == .left ? -1 : 1)
+        let target = min(max(0, clip.bounds.origin.x + step), maxX)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            clip.animator().setBoundsOrigin(NSPoint(x: target, y: clip.bounds.origin.y))
+        }
+    }
+}
+
+/// Sits behind the tab strip. The plain mouse wheel (vertical) scrolls the enclosing horizontal scroll view sideways while the pointer
+/// is over it (trackpad swipes keep working as they do), and the strip's `NSScrollView` is handed to the `TabStripScroller`.
+private struct TabStripScrollHook: NSViewRepresentable {
+    let scroller: TabStripScroller
+
+    /// A plain view that tells its owner when it has a window or a new size, which is when the strip's scroll view can be found.
+    final class HookView: NSView {
+        var onChange: (() -> Void)?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            DispatchQueue.main.async { [weak self] in self?.onChange?() }
+        }
+        override func layout() {
+            super.layout()
+            DispatchQueue.main.async { [weak self] in self?.onChange?() }
+        }
+    }
+
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        context.coordinator.view = view
-        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak coordinator = context.coordinator] event in
+        let view = HookView()
+        let coordinator = context.coordinator
+        coordinator.view = view
+        coordinator.scroller = scroller
+        view.onChange = { [weak coordinator] in coordinator?.attachIfNeeded() }
+        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak coordinator] event in
             coordinator?.handle(event) ?? event
         }
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.scroller = scroller
+        DispatchQueue.main.async { [weak coordinator = context.coordinator] in coordinator?.attachIfNeeded() }
+    }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         if let monitor = coordinator.monitor { NSEvent.removeMonitor(monitor) }
+        coordinator.scroller?.detach()
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator {
         weak var view: NSView?
+        var scroller: TabStripScroller?
         var monitor: Any?
+
+        func attachIfNeeded() {
+            guard let view, view.window != nil, let scroller, let scrollView = Self.scrollView(near: view) else { return }
+            scroller.attach(scrollView)
+        }
 
         func handle(_ event: NSEvent) -> NSEvent? {
             guard let view, let window = view.window, event.window === window,
