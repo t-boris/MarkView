@@ -337,7 +337,7 @@ flowchart TD
 | Key | Type | Owner / where |
 |---|---|---|
 | `workspace.lastFolder` | String (standardized path) | `WorkspaceManager.lastFolderKey` `:449`; set `:452`, removed `:1424`, read `ContentView.swift:204` |
-| `layout.showFileTree`, `layout.showTOC` | Bool | `WorkspaceManager.swift:319-324,410-415` |
+| `layout.showTOC` | Bool | `WorkspaceManager.showTOC`. `showFileTree` (the left panel) is not stored globally: it starts `false` in every window and is restored from the window's session (`restoreWindowState`) |
 | `fileTree.sortField` (`"Name"`/`"Date Modified"`), `fileTree.sortAscending` | String, Bool | `WorkspaceManager.swift:13-14,28-34` |
 | `excludedFolders.<standardized root path>` | [String] relative paths; a list saved under `excludedFolders.<folder name>` is copied to the new key once | `Models/ExcludedFolders.swift`, used by `WorkspaceFileTreeStore` |
 | `project.linkedFolders` | [project key: Data (JSON `[LinkedFolder]`)] | `LinkedFolders.load/save` (`Models/LinkedFolders.swift`) |

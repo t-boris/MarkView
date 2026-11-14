@@ -11,7 +11,7 @@ Changing or renaming any of these keys is a **major** version change (CLAUDE.md)
 | Key | Type / default | Purpose | Owner |
 |---|---|---|---|
 | `workspace.lastFolder` | path | Folder restored on launch | app shell |
-| `layout.showFileTree`, `layout.showTOC` | Bool | Pane visibility | app shell |
+| `layout.showTOC` | Bool | Contents section visibility. The left panel has no stored default: every new window starts with it closed (center panel only) and a window restores its own from its saved session | app shell |
 | `layout.leftPanelWidth`, `layout.rightPanelWidth` | Double, 220 (180–6000) / 500 (320–1200) | Width of the left / right pane. The window keeps its own (`WindowUIState`); the key is only the starting value of a new window | app shell |
 | `layout.navigatorTab`, `layout.leftPanel`, `layout.issuesFeature`, `layout.gitSection`, `feature.stage` | enum/String | Last panel tab/section chosen. Each window keeps its own in `PanelLayout`; the key only seeds the next window and relaunch (BUG-004) | app shell, features, git |
 | `layout.terminalPromptsExpanded.v3`, `contents.infoExpanded`, `search.panelMode`, `uiStudioInspectorWidth`, `uiStudioSelectionExpanded`, `prototypeChatWidth`, `prototypePickScreenshot`, `imageSlideshowSeconds`, `editorTextSizeMirror`, `fileBrowser.viewMode`, `fileBrowser.showHidden`, `fileBrowser.hideIgnored`, `fileBrowser.category`, `editor.markview-*` | mixed | Per-window interface state (`WindowUIState`); the key is only the starting value of a new window | app shell |
