@@ -1,3 +1,14 @@
+# Cockpit: the AI names the run (2026-11-14, 6.20.0)
+
+Boris, dictated: at the top of the Cockpit, where the name of the run is written, show the AI's own understanding of what the flow is, not the text he originally typed; "let the AI decide what is written". Plan: `~/.claude/plans/calm-whistling-eich.md`; branch `feat/cockpit-ai-title`, one PR, one release.
+
+- [ ] Model: optional `CockpitPlan.title` (omitted when nil, so the fingerprint of every saved plan is unchanged), `displayTitle` (title, else the goal's first line), one shared first-line helper.
+- [ ] Planner: `title` in the schema (required) and in the prompt (3 to 8 words, the goal's language, not a copy of the goal, kept on a refinement); `parse` cleans it and never fails the plan over it.
+- [ ] Views: run header (goal as a hover tooltip), run list row, QA evidence line, plan screen header, notification body.
+- [ ] Checks: planning, plan and run scripts; e2e S18 (title and not the goal in the header and the list; no title falls back to the goal's first line); pictures dark and light.
+- [ ] 6.20.0: PR, merge, release, DMG; not installed until Boris says "reinstall".
+- Not included: a manual rename field; AI titles for runs saved before this release (they keep the first line of their goal).
+
 # Toolbar "open tab" marks and the Cockpit instrument panel (2026-11-14, 6.19.0)
 
 Boris, dictated: (1) the toolbar buttons of singleton tabs (Git, Build & Deployment, Workflow, End-to-End QA, UI Studio, Cockpit, Discussions) must stay highlighted while their tab is open, because he cannot tell whether it is open without clicking; (2) the Cockpit run should look like a cockpit: altitude, turns, wind strength, distance to destination, levers to switch things on and off, and messages to the supervisor ("curator"). Decisions of 2026-11-14: two-level toolbar marks (current = filled, open in the background = dot); the dials show real values of the run; levers can only switch OFF what the approved plan allows, at once, never beyond it; a message to the supervisor is a note (kept in the run, used in its later answers and in the next step's briefing, never interrupts the running agent). Plan: `~/.claude/plans/calm-whistling-eich.md`; one branch `feat/cockpit-instrument-panel`, one PR, one release.
