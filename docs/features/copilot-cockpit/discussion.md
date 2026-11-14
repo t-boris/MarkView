@@ -263,3 +263,7 @@ Stop the terminal and its process group; warn that separately detached backgroun
 How should a run continue after a step is interrupted with unknown partial effects?
 
 B. Show known results and let the user choose how to proceed.
+
+### Agent · 2026-11-14
+
+Implementation plan I-6 still says interruption handling is undecided; that historical wording is superseded by the person's answer to Q-005 and accepted DEC-024. The implementation must show known interrupted-step evidence and require an explicit choice of continuation. Production QA changes remain governed by DEC-008 and REQ-002.
