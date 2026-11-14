@@ -121,8 +121,11 @@ struct CockpitView: View {
                     }
                     if let state = execution.state {
                         Text("Execution: \(state.status)")
-                        if let usage = Self.usageLine(execution: execution, controls: session.runningPlan?.controls) {
-                            Text(usage).foregroundColor(palette.textDim)
+                        // The clock runs between publishes of the run's state, so the line refreshes on its own.
+                        TimelineView(.periodic(from: .now, by: 15)) { _ in
+                            if let usage = Self.usageLine(execution: execution, controls: session.runningPlan?.controls) {
+                                Text(usage).foregroundColor(palette.textDim)
+                            }
                         }
                         if let notice = execution.limitNotice { Text(notice).foregroundColor(palette.orange) }
                         if state.status == "finished", let running = session.runningPlan {
