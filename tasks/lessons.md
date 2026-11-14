@@ -1979,3 +1979,17 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
   window held by a local variable double-releases (`isReleasedWhenClosed`): use
   `orderOut`; a restore that follows a sign-in redirect leaves `signInWall` set, so a
   second repair asked the assistant again: clear it when the page is elsewhere.
+
+## A finding that blocks the main use on his own project is not "needs approval, later" (6.22.0, 2026-11-14)
+
+- Boris installed 6.22.0 and wrote "Не работает". The cause was finding (a) of my own
+  release report: the simulator cannot answer in an application's `{ok:true,result}`
+  envelope, so the real project's Products page threw `envelope.error.code`. I had seen it
+  in the live run (every prepared screen on his project fell back to the assistant), filed it
+  as a limit and shipped.
+- Rule: when a live run on the user's own project shows the headline feature failing for
+  that project, it is not a limit to list; stop, find the cause, and either fix it before the
+  release or say plainly that the feature does not work on that project yet.
+- The default prompt gave the assistant a field (`envelope`) without saying what it meant,
+  so it improvised templates in it. A schema field the assistant fills needs its meaning in
+  the prompt and a validator that rejects misuse.

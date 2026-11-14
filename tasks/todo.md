@@ -1,3 +1,17 @@
+# UI Studio: the simulator answers in the application's own response envelope (2026-11-14, 6.23.0)
+
+Boris installed 6.22.0 and wrote "Не работает" with two screenshots (product-promotion-desk, screen "Products – list and detail"): the Products page shows `undefined is not an object (evaluating 'envelope.error.code')`, every screen is covered by the dialog "The AI is waiting for you", the screen request ends `failed` ("Override 1 names POST .../passport.get, which no rule serves"), Fix problems is greyed. Plan `/Users/boris/.claude/plans/calm-whistling-eich.md` APPROVED. This is finding (a) of the 6.22.0 report that I had left as "needs approval"; it blocks his two requests for any Electron/IPC app.
+
+- [ ] Records: DEC-015 (service envelope), REQ-022 (answers in the application's envelope), criteria ticked only for what is proven.
+- [ ] 1. Model + simulator: `StudioEnvelope`, optional `envelopes` in the environment; generated answers wrapped by prefix, `respond` and overrides verbatim, no double wrap when the rule's `envelope` equals the result key.
+- [ ] 2. Assistant contract: `envelope` explained, `envelopes` in the preparation schema, validator rejects a template string in `envelope`.
+- [ ] 3. One-time detection for existing environments (`envelopes == nil`), cleans template `envelope` strings, after the map, respects `autoRepair`.
+- [ ] 4. A context change naming a request no rule serves prepares that rule and retries.
+- [ ] 5. Screen request / preparation prompt: a screen is not covered by a blocking dialog (prompt-level, model-dependent).
+- [ ] Checks: pure, session, live run on a clone of product-promotion-desk with the real assistant; every script of every triggered workflow; Debug build.
+- [ ] 6.23.0: PR, merge, release, DMG; install only on Boris's "reinstall".
+- Not included: the page rendering its own caught error as a problem (no event to repair); `{{studio.records}}` placeholders; the mapper's 240 s timeouts.
+
 # UI Studio: Problems with Fix, automatic repair at open, main screens ready (2026-11-14, 6.22.0)
 
 Boris, dictated: UI Studio very often shows an error at open (a sign-in is needed, or the simulated data is wrong); it should repair such errors itself. He cannot find where Fix is (his case: scenario "Accounts: all tabs filled" in product-promotion-desk showed "Error invoking remote method accounts.list", "Failed to fetch", "Rejected a message of an earlier generation 20"); he wants Fix in Problems in the Log. Idea: the main screens selectable and already filled. Decisions of 2026-11-14: repair automatically with Undo (replaces REQ-017 criterion 5, "nothing happens without the click", Boris 2026-11-04); save the screens list and prepare the main screens ahead. Plan: `~/.claude/plans/calm-whistling-eich.md`; branch `feat/ui-studio-auto-repair-screens`, one PR, one release.
