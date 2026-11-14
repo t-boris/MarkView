@@ -7,6 +7,23 @@ func check(_ value: @autoclosure () -> Bool, _ message: String) {
 
 let step = CockpitStep(title: "Review", agent: "Codex", assignment: "Inspect the project", completionCondition: "Report findings")
 var plan = CockpitPlan(goal: "Inspect", controls: CockpitControls(), scenarios: [], steps: [step], successCriteria: ["Report provided"], unavailableOutcomes: [], alternatives: [], productionQA: nil)
+var scenarioPlan = plan
+scenarioPlan.scenarios = ["scenario"]
+scenarioPlan.steps[0].qaScenarioID = "scenario"
+check(CockpitApproval(plan: scenarioPlan, productionConfirmed: true) == nil, "a selected scenario requires its exact QA review")
+let reviewed = CockpitQAReview(scenarioID: "scenario", targetID: "prod", fingerprint: "hash", production: true, exactPlan: "exact", dataChangingActions: ["write"])
+scenarioPlan.qaReviews = [reviewed]
+scenarioPlan.productionQA = CockpitProductionQA(exactPlan: "exact", dataChangingActions: ["write"])
+check(CockpitApproval(plan: scenarioPlan, productionConfirmed: false) == nil, "production data changes require explicit confirmation")
+let scenarioApproval = CockpitApproval(plan: scenarioPlan, productionConfirmed: true)
+check(scenarioApproval != nil, "the exact production QA plan can be approved")
+scenarioPlan.qaReviews?[0].fingerprint = "changed"
+check(scenarioApproval?.permits(scenarioPlan) == false, "a changed QA fingerprint invalidates cockpit approval")
+var skipQA = scenarioPlan
+skipQA.steps.append(CockpitStep(title: "Later", agent: "Codex", assignment: "Continue", completionCondition: "Done"))
+let later = skipQA.selectingStart(1)
+check(later?.scenarios.isEmpty == true && later?.steps[0].qaScenarioID == nil && later?.productionQA == nil,
+      "starting after a QA step excludes its production actions from approval")
 check(plan.problems.isEmpty, "a complete plan is valid")
 let approval = CockpitApproval(plan: plan, productionConfirmed: false)!
 check(approval.permits(plan), "approval permits the reviewed plan")

@@ -785,6 +785,12 @@ do {
 
     // Production
     let production = plan(all, "prod")
+    let cockpitReview = try! CockpitQAReviewBuilder.make(scenario: all, targetID: "prod", savedLogins: [buyer, localBuyer])
+    check("cockpit QA: review binds the exact scenario, target and production actions", cockpitReview.fingerprint == production.fingerprint && cockpitReview.production && cockpitReview.exactPlan.contains("\"targetID\" : \"prod\"") && cockpitReview.dataChangingActions.count == production.confirmations.count)
+    let changedQA = changed(all) { $0.nodes[0].title += " changed"; $0.nodes[0].detail += " changed" }
+    let changedReview = try! CockpitQAReviewBuilder.make(scenario: changedQA, targetID: "prod", savedLogins: [buyer, localBuyer])
+    check("cockpit QA: changing executable work changes the reviewed fingerprint", cockpitReview.fingerprint != changedReview.fingerprint)
+    check("cockpit QA: a blocked target cannot be reviewed", (try? CockpitQAReviewBuilder.make(scenario: all, targetID: "ghost", savedLogins: [buyer, localBuyer])) == nil)
     check("plan: production is approvable once its logins match", production.isProduction && production.canBeApproved)
     check("plan: on production every action that may change data needs a yes, a check never does, a read-only action neither",
           Set(production.confirmations.map(\.id)) == ["account:seller", "condition:\(declined):a1", "node:n2", "node:a1", "node:f1"])

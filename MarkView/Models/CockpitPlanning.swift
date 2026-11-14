@@ -18,15 +18,16 @@ enum CockpitPlanning {
     State outcomes you know cannot be achieved and offer alternatives; do not present them as achievable. If a prerequisite is uncertain,
     a first step may check it. Use a prerequisite step only for a check whose failure must pause later steps.
     Return a complete plan, not a patch, including after a refinement. Do not execute the plan or modify project files during planning.
-    If production QA is needed, say so in an assignment; the exact QA plan and production actions require separate inspection before approval.
+    For an existing QA scenario, use its supplied id in scenarios and in qaScenarioID on at least one step; use an empty string for non-QA steps.
+    Do not claim that an unknown or not-yet-created QA scenario can run without a later review of its exact plan.
     """
 
     static var schema: [String: Any] {
         let string: [String: Any] = ["type": "string"]
         let strings: [String: Any] = ["type": "array", "items": string]
-        let step: [String: Any] = ["type": "object", "required": ["title", "agent", "assignment", "completionCondition", "isPrerequisite"], "properties": [
+        let step: [String: Any] = ["type": "object", "required": ["title", "agent", "assignment", "completionCondition", "isPrerequisite", "qaScenarioID"], "properties": [
             "title": string, "agent": string, "assignment": string, "completionCondition": string,
-            "isPrerequisite": ["type": "boolean"]
+            "isPrerequisite": ["type": "boolean"], "qaScenarioID": string
         ]]
         return ["type": "object", "required": ["scenarios", "steps", "successCriteria", "unavailableOutcomes", "alternatives"], "properties": [
             "scenarios": strings, "steps": ["type": "array", "items": step], "successCriteria": strings,
@@ -43,9 +44,13 @@ enum CockpitPlanning {
         for raw in rawSteps {
             guard let title = raw["title"] as? String, let agent = raw["agent"] as? String,
                   let assignment = raw["assignment"] as? String, let condition = raw["completionCondition"] as? String,
-                  let prerequisite = raw["isPrerequisite"] as? Bool else { throw ParseError.malformed }
+                  let prerequisite = raw["isPrerequisite"] as? Bool, let qaID = raw["qaScenarioID"] as? String else { throw ParseError.malformed }
             guard availableAgents.contains(agent) else { throw ParseError.invalid(["Unknown agent: \(agent)"]) }
-            steps.append(CockpitStep(title: title, agent: agent, assignment: assignment, completionCondition: condition, isPrerequisite: prerequisite))
+            steps.append(CockpitStep(title: title, agent: agent, assignment: assignment, completionCondition: condition, isPrerequisite: prerequisite,
+                                     qaScenarioID: qaID.isEmpty ? nil : qaID))
+        }
+        guard Set(steps.compactMap(\.qaScenarioID)) == Set(scenarios), Set(scenarios).count == scenarios.count else {
+            throw ParseError.invalid(["Each selected QA scenario must be assigned to a step."])
         }
         let plan = CockpitPlan(goal: goal, controls: controls, scenarios: scenarios, steps: steps, successCriteria: criteria,
                                unavailableOutcomes: unavailable, alternatives: alternatives, productionQA: nil)
