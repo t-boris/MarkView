@@ -297,7 +297,7 @@ final class CockpitSession: ObservableObject {
                 }
                 let scenarioData = try JSONSerialization.data(withJSONObject: scenarios, options: [.sortedKeys])
                 let settings = String(decoding: try encoder.encode(controls), as: UTF8.self)
-                var prompt = "Goal: \(goal)\nAvailable agents: \(agents.joined(separator: ", "))\nAdvisory controls: \(settings)\n"
+                var prompt = "Goal: \(goal)\nAvailable agents: \(agents.joined(separator: ", "))\nControls (MarkView enforces them while the plan runs): \(settings)\n"
                 prompt += "Existing QA scenarios and targets (JSON): \(String(decoding: scenarioData, as: UTF8.self))\n"
                 prompt += "Available project actions include the MarkView MCP project, browser and control tools and the user's agent terminal. Check project capabilities before asserting an action is available.\n"
                 if refining, let previous {

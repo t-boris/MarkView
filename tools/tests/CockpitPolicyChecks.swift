@@ -180,4 +180,54 @@ check("no time limit has no remaining seconds", CockpitStepMeter.remainingSecond
 check("the remaining seconds are the limit less what was used", CockpitStepMeter.remainingSeconds(limitMinutes: 2, used: 30) == 90)
 check("used up time is zero or less", (CockpitStepMeter.remainingSeconds(limitMinutes: 1, used: 60) ?? 1) <= 0 && (CockpitStepMeter.remainingSeconds(limitMinutes: 1, used: 90) ?? 1) < 0)
 
+// MARK: gate in the registry
+
+@MainActor func registryChecks() {
+    let root = URL(fileURLWithPath: "/tmp/cockpit-registry-checks")
+    func gate(_ tool: String, _ arguments: [String: Any] = [:], from ancestors: [Int32]) -> CockpitStepPolicy.Decision? {
+        CockpitAgentRegistry.gate(tool: tool, arguments: arguments, ancestors: ancestors, isFixingStatus: isFixing, environmentNames: namesOf)
+    }
+    func refused(_ decision: CockpitStepPolicy.Decision?) -> Bool { if case .refuse? = decision { return true } else { return false } }
+    func allows(_ decision: CockpitStepPolicy.Decision?) -> Bool { if case .allow? = decision { return true } else { return false } }
+
+    var finished = 0
+    let strictTicket = CockpitAgentRegistry.register(root: root) { _ in finished += 1 }
+    CockpitAgentRegistry.restrict(strictTicket, policy: strict, shell: 4242) { _ in }
+
+    check("a call from outside the step's shell is not gated", gate("markview_flow_fix_bug", from: [1, 99]) == nil)
+    check("a call with no known ancestors is not gated", gate("markview_flow_fix_bug", from: []) == nil)
+    check("a call from under the step's shell is refused", refused(gate("markview_flow_fix_bug", from: [10, 4242, 1])))
+    check("an allowed call from under the shell is allowed", allows(gate("markview_list_bugs", from: [4242])))
+    check("a refusal is remembered with the tool's name", CockpitAgentRegistry.refusals(strictTicket).count == 1 && CockpitAgentRegistry.refusals(strictTicket)[0].hasPrefix("markview_flow_fix_bug:"))
+    check("an allowed call is not remembered as a refusal", CockpitAgentRegistry.refusals(strictTicket).count == 1)
+    for _ in 0..<80 { _ = gate("markview_create_bug", from: [4242]) }
+    check("the remembered refusals are capped", CockpitAgentRegistry.refusals(strictTicket).count == 50)
+
+    var heard: [Int] = []
+    let openTicket = CockpitAgentRegistry.register(root: root) { _ in }
+    CockpitAgentRegistry.restrict(openTicket, policy: open, shell: 5151) { heard.append($0) }
+    check("a move into fixing is allowed when fixing is on", allows(gate("markview_set_bug_status", ["status": "fixing"], from: [5151])))
+    check("and another one", allows(gate("markview_set_bug_status", ["status": "fixing"], from: [5151])))
+    check("each move into fixing is reported with the running count", heard == [1, 2] && CockpitAgentRegistry.fixCycles(openTicket) == 2)
+    check("other status moves are not fix cycles", allows(gate("markview_set_bug_status", ["status": "open"], from: [5151])) && heard == [1, 2])
+    check("the two steps' shells do not mix", refused(gate("markview_flow_new", from: [5151])) && CockpitAgentRegistry.fixCycles(strictTicket) == 0)
+
+    check("a result for another project is not accepted", !CockpitAgentRegistry.complete(root: URL(fileURLWithPath: "/tmp/elsewhere"), token: strictTicket, result: CockpitHostResult(passed: true, detail: "ok", build: "")))
+    check("a refusal still applies until the step ends", refused(gate("markview_flow_fix_bug", from: [4242])))
+    check("the step's result is accepted", CockpitAgentRegistry.complete(root: root, token: strictTicket, result: CockpitHostResult(passed: true, detail: "ok", build: "")) && finished == 1)
+    check("after the step ends its shell is no longer gated", gate("markview_flow_fix_bug", from: [4242]) == nil)
+    check("and its refusals are gone", CockpitAgentRegistry.refusals(strictTicket).isEmpty)
+
+    CockpitAgentRegistry.cancel(openTicket, reason: "stop")
+    check("a cancelled step is no longer gated", gate("markview_flow_new", from: [5151]) == nil)
+
+    let late = CockpitAgentRegistry.register(root: root) { _ in }
+    CockpitAgentRegistry.restrict(late, policy: strict, shell: 0) { _ in }
+    check("a shell that is not known is not bound", gate("markview_flow_new", from: [0]) == nil)
+    CockpitAgentRegistry.restrict(UUID(), policy: strict, shell: 7777) { _ in }
+    check("a ticket that does not exist binds nothing", gate("markview_flow_new", from: [7777]) == nil)
+    CockpitAgentRegistry.cancel(late, reason: "done")
+}
+MainActor.assumeIsolated { registryChecks() }
+
 finish("cockpit policy")
