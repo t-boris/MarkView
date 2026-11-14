@@ -21,6 +21,9 @@ enum CockpitPlanning {
     State outcomes you know cannot be achieved and offer alternatives; do not present them as achievable. If a prerequisite is uncertain,
     a first step may check it. Use a prerequisite step only for a check whose failure must pause later steps.
     Return a complete plan, not a patch, including after a refinement. Do not execute the plan or modify project files during planning.
+    Give the flow a title: a short name of 3 to 8 words, with no quotes and no final period, that says in your own words what this flow
+    does, written in the language of the goal. Do not copy the goal's text. After a refinement keep the current title unless the changes
+    alter what the flow is.
     For an existing QA scenario, use its supplied id in scenarios and in qaScenarioID on at least one step; use an empty string for non-QA steps.
     After all QA steps, include a final non-QA verification step that evaluates every success criterion using the prior results.
     Do not claim that an unknown or not-yet-created QA scenario can run without a later review of its exact plan.
@@ -41,11 +44,24 @@ enum CockpitPlanning {
             "title": string, "agent": string, "model": string, "assignment": string, "completionCondition": string,
             "isPrerequisite": ["type": "boolean"], "qaScenarioID": string
         ]]
-        return ["type": "object", "required": ["scenarios", "steps", "successCriteria", "unavailableOutcomes", "alternatives"], "properties": [
-            "scenarios": strings, "steps": ["type": "array", "items": step], "successCriteria": strings,
+        return ["type": "object", "required": ["title", "scenarios", "steps", "successCriteria", "unavailableOutcomes", "alternatives"], "properties": [
+            "title": string, "scenarios": strings, "steps": ["type": "array", "items": step], "successCriteria": strings,
             "unavailableOutcomes": strings, "alternatives": strings
         ]]
     }
+
+    /// The assistant's name for the flow as it is shown: whitespace and line breaks collapsed to single spaces, wrapping quotes removed,
+    /// at most `maxTitleLength` characters. nil when nothing usable is left; a title is a suggestion and never costs the plan.
+    static func cleanTitle(_ value: Any?) -> String? {
+        guard let raw = value as? String else { return nil }
+        var text = raw.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+        let quotes = CharacterSet(charactersIn: "\"'`\u{201C}\u{201D}\u{2018}\u{2019}\u{00AB}\u{00BB}")
+        text = text.trimmingCharacters(in: quotes).trimmingCharacters(in: .whitespaces)
+        if text.count > maxTitleLength { text = String(text.prefix(maxTitleLength)).trimmingCharacters(in: .whitespaces) }
+        return text.isEmpty ? nil : text
+    }
+
+    static let maxTitleLength = 80
 
     /// `models` holds, for each available agent, the model ids it offers. A model the assistant proposes that is not among them is read as
     /// "the agent's default": a suggestion that cannot be used must not cost the whole plan.
@@ -72,7 +88,7 @@ enum CockpitPlanning {
         guard scenarios.isEmpty || steps.last?.qaScenarioID == nil else {
             throw ParseError.invalid(["QA must be followed by a final verification step."])
         }
-        let plan = CockpitPlan(goal: goal, controls: controls, scenarios: scenarios, steps: steps, successCriteria: criteria,
+        let plan = CockpitPlan(goal: goal, title: cleanTitle(object["title"]), controls: controls, scenarios: scenarios, steps: steps, successCriteria: criteria,
                                unavailableOutcomes: unavailable, alternatives: alternatives, productionQA: nil)
         // An infeasible goal still needs an honest explanation and alternatives. It is not an
         // approvable execution plan: CockpitApproval continues to reject its missing steps.

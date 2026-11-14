@@ -12,6 +12,7 @@ S14  pictures of both screens (plan, step editor, running, finished, each tab) f
 S15  the instrument panel: a lever switched off mid-step refuses the agent's next call, a note reaches the supervisor and the next step
 S16  the instrument panel with a failed step and a paused run (lamps, banners, Pause)
 S17  the toolbar marks of the singleton tabs: current, open in the background, closed
+S18  the assistant's title names the run (plan screen, run header, run list) instead of the goal the person typed
 """
 import glob, json, os, re, subprocess, time
 
@@ -25,8 +26,12 @@ def step(title, actions, condition="The step reports passed with its evidence.")
             "isPrerequisite": False, "qaScenarioID": ""}
 
 
-def plan(*steps, criteria=("Every step reported passed.",)):
-    return {"scenarios": [], "steps": list(steps), "successCriteria": list(criteria), "unavailableOutcomes": [], "alternatives": []}
+def plan(*steps, criteria=("Every step reported passed.",), title=None):
+    """A plan as the fake planner answers it. `title` is the assistant's name for the flow; left out, the answer has none."""
+    answer = {"scenarios": [], "steps": list(steps), "successCriteria": list(criteria), "unavailableOutcomes": [], "alternatives": []}
+    if title is not None:
+        answer["title"] = title
+    return answer
 
 
 def opening(ctx, goal, controls=()):
@@ -112,6 +117,8 @@ def s5_verify(ctx):
     ctx.check("time was measured (activeSeconds > 5)", (run.get("activeSeconds") or 0) > 5, run.get("activeSeconds"))
     ctx.check("no limit reason, no waiting reason", run["waitingReason"] == "", run["waitingReason"])
     end = ctx.dump("dump-end.txt")
+    ctx.check("a plan with no title is named by the first line of the goal", any(l.startswith("AXStaticText") and "value=Investigate the fixture and verify it." in l for l in end.splitlines()),
+              [l for l in end.splitlines() if "Investigate the fixture" in l][:3])
     ctx.check("the run screen shows the success outcome", "Success against the stated criteria" in end,
               [l for l in end.splitlines() if "Success" in l or "Finished" in l][:4])
     ctx.check("the bug the agent filed exists", len(os.listdir(os.path.join(ctx.fx, "docs/bugs"))) == 1 if os.path.isdir(os.path.join(ctx.fx, "docs/bugs")) else False,
@@ -478,6 +485,38 @@ def s16_verify(ctx):
               any("Paused: on" in l for l in dump.splitlines()) and any("Limit: off" in l for l in dump.splitlines()), [l for l in dump.splitlines() if "label=Paused" in l or "label=Limit" in l])
 
 
+# S18 -----------------------------------------------------------------------------------------------------------------------------
+
+S18_GOAL = "Please check the greeting function in the sample project very carefully and tell me everything that is wrong with it"
+S18_TITLE = "Greeting function review"
+S18_PLAN = plan(step("Review", [done("Reviewed.")]), title=S18_TITLE)
+
+
+def s18_script(ctx):
+    return script(opening(ctx, S18_GOAL) + [BIG, "wait 1"]
+                  + ["press label:Propose plan", "waitfor 60 label:Review and approve", "wait 2", "snap ti-plan", "dump %s/dump-plan.txt" % ctx.out,
+                     "press label:Review and approve", "waitfor 10 label:Approve and start", "press label:Approve and start"]
+                  + finish(ctx, "finished", 120) + ["snap ti-run"] + quit_app())
+
+
+def s18_verify(ctx):
+    run = only_run(ctx)
+    plan_saved = (run or {}).get("plan", {})
+    ctx.check("the saved run keeps the assistant's title and the goal as the person typed it",
+              plan_saved.get("title") == S18_TITLE and plan_saved.get("goal") == S18_GOAL, {k: plan_saved.get(k) for k in ("title", "goal")})
+    ctx.check("the run finished", (run or {}).get("status") == "finished", (run or {}).get("status"))
+    shown = ctx.dump("dump-plan.txt")
+    ctx.check("the plan screen shows the proposed title", any(l.startswith("AXStaticText") and "value=" + S18_TITLE in l for l in shown.splitlines()), [l for l in shown.splitlines() if S18_TITLE in l][:3])
+    end = ctx.dump("dump-end.txt")
+    header = [l for l in end.splitlines() if l.startswith("AXStaticText") and "value=" + S18_TITLE in l]
+    row = [l for l in end.splitlines() if l.startswith("AXButton") and S18_TITLE in l]
+    ctx.check("the run header and the run list row both show the title", bool(header) and bool(row), (header[:1], row[:1]))
+    goal_lines = [l for l in end.splitlines() if "Please check the greeting" in l]
+    ctx.check("the goal the person typed is not written as the name of the run", not goal_lines, goal_lines[:3])
+    for name in ("ti-plan", "ti-run"):
+        ctx.check("picture " + name, os.path.exists(os.path.join(ctx.out, name + ".png")), "")
+
+
 # S17 -----------------------------------------------------------------------------------------------------------------------------
 
 TOOLBAR = ("Git", "Build & Deployment (⌃⌘D)", "Workflow", "End-to-End QA (⌘8)", "UI Studio (⌘7)", "Copilot Cockpit", "Discussions (⌃⌘I)", "Tasks")
@@ -531,6 +570,7 @@ ALL.update({
     "S13": supervisor_scenario("S13", "a step's model and the run's timeline", [S13_PLAN], verify=s13_verify),
     "S14": {"name": "S14", "title": "pictures of both screens", "seconds": 220, "plans": [S14_PLAN], "script": s14_script, "verify": s14_verify, "during": None},
     "S15": {"name": "S15", "title": "levers and notes on the instrument panel", "seconds": 300, "plans": [S15_PLAN], "script": s15_script, "verify": s15_verify, "during": None},
+    "S18": {"name": "S18", "title": "the assistant's title names the run", "seconds": 200, "plans": [S18_PLAN], "script": s18_script, "verify": s18_verify, "during": None},
     "S17": {"name": "S17", "title": "toolbar marks of the singleton tabs", "seconds": 120, "plans": [], "script": s17_script, "verify": s17_verify, "during": None},
     "S16": {"name": "S16", "title": "a failed step on the instrument panel", "seconds": 200, "plans": [S16_PLAN], "script": s16_script, "verify": s16_verify, "during": None},
 })

@@ -106,7 +106,8 @@ struct CockpitRun: Codable, Equatable {
         steps[index].status = passed ? .passed : .failed
         steps[index].detail = detail
         steps[index].endedAt = now
-        log(passed ? .stepPassed : .stepFailed, step: index, Self.firstLine(detail), at: now, signal: true)
+        // The timeline shows the first line of the result; the whole text stays in the step's record.
+        log(passed ? .stepPassed : .stepFailed, step: index, CockpitText.firstLine(detail), at: now, signal: true)
         if !passed {
             status = .paused; waitingReason = detail
         } else if index + 1 < steps.count {
@@ -117,11 +118,6 @@ struct CockpitRun: Codable, Equatable {
             log(.finished, step: nil, "Every step passed.", at: now)
         }
         return true
-    }
-
-    /// The first non-empty line of a result, for the timeline; the whole text stays in the step's record.
-    private static func firstLine(_ text: String) -> String {
-        text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
     }
 
     mutating func retryPrerequisite() -> Bool {
@@ -355,20 +351,20 @@ struct CockpitNotice: Equatable {
     /// A run seen for the first time (`before` nil) is announced only when it is already waiting for them.
     static func transition(from before: CockpitRun?, to after: CockpitRun, limitReached: Bool = false) -> CockpitNotice? {
         guard before?.status != after.status || before?.results.count != after.results.count else { return nil }
-        let goal = firstLine(after.plan.goal)
+        let name = after.plan.displayTitle
         func notice(_ kind: Kind, _ title: String, _ body: String) -> CockpitNotice {
             CockpitNotice(kind: kind, title: title, body: String(body.prefix(200)), key: "\(after.id.uuidString)/\(kind.rawValue)/\(after.results.count)")
         }
         switch after.status {
         case .finished where before?.status != .finished:
-            return notice(.finished, "Cockpit run finished", goal)
+            return notice(.finished, "Cockpit run finished", name)
         case .paused where before?.status == .running || before == nil:
             if let index = after.currentIndex, after.steps.indices.contains(index), after.steps[index].status == .failed {
-                return notice(.stepFailed, "A Cockpit step failed", "\(after.plan.steps[index].title): \(firstLine(after.steps[index].detail))")
+                return notice(.stepFailed, "A Cockpit step failed", "\(after.plan.steps[index].title): \(CockpitText.firstLine(after.steps[index].detail))")
             }
-            return notice(limitReached ? .limit : .paused, limitReached ? "A Cockpit limit was reached" : "Cockpit run paused", firstLine(after.waitingReason).isEmpty ? goal : firstLine(after.waitingReason))
+            return notice(limitReached ? .limit : .paused, limitReached ? "A Cockpit limit was reached" : "Cockpit run paused", CockpitText.firstLine(after.waitingReason).isEmpty ? name : CockpitText.firstLine(after.waitingReason))
         case .stopped where before?.status == .running:
-            return notice(limitReached ? .limit : .stopped, limitReached ? "A Cockpit limit was reached" : "Cockpit run stopped", firstLine(after.waitingReason).isEmpty ? goal : firstLine(after.waitingReason))
+            return notice(limitReached ? .limit : .stopped, limitReached ? "A Cockpit limit was reached" : "Cockpit run stopped", CockpitText.firstLine(after.waitingReason).isEmpty ? name : CockpitText.firstLine(after.waitingReason))
         default:
             return nil
         }
@@ -380,10 +376,6 @@ struct CockpitNotice: Equatable {
         return CockpitNotice(kind: .silent, title: "A Cockpit step has gone quiet",
                              body: "\(run.plan.steps[index].title): no report for \(minutes) min. It may be waiting for an answer in its terminal.",
                              key: "\(run.id.uuidString)/silent/\(run.plan.steps[index].id.uuidString)/\(run.results.count)")
-    }
-
-    private static func firstLine(_ text: String) -> String {
-        text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
     }
 }
 

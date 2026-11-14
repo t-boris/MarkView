@@ -60,7 +60,8 @@ struct CockpitRunScreen: View {
         let done = run.steps.filter { $0.status == .passed || $0.status == .skipped }.count
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
-                Text(CockpitFormat.firstLine(run.plan.goal)).uiFont(size: 18, weight: .semibold).fixedSize(horizontal: false, vertical: true)
+                Text(run.plan.displayTitle).uiFont(size: 18, weight: .semibold).fixedSize(horizontal: false, vertical: true)
+                    .help("Your goal: " + CockpitText.firstLine(run.plan.goal))
                 Spacer(minLength: 8)
                 CockpitChip(text: phase.title, icon: phase.icon, tint: phase.tint(palette))
             }
