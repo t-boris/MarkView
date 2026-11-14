@@ -2,7 +2,7 @@
 type: feature
 id: copilot-cockpit
 title: Copilot Cockpit
-status: in-review
+status: done
 owner: Boris Tsekinovsky
 created: 2026-11-13
 provenance: Created from the feature intake
