@@ -1,3 +1,18 @@
+# Copilot Cockpit: an editable plan screen and a run control room (2026-11-14, 6.18.0)
+
+Boris, with a screenshot: the plan "looks terrible" (a text scroll, only `Claude Code` per step, raw JSON for QA, nothing editable) and the run is just as unclear although it may last days. Decisions of 2026-11-14: a list of runs on the left plus two screens; the model is chosen for every step, the supervisor and the planner (the planner may propose one per step); macOS notifications and a silence warning (the Mac is not kept awake). PR #404 merged (d6d1b4a), branch `feat/cockpit-plan-editor`.
+
+- [x] Plan screen: steps on a rail, agent and model menu per step, inline editor, move/duplicate/insert/delete, editable criteria, structured QA view decoded from `exactPlan`, blockers shown on their step, controls folded once a plan exists.
+- [x] Run screen: run list, control room (coordinator, step agent, supervisor, guard), attention banner, flow strip, Timeline / Steps / Questions / Findings.
+- [x] Data: `CockpitStep.model`, `CockpitControls.supervisorAgent/Model`, run `startedAt/lastSignal/events`, step `startedAt/endedAt`; all optional, 6.17 runs load. The model reaches the agent as `--model` (looked up by step id; Go untouched).
+- [x] Notifications: `CockpitNotice` (pure, checked) and `CockpitNotifier`; clicking one opens the run.
+- [x] Checks: plan, planning, run (timeline, silence, notifications), QA decode; every script of the cockpit, pdf-book, pdf-reader and themes workflows, `go test`, the packaged-runtime integration and watchdog checks; e2e S5, S7-S12 on the new screens, S13 (model flag, timeline), S14 (pictures).
+- [x] Docs: DEC-027 (proposed, supersedes DEC-018), REQ-007 and REQ-008 (draft) in `copilot-cockpit`.
+- [ ] Release 6.18.0 (signed DMG) and reinstall: waiting for the batch to end and for Boris's "reinstall".
+- [ ] Boris accepts or rejects DEC-027 (DEC-018 and the scope line "no direct editing" stop holding if accepted) and DEC-026; REQ-001/REQ-003 still say the controls are advisory.
+- [ ] Not verified: the notification permission prompt, a real multi-day run, per-CLI model flags beyond the fake agent, the supervisor's own model override end to end, the silence banner on a live run (its rule is checked as a pure function), a light-theme picture.
+- [ ] Known gaps: a question or permission prompt in a step agent's own terminal is not seen (the silence warning is the mitigation); Pause interrupts the running step and the run can then only be stopped and continued from a chosen step (existing runtime behaviour, now stated on the screen); the Mac sleeping or MarkView quitting pauses a run.
+
 # Copilot Cockpit: enforced controls, limits and the supervisor (2026-11-14)
 
 Boris: stop the toolbar icon clash, enforce the controls through MarkView's MCP tools, drop the budget limit, and let the Copilot itself answer the step agents' questions without waiting for anyone. Released as v6.17.0 (PR #399 icon 6.16.1, PR #400 limits and supervisor 6.17.0, PR #401 and #402 test-only fixes). DEC-026 proposed, supersedes DEC-006.

@@ -1,5 +1,16 @@
 # Lessons
 
+## A screen the person supervises must show the thing, not its raw data, and be looked at before it is called done (Cockpit plan, 2026-11-14)
+
+- Boris: the plan "looks terrible ... I thought it would be more graphic"; the run "is unclear ... it can run for days and I need to see what happens". The 6.17 plan was text cards with
+  an agent name, the QA plan was raw JSON and the run was a few lines under the form. It had been built and tested for correctness only; nobody had looked at it as a person who must decide.
+- Rules: a plan or a run is drawn as what it is (steps, who runs each with which model, status, times), with the raw text underneath for whoever wants it. What the person edits comes
+  first and configuration folds once it is set (the first picture of the new screen showed a long controls form above the steps: found only by taking pictures). Anything that lasts hours needs
+  a record with times and a way to call the person. Take pictures of every state (empty, filled, editing, running, finished) with the hidden-window harness before reporting a UI done.
+- A harness that drives the UI by labels breaks with every wording change: a new screen means updating `tools/tests/cockpit-e2e` in the same change, and giving unlabeled controls an
+  accessibility label (it helps the person too).
+- A "background command completed" notice for a command that detached its own work (`( ... ) &`) fires at once and says nothing about the work: wait on its log for a final line.
+
 ## A change to a shared source file must run every workflow's test scripts that compile it, before the merge (Cockpit gate, 2026-11-14)
 
 - Boris, twice: "Remote Workspace failed", "CI failed". PR #400 (Cockpit gate and supervisor) was merged after the Cockpit scripts, the integration test, the Debug build and the
