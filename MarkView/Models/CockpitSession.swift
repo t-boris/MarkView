@@ -117,6 +117,7 @@ final class CockpitSession: ObservableObject {
             do { try await publishProgress(progress) }
             catch { return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: "Progress could not be saved.") }
         }
+        attempt.onFixCycle = { [weak self] count in self?.execution?.noteFixCycles(fromGate: count) }
         let result = await attempt.run(task)
         guard result.error.isEmpty, result.result.passed, let id = task.step.qaScenarioID, !id.isEmpty else { return result }
         let qa = CockpitQAAttempt(workspace: workspace, root: root, plan: reviewed.plan, productionConfirmed: reviewed.productionConfirmed) { [weak self] activity, coverage, blockers in

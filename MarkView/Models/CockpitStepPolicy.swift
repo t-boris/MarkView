@@ -75,7 +75,8 @@ struct CockpitStepPolicy: Equatable {
             ? nil : controls.deployment.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    /// `isFixingStatus` says whether a bug status of the project's workflow means work on the fix has started or is done.
+    /// `isFixingStatus` says whether a bug status of the project's workflow means work on the fix is going on. A move to "fixed" is
+    /// not refused: MarkView itself demands merge and check evidence for it, and closing a duplicate is not fixing.
     /// `environmentNames` gives the names an environment id goes by, so "Production" in the controls matches the id `prod`.
     func decision(tool: String, arguments: [String: Any], isFixingStatus: (String) -> Bool,
                   environmentNames: (String) -> [String]) -> Decision {
@@ -94,7 +95,7 @@ struct CockpitStepPolicy: Equatable {
         case .bugStatus:
             let status = (arguments["status"] as? String) ?? ""
             if !fixBugs, isFixingStatus(status) {
-                return .refuse("Fixing bugs is turned off for this Cockpit run, so a bug cannot move to \"\(status)\". Report what you found.")
+                return .refuse("Fixing bugs is turned off for this Cockpit run, so a bug cannot move to \"\(status)\". Report what you found instead.")
             }
             return .allow
         case .deploy, .deployPropose, .delivery:
@@ -120,7 +121,7 @@ struct CockpitStepPolicy: Equatable {
     var enforced: [String] {
         var lines = ["Start or drive other agents through MarkView"]
         if !fileBugs { lines.append("File bug reports") }
-        if !fixBugs { lines.append("Move a bug into fixing or fixed") }
+        if !fixBugs { lines.append("Move a bug into fixing") }
         if let target = deploymentTarget {
             lines.append("Deploy anywhere but \"\(target)\"")
         } else {

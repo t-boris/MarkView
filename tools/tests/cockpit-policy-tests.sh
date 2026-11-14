@@ -9,5 +9,5 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 M=MarkView/Models
 cp tools/tests/CockpitPolicyChecks.swift "$out/main.swift"
-swiftc -O -o "$out/cockpit-policy" "$M/CockpitPlan.swift" "$M/CockpitStepPolicy.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
+swiftc -O -o "$out/cockpit-policy" "$M/CockpitPlan.swift" "$M/CockpitStepPolicy.swift" "$M/CockpitStepAudit.swift" "$M/CockpitStepMeter.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
 "$out/cockpit-policy"

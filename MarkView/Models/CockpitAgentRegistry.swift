@@ -16,6 +16,7 @@ enum CockpitAgentRegistry {
     private struct StepGuard {
         let policy: CockpitStepPolicy
         let shell: pid_t
+        let onFixCycle: (Int) -> Void
         var refusals: [String] = []
         var fixCycles = 0
     }
@@ -49,9 +50,10 @@ enum CockpitAgentRegistry {
     }
 
     /// Binds the step's restrictions to the shell of its terminal. Calls made from processes under that shell go through `gate`.
-    static func restrict(_ token: UUID, policy: CockpitStepPolicy, shell: pid_t) {
+    /// `onFixCycle` hears how many times the agent has moved a bug into fixing during this step.
+    static func restrict(_ token: UUID, policy: CockpitStepPolicy, shell: pid_t, onFixCycle: @escaping (Int) -> Void) {
         guard pending[token] != nil, shell > 0 else { return }
-        guards[token] = StepGuard(policy: policy, shell: shell)
+        guards[token] = StepGuard(policy: policy, shell: shell, onFixCycle: onFixCycle)
     }
 
     /// The decision on one MarkView tool call, or nil when the caller is not the agent of a restricted step (a person's own
@@ -65,7 +67,10 @@ enum CockpitAgentRegistry {
         case .refuse(let reason):
             if step.refusals.count < refusalLimit { step.refusals.append("\(tool): \(reason)") }
         case .allow:
-            if CockpitStepPolicy.startsFixCycle(tool: tool, arguments: arguments, isFixingStatus: isFixingStatus) { step.fixCycles += 1 }
+            if CockpitStepPolicy.startsFixCycle(tool: tool, arguments: arguments, isFixingStatus: isFixingStatus) {
+                step.fixCycles += 1
+                step.onFixCycle(step.fixCycles)
+            }
         }
         guards[token] = step
         return decision

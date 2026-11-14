@@ -37,6 +37,10 @@ struct CockpitRun: Codable, Equatable {
     private(set) var waitingReason = ""
     private(set) var approval: CockpitApproval?
     private(set) var pendingRevision: Revision?
+    /// Seconds the run's agents have worked, across interruptions: what the time limit is measured against. Absent in older runs.
+    private(set) var activeSeconds: Double? = nil
+    /// Fix cycles the run's steps have used: what the fix cycle limit is measured against. Absent in older runs.
+    private(set) var fixCyclesUsed: Int? = nil
 
     init(plan: CockpitPlan) {
         id = UUID()
@@ -91,7 +95,17 @@ struct CockpitRun: Codable, Equatable {
         return true
     }
 
-    mutating func stop() { status = .stopped; waitingReason = "" }
+    /// A stop keeps the reason of an interrupted step (a limit that was reached), which the person needs to read afterwards.
+    mutating func stop() {
+        status = .stopped
+        if let index = currentIndex, steps.indices.contains(index), steps[index].status == .interrupted { return }
+        waitingReason = ""
+    }
+
+    mutating func addUsage(seconds: Double, fixCycles: Int) {
+        activeSeconds = (activeSeconds ?? 0) + max(0, seconds)
+        fixCyclesUsed = (fixCyclesUsed ?? 0) + max(0, fixCycles)
+    }
 
     mutating func recordProgress(_ progress: CockpitProgress, stepID: UUID) -> Bool {
         guard status == .running, let index = currentIndex, steps.indices.contains(index), steps[index].stepID == stepID,
@@ -148,12 +162,13 @@ struct CockpitRun: Codable, Equatable {
 
     /// A process recovered after the app exited must not run by itself. An in-flight step may
     /// have had partial effects, so its outcome remains unknown until recovery is decided.
-    mutating func prepareAfterRestart() {
+    /// `reason` replaces the standard text when the step was stopped on purpose, for example because a limit was reached.
+    mutating func prepareAfterRestart(reason: String? = nil) {
         guard status == .running else { return }
         if let index = currentIndex, steps.indices.contains(index), steps[index].status == .running {
             steps[index].status = .interrupted
         }
         status = .paused
-        waitingReason = "The previous step was interrupted; its outcome is unknown. Separately detached background processes may still be running."
+        waitingReason = reason ?? "The previous step was interrupted; its outcome is unknown. Separately detached background processes may still be running."
     }
 }

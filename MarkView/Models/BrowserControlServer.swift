@@ -170,7 +170,7 @@ enum BrowserControlServer {
         let deployments = window?.deployments()
         let decision = CockpitAgentRegistry.gate(
             tool: tool, arguments: args, ancestors: pids,
-            isFixingStatus: { status in workflow.role(.bug, status).map { $0 == .active || $0 == .completed } ?? false },
+            isFixingStatus: { status in workflow.role(.bug, status) == .active },
             environmentNames: { id in deployments?.environment(id).map { [$0.name] } ?? [] })
         if case .refuse(let reason)? = decision { return reason }
         return nil

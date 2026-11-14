@@ -9,7 +9,7 @@ func controls(_ edit: (inout CockpitControls) -> Void = { _ in }) -> CockpitCont
     return value
 }
 
-let isFixing: (String) -> Bool = { ["fixing", "fixed"].contains($0.lowercased()) }
+let isFixing: (String) -> Bool = { $0.lowercased() == "fixing" }
 let namesOf: (String) -> [String] = { id in id == "prod" ? ["Production"] : [] }
 
 func decide(_ policy: CockpitStepPolicy, _ tool: String, _ arguments: [String: Any] = [:]) -> CockpitStepPolicy.Decision {
@@ -56,7 +56,8 @@ for tool in ["markview_agent_start", "markview_agent_send", "markview_agent_key"
 
 check("create_bug follows File bugs", allowed(open, "markview_create_bug") && !allowed(strict, "markview_create_bug"))
 check("a bug may be reopened or closed with fixing off", allowed(strict, "markview_set_bug_status", ["status": "open"]) && allowed(strict, "markview_set_bug_status", ["status": "closed"]))
-check("a bug may not move into fixing or fixed with fixing off", !allowed(strict, "markview_set_bug_status", ["status": "fixing"]) && !allowed(strict, "markview_set_bug_status", ["status": "Fixed"]))
+check("a bug may not move into fixing with fixing off", !allowed(strict, "markview_set_bug_status", ["status": "fixing"]) && !allowed(strict, "markview_set_bug_status", ["status": "Fixing"]))
+check("a move to fixed is left to MarkView's own evidence rules", allowed(strict, "markview_set_bug_status", ["status": "fixed"]))
 check("a bug may move into fixing with fixing on", allowed(open, "markview_set_bug_status", ["status": "fixing"]))
 
 check("deployment Disabled refuses run, propose and delivery", ["markview_deployments_run", "markview_deployments_propose", "markview_confirm_delivery"].allSatisfy { !allowed(strict, $0, ["environment": "prod"]) })
@@ -110,5 +111,73 @@ if let data = try? JSONEncoder().encode(CockpitControls()) {
     let text = String(data: data, encoding: .utf8) ?? ""
     check("no limit writes no limit keys", !text.contains("timeLimit") && !text.contains("fixCycleLimit"))
 }
+
+// MARK: audit after the step
+
+typealias Snap = CockpitStepAudit.Snapshot
+func snap(_ files: [String: String] = [:], head: String? = "aaaaaaa1", scenarios: Set<String> = [], git: Bool = true) -> Snap {
+    Snap(isGitRepository: git, head: head, files: files, scenarios: scenarios)
+}
+let noFixing = controls { $0.fixBugs = false; $0.createScenarios = false }
+let fixing = controls { $0.fixBugs = true; $0.createScenarios = true }
+
+check("an untouched project has no violations", CockpitStepAudit.violations(before: snap(), after: snap(), controls: noFixing).isEmpty)
+let edited = CockpitStepAudit.violations(before: snap(), after: snap(["Sources/App.swift": "h1"]), controls: noFixing)
+check("a source file changed with fixing off is a violation that names it", edited.count == 1 && edited[0].contains("Sources/App.swift") && edited[0].contains("Fix bugs is off"))
+check("the same change is fine with fixing on", CockpitStepAudit.violations(before: snap(), after: snap(["Sources/App.swift": "h1"]), controls: fixing).isEmpty)
+check("a file that was already dirty and stayed as it was is not the step's", CockpitStepAudit.violations(before: snap(["a.swift": "h1"]), after: snap(["a.swift": "h1"]), controls: noFixing).isEmpty)
+check("a file that was dirty and changed again is detected", CockpitStepAudit.changedSources(before: snap(["a.swift": "h1"]), after: snap(["a.swift": "h2"])) == ["a.swift"])
+check("a dirty file put back to clean is detected", CockpitStepAudit.changedSources(before: snap(["a.swift": "h1"]), after: snap()) == ["a.swift"])
+check("a deleted file is detected", CockpitStepAudit.changedSources(before: snap(), after: snap(["a.swift": "deleted"])) == ["a.swift"])
+check("documentation and notes are not source", CockpitStepAudit.violations(before: snap(), after: snap(["docs/bugs/BUG-1.md": "h", "tasks/todo.md": "h", ".dde/qa/x.json": "h"]), controls: noFixing).isEmpty)
+check("a commit with fixing off is a violation", CockpitStepAudit.violations(before: snap(head: "aaaaaaa1"), after: snap(head: "bbbbbbb2"), controls: noFixing).contains { $0.contains("commit") })
+check("a commit with fixing on is fine", CockpitStepAudit.violations(before: snap(head: "aaaaaaa1"), after: snap(head: "bbbbbbb2"), controls: fixing).isEmpty)
+let many = Dictionary(uniqueKeysWithValues: (1...14).map { ("f\($0).swift", "h") })
+let longList = CockpitStepAudit.violations(before: snap(), after: snap(many), controls: noFixing)
+check("a long list of files is cut and counted", longList.count == 1 && longList[0].contains("14 source file") && longList[0].contains("and 4 more"))
+check("a new scenario with creating off is a violation", CockpitStepAudit.violations(before: snap(scenarios: ["a"]), after: snap(scenarios: ["a", "b"]), controls: noFixing).contains { $0.contains("scenario") && $0.contains("b") })
+check("a new scenario with creating on is fine", CockpitStepAudit.violations(before: snap(scenarios: ["a"]), after: snap(scenarios: ["a", "b"]), controls: fixing).isEmpty)
+check("a deleted scenario is not a creation", CockpitStepAudit.violations(before: snap(scenarios: ["a", "b"]), after: snap(scenarios: ["a"]), controls: noFixing).isEmpty)
+check("outside git nothing is claimed about sources", CockpitStepAudit.violations(before: snap(git: false), after: snap(["a.swift": "h"], git: false), controls: noFixing).isEmpty)
+check("outside git the audit says what it could not look at", CockpitStepAudit.limits(of: snap(git: false), controls: noFixing).count == 1)
+check("inside git it says nothing extra", CockpitStepAudit.limits(of: snap(), controls: noFixing).isEmpty)
+check("with fixing on it has nothing to excuse", CockpitStepAudit.limits(of: snap(git: false), controls: fixing).isEmpty)
+
+// MARK: step meter
+
+var meter = CockpitStepMeter(cycleLimit: 2, cyclesBefore: 0)
+check("a new step has used no fix cycle", meter.stepCycles == 0 && !meter.overCycleLimit)
+meter.noteGate(cycles: 1)
+meter.noteGate(cycles: 2)
+check("the gate count within the limit is not over", meter.stepCycles == 2 && !meter.overCycleLimit)
+meter.noteGate(cycles: 3)
+check("a cycle beyond the limit is over", meter.overCycleLimit)
+meter.noteGate(cycles: 1)
+check("the gate count never goes down", meter.stepCycles == 3)
+
+var reports = CockpitStepMeter(cycleLimit: 1, cyclesBefore: 0)
+reports.noteReport(pass: 1, fixes: [])
+check("a report without fixes is not a cycle", reports.stepCycles == 0)
+reports.noteReport(pass: 1, fixes: ["BUG-1"])
+check("a report with a new fix is a cycle", reports.stepCycles == 1 && !reports.overCycleLimit)
+reports.noteReport(pass: 2, fixes: ["BUG-1"])
+check("the same fix listed again is not another cycle", reports.stepCycles == 1)
+reports.noteReport(pass: 2, fixes: ["BUG-1", "BUG-2"])
+check("a cumulative list with one new fix is one more cycle", reports.stepCycles == 2 && reports.overCycleLimit)
+reports.noteReport(pass: 2, fixes: ["BUG-1", "BUG-2", "BUG-3"])
+check("two fixes in one pass are one cycle", reports.stepCycles == 2)
+
+var both = CockpitStepMeter(cycleLimit: nil, cyclesBefore: 5)
+both.noteGate(cycles: 1)
+both.noteReport(pass: 1, fixes: ["A"]); both.noteReport(pass: 2, fixes: ["B"]); both.noteReport(pass: 3, fixes: ["C"])
+check("the larger of the two counts wins", both.stepCycles == 3)
+check("earlier steps' cycles are added", both.totalCycles == 8)
+check("no limit is never over", !both.overCycleLimit)
+check("earlier cycles count against the limit", CockpitStepMeter(cycleLimit: 3, cyclesBefore: 3).overCycleLimit == false
+      && { var m = CockpitStepMeter(cycleLimit: 3, cyclesBefore: 3); m.noteGate(cycles: 1); return m.overCycleLimit }())
+
+check("no time limit has no remaining seconds", CockpitStepMeter.remainingSeconds(limitMinutes: nil, used: 500) == nil)
+check("the remaining seconds are the limit less what was used", CockpitStepMeter.remainingSeconds(limitMinutes: 2, used: 30) == 90)
+check("used up time is zero or less", (CockpitStepMeter.remainingSeconds(limitMinutes: 1, used: 60) ?? 1) <= 0 && (CockpitStepMeter.remainingSeconds(limitMinutes: 1, used: 90) ?? 1) < 0)
 
 finish("cockpit policy")

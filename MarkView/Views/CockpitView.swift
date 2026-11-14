@@ -121,6 +121,10 @@ struct CockpitView: View {
                     }
                     if let state = execution.state {
                         Text("Execution: \(state.status)")
+                        if let usage = Self.usageLine(execution: execution, controls: session.runningPlan?.controls) {
+                            Text(usage).foregroundColor(palette.textDim)
+                        }
+                        if let notice = execution.limitNotice { Text(notice).foregroundColor(palette.orange) }
                         if state.status == "finished", let running = session.runningPlan {
                             switch CockpitOutcome.evaluate(criteria: running.successCriteria, progress: state.results.last?.result.progress) {
                             case .success: Text("Outcome: success against the stated criteria")
@@ -300,6 +304,15 @@ struct CockpitView: View {
         if let minutes = controls.timeLimitMinutes { parts.append("\(minutes) min of agent time") }
         if let cycles = controls.fixCycleLimit { parts.append("\(cycles) fix cycle\(cycles == 1 ? "" : "s")") }
         return parts.isEmpty ? "No time or fix cycle limit." : "Limits: " + parts.joined(separator: ", ") + ". A step that reaches one is stopped and the run pauses."
+    }
+
+    /// What the run has used of its limits, shown only when it has any.
+    static func usageLine(execution: CockpitExecution, controls: CockpitControls?) -> String? {
+        guard let controls else { return nil }
+        var parts: [String] = []
+        if let minutes = controls.timeLimitMinutes { parts.append("Agent time \(Int(execution.usedSeconds / 60)) of \(minutes) min") }
+        if let cycles = controls.fixCycleLimit { parts.append("Fix cycles \(execution.usedFixCycles) of \(cycles)") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     @ViewBuilder private func progressDetails(_ progress: CockpitProgress) -> some View {
