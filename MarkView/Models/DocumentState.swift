@@ -370,6 +370,15 @@ struct OpenTab: Identifiable {
         return false
     }
 
+    /// True for a tab that shows one file the person reads or edits (text, image, PDF, archive, data file); "Close Documents" closes
+    /// these and keeps the project's tool tabs (Git, Workflow, X-Ray, QA, ...).
+    var isDocument: Bool {
+        switch kind {
+        case .file, .image, .pdf, .archive, .data: return true
+        default: return false
+        }
+    }
+
     /// The file type of this tab
     var fileType: FileType {
         FileType.from(url: url)

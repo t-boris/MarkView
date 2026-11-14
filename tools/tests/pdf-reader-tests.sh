@@ -23,8 +23,8 @@ Path(sys.argv[1]).write_text(
 )
 PY
 swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library \
-    MarkView/Models/DocumentState.swift MarkView/Models/PDFReader.swift \
+    MarkView/Models/DocumentState.swift MarkView/Models/TabClosing.swift MarkView/Models/PDFReader.swift \
     MarkView/Views/PDFReaderView.swift MarkView/Models/AppTheme.swift MarkView/Models/WindowTheme.swift MarkView/Views/AppPalette.swift "$out/WorkspaceRouting.swift" \
-    tools/tests/PDFReaderRoutingTests.swift tools/tests/PDFReaderViewTests.swift tools/tests/PDFReaderTests.swift \
+    tools/tests/PDFReaderRoutingTests.swift tools/tests/TabClosingStoreTests.swift tools/tests/PDFReaderViewTests.swift tools/tests/PDFReaderTests.swift \
     -o "$out/pdf-reader-tests"
 "$out/pdf-reader-tests"

@@ -168,8 +168,9 @@ static void DumpAX(id el, NSWindow *w, int depth, int *count) {
         NSRect f = [k respondsToSelector:@selector(accessibilityFrame)] ? [k accessibilityFrame] : NSZeroRect;
         NSRect wf = [w convertRectFromScreen:f];
         CGFloat h = w.contentView.bounds.size.height;
+        BOOL enabled = [k respondsToSelector:@selector(isAccessibilityEnabled)] ? [k isAccessibilityEnabled] : YES;
         if (label.length || title.length || [role isEqualToString:@"AXButton"])
-            L(@"ax %*s%@ label=%@ title=%@ x=%.0f y=%.0f w=%.0f h=%.0f", depth, "", role, label, title, wf.origin.x, h - wf.origin.y - wf.size.height, wf.size.width, wf.size.height);
+            L(@"ax %*s%@ label=%@ title=%@ x=%.0f y=%.0f w=%.0f h=%.0f enabled=%d", depth, "", role, label, title, wf.origin.x, h - wf.origin.y - wf.size.height, wf.size.width, wf.size.height, enabled);
         DumpAX(k, w, depth + 1, count);
     }
 }

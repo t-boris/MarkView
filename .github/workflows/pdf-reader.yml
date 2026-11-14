@@ -7,6 +7,8 @@ on:
       - 'tools/tests/PDFReader*'
       - 'tools/tests/pdf-reader-tests.sh'
       - 'tools/tests/WindowSessionTests.swift'
+      - 'tools/tests/TabClosing*'
+      - 'tools/tests/tab-closing-tests.sh'
       - '.github/workflows/pdf-reader.yml'
 permissions:
   contents: read
@@ -18,7 +20,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify native PDF reader and text-only boundaries
         run: bash tools/tests/pdf-reader-tests.sh
-      - name: Verify window restoration and file classification
+      - name: Verify window restoration, file classification and tab closing
         run: |
           bash tools/tests/window-session-tests.sh
+          bash tools/tests/tab-closing-tests.sh
           bash tools/tests/all-files-explain-tests.sh

@@ -67,6 +67,7 @@ enum PDFReaderTests {
 
     @MainActor static func run() async throws {
         PDFReaderRoutingTests.run()
+        TabClosingStoreTests.run()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("MarkView PDF reader \(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
