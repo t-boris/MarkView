@@ -1947,3 +1947,35 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
   checks requestAnimationFrame, completed animations, visible dialog pixels,
   repeated opens, native input, separate players and unchanged focus. Running it
   with `--system-window` reproduces eight failures on the old host.
+
+## UI Studio automatic repair: what the live run found that the harness did not (6.22.0, 2026-11-14)
+
+- A fragment-only load (`/#/attention` to `/#/accounts` in a hash-routed app) keeps the
+  old document, so WebKit does not start a new page: the page keeps its old generation,
+  every request is rejected as stale ("Rejected a message of an earlier generation"),
+  and the load never finishes. Load `about:blank` first (`StudioPageLoad`). The
+  symptoms (`accounts.list`, `Failed to fetch`, the generation message) were three
+  rows of one navigation bug, not three data errors.
+- `waitForLoad`: a cancelled timeout task resumed the NEXT waiter with `false`. A timer
+  that can be cancelled must return on cancellation without resuming anything.
+- The harness check that should have caught it accepted "degraded" as a pass. A
+  check that accepts the failure state proves nothing: assert the exact state, and prove
+  the tightened check goes red on the old code.
+- Only a run against the real application with the real assistant found it. For a
+  change that reloads pages, run the live tool (`tools/tests/ui-studio-live-run.sh`) on a
+  clone of a real project before release.
+- A scenario made a minute ago is not stale because the project's seed breaks its own
+  entity. "Current" is a question about contracts only (`isCurrent`); the records are
+  judged by the data check. Using the full compatibility check sent every prepared screen
+  of a real project through the assistant again.
+- A route with a placeholder (`/products/<productId>/sources`) is a family of pages, not
+  a page: never load it, never expect it, never save a scenario for it as prepared.
+- Module-loading failures (Vite hot reload, a missing chunk) are code or server, never
+  data: they must not cost an assistant call at every open.
+- Harness traps found on the way: in a `main.swift` harness a top-level `let` declared
+  after the `Task { run() }` entry is uninitialized when the task reads it (segfault):
+  keep constants above the entry; a window-less `WKWebView` cannot take a snapshot, so a
+  context change hangs: host the page in an invisible window; `NSWindow.close()` on a
+  window held by a local variable double-releases (`isReleasedWhenClosed`): use
+  `orderOut`; a restore that follows a sign-in redirect leaves `signInWall` set, so a
+  second repair asked the assistant again: clear it when the page is elsewhere.
