@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// One step gets a fresh existing agent terminal and a one-use reporting ticket.
 @MainActor
@@ -8,8 +9,16 @@ final class CockpitAgentAttempt {
     private var session: TerminalSession?
     private var ticket: UUID?
     private var continuation: CheckedContinuation<CockpitHostReply, Never>?
+    private var progress: CockpitProgress?
+    private var watchdog: CockpitChild?
+    private var watchdogTask: Task<Void, Never>?
+    private var watchdogExited: CockpitExitSignal?
+    private var terminationTask: Task<Void, Never>?
+    private let onProgress: (CockpitProgress) async throws -> Void
 
-    init(workspace: WorkspaceManager, root: URL) { self.workspace = workspace; self.root = root.standardizedFileURL }
+    init(workspace: WorkspaceManager, root: URL, onProgress: @escaping (CockpitProgress) async throws -> Void = { _ in }) {
+        self.workspace = workspace; self.root = root.standardizedFileURL; self.onProgress = onProgress
+    }
 
     func run(_ task: CockpitHostTask) async -> CockpitHostReply {
         guard !Task.isCancelled, let workspace,
@@ -23,12 +32,30 @@ final class CockpitAgentAttempt {
             return Self.failure("The agent terminal is not in the cockpit's project.")
         }
         session = terminal
+        progress = nil
         workspace.showAIConsole()
+        terminal.start()
+        guard let pty = terminal.duplicateCockpitPTY() else {
+            terminal.terminateCockpitStep()
+            session = nil
+            return Self.failure("The agent terminal could not start.")
+        }
+        let exited = CockpitExitSignal()
+        watchdogExited = exited
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                guard !Task.isCancelled else { terminal.terminateCockpitStep(); continuation.resume(returning: Self.failure("The step was interrupted.")); return }
+                guard !Task.isCancelled else {
+                    close(pty.descriptor)
+                    terminal.terminateCockpitStep()
+                    watchdogExited = nil
+                    continuation.resume(returning: Self.failure("The step was interrupted.")); return
+                }
                 self.continuation = continuation
-                let ticket = CockpitAgentRegistry.register(root: root) { [weak self] reply in self?.finish(reply) }
+                let ticket = CockpitAgentRegistry.register(root: root, progress: { [weak self] value in
+                    guard let self else { throw CancellationError() }
+                    self.progress = value
+                    try await self.onProgress(value)
+                }, waitForShutdown: { [weak self] in await self?.terminationTask?.value }) { [weak self] reply in self?.finish(reply) }
                 self.ticket = ticket
                 terminal.onExit = { [weak self] _ in self?.cancel(reason: "The agent terminal exited before reporting a result.") }
                 terminal.onCockpitTermination = { [weak self] in self?.cancel(reason: "The agent terminal was closed before reporting a result.") }
@@ -40,15 +67,31 @@ final class CockpitAgentAttempt {
                     Follow the controls in the assignment: when fixes are disabled, report findings without fixing them; when deployment is disabled, do not deploy.
                     When building is disabled, do not claim checks against a newly built version were performed.
                     If this assignment names qaScenarioID, MarkView will run that exact reviewed QA scenario after your report; do not run it separately.
+                    If isFinalStep is true, explicitly evaluate each success criterion against evidence, report unmet criteria as blockers, and report passed only if the criteria are met.
                     Use the available MarkView project and browser tools as appropriate. Once you have finished this step, call markview_cockpit_complete_step
                     with project_folder \(root.path), ticket \(ticket.uuidString), passed, detail (evidence and blockers), and build (the build identifier or an empty string).
+                    While working, call markview_cockpit_report_progress with the same ticket to report the pass number, activity, scenario coverage, bugs, confirmed fixes, latest change, blockers, and build log path where known. On the final step include criteriaResults for every stated success criterion, with exact criterion text, met or unmet, and supporting evidence.
                     Report whether the completion condition was actually met. Your terminal session ends after your report; do not start subsequent steps.
 
                     Assignment and prior results (JSON):
                     \(assignment)
                     """
-                    terminal.pasteWhenReady(prompt, submit: true)
-                } catch { cancel(reason: "The step assignment could not be prepared.") }
+                    watchdogTask = Task { [weak self, weak terminal] in
+                        do {
+                            let watcher = try await CockpitService.forProject(root).watchdog(ptyDescriptor: pty.descriptor, shell: pty.shell,
+                                                                                          onExit: { Task { await exited.finish() } })
+                            guard let self, let terminal, self.ticket == ticket, terminal.shellPID == pty.shell, !Task.isCancelled else {
+                                watcher.stop(); return
+                            }
+                            self.watchdog = watcher
+                            terminal.pasteWhenReady(prompt, submit: true)
+                        } catch { self?.cancel(reason: "The terminal watchdog could not start.") }
+                    }
+                } catch {
+                    close(pty.descriptor)
+                    Task { await exited.finish() }
+                    cancel(reason: "The step assignment could not be prepared.")
+                }
             }
         } onCancel: {
             Task { @MainActor [weak self] in self?.cancel(reason: "The step was interrupted.") }
@@ -64,14 +107,22 @@ final class CockpitAgentAttempt {
         guard let continuation else { return }
         self.continuation = nil
         ticket = nil
+        watchdogTask?.cancel(); watchdogTask = nil
+        watchdog?.stop(); watchdog = nil
+        let exited = watchdogExited
+        watchdogExited = nil
         session?.onExit = nil
         session?.onCockpitTermination = nil
-        let reaping = session?.terminateCockpitStep()
+        let reaping = session?.terminateCockpitStep(beforeReap: { await exited?.wait() })
         session = nil
+        var reported = reply
+        reported.result.progress = progress
+        let finalized = reported
         // The next Temporal step must not start while this terminal's process group is still stopping.
-        Task {
+        terminationTask = Task {
             await reaping?.value
-            continuation.resume(returning: reply)
+            await exited?.wait()
+            continuation.resume(returning: finalized)
         }
     }
 

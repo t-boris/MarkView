@@ -63,7 +63,7 @@ func Start(ctx context.Context, options Options) (_ *Server, resultErr error) {
 			removeTLS(certs)
 		}
 	}()
-	pg := postgres.NewDatabase(postgres.DefaultConfig().Version(postgres.V17).Port(0).Username("markview").Password(password).
+	pg := postgres.NewDatabase(postgres.DefaultConfig().Version(postgres.V16).Port(0).Username("markview").Password(password).
 		Storage(postgres.Storage{DataDir: filepath.Join(options.State, "postgres"), WorkDir: options.Runtime}).
 		Provider(postgres.LocalProvider(options.PostgresBinaries)).Supervisor(options.PostgresSupervisor).Logger(io.Discard))
 	if err := pg.StartContext(ctx); err != nil {

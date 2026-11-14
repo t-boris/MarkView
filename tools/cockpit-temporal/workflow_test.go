@@ -149,3 +149,60 @@ func TestPauseInterruptsActiveStep(t *testing.T) {
 		t.Fatalf("active step was not interrupted exactly once: %+v, calls %d, cancellations %d", state, calls.Load(), cancelled.Load())
 	}
 }
+
+func TestApprovedRevisionWaitsForStepBoundary(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	release := make(chan struct{})
+	var called []string
+	env.RegisterActivityWithOptions(func(_ context.Context, task StepTask) (Result, error) {
+		called = append(called, task.Step.ID+":"+task.PlanFingerprint)
+		if task.Step.ID == "old" {
+			<-release
+		}
+		return Result{Passed: true}, nil
+	}, activity.RegisterOptions{Name: "cockpit.run-step"})
+	old := Plan{Fingerprint: "old-plan", Steps: []Step{
+		{ID: "old", Title: "Old", Agent: "Codex", Assignment: "Work", CompletionCondition: "Done"},
+		{ID: "obsolete", Title: "Obsolete", Agent: "Codex", Assignment: "Work", CompletionCondition: "Done"},
+	}}
+	next := Plan{Fingerprint: "new-plan", Steps: []Step{
+		{ID: "new", Title: "New", Agent: "Codex", Assignment: "New work", CompletionCondition: "Done"},
+	}}
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("approve", Start{Fingerprint: "old-plan", Step: 0}) }, time.Second)
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("replan", Revision{ExpectedFingerprint: "wrong", Plan: next, Step: 0}) }, 1500*time.Millisecond)
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("replan", Revision{ExpectedFingerprint: "old-plan", Plan: next, Step: 0}) }, 2*time.Second)
+	env.RegisterDelayedCallback(func() { close(release) }, 3*time.Second)
+	env.ExecuteWorkflow(Execute, old)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatal(err)
+	}
+	var state State
+	if err := env.GetWorkflowResult(&state); err != nil {
+		t.Fatal(err)
+	}
+	if len(called) != 2 || called[0] != "old:old-plan" || called[1] != "new:new-plan" || len(state.Results) != 2 ||
+		state.Results[0].PlanFingerprint != "old-plan" || state.Results[1].PlanFingerprint != "new-plan" || state.Fingerprint != "new-plan" {
+		t.Fatalf("revision did not apply at the boundary: %+v, calls %v", state, called)
+	}
+}
+
+func TestContinuationCarriesInterruptedEvidence(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	var received []Entry
+	env.RegisterActivityWithOptions(func(_ context.Context, task StepTask) (Result, error) {
+		received = task.PriorResults
+		return Result{Passed: true}, nil
+	}, activity.RegisterOptions{Name: "cockpit.run-step"})
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("approve", Start{Fingerprint: "resume", Step: 0}) }, time.Second)
+	plan := Plan{Fingerprint: "resume", Steps: []Step{{ID: "step", Title: "Continue", Agent: "Codex", Assignment: "Work", CompletionCondition: "Done"}},
+		InitialResults: []Entry{{StepID: "earlier", PlanFingerprint: "old", Result: Result{Interrupted: true, Detail: "partial", Progress: &Progress{PassNumber: 1, Activity: "changed"}}}}}
+	env.ExecuteWorkflow(Execute, plan)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatal(err)
+	}
+	if len(received) != 1 || !received[0].Result.Interrupted || received[0].Result.Progress == nil || received[0].Result.Progress.Activity != "changed" {
+		t.Fatalf("continuation lost interrupted evidence: %+v", received)
+	}
+}

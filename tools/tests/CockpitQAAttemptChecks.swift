@@ -13,8 +13,11 @@ enum CockpitQAReviewBuilder {
                         exactPlan: "plan \(scenario.version)", dataChangingActions: ["write"], productionConfirmationRequired: true)
     }
 }
-struct QAResultLine { var branch: String; var outcome: QAOutcome? }
+struct QAResultLine { var branch: String; var outcome: QAOutcome?; var reason: String? = nil }
 enum QAOutcome: String { case passed, failed }
+struct MockVerdict { var outcome: QAOutcome }
+struct MockResult { var branch: String; var verdict: MockVerdict }
+struct MockQuestion { var title: String }
 struct QARecord { var id: String; var lines: [QAResultLine] }
 struct Gate { var canPrepare: Bool; var approvedFingerprint: String? }
 @MainActor final class Run {
@@ -22,6 +25,10 @@ struct Gate { var canPrepare: Bool; var approvedFingerprint: String? }
     var activeRunID: String? { isRunning ? "run-1" : nil }
     var record: QARecord?
     var starts = 0
+    var currentNode: String?
+    var currentBranch: String?
+    var results: [MockResult] = []
+    var question: MockQuestion?
     func stop() { isRunning = false }
 }
 @MainActor final class QAModel {
@@ -56,9 +63,9 @@ struct Gate { var canPrepare: Bool; var approvedFingerprint: String? }
     var opened = false
     func openQA() { opened = true }
 }
-struct CockpitHostResult: Codable { var passed: Bool; var detail: String; var build: String; var scenarioID: String? = nil; var qaRunID: String? = nil }
+struct CockpitHostResult: Codable { var passed: Bool; var detail: String; var build: String; var scenarioID: String? = nil; var qaRunID: String? = nil; var progress: CockpitProgress? = nil; var interrupted: Bool? = nil }
 struct CockpitHostReply { var result: CockpitHostResult; var error: String }
-struct CockpitResult { var plan: CockpitPlan; var build: String; var outcome: String; var qaRunID: String? }
+struct CockpitResult { var plan: CockpitPlan; var build: String; var outcome: String; var qaRunID: String?; var scenarioID: String? = nil }
 enum CockpitResults {
     static func save(_ result: CockpitResult, root: URL) throws { try Data((result.qaRunID ?? "").utf8).write(to: root.appendingPathComponent("saved")) }
 }
@@ -70,7 +77,8 @@ enum CockpitResults {
         defer { try? FileManager.default.removeItem(at: root) }
         let review = try CockpitQAReviewBuilder.make(scenario: QAScenario(id: "s", version: 1), targetID: "prod", savedLogins: [])
         let step = CockpitStep(title: "QA", agent: "Codex", assignment: "Prepare", completionCondition: "Pass", qaScenarioID: "s")
-        var plan = CockpitPlan(goal: "Test", controls: CockpitControls(), scenarios: ["s"], steps: [step], successCriteria: ["Pass"], unavailableOutcomes: [], alternatives: [], productionQA: CockpitProductionQA(exactPlan: review.exactPlan, dataChangingActions: review.dataChangingActions))
+        let verify = CockpitStep(title: "Verify", agent: "Codex", assignment: "Review evidence", completionCondition: "Criteria assessed")
+        var plan = CockpitPlan(goal: "Test", controls: CockpitControls(), scenarios: ["s"], steps: [step, verify], successCriteria: ["Pass"], unavailableOutcomes: [], alternatives: [], productionQA: CockpitProductionQA(exactPlan: review.exactPlan, dataChangingActions: review.dataChangingActions))
         plan.qaReviews = [review]
         let previous = CockpitHostReply(result: CockpitHostResult(passed: true, detail: "Prepared", build: "b1"), error: "")
         let workspace = WorkspaceManager()

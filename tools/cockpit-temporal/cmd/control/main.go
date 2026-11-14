@@ -16,14 +16,15 @@ import (
 )
 
 type request struct {
-	Address    string         `json:"address"`
-	Queue      string         `json:"queue"`
-	WorkflowID string         `json:"workflowID"`
-	Action     string         `json:"action"`
-	Plan       cockpit.Plan   `json:"plan"`
-	Approval   cockpit.Start  `json:"approval"`
-	Command    string         `json:"command"`
-	TLS        localtls.Files `json:"tls"`
+	Address    string           `json:"address"`
+	Queue      string           `json:"queue"`
+	WorkflowID string           `json:"workflowID"`
+	Action     string           `json:"action"`
+	Plan       cockpit.Plan     `json:"plan"`
+	Approval   cockpit.Start    `json:"approval"`
+	Revision   cockpit.Revision `json:"revision"`
+	Command    string           `json:"command"`
+	TLS        localtls.Files   `json:"tls"`
 }
 
 func validate(req request) error {
@@ -42,6 +43,10 @@ func validate(req request) error {
 	case "approve":
 		if req.Approval.Fingerprint == "" || req.Approval.Step < 0 {
 			return errors.New("an approval is required")
+		}
+	case "replan":
+		if req.Revision.ExpectedFingerprint == "" || req.Revision.Plan.Fingerprint == "" || req.Revision.Step < 0 {
+			return errors.New("a reviewed revision and starting step are required")
 		}
 	case "control":
 		if req.Command != "pause" && req.Command != "resume" && req.Command != "retry" && req.Command != "stop" {
@@ -78,6 +83,8 @@ func run(req request) (any, error) {
 		return map[string]string{"workflowID": execution.GetID(), "runID": execution.GetRunID()}, nil
 	case "approve":
 		return nil, c.SignalWorkflow(ctx, req.WorkflowID, "", "approve", req.Approval)
+	case "replan":
+		return nil, c.SignalWorkflow(ctx, req.WorkflowID, "", "replan", req.Revision)
 	case "control":
 		return nil, c.SignalWorkflow(ctx, req.WorkflowID, "", "control", req.Command)
 	case "state":

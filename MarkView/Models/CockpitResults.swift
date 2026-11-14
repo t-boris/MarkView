@@ -8,6 +8,13 @@ struct CockpitResult: Codable, Equatable, Identifiable {
     var build: String
     var outcome: String
     var qaRunID: String?
+    var scenarioID: String? = nil
+}
+
+struct CockpitLinkedResult: Identifiable {
+    var result: CockpitResult
+    var detailsDeleted: Bool
+    var id: UUID { result.id }
 }
 
 /// Disk operations and QA cleanup share a process-wide file lock, including across MarkView windows and app instances.
@@ -56,6 +63,24 @@ enum CockpitResults {
             let url = folder.appendingPathComponent(result.id.uuidString + ".json")
             try JSONEncoder().encode(result).write(to: url, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+    }
+
+    static func loadAll(root: URL) throws -> [CockpitLinkedResult] {
+        guard FileManager.default.fileExists(atPath: directory(root).path) else { return [] }
+        return try withLock(root) {
+            let folder = directory(root)
+            guard FileManager.default.fileExists(atPath: folder.path) else { return [] }
+            let urls = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            return try urls.filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }.map { url in
+                let result = try JSONDecoder().decode(CockpitResult.self, from: Data(contentsOf: url))
+                var deleted = false
+                if let id = result.qaRunID {
+                    guard QARunRetention.runID(inBugKey: id + ":result") == id else { throw StoreError.invalidRunID }
+                    deleted = !FileManager.default.fileExists(atPath: QAStore.runFolder(root, runID: id).appendingPathComponent("run.json").path)
+                }
+                return CockpitLinkedResult(result: result, detailsDeleted: deleted)
+            }
         }
     }
 }

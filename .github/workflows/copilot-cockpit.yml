@@ -10,6 +10,7 @@ on:
       - 'tools/cockpit-temporal/**'
       - 'tools/tests/Cockpit*'
       - 'tools/tests/cockpit-*.sh'
+      - 'tools/tests/cockpit-*.py'
       - 'tools/tests/FeatureReviewGateChecks.swift'
       - 'tools/tests/feature-review-gate-tests.sh'
       - 'tools/tests/QARetentionChecks.swift'
@@ -23,6 +24,7 @@ on:
       - 'tools/cockpit-temporal/**'
       - 'tools/tests/Cockpit*'
       - 'tools/tests/cockpit-*.sh'
+      - 'tools/tests/cockpit-*.py'
       - 'tools/tests/FeatureReviewGateChecks.swift'
       - 'tools/tests/feature-review-gate-tests.sh'
       - 'tools/tests/QARetentionChecks.swift'
@@ -61,4 +63,5 @@ jobs:
           tools/cockpit-temporal/scripts/build-runtime.sh
           [ "$(uname -m)" = arm64 ] || { echo 'An Apple Silicon runner is required'; exit 1; }
           export MARKVIEW_TEST_RUNTIME="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Cockpit/arm64"
+          MARKVIEW_TEST_WATCHDOG="$MARKVIEW_TEST_RUNTIME/bin/terminal-watchdog" python3 tools/tests/cockpit-watchdog-tests.py
           tools/tests/cockpit-runtime-integration-tests.sh

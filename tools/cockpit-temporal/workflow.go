@@ -15,6 +15,7 @@ type Plan struct {
 	Controls        string   `json:"controls"`
 	SuccessCriteria []string `json:"successCriteria"`
 	Steps           []Step   `json:"steps"`
+	InitialResults  []Entry  `json:"initialResults,omitempty"`
 }
 type Step struct {
 	ID                  string `json:"id"`
@@ -29,16 +30,40 @@ type Start struct {
 	Fingerprint string `json:"fingerprint"`
 	Step        int    `json:"step"`
 }
+type Revision struct {
+	ExpectedFingerprint string `json:"expectedFingerprint"`
+	Plan                Plan   `json:"plan"`
+	Step                int    `json:"step"`
+}
 type Result struct {
-	Passed     bool   `json:"passed"`
-	Detail     string `json:"detail"`
-	Build      string `json:"build"`
-	ScenarioID string `json:"scenarioID,omitempty"`
-	QARunID    string `json:"qaRunID,omitempty"`
+	Passed      bool      `json:"passed"`
+	Detail      string    `json:"detail"`
+	Build       string    `json:"build"`
+	ScenarioID  string    `json:"scenarioID,omitempty"`
+	QARunID     string    `json:"qaRunID,omitempty"`
+	Progress    *Progress `json:"progress,omitempty"`
+	Interrupted bool      `json:"interrupted,omitempty"`
+}
+type Progress struct {
+	PassNumber       int               `json:"passNumber"`
+	Activity         string            `json:"activity"`
+	ScenarioCoverage []string          `json:"scenarioCoverage"`
+	Bugs             []string          `json:"bugs"`
+	Fixes            []string          `json:"fixes"`
+	LatestChange     string            `json:"latestChange"`
+	Blockers         []string          `json:"blockers"`
+	BuildLogPath     *string           `json:"buildLogPath,omitempty"`
+	CriteriaResults  []CriterionResult `json:"criteriaResults,omitempty"`
+}
+type CriterionResult struct {
+	Criterion string `json:"criterion"`
+	Met       bool   `json:"met"`
+	Evidence  string `json:"evidence"`
 }
 type Entry struct {
-	StepID string `json:"stepID"`
-	Result Result `json:"result"`
+	StepID          string `json:"stepID"`
+	PlanFingerprint string `json:"planFingerprint"`
+	Result          Result `json:"result"`
 }
 type StepTask struct {
 	Step            Step     `json:"step"`
@@ -47,33 +72,61 @@ type StepTask struct {
 	Controls        string   `json:"controls"`
 	SuccessCriteria []string `json:"successCriteria"`
 	PriorResults    []Entry  `json:"priorResults"`
+	IsFinalStep     bool     `json:"isFinalStep"`
 }
 type State struct {
-	Status  string  `json:"status"`
-	Current int     `json:"current"`
-	Reason  string  `json:"reason"`
-	Results []Entry `json:"results"`
+	Status             string  `json:"status"`
+	Current            int     `json:"current"`
+	Reason             string  `json:"reason"`
+	Fingerprint        string  `json:"fingerprint"`
+	PendingFingerprint string  `json:"pendingFingerprint"`
+	Results            []Entry `json:"results"`
+}
+
+func validatePlan(plan Plan) error {
+	if plan.Fingerprint == "" || len(plan.Steps) == 0 {
+		return fmt.Errorf("invalid plan")
+	}
+	seen := make(map[string]bool)
+	for _, step := range plan.Steps {
+		if step.ID == "" || step.Title == "" || step.Agent == "" || step.Assignment == "" || step.CompletionCondition == "" || seen[step.ID] {
+			return fmt.Errorf("invalid step")
+		}
+		seen[step.ID] = true
+	}
+	return nil
 }
 
 // Execute coordinates separate host activities in order. Activities are never retried by Temporal:
 // a lost worker may have made changes, and an automatic replay could repeat them.
 func Execute(ctx workflow.Context, plan Plan) (State, error) {
-	state := State{Status: "awaiting-approval", Current: -1, Results: []Entry{}}
-	if plan.Fingerprint == "" || len(plan.Steps) == 0 {
-		return state, fmt.Errorf("invalid plan")
-	}
-	seen := make(map[string]bool)
-	for _, step := range plan.Steps {
-		if step.ID == "" || step.Title == "" || step.Agent == "" || step.Assignment == "" || step.CompletionCondition == "" || seen[step.ID] {
-			return state, fmt.Errorf("invalid step")
-		}
-		seen[step.ID] = true
+	state := State{Status: "awaiting-approval", Current: -1, Fingerprint: plan.Fingerprint, Results: append([]Entry{}, plan.InitialResults...)}
+	if err := validatePlan(plan); err != nil {
+		return state, err
 	}
 	if err := workflow.SetQueryHandler(ctx, "state", func() (State, error) { return state, nil }); err != nil {
 		return state, err
 	}
 	starts := workflow.GetSignalChannel(ctx, "approve")
 	controls := workflow.GetSignalChannel(ctx, "control")
+	revisions := workflow.GetSignalChannel(ctx, "replan")
+	var pending *Revision
+	acceptRevision := func(revision Revision) {
+		if revision.ExpectedFingerprint != plan.Fingerprint || revision.Plan.Fingerprint == plan.Fingerprint || validatePlan(revision.Plan) != nil || revision.Step < 0 || revision.Step >= len(revision.Plan.Steps) {
+			return
+		}
+		pending = &revision
+		state.PendingFingerprint = revision.Plan.Fingerprint
+	}
+	applyRevision := func() {
+		plan = pending.Plan
+		state.Current = pending.Step
+		state.Fingerprint = plan.Fingerprint
+		state.PendingFingerprint = ""
+		state.Status = "running"
+		state.Reason = ""
+		pending = nil
+	}
 	for state.Status == "awaiting-approval" {
 		selector := workflow.NewSelector(ctx)
 		selector.AddReceive(starts, func(channel workflow.ReceiveChannel, _ bool) {
@@ -116,20 +169,35 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 			}
 		}
 		for state.Status == "paused" {
-			controls.Receive(ctx, &command)
-			if command == "stop" {
-				state.Status = "stopped"
-				return state, nil
+			if pending != nil {
+				applyRevision()
+				break
 			}
-			if command == "resume" {
-				state.Status = "running"
-				state.Reason = ""
-			}
+			selector := workflow.NewSelector(ctx)
+			selector.AddReceive(controls, func(channel workflow.ReceiveChannel, _ bool) {
+				channel.Receive(ctx, &command)
+				if command == "stop" {
+					state.Status = "stopped"
+				}
+				if command == "resume" {
+					state.Status = "running"
+					state.Reason = ""
+				}
+			})
+			selector.AddReceive(revisions, func(channel workflow.ReceiveChannel, _ bool) {
+				var revision Revision
+				channel.Receive(ctx, &revision)
+				acceptRevision(revision)
+			})
+			selector.Select(ctx)
+		}
+		if state.Status == "stopped" {
+			return state, nil
 		}
 		step := plan.Steps[state.Current]
 		var result Result
 		activityCtx, cancelActivity := workflow.WithCancel(ctx)
-		future := workflow.ExecuteActivity(activityCtx, "cockpit.run-step", StepTask{Step: step, PlanFingerprint: plan.Fingerprint, Goal: plan.Goal, Controls: plan.Controls, SuccessCriteria: plan.SuccessCriteria, PriorResults: append([]Entry{}, state.Results...)})
+		future := workflow.ExecuteActivity(activityCtx, "cockpit.run-step", StepTask{Step: step, PlanFingerprint: plan.Fingerprint, Goal: plan.Goal, Controls: plan.Controls, SuccessCriteria: plan.SuccessCriteria, PriorResults: append([]Entry{}, state.Results...), IsFinalStep: state.Current == len(plan.Steps)-1})
 		var err error
 		completed := false
 		interruption := ""
@@ -142,6 +210,11 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 					interruption = command
 					cancelActivity()
 				}
+			})
+			selector.AddReceive(revisions, func(channel workflow.ReceiveChannel, _ bool) {
+				var revision Revision
+				channel.Receive(ctx, &revision)
+				acceptRevision(revision)
 			})
 			selector.Select(ctx)
 		}
@@ -173,22 +246,44 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 				}
 			}
 		}
-		state.Results = append(state.Results, Entry{StepID: step.ID, Result: result})
+		state.Results = append(state.Results, Entry{StepID: step.ID, PlanFingerprint: plan.Fingerprint, Result: result})
+		var revision Revision
+		for revisions.ReceiveAsync(&revision) {
+			acceptRevision(revision)
+		}
 		if !result.Passed {
 			state.Status = "paused"
 			state.Reason = result.Detail
-			for {
-				controls.Receive(ctx, &command)
-				if command == "stop" {
-					state.Status = "stopped"
-					return state, nil
-				}
-				if command == "retry" && step.Prerequisite {
-					state.Status = "running"
-					state.Reason = ""
+			for state.Status == "paused" {
+				if pending != nil {
+					applyRevision()
 					break
 				}
+				selector := workflow.NewSelector(ctx)
+				selector.AddReceive(controls, func(channel workflow.ReceiveChannel, _ bool) {
+					channel.Receive(ctx, &command)
+					if command == "stop" {
+						state.Status = "stopped"
+					}
+					if command == "retry" && step.Prerequisite {
+						state.Status = "running"
+						state.Reason = ""
+					}
+				})
+				selector.AddReceive(revisions, func(channel workflow.ReceiveChannel, _ bool) {
+					var revision Revision
+					channel.Receive(ctx, &revision)
+					acceptRevision(revision)
+				})
+				selector.Select(ctx)
 			}
+			if state.Status == "stopped" {
+				return state, nil
+			}
+			continue
+		}
+		if pending != nil {
+			applyRevision()
 			continue
 		}
 		state.Current++

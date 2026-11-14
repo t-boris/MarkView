@@ -21,6 +21,8 @@ var qaAnswer = answer
 qaAnswer["scenarios"] = ["scenario-1"]
 check((try? CockpitPlanning.parse(qaAnswer, goal: "Research", controls: controls, availableAgents: ["Codex"])) == nil, "an unassigned QA scenario is rejected")
 var qaStep = step; qaStep["qaScenarioID"] = "scenario-1"; qaAnswer["steps"] = [qaStep]
+check((try? CockpitPlanning.parse(qaAnswer, goal: "Research", controls: controls, availableAgents: ["Codex"])) == nil, "QA needs a final verification step")
+qaAnswer["steps"] = [qaStep, step]
 check((try? CockpitPlanning.parse(qaAnswer, goal: "Research", controls: controls, availableAgents: ["Codex"]))?.steps.first?.qaScenarioID == "scenario-1", "a QA scenario is tied to its step")
 answer["steps"] = []
 answer["successCriteria"] = []

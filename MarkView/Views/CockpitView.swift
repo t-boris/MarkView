@@ -9,6 +9,10 @@ struct CockpitView: View {
     @State private var approving = false
     @State private var reviewedPlan: CockpitPlan?
     @State private var productionConfirmed = false
+    @State private var reviewedStep = 0
+    @State private var reviewedProduction = false
+    @State private var reviewingRevision = false
+    @State private var reviewingRecovery = false
 
     var body: some View {
         ScrollView {
@@ -22,12 +26,27 @@ struct CockpitView: View {
                                     Text(run.plan.goal).uiFont(size: 12, weight: .semibold)
                                     Text("Status: \(run.status.rawValue)")
                                     if !run.waitingReason.isEmpty { Text(run.waitingReason).foregroundColor(palette.orange) }
+                                    ForEach(run.steps.filter { $0.status == .interrupted }, id: \.stepID) { step in
+                                        Text("Interrupted step: its effects may be incomplete.").foregroundColor(palette.orange)
+                                        if let progress = step.progress { progressDetails(progress) }
+                                        else { Text("No step evidence was recorded.").foregroundColor(palette.textDim) }
+                                    }
                                     ForEach(Array(run.results.enumerated()), id: \.offset) { _, result in
-                                        Text("\(result.passed ? "Passed" : "Failed"): \(result.detail) · Build: \(result.build)")
+                                        Text("\(result.interrupted == true ? "Interrupted" : (result.passed ? "Passed" : "Failed")): \(result.detail) · Plan: \(result.plan.goal) · Build: \(result.build)")
                                             .textSelection(.enabled)
+                                        if let progress = result.progress { progressDetails(progress) }
                                         if let scenario = result.scenarioID, let id = result.qaRunID {
                                             if session.deletedQARuns.contains(id) { Text("QA run details deleted").foregroundColor(palette.orange) }
                                             else { Button("Open QA result") { session.openQAResult(scenarioID: scenario, runID: id) } }
+                                        }
+                                    }
+                                    if (run.status == .paused || run.status == .stopped), run.steps.contains(where: { $0.status == .interrupted }) {
+                                        Button("Choose how to continue") { session.prepareRecovery(run) }
+                                            .disabled(session.loadingRecovery || session.execution?.isActive == true)
+                                        if let pending = run.pendingRevision {
+                                            Text("An approved change was pending when last saved and may already have been applied: \(pending.plan.goal)").foregroundColor(palette.orange)
+                                            Button("Review the pending plan") { session.prepareRecovery(run, usePending: true) }
+                                                .disabled(session.loadingRecovery || session.execution?.isActive == true)
                                         }
                                     }
                                 }
@@ -35,7 +54,27 @@ struct CockpitView: View {
                         }.frame(maxWidth: .infinity, alignment: .leading).padding(6)
                     }
                 }
+                if !session.savedQAResults.isEmpty {
+                    GroupBox("Retained QA evidence") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(session.savedQAResults) { item in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("\(item.result.outcome) · Plan: \(item.result.plan.goal) · Build: \(item.result.build)").textSelection(.enabled)
+                                    if item.detailsDeleted { Text("QA run details deleted").foregroundColor(palette.orange) }
+                                    else if let scenario = item.result.scenarioID, let id = item.result.qaRunID {
+                                        Button("Open QA result") { session.openQAResult(scenarioID: scenario, runID: id) }
+                                    }
+                                }
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(6)
+                    }
+                }
                 Text("Goal").uiFont(size: 12, weight: .semibold)
+                if session.recoveryRun != nil {
+                    Text("Choose a step to continue. Retrying an interrupted step may repeat partial actions; separately detached background processes may still be running.")
+                        .foregroundColor(palette.orange)
+                    Button("Cancel continuation") { session.cancelRecovery(); startingStep = 0 }
+                }
                 DictationInput(text: $session.goal, isFocused: { goalFocused }) { voice in
                     VStack(alignment: .leading) {
                         TextEditor(text: $session.goal).focused($goalFocused).frame(height: 90)
@@ -73,7 +112,34 @@ struct CockpitView: View {
                     }
                     if let state = execution.state {
                         Text("Execution: \(state.status)")
+                        if state.status == "finished", let running = session.runningPlan {
+                            switch CockpitOutcome.evaluate(criteria: running.successCriteria, progress: state.results.last?.result.progress) {
+                            case .success: Text("Outcome: success against the stated criteria")
+                            case .blocked: Text("Outcome: remaining blockers").foregroundColor(palette.orange)
+                            case .unverified: Text("Outcome: finished, but success criteria lack complete evidence").foregroundColor(palette.orange)
+                            }
+                        }
+                        if let progress = session.currentProgress { progressDetails(progress) }
+                        if let running = session.runningPlan, running.steps.indices.contains(state.current) {
+                            Text("Current step: \(running.steps[state.current].title)")
+                        }
+                        if let running = session.runningPlan, running.id != session.plan?.id {
+                            GroupBox("Active flow") {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    ForEach(Array(running.steps.enumerated()), id: \.element.id) { index, step in
+                                        let result = state.results.last { $0.stepID == step.id.uuidString }
+                                        Text("\(index + 1). \(step.title) — \(result.map { $0.result.passed ? "Passed" : "Failed" } ?? execution.stepStatus(step.id) ?? "waiting")")
+                                    }
+                                }.frame(maxWidth: .infinity, alignment: .leading).padding(6)
+                            }
+                        }
+                        if let pending = session.pendingPlan {
+                            let fingerprint = try? CockpitTemporalPlan(pending).fingerprint
+                            Text(fingerprint == state.pendingFingerprint ? "Approved changes will apply after the current step." : "Waiting for the coordinator to confirm the approved changes.")
+                                .foregroundColor(palette.orange)
+                        }
                         if !state.reason.isEmpty { Text(state.reason).foregroundColor(palette.orange) }
+                        if state.status == "interrupted" { Text("Stop this coordinator before choosing how to continue.").foregroundColor(palette.orange) }
                         ForEach(Array(state.results.enumerated()), id: \.offset) { _, entry in
                             let title = session.runningPlan?.steps.first(where: { $0.id.uuidString == entry.stepID })?.title ?? entry.stepID
                             Text("\(title): \(entry.result.detail) · Build: \(entry.result.build)").textSelection(.enabled)
@@ -97,7 +163,7 @@ struct CockpitView: View {
                         Text("Selected scenarios").uiFont(size: 12, weight: .semibold)
                         ForEach(plan.scenarios, id: \.self) { id in
                             if let scenario = session.qaScenarios.first(where: { $0.id == id }) {
-                                if plan.steps.dropFirst(startingStep).contains(where: { $0.qaScenarioID == id }) {
+                                if plan.steps.dropFirst(max(0, startingStep)).contains(where: { $0.qaScenarioID == id }) {
                                     Picker(scenario.title, selection: Binding(
                                         get: { session.qaTargets[id] ?? (scenario.targets.count == 1 ? scenario.targets[0].id : "") },
                                         set: { session.qaTargets[id] = $0 })) {
@@ -119,7 +185,7 @@ struct CockpitView: View {
                                     }.frame(maxWidth: .infinity, alignment: .leading).padding(6)
                                 }
                             }
-                        } else if plan.steps.dropFirst(startingStep).contains(where: { $0.qaScenarioID != nil }) {
+                        } else if plan.steps.dropFirst(max(0, startingStep)).contains(where: { $0.qaScenarioID != nil }) {
                             Text("Choose a valid environment and resolve any blocking QA problems before approval.")
                                 .foregroundColor(palette.orange)
                         }
@@ -131,7 +197,7 @@ struct CockpitView: View {
                                     Text("\(index + 1). \(step.title) · \(step.agent)").uiFont(size: 12, weight: .semibold)
                                     if session.runningPlan?.id == plan.id, let state = session.execution?.state {
                                         let result = state.results.last { $0.stepID == step.id.uuidString }
-                                        Text(result.map { $0.result.passed ? "Passed" : "Failed" } ?? (state.current == index ? state.status : "Waiting"))
+                                        Text(result.map { $0.result.passed ? "Passed" : "Failed" } ?? session.execution?.stepStatus(step.id) ?? "waiting")
                                             .foregroundColor(palette.textDim)
                                     }
                                     Text(step.assignment).textSelection(.enabled)
@@ -163,6 +229,7 @@ struct CockpitView: View {
                         .disabled(session.busy || session.refinement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     if !plan.steps.isEmpty {
                         Picker("Start from", selection: $startingStep) {
+                            if session.recoveryRun != nil { Text("Choose a step").tag(-1) }
                             ForEach(Array(plan.steps.enumerated()), id: \.element.id) { index, step in
                                 Text("\(index + 1). \(step.title)").tag(index)
                             }
@@ -171,28 +238,56 @@ struct CockpitView: View {
                            prepared.qaReviews?.contains(where: \.productionConfirmationRequired) == true {
                             Toggle("I confirm production QA and that the listed data-changing actions will run in production", isOn: $productionConfirmed)
                         }
-                        Button("Review and approve execution") { reviewedPlan = try? session.preparedPlan(startingAt: startingStep); approving = reviewedPlan != nil }
-                            .disabled((try? session.preparedPlan(startingAt: startingStep)).flatMap { CockpitApproval(plan: $0, productionConfirmed: productionConfirmed) } == nil || session.busy || session.startingExecution || session.execution?.isActive == true || !plan.steps.indices.contains(startingStep))
+                        let active = session.execution?.isActive == true
+                        let mayRevise = active && ["running", "paused"].contains(session.execution?.state?.status ?? "") && session.runningPlan != (try? session.preparedPlan(startingAt: startingStep))
+                        Button(mayRevise ? "Review and approve changes" : (session.recoveryRun != nil ? "Review and continue" : "Review and approve execution")) {
+                            reviewedPlan = try? session.preparedPlan(startingAt: startingStep)
+                            reviewedStep = startingStep
+                            reviewedProduction = productionConfirmed
+                            reviewingRevision = mayRevise
+                            reviewingRecovery = session.recoveryRun != nil
+                            approving = reviewedPlan != nil
+                        }
+                        .disabled((try? session.preparedPlan(startingAt: startingStep)).flatMap { CockpitApproval(plan: $0, productionConfirmed: productionConfirmed) } == nil || session.busy || session.startingExecution || session.revisingExecution || (active && !mayRevise) || !plan.steps.indices.contains(startingStep) || (session.pendingPlan != nil && session.pendingPlan != (try? session.preparedPlan(startingAt: startingStep))))
                     }
                 }
             }.padding(20).frame(maxWidth: 900, alignment: .leading)
         }
-        .onChange(of: session.goal) { _ in session.invalidatePlan() }
+        .onChange(of: session.goal) { value in if session.plan?.goal != value { session.invalidatePlan() } }
         .onAppear { session.loadRuns() }
-        .onChange(of: session.controls) { _ in session.invalidatePlan() }
+        .onChange(of: session.controls) { value in if session.plan?.controls != value { session.invalidatePlan() } }
+        .onChange(of: session.recoveryRun?.id) { id in if id != nil { startingStep = -1 } }
         .onChange(of: session.qaTargets) { _ in productionConfirmed = false }
         .onChange(of: startingStep) { _ in productionConfirmed = false }
         .onChange(of: session.plan) { _ in productionConfirmed = false }
-        .alert("Approve this plan?", isPresented: $approving) {
-            Button("Approve and start") {
-                if let reviewedPlan, (try? session.preparedPlan(startingAt: startingStep)) == reviewedPlan {
-                    session.start(at: startingStep, reviewed: reviewedPlan, productionConfirmed: productionConfirmed)
+        .alert(reviewingRevision ? "Approve these changes?" : "Approve this plan?", isPresented: $approving) {
+            Button(reviewingRevision ? "Approve changes" : "Approve and start") {
+                if let reviewedPlan, (try? session.preparedPlan(startingAt: reviewedStep)) == reviewedPlan {
+                    if reviewingRevision { session.applyRevision(at: reviewedStep, reviewed: reviewedPlan, productionConfirmed: reviewedProduction) }
+                    else { session.start(at: reviewedStep, reviewed: reviewedPlan, productionConfirmed: reviewedProduction) }
                 }
                 reviewedPlan = nil
             }
             Button("Cancel", role: .cancel) { reviewedPlan = nil }
         } message: {
-            Text("The selected step and all following steps may run with your full permissions. Controls are advisory. Detached background processes may continue after a pause or after MarkView closes.")
+            Text(reviewingRecovery ? "Your chosen step and all following steps may run with your full permissions. Repeating a step may repeat partial actions, and detached background processes may still be running." : "The selected step and all following steps may run with your full permissions. Controls are advisory. Detached background processes may continue after a pause or after MarkView closes.")
         }
+    }
+
+    @ViewBuilder private func progressDetails(_ progress: CockpitProgress) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Pass \(progress.passNumber) · \(progress.activity)")
+            if !progress.scenarioCoverage.isEmpty { Text("Scenario coverage: " + progress.scenarioCoverage.joined(separator: ", ")) }
+            if !progress.latestChange.isEmpty { Text("Latest change: " + progress.latestChange) }
+            if !progress.fixes.isEmpty { Text("Confirmed fixes: " + progress.fixes.joined(separator: ", ")) }
+            if !progress.blockers.isEmpty { Text("Blockers: " + progress.blockers.joined(separator: ", ")).foregroundColor(palette.orange) }
+            ForEach(Array((progress.criteriaResults ?? []).enumerated()), id: \.offset) { _, result in
+                Text("\(result.met ? "Met" : "Unmet"): \(result.criterion) — \(result.evidence)")
+            }
+            ForEach(Array(progress.bugs.enumerated()), id: \.offset) { _, bug in
+                Button("Open \(bug)") { session.openBug(bug) }
+            }
+            if let path = progress.buildLogPath, !path.isEmpty { Button("Open build log") { session.openBuildLog(path) } }
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }

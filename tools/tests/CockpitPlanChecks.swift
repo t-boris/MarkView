@@ -10,6 +10,7 @@ var plan = CockpitPlan(goal: "Inspect", controls: CockpitControls(), scenarios: 
 var scenarioPlan = plan
 scenarioPlan.scenarios = ["scenario"]
 scenarioPlan.steps[0].qaScenarioID = "scenario"
+scenarioPlan.steps.append(CockpitStep(title: "Verify", agent: "Codex", assignment: "Review evidence", completionCondition: "Criteria assessed"))
 check(CockpitApproval(plan: scenarioPlan, productionConfirmed: true) == nil, "a selected scenario requires its exact QA review")
 let reviewed = CockpitQAReview(scenarioID: "scenario", targetID: "prod", fingerprint: "hash", production: true, exactPlan: "exact", dataChangingActions: ["write"])
 scenarioPlan.qaReviews = [reviewed]
@@ -19,6 +20,12 @@ let scenarioApproval = CockpitApproval(plan: scenarioPlan, productionConfirmed: 
 check(scenarioApproval != nil, "the exact production QA plan can be approved")
 scenarioPlan.qaReviews?[0].fingerprint = "changed"
 check(scenarioApproval?.permits(scenarioPlan) == false, "a changed QA fingerprint invalidates cockpit approval")
+var progress = CockpitProgress(passNumber: 1, activity: "Done", scenarioCoverage: [], bugs: [], fixes: [], latestChange: "", blockers: [], buildLogPath: nil)
+check(CockpitOutcome.evaluate(criteria: ["Report provided"], progress: progress) == .unverified, "a finished run is not called successful without criterion evidence")
+progress.criteriaResults = [CockpitCriterionResult(criterion: "Report provided", met: true, evidence: "Report exists")]
+check(CockpitOutcome.evaluate(criteria: ["Report provided"], progress: progress) == .success, "matching evidence supports success")
+progress.blockers = ["Unresolved issue"]
+check(CockpitOutcome.evaluate(criteria: ["Report provided"], progress: progress) == .blocked, "remaining blockers prevent a success outcome")
 var skipQA = scenarioPlan
 skipQA.steps.append(CockpitStep(title: "Later", agent: "Codex", assignment: "Continue", completionCondition: "Done"))
 let later = skipQA.selectingStart(1)

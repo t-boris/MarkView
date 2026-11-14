@@ -7,10 +7,13 @@ final class CockpitQAAttempt {
     private let root: URL
     private let plan: CockpitPlan
     private let productionConfirmed: Bool
+    private let onProgress: (String, [String], [String]) async throws -> Void
     private var activeQAID: String?
 
-    init(workspace: WorkspaceManager, root: URL, plan: CockpitPlan, productionConfirmed: Bool) {
+    init(workspace: WorkspaceManager, root: URL, plan: CockpitPlan, productionConfirmed: Bool,
+         onProgress: @escaping (String, [String], [String]) async throws -> Void = { _, _, _ in }) {
         self.workspace = workspace; self.root = root; self.plan = plan; self.productionConfirmed = productionConfirmed
+        self.onProgress = onProgress
     }
 
     func run(scenarioID: String, previous: CockpitHostReply) async -> CockpitHostReply {
@@ -55,18 +58,32 @@ final class CockpitQAAttempt {
             activeQAID = qa.run.activeRunID
             workspace.openQA()
             return try await withTaskCancellationHandler {
+                var previousActivity = "", previousCoverage: [String] = [], previousBlockers: [String] = []
+                var finalProgress = previous.result.progress ?? CockpitProgress(passNumber: 1, activity: "", scenarioCoverage: [], bugs: [], fixes: [], latestChange: "", blockers: [], buildLogPath: nil)
                 while qa.run.isRunning {
                     try Task.checkCancellation()
+                    let activity = "QA \(scenarioID): " + (qa.run.currentNode ?? qa.run.currentBranch ?? "preparing")
+                    let coverage = qa.run.results.map { "\(scenarioID)/\($0.branch): \($0.verdict.outcome.rawValue)" }
+                    let blockers = qa.run.question.map { ["Waiting for confirmation: " + $0.title] } ?? []
+                    if activity != previousActivity || coverage != previousCoverage || blockers != previousBlockers {
+                        try await self.onProgress(activity, coverage, blockers)
+                        finalProgress.activity = activity; finalProgress.scenarioCoverage = coverage; finalProgress.blockers = blockers
+                        previousActivity = activity; previousCoverage = coverage; previousBlockers = blockers
+                    }
                     try await Task.sleep(nanoseconds: 200_000_000)
                 }
                 try Task.checkCancellation()
                 guard let record = qa.run.record else { return failure("QA ended without a saved result.") }
                 let passed = !record.lines.isEmpty && record.lines.allSatisfy { $0.outcome == .passed }
+                finalProgress.activity = "QA \(scenarioID) finished"
+                finalProgress.scenarioCoverage = record.lines.map { "\(scenarioID)/\($0.branch): \($0.outcome?.rawValue ?? "uncovered")" }
+                finalProgress.blockers += record.lines.filter { $0.outcome != .passed }.map { "\($0.branch): \($0.reason ?? "not passed")" }
+                try await self.onProgress(finalProgress.activity, finalProgress.scenarioCoverage, finalProgress.blockers)
                 let summary = "QA \(scenarioID), run \(record.id): \(record.lines.map { "\($0.branch): \($0.outcome?.rawValue ?? "uncovered")" }.joined(separator: "; "))"
-                let result = CockpitResult(plan: plan, build: previous.result.build, outcome: summary, qaRunID: record.id)
+                let result = CockpitResult(plan: plan, build: previous.result.build, outcome: summary, qaRunID: record.id, scenarioID: scenarioID)
                 try await Task.detached { try CockpitResults.save(result, root: self.root) }.value
                 return CockpitHostReply(result: CockpitHostResult(passed: passed, detail: previous.result.detail + "\n" + summary, build: previous.result.build,
-                                                                 scenarioID: scenarioID, qaRunID: record.id), error: "")
+                                                                 scenarioID: scenarioID, qaRunID: record.id, progress: finalProgress), error: "")
             } onCancel: {
                 Task { @MainActor [weak self] in
                     if let id = self?.activeQAID, qa.run.activeRunID == id { qa.run.stop() }
@@ -76,6 +93,7 @@ final class CockpitQAAttempt {
             if let id = activeQAID, qa.run.activeRunID == id { qa.run.stop() }
             return failure("QA was interrupted; review its known results before continuing.")
         } catch {
+            if let id = activeQAID, qa.run.activeRunID == id { qa.run.stop() }
             return failure("QA could not complete or its evidence could not be saved: \(error.localizedDescription)")
         }
     }

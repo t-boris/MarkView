@@ -431,6 +431,8 @@ func cockpitChecks() async throws {
     let plan = CockpitPlan(goal: "Check", controls: CockpitControls(), scenarios: [], steps: [step], successCriteria: ["Pass"], unavailableOutcomes: [], alternatives: [], productionQA: nil)
     let result = CockpitResult(plan: plan, build: "build-1", outcome: "passed", qaRunID: runName(1))
     try CockpitResults.save(result, root: root)
+    let listedBefore = try CockpitResults.loadAll(root: root)
+    check("cockpit: linked evidence is listed while details exist", listedBefore.first?.detailsDeleted == false)
     let filer = QABugFiler(sink: KeysSink([]))
     await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: filer)
     check("cockpit: automatic cleanup retains a linked old run", exists(QAStore.runURL(root, runID: runName(1))))
@@ -440,6 +442,8 @@ func cockpitChecks() async throws {
     let savedURL = root.appendingPathComponent(".dde/cockpit/results/\(result.id.uuidString).json")
     let retained = try JSONDecoder().decode(CockpitResult.self, from: Data(contentsOf: savedURL))
     check("cockpit: manual deletion keeps the plan, build and outcome while details are gone", deleted.deleted == 1 && retained == result && !exists(QAStore.runURL(root, runID: runName(1))))
+    let shown = try CockpitResults.loadAll(root: root).first
+    check("cockpit: listed evidence indicates deletion and retains plan, build and outcome", shown?.detailsDeleted == true && shown?.result.plan == plan && shown?.result.build == "build-1" && shown?.result.outcome == "passed")
 
     let beforeLink = await QARunCleanup.plan(deleting: [runName(5)], root: root, filer: filer)
     try CockpitResults.save(CockpitResult(plan: plan, build: "build-2", outcome: "passed", qaRunID: runName(5)), root: root)

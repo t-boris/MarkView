@@ -484,7 +484,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     }
 
     /// End the shell and everything started in it.
-    @discardableResult func terminate() -> Task<Void, Never>? {
+    @discardableResult func terminate(beforeReap: (@Sendable () async -> Void)? = nil) -> Task<Void, Never>? {
         let notifyCockpit = onCockpitTermination
         onCockpitTermination = nil
         notifyCockpit?()
@@ -495,7 +495,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         exitSource?.cancel(); exitSource = nil
         input?.cancel(); input = nil
         if masterFD >= 0 { close(masterFD); masterFD = -1 }
-        let reaping = stoppedPID > 0 ? TerminalChildProcess.stopAndReap(stoppedPID) : nil
+        let reaping = stoppedPID > 0 ? TerminalChildProcess.stopAndReap(stoppedPID, beforeReap: beforeReap) : nil
         isRunning = false
         exitCode = 130
         if pageReady { webView.evaluateJavaScript("window.mvExited && window.mvExited(130)") }
@@ -504,12 +504,20 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
 
     /// A cockpit step has finished or was interrupted. Stop its foreground job before the
     /// coordinator advances; the shell itself is reaped by the normal terminal shutdown.
-    @discardableResult func terminateCockpitStep() -> Task<Void, Never>? {
+    @discardableResult func terminateCockpitStep(beforeReap: (@Sendable () async -> Void)? = nil) -> Task<Void, Never>? {
         if masterFD >= 0 {
             let foreground = tcgetpgrp(masterFD)
             if foreground > 0 { _ = kill(-foreground, SIGKILL) }
         }
-        return terminate()
+        // App termination cannot wait for a later escalation task; kill the shell's group now too.
+        if childPID > 0 { _ = kill(-childPID, SIGKILL); _ = kill(childPID, SIGKILL) }
+        return terminate(beforeReap: beforeReap)
+    }
+
+    func duplicateCockpitPTY() -> (descriptor: Int32, shell: pid_t)? {
+        guard masterFD >= 0, childPID > 0 else { return nil }
+        let descriptor = dup(masterFD)
+        return descriptor >= 0 ? (descriptor, childPID) : nil
     }
 
     // MARK: - Input and output

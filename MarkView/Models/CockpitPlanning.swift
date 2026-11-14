@@ -19,6 +19,7 @@ enum CockpitPlanning {
     a first step may check it. Use a prerequisite step only for a check whose failure must pause later steps.
     Return a complete plan, not a patch, including after a refinement. Do not execute the plan or modify project files during planning.
     For an existing QA scenario, use its supplied id in scenarios and in qaScenarioID on at least one step; use an empty string for non-QA steps.
+    After all QA steps, include a final non-QA verification step that evaluates every success criterion using the prior results.
     Do not claim that an unknown or not-yet-created QA scenario can run without a later review of its exact plan.
     """
 
@@ -51,6 +52,9 @@ enum CockpitPlanning {
         }
         guard Set(steps.compactMap(\.qaScenarioID)) == Set(scenarios), Set(scenarios).count == scenarios.count else {
             throw ParseError.invalid(["Each selected QA scenario must be assigned to a step."])
+        }
+        guard scenarios.isEmpty || steps.last?.qaScenarioID == nil else {
+            throw ParseError.invalid(["QA must be followed by a final verification step."])
         }
         let plan = CockpitPlan(goal: goal, controls: controls, scenarios: scenarios, steps: steps, successCriteria: criteria,
                                unavailableOutcomes: unavailable, alternatives: alternatives, productionQA: nil)

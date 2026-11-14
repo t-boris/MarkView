@@ -41,6 +41,18 @@ enum ProjectAgentTools {
     }
 
     static let tools: [BrowserAgentTools.Tool] = [
+        tool("markview_cockpit_report_progress", "Report live progress for the Cockpit step identified by its ticket. Do not invent coverage, fixes or evidence.",
+             ["ticket": ["type": "string", "description": "Ticket supplied with the assignment"],
+              "passNumber": ["type": "integer", "description": "Current pass number, starting at 1"],
+              "activity": ["type": "string", "description": "Current activity"],
+              "scenarioCoverage": ["type": "array", "items": ["type": "string"], "description": "Scenario coverage known so far"],
+              "bugs": ["type": "array", "items": ["type": "string"], "description": "MarkView bug ids"],
+              "fixes": ["type": "array", "items": ["type": "string"], "description": "Confirmed fixes"],
+              "latestChange": ["type": "string", "description": "Latest change"],
+              "blockers": ["type": "array", "items": ["type": "string"], "description": "Current blockers"],
+              "criteriaResults": ["type": "array", "items": ["type": "object", "properties": ["criterion": ["type": "string"], "met": ["type": "boolean"], "evidence": ["type": "string"]], "required": ["criterion", "met", "evidence"]], "description": "Evidence for each stated success criterion"],
+              "buildLogPath": ["type": "string", "description": "Project-relative path of the build log, if known"]],
+             required: ["ticket", "passNumber"]),
         tool("markview_cockpit_complete_step", "Report the outcome of the specific Cockpit assignment that supplied this one-use ticket. Call once after finishing the assigned work; this ends the agent session.",
              ["ticket": ["type": "string", "description": "One-use ticket supplied with the assignment"],
               "passed": ["type": "boolean", "description": "Whether the assigned completion condition was met"],

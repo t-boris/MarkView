@@ -786,7 +786,7 @@ do {
     // Production
     let production = plan(all, "prod")
     let cockpitReview = try! CockpitQAReviewBuilder.make(scenario: all, targetID: "prod", savedLogins: [buyer, localBuyer])
-    check("cockpit QA: review binds the exact scenario, target and production actions", cockpitReview.fingerprint == production.fingerprint && cockpitReview.production && cockpitReview.exactPlan.contains("\"targetID\" : \"prod\"") && cockpitReview.dataChangingActions.count == production.confirmations.count)
+    check("cockpit QA: review binds the exact scenario, target and production actions", cockpitReview.fingerprint == production.fingerprint && cockpitReview.production && cockpitReview.productionConfirmationRequired && cockpitReview.exactPlan.contains("\"targetID\" : \"prod\"") && cockpitReview.dataChangingActions.count == production.confirmations.count)
     let changedQA = changed(all) { $0.nodes[0].title += " changed"; $0.nodes[0].detail += " changed" }
     let changedReview = try! CockpitQAReviewBuilder.make(scenario: changedQA, targetID: "prod", savedLogins: [buyer, localBuyer])
     check("cockpit QA: changing executable work changes the reviewed fingerprint", cockpitReview.fingerprint != changedReview.fingerprint)

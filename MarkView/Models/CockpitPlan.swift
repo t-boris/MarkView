@@ -1,5 +1,35 @@
 import Foundation
 
+struct CockpitCriterionResult: Codable, Equatable, Sendable {
+    var criterion: String
+    var met: Bool
+    var evidence: String
+}
+struct CockpitProgress: Codable, Equatable, Sendable {
+    var passNumber: Int
+    var activity: String
+    var scenarioCoverage: [String]
+    var bugs: [String]
+    var fixes: [String]
+    var latestChange: String
+    var blockers: [String]
+    var buildLogPath: String?
+    var criteriaResults: [CockpitCriterionResult]? = nil
+}
+
+enum CockpitOutcome: Equatable {
+    case success, blocked, unverified
+
+    static func evaluate(criteria: [String], progress: CockpitProgress?) -> CockpitOutcome {
+        guard let progress else { return .unverified }
+        if !progress.blockers.isEmpty || progress.criteriaResults?.contains(where: { !$0.met }) == true { return .blocked }
+        guard let results = progress.criteriaResults, !criteria.isEmpty, results.count == criteria.count,
+              Set(results.map(\.criterion)) == Set(criteria), Set(criteria).count == criteria.count,
+              results.allSatisfy({ $0.met && !$0.evidence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { return .unverified }
+        return .success
+    }
+}
+
 // The reviewed plan is a value: approval is tied to its complete contents, including a production QA plan.
 struct CockpitControls: Codable, Equatable {
     var createScenarios = false
@@ -88,6 +118,7 @@ struct CockpitApproval: Codable, Equatable {
     init?(plan: CockpitPlan, productionConfirmed: Bool) {
         guard plan.problems.isEmpty else { return nil }
         guard Set(plan.steps.compactMap(\.qaScenarioID)) == Set(plan.scenarios) else { return nil }
+        guard plan.scenarios.isEmpty || plan.steps.last?.qaScenarioID == nil else { return nil }
         if plan.scenarios.isEmpty, plan.qaReviews?.isEmpty == false { return nil }
         if !plan.scenarios.isEmpty {
             guard let reviews = plan.qaReviews, reviews.count == plan.scenarios.count,

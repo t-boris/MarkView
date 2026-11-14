@@ -2,8 +2,8 @@ import Foundation
 import Darwin
 
 struct CockpitHostStep: Codable, Sendable { var id: String; var title: String = ""; var agent: String; var assignment: String; var completionCondition: String = ""; var prerequisite: Bool; var qaScenarioID: String? = nil }
-struct CockpitHostResult: Codable, Sendable { var passed: Bool; var detail: String; var build: String; var scenarioID: String? = nil; var qaRunID: String? = nil }
-struct CockpitHostEntry: Codable, Sendable { var stepID: String; var result: CockpitHostResult }
+struct CockpitHostResult: Codable, Sendable { var passed: Bool; var detail: String; var build: String; var scenarioID: String? = nil; var qaRunID: String? = nil; var progress: CockpitProgress? = nil; var interrupted: Bool? = nil }
+struct CockpitHostEntry: Codable, Sendable { var stepID: String; var result: CockpitHostResult; var planFingerprint: String? = nil }
 struct CockpitHostTask: Codable, Sendable {
     var step: CockpitHostStep
     var planFingerprint: String
@@ -11,6 +11,7 @@ struct CockpitHostTask: Codable, Sendable {
     var controls: String
     var successCriteria: [String]
     var priorResults: [CockpitHostEntry]
+    var isFinalStep: Bool? = nil
 }
 struct CockpitHostReply: Codable, Sendable { var result: CockpitHostResult; var error: String }
 

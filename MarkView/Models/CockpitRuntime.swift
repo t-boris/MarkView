@@ -11,8 +11,9 @@ struct CockpitTemporalPlan: Codable {
     var controls: String
     var successCriteria: [String]
     var steps: [CockpitTemporalStep]
+    var initialResults: [CockpitHostEntry]
 
-    init(_ plan: CockpitPlan) throws {
+    init(_ plan: CockpitPlan, prior: [CockpitRun.StepResult] = []) throws {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(plan)
         fingerprint = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -20,9 +21,16 @@ struct CockpitTemporalPlan: Codable {
         controls = String(decoding: try encoder.encode(plan.controls), as: UTF8.self)
         successCriteria = plan.successCriteria
         steps = plan.steps.map { CockpitTemporalStep(id: $0.id.uuidString, title: $0.title, agent: $0.agent, assignment: $0.assignment, completionCondition: $0.completionCondition, prerequisite: $0.isPrerequisite, qaScenarioID: $0.qaScenarioID) }
+        initialResults = try prior.map { result in
+            let oldFingerprint = try CockpitTemporalPlan(result.plan).fingerprint
+            return CockpitHostEntry(stepID: result.stepID.uuidString,
+                result: CockpitHostResult(passed: result.passed, detail: result.detail, build: result.build, scenarioID: result.scenarioID,
+                                          qaRunID: result.qaRunID, progress: result.progress, interrupted: result.interrupted), planFingerprint: oldFingerprint)
+        }
     }
 }
 struct CockpitTemporalApproval: Codable { var fingerprint: String; var step: Int }
+struct CockpitTemporalRevision: Codable { var expectedFingerprint: String; var plan: CockpitTemporalPlan; var step: Int }
 struct CockpitTemporalRequest: Codable {
     var address: String
     var queue: String
@@ -32,6 +40,7 @@ struct CockpitTemporalRequest: Codable {
     var approval: CockpitTemporalApproval?
     var command: String?
     var tls: CockpitTLSFiles
+    var revision: CockpitTemporalRevision? = nil
 }
 
 /// One service per project within this app process. Windows use their own workers and private host sockets.
@@ -111,6 +120,14 @@ final class CockpitService {
             "--address", endpoint.address, "--queue", queue, "--socket", socket,
             "--ca", endpoint.tls.ca, "--cert", endpoint.tls.cert, "--key", endpoint.tls.key
         ])
+        guard let ready = try? JSONDecoder().decode([String: Bool].self, from: data), ready["ready"] == true else { child.stop(); throw Failure.invalidResponse }
+        return child
+    }
+
+    func watchdog(ptyDescriptor: Int32, shell: pid_t, onExit: @escaping @Sendable () -> Void) async throws -> CockpitChild {
+        guard let bundled else { close(ptyDescriptor); onExit(); throw Failure.missingRuntime }
+        let (child, data) = try await CockpitChild.launch(executable: bundled.appendingPathComponent("bin/terminal-watchdog"),
+                                                         arguments: ["--shell-pid", String(shell)], ptyDescriptor: ptyDescriptor, onExit: onExit)
         guard let ready = try? JSONDecoder().decode([String: Bool].self, from: data), ready["ready"] == true else { child.stop(); throw Failure.invalidResponse }
         return child
     }

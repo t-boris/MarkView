@@ -11,8 +11,14 @@ final class CockpitSession: ObservableObject {
     @Published private(set) var busy = false
     @Published private(set) var error: String?
     @Published private(set) var savedRuns: [CockpitRun] = []
+    @Published private(set) var savedQAResults: [CockpitLinkedResult] = []
     @Published private(set) var execution: CockpitExecution?
     @Published private(set) var runningPlan: CockpitPlan?
+    @Published private(set) var pendingPlan: CockpitPlan?
+    @Published private(set) var revisingExecution = false
+    @Published private(set) var currentProgress: CockpitProgress?
+    @Published private(set) var recoveryRun: CockpitRun?
+    @Published private(set) var loadingRecovery = false
     @Published private(set) var qaScenarios: [QAScenario] = []
     @Published private(set) var deletedQARuns: Set<String> = []
     @Published var qaTargets: [String: String] = [:]
@@ -22,6 +28,9 @@ final class CockpitSession: ObservableObject {
     private var executionChange: AnyCancellable?
     private var executionTask: Task<Void, Never>?
     private var loadedTerminalStatus: String?
+    private struct ReviewedExecution { var plan: CockpitPlan; var productionConfirmed: Bool }
+    private var reviewedExecutions: [String: ReviewedExecution] = [:]
+    private var reportingStep: (id: UUID, fingerprint: String)?
     private var task: Task<Void, Never>?
 
     init(root: URL, workspace: WorkspaceManager) { self.root = root; self.workspace = workspace; loadRuns() }
@@ -49,18 +58,32 @@ final class CockpitSession: ObservableObject {
               (try? preparedPlan(startingAt: index)) == reviewed,
               let approval = CockpitApproval(plan: reviewed, productionConfirmed: productionConfirmed), reviewed.steps.indices.contains(index) else { return }
         let plan = reviewed
-        let attempt = CockpitAgentAttempt(workspace: workspace, root: root)
-        let qa = CockpitQAAttempt(workspace: workspace, root: root, plan: plan, productionConfirmed: productionConfirmed)
-        let execution = CockpitExecution(root: root, service: .forProject(root)) { task in
-            let result = await attempt.run(task)
-            guard result.error.isEmpty, result.result.passed, let id = task.step.qaScenarioID, !id.isEmpty else { return result }
-            return await qa.run(scenarioID: id, previous: result)
+        let recovering = recoveryRun
+        let attempt = CockpitAgentAttempt(workspace: workspace, root: root) { [weak self] progress in
+            guard let self else { throw CancellationError() }
+            try await self.publishProgress(progress)
+        }
+        guard let fingerprint = try? CockpitTemporalPlan(plan).fingerprint else { return }
+        reviewedExecutions = [fingerprint: ReviewedExecution(plan: plan, productionConfirmed: productionConfirmed)]
+        pendingPlan = nil
+        let execution = CockpitExecution(root: root, service: .forProject(root)) { [weak self] task in
+            guard let self else { return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: "The cockpit was closed.") }
+            return await self.perform(task, attempt: attempt)
         }
         loadedTerminalStatus = nil
         executionChange = execution.objectWillChange.sink { [weak self, weak execution] _ in
             self?.objectWillChange.send()
             Task { @MainActor [weak self, weak execution] in
                 await Task.yield()
+                if let self, let fingerprint = execution?.state?.fingerprint,
+                   let reviewed = self.reviewedExecutions[fingerprint], self.runningPlan != reviewed.plan {
+                    self.runningPlan = reviewed.plan
+                    if self.pendingPlan == reviewed.plan { self.pendingPlan = nil }
+                }
+                if let self, let status = execution?.state?.status, ["finished", "stopped"].contains(status), self.pendingPlan != nil {
+                    self.error = "The run ended before the approved changes were applied."
+                    self.pendingPlan = nil
+                }
                 guard let self, let status = execution?.state?.status,
                       ["finished", "stopped", "interrupted"].contains(status), self.loadedTerminalStatus != status else { return }
                 self.loadedTerminalStatus = status
@@ -69,12 +92,63 @@ final class CockpitSession: ObservableObject {
         }
         self.execution = execution
         runningPlan = plan
+        currentProgress = CockpitProgress(passNumber: 1, activity: "Starting the selected step", scenarioCoverage: [], bugs: [], fixes: [], latestChange: "", blockers: [], buildLogPath: nil)
         startingExecution = true
         error = nil
         executionTask = Task { [weak self] in
-            do { try await execution.start(plan: plan, approval: approval, step: index) }
+            do {
+                try await execution.start(plan: plan, approval: approval, step: index, recovering: recovering)
+                self?.recoveryRun = nil
+            }
             catch { self?.error = error.localizedDescription }
             self?.startingExecution = false
+        }
+    }
+
+    private func perform(_ task: CockpitHostTask, attempt: CockpitAgentAttempt) async -> CockpitHostReply {
+        guard let reviewed = reviewedExecutions[task.planFingerprint], let workspace else {
+            return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: "The step's approved plan is unavailable.")
+        }
+        reportingStep = UUID(uuidString: task.step.id).map { ($0, task.planFingerprint) }
+        if var progress = currentProgress {
+            progress.activity = task.step.title
+            progress.blockers = []
+            progress.criteriaResults = nil
+            do { try await publishProgress(progress) }
+            catch { return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: "Progress could not be saved.") }
+        }
+        let result = await attempt.run(task)
+        guard result.error.isEmpty, result.result.passed, let id = task.step.qaScenarioID, !id.isEmpty else { return result }
+        let qa = CockpitQAAttempt(workspace: workspace, root: root, plan: reviewed.plan, productionConfirmed: reviewed.productionConfirmed) { [weak self] activity, coverage, blockers in
+            guard let self, var progress = self.currentProgress else { return }
+            progress.activity = activity
+            progress.scenarioCoverage = progress.scenarioCoverage.filter { !$0.hasPrefix(id + "/") } + coverage
+            progress.blockers = blockers
+            try await self.publishProgress(progress)
+        }
+        return await qa.run(scenarioID: id, previous: result)
+    }
+
+    private func publishProgress(_ progress: CockpitProgress) async throws {
+        currentProgress = progress
+        guard let step = reportingStep, let execution else { throw CockpitExecution.Failure.unavailable }
+        try await execution.saveProgress(progress, stepID: step.id, planFingerprint: step.fingerprint)
+    }
+
+    func applyRevision(at index: Int, reviewed: CockpitPlan, productionConfirmed: Bool) {
+        guard !revisingExecution, let execution, execution.isActive,
+              (try? preparedPlan(startingAt: index)) == reviewed,
+              let approval = CockpitApproval(plan: reviewed, productionConfirmed: productionConfirmed),
+              let fingerprint = try? CockpitTemporalPlan(reviewed).fingerprint,
+              pendingPlan == nil || pendingPlan == reviewed else { return }
+        reviewedExecutions[fingerprint] = ReviewedExecution(plan: reviewed, productionConfirmed: productionConfirmed)
+        pendingPlan = reviewed
+        revisingExecution = true
+        error = nil
+        Task { [weak self] in
+            do { try await execution.replan(reviewed, approval: approval, step: index) }
+            catch { self?.error = error.localizedDescription }
+            self?.revisingExecution = false
         }
     }
 
@@ -102,7 +176,12 @@ final class CockpitSession: ObservableObject {
         Task { [weak self] in
             do {
                 let runs = try await Task.detached { try CockpitRunStore.loadAll(root: root) }.value
+                let qaResults = await Task.detached { Result { try CockpitResults.loadAll(root: root) } }.value
                 guard let self else { return }
+                switch qaResults {
+                case .success(let results): self.savedQAResults = results
+                case .failure(let error): self.error = "Some QA evidence could not be loaded: \(error.localizedDescription)"
+                }
                 let activeID = self.execution?.isActive == true ? self.execution?.runID : nil
                 self.savedRuns = runs.filter { $0.id != activeID }
                 let ids = Set(runs.flatMap { $0.results.compactMap(\.qaRunID) })
@@ -116,6 +195,31 @@ final class CockpitSession: ObservableObject {
             catch { self?.error = "Saved cockpit runs could not be loaded: \(error.localizedDescription)" }
         }
     }
+
+    func prepareRecovery(_ run: CockpitRun, usePending: Bool = false) {
+        guard execution?.isActive != true, (run.status == .paused || run.status == .stopped), let index = run.currentIndex,
+              run.steps.indices.contains(index), run.steps[index].status == .interrupted else { return }
+        guard let selected = usePending ? run.pendingRevision?.plan : run.plan else { return }
+        loadingRecovery = true
+        let root = root
+        Task { [weak self] in
+            let listing = await Task.detached { QAStore.loadScenarios(root) }.value
+            let saved: [SavedLogin]
+            if selected.scenarios.isEmpty { saved = [] }
+            else { saved = await Task.detached { BrowserPasswordStore.shared.all() }.value }
+            guard let self else { return }
+            self.qaScenarios = listing.scenarios
+            self.qaLogins = Set(saved.map { QALoginReference(host: $0.host, username: $0.username) })
+            self.qaTargets = (selected.qaReviews ?? []).reduce(into: [:]) { $0[$1.scenarioID] = $1.targetID }
+            self.goal = selected.goal
+            self.controls = selected.controls
+            self.plan = selected
+            self.recoveryRun = run
+            self.loadingRecovery = false
+        }
+    }
+
+    func cancelRecovery() { recoveryRun = nil }
 
     func openQAResult(scenarioID: String, runID: String) {
         guard let workspace else { return }
@@ -137,6 +241,35 @@ final class CockpitSession: ObservableObject {
             }
             guard qa.archive.runs.contains(where: { $0.id == runID }) else { self?.error = "The linked QA run details were deleted or are unavailable."; return }
             qa.archive.open(runID)
+        }
+    }
+
+    func openBug(_ key: String) {
+        guard let workspace else { return }
+        if let bug = workspace.features.bugs.first(where: { $0.key == key }) { workspace.openFile(bug.url); return }
+        workspace.features.reload()
+        Task { [weak self, weak workspace] in
+            for _ in 0..<100 {
+                guard let workspace else { return }
+                if let bug = workspace.features.bugs.first(where: { $0.key == key }) { workspace.openFile(bug.url); return }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            self?.error = "The linked bug is no longer available: \(key)"
+        }
+    }
+
+    func openBuildLog(_ path: String) {
+        guard let workspace, !path.isEmpty else { return }
+        let root = root
+        Task { [weak self, weak workspace] in
+            let candidate = await Task.detached { () -> URL? in
+                let project = root.standardizedFileURL.resolvingSymlinksInPath()
+                let candidate = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : project.appendingPathComponent(path)).standardizedFileURL.resolvingSymlinksInPath()
+                guard candidate.path.hasPrefix(project.path + "/"), FileManager.default.fileExists(atPath: candidate.path) else { return nil }
+                return candidate
+            }.value
+            guard let candidate else { self?.error = "The linked build log is unavailable inside this project."; return }
+            workspace?.openFile(candidate)
         }
     }
 

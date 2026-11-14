@@ -1,4 +1,12 @@
 import Foundation
+import Darwin
+
+actor CockpitExitSignal {
+    private var done = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func finish() { guard !done else { return }; done = true; let waiting = waiters; waiters = []; waiting.forEach { $0.resume() } }
+    func wait() async { if done { return }; await withCheckedContinuation { waiters.append($0) } }
+}
 
 /// A long-lived bundled helper. File handles are drained off the main thread; stdin is the app-lifetime lease.
 final class CockpitChild: @unchecked Sendable {
@@ -23,32 +31,33 @@ final class CockpitChild: @unchecked Sendable {
     var isRunning: Bool { process.isRunning }
 
     static func launch(executable: URL, arguments: [String], timeout: TimeInterval = 120,
-                       onExit: @escaping @Sendable () -> Void = {}) async throws -> (CockpitChild, Data) {
+                       ptyDescriptor: Int32? = nil, onExit: @escaping @Sendable () -> Void = {}) async throws -> (CockpitChild, Data) {
         let child = CockpitChild()
         let ready = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
-                DispatchQueue.global(qos: .userInitiated).async { child.start(executable: executable, arguments: arguments, timeout: timeout, onExit: onExit, continuation: continuation) }
+                DispatchQueue.global(qos: .userInitiated).async { child.start(executable: executable, arguments: arguments, timeout: timeout, ptyDescriptor: ptyDescriptor, onExit: onExit, continuation: continuation) }
             }
         } onCancel: { child.stop() }
         return (child, ready)
     }
 
-    private func start(executable: URL, arguments: [String], timeout: TimeInterval, onExit: @escaping @Sendable () -> Void, continuation: CheckedContinuation<Data, Error>) {
+    private func start(executable: URL, arguments: [String], timeout: TimeInterval, ptyDescriptor: Int32?, onExit: @escaping @Sendable () -> Void, continuation: CheckedContinuation<Data, Error>) {
         lock.lock()
-        if stopped { lock.unlock(); onExit(); continuation.resume(throwing: CancellationError()); return }
+        if stopped { lock.unlock(); if let ptyDescriptor { close(ptyDescriptor) }; onExit(); continuation.resume(throwing: CancellationError()); return }
         self.continuation = continuation
         lock.unlock()
         process.executableURL = executable
         process.arguments = arguments
         process.standardInput = input
         process.standardOutput = output
-        process.standardError = errors
+        let pty = ptyDescriptor.map { FileHandle(fileDescriptor: $0, closeOnDealloc: true) }
+        if let pty { process.standardError = pty } else { process.standardError = errors }
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             if !data.isEmpty { self?.read(data) }
         }
         // Drain diagnostics without storing them: helper messages must not enter app logs.
-        errors.fileHandleForReading.readabilityHandler = { handle in _ = handle.availableData }
+        if pty == nil { errors.fileHandleForReading.readabilityHandler = { handle in _ = handle.availableData } }
         process.terminationHandler = { [weak self] process in
             onExit()
             AgentProcesses.remove(process)
@@ -58,9 +67,11 @@ final class CockpitChild: @unchecked Sendable {
         }
         do {
             try process.run()
+            try? pty?.close()
             AgentProcesses.add(process, stop: { [weak self] in self?.stop() })
             if !process.isRunning { AgentProcesses.remove(process) }
         } catch {
+            try? pty?.close()
             output.fileHandleForReading.readabilityHandler = nil
             errors.fileHandleForReading.readabilityHandler = nil
             onExit()
@@ -73,6 +84,14 @@ final class CockpitChild: @unchecked Sendable {
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + max(1, timeout)) { [weak self] in
             guard let self, self.finish(.failure(Failure.timeout)) else { return }
             self.stop()
+        }
+    }
+
+    func waitForExit() async {
+        while process.isRunning {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.05) { continuation.resume() }
+            }
         }
     }
 
