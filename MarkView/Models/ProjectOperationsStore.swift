@@ -741,10 +741,24 @@ final class ProjectOperationsStore: ObservableObject {
 private final class ProjectOperationNotificationRouter: NSObject, UNUserNotificationCenterDelegate {
     static let shared = ProjectOperationNotificationRouter()
 
+    /// A Cockpit notice is sent when the person is not looking at the run, which can include another window of this app.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler(notification.request.content.userInfo["cockpitRoot"] != nil ? [.banner, .sound] : [])
+    }
+
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
+        if info["cockpitRoot"] != nil {
+            Task { @MainActor in
+                NSApp.activate(ignoringOtherApps: true)
+                NotificationCenter.default.post(name: .cockpitNoticeOpened, object: nil, userInfo: info)
+                completionHandler()
+            }
+            return
+        }
         guard let root = info["projectOperationRoot"] as? String,
               let id = info["projectOperationID"] as? String else {
             completionHandler(); return

@@ -12,7 +12,7 @@ let rootRequired = Set(schema["required"] as? [String] ?? [])
 let properties = schema["properties"] as? [String: [String: Any]] ?? [:]
 let stepSchema = properties["steps"]?["items"] as? [String: Any] ?? [:]
 check(rootRequired == Set(["scenarios", "steps", "successCriteria", "unavailableOutcomes", "alternatives"]), "the schema requires every root field the parser reads")
-check(Set(stepSchema["required"] as? [String] ?? []) == Set(["title", "agent", "assignment", "completionCondition", "isPrerequisite", "qaScenarioID"]), "the schema requires every step field the parser reads")
+check(Set(stepSchema["required"] as? [String] ?? []) == Set(["title", "agent", "model", "assignment", "completionCondition", "isPrerequisite", "qaScenarioID"]), "the schema requires every step field the parser reads")
 let plan = try CockpitPlanning.parse(answer, goal: "Research", controls: controls, availableAgents: ["Codex"])
 check(plan.controls == controls && plan.steps.first?.isPrerequisite == true, "the person's controls and prerequisite survive parsing")
 check(plan.unavailableOutcomes == ["Delivery"] && plan.alternatives == ["Prepare an order"], "unavailable outcomes and alternatives survive parsing")
@@ -29,6 +29,19 @@ answer["successCriteria"] = []
 let infeasible = try CockpitPlanning.parse(answer, goal: "Research", controls: controls, availableAgents: ["Codex"])
 check(infeasible.unavailableOutcomes == ["Delivery"] && CockpitApproval(plan: infeasible, productionConfirmed: false) == nil,
       "an infeasible goal can be explained but cannot be approved for execution")
+var modelStep = step; modelStep["model"] = "gpt-5"
+answer["steps"] = [modelStep]
+answer["successCriteria"] = ["Report exists"]
+let known = try CockpitPlanning.parse(answer, goal: "Research", controls: controls, availableAgents: ["Codex"], models: ["Codex": ["gpt-5", "gpt-5-mini"]])
+check(known.steps.first?.model == "gpt-5", "a proposed model the agent offers is kept")
+let unknown = try CockpitPlanning.parse(answer, goal: "Research", controls: controls, availableAgents: ["Codex"], models: ["Codex": ["gpt-5-mini"]])
+check(unknown.steps.first?.model == nil, "a proposed model the agent does not offer becomes the default instead of failing the plan")
+let unlisted = try CockpitPlanning.parse(answer, goal: "Research", controls: controls, availableAgents: ["Codex"])
+check(unlisted.steps.first?.model == nil, "without a model list no proposed model is trusted")
+modelStep["model"] = "  "
+answer["steps"] = [modelStep]
+let blank = try CockpitPlanning.parse(answer, goal: "Research", controls: controls, availableAgents: ["Codex"], models: ["Codex": ["gpt-5"]])
+check(blank.steps.first?.model == nil, "a blank model means the default")
 answer["steps"] = [["title": "Missing fields"]]
 check((try? CockpitPlanning.parse(answer, goal: "Research", controls: controls, availableAgents: ["Codex"])) == nil, "malformed steps are rejected")
 print("All cockpit planning checks passed")

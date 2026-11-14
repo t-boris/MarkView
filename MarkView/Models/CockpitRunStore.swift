@@ -17,7 +17,8 @@ enum CockpitRunStore {
     static func load(_ id: UUID, root: URL) throws -> CockpitRun {
         var run = try JSONDecoder().decode(CockpitRun.self, from: Data(contentsOf: url(id, root: root)))
         guard run.id == id else { throw CocoaError(.fileReadCorruptFile) }
-        run.prepareAfterRestart()
+        // The interruption happened when the run was last seen alive, not when this file is read.
+        run.prepareAfterRestart(now: run.lastKnownActivity ?? Date())
         return run
     }
 
