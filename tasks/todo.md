@@ -2,11 +2,20 @@
 
 Boris, dictated: (1) the right-click menu of a tab gets "Close Documents": every document closes, the tool tabs (End-to-End QA, Workflow, Build & Deployment, Git, X-Ray, ...) stay; (2) with many tabs he cannot scroll them: small arrows at the left and the right of the tabs that move the strip. Plan: `~/.claude/plans/calm-whistling-eich.md`; branch `feat/tab-close-documents-scroll`, one PR, one release.
 
-- [ ] Model: `TabClosing.activeIndex` (pure, checked), `OpenTab.isDocument` (file, image, pdf, archive, data), `WorkspaceTabsStore.keepTabs(where:)`, `closeDocuments()` with one "Save changes to N documents?" question shared with `closeFolder`.
-- [ ] Tab bar: "Close Documents" in the tab context menu (greyed out with no document open); arrows on both ends of the strip, shown only while the tabs overflow, the reached end dimmed, a click moves the strip by 60% of its width.
-- [ ] Checks: `tab-closing-tests.sh` (added to the pdf-reader workflow), every script of the workflows triggered by the change; the real app on hidden windows (arrows appear, move the strip, dim at the ends, go away when the window is wide); pictures dark/light/150%.
-- [ ] 6.21.0: PR, merge, release, DMG; not installed unless Boris asks.
+- [x] Model: `TabClosing.activeIndex` (pure, checked), `OpenTab.isDocument` (file, image, pdf, archive, data), `WorkspaceTabsStore.keepTabs(where:)`, `closeDocuments()` with one "Save changes to N documents?" question shared with `closeFolder` (the prompt moved out of `closeFolder` into one private helper).
+- [x] Tab bar: "Close Documents" in the tab context menu (greyed out with no document open); arrows on both ends of the strip, shown only while the tabs overflow, the reached end dimmed, a click moves the strip by 60% of its width. `TabStripScroller` + `TabStripScrollHook` replace `WheelScrollsHorizontally` (wheel handling kept).
+- [x] Checks: `tab-closing-tests.sh` (15 checks of the active-tab rule, added to the pdf-reader workflow step) and `TabClosingStoreTests` inside the pdf-reader harness (the shipping `OpenTab` and `WorkspaceTabsStore`: all 19 tab kinds classified, tool tabs stay in order, active tab handed over); every script of the pdf-book, pdf-reader and themes workflows; the real app on hidden windows (app probe, which now also prints `enabled=`): 7 tabs show no arrows; 11 and 16 tabs show both, a click moves the strip by 476 of 794 px (60%), the left arrow is dimmed at the start and the right one at the end, both vanish in a wide window; pictures dark, and light at 150% text.
+- [x] 6.21.0: PR #407 merged (`69f888b`); its three checks (pdf-book, pdf-reader, themes) and `Build & Release` of the merge commit passed. Release v6.21.0 published from the merged main (signed, notarized, stapled, `spctl` accepts it): https://github.com/t-boris/MarkView/releases/tag/v6.21.0 (Latest); copy at `build/MarkView-6.21.0.dmg`.
+- [ ] Install: waiting for Boris's "reinstall" (the running app, 6.20.0, is not touched).
 - Not included: the existing Close Others / Tabs to the Right / All still drop unsaved documents without asking; Close Documents in the ▾ menu or the menu bar.
+
+Review (2026-11-14):
+- With the arrows on, the strip is shorter by their width, so the arrows themselves change whether the tabs fit: the flags are published only on change and the active tab is revealed again when they appear.
+- First version counted the empty 40 pt drop zone after the last tab as "more to see": the right arrow stayed enabled at the end and a click did nothing. The probe caught it; the drop zone is now an inset of the scroller.
+- The first overflow probe never overflowed (a 900 px window holds 7 tabs, and Open Terminal tiles did not open a tab in the hidden app); Browser tiles and a taller window were needed to get 16 tabs.
+- `pdf-reader-tests.sh` compiles `WorkspaceTabsStore` out of `WorkspaceManager.swift`, so it failed to find `TabClosing` until `TabClosing.swift` was added to its source list.
+- Not hand-checked: clicking the Close Documents menu item in the real app (a right-click menu is a real pop-up the probe cannot hide), the unsaved-documents prompt, a real mouse or trackpad on the arrows, the install.
+- Honest limits: "document" is five tab kinds (file, image, PDF, archive, data); X-Ray, Git, Insight, GitHub, Browser, Terminal and the rest stay. Close Others / Tabs to the Right / All still drop unsaved documents without asking, and `closeTabs(under:)` lacks `.data`. The arrows move by 60% of the visible width, not tab by tab, and do not change the active tab.
 
 # Cockpit: the AI names the run (2026-11-14, 6.20.0)
 
