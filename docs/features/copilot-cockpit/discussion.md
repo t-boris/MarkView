@@ -257,3 +257,9 @@ Provide a local Temporal service with the application.
 How should the cockpit describe and handle work that an unrestricted agent detaches from its terminal when MarkView closes?
 
 Stop the terminal and its process group; warn that separately detached background processes may continue, and ask the person before continuing.
+
+### Answer to Q-005 · 2026-11-14
+
+How should a run continue after a step is interrupted with unknown partial effects?
+
+B. Show known results and let the user choose how to proceed.
