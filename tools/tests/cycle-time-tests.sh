@@ -9,7 +9,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 M=MarkView/Models
 cp tools/tests/CycleTimeChecks.swift "$out/main.swift"
-swiftc -O -o "$out/cycle-time" "$M/FeatureVocabulary.swift" "$M/IssueListing.swift" "$M/ProjectWorkflow.swift" "$M/IssueLifecycle.swift" \
-    "$M/DefinitionOfDone.swift" "$M/WorkflowDone.swift" "$M/WorkflowDiagramLayout.swift" "$M/WorkflowTransitionStory.swift" "$M/WorkflowFlow.swift" \
-    "$M/IssueTransitionLog.swift" "$M/EvidenceTimings.swift" "$M/CycleTime.swift" "$M/CycleTimeReport.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
+swiftc -O -o "$out/cycle-time" "$M/Lifecycle/FeatureVocabulary.swift" "$M/Lifecycle/IssueListing.swift" "$M/Lifecycle/ProjectWorkflow.swift" "$M/Lifecycle/IssueLifecycle.swift" \
+    "$M/Lifecycle/DefinitionOfDone.swift" "$M/Lifecycle/WorkflowDone.swift" "$M/Lifecycle/WorkflowDiagramLayout.swift" "$M/Lifecycle/WorkflowTransitionStory.swift" "$M/Lifecycle/WorkflowFlow.swift" \
+    "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/EvidenceTimings.swift" "$M/Lifecycle/CycleTime.swift" "$M/Lifecycle/CycleTimeReport.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
 "$out/cycle-time"

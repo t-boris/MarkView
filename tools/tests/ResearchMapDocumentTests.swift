@@ -1,4 +1,4 @@
-// Checks the research map format and rules (MarkView/Models/ResearchMapDocument.swift) against
+// Checks the research map format and rules (MarkView/Models/Research/ResearchMapDocument.swift) against
 // REQ-001, REQ-003, REQ-004, DEC-003, DEC-005, DEC-006, DEC-007 and DEC-009.
 import Foundation
 

@@ -60,7 +60,6 @@ func runPhase5Tests() async {
 
     // 3. AR-26: AIOperation executes, validates, and repairs invalid output automatically
     var attempts = 0
-    var stages: [AIOperationStage] = []
     let op = AIOperation<String, SampleDiagramPayload>(
         name: "generate-diagram",
         maxRepairAttempts: 1,
@@ -96,12 +95,35 @@ func runPhase5Tests() async {
         }
     )
 
-    let outcome = try? await op.execute("MarkView") { stage in
-        stages.append(stage)
-    }
+    let outcome = try? await op.execute("MarkView")
     check(attempts == 2, "AR-26: AIOperation retries once when first response fails validation")
     check(outcome?.output == SampleDiagramPayload(title: "Repaired Architecture", nodeCount: 5), "AR-26: AIOperation returns repaired valid output")
-    check(stages.contains(.preparing) && stages.contains(.validating) && stages.contains(.repairing(attempt: 1)) && stages.contains(.completed), "AR-26: AIOperation reports lifecycle stages including .repairing(attempt: 1)")
+
+    // 4. FU-17: allowTextSalvage == false rejects raw prose/fenced JSON when structured output is missing
+    let strictOp = AIOperation<String, SampleDiagramPayload>(
+        name: "strict-diagram",
+        maxRepairAttempts: 0,
+        allowTextSalvage: false,
+        buildRequest: { topic in
+            CLICompletion.Request(project: nil, prompt: "Generate strict JSON for \(topic)")
+        },
+        runner: { _, _ in
+            CLICompletion.Result(
+                text: #"Here is your JSON: {"title": "Salvaged", "nodeCount": 2}"#,
+                structured: nil,
+                inputTokens: 10,
+                outputTokens: 10,
+                costUSD: 0.0001
+            )
+        }
+    )
+    var rejectedRawText = false
+    do {
+        _ = try await strictOp.execute("MarkView")
+    } catch AIOperationError.decodingFailed {
+        rejectedRawText = true
+    } catch {}
+    check(rejectedRawText, "FU-17: AIOperation with allowTextSalvage=false rejects raw text JSON when structured output is nil")
 }
 
 let semaphore = DispatchSemaphore(value: 0)

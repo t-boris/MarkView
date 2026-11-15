@@ -165,7 +165,7 @@ d.set(42, forKey: ThemeSettingsStore.lastChangedKey)
 check(st.startingSettings().theme == .classicLight, "a record of the wrong type is not used")
 
 // The web token file repeats the base colours of every appearance (editor, panel, text, accent); both sides must agree.
-let tokenFile = "MarkView/Resources/Editor/vendor/js/markview-themes.js"
+let tokenFile = "MarkView/Resources/Editor/js/markview-themes.js"
 if let js = try? String(contentsOfFile: tokenFile, encoding: .utf8) {
     let hex = "(#[0-9A-Fa-f]{6})"
     let pattern = "'([a-z-]+)': \\{ base: \\{ bg: '\(hex)', panel: '\(hex)', text: '\(hex)', accent: '\(hex)' \\}"

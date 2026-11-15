@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
     paths:
-      - 'MarkView/Models/Cockpit*.swift'
-      - 'MarkView/Models/FeatureReviewGate.swift'
-      - 'MarkView/Models/QARunCleanup.swift'
+      - 'MarkView/Models/Cockpit/*.swift'
+      - 'MarkView/Models/Lifecycle/FeatureReviewGate.swift'
+      - 'MarkView/Models/QA/QARunCleanup.swift'
       - 'tools/cockpit-temporal/**'
       - 'tools/tests/Cockpit*'
       - 'tools/tests/cockpit-*.sh'
@@ -18,9 +18,9 @@ on:
       - '.github/workflows/copilot-cockpit.yml'
   pull_request:
     paths:
-      - 'MarkView/Models/Cockpit*.swift'
-      - 'MarkView/Models/FeatureReviewGate.swift'
-      - 'MarkView/Models/QARunCleanup.swift'
+      - 'MarkView/Models/Cockpit/*.swift'
+      - 'MarkView/Models/Lifecycle/FeatureReviewGate.swift'
+      - 'MarkView/Models/QA/QARunCleanup.swift'
       - 'tools/cockpit-temporal/**'
       - 'tools/tests/Cockpit*'
       - 'tools/tests/cockpit-*.sh'

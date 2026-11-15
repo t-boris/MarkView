@@ -1,4 +1,4 @@
-// Checks how a workflow proposed by an assistant is read and judged (MarkView/Models/WorkflowProposal.swift; feature
+// Checks how a workflow proposed by an assistant is read and judged (MarkView/Models/Lifecycle/WorkflowProposal.swift; feature
 // assistants-confirm-delivery-with-evidence-and-propose-workflow, REQ-003, DEC-001).
 import Foundation
 

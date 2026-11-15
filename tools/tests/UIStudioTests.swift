@@ -411,7 +411,7 @@ if case .failure(.malformed) = StudioBridge.validate(forgedStandIn, isMainFrame:
     check("BUG-103 a stand-in event naming no registered SDK is malformed, so it cannot add dependency rows", true)
 } else { check("BUG-103 a stand-in event naming no registered SDK is malformed", false) }
 // The page runtime registers the stand-ins; the bridge accepts exactly those ids.
-if let runtime = try? String(contentsOfFile: "MarkView/Resources/Editor/vendor/js/markview-ui-studio.js", encoding: .utf8) {
+if let runtime = try? String(contentsOfFile: "MarkView/Resources/Editor/js/markview-ui-studio.js", encoding: .utf8) {
     var registered = Set<String>()
     var rest = Substring(runtime)
     while let found = rest.range(of: "sdkRegister('") {

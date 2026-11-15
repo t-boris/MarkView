@@ -1,4 +1,4 @@
-// Checks the workspace window title (MarkView/Models/WindowTitle.swift) against REQ-001, REQ-003,
+// Checks the workspace window title (MarkView/Models/Workspace/WindowTitle.swift) against REQ-001, REQ-003,
 // DEC-005 and DEC-006.
 import Foundation
 

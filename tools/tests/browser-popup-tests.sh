@@ -6,5 +6,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/BrowserPopupTests.swift "$out/main.swift"
-swiftc -o "$out/browser-popup-tests" MarkView/Views/BrowserPopup.swift "$out/main.swift"
+swiftc -o "$out/browser-popup-tests" MarkView/Views/Browser/BrowserPopup.swift "$out/main.swift"
 "$out/browser-popup-tests"

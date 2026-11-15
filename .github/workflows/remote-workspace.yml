@@ -4,11 +4,11 @@ on:
   pull_request:
     paths:
       - 'MarkView/Models/Remote/**'
-      - 'MarkView/Models/TerminalSession.swift'
-      - 'MarkView/Models/TerminalChildProcess.swift'
-      - 'MarkView/Models/GitHubClient.swift'
-      - 'MarkView/Models/BrowserAgentTools.swift'
-      - 'MarkView/Models/BrowserControlServer.swift'
+      - 'MarkView/Models/Terminal/TerminalSession.swift'
+      - 'MarkView/Models/Terminal/TerminalChildProcess.swift'
+      - 'MarkView/Models/Git/GitHubClient.swift'
+      - 'MarkView/Models/AgentTools/BrowserAgentTools.swift'
+      - 'MarkView/Models/Browser/BrowserControlServer.swift'
       - 'tools/remote-relay/**'
       - 'tools/tests/Remote*'
       - 'tools/tests/SavedRemote*'

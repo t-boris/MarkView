@@ -1,11 +1,11 @@
-// Checks the delivery evidence rules (MarkView/Models/IssueLifecycleEvidence.swift) against DEC-007, DEC-012, REQ-002 criterion 2
+// Checks the delivery evidence rules (MarkView/Models/Lifecycle/IssueLifecycleEvidence.swift) against DEC-007, DEC-012, REQ-002 criterion 2
 // and REQ-005 criterion 1 of docs/features/issue-lifecycle-management.
 import Foundation
 
 let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 func minutes(_ n: Double) -> Date { t0.addingTimeInterval(n * 60) }
 let sources = [EvidenceSource.available("git"), .available("GitHub checks"), .available("GitHub releases")]
-let code = ["MarkView/Models/IssueLifecycle.swift", "docs/features/x/overview.md"]
+let code = ["MarkView/Models/Lifecycle/IssueLifecycle.swift", "docs/features/x/overview.md"]
 
 func unit(_ ref: WorkRef, merged: Date? = minutes(10), head: String = "aaa1111", paths: [String]? = code, checks: CheckState? = nil,
           association: WorkAssociation = .explicit, closedUnmerged: Bool = false) -> WorkUnit {

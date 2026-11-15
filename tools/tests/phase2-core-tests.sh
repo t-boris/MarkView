@@ -10,7 +10,7 @@ swift test --package-path Packages/MarkViewCore
 cp tools/tests/Phase2CoreTests.swift "$out/main.swift"
 swiftc -o "$out/phase2-core-tests" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/OutputLanguage.swift \
+    MarkView/Models/AI/OutputLanguage.swift \
     "$out/main.swift"
 
 "$out/phase2-core-tests"

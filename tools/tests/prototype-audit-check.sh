@@ -10,7 +10,7 @@ trap 'rm -rf "$out"' EXIT
 cat > "$out/main.swift" <<'SWIFT'
 print(PrototypeAudit.script)
 SWIFT
-swiftc -o "$out/dump" MarkView/Models/PrototypeAudit.swift "$out/main.swift"
+swiftc -o "$out/dump" MarkView/Models/Prototype/PrototypeAudit.swift "$out/main.swift"
 "$out/dump" > "$out/audit.js"
 cp -R Tests/Fixtures/prototype-audit "$out/site"
 cp "$out/audit.js" "$out/site/audit.js"

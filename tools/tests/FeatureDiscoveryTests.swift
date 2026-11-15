@@ -1,6 +1,6 @@
 import Foundation
 
-// Checks the discovery rules of a feature (MarkView/Models/FeatureModels.swift): when discovery is
+// Checks the discovery rules of a feature (MarkView/Models/Lifecycle/FeatureModels.swift): when discovery is
 // done, the order of the open questions, and the readiness condition. Compiled by
 // tools/tests/feature-discovery-tests.sh together with FeatureModels.swift and FrontMatter.swift.
 

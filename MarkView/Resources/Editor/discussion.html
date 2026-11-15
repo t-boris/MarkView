@@ -8,10 +8,10 @@
      JS → Swift (message handler "discussion"): {type: ready|save|copy}. A drawing opens full-window on Expand or double-click (wheel zoom, drag, Esc).. AI text never runs as HTML: markdown-it has
      html disabled, SVG is sanitized, a styled figure is a sandboxed frame without scripts. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; frame-src about: data:; connect-src 'none'">
-<script src="vendor/js/markview-themes.js"></script>
-<script src="vendor/js/mv-kit.js"></script>
+<script src="js/markview-themes.js"></script>
+<script src="js/mv-kit.js"></script>
 <style>
-    /* The colours are the window theme's (vendor/js/markview-themes.js). */
+    /* The colours are the window theme's (js/markview-themes.js). */
     :root { --bg: var(--dc-bg); --fg: var(--dc-fg); --dim: var(--dc-dim); --card: var(--dc-card); --border: var(--dc-border); --accent: var(--dc-accent); --user: var(--dc-user); --code: var(--dc-code); }
     html, body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.55 -apple-system, system-ui, sans-serif; }
     #thread { padding: 18px 22px 40px; max-width: 980px; margin: 0 auto; }
@@ -61,6 +61,6 @@
 <script src="vendor/js/dompurify.min.js"></script>
 <script src="vendor/js/mermaid.min.js"></script>
 <script src="vendor/js/chart-4.4.9.min.js"></script>
-<script src="vendor/js/markview-discussion.js"></script>
+<script src="js/markview-discussion.js"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-// Checks PTYWriter (MarkView/Models/PTYWriter.swift) against a real PTY whose reader is slower
+// Checks PTYWriter (MarkView/Models/Terminal/PTYWriter.swift) against a real PTY whose reader is slower
 // than the writer: long pastes arrive whole and in order (BUG-002).
 
 var failures = 0

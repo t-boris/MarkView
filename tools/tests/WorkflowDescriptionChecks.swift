@@ -1,5 +1,5 @@
 // Checks the workflow in words, the differences between two workflows in words and the format guide for assistants
-// (MarkView/Models/WorkflowDescription.swift; feature assistants-confirm-delivery-with-evidence-and-propose-workflow, REQ-002, REQ-003).
+// (MarkView/Models/Lifecycle/WorkflowDescription.swift; feature assistants-confirm-delivery-with-evidence-and-propose-workflow, REQ-002, REQ-003).
 import Foundation
 
 let standard = ProjectWorkflow.standard

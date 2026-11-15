@@ -1,4 +1,4 @@
-// Checks the bug validity check (MarkView/Models/BugValidity.swift) against REQ-001…REQ-005 and DEC-001…DEC-004 of
+// Checks the bug validity check (MarkView/Models/Lifecycle/BugValidity.swift) against REQ-001…REQ-005 and DEC-001…DEC-004 of
 // docs/features/bug-validity-check-before-analysis. Run from the repository root by tools/tests/bug-validity-tests.sh.
 // Git behaviour is checked on real repositories in a temporary folder; the assistant is replaced by answers written in the tests.
 import Foundation
@@ -425,9 +425,9 @@ check("discussion: a failed reply ends the flow as before", t.events == ["record
 
 func source(_ path: String) -> String { (try? String(contentsOfFile: path, encoding: .utf8)) ?? "" }
 func count(_ needle: String, in text: String) -> Int { text.components(separatedBy: needle).count - 1 }
-let intake = source("MarkView/Models/FeatureIntake.swift")
-let panel = source("MarkView/Views/FeaturePanelView.swift")
-let validity = source("MarkView/Models/BugValidity.swift") + source("MarkView/Models/FeatureBugValidity.swift")
+let intake = source("MarkView/Models/Lifecycle/FeatureIntake.swift")
+let panel = source("MarkView/Views/Lifecycle/FeaturePanelView.swift")
+let validity = source("MarkView/Models/Lifecycle/BugValidity.swift") + source("MarkView/Models/Lifecycle/FeatureBugValidity.swift")
 check("the sources are readable", !intake.isEmpty && !panel.isEmpty && !validity.isEmpty)
 check("the three entry points go through the gate", count("validityGate(for: url)", in: intake) == 3
       && intake.contains("BugValidity.Entry.discuss") && intake.contains("BugValidity.Entry.answer") && intake.contains("BugValidity.Entry.investigate"))
@@ -436,8 +436,8 @@ check("selecting a bug starts no analysis: the only call from the panel is the I
 check("the reply to a discussion message is made only after the check", count("replyToBugDiscussion(", in: intake) == 2 && intake.contains("reply: { passed in"))
 check("automatic closure never touches GitHub", !validity.contains("createIssue") && !validity.contains("commentOnIssue") && !validity.contains("closeIssue")
       && !validity.contains("updateIssue") && !validity.contains("gitHubClient(") && !validity.contains("IssueSync"))
-check("the verification reads the export, not the project", source("MarkView/Models/FeatureBugValidity.swift").contains("readable: export.tree"))
-check("the assistant stays read-only (no write tools were added)", !source("MarkView/Models/CLICompletion.swift").contains("\"Write\"") && !source("MarkView/Models/CLICompletion.swift").contains("\"Edit\""))
+check("the verification reads the export, not the project", source("MarkView/Models/Lifecycle/FeatureBugValidity.swift").contains("readable: export.tree"))
+check("the assistant stays read-only (no write tools were added)", !source("MarkView/Models/AI/CLICompletion.swift").contains("\"Write\"") && !source("MarkView/Models/AI/CLICompletion.swift").contains("\"Edit\""))
 
 if failures > 0 { print("\(failures) check(s) failed"); exit(1) }
 print("Bug validity check: main baseline, evidence rules, closure record, retention and the three entry points all hold.")

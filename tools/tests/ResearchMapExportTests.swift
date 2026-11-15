@@ -1,4 +1,4 @@
-// Checks the Markdown report of a research map (MarkView/Models/ResearchMapExport.swift) against REQ-007 and DEC-010.
+// Checks the Markdown report of a research map (MarkView/Models/Research/ResearchMapExport.swift) against REQ-007 and DEC-010.
 import Foundation
 
 var failures = 0

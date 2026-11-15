@@ -1,4 +1,4 @@
-// Checks the batch Fix with AI rules (MarkView/Models/BugBasket.swift) against REQ-001…REQ-006 and
+// Checks the batch Fix with AI rules (MarkView/Models/Lifecycle/BugBasket.swift) against REQ-001…REQ-006 and
 // decisions DEC-001…DEC-013 of docs/features/batch-fix-with-ai-for-multiple-bugs.
 import Foundation
 

@@ -1,4 +1,4 @@
-// Checks the Implement / Fix with AI prompts (MarkView/Models/HandoffPrompt.swift) for BUG-011:
+// Checks the Implement / Fix with AI prompts (MarkView/Models/Lifecycle/HandoffPrompt.swift) for BUG-011:
 // the agent is pointed at the records that hold answers, told not to ask them again, and told to
 // write new answers back.
 import Foundation

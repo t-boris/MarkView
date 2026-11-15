@@ -1,4 +1,4 @@
-// Checks the Lifecycle section's model (MarkView/Models/IssueLifecycleDisplay.swift) against REQ-004 and REQ-005 of
+// Checks the Lifecycle section's model (MarkView/Models/Lifecycle/IssueLifecycleDisplay.swift) against REQ-004 and REQ-005 of
 // docs/features/issue-lifecycle-management: what an applied transition shows, how overrides, blocked requests, discrepancies and
 // GitHub outcomes are told apart, and which actions the section offers.
 import Foundation

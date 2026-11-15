@@ -1,4 +1,4 @@
-// Checks the narrative report of a research map (MarkView/Models/ResearchMapReport.swift) against REQ-013 and DEC-014:
+// Checks the narrative report of a research map (MarkView/Models/Research/ResearchMapReport.swift) against REQ-013 and DEC-014:
 // the request, the reading of the answer, the guards that do not depend on the model, and the assembly.
 import Foundation
 

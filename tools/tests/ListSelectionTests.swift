@@ -1,6 +1,6 @@
 import Foundation
 
-// Checks the Finder-like selection (MarkView/Models/ListSelection.swift) and renaming in place
+// Checks the Finder-like selection (MarkView/Models/Workspace/ListSelection.swift) and renaming in place
 // (FileTransfer.rename). Compiled by tools/tests/list-selection-tests.sh.
 
 var failures = 0

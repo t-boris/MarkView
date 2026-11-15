@@ -1,4 +1,4 @@
-// Checks the project workflow (MarkView/Models/ProjectWorkflow.swift, ProjectWorkflowStore.swift) against docs/features/feature-3:
+// Checks the project workflow (MarkView/Models/Lifecycle/ProjectWorkflow.swift, ProjectWorkflowStore.swift) against docs/features/feature-3:
 // the standard workflow, validation, rule variants and templates, the policy reading a workflow, the effect of a change on work
 // items, and where the workflow is stored. The standard workflow is held equal to the old hard-coded tables by the unchanged
 // policy, completion and collector suites, which now run against it.

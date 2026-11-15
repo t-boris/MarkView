@@ -1,4 +1,4 @@
-// Checks the shared transition rules (MarkView/Models/IssueLifecycle.swift) against REQ-001 criteria 2–3, REQ-002 criteria 1–5,
+// Checks the shared transition rules (MarkView/Models/Lifecycle/IssueLifecycle.swift) against REQ-001 criteria 2–3, REQ-002 criteria 1–5,
 // REQ-003 criterion 3 and DEC-007…DEC-011, DEC-013 of docs/features/issue-lifecycle-management.
 import Foundation
 

@@ -5,6 +5,6 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/GitHubActivityPromptTests.swift "$out/main.swift"
-swiftc -o "$out/github-activity-prompt-tests" MarkView/Models/AIPrompts.swift \
-    MarkView/Models/OutputLanguage.swift "$out/main.swift"
+swiftc -o "$out/github-activity-prompt-tests" MarkView/Models/AI/AIPrompts.swift \
+    MarkView/Models/AI/OutputLanguage.swift "$out/main.swift"
 "$out/github-activity-prompt-tests"

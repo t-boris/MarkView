@@ -1,6 +1,6 @@
 import Foundation
 
-// Checks for BUG-060: the page structure of a prototype from code is MarkView's (MarkView/Models/PrototypeShellStructure.swift).
+// Checks for BUG-060: the page structure of a prototype from code is MarkView's (MarkView/Models/Prototype/PrototypeShellStructure.swift).
 // The stylesheet has zero-specificity rules for every box of the shell, it is linked from index.html in a folder the assistant
 // cannot read or write, adding it is not an edit of the shell, and the shell writers are told it is not theirs.
 

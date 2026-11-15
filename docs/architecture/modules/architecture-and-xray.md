@@ -197,9 +197,9 @@ It does **not** own:
 | `MarkView/Models/DependencyGraphScheduler.swift` | In-memory block, entity and claim dependency graph with dirty tracking |
 | `MarkView/Views/ModuleExplorerView.swift` | Right-panel Terminal tab (historical name) with usage and cost header |
 | `MarkView/Views/GraphCreatorSheet.swift` | "New Graph Diagram" sheet: builds a Mermaid-generation prompt for the AI terminal |
-| `MarkView/Resources/Editor/vendor/js/markview-architecture.js` | X-Ray web UI: Cytoscape + ELK rendering, overlays, details panel, PR panel |
-| `MarkView/Resources/Editor/vendor/js/markview-canvas.js` | JSON Canvas (`.canvas`) viewer with pan/zoom, properties panel and TOC headings |
-| `MarkView/Resources/Editor/vendor/js/markview-diagram-viewer.js` | Full-screen pan/zoom overlay for rendered Mermaid SVGs |
+| `MarkView/Resources/Editor/js/markview-architecture.js` | X-Ray web UI: Cytoscape + ELK rendering, overlays, details panel, PR panel |
+| `MarkView/Resources/Editor/js/markview-canvas.js` | JSON Canvas (`.canvas`) viewer with pan/zoom, properties panel and TOC headings |
+| `MarkView/Resources/Editor/js/markview-diagram-viewer.js` | Full-screen pan/zoom overlay for rendered Mermaid SVGs |
 | `MarkView/Resources/Editor/vendor/js/cytoscape.min.js`, `elk.bundled.js`, `cytoscape-elk.js` | Bundled libraries, loaded lazily (`markview-architecture.js:82-90`); built by `tools/web-vendor/` |
 
 Integration points outside these files are listed in §4.

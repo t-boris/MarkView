@@ -1,6 +1,6 @@
 import Foundation
 
-// Checks for MarkView/Models/QAScenario.swift, QARun.swift and QAStore.swift (feature end-to-end-qa), run by tools/tests/qa-tests.sh.
+// Checks for MarkView/Models/QA/QAScenario.swift, QARun.swift and QAStore.swift (feature end-to-end-qa), run by tools/tests/qa-tests.sh.
 // Fixtures are scenarios and events; nothing touches a file but the store checks in a temp folder.
 
 let now = Date(timeIntervalSince1970: 1_790_000_000)

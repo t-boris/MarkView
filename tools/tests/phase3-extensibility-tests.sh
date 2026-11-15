@@ -7,11 +7,11 @@ trap 'rm -rf "$out"' EXIT
 
 cp tools/tests/Phase3ExtensibilityTests.swift "$out/main.swift"
 swiftc -o "$out/phase3-extensibility-tests" \
-    MarkView/Models/AppTheme.swift \
-    MarkView/Models/WelcomeBackdrop.swift \
-    MarkView/Models/ProjectBackdrop.swift \
-    MarkView/Models/PanelLayout.swift \
-    MarkView/Models/ExtensionRegistries.swift \
+    MarkView/Models/Appearance/AppTheme.swift \
+    MarkView/Models/Appearance/WelcomeBackdrop.swift \
+    MarkView/Models/Appearance/ProjectBackdrop.swift \
+    MarkView/Models/Workspace/PanelLayout.swift \
+    MarkView/Models/Workspace/ExtensionRegistries.swift \
     "$out/main.swift"
 
 "$out/phase3-extensibility-tests"

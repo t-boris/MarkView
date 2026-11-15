@@ -49,6 +49,11 @@ data = json.loads(Path(manifest_path).read_text())
 suites = data.get("suites", [])
 
 if explicit:
+    known = {s["name"] for s in suites} | {s["script"] for s in suites}
+    unknown = [req for req in explicit if req not in known]
+    if unknown:
+        print(f"Unknown test suite(s): {' '.join(unknown)}", file=sys.stderr)
+        sys.exit(2)
     wanted = set(explicit)
     suites = [s for s in suites if s["name"] in wanted or s["script"] in wanted]
 elif tier != "all":
@@ -185,8 +190,12 @@ def run_suite(item):
             cmd = ["python3", script]
         else:
             cmd = ["bash", script]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    return name, suite_tier, script, proc.returncode, proc.stdout
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=180)
+        return name, suite_tier, script, proc.returncode, proc.stdout
+    except subprocess.TimeoutExpired as exc:
+        partial = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        return name, suite_tier, script, 124, partial + "\nTIMED OUT after 180s\n"
 
 passed = 0
 failed = 0

@@ -1,5 +1,5 @@
-// Checks the GitHub sync planner (MarkView/Models/IssueGitHubSync.swift) and the verified-completion rule of manual Sync
-// (MarkView/Models/IssueSync.swift) against REQ-004 criterion 4, REQ-005 criterion 4, REQ-006 criteria 1-5 and DEC-010,
+// Checks the GitHub sync planner (MarkView/Models/Lifecycle/IssueGitHubSync.swift) and the verified-completion rule of manual Sync
+// (MarkView/Models/Lifecycle/IssueSync.swift) against REQ-004 criterion 4, REQ-005 criterion 4, REQ-006 criteria 1-5 and DEC-010,
 // Q-004 of docs/features/issue-lifecycle-management.
 import Foundation
 

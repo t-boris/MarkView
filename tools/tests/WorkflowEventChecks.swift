@@ -1,4 +1,4 @@
-// Checks the events on transition rules (MarkView/Models/WorkflowEvents.swift; feature
+// Checks the events on transition rules (MarkView/Models/Lifecycle/WorkflowEvents.swift; feature
 // assistants-confirm-delivery-with-evidence-and-propose-workflow, REQ-004, DEC-006): which step an event asks for, the command that
 // makes it happen once, and the bookkeeping of merged pull requests.
 import Foundation

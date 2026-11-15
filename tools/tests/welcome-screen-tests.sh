@@ -10,8 +10,8 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/WelcomeScreenTests.swift "$out/main.swift"
 swiftc -suppress-warnings -target "$(uname -m)-apple-macos13.0" \
-    MarkView/Models/ProjectBackdrop.swift MarkView/Models/WelcomeBackdrop.swift MarkView/Models/WelcomeActions.swift \
-    MarkView/Views/ProjectBackdropLayers.swift MarkView/Views/DevBackdropLayers.swift MarkView/Views/AtmosphereBackdropLayers.swift MarkView/Views/BackdropLayerBuilders.swift MarkView/Views/WelcomeBackdropView.swift MarkView/Views/WelcomeView.swift \
-    MarkView/Models/AppFontScale.swift MarkView/Views/AppFontScaleView.swift MarkView/Models/AppTheme.swift MarkView/Models/WindowTheme.swift MarkView/Views/AppPalette.swift \
+    MarkView/Models/Appearance/ProjectBackdrop.swift MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Workspace/WelcomeActions.swift \
+    MarkView/Views/Appearance/ProjectBackdropLayers.swift MarkView/Views/Appearance/DevBackdropLayers.swift MarkView/Views/Appearance/AtmosphereBackdropLayers.swift MarkView/Views/Appearance/BackdropLayerBuilders.swift MarkView/Views/Appearance/WelcomeBackdropView.swift MarkView/Views/Workspace/WelcomeView.swift \
+    MarkView/Models/Appearance/AppFontScale.swift MarkView/Views/Appearance/AppFontScaleView.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/WindowTheme.swift MarkView/Views/Appearance/AppPalette.swift \
     "$out/main.swift" -o "$out/welcome-tests"
 "$out/welcome-tests"

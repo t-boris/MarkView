@@ -8,5 +8,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/QAEvidenceWebHarness.swift "$out/main.swift"
-swiftc -o "$out/qa-evidence-web" MarkView/Models/QAPageEvidence.swift "$out/main.swift"
+swiftc -o "$out/qa-evidence-web" MarkView/Models/QA/QAPageEvidence.swift "$out/main.swift"
 "$out/qa-evidence-web"

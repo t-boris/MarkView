@@ -1,6 +1,6 @@
 import Foundation
 
-// Checks the prototype reference agents are handed (MarkView/Models/PrototypeReference.swift): the reference
+// Checks the prototype reference agents are handed (MarkView/Models/Prototype/PrototypeReference.swift): the reference
 // string, every accepted form of a reference text (URI, bare slug, project-relative and absolute paths in the
 // docs/prototypes and the legacy .dde/prototypes layout, with the site or a version folder) and what is rejected.
 // Compiled by tools/tests/prototype-reference-tests.sh.

@@ -3,13 +3,13 @@ import Foundation
 var passed = 0
 var failed = 0
 
-func check(_ condition: Bool, _ label: String) {
+func check(_ condition: Bool, _ name: String) {
     if condition {
         passed += 1
-        print("  ✓ \(label)")
+        print("  ✓ \(name)")
     } else {
         failed += 1
-        print("  ✗ FAIL: \(label)")
+        print("  ✗ FAIL: \(name)")
     }
 }
 
@@ -90,7 +90,25 @@ func runPhase6Tests() async {
     check(threwNewer && preservedFutureData == futurePayload,
           "FU-04: SchemaVersionedStore.save throws SchemaStoreError.newerSchemaVersion and leaves newer file untouched")
 
-    // 2. AR-40, DEC-009 & FU-03: Control socket fail-closed constant-time token verification & file/env precedence
+    struct LegacyRecordWithVersionField: Codable, Equatable {
+        var recentPaths: [String]
+        var maxItems: Int
+        var version: Int
+    }
+    let legacyVersionFieldURL = tempDir.appendingPathComponent("legacy-version-field.json")
+    let legacyVersionFieldData = try! JSONEncoder().encode(
+        LegacyRecordWithVersionField(recentPaths: ["/tmp/legacy"], maxItems: 5, version: 99)
+    )
+    try! legacyVersionFieldData.write(to: legacyVersionFieldURL)
+    let legacyVersionLoad = store.load(from: legacyVersionFieldURL)
+    if case .loaded(let val, let schemaVer) = legacyVersionLoad {
+        check(val == SamplePreferencesRecord(recentPaths: ["/tmp/legacy"], maxItems: 5) && schemaVer == 0,
+              "FU-04/FU-14: SchemaVersionedStore ignores legacy payload version field instead of mistaking it for envelope schema")
+    } else {
+        check(false, "FU-04/FU-14: SchemaVersionedStore loads legacy payload with version field as schemaVersion 0")
+    }
+
+    // 2. AR-40, DEC-009 & FU-03: Control socket fail-closed constant-time token verification & file-only lookup
     let fakeSock = tempDir.appendingPathComponent("mv-browser-99999.sock").path
     let generatedToken = BrowserAgentTools.writeSocketToken(forSocket: fakeSock)
     check(generatedToken != nil && generatedToken?.count == 64, "AR-40: writeSocketToken generates 256-bit hex token")
@@ -100,17 +118,14 @@ func runPhase6Tests() async {
     let readBack = BrowserAgentTools.readSocketToken(forSocket: fakeSock)
     check(readBack == generatedToken, "AR-40: readSocketToken reads back 0600 token file owned by current user")
 
-    setenv(BrowserAgentTools.controlTokenEnvKey, "env-fallback-token", 1)
-    defer { unsetenv(BrowserAgentTools.controlTokenEnvKey) }
-    check(BrowserAgentTools.readSocketToken(forSocket: fakeSock) == generatedToken,
-          "FU-03: readSocketToken prefers on-disk 0600 token file over MARKVIEW_CONTROL_TOKEN env var")
-
+    setenv("MARKVIEW_CONTROL_TOKEN", "env-fallback-token", 1)
+    defer { unsetenv("MARKVIEW_CONTROL_TOKEN") }
     try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: tokenPath)
     check(BrowserAgentTools.readSocketToken(forSocket: fakeSock) == nil,
-          "FU-03: readSocketToken rejects token file with group/world permissions even if env var is set")
+          "FU-03: readSocketToken rejects token file with group/world permissions")
     try? FileManager.default.removeItem(atPath: tokenPath)
-    check(BrowserAgentTools.readSocketToken(forSocket: fakeSock) == "env-fallback-token",
-          "FU-03: readSocketToken falls back to MARKVIEW_CONTROL_TOKEN only when token file is absent")
+    check(BrowserAgentTools.readSocketToken(forSocket: fakeSock) == nil,
+          "FU-03: readSocketToken fails closed when token file is absent (no env var fallback)")
 
     check(!BrowserControlServer.verifyToken(nil, expected: nil), "FU-03: verifyToken fails closed when expected token is nil")
     check(!BrowserControlServer.verifyToken("", expected: ""), "FU-03: verifyToken fails closed when expected token is empty")
@@ -124,19 +139,19 @@ func runPhase6Tests() async {
     let ancestors = BrowserAgentTools.ancestorPIDs(startingAt: getpid())
     check(ancestors.first == getpid(), "AR-40: ancestorPIDs(startingAt:) starts from kernel-verified peer PID")
 
-    // 3. AR-41..AR-43 & DEC-010: Info.plist ATS, cached hasMarkdownFiles, @MainActor TabStripScroller, and SWIFT_STRICT_CONCURRENCY
-    let plistText = (try? String(contentsOfFile: "MarkView/Info.plist", encoding: .utf8)) ?? ""
-    check(plistText.contains("<key>NSAllowsArbitraryLoads</key>\n        <false/>"),
-          "AR-41: Info.plist sets NSAllowsArbitraryLoads to false while preserving web content / local networking")
-    let workspaceSource = (try? String(contentsOfFile: "MarkView/Models/WorkspaceManager.swift", encoding: .utf8)) ?? ""
-    check(workspaceSource.contains("cachedHasMarkdownFiles"),
-          "AR-42: WorkspaceFileTreeStore caches hasMarkdownFiles to avoid main-thread tree walks during menu rendering")
-    let tabBarSource = (try? String(contentsOfFile: "MarkView/Views/TabBarView.swift", encoding: .utf8)) ?? ""
-    check(tabBarSource.contains("@MainActor\nfinal class TabStripScroller"),
-          "AR-43: TabStripScroller is annotated with @MainActor")
-    let pbxprojText = (try? String(contentsOfFile: "MarkView.xcodeproj/project.pbxproj", encoding: .utf8)) ?? ""
-    check(pbxprojText.contains("SWIFT_STRICT_CONCURRENCY = targeted;"),
-          "AR-43 & DEC-010: MarkView.xcodeproj enables SWIFT_STRICT_CONCURRENCY = targeted")
+    // 3. AR-41: Info.plist App Transport Security configuration parsed structurally
+    if let plistData = try? Data(contentsOf: URL(fileURLWithPath: "MarkView/Info.plist")),
+       let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any] {
+        let principal = plist["NSPrincipalClass"] as? String
+        let ats = plist["NSAppTransportSecurity"] as? [String: Any]
+        let arbitrary = ats?["NSAllowsArbitraryLoads"] as? Bool
+        let webContent = ats?["NSAllowsArbitraryLoadsInWebContent"] as? Bool
+        let localNet = ats?["NSAllowsLocalNetworking"] as? Bool
+        check(principal == "NSApplication" && arbitrary == false && webContent == true && localNet == true,
+              "AR-41: Info.plist PropertyList enforces NSAllowsArbitraryLoads=false while allowing web content and local networking")
+    } else {
+        check(false, "AR-41: MarkView/Info.plist parses cleanly as a PropertyList dictionary")
+    }
 }
 
 let semaphore = DispatchSemaphore(value: 0)

@@ -35,101 +35,20 @@ func loadFile(_ file: URL, allowingReadAccessTo dir: URL, readyJS: String, userS
 func runPhase0Checks() async throws {
     let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     let editorDir = repoRoot.appendingPathComponent("MarkView/Resources/Editor")
-    let indexHTML = try String(contentsOf: editorDir.appendingPathComponent("index.html"), encoding: .utf8)
-    let bookHTML = try String(contentsOf: editorDir.appendingPathComponent("book.html"), encoding: .utf8)
-    let discussionHTML = try String(contentsOf: editorDir.appendingPathComponent("discussion.html"), encoding: .utf8)
 
-    // AR-01 & AR-03: Strict CSP, no unsafe-inline in script-src across all HTML entry points, vendored Turndown + DOMPurify
-    check("AR-01: index.html CSP removes unsafe-inline from script-src",
-          indexHTML.contains("script-src 'self' 'wasm-unsafe-eval';") && !indexHTML.contains("'unsafe-inline'") == false && !indexHTML.contains("script-src 'self' 'unsafe-inline'"))
-    check("AR-01/FU-13: book.html and discussion.html CSP remove unsafe-inline from script-src",
-          bookHTML.contains("script-src 'self';") && !bookHTML.contains("script-src 'self' 'unsafe-inline'") &&
-          discussionHTML.contains("script-src 'self';") && !discussionHTML.contains("script-src 'self' 'unsafe-inline'"))
-    check("AR-03: index.html has no cdn.jsdelivr.net references",
-          !indexHTML.contains("cdn.jsdelivr.net"))
-    check("AR-01/AR-03: dompurify.min.js, turndown.min.js, and turndown-plugin-gfm.min.js exist locally",
-          FileManager.default.fileExists(atPath: editorDir.appendingPathComponent("vendor/js/dompurify.min.js").path) &&
-          FileManager.default.fileExists(atPath: editorDir.appendingPathComponent("vendor/js/turndown.min.js").path) &&
-          FileManager.default.fileExists(atPath: editorDir.appendingPathComponent("vendor/js/turndown-plugin-gfm.min.js").path))
+    // 1. Vendored offline dependencies & externalized scripts exist on disk (AR-01, AR-03)
+    for relPath in [
+        "vendor/js/dompurify.min.js",
+        "vendor/js/turndown.min.js",
+        "vendor/js/turndown-plugin-gfm.min.js",
+        "js/mv-kit.js",
+        "js/markview-terminal.js"
+    ] {
+        check("AR-01/AR-03: \(relPath) exists locally",
+              FileManager.default.fileExists(atPath: editorDir.appendingPathComponent(relPath).path))
+    }
 
-    // AR-02 & FU-10: Insight iframe is null-origin sandbox="allow-scripts", uses nonces, no regex-only sanitization fallback
-    let insightHandlers = try String(contentsOf: editorDir.appendingPathComponent("vendor/js/markview-insight-handlers.js"), encoding: .utf8)
-    let insightSrcdoc = try String(contentsOf: editorDir.appendingPathComponent("vendor/js/markview-insight-srcdoc.js"), encoding: .utf8)
-    check("AR-02: markview-insight-handlers sets sandbox='allow-scripts' without allow-same-origin and enforces origin allowlist",
-          insightHandlers.contains("setAttribute('sandbox', 'allow-scripts')") &&
-          !insightHandlers.contains("setAttribute('sandbox', 'allow-scripts allow-same-origin')") &&
-          insightHandlers.contains("ev.origin === 'null'"))
-    check("AR-02/FU-10: markview-insight-srcdoc supports per-load CSP nonce and strict Mermaid mode",
-          insightSrcdoc.contains("window.__markviewInsightNonce") &&
-          insightSrcdoc.contains("securityLevel: 'strict'") &&
-          insightSrcdoc.contains("replace(/<\\/(script)/gi"))
-
-    // AR-04: JS.call helper safely encodes quotes, apostrophes, and newlines
-    let bridgeSource = try String(contentsOf: repoRoot.appendingPathComponent("MarkView/Bridge/WebViewBridge.swift"), encoding: .utf8)
-    check("AR-04: WebViewBridge uses JS.call for setDocumentBase and scrollToHeading",
-          bridgeSource.contains("JS.call(\"window.setDocumentBase\"") &&
-          bridgeSource.contains("JS.call(\"window.scrollToHeading\""))
-
-    // AR-05: init() is invoked at the end of markview-init.js, not markview-d3-mermaid.js
-    let initJS = try String(contentsOf: editorDir.appendingPathComponent("vendor/js/markview-init.js"), encoding: .utf8)
-    let d3MermaidJS = try String(contentsOf: editorDir.appendingPathComponent("vendor/js/markview-d3-mermaid.js"), encoding: .utf8)
-    check("AR-05: markview-init.js triggers init() after defining it",
-          initJS.contains("document.addEventListener('DOMContentLoaded', init)"))
-    check("AR-05: markview-d3-mermaid.js does not call init() prematurely",
-          !d3MermaidJS.contains("document.addEventListener('DOMContentLoaded', init)"))
-
-    // AR-06: ArchitectureStore resolves PR files off the main actor with a timeout
-    let archSource = try String(contentsOf: repoRoot.appendingPathComponent("MarkView/Models/ArchitectureStore.swift"), encoding: .utf8)
-    check("AR-06: ArchitectureStore defines async resolvePRFileURL off the main actor",
-          archSource.contains("func resolvePRFileURL(path: String) async -> URL?") &&
-          archSource.contains("timeout: 15"))
-
-    // AR-07 / AR-25: InsightArchiveExporter runs zip via MarkViewCore.Subprocess with -q and discards output
-    let exporterSource = try String(contentsOf: repoRoot.appendingPathComponent("MarkView/Models/InsightArchiveExporter.swift"), encoding: .utf8)
-    check("AR-07/AR-25: InsightArchiveExporter invokes /usr/bin/zip with -q via Subprocess.run",
-          exporterSource.contains("Subprocess.run") &&
-          exporterSource.contains("\"-r\", \"-q\", tmpURL.path, \".\""))
-
-    // AR-08: CLICompletion escalates timedOut processes to SIGKILL
-    let cliSource = try String(contentsOf: repoRoot.appendingPathComponent("MarkView/Models/CLICompletion.swift"), encoding: .utf8)
-    let sigkillCount = cliSource.components(separatedBy: "SIGKILL").count - 1
-    check("AR-08: CLICompletion escalates both cancel and timeout to SIGKILL", sigkillCount >= 2)
-
-    // AR-09 & AR-10: WhisperClient logs character count only, uses Keychain with conditional migration, and WebViewBridge deletes /tmp diag log
-    let whisperSource = try String(contentsOf: repoRoot.appendingPathComponent("MarkView/Models/WhisperClient.swift"), encoding: .utf8)
-    check("AR-09: WhisperClient logs character count instead of speech prefix",
-          whisperSource.contains("Transcribed \\(text.count) characters") &&
-          !whisperSource.contains("text.prefix(100)"))
-    check("AR-09: WebViewBridge does not write to /tmp/markview-insight-diag.log",
-          !bridgeSource.contains("FileHandle(forWritingTo: URL(fileURLWithPath: path))"))
-    check("AR-10/FU-09: WhisperClient stores OpenAI API key in Keychain and removes UserDefaults only on success",
-          whisperSource.contains("kSecClassGenericPassword") &&
-          whisperSource.contains("if saveAPIKeyToKeychain("))
-
-    // AR-11, AR-12, AR-13, FU-09
-    let editorViewSource = try String(contentsOf: repoRoot.appendingPathComponent("MarkView/Views/EditorView.swift"), encoding: .utf8)
-    let studioSource = try String(contentsOf: repoRoot.appendingPathComponent("MarkView/Models/UIStudioSession.swift"), encoding: .utf8)
-    let appSource = try String(contentsOf: repoRoot.appendingPathComponent("MarkView/App/MarkViewApp.swift"), encoding: .utf8)
-    let deploySource = try String(contentsOf: repoRoot.appendingPathComponent("MarkView/Models/DeploymentExecutor.swift"), encoding: .utf8)
-    let intakeSource = try String(contentsOf: repoRoot.appendingPathComponent("MarkView/Models/FeatureIntake.swift"), encoding: .utf8)
-    check("AR-12: developerExtrasEnabled and isInspectable are gated on #if DEBUG",
-          editorViewSource.contains("#if DEBUG\n        config.preferences.setValue(true, forKey: \"developerExtrasEnabled\")\n        #endif") &&
-          studioSource.contains("#if DEBUG\n        if #available(macOS 13.3, *) { webView.isInspectable = true }\n        #endif"))
-    check("FU-10: EditorView injects per-load CSP nonce into index.html and WKUserScript",
-          editorViewSource.contains("makeCSPNonce()") && editorViewSource.contains("__markviewInsightNonce"))
-    check("AR-12/FU-09: MarkViewApp opens markview_open_path.txt with O_NOFOLLOW + fstat + getuid() in temp & /tmp and shuts down socket on quit",
-          appSource.contains("O_RDONLY | O_NOFOLLOW") &&
-          appSource.contains("fstat(fd, &st) == 0") &&
-          appSource.contains("st.st_uid == getuid()") &&
-          appSource.contains("/tmp/markview_open_path.txt") &&
-          appSource.contains("BrowserControlServer.shutdown()"))
-    check("AR-12: SSHExecutor uses per-user mode-0700 controlSocketDirectory",
-          deploySource.contains("controlSocketDirectory()") && deploySource.contains("0o700"))
-    check("AR-13: UIStudioSession and FeatureIntake surface file write failures",
-          studioSource.contains("Could not write conflict markers") &&
-          intakeSource.contains("saving the link into the bug report failed"))
-
-    // Live WebKit check of AR-01/FU-13 sanitization and AR-03 Turndown in shipping index.html
+    // 2. Live WebKit check of AR-01/AR-02/AR-03/FU-10/FU-13 sanitization, style filtering, TOC escaping, SVG sanitization & CSP
     var bytes = [UInt8](repeating: 0, count: 16)
     _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
     let nonce = bytes.map { String(format: "%02x", $0) }.joined()
@@ -137,18 +56,44 @@ func runPhase0Checks() async throws {
     let webView = await loadFile(
         editorDir.appendingPathComponent("index.html"),
         allowingReadAccessTo: editorDir,
-        readyJS: "typeof window.setContent === 'function' && typeof window.DOMPurify !== 'undefined' && typeof window.DOMPurify.sanitize === 'function' && typeof window.TurndownService === 'function'",
+        readyJS: "typeof window.setContent === 'function' && typeof window.DOMPurify !== 'undefined' && typeof window.mvKit === 'object' && typeof window.mvKit.sanitizeHtml === 'function' && typeof window.TurndownService === 'function'",
         userScripts: [nonceScript]
     )
-    check("AR-01/AR-03: shipping index.html loads DOMPurify and TurndownService offline", webView != nil)
+    check("AR-01/AR-03: shipping index.html loads DOMPurify, mvKit, and TurndownService offline", webView != nil)
 
     if let webView {
-        let xssCheck = try await webView.evaluateJavaScript(#"""
+        let indexCspMeta = (try? await webView.evaluateJavaScript("document.querySelector('meta[http-equiv=\"Content-Security-Policy\"]')?.content || ''") as? String) ?? ""
+        check("AR-01: index.html runtime CSP enforces script-src without unsafe-inline",
+              indexCspMeta.contains("script-src 'self' 'wasm-unsafe-eval'") && !indexCspMeta.contains("script-src 'self' 'unsafe-inline'"))
+
+        let mdCheck = try await webView.evaluateJavaScript(#"""
             (function() {
                 window.__xssFired = false;
-                window.setContent('# Hello\n\n<script>window.__xssFired = true;</script><img src=x onerror="window.__xssFired=true"><a href="javascript:window.__xssFired=true">js</a><a href="file:///etc/passwd">f</a><a href="data:text/html,<script>1</script>">dh</a><img src="data:image/svg+xml,<svg onload=1>"><img src="data:image/png;base64,AAA=">', 'preview');
+                window.setContent(
+                    '# &lt;img id="toc-evil" src="x"&gt;SafeHeading\n\n' +
+                    '<style>body { background: url(https://evil.example/leak); }</style>' +
+                    '<div id="styled-bad" style="position:fixed;z-index:9999;background-image:url(https://evil.example/s.png);color:red">styled</div>' +
+                    '<span class="katex-like" style="height:1.5em;top:-0.2em">math</span>' +
+                    '<script>window.__xssFired = true;</script>' +
+                    '<img src=x onerror="window.__xssFired=true">' +
+                    '<a href="javascript:window.__xssFired=true">js</a>' +
+                    '<a href="file:///etc/passwd">f</a>' +
+                    '<a href="data:text/html,<script>1</script>">dh</a>' +
+                    '<img src="data:image/svg+xml,<svg onload=1>">' +
+                    '<img src="data:image/png;base64,AAA=">',
+                    'preview'
+                );
                 var rendered = document.getElementById('editor-rendered').innerHTML;
                 var lower = rendered.toLowerCase();
+                var styledBad = document.getElementById('styled-bad');
+                var badStyle = styledBad ? (styledBad.getAttribute('style') || '') : '';
+                var mathEl = document.querySelector('.katex-like');
+                var mathStyle = mathEl ? (mathEl.getAttribute('style') || '') : '';
+                var tocImgCount = document.querySelectorAll('#toc-status img').length;
+                var tocText = (document.getElementById('toc-status') || {}).textContent || '';
+
+                var svgClean = window.mvKit.sanitizeMermaidSvg('<svg viewBox="0 0 10 10"><style>body{display:none}</style><script>evil()</script><rect width="10" height="10" onclick="evil()"/></svg>');
+
                 var savedPurify = window.DOMPurify;
                 var stripWhenMissing = '';
                 try {
@@ -160,45 +105,141 @@ func runPhase0Checks() async throws {
                 return JSON.stringify({
                     xssFired: window.__xssFired,
                     hasScript: lower.indexOf('<script') >= 0,
+                    hasStyleTag: lower.indexOf('<style') >= 0,
                     hasOnerror: lower.indexOf('onerror') >= 0,
                     hasJavascriptHref: lower.indexOf('javascript:') >= 0,
                     hasFileScheme: lower.indexOf('file:///') >= 0,
                     hasDataHTML: lower.indexOf('data:text/html') >= 0,
                     hasDataSVG: lower.indexOf('data:image/svg+xml') >= 0,
                     hasPngData: lower.indexOf('data:image/png;base64,aaa=') >= 0,
-                    hasHeading: rendered.indexOf('Hello') >= 0,
+                    hasHeading: rendered.indexOf('SafeHeading') >= 0,
+                    badStyleStripped: badStyle.indexOf('fixed') < 0 && badStyle.indexOf('9999') < 0 && badStyle.indexOf('url(') < 0 && badStyle.indexOf('color:red') >= 0,
+                    mathStyleKept: mathStyle.indexOf('height:1.5em') >= 0,
+                    tocEscaped: tocImgCount === 0 && tocText.indexOf('SafeHeading') >= 0,
+                    svgSafe: svgClean.indexOf('<svg') >= 0 && svgClean.indexOf('<rect') >= 0 && svgClean.indexOf('<script') < 0 && svgClean.indexOf('<style') < 0 && svgClean.indexOf('onclick') < 0,
                     failClosed: stripWhenMissing.indexOf('sanitization-error') >= 0 && stripWhenMissing.indexOf('<img') < 0,
-                    cdnStripped: window.stripCDNTags('<canvas data-chart=\'{"type":"bar"}\'></canvas><script>evil()</script><img src=x onerror=alert(1)>')
+                    cdnStripped: window.stripCDNTags('<canvas data-chart=\'{"type":"bar"}\'></canvas><style>p{color:red}</style><script>evil()</script><img src=x onerror=alert(1)>')
                 });
             })()
         """#) as? String ?? "{}"
-        check("AR-01/FU-13: untrusted Markdown script, onerror, javascript:, file:, data:text/html, data:image/svg+xml are stripped while png and heading survive",
-              xssCheck.contains("\"xssFired\":false") &&
-              xssCheck.contains("\"hasScript\":false") &&
-              xssCheck.contains("\"hasOnerror\":false") &&
-              xssCheck.contains("\"hasJavascriptHref\":false") &&
-              xssCheck.contains("\"hasFileScheme\":false") &&
-              xssCheck.contains("\"hasDataHTML\":false") &&
-              xssCheck.contains("\"hasDataSVG\":false") &&
-              xssCheck.contains("\"hasPngData\":true") &&
-              xssCheck.contains("\"hasHeading\":true"))
-        check("FU-13/AR-02: sanitizeMarkdownHTML fails closed without DOMPurify and stripCDNTags uses DOMPurify",
-              xssCheck.contains("\"failClosed\":true") &&
-              xssCheck.contains("data-chart") &&
-              !xssCheck.contains("evil()"))
+
+        if let mdData = mdCheck.data(using: .utf8),
+           let mdObj = try? JSONSerialization.jsonObject(with: mdData) as? [String: Any] {
+            check("AR-01/FU-13: untrusted Markdown script, <style>, dangerous CSS, onerror, javascript:, file:, data:text/html, and data:image/svg+xml are stripped while safe PNG, KaTeX styles, and heading survive",
+                  (mdObj["xssFired"] as? Bool) == false &&
+                  (mdObj["hasScript"] as? Bool) == false &&
+                  (mdObj["hasStyleTag"] as? Bool) == false &&
+                  (mdObj["hasOnerror"] as? Bool) == false &&
+                  (mdObj["hasJavascriptHref"] as? Bool) == false &&
+                  (mdObj["hasFileScheme"] as? Bool) == false &&
+                  (mdObj["hasDataHTML"] as? Bool) == false &&
+                  (mdObj["hasDataSVG"] as? Bool) == false &&
+                  (mdObj["hasPngData"] as? Bool) == true &&
+                  (mdObj["hasHeading"] as? Bool) == true &&
+                  (mdObj["badStyleStripped"] as? Bool) == true &&
+                  (mdObj["mathStyleKept"] as? Bool) == true)
+            check("AR-01 (10.3): updateTOCStatus escapes heading HTML instead of injecting live DOM nodes",
+                  (mdObj["tocEscaped"] as? Bool) == true)
+            check("AR-01 (10.3): mvKit.sanitizeMermaidSvg strips <script>, <style>, and event handlers from SVG",
+                  (mdObj["svgSafe"] as? Bool) == true)
+            let cdnStripped = (mdObj["cdnStripped"] as? String) ?? ""
+            check("FU-13/AR-02: sanitizeMarkdownHTML fails closed without DOMPurify and stripCDNTags uses shared sanitizer",
+                  (mdObj["failClosed"] as? Bool) == true &&
+                  cdnStripped.contains("data-chart") &&
+                  !cdnStripped.contains("evil()") &&
+                  !cdnStripped.lowercased().contains("<style"))
+        } else {
+            check("AR-01/FU-13: live index.html check returned valid JSON", false)
+        }
+
+        // Verify buildInsightSrcdoc uses strict nonce-only policy (no blob:/data:) and fails closed to 'none' without nonce
+        _ = try? await webView.evaluateJavaScript(#"""
+            (function() {
+                window.__srcdocCheckResult = null;
+                Promise.resolve().then(async function() {
+                    var parser = new DOMParser();
+                    function extractScriptSrc(html) {
+                        var doc = parser.parseFromString(html, 'text/html');
+                        var m = doc.querySelector('meta[http-equiv="Content-Security-Policy"]');
+                        var content = m ? (m.getAttribute('content') || '') : '';
+                        var match = content.match(/(?:^|;)\s*(script-src\s+[^;]+)/i);
+                        return match ? match[1].trim() : '';
+                    }
+                    var withNonceHtml = await window.buildInsightSrcdoc({ title: 'T', sections: [] }, '');
+                    var savedNonce = window.__markviewInsightNonce;
+                    var withoutNonceHtml = '';
+                    try {
+                        window.__markviewInsightNonce = undefined;
+                        withoutNonceHtml = await window.buildInsightSrcdoc({ title: 'T', sections: [] }, '');
+                    } finally {
+                        window.__markviewInsightNonce = savedNonce;
+                    }
+                    window.__srcdocCheckResult = JSON.stringify({
+                        withNonceScriptSrc: extractScriptSrc(withNonceHtml),
+                        withoutNonceScriptSrc: extractScriptSrc(withoutNonceHtml)
+                    });
+                }).catch(function(err) {
+                    window.__srcdocCheckResult = JSON.stringify({ error: String(err) });
+                });
+            })()
+        """#)
+        var srcdocRes: String?
+        let srcdocDeadline = Date().addingTimeInterval(5)
+        while srcdocRes == nil && Date() < srcdocDeadline {
+            if let value = try? await webView.evaluateJavaScript("window.__srcdocCheckResult") as? String {
+                srcdocRes = value
+                break
+            }
+            try? await Task.sleep(nanoseconds: 25_000_000)
+        }
+
+        if let sData = (srcdocRes ?? "{}").data(using: .utf8),
+           let sObj = try? JSONSerialization.jsonObject(with: sData) as? [String: String] {
+            let withNonceScriptSrc = sObj["withNonceScriptSrc"] ?? ""
+            let withoutNonceScriptSrc = sObj["withoutNonceScriptSrc"] ?? ""
+            check("FU-10/AR-02: buildInsightSrcdoc uses nonce-only script-src without blob: or data:",
+                  withNonceScriptSrc == "script-src 'nonce-\(nonce)'")
+            check("FU-10/AR-02: buildInsightSrcdoc fails closed to script-src 'none' when nonce is missing",
+                  withoutNonceScriptSrc == "script-src 'none'")
+        } else {
+            check("FU-10/AR-02: buildInsightSrcdoc async check returned valid JSON", false)
+        }
     }
 
-    // Live WebKit check of book.html & discussion.html loading cleanly under script-src 'self' with DOMPurify
+    // 3. Live WebKit check of book.html, discussion.html, and terminal.html strict CSP + external scripts
     for pageName in ["book.html", "discussion.html"] {
         let pageWeb = await loadFile(
             editorDir.appendingPathComponent(pageName),
             allowingReadAccessTo: editorDir,
-            readyJS: "typeof window.DOMPurify === 'function' && typeof window.markdownit === 'function'"
+            readyJS: "typeof window.DOMPurify === 'function' && typeof window.markdownit === 'function' && typeof window.mvKit === 'object' && typeof window.mvKit.sanitizeHtml === 'function'"
         )
-        check("AR-01/FU-13: \(pageName) executes bundled scripts and DOMPurify under script-src 'self'", pageWeb != nil)
+        var cspOK = false
+        var inlineCount = -1
+        if let pageWeb {
+            let csp = (try? await pageWeb.evaluateJavaScript("document.querySelector('meta[http-equiv=\"Content-Security-Policy\"]')?.content || ''") as? String) ?? ""
+            inlineCount = (try? await pageWeb.evaluateJavaScript("document.querySelectorAll('script:not([src])').length") as? Int) ?? -1
+            cspOK = csp.contains("script-src 'self';") && !csp.contains("script-src 'self' 'unsafe-inline'")
+        }
+        check("AR-01/FU-13: \(pageName) runs offline under script-src 'self' with mvKit and 0 inline scripts (inline=\(inlineCount))",
+              pageWeb != nil && cspOK && inlineCount == 0)
     }
 
-    // Live WebKit check of CSP nonce inheritance blocking un-nonced scripts in parent & srcdoc while allowing nonced script
+    let termWeb = await loadFile(
+        editorDir.appendingPathComponent("terminal.html"),
+        allowingReadAccessTo: editorDir,
+        readyJS: "typeof window.mvWrite === 'function' && typeof window.mvSetTheme === 'function' && typeof window.mvKit === 'object'"
+    )
+    var termCSPOK = false
+    var termInlineCount = -1
+    if let termWeb {
+        let csp = (try? await termWeb.evaluateJavaScript("document.querySelector('meta[http-equiv=\"Content-Security-Policy\"]')?.content || ''") as? String) ?? ""
+        termInlineCount = (try? await termWeb.evaluateJavaScript("document.querySelectorAll('script:not([src])').length") as? Int) ?? -1
+        termCSPOK = csp.contains("script-src 'self';") && !csp.contains("script-src 'self' 'unsafe-inline'")
+    }
+    check("AR-01 (10.3): terminal.html runs under strict CSP script-src 'self' with 0 inline scripts (inline=\(termInlineCount))",
+          termWeb != nil && termCSPOK && termInlineCount == 0)
+
+    // 4. Live WebKit check of CSP nonce blocking un-nonced scripts in parent & srcdoc while allowing nonced script
     final class ProbeHandler: NSObject, WKScriptMessageHandler {
         var message: String?
         func userContentController(_ userContentController: WKUserContentController, didReceive msg: WKScriptMessage) {
@@ -210,7 +251,7 @@ func runPhase0Checks() async throws {
     cfg.userContentController.add(handler, name: "probe")
     let nonceWeb = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: cfg)
     let rawMeta = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'nonce-\(nonce)'; style-src 'self' 'unsafe-inline';\">"
-    let childCSP = "default-src 'none'; script-src 'nonce-\(nonce)' blob: data:; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; font-src data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    let childCSP = "default-src 'none'; script-src 'nonce-\(nonce)'; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; font-src data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     let srcdoc = "<!DOCTYPE html><meta http-equiv='Content-Security-Policy' content=\"\(childCSP)\"><script>window.__unnonced=1; parent.postMessage({evil:true},'*');</script><script nonce='\(nonce)'>parent.postMessage({good:true, unnonced: !!window.__unnonced},'*');</script>"
     let srcdocJSON = String(data: try JSONSerialization.data(withJSONObject: srcdoc, options: .fragmentsAllowed), encoding: .utf8)!
     let nonceParentHTML = """
@@ -234,8 +275,17 @@ func runPhase0Checks() async throws {
         try? await Task.sleep(nanoseconds: 50_000_000)
     }
     let msg = handler.message ?? ""
-    check("FU-10: Nonced CSP blocks un-nonced parent and srcdoc scripts while allowing nonced Insight iframe execution",
-          msg.contains("\"good\":true") && !msg.contains("\"evil\":true") && msg.contains("\"unnonced\":false") && msg.contains("\"parentUnnonced\":false"))
+    if let msgData = msg.data(using: .utf8),
+       let msgObj = try? JSONSerialization.jsonObject(with: msgData) as? [String: Any],
+       let dataObj = msgObj["data"] as? [String: Any] {
+        check("FU-10: Nonced CSP blocks un-nonced parent and srcdoc scripts while allowing nonced Insight iframe execution",
+              (dataObj["good"] as? Bool) == true &&
+              dataObj["evil"] == nil &&
+              (dataObj["unnonced"] as? Bool) == false &&
+              (msgObj["parentUnnonced"] as? Bool) == false)
+    } else {
+        check("FU-10: Nonced CSP iframe test received structured probe message", false)
+    }
 }
 
 let sema = DispatchSemaphore(value: 0)

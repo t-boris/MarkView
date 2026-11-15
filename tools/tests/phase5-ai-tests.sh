@@ -28,13 +28,14 @@ cp "$ROOT/tools/tests/Phase5AITests.swift" "$out/main.swift"
 
 swiftc -o "$out/phase5-tests" \
     "$ROOT"/Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    "$ROOT/MarkView/Models/AIAssistants.swift" \
-    "$ROOT/MarkView/Models/AILayer.swift" \
-    "$ROOT/MarkView/Models/ProjectColor.swift" \
-    "$ROOT/MarkView/Models/LinkedFolders.swift" \
-    "$ROOT/MarkView/Models/AICallLog.swift" \
-    "$ROOT/MarkView/Models/CLICompletion.swift" \
-    "$ROOT/MarkView/Models/AgentProcesses.swift" \
+    "$ROOT/MarkView/Models/AI/AIAssistants.swift" \
+    "$ROOT/MarkView/Models/AI/AIOperation.swift" \
+    "$ROOT/MarkView/Models/AI/AssistantProviderRegistry.swift" \
+    "$ROOT/MarkView/Models/Appearance/ProjectColor.swift" \
+    "$ROOT/MarkView/Models/Workspace/LinkedFolders.swift" \
+    "$ROOT/MarkView/Models/AI/AICallLog.swift" \
+    "$ROOT/MarkView/Models/AI/CLICompletion.swift" \
+    "$ROOT/MarkView/Models/AI/AgentProcesses.swift" \
     "$out/Stub.swift" \
     "$out/main.swift"
 

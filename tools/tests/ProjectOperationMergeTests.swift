@@ -1,5 +1,5 @@
 // Checks what Re-discover does to operations that are already in .markview/operations.json
-// (ProjectOperation.merged / hasUserChanges in MarkView/Models/ProjectOperation.swift, BUG-036):
+// (ProjectOperation.merged / hasUserChanges in MarkView/Models/ProjectOps/ProjectOperation.swift, BUG-036):
 // an operation the user has not changed is refreshed, every single-field edit survives, user-added
 // and deleted operations are left alone, and the stored file layout stays compatible.
 // The same checks also run against a copy of the rule that was in the store before the fix; they

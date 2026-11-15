@@ -1,7 +1,7 @@
 import AppKit
 import WebKit
 
-// Checks the data viewers and JSON/YAML editing (MarkView/Resources/Editor/vendor/js/markview-data.js,
+// Checks the data viewers and JSON/YAML editing (MarkView/Resources/Editor/js/markview-data.js,
 // markview-structured.js) in a real WKWebView with the shipping editor page, the bundled libraries
 // and a `markview-data:` handler like the app's. Compiled by tools/tests/data-viewers-tests.sh;
 // needs a GUI session. Fixtures: tools/tests/fixtures/data.

@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 M=MarkView/Models
-base=("$M/FeatureVocabulary.swift" "$M/IssueListing.swift" "$M/ProjectWorkflow.swift" "$M/IssueLifecycle.swift" tools/tests/IssueChecksSupport.swift)
+base=("$M/Lifecycle/FeatureVocabulary.swift" "$M/Lifecycle/IssueListing.swift" "$M/Lifecycle/ProjectWorkflow.swift" "$M/Lifecycle/IssueLifecycle.swift" tools/tests/IssueChecksSupport.swift)
 
 run() {  # name, checks file, extra sources...
     local name=$1 checks=$2; shift 2
@@ -23,19 +23,19 @@ run() {  # name, checks file, extra sources...
 run_suite() {
     local suite=$1
     case $suite in
-        workflow)   run workflow ProjectWorkflowChecks.swift "$M/IssueLifecycleEvidence.swift" "$M/WorkflowFlow.swift" "$M/WorkflowTemplate.swift" "$M/ProjectWorkflowStore.swift" ;;
-        events)     run events WorkflowEventChecks.swift "$M/WorkflowEvents.swift" ;;
-        description) run description WorkflowDescriptionChecks.swift "$M/WorkflowEvents.swift" "$M/WorkflowDescription.swift" ;;
-        proposal)   run proposal WorkflowProposalChecks.swift "$M/WorkflowEvents.swift" "$M/WorkflowDescription.swift" "$M/WorkflowProposal.swift" "$M/ProjectWorkflowStore.swift" "$M/IssueLifecycleEvidence.swift" "$M/WorkflowFlow.swift" "$M/WorkflowTemplate.swift" ;;
+        workflow)   run workflow ProjectWorkflowChecks.swift "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$M/Lifecycle/ProjectWorkflowStore.swift" ;;
+        events)     run events WorkflowEventChecks.swift "$M/Lifecycle/WorkflowEvents.swift" ;;
+        description) run description WorkflowDescriptionChecks.swift "$M/Lifecycle/WorkflowEvents.swift" "$M/Lifecycle/WorkflowDescription.swift" ;;
+        proposal)   run proposal WorkflowProposalChecks.swift "$M/Lifecycle/WorkflowEvents.swift" "$M/Lifecycle/WorkflowDescription.swift" "$M/Lifecycle/WorkflowProposal.swift" "$M/Lifecycle/ProjectWorkflowStore.swift" "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" ;;
         policy)     run policy IssueLifecyclePolicyChecks.swift ;;
-        log)        run log IssueTransitionLogChecks.swift "$M/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/WorkflowEvents.swift" ;;
-        evidence)   run evidence IssueEvidenceChecks.swift "$M/IssueLifecycleEvidence.swift" ;;
-        collector) swiftc -parse-as-library -O -o "$out/collector" "${base[@]}" "$M/IssueLifecycleEvidence.swift" "$M/IssueEvidenceCollector.swift" tools/tests/IssueCollectorChecks.swift; "$out/collector" ;;
-        completion) run completion IssueCompletionChecks.swift "$M/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/IssueCompletion.swift" "$M/IssueReconciler.swift" ;;
-        github)     run github IssueGitHubSyncChecks.swift "$M/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/IssueCompletion.swift" "$M/IssueSync.swift" "$M/IssueGitHubSync.swift" ;;
-        context)    run context IssueContextChecks.swift "$M/IssueTransitionLog.swift" "$M/IssueCompletion.swift" "$M/IssueLifecycleContext.swift" ;;
-        display)    run display IssueDisplayChecks.swift "$M/IssueTransitionLog.swift" "$M/IssueLifecycleDisplay.swift" ;;
-        store)      run store IssueStoreChecks.swift "$M/FrontMatter.swift" "$M/IssueTransitionLog.swift" "$M/IssueCompletion.swift" "$M/IssueReconciler.swift" "$M/MarkdownIssueStatusStore.swift" ;;
+        log)        run log IssueTransitionLogChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/Lifecycle/WorkflowEvents.swift" ;;
+        evidence)   run evidence IssueEvidenceChecks.swift "$M/Lifecycle/IssueLifecycleEvidence.swift" ;;
+        collector) swiftc -parse-as-library -O -o "$out/collector" "${base[@]}" "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/IssueEvidenceCollector.swift" tools/tests/IssueCollectorChecks.swift; "$out/collector" ;;
+        completion) run completion IssueCompletionChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueReconciler.swift" ;;
+        github)     run github IssueGitHubSyncChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueSync.swift" "$M/Lifecycle/IssueGitHubSync.swift" ;;
+        context)    run context IssueContextChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueLifecycleContext.swift" ;;
+        display)    run display IssueDisplayChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueLifecycleDisplay.swift" ;;
+        store)      run store IssueStoreChecks.swift "$M/Workspace/FrontMatter.swift" "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueReconciler.swift" "$M/Lifecycle/MarkdownIssueStatusStore.swift" ;;
         *) echo "unknown suite $suite"; exit 2 ;;
     esac
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-// Checks for MarkView/Models/QARunRetention.swift, QARunCleanup.swift and the run deletion of QAStore.swift (feature end-to-end-qa, Q-010),
+// Checks for MarkView/Models/QA/QARunRetention.swift, QARunCleanup.swift and the run deletion of QAStore.swift (feature end-to-end-qa, Q-010),
 // run by tools/tests/qa-retention-tests.sh. The rule is checked on plain values, with deliberately wrong rules that the same checks must
 // reject; the deletion on real folders in a temp directory (including links that lead out of the runs folder); the whole path on a fake
 // bug sink and on bug files that are really on disk. Temp folders only.

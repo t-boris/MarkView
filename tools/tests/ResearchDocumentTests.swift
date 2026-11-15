@@ -1,4 +1,4 @@
-// Checks the research document format (MarkView/Models/ResearchDocument.swift) against REQ-002…005
+// Checks the research document format (MarkView/Models/Research/ResearchDocument.swift) against REQ-002…005
 // and DEC-006, DEC-007, DEC-008, DEC-013, DEC-014, DEC-016 and DEC-017.
 import Foundation
 

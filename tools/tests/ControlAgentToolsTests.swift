@@ -1,6 +1,6 @@
 import Foundation
 
-// Checks the control tools an outside agent uses to run MarkView (MarkView/Models/ControlAgentTools.swift): the tool
+// Checks the control tools an outside agent uses to run MarkView (MarkView/Models/AgentTools/ControlAgentTools.swift): the tool
 // list, window and terminal choice, keys, waits, the advice on what to do next, the MCP answers, and real
 // `--mcp-control` processes against stand-ins for the app — including "no app" and two running MarkViews.
 // Compiled by tools/tests/control-agent-tools-tests.sh.

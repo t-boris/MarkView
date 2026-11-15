@@ -1,6 +1,6 @@
-// Checks the browser tab's pure rules (MarkView/Models/WebAppPreview.swift, WebClip.swift,
+// Checks the browser tab's pure rules (MarkView/Models/Workspace/WebAppPreview.swift, WebClip.swift,
 // BrowserAddress in BrowserSession.swift) and runs the page-to-Markdown converter
-// (Resources/Editor/vendor/js/markview-page-markdown.js) in a real WKWebView.
+// (Resources/Editor/js/markview-page-markdown.js) in a real WKWebView.
 import AppKit
 import Foundation
 import WebKit
@@ -114,7 +114,7 @@ check("incomplete and false ready lines ignored", WebAppPreview.firstLocalURL(in
 
 // MARK: Electron apps run as web only
 
-WebAppPreview.webOnlyLauncher = URL(fileURLWithPath: "/Applications/Mark View.app/Contents/Resources/Editor/vendor/js/markview-web-only.mjs")
+WebAppPreview.webOnlyLauncher = URL(fileURLWithPath: "/Applications/Mark View.app/Contents/Resources/Editor/js/markview-web-only.mjs")
 write("desk-ev/package.json", #"{"scripts":{"dev":"electron-vite dev","start":"electron-vite preview","typecheck:web":"tsc --noEmit"},"devDependencies":{"electron":"31","electron-vite":"2","vite":"5"}}"#)
 write("desk-ev/electron.vite.config.ts", "export default { renderer: { server: { port: 5300 } } }")
 write("desk-script/package.json", #"{"scripts":{"dev":"concurrently \"vite\" \"wait-on tcp:5173 && electron .\"","dev:renderer":"vite --port 4300"},"devDependencies":{"electron":"31","vite":"5"}}"#)
@@ -125,7 +125,7 @@ write("desk-forge/vite.renderer.config.mts", "export default {}")
 write("desk-none/package.json", #"{"scripts":{"start":"electron ."},"devDependencies":{"electron":"31"}}"#)
 let electronTargets = WebAppPreview.targets(root: tmp)
 let ev = electronTargets.first { $0.label.hasPrefix("desk-ev") }
-check("electron-vite: renderer through the launcher, quoted", ev?.command == "node '/Applications/Mark View.app/Contents/Resources/Editor/vendor/js/markview-web-only.mjs' electron-vite" && ev?.isElectron == true && ev?.label == "desk-ev (web only)" && ev?.ports.first == 5300, "\(String(describing: ev))")
+check("electron-vite: renderer through the launcher, quoted", ev?.command == "node '/Applications/Mark View.app/Contents/Resources/Editor/js/markview-web-only.mjs' electron-vite" && ev?.isElectron == true && ev?.label == "desk-ev (web only)" && ev?.ports.first == 5300, "\(String(describing: ev))")
 let scripted = electronTargets.first { $0.label.hasPrefix("desk-script") }
 check("a web-only script is used as is", scripted?.command == "npm run dev:renderer" && scripted?.ports.first == 4300 && scripted?.isElectron == true, "\(String(describing: scripted))")
 let vpe = electronTargets.first { $0.label.hasPrefix("desk-vpe") }
@@ -407,7 +407,7 @@ print(a)</code></pre>
 """
 
 MainActor.assumeIsolated {
-    BrowserSession.captureScriptURL = URL(fileURLWithPath: "MarkView/Resources/Editor/vendor/js/markview-page-markdown.js")
+    BrowserSession.captureScriptURL = URL(fileURLWithPath: "MarkView/Resources/Editor/js/markview-page-markdown.js")
     let session = BrowserSession(url: nil)
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
     window.contentView = session.webView

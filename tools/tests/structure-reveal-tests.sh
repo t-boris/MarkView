@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs the editor page's revealStructure (MarkView/Resources/Editor/vendor/js/markview-structured.js)
+# Runs the editor page's revealStructure (MarkView/Resources/Editor/js/markview-structured.js)
 # against a tree shaped like the JSON / YAML viewer's output, in a WKWebView.
 #   tools/tests/structure-reveal-tests.sh
 set -euo pipefail

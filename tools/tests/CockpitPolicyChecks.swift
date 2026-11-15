@@ -1,6 +1,6 @@
 import Foundation
 
-// Checks for MarkView/Models/CockpitStepPolicy.swift and the controls of CockpitPlan.swift, run by tools/tests/cockpit-policy-tests.sh
+// Checks for MarkView/Models/Cockpit/CockpitStepPolicy.swift and the controls of CockpitPlan.swift, run by tools/tests/cockpit-policy-tests.sh
 // from the repository root. Nothing touches the app: the tool names are read from the sources that declare them.
 
 func controls(_ edit: (inout CockpitControls) -> Void = { _ in }) -> CockpitControls {
@@ -26,7 +26,7 @@ func allowed(_ policy: CockpitStepPolicy, _ tool: String, _ arguments: [String: 
 let sources = ["ProjectAgentTools", "ControlAgentTools", "DeploymentAgentTools", "DiscussionAgentTools"]
 var declared: Set<String> = []
 for source in sources {
-    let text = (try? String(contentsOfFile: "MarkView/Models/\(source).swift", encoding: .utf8)) ?? ""
+    let text = (try? String(contentsOfFile: "MarkView/Models/AgentTools/\(source).swift", encoding: .utf8)) ?? ""
     let pattern = try! NSRegularExpression(pattern: #"tool\("(markview_[a-z_]+)""#)
     for match in pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
         if let range = Range(match.range(at: 1), in: text) { declared.insert(String(text[range])) }

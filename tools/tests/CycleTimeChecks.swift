@@ -1,6 +1,6 @@
 import Foundation
 
-// Checks for MarkView/Models/CycleTime.swift and CycleTimeReport.swift (feature cycle-time-as-a-view-over-the-workflow), run by
+// Checks for MarkView/Models/Lifecycle/CycleTime.swift and CycleTimeReport.swift (feature cycle-time-as-a-view-over-the-workflow), run by
 // tools/tests/cycle-time-tests.sh. Fixtures are journal records; nothing touches a file but the settings round trip in a temp folder.
 
 var calendar = Calendar(identifier: .gregorian)

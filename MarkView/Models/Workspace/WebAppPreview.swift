@@ -1,0 +1,571 @@
+import Foundation
+
+/// A web application of the project that can be previewed: where it is, the command that
+/// starts its development server, and the ports it is expected to answer on.
+struct WebAppTarget: Equatable {
+    /// The folder of the app (the project root or one of its packages).
+    var folder: URL
+    /// Shown when the project holds several apps ("web", "apps/site").
+    var label: String
+    /// Typed into a terminal in `folder`, e.g. `npm run dev`.
+    var command: String
+    /// Ports named by the scripts or the config first, then the framework's default.
+    var ports: [Int]
+    /// An Electron app run as a web page only: Electron is never started, and the browser tab
+    /// stands in for its preload APIs (`window.electron`, `window.api`, …).
+    var isElectron = false
+    /// Isolated servers must be started by this session, never attached to another process.
+    var reuseRunningServer = true
+    /// The target owns a separate test database and its same-origin API may use it.
+    var usesIsolatedBackend = false
+}
+
+/// Finds the project's web apps and their development servers (Preview Web App).
+enum WebAppPreview {
+    /// Ports tried when the project gives no hint: Vite, Next / CRA / Rails, Angular,
+    /// Vue CLI / webpack, Astro, Django, Flask, Storybook, Parcel.
+    static let commonPorts = [5173, 3000, 4200, 8080, 4321, 8000, 5000, 6006, 1234, 3001, 5174, 8081]
+
+    // MARK: - Discovery
+
+    /// Apps in the project root and up to two levels down (`web/`, `apps/site/`), the root first, then the packages of
+    /// the JavaScript workspaces declared deeper in the tree (`workspacePackages`, BUG-055).
+    static func targets(root: URL, fileManager: FileManager = .default) -> [WebAppTarget] {
+        var folders = [root]
+        for child in subfolders(of: root, fileManager) {
+            folders.append(child)
+            folders.append(contentsOf: subfolders(of: child, fileManager))
+        }
+        var known = Set(folders.map { $0.standardizedFileURL.path })
+        for member in workspacePackages(root: root, fileManager: fileManager) where known.insert(member.standardizedFileURL.path).inserted {
+            folders.append(member)
+        }
+        return folders.compactMap { target(in: $0, root: root, fileManager: fileManager) }
+    }
+
+    /// Folders that never hold a project's own apps.
+    private static let skippedFolders: Set<String> = ["node_modules", "build", "dist", "out", "target", "vendor", "Pods", ".git", "DerivedData"]
+
+    private static func subfolders(of folder: URL, _ fileManager: FileManager) -> [URL] {
+        ((try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey],
+                                               options: [.skipsHiddenFiles])) ?? [])
+            .filter { !skippedFolders.contains($0.lastPathComponent) && isFolder($0) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    private static func isFolder(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+
+    // MARK: - Workspaces
+
+    /// How far below the project root a workspace declaration is looked for (`apps/strikedesk/app` is three levels down).
+    static let workspaceDepth = 4
+    /// At most this many folders are listed while looking for workspaces, shallowest first, so a huge tree cannot stall the discovery.
+    private static let workspaceScanLimit = 400
+    /// At most this many packages are taken from one workspace declaration.
+    private static let workspaceMemberLimit = 200
+
+    /// The packages of every workspace declared in `root` or up to `workspaceDepth` levels below it: the `packages:` of
+    /// a `pnpm-workspace.yaml` and the `workspaces` of a `package.json`, with their globs expanded. An app of a monorepo
+    /// usually lives there (`apps/strikedesk/app/packages/shell`), deeper than the plain two-level scan reaches.
+    static func workspacePackages(root: URL, fileManager: FileManager = .default) -> [URL] {
+        var members: [URL] = []
+        var queue: [(folder: URL, depth: Int)] = [(root, 0)]
+        var index = 0
+        while index < queue.count, index < workspaceScanLimit {
+            let (folder, depth) = queue[index]
+            index += 1
+            members += workspaceMembers(of: folder, fileManager)
+            if depth < workspaceDepth { queue += subfolders(of: folder, fileManager).map { ($0, depth + 1) } }
+        }
+        var seen = Set<String>()
+        return members.filter { seen.insert($0.standardizedFileURL.path).inserted }.sorted { $0.path < $1.path }
+    }
+
+    private static func workspaceMembers(of folder: URL, _ fileManager: FileManager) -> [URL] {
+        var patterns: [String] = []
+        if let text = try? String(contentsOf: folder.appendingPathComponent("pnpm-workspace.yaml"), encoding: .utf8) {
+            patterns += yamlList(named: "packages", in: text)
+        }
+        if let package = readJSON(folder.appendingPathComponent("package.json")) {
+            if let list = package["workspaces"] as? [String] {
+                patterns += list
+            } else if let list = (package["workspaces"] as? [String: Any])?["packages"] as? [String] {
+                patterns += list
+            }
+        }
+        let includes = patterns.filter { !$0.hasPrefix("!") }
+        guard !includes.isEmpty else { return [] }
+        let excluded = Set(patterns.filter { $0.hasPrefix("!") }.flatMap { expand(String($0.dropFirst()), in: folder, fileManager) }
+            .map { $0.standardizedFileURL.path })
+        return includes.flatMap { expand($0, in: folder, fileManager) }
+            .filter { !excluded.contains($0.standardizedFileURL.path) }
+            .prefix(workspaceMemberLimit).map { $0 }
+    }
+
+    /// The folders a workspace glob names, relative to `folder`: `packages/*`, `apps/**`, `libs/ui-*`, `tools/cli`.
+    private static func expand(_ pattern: String, in folder: URL, _ fileManager: FileManager) -> [URL] {
+        var text = pattern.trimmingCharacters(in: .whitespaces)
+        while text.hasPrefix("./") { text.removeFirst(2) }
+        while text.hasSuffix("/") { text.removeLast() }
+        let segments = text.split(separator: "/").map(String.init)
+        guard !segments.isEmpty, !segments.contains("..") else { return [] }
+        func match(_ current: URL, _ segments: ArraySlice<String>, _ levels: Int) -> [URL] {
+            guard let first = segments.first else { return [current] }
+            let rest = segments.dropFirst()
+            if first == "**" {
+                // Zero or more folders, a few levels at most.
+                var found = match(current, rest, levels)
+                if levels < 3 { for child in subfolders(of: current, fileManager) { found += match(child, segments, levels + 1) } }
+                return found
+            }
+            if first.contains(where: { "*?[".contains($0) }) {
+                return subfolders(of: current, fileManager).filter { fnmatch(first, $0.lastPathComponent, 0) == 0 }
+                    .flatMap { match($0, rest, levels) }
+            }
+            let child = current.appendingPathComponent(first)
+            return isFolder(child) ? match(child, rest, levels) : []
+        }
+        return match(folder, segments[...], 0)
+    }
+
+    /// The `- item` lines under a top-level `key:` of a small YAML file such as pnpm-workspace.yaml, or an inline
+    /// `key: [a, b]`. Quotes and comments are dropped; nothing else of YAML is understood.
+    static func yamlList(named key: String, in text: String) -> [String] {
+        func unquoted(_ item: some StringProtocol) -> String {
+            item.trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"'")))
+        }
+        var items: [String] = []
+        var inside = false
+        for raw in text.components(separatedBy: .newlines) {
+            let line = raw.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? raw
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { continue }
+            if trimmed.hasPrefix("-") {
+                if inside { items.append(unquoted(trimmed.dropFirst())) }
+            } else if line.first?.isWhitespace == false {
+                inside = false
+                guard trimmed.hasPrefix(key + ":") else { continue }
+                let rest = trimmed.dropFirst(key.count + 1).trimmingCharacters(in: .whitespaces)
+                if rest.hasPrefix("[") {
+                    items += rest.dropFirst().prefix { $0 != "]" }.split(separator: ",").map { unquoted($0) }
+                } else if rest.isEmpty {
+                    inside = true
+                }
+            }
+        }
+        return items.filter { !$0.isEmpty }
+    }
+
+    /// The app in `folder`, when it has a recognised development server.
+    static func target(in folder: URL, root: URL, fileManager: FileManager = .default) -> WebAppTarget? {
+        let relative = folder.standardizedFileURL.path.dropFirst(root.standardizedFileURL.path.count)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let label = relative.isEmpty ? root.lastPathComponent : relative
+        if let configured = configuredTarget(in: folder, label: label) { return configured }
+        if let package = readJSON(folder.appendingPathComponent("package.json")),
+           let target = nodeTarget(package, folder: folder, root: root, label: label, fileManager: fileManager) {
+            return target
+        }
+        let exists = { (name: String) in fileManager.fileExists(atPath: folder.appendingPathComponent(name).path) }
+        if exists("manage.py") {
+            return WebAppTarget(folder: folder, label: label, command: python(folder, fileManager) + " manage.py runserver", ports: [8000])
+        }
+        if let target = pythonTarget(in: folder, label: label, fileManager: fileManager) { return target }
+        if exists("artisan") {
+            return WebAppTarget(folder: folder, label: label, command: "php artisan serve --host=127.0.0.1 --port=8000", ports: [8000])
+        }
+        if let target = dotnetTarget(in: folder, label: label, fileManager: fileManager) { return target }
+        if exists("bin/rails") {
+            return WebAppTarget(folder: folder, label: label, command: "bin/rails server", ports: [3000])
+        }
+        if exists("index.html") && !exists("package.json") && folder == root {
+            // A static site: serve the folder.
+            return WebAppTarget(folder: folder, label: label, command: "python3 -m http.server 8000", ports: [8000])
+        }
+        return nil
+    }
+
+    /// An explicit project-local command makes other servers available without guessing how to start them.
+    /// The command is trusted project code, just like a package.json development script.
+    private static func configuredTarget(in folder: URL, label: String) -> WebAppTarget? {
+        guard let config = readJSON(folder.appendingPathComponent(".markview/preview.json")),
+              let command = config["command"] as? String,
+              !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              command.utf8.count <= 4096,
+              let values = config["ports"] as? [Int], values.count <= 20,
+              values.allSatisfy({ (1...65535).contains($0) }) else { return nil }
+        let reuse = config["reuseRunningServer"] as? Bool ?? true
+        guard !values.isEmpty || !reuse else { return nil }
+        return WebAppTarget(folder: folder, label: label, command: command, ports: unique(values), reuseRunningServer: reuse)
+    }
+
+    private static func python(_ folder: URL, _ fileManager: FileManager) -> String {
+        for path in [".venv/bin/python", "venv/bin/python"] where fileManager.isExecutableFile(atPath: folder.appendingPathComponent(path).path) {
+            return "./" + path
+        }
+        return "python3"
+    }
+
+    /// Recognise common Python entry points only when their source declares an application instance. A project that
+    /// needs a factory, nonstandard module, or extra arguments can declare its command in .markview/preview.json.
+    private static func pythonTarget(in folder: URL, label: String, fileManager: FileManager) -> WebAppTarget? {
+        let interpreter = python(folder, fileManager)
+        // Titanium's console command opens the operator's real database by default and starts background jobs. Give
+        // this particular application its own persisted workshop and an OS-assigned port, never attach to the real one.
+        let manifest = (try? String(contentsOf: folder.appendingPathComponent("pyproject.toml"), encoding: .utf8)) ?? ""
+        let titanium = folder.appendingPathComponent(".venv/bin/titanium-platform")
+        if manifest.range(of: #"(?m)^\s*name\s*=\s*["']titanium-color-engraving-platform["']\s*$"#, options: .regularExpression) != nil,
+           fileManager.isExecutableFile(atPath: titanium.path) {
+            return WebAppTarget(folder: folder, label: label,
+                                command: "./.venv/bin/titanium-platform --data-dir .dde/studio/titanium-data --port 0",
+                                ports: [], reuseRunningServer: false, usesIsolatedBackend: true)
+        }
+        for module in ["app", "main", "server", "wsgi"] {
+            let url = folder.appendingPathComponent(module + ".py")
+            guard let text = try? String(contentsOf: url, encoding: .utf8), text.utf8.count <= 1_000_000 else { continue }
+            if text.range(of: #"(?m)^app\s*(?::[^=\n]+)?=\s*(?:\w+\.)?(?:FastAPI|Starlette)\s*\("#, options: .regularExpression) != nil {
+                return WebAppTarget(folder: folder, label: label,
+                                    command: interpreter + " -m uvicorn " + module + ":app --host 127.0.0.1 --port 8000", ports: [8000])
+            }
+            if text.range(of: #"(?m)^app\s*(?::[^=\n]+)?=\s*(?:\w+\.)?Flask\s*\("#, options: .regularExpression) != nil {
+                return WebAppTarget(folder: folder, label: label,
+                                    command: interpreter + " -m flask --app " + module + " run --host 127.0.0.1 --port 5000", ports: [5000])
+            }
+        }
+        return nil
+    }
+
+    /// A single ASP.NET Web SDK project is unambiguous. Multiple projects need an explicit command.
+    private static func dotnetTarget(in folder: URL, label: String, fileManager: FileManager) -> WebAppTarget? {
+        let files = ((try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension.lowercased() == "csproj" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let projects = files.filter { url in
+            guard let text = try? String(contentsOf: url, encoding: .utf8), text.utf8.count <= 1_000_000 else { return false }
+            return text.contains("Microsoft.NET.Sdk.Web")
+        }
+        guard projects.count == 1, let project = projects.first else { return nil }
+        let command = "dotnet run --project " + shellQuoted(project.lastPathComponent)
+            + " --no-launch-profile --urls http://127.0.0.1:5000"
+        return WebAppTarget(folder: folder, label: label, command: command, ports: [5000])
+    }
+
+    private static func nodeTarget(_ package: [String: Any], folder: URL, root: URL, label: String,
+                                   fileManager: FileManager) -> WebAppTarget? {
+        let scripts = package["scripts"] as? [String: String] ?? [:]
+        let dependencies = ((package["dependencies"] as? [String: Any]) ?? [:])
+            .merging((package["devDependencies"] as? [String: Any]) ?? [:]) { first, _ in first }
+        let manager = packageManager(folder, root: root, fileManager)
+        if ["electron", "electron-vite", "@electron-forge/cli", "electron-builder", "vite-plugin-electron"].contains(where: { dependencies[$0] != nil }) {
+            // These Vite plugins start Electron from a plain `vite`, so no vite script is web only.
+            let pluginStartsElectron = ["vite-plugin-electron", "vite-electron-plugin", "vite-plugin-electron-builder"]
+                .contains { dependencies[$0] != nil }
+            return electronTarget(scripts: scripts, folder: folder, label: label, manager: manager,
+                                  viteStartsElectron: pluginStartsElectron, fileManager: fileManager)
+        }
+        guard let name = ["dev", "start", "serve", "develop", "preview"].first(where: { scripts[$0] != nil }),
+              let script = scripts[name] else { return nil }
+        // A library or a CLI also has "start"; a web app names a web framework or server.
+        let web = ["vite", "next", "react-scripts", "@angular/core", "@vue/cli-service", "nuxt", "astro",
+                   "@sveltejs/kit", "svelte", "@remix-run/dev", "gatsby", "parcel", "webpack-dev-server",
+                   "express", "fastify", "koa", "@nestjs/core", "hono", "solid-start", "@builder.io/qwik",
+                   "@docusaurus/core", "vitepress", "@storybook/react", "http-server", "serve", "live-server",
+                   "@rspack/cli", "@rsbuild/core"]
+        let isWeb = web.contains { dependencies[$0] != nil }
+            || ["vite", "next", "ng serve", "nuxt", "astro", "webpack", "parcel", "remix", "gatsby",
+                "rspack serve", "rspack dev", "rsbuild dev"].contains { script.contains($0) }
+        guard isWeb else { return nil }
+        var ports = explicitPorts(in: script) + configPorts(folder: folder, files: webConfigFiles + configFiles(in: script))
+        ports += defaultPorts(script: script, dependencies: Set(dependencies.keys))
+        return WebAppTarget(folder: folder, label: label, command: runCommand(name, manager: manager), ports: unique(ports))
+    }
+
+    private static let webConfigFiles = ["vite.config.ts", "vite.config.js", "vite.config.mjs", "vite.config.mts", "angular.json",
+                                         "astro.config.mjs", "astro.config.ts", "nuxt.config.ts", "vue.config.js",
+                                         "rspack.config.ts", "rspack.config.js", "rspack.config.mjs", "rsbuild.config.ts",
+                                         "rsbuild.config.js", "rsbuild.config.mjs", "rsbuild.config.mts"]
+
+    /// The config file a script names: `rspack serve -c rspack.renderer.config.ts`, `webpack serve --config=x.js`.
+    static func configFiles(in script: String) -> [String] {
+        let pattern = #"(?:^|\s)(?:-c|--config)(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s"']+))"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(script.startIndex..., in: script)
+        return regex.matches(in: script, range: range).compactMap { match in
+            (1...3).lazy.compactMap { Range(match.range(at: $0), in: script).map { String(script[$0]) } }.first
+        }.filter { !$0.hasPrefix("/") && !$0.contains("..") }
+    }
+
+    // MARK: - Electron
+
+    /// Script names that usually serve an Electron app's renderer on its own, tried first.
+    static let webOnlyScriptNames = ["dev:web", "web", "dev:renderer", "renderer", "start:renderer", "dev:vite", "vite",
+                                     "start:web", "serve:web", "dev:browser", "browser"]
+
+    /// The web part of an Electron app: a script that serves it without Electron, else its Vite
+    /// renderer served by MarkView's launcher (electron-vite, Forge's renderer config, or a Vite
+    /// config with the Electron plugins left out). Nil when there is no web dev server to run.
+    private static func electronTarget(scripts: [String: String], folder: URL, label: String, manager: String,
+                                       viteStartsElectron: Bool, fileManager: FileManager) -> WebAppTarget? {
+        let label = label + " (web only)"
+        let names = webOnlyScriptNames.filter { scripts[$0] != nil } + scripts.keys.sorted().filter { !webOnlyScriptNames.contains($0) }
+        for name in names {
+            guard let script = scripts[name], servesWebOnly(script),
+                  !(viteStartsElectron && script.lowercased().contains("vite")) else { continue }
+            var ports = explicitPorts(in: script)
+            ports += configPorts(folder: folder, files: webConfigFiles + configFiles(in: script))
+            ports += defaultPorts(script: script, dependencies: [])
+            return WebAppTarget(folder: folder, label: label, command: runCommand(name, manager: manager), ports: unique(ports), isElectron: true)
+        }
+        let existing = { (names: [String]) in names.first { fileManager.fileExists(atPath: folder.appendingPathComponent($0).path) } }
+        guard let launcher = webOnlyLauncher?.path else { return nil }
+        let node = "node " + shellQuoted(launcher)
+        if let config = existing(["electron.vite.config.ts", "electron.vite.config.mts", "electron.vite.config.js",
+                                  "electron.vite.config.mjs", "electron.vite.config.cjs"]) {
+            return WebAppTarget(folder: folder, label: label, command: node + " electron-vite",
+                                ports: unique(configPorts(folder: folder, files: [config]) + [5173, 5174]), isElectron: true)
+        }
+        if let config = existing(["vite.renderer.config.ts", "vite.renderer.config.mts", "vite.renderer.config.js", "vite.renderer.config.mjs"])
+            ?? existing(["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"]) {
+            return WebAppTarget(folder: folder, label: label, command: node + " vite " + shellQuoted(config),
+                                ports: unique(configPorts(folder: folder, files: [config]) + [5173, 5174]), isElectron: true)
+        }
+        return nil
+    }
+
+    /// A script that runs a web dev server and nothing of Electron (`vite`, `next dev`, `webpack serve`…).
+    static func servesWebOnly(_ script: String) -> Bool {
+        let text = script.lowercased()
+        guard !text.contains("electron"), !text.contains("wait-on") else { return false }
+        let servers = [#"(^|[\s&;(])vite(\s+(--|dev\b|serve\b|preview\b)|\s*$|\s*&&|\s*;)"#, #"\bnext\s+dev\b"#,
+                       #"\breact-scripts\s+start\b"#, #"\bwebpack\s+serve\b"#, #"\bwebpack-dev-server\b"#, #"\bng\s+serve\b"#,
+                       #"\bvue-cli-service\s+serve\b"#, #"\bastro\s+dev\b"#, #"\bnuxt\s+dev\b"#, #"\bparcel\b(?!\s+build)"#,
+                       #"\brspack\s+(serve|dev)\b"#, #"\brsbuild\s+dev\b"#, #"\brspack-dev-server\b"#]
+        return servers.contains { text.range(of: $0, options: .regularExpression) != nil }
+    }
+
+    /// MarkView's renderer launcher (`js/markview-web-only.mjs`; overridable for tests).
+    static var webOnlyLauncher = Bundle.main.url(forResource: "markview-web-only", withExtension: "mjs",
+                                                 subdirectory: "Editor/js")
+
+    // MARK: - Commands
+
+    /// A fresh checkout needs its packages before its development script can run. Prefer the nearest lockfile and
+    /// install at its directory so workspace dependencies are linked by the project's own package manager.
+    static func missingDependencies(for target: WebAppTarget, root: URL, retry: Bool = false, fileManager: FileManager = .default) -> (folder: URL, command: String)? {
+        let words = target.command.split(separator: " ")
+        guard let executable = words.first, ["npm", "pnpm", "yarn", "bun"].contains(String(executable))
+                || (executable == "node" && target.isElectron) else { return nil }
+        guard fileManager.fileExists(atPath: target.folder.appendingPathComponent("package.json").path) else { return nil }
+        let top = root.standardizedFileURL.path
+        var folder = target.folder.standardizedFileURL
+        guard folder.path == top || folder.path.hasPrefix(top + "/") else { return nil }
+        var lock: (URL, String)?
+        while true {
+            if !retry && ["node_modules", ".pnp.cjs", ".pnp.js"].contains(where: { fileManager.fileExists(atPath: folder.appendingPathComponent($0).path) }) { return nil }
+            if lock == nil {
+                let candidates = [("pnpm-lock.yaml", "pnpm install --frozen-lockfile"),
+                                  ("yarn.lock", "yarn install --frozen-lockfile"),
+                                  ("bun.lock", "bun install --frozen-lockfile"), ("bun.lockb", "bun install --frozen-lockfile"),
+                                  ("package-lock.json", "npm ci --no-audit --no-fund"),
+                                  ("npm-shrinkwrap.json", "npm ci --no-audit --no-fund")]
+                if let match = candidates.first(where: { fileManager.fileExists(atPath: folder.appendingPathComponent($0.0).path) }) {
+                    lock = (folder, match.1)
+                }
+            }
+            // A lockfile defines this installation boundary; an unrelated parent project's packages do not satisfy it.
+            if lock != nil { break }
+            if folder.path == top { break }
+            folder.deleteLastPathComponent()
+        }
+        return lock ?? (target.folder, "npm install --no-save --package-lock=false --no-audit --no-fund")
+    }
+
+    /// The package manager of the app's folder, or of the closest folder above it (up to the project root) that has a
+    /// lockfile: the packages of a workspace share the lockfile of the workspace root.
+    private static func packageManager(_ folder: URL, root: URL, _ fileManager: FileManager) -> String {
+        let top = root.standardizedFileURL.path
+        var current = folder.standardizedFileURL
+        while true {
+            let exists = { (name: String) in fileManager.fileExists(atPath: current.appendingPathComponent(name).path) }
+            if exists("pnpm-lock.yaml") { return "pnpm" }
+            if exists("yarn.lock") { return "yarn" }
+            if exists("bun.lockb") || exists("bun.lock") { return "bun" }
+            if exists("package-lock.json") || exists("npm-shrinkwrap.json") { return "npm" }
+            guard current.path != top, current.path.hasPrefix(top + "/") else { return "npm" }
+            current = current.deletingLastPathComponent()
+        }
+    }
+
+    private static func runCommand(_ script: String, manager: String) -> String {
+        manager == "npm" && script == "start" ? "npm start" : "\(manager) run \(shellQuoted(script))"
+    }
+
+    /// A word for the shell: plain when safe, else in single quotes.
+    static func shellQuoted(_ text: String) -> String {
+        if !text.isEmpty, text.allSatisfy({ $0.isLetter || $0.isNumber || "-_./:=@".contains($0) }) { return text }
+        return "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func configPorts(folder: URL, files: [String]) -> [Int] {
+        files.flatMap { name -> [Int] in
+            guard let text = try? String(contentsOf: folder.appendingPathComponent(name), encoding: .utf8) else { return [] }
+            return configPorts(in: text)
+        }
+    }
+
+    /// `--port 4000`, `-p 4000`, `--port=4000`, `PORT=4000`.
+    static func explicitPorts(in script: String) -> [Int] {
+        let pattern = #"(?:--port[= ]|-p |PORT=)(\d{2,5})"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(script.startIndex..., in: script)
+        return regex.matches(in: script, range: range).compactMap { match in
+            Range(match.range(at: 1), in: script).flatMap { Int(script[$0]) }
+        }.filter { (1...65535).contains($0) }
+    }
+
+    /// `port: 4000` / `"port": 4000` in a framework config.
+    static func configPorts(in text: String) -> [Int] {
+        let pattern = #"["']?port["']?\s*:\s*(\d{2,5})"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            Range(match.range(at: 1), in: text).flatMap { Int(text[$0]) }
+        }.filter { (1...65535).contains($0) }
+    }
+
+    private static func defaultPorts(script: String, dependencies: Set<String>) -> [Int] {
+        if script.contains("storybook") { return [6006] }
+        if script.contains("rsbuild") || dependencies.contains("@rsbuild/core") { return [3000] }
+        if script.contains("rspack") || dependencies.contains("@rspack/cli") { return [8080] }
+        if dependencies.contains("@angular/core") || script.contains("ng serve") { return [4200] }
+        if dependencies.contains("astro") { return [4321] }
+        if dependencies.contains("@vue/cli-service") { return [8080] }
+        if dependencies.contains("vite") || dependencies.contains("@sveltejs/kit") || script.contains("vite") { return [5173, 5174] }
+        if dependencies.contains("next") || dependencies.contains("react-scripts") || dependencies.contains("nuxt")
+            || dependencies.contains("@remix-run/dev") || dependencies.contains("express") { return [3000, 3001] }
+        if dependencies.contains("gatsby") { return [8000] }
+        if dependencies.contains("parcel") { return [1234] }
+        return [3000, 5173, 8080]
+    }
+
+    // MARK: - Terminal output
+
+    /// The first address of this machine in a development server's output
+    /// ("Local:   http://localhost:5173/"); terminal colour codes are ignored and 0.0.0.0
+    /// becomes localhost.
+    static func firstLocalURL(in output: String) -> URL? {
+        // Some servers report an ephemeral port as a complete JSON readiness line rather than a URL.
+        for line in output.components(separatedBy: .newlines) where line.hasPrefix("{") && line.hasSuffix("}") {
+            guard let data = line.data(using: .utf8), data.count <= 16_384,
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  object["ready"] as? Bool == true, let port = object["port"] as? Int,
+                  (1...65535).contains(port) else { continue }
+            return URL(string: "http://127.0.0.1:\(port)/")
+        }
+        let plain = output.replacingOccurrences(of: #"\x{1B}\[[0-9;?]*[ -/]*[@-~]"#, with: "", options: .regularExpression)
+        let pattern = #"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?::\d{2,5})?(?:/[^\s'"<>)\]]*)?"#
+        guard let range = plain.range(of: pattern, options: .regularExpression) else { return nil }
+        var text = String(plain[range])
+        while let last = text.last, ".,;:".contains(last) { text.removeLast() }
+        text = text.replacingOccurrences(of: "://0.0.0.0", with: "://localhost")
+            .replacingOccurrences(of: "://[::]", with: "://localhost")
+        return URL(string: text)
+    }
+
+    // MARK: - Probing
+
+    /// The first of `ports` that accepts a TCP connection on this Mac, in the given order (BUG-076). It tells that a server is
+    /// listening without an HTTP request, so a server-rendered page is not rendered (and its data calls are not made) just to
+    /// learn that the server is up; `firstAnswering` needs the page's whole body within its timeout.
+    static func firstListening(_ ports: [Int], timeout: TimeInterval = 0.5) async -> URL? {
+        for port in ports where await isListening(port, timeout: timeout) {
+            return URL(string: "http://localhost:\(port)/")
+        }
+        return nil
+    }
+
+    /// Whether something accepts a TCP connection on `port` of the loopback interface, IPv4 or IPv6.
+    static func isListening(_ port: Int, timeout: TimeInterval = 0.5) async -> Bool {
+        guard (1...65_535).contains(port) else { return false }
+        return await Task.detached {
+            connects(port: port, family: AF_INET, timeout: timeout) || connects(port: port, family: AF_INET6, timeout: timeout)
+        }.value
+    }
+
+    /// A non-blocking connect, bounded by `timeout`; the socket is closed again at once.
+    private static func connects(port: Int, family: Int32, timeout: TimeInterval) -> Bool {
+        let socketFD = socket(family, SOCK_STREAM, IPPROTO_TCP)
+        guard socketFD >= 0 else { return false }
+        defer { close(socketFD) }
+        var on: Int32 = 1
+        setsockopt(socketFD, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        _ = fcntl(socketFD, F_SETFL, fcntl(socketFD, F_GETFL, 0) | O_NONBLOCK)
+        let result: Int32
+        if family == AF_INET {
+            var address = sockaddr_in()
+            address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_port = in_port_t(UInt16(port).bigEndian)
+            address.sin_addr = in_addr(s_addr: in_addr_t(UInt32(0x7F00_0001).bigEndian))
+            result = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(socketFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+            }
+        } else {
+            var address = sockaddr_in6()
+            address.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
+            address.sin6_family = sa_family_t(AF_INET6)
+            address.sin6_port = in_port_t(UInt16(port).bigEndian)
+            address.sin6_addr = in6addr_loopback
+            result = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(socketFD, $0, socklen_t(MemoryLayout<sockaddr_in6>.size)) }
+            }
+        }
+        if result == 0 { return true }
+        guard errno == EINPROGRESS else { return false }
+        var poller = pollfd(fd: socketFD, events: Int16(POLLOUT), revents: 0)
+        guard poll(&poller, 1, Int32(max(1, timeout * 1_000))) == 1 else { return false }
+        var failure: Int32 = 0
+        var length = socklen_t(MemoryLayout<Int32>.size)
+        guard getsockopt(socketFD, SOL_SOCKET, SO_ERROR, &failure, &length) == 0 else { return false }
+        return failure == 0
+    }
+
+    /// The first of `ports` where an HTTP server answers on localhost, in the given order.
+    static func firstAnswering(_ ports: [Int], timeout: TimeInterval = 0.8) async -> URL? {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = timeout
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let answers = await withTaskGroup(of: (Int, Bool).self) { group in
+            for port in ports {
+                group.addTask {
+                    guard let url = URL(string: "http://localhost:\(port)/") else { return (port, false) }
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "GET"
+                    request.setValue("MarkView preview probe", forHTTPHeaderField: "User-Agent")
+                    let response = try? await session.data(for: request).1
+                    return (port, response is HTTPURLResponse)
+                }
+            }
+            var answering = Set<Int>()
+            for await (port, ok) in group where ok { answering.insert(port) }
+            return answering
+        }
+        return ports.first(where: answers.contains).flatMap { URL(string: "http://localhost:\($0)/") }
+    }
+
+    // MARK: - Helpers
+
+    private static func readJSON(_ url: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    private static func unique(_ ports: [Int]) -> [Int] {
+        var seen = Set<Int>()
+        return ports.filter { seen.insert($0).inserted }
+    }
+}

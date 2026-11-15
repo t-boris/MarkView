@@ -1,4 +1,4 @@
-// Checks verified completion (MarkView/Models/IssueCompletion.swift) and the reconciler (IssueReconciler.swift) against
+// Checks verified completion (MarkView/Models/Lifecycle/IssueCompletion.swift) and the reconciler (IssueReconciler.swift) against
 // REQ-005 criteria 1-3 and 5, REQ-006 criteria 3-4 and DEC-009, DEC-010, DEC-013, DEC-015 of
 // docs/features/issue-lifecycle-management.
 import Foundation

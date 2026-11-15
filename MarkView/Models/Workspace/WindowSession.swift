@@ -1,0 +1,126 @@
+import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
+import CoreGraphics
+
+/// Separate identities preserve two windows even when they show the same folder.
+struct WorkspaceWindowState: Codable, Identifiable {
+    var id: UUID
+    var folder: URL?
+    var tabs: [WorkspaceTabState] = []
+    var activeTabIndex: Int = -1
+    var panels: WorkspacePanelState?
+    var frame: CGRect?
+    var minimized = false
+    /// The theme of this window and the accent each theme remembers in it; absent in sessions saved before themes.
+    var theme: WindowThemeSettings?
+    /// What this window shows of itself besides the panels (`WindowUIState`); absent in sessions saved before it existed.
+    var uiState: [String: WindowUIValue]?
+}
+
+struct WorkspacePanelState: Codable {
+    var workspaceArea: String? = nil
+    var workSection: String? = nil
+    var navigator: String
+    var left: String
+    var feature: String
+    var git: String
+    var stage: String
+    var showFiles: Bool
+    var showNavigator: Bool
+    var contentsVisible: Bool? = nil
+    var terminalVisible: Bool? = nil
+    var agentsVisible: Bool? = nil
+    var showCenter: Bool? = nil
+    /// This window's welcome-screen background (a `WelcomeBackdrop` raw value); absent in sessions saved before BUG-120.
+    var welcomeBackdrop: String? = nil
+}
+
+struct WorkspaceDraft: Codable {
+    var content: String
+    var original: String
+}
+
+enum WorkspaceTabState: Codable {
+    case file(url: URL, draft: WorkspaceDraft?, notes: Bool, scroll: Double)
+    case image(URL)
+    case pdf(URL)
+    /// An archive tab; added in 4.19.
+    case archive(URL)
+    /// The Deployments tab; added in 4.25.
+    case deployments
+    /// The Discussions tab; added in 4.51.
+    case discussions
+    /// The Workflow tab of the project; added in 5.45.
+    case workflow
+    case git
+    /// The End-to-End QA tab; added in 5.55.
+    case qa
+    case changeReview
+    case github(GitHubItem)
+    case architecture(String)
+    case terminal(URL)
+    case browser(URL)
+    /// A data file tab (table, Parquet, SQLite, log); added in 4.7.
+    case data(URL)
+}
+
+struct WindowSessionArchive: Codable {
+    var version = 1
+    var windows: [WorkspaceWindowState]
+}
+
+/// All archive IO is serialized off the main thread; quitting awaits the last write.
+actor WindowSessionStorage {
+    let url: URL
+    private let store: SchemaVersionedStore<WindowSessionArchive>
+    private var latestRevision = -1
+
+    init(url: URL) {
+        self.url = url
+        self.store = SchemaVersionedStore<WindowSessionArchive>(currentSchemaVersion: 1, backupCorruptedOnSave: true)
+    }
+
+    func load() -> WindowSessionArchive? {
+        let loadedArchive: WindowSessionArchive
+        switch store.load(from: url) {
+        case .loaded(let archive, _):
+            loadedArchive = archive
+        case .missing:
+            return nil
+        case .newerSchema(_, let found):
+            NSLog("[WindowSession] Ignoring windowSessions.json: schema version %d is newer than supported (%d).", found, store.currentSchemaVersion)
+            return nil
+        case .corrupted(_, let detail):
+            NSLog("[WindowSession] Could not read windowSessions.json: %@", detail)
+            return nil
+        }
+        guard loadedArchive.version == 1 else {
+            NSLog("[WindowSession] Ignoring windowSessions.json: unsupported archive payload version %d.", loadedArchive.version)
+            return nil
+        }
+        // URLs in this local archive must never turn into external open requests.
+        guard loadedArchive.windows.allSatisfy({ state in
+            state.folder == nil || state.folder!.isFileURL
+        }) else { return nil }
+        var seen = Set<UUID>()
+        return WindowSessionArchive(windows: loadedArchive.windows.filter { seen.insert($0.id).inserted })
+    }
+
+    func save(_ archive: WindowSessionArchive, revision: Int) throws {
+        guard revision > latestRevision else { return }
+        if FileManager.default.fileExists(atPath: url.path),
+           case .loaded(let existing, _) = store.load(from: url),
+           existing.version > 1 {
+            throw SchemaStoreError.newerSchemaVersion(
+                url: url,
+                found: existing.version,
+                supported: 1
+            )
+        }
+        // Keep session data private to the user with atomic 0o600 permissions (`AR-39`, `FU-04`).
+        try store.save(archive, to: url, permissions: 0o600)
+        latestRevision = revision
+    }
+}
