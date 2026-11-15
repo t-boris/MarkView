@@ -1,5 +1,8 @@
 import Foundation
 import CryptoKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// State behind the Architecture tab: the persisted snapshot (Modules, Deployment,
 /// Docs views and documentation coverage), progress of scans and AI passes, and the
@@ -2929,7 +2932,8 @@ final class ArchitectureStore: ObservableObject {
         let rootPath = root.path
         let spec = "\(commit):\(path)"
         let fetched: String? = await Task.detached(priority: .userInitiated) {
-            let result = await ProcessRunner.run(executable: "/usr/bin/env", arguments: ["git", "-C", rootPath, "show", spec], stdin: nil, timeout: 15)
+            let result = await Subprocess.run(SubprocessSpec(
+                executable: "/usr/bin/env", arguments: ["git", "-C", rootPath, "show", spec], timeout: 15, maxOutputBytes: 2 * 1024 * 1024))
             guard result.succeeded, !result.timedOut else { return nil }
             return result.stdout
         }.value

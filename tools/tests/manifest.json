@@ -372,7 +372,9 @@
         "MarkView/Models/Cockpit/CockpitStepMeter.swift",
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
-        "tools/tests/CockpitRuntimeChecks.swift"
+        "tools/tests/CockpitRuntimeChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -482,7 +484,9 @@
         "MarkView/Models/AI/ProviderHints.swift",
         "MarkView/Models/AI/SystemProbe.swift",
         "tools/tests/DatabaseExplorerTests.swift",
-        "tools/tests/database-explorer-tests.sh"
+        "tools/tests/database-explorer-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -518,7 +522,9 @@
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
         "tools/tests/DeploymentExecutorTests.swift",
-        "tools/tests/deployment-executor-tests.sh"
+        "tools/tests/deployment-executor-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -554,7 +560,9 @@
         "MarkView/Models/Deployments/DeploymentModels.swift",
         "MarkView/Models/AI/SystemProbe.swift",
         "tools/tests/DeploymentSSHTests.swift",
-        "tools/tests/deployment-ssh-tests.sh"
+        "tools/tests/deployment-ssh-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -574,7 +582,9 @@
         "MarkView/Models/AI/ProviderHints.swift",
         "MarkView/Models/AI/SystemProbe.swift",
         "tools/tests/DeploymentStoreTests.swift",
-        "tools/tests/deployment-store-tests.sh"
+        "tools/tests/deployment-store-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
