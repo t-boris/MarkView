@@ -19,6 +19,11 @@ Boris: show how much Antigravity quota is left in the top bar, in parallel with 
 - Not seen: the popover (a separate window the probe does not capture), the Settings switch, the chip beside Claude and Codex, the installed app, the Antigravity IDE's quota when it uses another Google account than the CLI.
 - DEC-020 accepted (Boris approved the proposal), REQ-007 criterion 7 ticked, DEC-010 of flexible-files-views-and-visible-agent-usage carries an update note.
 
+## 6.24.1 (2026-11-14): the same rhythm as Claude and Codex
+
+- Boris answered "так же как и claude + codex" (headline window: the most used one, no change) and "И побыстрее" (asked: the poll rhythm; he chose every 5 minutes). Antigravity is read every 5 minutes like the other two: `UsageAgent.pollInterval` is gone, `signedOutInterval` is optional and set only for Antigravity (30 minutes). PR #411 merged (`0558c91`).
+- Verified: 123 pure checks (the signed-out interval check turns red when the rule is off), every script of the triggered workflows, Debug build, the real Debug app invisibly (chip "Antigravity 31% used Gemini 4 Argon wk · 6d 23h"). Not seen: the five-minute rhythm in a running app, the installed app.
+
 # UI Studio: the simulator answers in the application's own response envelope (2026-11-14, 6.23.0)
 
 Boris installed 6.22.0 and wrote "Не работает" with two screenshots (product-promotion-desk, screen "Products – list and detail"): the Products page shows `undefined is not an object (evaluating 'envelope.error.code')`, every screen is covered by the dialog "The AI is waiting for you", the screen request ends `failed` ("Override 1 names POST .../passport.get, which no rule serves"), Fix problems is greyed. Plan `/Users/boris/.claude/plans/calm-whistling-eich.md` APPROVED. This is finding (a) of the 6.22.0 report that I had left as "needs approval"; it blocks his two requests for any Electron/IPC app.
