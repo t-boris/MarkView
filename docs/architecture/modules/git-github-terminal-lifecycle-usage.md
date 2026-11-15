@@ -319,7 +319,7 @@ Agents also *drive* that browser tab (Task 80). Claude Code (`--mcp-config`) and
 `MarkView --mcp-browser --socket <path> --window <id>` (`Models/AgentTools/BrowserAgentTools.swift`, MCP over stdio, one
 JSON message per line; its `instructions` tell the agent to use it instead of Chrome or Playwright). Each tool
 call goes over a Unix socket in the user's temporary folder (`mv-browser-<pid>.sock`, mode 0600) to
-`BrowserControlServer`, which finds the window by `WorkspaceManager.browserControlID` and runs the tool in its
+`AgentToolServer`, which finds the window by `WorkspaceManager.browserControlID` and runs the tool in its
 browser tab (`agentBrowser()`: the active, preview or first browser tab, else a new one; brought to the front).
 Tools: navigate, snapshot (text and up to 300 interactive elements tagged `data-mv-ref`), click and type (by ref,
 CSS selector, or visible text / placeholder / label), press_key, evaluate (async body, JSON result), screenshot
@@ -370,7 +370,7 @@ server dispatches the control tools before it resolves a window.
   ambiguous and lists the windows. `markview_windows` is answered by every running MarkView and merged
   (`BrowserAgentTools.fanOutTools`); other calls go to the first MarkView that has the window. A window registers when
   it is shown (`ContentView.updateWindowIdentity` → `WorkspaceManager.registerBrowserControl`) and is listed while its
-  workspace lives (`BrowserControlServer.liveWindows`). `markview_open_project` opens a folder in a window that has
+  workspace lives (`AgentToolServer.liveWindows`). `markview_open_project` opens a folder in a window that has
   nothing open, else in a new one (`WindowSessionController.openWorkspaceWindow`: the folder becomes the new window's
   saved state, which it restores when it attaches); it never replaces a project that is open.
 - **Agents.** `markview_agent_start` opens a terminal with `openAITerminal` after `showAIConsole` (the PTY starts when
@@ -392,7 +392,7 @@ server dispatches the control tools before it resolves a window.
 | `Models/Terminal/TerminalSession.swift` | `TerminalProfile`, `TerminalSession` (PTY, web view, bridge, paste queue), `WeakMessageHandler` |
 | `Models/Terminal/TerminalLink.swift` | Pure link resolution and PTY cwd lookup (`proc_pidinfo`) |
 | `Models/Terminal/TerminalBrowserBridge.swift` | `BROWSER` / `open` wrappers, spool watcher, routing of web addresses and files |
-| `Models/AgentTools/BrowserAgentTools.swift`, `Models/Browser/BrowserControlServer.swift` | MCP server for agents (`--mcp-browser`) and the app-side socket that runs its tools in a browser tab |
+| `Models/AgentTools/BrowserAgentTools.swift`, `Models/AgentTools/AgentToolServer.swift` | MCP server for agents (`--mcp-browser`) and the app-side socket that runs the tool of the window it names (a browser tool in its tab through `Models/Browser/BrowserAgentTabs.swift`) |
 | `Models/Browser/AgentBrowserRegistration.swift` | One-time registration of the MCP server in the agents' own settings |
 | `Models/AgentTools/ControlAgentTools.swift`, `Models/ControlToolRunner*.swift` | The `markview-control` MCP server (`--mcp-control`) and the app-side runner for windows, agents and the feature flow |
 | `Views/Terminal/TerminalView.swift` | `TerminalHostView`, dictation/restart buttons, `AITerminalPanel`, prompt bar, PR picker, `TerminalTabView` |

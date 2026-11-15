@@ -30,13 +30,13 @@ protocol DevServerTerminals: AnyObject {
     func rememberPreviewTerminal(_ session: TerminalSession, forApp folderPath: String)
 }
 
-/// The browser of one window (`AR-14` step 9): its browser tabs, what agents may drive of them (`BrowserControlServer`), the pages
+/// The browser of one window (`AR-14` step 9): its browser tabs, what agents may drive of them (`BrowserAgentTabs`), the pages
 /// local HTML files and terminal programs open, Preview Web App with its dev server, and the picked page element that goes to the AI.
 /// The tabs are `BrowserSession`s; each reaches its window through `BrowserSessionHost`, which this object is. Background work (the
 /// look for the web app, the wait for a dev server) is in its own `TaskBag`, cancelled when the window closes (`AR-19`).
 @MainActor
 final class BrowserHost: BrowserSessionHost {
-    /// This window's id for agents driving its browser tab (`BrowserControlServer`).
+    /// This window's id for agents driving its browser tab (`AgentToolServer`).
     let controlID = UUID()
 
     private let tabs: TabsController
@@ -64,12 +64,10 @@ final class BrowserHost: BrowserSessionHost {
 
     // MARK: - Control by agents
 
-    /// Offer this window to agents (`BrowserControlServer`): its browser tabs, its project's features, and the
+    /// Offer this window to agents (`AgentToolServer`): its browser tabs, its project's features, and the
     /// workspace itself for the control tools. Called when the window is shown, a folder opens or a terminal starts.
     func register() {
-        BrowserControlServer.register(controlID, .init(
-            workspace: { [weak self] in self?.window?.controlWorkspace },
-            root: { [weak self] in self?.project.root },
+        let browser = BrowserAgentTabs(
             tabs: { [weak self] in self?.sessions ?? [] },
             active: { [weak self] in
                 guard let self, self.tabs.openTabs.indices.contains(self.tabs.activeTabIndex),
@@ -82,10 +80,14 @@ final class BrowserHost: BrowserSessionHost {
                 let session = self.open(url)
                 if let name { session.agentName = name }
                 return session
-            },
+            })
+        AgentToolServer.register(controlID, .init(
+            workspace: { [weak self] in self?.window?.controlWorkspace },
+            root: { [weak self] in self?.project.root },
             features: { [weak self] in self?.window?.controlFeatures },
             deployments: { [weak self] in self?.window?.controlDeployments },
-            discussions: { [weak self] in self?.window?.controlDiscussions }))
+            discussions: { [weak self] in self?.window?.controlDiscussions },
+            browser: { tool, args in await browser.run(tool, args) }))
     }
 
     /// The window's browser tabs, in tab order.

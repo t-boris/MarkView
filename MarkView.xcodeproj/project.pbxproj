@@ -291,7 +291,6 @@
 		8FCF6E436AEB0D3DD011EA5A /* PrototypeHandoffDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53AFBF3E8E1F4A3740CA6CB /* PrototypeHandoffDraft.swift */; };
 		8FE54D4E55AA567CEA794978 /* UIStudioSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 437E30B3E5F2185484ADA2D6 /* UIStudioSelection.swift */; };
 		900ECE863153B574438A6AF1 /* UIStudioModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AA953CE3F790CC504854A3A /* UIStudioModels.swift */; };
-		909D6D522F19DECD394127BE /* BrowserControlServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0B17502A10EDBEA695CFD4 /* BrowserControlServer.swift */; };
 		7BF2F153EB33E7C7F2F61838 /* BrowserAgentExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ED1088DB8E0637B1C695E71 /* BrowserAgentExecutor.swift */; };
 		90FBEE7F8E1CC870B1044E53 /* PrototypeAudit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EBA0E9DC5756C90FFE50D30 /* PrototypeAudit.swift */; };
 		92E892A9C166F65D28165C5B /* PrototypeHandoffRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43880FB3F93C0C307561B6E5 /* PrototypeHandoffRun.swift */; };
@@ -525,6 +524,11 @@
 		4D5CBBE44F455F4E8115F7C0 /* AssistantCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0730D4137E1CBDE1064F774B /* AssistantCompletion.swift */; };
 		BB6E1E461163983EAB5A6CBA /* AssistantRemote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD2C2EE028EB674A5C5F57F /* AssistantRemote.swift */; };
 		B6035B49606094068AB49C6D /* TerminalProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61FB7EE1BB94329885567434 /* TerminalProfile.swift */; };
+		4E42B89260087B0921E92950 /* AgentToolServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD23F6CC793EF8AF211AB05C /* AgentToolServer.swift */; };
+		FE000A440FD6DD32141259DD /* AgentToolWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C2150FC5DDF2393BF606AF /* AgentToolWindow.swift */; };
+		DFCCA5B9F345746CF38F84D8 /* BrowserAgentTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF0651EA6827C3F52E6109C3 /* BrowserAgentTabs.swift */; };
+		DACFE168BEC6DE68C45A3370 /* AgentToolsSetting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710DA6A885E9635F708C4AF2 /* AgentToolsSetting.swift */; };
+		AD2A1654121A6771ABDC0409 /* RemoteBrowserRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10A5A02ED3E3CC72D20A0191 /* RemoteBrowserRelay.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -939,7 +943,6 @@
 		A6E0167483A13431C669BD12 /* AssistantProviderRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantProviderRegistry.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD06 /* SchemaVersionedStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaVersionedStore.swift; sourceTree = "<group>"; };
 		A8AEF205A13BAE60E2DC57A7 /* ImportanceRater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportanceRater.swift; sourceTree = "<group>"; };
-		AA0B17502A10EDBEA695CFD4 /* BrowserControlServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserControlServer.swift; sourceTree = "<group>"; };
 		4ED1088DB8E0637B1C695E71 /* BrowserAgentExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserAgentExecutor.swift; sourceTree = "<group>"; };
 		AA2CA37BE6C93E0C73995455 /* markview-research-map-layout.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map-layout.js"; sourceTree = "<group>"; };
 		AA781698B8CEDAAB7EE8028A /* IntakeTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntakeTextEditor.swift; sourceTree = "<group>"; };
@@ -1164,6 +1167,11 @@
 		0730D4137E1CBDE1064F774B /* AssistantCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantCompletion.swift; sourceTree = "<group>"; };
 		9CD2C2EE028EB674A5C5F57F /* AssistantRemote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantRemote.swift; sourceTree = "<group>"; };
 		61FB7EE1BB94329885567434 /* TerminalProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalProfile.swift; sourceTree = "<group>"; };
+		DD23F6CC793EF8AF211AB05C /* AgentToolServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentToolServer.swift; sourceTree = "<group>"; };
+		45C2150FC5DDF2393BF606AF /* AgentToolWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentToolWindow.swift; sourceTree = "<group>"; };
+		AF0651EA6827C3F52E6109C3 /* BrowserAgentTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserAgentTabs.swift; sourceTree = "<group>"; };
+		710DA6A885E9635F708C4AF2 /* AgentToolsSetting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentToolsSetting.swift; sourceTree = "<group>"; };
+		10A5A02ED3E3CC72D20A0191 /* RemoteBrowserRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteBrowserRelay.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1247,6 +1255,7 @@
 				3C5186158816AE816A500A12 /* ProviderHints.swift */,
 				2813544220B3EBEC33B10F32 /* SystemProbe.swift */,
 				DAFD936599E6497BB1CC0AB4 /* Providers */,
+				710DA6A885E9635F708C4AF2 /* AgentToolsSetting.swift */,
 			);
 			path = AI;
 			sourceTree = "<group>";
@@ -1267,6 +1276,8 @@
 				AFEBD3D56EF661E1DF638D80 /* ProjectToolRunner+Edit.swift */,
 				41657FF7A91331D01993FAB3 /* ProjectToolRunner+Lifecycle.swift */,
 				50B0AF0B20435C1D64C3CCC7 /* ProjectToolRunner.swift */,
+				DD23F6CC793EF8AF211AB05C /* AgentToolServer.swift */,
+				45C2150FC5DDF2393BF606AF /* AgentToolWindow.swift */,
 			);
 			path = AgentTools;
 			sourceTree = "<group>";
@@ -1342,7 +1353,6 @@
 			isa = PBXGroup;
 			children = (
 				7DED21BC61360BE8D42222AB /* AgentBrowserRegistration.swift */,
-				AA0B17502A10EDBEA695CFD4 /* BrowserControlServer.swift */,
 				4ED1088DB8E0637B1C695E71 /* BrowserAgentExecutor.swift */,
 				C6F3720D5BC18F678F2F42FB /* BrowserDownloads.swift */,
 				9A1BAC4896C73C835E150997 /* BrowserElementPick.swift */,
@@ -1352,6 +1362,7 @@
 				3CF2A565576699E172D2ADE1 /* BrowserSession.swift */,
 				CD77A8D3E85331A326E8A882 /* WebPreview.swift */,
 				0A3310051674EC51CC691EB0 /* BrowserHost.swift */,
+				AF0651EA6827C3F52E6109C3 /* BrowserAgentTabs.swift */,
 			);
 			path = Browser;
 			sourceTree = "<group>";
@@ -2086,6 +2097,7 @@
 				1DC151AE2DE4181D9A046CD1 /* RemoteToolRequests.swift */,
 				52DC2D0783E00801AB365DA7 /* RemoteWorkspace.swift */,
 				31D3978C9FF22D2B5514E8DC /* RemoteWorkspaceTools.swift */,
+				10A5A02ED3E3CC72D20A0191 /* RemoteBrowserRelay.swift */,
 			);
 			path = Remote;
 			sourceTree = "<group>";
@@ -2477,7 +2489,6 @@
 				642DFB3CA2C30513BBD38856 /* BookPDFSource.swift in Sources */,
 				66B92D183453F703F252CA0D /* BookPDFTransform.swift in Sources */,
 				3F86E0D206B89BE60050116B /* BrowserAgentTools.swift in Sources */,
-				909D6D522F19DECD394127BE /* BrowserControlServer.swift in Sources */,
 				7BF2F153EB33E7C7F2F61838 /* BrowserAgentExecutor.swift in Sources */,
 				DCB91AFB6ECAD91E5A2A5DBC /* BrowserDownloads.swift in Sources */,
 				3C66B42CE08BE7AD585AC81A /* BrowserElementPick.swift in Sources */,
@@ -2909,6 +2920,11 @@
 				4095BC8ADAD6AE04D6A7D406 /* XRayContent.swift in Sources */,
 				097D04C553ABB64ACED3CAF9 /* XRayDigest.swift in Sources */,
 				082A811D6B13DF6C68B7F418 /* XRaySearch.swift in Sources */,
+				4E42B89260087B0921E92950 /* AgentToolServer.swift in Sources */,
+				FE000A440FD6DD32141259DD /* AgentToolWindow.swift in Sources */,
+				DFCCA5B9F345746CF38F84D8 /* BrowserAgentTabs.swift in Sources */,
+				DACFE168BEC6DE68C45A3370 /* AgentToolsSetting.swift in Sources */,
+				AD2A1654121A6771ABDC0409 /* RemoteBrowserRelay.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

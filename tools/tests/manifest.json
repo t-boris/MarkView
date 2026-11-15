@@ -1121,7 +1121,7 @@
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/WelcomeBackdrop.swift",
         "MarkView/Models/Book/PDFReader.swift",
-        "MarkView/Models/Browser/BrowserControlServer.swift",
+        "MarkView/Models/Browser/BrowserAgentTabs.swift",
         "MarkView/Models/Browser/BrowserElementPick.swift",
         "MarkView/Models/Browser/BrowserHost.swift",
         "MarkView/Models/Browser/WebPreview.swift",
@@ -1143,7 +1143,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/BrowserHostStubs.swift",
         "tools/tests/BrowserHostTests.swift",
-        "tools/tests/browser-host-tests.sh"
+        "tools/tests/browser-host-tests.sh",
+        "MarkView/Models/AgentTools/AgentToolWindow.swift"
       ]
     },
     {
@@ -2780,7 +2781,7 @@
       "sources": [
         "MarkView/Models/AI/AgentProcesses.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
-        "MarkView/Models/Browser/BrowserControlServer.swift",
+        "MarkView/Models/AgentTools/AgentToolServer.swift",
         "MarkView/Models/Browser/BrowserAgentExecutor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "MarkView/Models/Cockpit/CockpitAgentRegistry.swift",
@@ -2797,7 +2798,12 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/RemoteBrowserTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "MarkView/Models/AgentTools/AgentToolWindow.swift",
+        "MarkView/Models/Browser/BrowserAgentTabs.swift",
+        "MarkView/Models/AI/AgentToolsSetting.swift",
+        "MarkView/Models/Remote/RemoteBrowserRelay.swift",
+        "MarkView/Models/AI/Providers/AssistantMCP.swift"
       ]
     },
     {

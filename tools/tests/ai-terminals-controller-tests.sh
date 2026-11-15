@@ -89,11 +89,18 @@ final class RemoteConnectionsStore {
     func update(_ id: UUID, _ phase: RemoteConnectionState.Phase, _ detail: String) {}
 }
 
-enum BrowserControlServer {
-    static func agentToolsEnabled(_ tool: CLITool) -> Bool { true }
-    static func agentToolsKey(_ tool: CLITool) -> SettingsKey<Bool> { Setting.browserAgentTools(tool.rawValue) }
-    static func mcpArguments(window id: UUID, flag: String = "--mcp-browser") -> (command: String, args: [String])? {
-        ("/usr/local/bin/markview", [flag, "--window", id.uuidString])
+extension CLITool {
+    var agentToolsEnabled: Bool { true }
+    var agentToolsKey: SettingsKey<Bool> { Setting.browserAgentTools(rawValue) }
+}
+enum AgentToolServer {
+    static func mcpServers(window id: UUID, includingBrowser: Bool) -> [AgentMCPServer] {
+        func server(_ name: String, _ tomlName: String, _ flag: String, _ label: String) -> AgentMCPServer {
+            AgentMCPServer(name: name, tomlName: tomlName, flag: flag, label: label,
+                           command: "/usr/local/bin/markview", args: [flag, "--window", id.uuidString])
+        }
+        return (includingBrowser ? [server(BrowserAgentTools.serverName, "markview_browser", "--mcp-browser", "browser")] : [])
+            + [server(ProjectAgentTools.serverName, ProjectAgentTools.serverName, "--mcp-project", "project")]
     }
 }
 enum BrowserAgentTools {

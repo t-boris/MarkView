@@ -41,8 +41,7 @@ final class RemoteTerminalConnection: TerminalConnection {
                     onState?(.connecting, "Connecting to home Mac…")
                     let root = root, windowID = browserWindowID, provider = provider
                     let workspace = try await RemoteWorkspace(root: root, browserCall: { name, arguments in
-                        await BrowserControlServer.performRemoteBrowser(name, arguments: arguments, window: windowID,
-                                                                       root: root, agent: provider)
+                        await RemoteBrowserRelay.perform(name, arguments: arguments, window: windowID, root: root, agent: provider)
                     })
                     self.workspace = workspace
                     try await channel.prepareSession(reset: reset)

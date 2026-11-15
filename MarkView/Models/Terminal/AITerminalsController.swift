@@ -9,7 +9,7 @@ import MarkViewCore
 /// `WorkspaceManager` conforms.
 @MainActor
 protocol AITerminalsHost: AnyObject {
-    /// This window's id for agents driving its browser tab (`BrowserControlServer`).
+    /// This window's id for agents driving its browser tab (`AgentToolServer`).
     var browserControlID: UUID { get }
     func registerBrowserControl()
     func openFile(_ url: URL, line: Int?, endLine: Int?)
@@ -104,19 +104,11 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
     private func browserToolArgs(for tool: CLITool) -> [String] {
         guard let host else { return [] }
         host.registerBrowserControl()
-        guard BrowserControlServer.agentToolsEnabled(tool) else { return [] }
+        guard tool.agentToolsEnabled else { return [] }
         let windowID = host.browserControlID
         // The browser tools (when terminal links open in MarkView) and the project tools (features, bugs,
         // prototypes), each a server of this same binary, both bound to this window.
-        var servers: [AgentMCPServer] = []
-        if TerminalBrowserBridge.isEnabled, let server = BrowserControlServer.mcpArguments(window: windowID) {
-            servers.append(AgentMCPServer(name: BrowserAgentTools.serverName, tomlName: "markview_browser", flag: "--mcp-browser", label: "browser",
-                                          command: server.command, args: server.args))
-        }
-        if let server = BrowserControlServer.mcpArguments(window: windowID, flag: "--mcp-project") {
-            servers.append(AgentMCPServer(name: ProjectAgentTools.serverName, tomlName: ProjectAgentTools.serverName, flag: "--mcp-project",
-                                          label: "project", command: server.command, args: server.args))
-        }
+        let servers = AgentToolServer.mcpServers(window: windowID, includingBrowser: TerminalBrowserBridge.isEnabled)
         guard !servers.isEmpty else { return [] }
         let shellQuote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         if let arguments = tool.provider.mcpLaunchArguments(for: servers, quote: shellQuote) { return arguments }
@@ -136,8 +128,8 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
             guard BrowserAgentTools.reportsPolicyBlock(recent) else { return }
             recent = ""
             DispatchQueue.main.async {
-                guard let self, let session, BrowserControlServer.agentToolsEnabled(tool) else { return }
-                Settings.standard.set(false, for: BrowserControlServer.agentToolsKey(tool))
+                guard let self, let session, tool.agentToolsEnabled else { return }
+                Settings.standard.set(false, for: tool.agentToolsKey)
                 let alert = NSAlert()
                 alert.messageText = "\(name)'s policy blocks MarkView's browser tools"
                 alert.informativeText = "Your organisation allows \(name) only the MCP servers it lists, so it refused \"\(BrowserAgentTools.serverName)\". MarkView no longer gives \(name) these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). \(name) itself keeps working."
