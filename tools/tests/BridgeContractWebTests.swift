@@ -152,7 +152,7 @@ check(delegate.calls == ["didClickLink"], "a message any frame may send is taken
 let coordinator = DiscussionThreadView.Coordinator()
 let discussion = Page(file: "discussion.html", handlerName: "discussion", handler: coordinator.messages, contract: contract)
 coordinator.view = discussion.web
-coordinator.update(turns: [DiscussionTurn(question: "Which contract?", answer: "The one in bridge-contract.json.")], live: nil, theme: "'classic-dark', null")
+coordinator.update(turns: [DiscussionTurn(question: "Which contract?", answer: "The one in bridge-contract.json.")], live: nil, theme: WebThemeArguments(id: "classic-dark", accent: nil, payload: "{}"))
 var discussionRefusals: [String] = []
 coordinator.messages.reject = { discussionRefusals.append($0) }
 spin(30) { discussion.loaded.done }
@@ -167,7 +167,7 @@ check(refusedByPage == "false:false:2", "the discussion page refuses an empty co
 
 // A hostile turn: the page shows markup and quote characters as text (AR-29: it escapes through mvKit.escapeHtml).
 let hostileQuestion = "<img src=x onerror=window.__pwn=1> it's \"quoted\" & <b>bold</b>"
-coordinator.update(turns: [DiscussionTurn(question: hostileQuestion, answer: "plain answer")], live: nil, theme: "'classic-dark', null")
+coordinator.update(turns: [DiscussionTurn(question: hostileQuestion, answer: "plain answer")], live: nil, theme: WebThemeArguments(id: "classic-dark", accent: nil, payload: "{}"))
 spin(10) { discussion.js("return document.getElementById('thread').textContent;").contains("plain answer") }
 let hostile = discussion.js("const q = document.querySelector('#thread .q'); return JSON.stringify({ text: q ? q.textContent : null, imgs: document.querySelectorAll('#thread img, #thread .q b').length, ran: window.__pwn === undefined });")
 let hostileResult = (try? JSONSerialization.jsonObject(with: Data(hostile.utf8))) as? [String: Any] ?? [:]

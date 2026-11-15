@@ -147,8 +147,8 @@ enum WindowSessionSnapshotterChecks {
         source.layout.gitSection = .pullRequests
         source.layout.featureStage = .build
         source.layout.welcomeBackdrop = WelcomeBackdrop.all.last!
-        source.windowUI.set("Documents", for: "search.panelMode", publishing: false)
-        source.windowUI.set(412.0, for: "uiStudioInspectorWidth", publishing: false)
+        source.windowUI.set("Documents", for: Setting.searchPanelMode, publishing: false)
+        source.windowUI.set(412.0, for: Setting.uiStudioInspectorWidth, publishing: false)
 
         let id = UUID()
         let state = WindowSessionSnapshotter.snapshot(of: source, id: id)
@@ -191,7 +191,7 @@ enum WindowSessionSnapshotterChecks {
               "the tab each panel shows comes back")
         check(target.layout.workSection == .git, "the Work section comes back")
         check(target.layout.welcomeBackdrop == WelcomeBackdrop.all.last!, "the window's welcome backdrop comes back")
-        check(target.windowUI.value("search.panelMode", fallback: "") == "Documents" && target.windowUI.value("uiStudioInspectorWidth", fallback: 0.0) == 412,
+        check(target.windowUI.value(Setting.searchPanelMode) == "Documents" && target.windowUI.value(Setting.uiStudioInspectorWidth) == 412,
               "the interface state of the window comes back")
         check(loaded.theme == source.themeSettings, "the theme settings of the window are in the session")
 

@@ -8,10 +8,10 @@ import MarkViewCore
 /// the same user permissions as an ordinary local agent terminal.
 actor RemoteWorkspace {
     private static let persistentDeviceID: String = {
-        let defaults = UserDefaults.standard, key = "remote.deviceID"
-        if let value = defaults.string(forKey: key), UUID(uuidString: value) != nil { return value }
+        let settings = Settings.standard
+        if let value = settings.stored(Setting.remoteDeviceID), UUID(uuidString: value) != nil { return value }
         let value = UUID().uuidString
-        defaults.set(value, forKey: key)
+        settings.set(value, for: Setting.remoteDeviceID)
         return value
     }()
     let root: URL

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // The theme model of a workspace window: which appearance it uses, the accent each appearance remembers,
 // the colours the native views draw with, and how a new window gets its starting value. Foundation only, so
@@ -228,10 +231,6 @@ struct WindowThemeSettings: Equatable, Codable {
 /// The starting settings of a window that has none of its own (a new window, or one restored from before themes
 /// existed), and the record of the last change that new windows inherit (DEC-005).
 struct ThemeSettingsStore {
-    static let lastChangedKey = "theme.lastChanged.v1"
-    /// The key the application-wide light / dark / system setting used before themes existed.
-    static let legacyKey = "theme"
-
     let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) { self.defaults = defaults }
@@ -239,16 +238,17 @@ struct ThemeSettingsStore {
     /// The settings a new window starts from: the last change anyone made, else the earlier light / dark setting as
     /// Classic (absent, "system" or unreadable -> Classic Dark), never a failure.
     func startingSettings() -> WindowThemeSettings {
-        if let data = defaults.data(forKey: Self.lastChangedKey), Self.isReadable(data),
+        let stored = Settings(defaults)
+        if let data = stored.stored(Setting.themeLastChanged), Self.isReadable(data),
            let settings = try? JSONDecoder().decode(WindowThemeSettings.self, from: data) {
             return settings
         }
-        return WindowThemeSettings(theme: Self.legacyTheme(defaults.string(forKey: Self.legacyKey)))
+        return WindowThemeSettings(theme: Self.legacyTheme(stored.stored(Setting.legacyTheme)))
     }
 
     /// Remember the settings of the window that changed last.
     func remember(_ settings: WindowThemeSettings) {
-        if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: Self.lastChangedKey) }
+        if let data = try? JSONEncoder().encode(settings) { Settings(defaults).set(data, for: Setting.themeLastChanged) }
     }
 
     /// The Classic appearance an earlier saved value stands for.

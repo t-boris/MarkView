@@ -91,7 +91,7 @@ final class RemoteConnectionsStore {
 
 enum BrowserControlServer {
     static func agentToolsEnabled(_ tool: CLITool) -> Bool { true }
-    static func agentToolsKey(_ tool: CLITool) -> String { "agentTools.\(tool.rawValue)" }
+    static func agentToolsKey(_ tool: CLITool) -> SettingsKey<Bool> { Setting.browserAgentTools(tool.rawValue) }
     static func mcpArguments(window id: UUID, flag: String = "--mcp-browser") -> (command: String, args: [String])? {
         ("/usr/local/bin/markview", [flag, "--window", id.uuidString])
     }

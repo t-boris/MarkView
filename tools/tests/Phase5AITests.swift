@@ -71,7 +71,7 @@ func runPhase5Tests() async {
           && CLITool.codex.authStatusArgs == ["login", "status"] && CLITool.codex.loginCommand == "login"
           && CLITool.cline.fullAccessArgs == ["--auto-approve", "true"] && CLITool.copilot.fullAccessArgs == ["--allow-all"]
           && CLITool.codex.continueArgs == ["resume", "--last"] && CLITool.cline.continueArgs.isEmpty
-          && CLITool.claude.overrideKey == "settings.cli.claudePath",
+          && Setting.cliPath(CLITool.claude.rawValue).name == "settings.cli.claudePath",
           "AR-35: sign-in, full-access and continue arguments, and the override key, are unchanged")
     check(CLITool.allCases.map(\.rawValue) == ["claude", "codex", "cline", "copilot", "antigravity"]
           && CLITool.allCases.map(\.displayName) == ["Claude Code", "Codex", "Cline", "Copilot", "Antigravity"],

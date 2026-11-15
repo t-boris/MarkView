@@ -1,10 +1,12 @@
 import Foundation
 import CryptoKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Language everything the AI writes is in (toolbar and DDE Settings): X-Ray, Explain,
 /// filters and reviews. The storage key predates the removal of the Actions tab.
 enum ActionOutputLanguage {
-    static let storageKey = "actions.outputLanguage"
     /// Stored value meaning "same language as the source document".
     static let documentLanguage = "document"
 
@@ -26,7 +28,7 @@ enum ActionOutputLanguage {
     }
 
     /// The language chosen for everything the AI writes.
-    static var current: String { UserDefaults.standard.string(forKey: storageKey) ?? documentLanguage }
+    static var current: String { Settings.standard.value(Setting.outputLanguage) }
 
     /// Instruction for generated text that is not a transformation of one document:
     /// code explanations, architecture descriptions, rating reasons, reviews.

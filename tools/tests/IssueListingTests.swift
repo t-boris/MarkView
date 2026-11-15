@@ -71,7 +71,6 @@ check("sort round trip", IssueSort(stored: IssueSort(field: .priority, descendin
 check("sort stored format", IssueSort().storedValue == "date:desc")
 check("unknown sort = default", IssueSort(stored: "size:desc") == .default && IssueSort(stored: "date:up") == .default && IssueSort(stored: "garbage") == .default)
 check("no stored sort = date desc", IssueSort(stored: nil) == IssueSort(field: .date, descending: true))
-check("keys", IssueListSettings.filterKey("abc") == "features.issues.filter.abc" && IssueListSettings.sortKey("abc") == "features.issues.sort.abc")
 
 // MARK: Dates (REQ-002, DEC-011)
 

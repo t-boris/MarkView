@@ -292,9 +292,3 @@ struct IssueSort: Equatable {
     static let featurePriorityRanks = ["critical": 4, "p0": 4, "high": 3, "p1": 3, "medium": 2, "p2": 2,
                                        "low": 1, "p3": 1]
 }
-
-/// Per-project keys of the filter and sort (DEC-015); `project` is the 12-character root hash.
-enum IssueListSettings {
-    static func filterKey(_ project: String) -> String { "features.issues.filter." + project }
-    static func sortKey(_ project: String) -> String { "features.issues.sort." + project }
-}

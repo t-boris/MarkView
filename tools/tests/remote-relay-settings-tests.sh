@@ -13,7 +13,7 @@ cleanup() {
 }
 trap cleanup EXIT
 swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/markview-remote-test-modules" \
-    MarkView/Models/Remote/RemoteProtocol.swift MarkView/Models/Remote/RemoteRelaySettings.swift \
+    Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift MarkView/Models/Remote/RemoteProtocol.swift MarkView/Models/Remote/RemoteRelaySettings.swift \
     tools/tests/RemoteRelaySettingsTests.swift -o "$out/relay-settings-tests"
 "$out/relay-settings-tests" write "$test_service" "$test_suite"
 "$out/relay-settings-tests" read "$test_service" "$test_suite"

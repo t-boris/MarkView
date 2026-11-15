@@ -1,5 +1,8 @@
 import Foundation
 import Combine
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One of the eight project colors (feature-2, DEC-009). Values are sRGB, readable on the light and
 /// the dark window chrome. No UI frameworks, so tools/tests/project-color-tests.sh compiles it alone.
@@ -55,9 +58,6 @@ struct ProjectColor: Equatable, Identifiable {
 @MainActor
 final class ProjectColorStore: ObservableObject {
     static let shared = ProjectColorStore()
-    static let defaultsKey = "project.colors"
-    /// Set once the path-hashed colors saved before DEC-014 were dropped.
-    static let byNameMigrationKey = "project.colors.byFolderName"
 
     /// Project key → palette id, for colors chosen by hand only; the automatic color is never saved.
     @Published private(set) var assignments: [String: String]
@@ -65,12 +65,13 @@ final class ProjectColorStore: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        if !defaults.bool(forKey: Self.byNameMigrationKey) {
+        let settings = Settings(defaults)
+        if !settings.value(Setting.projectColorsByName) {
             // Saved colors did not tell automatic from chosen ones: every project follows its name once.
-            defaults.removeObject(forKey: Self.defaultsKey)
-            defaults.set(true, forKey: Self.byNameMigrationKey)
+            settings.remove(Setting.projectColors)
+            settings.set(true, for: Setting.projectColorsByName)
         }
-        assignments = defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
+        assignments = settings.value(Setting.projectColors) as? [String: String] ?? [:]
     }
 
     /// The chosen color, else the automatic one.
@@ -83,6 +84,6 @@ final class ProjectColorStore: ObservableObject {
         let choice = color == ProjectColor.automatic(forKey: key) ? nil : color.id
         guard assignments[key] != choice else { return }
         assignments[key] = choice
-        defaults.set(assignments, forKey: Self.defaultsKey)
+        Settings(defaults).set(assignments as [String: Any], for: Setting.projectColors)
     }
 }

@@ -1,5 +1,8 @@
 import AppKit
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 import PDFKit
 import ImageIO
 import UniformTypeIdentifiers
@@ -19,9 +22,8 @@ final class BookPDFRenderer: NSObject, WKNavigationDelegate {
             throw BookPDFError.invalid("The book renderer is missing from the application. Reinstall MarkView.")
         }
         self.entry = entry
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = .nonPersistent()
-        webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 595, height: 842), configuration: config)
+        webView = WebHost.makeWebView(frame: CGRect(x: 0, y: 0, width: 595, height: 842),
+                                      configuration: WebHost.makeConfiguration(dataStore: .nonPersistent))
         super.init(); webView.navigationDelegate = self
     }
 

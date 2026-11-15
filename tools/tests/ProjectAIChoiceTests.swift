@@ -21,8 +21,8 @@ try! FileManager.default.createDirectory(at: b, withIntermediateDirectories: tru
 defer { try? FileManager.default.removeItem(at: base) }
 
 // Defaults only.
-UserDefaults.standard.set("claude", forKey: AIAssistantPreferences.backendKey)
-UserDefaults.standard.set("opus", forKey: AIAssistantPreferences.modelKey(for: .claude))
+Settings.standard.set("claude", for: Setting.aiBackend)
+Settings.standard.set("opus", for: Setting.cliModel(CLITool.claude.rawValue))
 check("no choice: default assistant", AIAssistantPreferences.backend(project: a).rawValue, "claude")
 check("no choice: default model", AIAssistantPreferences.model(for: .claude, project: a), "opus")
 check("no choice: default X-Ray model", AIAssistantPreferences.xrayModel(for: .claude, project: a), "sonnet")
@@ -37,7 +37,7 @@ check("alpha: own model", AIAssistantPreferences.model(for: .codex, project: a),
 check("alpha: own X-Ray model", AIAssistantPreferences.xrayModel(for: .codex, project: a), "gpt-5.6-luna")
 check("beta untouched: assistant", AIAssistantPreferences.backend(project: b).rawValue, "claude")
 check("beta untouched: model", AIAssistantPreferences.model(for: .claude, project: b), "opus")
-check("defaults untouched", UserDefaults.standard.string(forKey: AIAssistantPreferences.backendKey), "claude")
+check("defaults untouched", Settings.standard.stored(Setting.aiBackend), "claude")
 
 // Same project under another spelling of its path.
 check("trailing slash is the same project",
@@ -77,7 +77,7 @@ AssistantChoice(project: a).setModel("gpt-6-sol", for: .codex)
 
 // A window without a project edits the defaults.
 AssistantChoice(project: nil).setTool("codex")
-check("no project writes defaults", UserDefaults.standard.string(forKey: AIAssistantPreferences.backendKey), "codex")
+check("no project writes defaults", Settings.standard.stored(Setting.aiBackend), "codex")
 check("beta follows the new default", AIAssistantPreferences.backend(project: b).rawValue, "codex")
 
 // Antigravity one-shot completion through its print mode (live: needs `agy` signed in; skipped without it).

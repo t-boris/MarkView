@@ -93,8 +93,6 @@ public struct SubprocessResult: Sendable, Equatable {
 /// that a timeout or cancellation reaches the grandchildren (`FU-22`), concurrent draining of the pipes with bounded
 /// capture (`FU-04`), the merged environment with `settings.cli.extraPATH`, and SIGTERM then SIGKILL.
 public enum Subprocess {
-    public static let extraPATHDefaultsKey = "settings.cli.extraPATH"
-
     public static let defaultSearchPaths: [String] = [
         "/opt/homebrew/bin",
         "/usr/local/bin",
@@ -104,9 +102,9 @@ public enum Subprocess {
         "/sbin",
     ]
 
-    /// Reads configured extra PATH directories from UserDefaults (`settings.cli.extraPATH`).
+    /// Reads configured extra PATH directories from the settings (`Setting.extraPATH`).
     public static func configuredExtraPATHDirectories(defaults: UserDefaults = .standard) -> [String] {
-        guard let raw = defaults.string(forKey: extraPATHDefaultsKey) else { return [] }
+        guard let raw = Settings(defaults).stored(Setting.extraPATH) else { return [] }
         return raw
             .split(whereSeparator: { $0 == ":" || $0 == "\n" || $0 == "," })
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
