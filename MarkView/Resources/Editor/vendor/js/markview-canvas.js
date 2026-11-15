@@ -160,9 +160,14 @@
                 const content = document.createElement('div');
                 content.className = 'canvas-node-content markdown-body';
                 try {
-                    content.innerHTML = (typeof md !== 'undefined' && md)
-                        ? md.render(String(n.text || ''))
-                        : '<pre>' + escapeHTML(String(n.text || '')) + '</pre>';
+                    if (typeof md !== 'undefined' && md) {
+                        const renderedCanvasHTML = md.render(String(n.text || ''));
+                        content.innerHTML = (typeof window.sanitizeMarkdownHTML === 'function')
+                            ? window.sanitizeMarkdownHTML(renderedCanvasHTML)
+                            : '<pre class="sanitization-error">' + escapeHTML(String(n.text || '')) + '</pre>';
+                    } else {
+                        content.innerHTML = '<pre>' + escapeHTML(String(n.text || '')) + '</pre>';
+                    }
                 } catch (e) {
                     content.innerHTML = '<pre>' + escapeHTML(String(n.text || '')) + '</pre>';
                 }

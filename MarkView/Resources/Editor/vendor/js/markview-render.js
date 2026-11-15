@@ -75,24 +75,41 @@
         }
 
         // Sanitize rendered Markdown HTML before inserting into the page that owns the native bridge (AR-01 / DEC-007).
+        function ensureDOMPurifyURIHook() {
+            if (typeof DOMPurify !== 'undefined' && typeof DOMPurify.addHook === 'function' && !DOMPurify.__markviewURIHookInstalled) {
+                DOMPurify.__markviewURIHookInstalled = true;
+                DOMPurify.addHook('afterSanitizeAttributes', function (node) {
+                    if (!node || !node.hasAttribute) return;
+                    ['src', 'href', 'xlink:href', 'action', 'formaction', 'poster'].forEach(function (attr) {
+                        if (!node.hasAttribute(attr)) return;
+                        var val = node.getAttribute(attr).replace(/[\u0000-\u0020]+/g, '');
+                        if (/^file:/i.test(val) || (/^data:/i.test(val) && !/^data:image\/(?:png|jpe?g|gif|webp|avif)[;,]/i.test(val))) {
+                            node.removeAttribute(attr);
+                        }
+                    });
+                });
+            }
+        }
+
         function sanitizeMarkdownHTML(rawHTML) {
             if (typeof DOMPurify !== 'undefined' && DOMPurify.sanitize) {
+                ensureDOMPurifyURIHook();
                 return DOMPurify.sanitize(rawHTML, {
                     USE_PROFILES: { html: true, svg: true, mathMl: true },
                     ADD_TAGS: ['details', 'summary', 'input', 'annotation', 'semantics'],
                     ADD_ATTR: ['target', 'checked', 'disabled', 'type', 'open', 'contenteditable', 'aria-hidden', 'style', 'class', 'id', 'title', 'alt', 'src', 'href', 'width', 'height', 'align', 'colspan', 'rowspan'],
                     ALLOW_DATA_ATTR: true,
+                    DATA_URI_TAGS: [],
                     ALLOW_UNKNOWN_PROTOCOLS: false,
-                    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|file|markview-doc|markview-wikilink|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+                    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|markview-doc|markview-wikilink):|data:image\/(?:png|jpe?g|gif|webp|avif)[;,]|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
                     FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'base', 'meta', 'link'],
                     FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseenter', 'onmouseleave', 'onfocus', 'onblur', 'onkeydown', 'onkeyup', 'onkeypress', 'onsubmit', 'onchange', 'oninput', 'onmousedown', 'onmouseup', 'oncontextmenu', 'ondblclick', 'ondrag', 'ondrop', 'onpaste', 'oncopy', 'oncut', 'onanimationstart', 'onanimationend', 'ontoggle']
                 });
             }
-            return String(rawHTML || '')
-                .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
-                .replace(/<script\b[^>]*\/?>/gi, '')
-                .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, ' ')
-                .replace(/\b(href|src)\s*=\s*(['"])\s*(?:javascript|vbscript|data:text\/html):[^'"]*\2/gi, '$1="#"');
+            // Fail closed when DOMPurify is absent rather than trusting regex stripping.
+            return '<pre class="sanitization-error">' + String(rawHTML || '').replace(/[&<>"]/g, function (c) {
+                return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
+            }) + '</pre>';
         }
         window.sanitizeMarkdownHTML = sanitizeMarkdownHTML;
 

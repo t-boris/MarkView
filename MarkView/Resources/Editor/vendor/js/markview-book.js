@@ -35,6 +35,35 @@
         }
         return kept.join(';');
     }
+    function sanitizeBookHTML(rawHTML) {
+        if (typeof window.DOMPurify !== 'undefined' && typeof window.DOMPurify.sanitize === 'function') {
+            if (typeof window.DOMPurify.addHook === 'function' && !window.DOMPurify.__markviewURIHookInstalled) {
+                window.DOMPurify.__markviewURIHookInstalled = true;
+                window.DOMPurify.addHook('afterSanitizeAttributes', function (node) {
+                    if (!node || !node.hasAttribute) return;
+                    ['src', 'href', 'xlink:href', 'action', 'formaction', 'poster'].forEach(function (attr) {
+                        if (!node.hasAttribute(attr)) return;
+                        var val = node.getAttribute(attr).replace(/[\u0000-\u0020]+/g, '');
+                        if (/^file:/i.test(val) || (/^data:/i.test(val) && !/^data:image\/(?:png|jpe?g|gif|webp|avif)[;,]/i.test(val))) {
+                            node.removeAttribute(attr);
+                        }
+                    });
+                });
+            }
+            return window.DOMPurify.sanitize(String(rawHTML || ''), {
+                USE_PROFILES: { html: true, svg: true, mathMl: true },
+                ADD_TAGS: ['details', 'summary', 'input', 'annotation', 'semantics', 'book-preserve'],
+                ADD_ATTR: ['target', 'checked', 'disabled', 'type', 'open', 'aria-hidden', 'style', 'class', 'id', 'title', 'alt', 'src', 'href', 'width', 'height', 'colspan', 'rowspan', 'start', 'data-wikilink', 'data-book-passage', 'viewBox', 'preserveAspectRatio', 'd', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'stroke-width', 'encoding', 'display', 'mathvariant'],
+                ALLOW_DATA_ATTR: true,
+                DATA_URI_TAGS: [],
+                ALLOW_UNKNOWN_PROTOCOLS: false,
+                ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|markview-doc|markview-wikilink):|data:image\/(?:png|jpe?g|gif|webp|avif)[;,]|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+                FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'base', 'meta', 'link', 'video', 'audio', 'button', 'textarea', 'select'],
+                FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseenter', 'onmouseleave', 'onfocus', 'onblur', 'onkeydown', 'onkeyup', 'onkeypress', 'onsubmit', 'onchange', 'oninput', 'onmousedown', 'onmouseup', 'oncontextmenu', 'ondblclick', 'ondrag', 'ondrop', 'onpaste', 'oncopy', 'oncut', 'onanimationstart', 'onanimationend', 'ontoggle']
+            });
+        }
+        return '<pre class="sanitization-error">' + escape(String(rawHTML || '')) + '</pre>';
+    }
     function sanitize(root) {
         root.querySelectorAll('script,style,iframe,object,embed,video,audio,link,meta,base,form,button,textarea,select').forEach(n => n.remove());
         root.querySelectorAll('*').forEach(n => {
@@ -396,7 +425,7 @@
             else if (c.format === 'csv' || c.format === 'tsv') html = csv(c.text, c.format === 'csv' ? ',' : '\t');
             else if (c.format === 'code') html = '<pre><code>' + escape(c.text) + '</code></pre>';
             else html = c.text.split(/\n\s*\n/).map(p => '<p>' + escape(p).replace(/\n/g, '<br>') + '</p>').join('');
-            root.innerHTML = html; sanitize(root); wrapLooseProse(root);
+            root.innerHTML = sanitizeBookHTML(html); sanitize(root); wrapLooseProse(root);
             for (const link of root.querySelectorAll('a.wikilink-embed')) {
                 const target = link.getAttribute('data-wikilink') || '';
                 if (/\.(png|jpe?g|gif|webp|svg|tiff?|heic|bmp)$/i.test(target)) {
@@ -507,7 +536,7 @@
     }
     function setChapter(id, html) {
         const c = chapters.find(x => x.id === id); if (!c) throw Error('Unknown chapter.');
-        c.root.innerHTML = html;
+        c.root.innerHTML = sanitizeBookHTML(html); sanitize(c.root);
     }
     function snapshot() {
         return chapters.map(c => ({id:c.id, html:c.root.innerHTML, text:c.root.textContent, title:c.root.querySelector('.chapter-header h1').textContent}));
@@ -520,7 +549,7 @@
     }
     function setPassage(chapter, id, html) {
         const c = chapters.find(x => x.id === chapter), el = c?.root.querySelector('[data-book-passage="'+id+'"]');
-        if (!el) throw Error('Unknown prose passage.'); el.innerHTML=html;
+        if (!el) throw Error('Unknown prose passage.'); el.innerHTML = sanitizeBookHTML(html); sanitize(el);
     }
     function mapLinks() {
         for (const c of chapters) for (const a of c.root.querySelectorAll('a')) {

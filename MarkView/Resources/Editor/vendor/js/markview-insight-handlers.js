@@ -8,25 +8,36 @@
             out = out.replace(/\n?```\s*$/, '');
             // Also handle mid-stream chunks where the fence sits on its own.
             out = out.replace(/^\s*```(?:html|HTML)?\s*$/gm, '');
-            // Strip ALL <script>...</script> blocks (LLM should never emit
-            // executable script — the iframe loads vendored libs itself).
-            // Required because allow-same-origin removes the null-origin XSS
-            // mitigation; we replace it with a content-side strip.
-            out = out.replace(/<script\b[\s\S]*?<\/script\s*>/gi, '<!-- script stripped -->');
-            // Strip self-closing or src-only script tags too.
-            out = out.replace(/<script\b[^>]*\/?>/gi, '<!-- script tag stripped -->');
-            // Strip on*= event-handler attributes (onclick, onload, onerror, …).
-            // Match unquoted, single-quoted, double-quoted forms.
-            out = out.replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, ' ');
-            // Strip javascript: URLs in href/src.
-            out = out.replace(/\b(href|src)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi, '$1="#"');
-            // Strip <link rel=prefetch|preconnect|dns-prefetch (network leak).
-            out = out.replace(/<link\b[^>]*?\brel\s*=\s*["'](?:prefetch|preconnect|dns-prefetch)["'][^>]*>/gi, function(match) {
-                const hrefMatch = match.match(/\bhref\s*=\s*["']([^"']*)["']/i);
-                const href = hrefMatch ? hrefMatch[1] : '(no href)';
-                return '<!-- link prefetch/preconnect stripped: ' + String(href).replace(/--/g, '- -') + ' -->';
-            });
-            return out;
+            if (typeof DOMPurify !== 'undefined' && typeof DOMPurify.sanitize === 'function') {
+                if (typeof DOMPurify.addHook === 'function' && !DOMPurify.__markviewURIHookInstalled) {
+                    DOMPurify.__markviewURIHookInstalled = true;
+                    DOMPurify.addHook('afterSanitizeAttributes', function (node) {
+                        if (!node || !node.hasAttribute) return;
+                        ['src', 'href', 'xlink:href', 'action', 'formaction', 'poster'].forEach(function (attr) {
+                            if (!node.hasAttribute(attr)) return;
+                            var val = node.getAttribute(attr).replace(/[\u0000-\u0020]+/g, '');
+                            if (/^file:/i.test(val) || (/^data:/i.test(val) && !/^data:image\/(?:png|jpe?g|gif|webp|avif)[;,]/i.test(val))) {
+                                node.removeAttribute(attr);
+                            }
+                        });
+                    });
+                }
+                return DOMPurify.sanitize(out, {
+                    USE_PROFILES: { html: true, svg: true, mathMl: true },
+                    ADD_TAGS: ['details', 'summary', 'annotation', 'semantics', 'canvas'],
+                    ADD_ATTR: ['class', 'id', 'style', 'data-chart', 'data-chart-config', 'data-mermaid', 'data-katex', 'aria-hidden', 'target', 'colspan', 'rowspan', 'width', 'height', 'title', 'alt', 'src', 'href', 'open'],
+                    ALLOW_DATA_ATTR: true,
+                    DATA_URI_TAGS: [],
+                    ALLOW_UNKNOWN_PROTOCOLS: false,
+                    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|data:image\/(?:png|jpe?g|gif|webp|avif)[;,]|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+                    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'base', 'meta', 'link', 'style'],
+                    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseenter', 'onmouseleave', 'onfocus', 'onblur', 'onkeydown', 'onkeyup', 'onkeypress', 'onsubmit', 'onchange', 'oninput', 'onmousedown', 'onmouseup', 'oncontextmenu', 'ondblclick', 'ondrag', 'ondrop', 'onpaste', 'oncopy', 'oncut', 'onanimationstart', 'onanimationend', 'ontoggle']
+                });
+            }
+            // Fail closed when DOMPurify is absent rather than falling back to regex stripping.
+            return '<pre class="sanitization-error">' + out.replace(/[&<>"]/g, function(c) {
+                return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
+            }) + '</pre>';
         }
 
         // ---------------------------------------------------------------------------
@@ -70,6 +81,7 @@
             state.insightSkeleton = skeleton;
             state.insightIframeReady = false;
             state.insightPendingChunks = new Map();
+            state.insightSectionRawBuffers = new Map();
 
             // Compute required libs and diff against existing.
             const newLibs = computeRequiredLibs(skeleton);
@@ -158,7 +170,10 @@
                 console.warn('[insight] updateInsightSection: unknown sectionId', secId);
                 return;
             }
-            const stripped = stripCDNTags(typeof htmlChunk === 'string' ? htmlChunk : '');
+            const rawChunk = typeof htmlChunk === 'string' ? htmlChunk : '';
+            if (!state.insightSectionRawBuffers) state.insightSectionRawBuffers = new Map();
+            state.insightSectionRawBuffers.set(secId, (state.insightSectionRawBuffers.get(secId) || '') + rawChunk);
+            const stripped = stripCDNTags(rawChunk);
             if (!state.insightIframeReady || !state.insightIframe) {
                 // Buffer until iframe ready.
                 if (!state.insightPendingChunks.has(secId)) state.insightPendingChunks.set(secId, []);
@@ -198,10 +213,12 @@
             const t = setTimeout(function() {
                 state.insightSectionInitTimers.delete(secId);
                 if (!state.insightIframe || !state.insightIframe.contentWindow) return;
+                const fullRaw = (state.insightSectionRawBuffers && state.insightSectionRawBuffers.get(secId)) || '';
+                const cleanHTML = stripCDNTags(fullRaw);
                 try {
                     state.insightIframe.contentWindow.postMessage({
                         type: 'initSectionLib',
-                        payload: { sectionId: secId },
+                        payload: { sectionId: secId, html: cleanHTML },
                     }, '*');
                 } catch (e) { /* iframe gone — ignore */ }
             }, 100);
@@ -327,25 +344,10 @@
             if (!state.insightIframe || ev.source !== state.insightIframe.contentWindow) {
                 return; // silently ignore unrelated postMessages
             }
-            // Sandbox iframe is null-origin per spec → event.origin SHOULD be the
-            // literal string 'null', but WebKit (when the parent itself was loaded
-            // via WKWebView.loadHTMLString, which gives parent a 'null' or 'file://'
-            // origin) may produce '' or other values for the sandboxed iframe's
-            // origin. The defensive `ev.source` identity check above already
-            // proves the message came from OUR iframe (no other window has the
-            // same contentWindow reference), so the origin check is redundant —
-            // accept any origin from our verified source. Tracked: tighten back
-            // to a strict allowlist once WebKit's exact behaviour is confirmed.
-            // Diagnostic: log first observed origin so we know what to allowlist.
-            if (!state.__insightLoggedOrigin) {
-                state.__insightLoggedOrigin = true;
-                try {
-                    sendToSwift('jsError', {
-                        where: 'parent-iframe-origin',
-                        message: 'first iframe postMessage origin=' + JSON.stringify(ev.origin),
-                        source: '', lineno: 0, colno: 0, stack: ''
-                    });
-                } catch (_) {}
+            const allowedOrigin = ev.origin === 'null' || ev.origin === '' || (typeof ev.origin === 'string' && ev.origin.indexOf('file://') === 0);
+            if (!allowedOrigin) {
+                console.warn('[insight] rejected postMessage from unexpected origin:', ev.origin);
+                return;
             }
             const data = ev.data;
             if (!isPlainObject(data) || typeof data.type !== 'string') {
@@ -400,12 +402,14 @@
                             flushedSectionIds.add(secId);
                         }
                         state.insightPendingChunks.clear();
-                        // Trigger lib init for every flushed section.
+                        // Trigger lib init for every flushed section with full sanitized HTML.
                         for (const secId of flushedSectionIds) {
+                            const fullRaw = (state.insightSectionRawBuffers && state.insightSectionRawBuffers.get(secId)) || '';
+                            const cleanHTML = stripCDNTags(fullRaw);
                             try {
                                 state.insightIframe.contentWindow.postMessage({
                                     type: 'initSectionLib',
-                                    payload: { sectionId: secId },
+                                    payload: { sectionId: secId, html: cleanHTML },
                                 }, '*');
                             } catch (e) { /* drop */ }
                         }
