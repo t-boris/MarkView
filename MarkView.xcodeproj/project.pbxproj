@@ -26,6 +26,7 @@
 		07044898F5427AD51A50B426 /* ToolRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD03 /* ToolRegistry.swift */; };
 		07044898F5427AD51A50B427 /* DocumentScrollSideTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */; };
 		07044898F5427AD51A50B430 /* TaskBag.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD10 /* TaskBag.swift */; };
+		3F7E81CB447C533A218B8912 /* BackgroundFileScans.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A6A798B75CA28695E850FC /* BackgroundFileScans.swift */; };
 		07044898F5427AD51A50B431 /* MarkdownDocumentChunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD11 /* MarkdownDocumentChunker.swift */; };
 		07044898F5427AD51A50B428 /* AIOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD05 /* AIOperation.swift */; };
 		07044898F5427AD51A50B432 /* AssistantProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD12 /* AssistantProviderRegistry.swift */; };
@@ -437,6 +438,7 @@
 		F90E29074E472035B10C3421 /* PrototypeTailwind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B6BEBAADD6CD8BA0A85088E /* PrototypeTailwind.swift */; };
 		F96FA6D72A28C0FBEB8491CF /* QAEffort.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34C9EA4B55C391A7586BFF09 /* QAEffort.swift */; };
 		F9DB0D1D862F55F68889E54F /* SemanticDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D939016101CACDA109D5AD0 /* SemanticDatabase.swift */; };
+		1FE5E52DD02881452A07F341 /* SemanticSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C295E57029BBB9E5280963B /* SemanticSchema.swift */; };
 		FA014B5C6A09EBB585D56DFE /* PrototypeStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 392E7835EA61B16C2B0E7E47 /* PrototypeStudioView.swift */; };
 		FAB93630CB9184D60154A8D0 /* FeatureNavigatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFDFB9B4AC589ED10AEE08BC /* FeatureNavigatorView.swift */; };
 		FB092FDCEDD667D3EE210E28 /* QACredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 399EBF61F1B6CF2281DB2205 /* QACredentials.swift */; };
@@ -697,6 +699,7 @@
 		6CB25CF391C44897DD4AF564 /* ProjectBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBootstrap.swift; sourceTree = "<group>"; };
 		6D6D9377AD0B59E94F3B37FF /* ResearchDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchDocument.swift; sourceTree = "<group>"; };
 		6D939016101CACDA109D5AD0 /* SemanticDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticDatabase.swift; sourceTree = "<group>"; };
+		1C295E57029BBB9E5280963B /* SemanticSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticSchema.swift; sourceTree = "<group>"; };
 		6E10D6ADB4ADB8D0AE4BC89E /* XRaySearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRaySearch.swift; sourceTree = "<group>"; };
 		6ED484A68FCCB897811B8168 /* WindowTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTitle.swift; sourceTree = "<group>"; };
 		6EFCD1F86D5016B88C17570C /* CockpitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitView.swift; sourceTree = "<group>"; };
@@ -810,6 +813,7 @@
 		A6E0167483A13431C669BD03 /* ToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolRegistry.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentScrollSideTable.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD10 /* TaskBag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskBag.swift; sourceTree = "<group>"; };
+		17A6A798B75CA28695E850FC /* BackgroundFileScans.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundFileScans.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD11 /* MarkdownDocumentChunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocumentChunker.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD05 /* AIOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIOperation.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD12 /* AssistantProviderRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantProviderRegistry.swift; sourceTree = "<group>"; };
@@ -1278,6 +1282,7 @@
 				5512D54B1337F5917699C7D0 /* InsightModels.swift */,
 				E51D3861EF03670F636F7EEA /* InsightSession.swift */,
 				6D939016101CACDA109D5AD0 /* SemanticDatabase.swift */,
+				1C295E57029BBB9E5280963B /* SemanticSchema.swift */,
 				234669AA71D7061108B72B97 /* SemanticModels.swift */,
 			);
 			path = Insight;
@@ -1527,6 +1532,7 @@
 				659CA4BBD506746CE1B89857 /* StructureOutline.swift */,
 				75282A5DF053FCD311C2528B /* TabClosing.swift */,
 				A6E0167483A13431C669BD10 /* TaskBag.swift */,
+				17A6A798B75CA28695E850FC /* BackgroundFileScans.swift */,
 				5B3E1F0C54027CD3A8565C4C /* TextDiff.swift */,
 				96A769BF1AF0740BC8A28F30 /* WebAppPreview.swift */,
 				3B668CCF19220EBA5609ABCC /* WebClip.swift */,
@@ -2158,6 +2164,7 @@
 				07044898F5427AD51A50B426 /* ToolRegistry.swift in Sources */,
 				07044898F5427AD51A50B427 /* DocumentScrollSideTable.swift in Sources */,
 				07044898F5427AD51A50B430 /* TaskBag.swift in Sources */,
+				3F7E81CB447C533A218B8912 /* BackgroundFileScans.swift in Sources */,
 				07044898F5427AD51A50B431 /* MarkdownDocumentChunker.swift in Sources */,
 				07044898F5427AD51A50B428 /* AIOperation.swift in Sources */,
 				07044898F5427AD51A50B432 /* AssistantProviderRegistry.swift in Sources */,
@@ -2500,6 +2507,7 @@
 				154E375918D7240F90F0B49F /* SearchPanelView.swift in Sources */,
 				E038D9416B2960E5EA79CC20 /* SelectionActionBar.swift in Sources */,
 				F9DB0D1D862F55F68889E54F /* SemanticDatabase.swift in Sources */,
+				1FE5E52DD02881452A07F341 /* SemanticSchema.swift in Sources */,
 				D65DC6A2790B1DD0BECA74BB /* SemanticModels.swift in Sources */,
 				A2737913E8E207E1256F0086 /* SharedSearchView.swift in Sources */,
 				6911ACE95B84B9D4BBAF0078 /* SpecificationHandoff.swift in Sources */,

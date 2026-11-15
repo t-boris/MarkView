@@ -28,8 +28,10 @@ final class WorkspaceFileTreeStore: ObservableObject {
     private var fileWatchTimer: Timer?
     private var fileWatchDebounce: DispatchWorkItem?
     private var lastRootModDate: Date?
-    /// Cached markdown presence flag invalidated when the root tree reloads (`AR-42`).
-    var cachedHasMarkdownFiles: Bool?
+    /// Whether the open folder holds a Markdown file (`AR-42`). A background walk answers it after the tree loads or reloads;
+    /// until it has answered the flag is false, and the views that read it update when it changes.
+    @Published private(set) var hasMarkdownFiles = false
+    private var markdownProbe: Task<Void, Never>?
 
     init() {
         let ud = UserDefaults.standard
@@ -47,13 +49,33 @@ final class WorkspaceFileTreeStore: ObservableObject {
         rootNode = nil
         excludedFolders = []
         lastRootModDate = nil
-        cachedHasMarkdownFiles = nil
+        probeMarkdownFiles()
     }
 
     func setRootNode(_ node: FileNode?) {
         rootNode = node
         lastRootModDate = node.map { rootModificationDate(for: $0.url) } ?? nil
-        cachedHasMarkdownFiles = nil
+        probeMarkdownFiles()
+    }
+
+    /// Look for a Markdown file in the open folder off the main thread; a newer probe (another tree load) replaces this one.
+    private func probeMarkdownFiles() {
+        markdownProbe?.cancel()
+        guard let folder = rootNode?.url else {
+            markdownProbe = nil
+            hasMarkdownFiles = false
+            return
+        }
+        markdownProbe = Task.detached(priority: .utility) { [weak self] in
+            let found = BackgroundFileScans.containsMarkdown(in: folder)
+            guard !Task.isCancelled else { return }
+            await self?.finishMarkdownProbe(folder: folder, found: found)
+        }
+    }
+
+    private func finishMarkdownProbe(folder: URL, found: Bool) {
+        guard rootNode?.url == folder else { return }
+        hasMarkdownFiles = found
     }
 
     func loadExcludedFolders() {
@@ -190,7 +212,7 @@ final class WorkspaceFileTreeStore: ObservableObject {
             await MainActor.run {
                 self.rootNode = rebuilt
                 self.lastRootModDate = self.rootModificationDate(for: rootURL)
-                self.cachedHasMarkdownFiles = nil
+                self.probeMarkdownFiles()
                 Self.log("reloadFileTree: rootNode updated on MainActor")
             }
         }
@@ -570,7 +592,7 @@ class WorkspaceManager: ObservableObject {
     private var terminalTabs: [UUID: TerminalSession] = [:]
     /// Dev server terminals started by Preview Web App, by app folder path.
     private var previewTerminals: [String: UUID] = [:]
-    private var openFilesWatcher: Timer?
+    private var openFilesWatcher: Task<Void, Never>?
     /// Last seen modification dates of open files (to reload what the assistant changed).
     private var openFileDates: [URL: Date] = [:]
     /// Project architecture (Architecture tab).
@@ -899,10 +921,12 @@ class WorkspaceManager: ObservableObject {
         try? await Task.sleep(nanoseconds: 100_000_000)
 
         do {
-            let db = try SemanticDatabase(workspacePath: url)
+            let db = try await SemanticDatabase.open(workspacePath: url)
             Self.debugLog("initDDE: database opened")
             let projectId = url.lastPathComponent
-            try db.ensureProject(id: projectId, name: url.lastPathComponent, rootPath: url.path)
+            try await db.ensureProject(id: projectId, name: url.lastPathComponent, rootPath: url.path)
+            // Another folder was opened while the file was being opened: this database is not for this window any more.
+            guard !Task.isCancelled else { return }
             self.semanticDatabase = db
 
             indexingProgress = "Initializing engines..."
@@ -992,38 +1016,9 @@ class WorkspaceManager: ObservableObject {
         return results
     }
 
-    /// Cached check for menu disabled-state (`AR-42`): returns `true` as soon as one
-    /// markdown file is found inside `rootNode` and caches the result until the file tree changes.
-    var hasMarkdownFiles: Bool {
-        if let cached = fileTreeStore.cachedHasMarkdownFiles {
-            return cached
-        }
-        guard let folderURL = rootNode?.url else { return false }
-        let resolvedFolderPath = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
-        // Same separator-aware containment as `scanMarkdownFiles(in:)` — keep in sync.
-        let resolvedFolderPrefix = resolvedFolderPath.hasSuffix("/")
-            ? resolvedFolderPath
-            : resolvedFolderPath + "/"
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: folderURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else {
-            fileTreeStore.cachedHasMarkdownFiles = false
-            return false
-        }
-        while let url = enumerator.nextObject() as? URL {
-            guard url.pathExtension.lowercased() == "md" else { continue }
-            guard !url.path.contains(".dde") else { continue }
-            let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
-            guard resolvedFile == resolvedFolderPath || resolvedFile.hasPrefix(resolvedFolderPrefix) else { continue }
-            fileTreeStore.cachedHasMarkdownFiles = true
-            return true
-        }
-        fileTreeStore.cachedHasMarkdownFiles = false
-        return false
-    }
+    /// Whether the open folder holds a Markdown file, for the menu's disabled state (`AR-42`): the store's flag, found by a
+    /// background walk, so reading it never touches the disk.
+    var hasMarkdownFiles: Bool { fileTreeStore.hasMarkdownFiles }
 
     // MARK: - Folder Exclusion
 
@@ -1031,19 +1026,19 @@ class WorkspaceManager: ObservableObject {
     func excludeFolder(_ folderURL: URL) {
         guard let relativePath = fileTreeStore.excludeFolder(folderURL) else { return }
 
-        // Remove all DB entities for files in this folder
+        // Remove all DB entities for files in this folder: the folder walk and the writes run off the main thread.
         guard let db = semanticDatabase else { return }
-        let fm = FileManager.default
-        if let enumerator = fm.enumerator(at: folderURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-            while let url = enumerator.nextObject() as? URL {
-                guard url.pathExtension.lowercased() == "md" else { continue }
-                let docId = self.docId(for: url)
-                db.clearSymbols(forDocument: docId, kind: "heading")
-                db.clearSymbols(forDocument: docId, kind: "link")
-                db.clearSymbols(forDocument: docId, kind: "code_block")
-                // Remove from FTS
-                db.indexDocumentFTS(documentId: docId, title: "", content: "")
+        let root = rootNode?.url
+        let linked = linkedFolders
+        Task.detached {
+            var ids: [String] = []
+            if let enumerator = FileManager.default.enumerator(at: folderURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                while let url = enumerator.nextObject() as? URL {
+                    guard url.pathExtension.lowercased() == "md" else { continue }
+                    ids.append(LinkedFolders.documentId(for: url, root: root ?? url.deletingLastPathComponent(), linked: linked))
+                }
             }
+            await db.forgetDocuments(ids)
         }
         objectWillChange.send()
         NSLog("[DDE] Excluded folder: \(relativePath)")
@@ -1149,7 +1144,7 @@ class WorkspaceManager: ObservableObject {
             var tab = OpenTab(url: url, content: "", originalContent: "")
             tab.kind = .data
             tabsStore.appendTab(tab)
-            openFileDates[url] = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            openFileDates[url] = BackgroundFileScans.modificationDate(of: url)
             addRecentFile(url)
             startWatchingOpenFiles()
             return
@@ -2185,7 +2180,7 @@ class WorkspaceManager: ObservableObject {
 
     /// Check if a file belongs to the currently open workspace
     private func isFileInCurrentWorkspace(_ url: URL) -> Bool {
-        guard semanticDatabase != nil else { return false }
+        guard semanticDatabase != nil || singleFileSetup != nil else { return false }
         guard let root = rootNode else { return false }
         // A pull request's copy of a project file (MarkView's cache, opened from the PR
         // X-Ray) belongs to the open project: it must not turn it into a single-file workspace.
@@ -2201,6 +2196,8 @@ class WorkspaceManager: ObservableObject {
     private func releaseWorkspaceEngines() {
         cockpitSession?.closeProject()
         cockpitSession = nil
+        singleFileSetup?.cancel()
+        singleFileSetup = nil
         semanticDatabase = nil
         graphRAG = nil
         stopAllTerminals()
@@ -2274,6 +2271,10 @@ class WorkspaceManager: ObservableObject {
         return true
     }
 
+    /// The single-file workspace being opened: while its database is still being created, another Markdown file
+    /// from the same folder joins it instead of starting a second one.
+    private var singleFileSetup: Task<Void, Never>?
+
     /// Initialize workspace for a single .md file — DB named after the file, indexes only this file
     private func initSingleFileWorkspace(fileURL: URL) {
         let parentDir = fileURL.deletingLastPathComponent()
@@ -2284,34 +2285,41 @@ class WorkspaceManager: ObservableObject {
 
         releaseWorkspaceEngines()
 
-        do {
-            let db = try SemanticDatabase(workspacePath: parentDir, dbName: dbName)
-            let projectId = fileName
-            try db.ensureProject(id: projectId, name: fileName, rootPath: parentDir.path)
-            self.semanticDatabase = db
-            self.graphRAG = GraphRAG(db: db)
-            self.aiWorkspaceRoot = parentDir
-            gitClient.setup(at: parentDir)
+        aiWorkspaceRoot = parentDir
+        gitClient.setup(at: parentDir)
 
-            // Build file tree showing just the parent dir
-            if rootNode == nil {
-                rootOpenedAsFolder = false
-                fileTreeStore.setRootNode(FileNode.buildTree(from: parentDir, sortOrder: fileTreeStore.sortOrder))
-                fileTreeStore.loadExcludedFolders()
+        // Build file tree showing just the parent dir
+        if rootNode == nil {
+            rootOpenedAsFolder = false
+            fileTreeStore.setRootNode(FileNode.buildTree(from: parentDir, sortOrder: fileTreeStore.sortOrder))
+            fileTreeStore.loadExcludedFolders()
+        }
+
+        // The database is opened and filled off the main thread; the workspace gets it when it is ready.
+        singleFileSetup = Task {
+            do {
+                let db = try await SemanticDatabase.open(workspacePath: parentDir, dbName: dbName)
+                try await db.ensureProject(id: fileName, name: fileName, rootPath: parentDir.path)
+                // Closed, or another file's workspace took over, while the database was being opened.
+                guard !Task.isCancelled else { return }
+                self.semanticDatabase = db
+                self.graphRAG = GraphRAG(db: db)
+                singleFileSetup = nil
+
+                // Index this single file: create root module, parse document, index FTS
+                await indexSingleFile(fileURL: fileURL, db: db)
+
+                NSLog("[DDE] Single-file workspace initialized: \(fileName) → \(dbName)")
+            } catch {
+                singleFileSetup = nil
+                NSLog("[DDE] Failed to init single-file workspace: \(error)")
             }
-
-            // Index this single file: create root module, parse document, index FTS
-            indexSingleFile(fileURL: fileURL, db: db)
-
-            NSLog("[DDE] Single-file workspace initialized: \(fileName) → \(dbName)")
-        } catch {
-            NSLog("[DDE] Failed to init single-file workspace: \(error)")
         }
     }
 
     /// Index a single markdown file — structural parse + FTS + Haiku extraction.
     /// Works fully in sandbox: no directory scan, content passed directly.
-    private func indexSingleFile(fileURL: URL, db: SemanticDatabase) {
+    private func indexSingleFile(fileURL: URL, db: SemanticDatabase) async {
         guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
             NSLog("[DDE] indexSingleFile: cannot read \(fileURL.path)")
             return
@@ -2322,17 +2330,17 @@ class WorkspaceManager: ObservableObject {
         let modId = "mod_single_file"
 
         // Root module
-        db.upsertModule(id: modId, name: fileName, path: fileURL.deletingLastPathComponent().path,
-                        parentId: nil, level: 0, fileCount: 1)
+        await db.upsertModule(id: modId, name: fileName, path: fileURL.deletingLastPathComponent().path,
+                              parentId: nil, level: 0, fileCount: 1)
 
         // FTS index
-        db.indexDocumentFTS(documentId: docId, title: fileName, content: content)
+        await db.indexDocumentFTS(documentId: docId, title: fileName, content: content)
 
         // Content hash
         var h: UInt32 = 0x811c9dc5
         for byte in content.utf8 { h ^= UInt32(byte); h = h &* 0x01000193 }
-        try? db.upsertDocument(id: docId, projectId: fileName, filePath: fileURL.path,
-                               fileName: docId, fileExt: "md", contentHash: String(h, radix: 16))
+        try? await db.upsertDocument(id: docId, projectId: fileName, filePath: fileURL.path,
+                                     fileName: docId, fileExt: "md", contentHash: String(h, radix: 16))
 
         // Parse symbols inline (headings) — no directory scan
         let lines = content.components(separatedBy: "\n")
@@ -2342,8 +2350,8 @@ class WorkspaceManager: ObservableObject {
                 let level = line.prefix(while: { $0 == "#" }).count
                 let text = String(line.dropFirst(level)).trimmingCharacters(in: .whitespaces)
                 let symId = "sym_h_\(singleFileFnv1a("\(docId):\(lineNum):\(text)"))"
-                db.insertSymbol(id: symId, moduleId: modId, documentId: docId,
-                               name: text, kind: "heading", lineStart: lineNum, lineEnd: lineNum, context: nil)
+                await db.insertSymbol(id: symId, moduleId: modId, documentId: docId,
+                                      name: text, kind: "heading", lineStart: lineNum, lineEnd: lineNum, context: nil)
             }
         }
 
@@ -3730,17 +3738,18 @@ class WorkspaceManager: ObservableObject {
         // Persist to SQLite
         if let db = semanticDatabase {
             let docId = self.docId(for: tab.url)
-            for block in delta.added + delta.changed {
-                try? db.upsertBlock(block, documentId: docId)
-            }
-            for id in delta.removed {
-                try? db.deleteBlock(id: id)
-                try? db.deleteClaimsForBlock(id)
-                try? db.deleteRelationsForBlock(id)
-                try? db.deleteDiagnosticsForBlock(id)
+            let upserts = delta.added + delta.changed, removed = delta.removed
+            // Deltas reach the database in the order the editor sent them.
+            let previous = blockDeltaSave
+            blockDeltaSave = Task {
+                await previous?.value
+                await db.applyBlockDelta(documentId: docId, upserts: upserts, removed: removed)
             }
         }
     }
+
+    /// The block delta write in flight (`AR-37`): each delta waits for the one before it.
+    private var blockDeltaSave: Task<Void, Never>?
 
     // MARK: - Background Folder Analysis
 
@@ -4684,7 +4693,7 @@ class WorkspaceManager: ObservableObject {
     /// The working copy now holds another branch's files: show them in the tree and open tabs.
     private func branchChanged() {
         refreshFileTree()
-        reloadChangedOpenFiles(all: true)
+        Task { await reloadChangedOpenFiles(all: true) }
     }
 
     /// The branch a pull request comes from, when it is the one checked out.
@@ -4824,7 +4833,8 @@ class WorkspaceManager: ObservableObject {
             return buffers
         }
         session.recordUsage = { [weak self] input, output, cost in
-            self?.semanticDatabase?.addUsage(inputTokens: input, outputTokens: output, costCents: cost * 100)
+            guard let db = self?.semanticDatabase else { return }
+            Task { await db.addUsage(inputTokens: input, outputTokens: output, costCents: cost * 100) }
         }
         session.openFile = { [weak self] url in self?.openFile(url) }
         session.featureStore = { [weak self] in self?.features }
@@ -5320,50 +5330,61 @@ class WorkspaceManager: ObservableObject {
         activeAITerminalID = nil
         terminalTabs.values.forEach { $0.terminate() }
         terminalTabs = [:]
-        openFilesWatcher?.invalidate()
+        openFilesWatcher?.cancel()
         openFilesWatcher = nil
     }
 
     /// While terminals run, reload open files an assistant (or a command) changed on disk —
-    /// only tabs without unsaved edits, so nothing typed here is lost.
+    /// only tabs without unsaved edits, so nothing typed here is lost. The loop checks every two seconds; the disk is read
+    /// off the main thread and one check ends before the next begins (`AR-42`).
     private func startWatchingOpenFiles() {
         guard openFilesWatcher == nil else { return }
-        openFilesWatcher = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reloadChangedOpenFiles() }
+        openFilesWatcher = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                await self.reloadChangedOpenFiles()
+            }
         }
     }
 
     /// `all` reloads every unmodified tab whose file differs, not only files newer than last seen
     /// (a branch switch can restore older modification dates).
-    private func reloadChangedOpenFiles(all: Bool = false) {
-        var changed = false
-        // Data tabs: the viewer reads the file again (a followed log scrolls to the new end).
-        for index in openTabs.indices {
-            guard case .data = openTabs[index].kind else { continue }
-            let url = openTabs[index].url
-            guard let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { continue }
-            defer { openFileDates[url] = date }
-            guard let seen = openFileDates[url], date > seen else { continue }
-            tabsStore.updateTab(at: index) { $0.dataRevision += 1 }
-            if openTabs[index].notesView {
-                refreshDataNotes(url, revision: openTabs[index].dataRevision)
+    private func reloadChangedOpenFiles(all: Bool = false) async {
+        var files: [BackgroundFileScans.OpenFile] = []
+        for tab in openTabs {
+            if case .data = tab.kind {
+                // Data tabs: the viewer reads the file again (a followed log scrolls to the new end).
+                files.append(.init(url: tab.url, kind: .data, seen: openFileDates[tab.url], loaded: ""))
+            } else if tab.isFileBacked && !tab.isModified {
+                files.append(.init(url: tab.url, kind: .text, seen: openFileDates[tab.url], loaded: tab.originalContent))
             }
         }
-        for index in openTabs.indices where openTabs[index].isFileBacked && !openTabs[index].isModified {
-            let url = openTabs[index].url
-            guard let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { continue }
-            defer { openFileDates[url] = date }
-            if !all {
-                guard let seen = openFileDates[url], date > seen else { continue }
+        guard !files.isEmpty else { return }
+        let readings = await Task.detached(priority: .utility) { BackgroundFileScans.read(files, all: all) }.value
+
+        var changed = false
+        for reading in readings {
+            let url = reading.file.url
+            openFileDates[url] = reading.date
+            guard let index = tabsStore.firstIndex(of: url) else { continue }
+            if reading.file.kind == .data {
+                guard reading.isNewer, case .data = openTabs[index].kind else { continue }
+                tabsStore.updateTab(at: index) { $0.dataRevision += 1 }
+                if openTabs[index].notesView {
+                    refreshDataNotes(url, revision: openTabs[index].dataRevision)
+                }
+            } else if let text = reading.changedText {
+                // The tab was edited, or reloaded by a faster check, while the file was being read: leave it.
+                guard openTabs[index].isFileBacked, !openTabs[index].isModified,
+                      openTabs[index].originalContent == reading.file.loaded else { continue }
+                tabsStore.updateTab(at: index) { tab in
+                    tab.content = text
+                    tab.originalContent = text
+                    tab.isModified = false
+                }
+                changed = true
             }
-            guard let content = try? String(contentsOf: url, encoding: .utf8),
-                  content != openTabs[index].originalContent else { continue }
-            tabsStore.updateTab(at: index) { tab in
-                tab.content = content
-                tab.originalContent = content
-                tab.isModified = false
-            }
-            changed = true
         }
         if changed { refreshFileTree() }
     }

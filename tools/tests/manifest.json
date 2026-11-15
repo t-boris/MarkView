@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 181,
+  "suiteCount": 183,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1007,6 +1007,7 @@
       "tier": "gui",
       "sources": [
         "MarkView/Models/Appearance/AppTheme.swift",
+        "MarkView/Models/Workspace/BackgroundFileScans.swift",
         "MarkView/Models/Workspace/DocumentState.swift",
         "MarkView/Models/Lifecycle/FeatureIngest.swift",
         "MarkView/Models/Book/PDFReader.swift",
@@ -2768,6 +2769,30 @@
       "sources": [
         "tools/tests/XRayLayoutWebTests.swift",
         "tools/tests/xray-layout-web-tests.sh"
+      ]
+    },
+    {
+      "name": "background-file-scans-tests",
+      "script": "tools/tests/background-file-scans-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "tools/tests/BackgroundFileScansTests.swift",
+        "tools/tests/background-file-scans-tests.sh"
+      ]
+    },
+    {
+      "name": "semantic-database-tests",
+      "script": "tools/tests/semantic-database-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Insight/SemanticDatabase.swift",
+        "MarkView/Models/Insight/SemanticSchema.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
+        "tools/tests/SemanticDatabaseTestSupport.swift",
+        "tools/tests/SemanticDatabaseTests.swift",
+        "tools/tests/fixtures/semantic-database/release-6.26-schema.sql",
+        "tools/tests/semantic-database-tests.sh"
       ]
     }
   ]

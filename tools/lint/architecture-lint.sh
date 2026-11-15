@@ -7,6 +7,8 @@
 #   no-vendor-markview   no reference to `vendor/js/markview-` in the app's Swift code and HTML (the scripts live in Editor/js)
 #   target-membership    every MarkView/**/*.swift on disk is a file reference and a Sources build file of the Xcode target in
 #                        MarkView.xcodeproj/project.pbxproj, and every Swift file the project references exists on disk
+#   semantic-database-actor  MarkView/Models/Insight/SemanticDatabase.swift declares `actor SemanticDatabase` and no @MainActor, so
+#                        none of its sqlite3 calls can run on the main thread (AR-37)
 # Ratchets: a count that may fall and never rise. Today's sites are listed per file in an allow-list; a new site or a higher
 # count fails, and so does a lower count that the list does not yet say (run `--tighten`), so that the allowance never has slack.
 #   process              Process() outside Packages/MarkViewCore Subprocess.swift     tools/lint/process-allowlist.txt
@@ -206,8 +208,17 @@ ratchet("workspace-manager", "workspace-manager-views.txt", "@EnvironmentObject 
         "# `@EnvironmentObject ... WorkspaceManager` declarations: views that take the whole manager (AR-14). `<count> <path>`; a ratchet\n"
         "# that only falls. Run tools/lint/architecture-lint.sh --tighten after narrowing a view's dependency.")
 
+# --- semantic-database-actor
+database = root / "MarkView" / "Models" / "Insight" / "SemanticDatabase.swift"
+if database.is_file():
+    if not any(re.match(r"\s*actor\s+SemanticDatabase\b", line) for _, line in code_lines(database)):
+        violations.append(("semantic-database-actor", f"{rel(database)}: `SemanticDatabase` must be declared as an `actor`; its SQLite calls must not run on the main thread"))
+    for number, line in code_lines(database):
+        if "@MainActor" in line:
+            violations.append(("semantic-database-actor", f"{rel(database)}:{number}: `@MainActor` in the database; its SQLite calls must stay off the main thread"))
+
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "process", "clicompletion", "workspace-manager"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

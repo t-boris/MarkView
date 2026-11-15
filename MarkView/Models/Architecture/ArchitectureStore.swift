@@ -355,23 +355,33 @@ final class ArchitectureStore: ObservableObject {
     /// AI descriptions are kept and only changed modules are re-described later.
     func open(root: URL, db: SemanticDatabase?) {
         rootPath = root.standardizedFileURL.path
-        loadStoredSnapshot(db: db)
-        scan(root: root, db: db)
-        refreshPRSources(root: root)
+        Task {
+            // The scan keeps the AI descriptions of the stored snapshot, so it starts once that is loaded.
+            await loadStoredSnapshot(db: db, root: root)
+            guard rootPath == root.standardizedFileURL.path else { return }
+            scan(root: root, db: db)
+            refreshPRSources(root: root)
+        }
     }
 
     /// Window restoration displays the previous view without starting new AI work.
     func restoreCached(root: URL, db: SemanticDatabase?) {
         rootPath = root.standardizedFileURL.path
-        loadStoredSnapshot(db: db)
-        // Local cached/declaration outlines restore drill-down without starting AI.
-        outlineContents(root: root)
+        Task {
+            await loadStoredSnapshot(db: db, root: root)
+            guard rootPath == root.standardizedFileURL.path else { return }
+            // Local cached/declaration outlines restore drill-down without starting AI.
+            outlineContents(root: root)
+        }
     }
 
-    /// The saved architecture, when nothing is loaded yet.
-    private func loadStoredSnapshot(db: SemanticDatabase?) {
-        guard snapshot == nil, let stored = db?.loadArchitecture() ?? loadPersisted() else { return }
-        snapshot = stored
+    /// The saved architecture, when nothing is loaded yet. The database is read on its own actor, so a slow read
+    /// never holds the main thread; a snapshot that arrived meanwhile (or another project) wins.
+    private func loadStoredSnapshot(db: SemanticDatabase?, root: URL) async {
+        guard snapshot == nil else { return }
+        let stored = await db?.loadArchitecture()
+        guard snapshot == nil, rootPath == root.standardizedFileURL.path, let found = stored ?? loadPersisted() else { return }
+        snapshot = found
         revision += 1
     }
 
@@ -492,10 +502,19 @@ final class ArchitectureStore: ObservableObject {
         return unassigned > 50 || (files.count > 0 && Double(unassigned) / Double(files.count) > 0.1)
     }
 
+    /// The save in flight: snapshots reach the database in the order they were committed.
+    private var databaseSave: Task<Void, Never>?
+
     private func commit(_ next: ArchitectureSnapshot, db: SemanticDatabase?) {
         snapshot = next
-        do { try db?.saveArchitecture(next) } catch {
-            self.error = "Could not save the architecture: \(error.localizedDescription)"
+        if let db {
+            let previous = databaseSave
+            databaseSave = Task {
+                await previous?.value
+                do { try await db.saveArchitecture(next) } catch {
+                    self.error = "Could not save the architecture: \(error.localizedDescription)"
+                }
+            }
         }
         if db == nil, let file = persistenceFile { persist(next, to: file) }
         revision += 1
@@ -822,7 +841,7 @@ final class ArchitectureStore: ObservableObject {
             },
             runner: { [db] req, _ in
                 let result = try await CLICompletion.run(req, onActivity: progressHandler)
-                await MainActor.run { result.record(in: db) }
+                result.record(in: db)
                 return result
             }
         )
@@ -1577,9 +1596,9 @@ final class ArchitectureStore: ObservableObject {
             automaticState = state
         }
         show(.scanning)
-        // The saved architecture, read on a connection of its own so the open does not block the UI.
+        // The saved architecture, read on the database's actor so the open does not block the UI.
         if snapshot == nil {
-            let stored = await db?.loadArchitectureDetached()
+            let stored = await db?.loadArchitecture()
             guard token == runToken, !Task.isCancelled else { return }
             if snapshot == nil, let stored = stored ?? loadPersisted() {
                 snapshot = stored
@@ -3859,7 +3878,7 @@ final class ArchitectureStore: ObservableObject {
             let diff = await Task.detached { Self.diff(for: source, root: root, repo: repo, gitHub: gitHub) }.value ?? ""
             let key = SHA256.hash(data: Data(diff.utf8)).map { String(format: "%02x", $0) }.joined()
             reviewKey = (key, db)
-            if !fresh, let cached = db?.loadArchitectureReview(key: key),
+            if !fresh, let cached = await db?.loadArchitectureReview(key: key),
                let data = cached.data(using: .utf8),
                var reviewed = try? JSONDecoder().decode(PROverlay.self, from: data) {
                 reviewed.info = prOverlay?.info
@@ -3938,7 +3957,7 @@ final class ArchitectureStore: ObservableObject {
                 next.reviewSummary = object["summary"] as? String
                 prOverlay = next
                 if let data = try? JSONEncoder().encode(next) {
-                    db?.saveArchitectureReview(key: key, json: String(decoding: data, as: UTF8.self))
+                    saveReview(key: key, json: String(decoding: data, as: UTF8.self), db: db)
                 }
             } catch is CancellationError {
             } catch {
@@ -3964,7 +3983,19 @@ final class ArchitectureStore: ObservableObject {
             for i in (overlay.files[f].findings ?? []).indices { overlay.files[f].findings?[i].explaining = nil }
         }
         guard let data = try? JSONEncoder().encode(overlay) else { return }
-        db?.saveArchitectureReview(key: key, json: String(decoding: data, as: UTF8.self))
+        saveReview(key: key, json: String(decoding: data, as: UTF8.self), db: db)
+    }
+
+    /// The review save in flight: marks reach the database in the order they were made.
+    private var reviewSave: Task<Void, Never>?
+
+    private func saveReview(key: String, json: String, db: SemanticDatabase?) {
+        guard let db else { return }
+        let previous = reviewSave
+        reviewSave = Task {
+            await previous?.value
+            await db.saveArchitectureReview(key: key, json: json)
+        }
     }
 
     /// The shown pull request's repository; for local changes, the selected one (issues).
