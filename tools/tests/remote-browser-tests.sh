@@ -3,11 +3,10 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-swiftc -parse-as-library -o "$out/remote-browser-tests" \
-    Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift \
-    MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/Browser/BrowserControlServer.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift \
+swiftc -parse-as-library -o "$out/remote-browser-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
+    MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/Browser/BrowserControlServer.swift \
     MarkView/Models/Remote/RemoteProtocol.swift MarkView/Models/Remote/RemoteWorkspaceTools.swift \
-    MarkView/Models/Remote/RemoteWorkspace.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/Remote/RemoteCommand.swift \
+    MarkView/Models/Remote/RemoteWorkspace.swift MarkView/Models/Remote/RemoteCommand.swift \
     MarkView/Models/Terminal/PTYWriter.swift MarkView/Models/AI/AgentProcesses.swift \
     MarkView/Models/Cockpit/CockpitPlan.swift MarkView/Models/Cockpit/CockpitHostBridge.swift MarkView/Models/Cockpit/CockpitStepPolicy.swift \
     MarkView/Models/Cockpit/CockpitSupervisor.swift MarkView/Models/Cockpit/CockpitAgentRegistry.swift tools/tests/RemoteBrowserTests.swift

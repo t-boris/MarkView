@@ -9,6 +9,6 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/WindowUIStateTests.swift "$out/main.swift"
 swiftc -suppress-warnings -target "$(uname -m)-apple-macos13.0" -o "$out/window-ui-state-tests" \
-    MarkView/Models/Workspace/WindowUIState.swift MarkView/Views/Workspace/WindowStorage.swift MarkView/Models/Workspace/EditorWindowPrefs.swift \
+    MarkView/Bridge/TypedWebBridge.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift MarkView/Models/Workspace/WindowUIState.swift MarkView/Views/Workspace/WindowStorage.swift MarkView/Models/Workspace/EditorWindowPrefs.swift \
     MarkView/Models/Workspace/ExcludedFolders.swift "$out/main.swift"
-"$out/window-ui-state-tests"
+"$out/window-ui-state-tests" "$PWD/MarkView/Resources/Editor"

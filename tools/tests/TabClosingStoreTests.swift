@@ -10,10 +10,10 @@ enum TabClosingStoreTests {
         pdfHarness.openFile(URL(fileURLWithPath: "/tmp/doc.pdf"))
         let documents = [tab("a.md", .file), tab("b.png", .image), pdfHarness.openTabs[0], tab("c.zip", .archive), tab("d.csv", .data)]
         let tools = [tab("t", .terminal(UUID())), tab("x", .architecture(scope: "")), tab("pr", .architecture(scope: TabKind.pullRequestScope)),
-                     tab("i", .insight(InsightSession())), tab("dep", .deployments), tab("dis", .discussions), tab("wf", .workflow), tab("g", .git),
-                     tab("rev", .changeReview), tab("gh", .github(.run(id: 1, repo: "o/r", title: "Run"))), tab("br", .browser(BrowserSession())),
+                     tab("i", .insight(InsightSession())), tab("dep", .tool(.deployments)), tab("dis", .tool(.discussions)), tab("wf", .tool(.workflow)), tab("g", .tool(.git)),
+                     tab("rev", .tool(.changeReview)), tab("gh", .github(.run(id: 1, repo: "o/r", title: "Run"))), tab("br", .browser(BrowserSession())),
                      tab("p", .prototype(PrototypeSession(slug: "p"))), tab("ui", .uiStudio(StudioSession())), tab("ck", .cockpit(CockpitSession())),
-                     tab("qa", .qa)]
+                     tab("qa", .tool(.qa))]
         precondition(documents.allSatisfy(\.isDocument), "file, image, PDF, archive and data tabs are documents")
         precondition(tools.allSatisfy { !$0.isDocument }, "every tool tab stays when documents close")
 

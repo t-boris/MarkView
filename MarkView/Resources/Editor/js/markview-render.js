@@ -80,15 +80,6 @@
         }
         window.sanitizeMarkdownHTML = sanitizeMarkdownHTML;
 
-        function escapeFrontmatterHTML(s) {
-            return String(s == null ? '' : s)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
-        }
-
         function renderMarkdown() {
             if (state.isRendering) return;
             state.isRendering = true;
@@ -119,7 +110,7 @@
                 } else {
                     // Fallback when markdown-it is unavailable
                     html = '<pre style="white-space: pre-wrap; word-break: break-word;">'
-                        + markdown.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                        + window.mvKit.escapeHtml(markdown)
                         + '</pre>';
                 }
 
@@ -131,9 +122,9 @@
                     lines.forEach(line => {
                         const colonIdx = line.indexOf(':');
                         if (colonIdx > 0) {
-                            const key = escapeFrontmatterHTML(line.substring(0, colonIdx).trim());
+                            const key = window.mvKit.escapeHtml(line.substring(0, colonIdx).trim());
                             const rawVal = line.substring(colonIdx + 1).trim();
-                            let val = escapeFrontmatterHTML(rawVal);
+                            let val = window.mvKit.escapeHtml(rawVal);
                             // Color-code some values
                             if (rawVal === 'active') val = '<span style="color:#4ec9b0">●</span> ' + val;
                             else if (rawVal === 'deprecated') val = '<span style="color:#f44747">●</span> ' + val;
@@ -141,7 +132,7 @@
                             else if (rawVal === 'low') val = '<span style="color:#ce9178">▼</span> ' + val;
                             // Arrays
                             if (rawVal.startsWith('[') && rawVal.endsWith(']')) {
-                                const items = rawVal.slice(1,-1).split(',').map(s => escapeFrontmatterHTML(s.trim())).filter(Boolean);
+                                const items = rawVal.slice(1,-1).split(',').map(s => window.mvKit.escapeHtml(s.trim())).filter(Boolean);
                                 val = items.map(i => '<span style="background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;font-size:10px;margin:1px;">' + i + '</span>').join(' ');
                             }
                             rows += '<tr><td style="padding:2px 8px;color:#808080;font-size:10px;white-space:nowrap;vertical-align:top;">' + key + '</td><td style="padding:2px 8px;font-size:10px;">' + val + '</td></tr>';

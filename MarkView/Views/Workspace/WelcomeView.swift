@@ -11,7 +11,7 @@ struct WelcomeScreen<Below: View>: View {
     /// window at once (BUG-120).
     @Binding private var backdrop: WelcomeBackdrop
     /// Drawn once each time the screen appears: Shuffle must not change the scene while it is shown.
-    @State private var shufflePick = Int.random(in: 0..<WelcomeBackdrop.animated.count)
+    @State private var shufflePick = WelcomeBackdrop.randomPick()
     @State private var seed: UInt64
 
     /// Name of the open folder; nil in a window without one.
@@ -39,7 +39,7 @@ struct WelcomeScreen<Below: View>: View {
         Binding(get: { backdrop },
                 set: { picked in
                     backdrop = picked
-                    if picked == .shuffle { shufflePick = Int.random(in: 0..<WelcomeBackdrop.animated.count) }
+                    if picked == .shuffle { shufflePick = WelcomeBackdrop.randomPick() }
                 })
     }
 
@@ -127,7 +127,7 @@ struct WelcomeScreen<Below: View>: View {
     private var backdropMenu: some View {
         Menu {
             Picker("Background", selection: choice) {
-                ForEach(WelcomeBackdrop.allCases) { backdrop in
+                ForEach(WelcomeBackdrop.all) { backdrop in
                     Label(backdrop.title, systemImage: backdrop.symbol).tag(backdrop)
                 }
             }
@@ -149,8 +149,8 @@ struct WelcomeScreen<Below: View>: View {
     }
 }
 
-/// There are at most six tiles per section. Keep them eager: macOS 27's Accessibility scroll-to-top/bottom actions on
-/// nested LazyVGrids trap in ForEachState.item when an offscreen section is visited by an E2E client.
+/// A section has a handful of tiles (seven today, the tools among them). Keep them eager: macOS 27's Accessibility scroll-to-top/bottom
+/// actions on nested LazyVGrids trap in ForEachState.item when an offscreen section is visited by an E2E client.
 private struct WelcomeTileLayout: Layout {
     let minimumWidth: CGFloat
     private let spacing: CGFloat = 10

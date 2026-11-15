@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <!-- The thread of a Discussion (DiscussionThreadView.swift): the conversation as a web page, each answer drawn in the
      form the question needs (text, table, Mermaid diagram, SVG, chart, styled figure).
-     Swift → JS: mvSetTheme(id, accent), mvSetTurns(json), mvSetLive(json|null), mvScrollToEnd().
+     Swift → JS: mvSetTheme(id, accent, definition), mvSetTurns(json), mvSetLive(json|null), mvScrollToEnd().
      JS → Swift (message handler "discussion"): {type: ready|save|copy}. A drawing opens full-window on Expand or double-click (wheel zoom, drag, Esc).. AI text never runs as HTML: markdown-it has
      html disabled, SVG is sanitized, a styled figure is a sandboxed frame without scripts. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; frame-src about: data:; connect-src 'none'">

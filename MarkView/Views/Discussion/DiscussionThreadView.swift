@@ -14,7 +14,9 @@ struct DiscussionThreadView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        configuration.userContentController.add(context.coordinator, name: "discussion")
+        configuration.userContentController.add(context.coordinator.messages, name: "discussion")
+        // `mvBridge.send` in the page validates every message against the contract (AR-28).
+        configuration.userContentController.addUserScript(context.coordinator.messages.contract.userScript)
         // The first paint already has this window's theme; later changes arrive through `mvSetTheme`.
         configuration.userContentController.addUserScript(WKUserScript(
             source: theme.firstPaintScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
@@ -30,8 +32,10 @@ struct DiscussionThreadView: NSViewRepresentable {
         context.coordinator.update(turns: turns, live: live, theme: theme.webArguments)
     }
 
-    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate {
         weak var view: WKWebView?
+        /// The page's messages (channel "discussion" of `bridge-contract.json`).
+        let messages = TypedWebBridge(channel: "discussion")
         private var ready = false
         private var sentTurns: [DiscussionTurn]?
         private var sentLive: DiscussionStore.Live??
@@ -72,23 +76,23 @@ struct DiscussionThreadView: NSViewRepresentable {
             return String(array.dropFirst().dropLast())
         }
 
-        func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
-            switch type {
-            case "ready":
+        override init() {
+            super.init()
+            messages.on(DiscussionMessage.Ready.self) { [weak self] _ in
+                guard let self else { return }
                 ready = true
                 sentTurns = nil; sentLive = nil; sentTheme = nil
                 flush()
-            case "copy":
-                guard let text = body["text"] as? String, !text.isEmpty else { return }
+            }
+            messages.on(DiscussionMessage.Copy.self) { message in
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-            case "save":
-                guard let name = body["name"] as? String, let data = body["data"] as? String else { return }
-                let bytes = (body["base64"] as? Bool == true) ? Data(base64Encoded: data) : data.data(using: .utf8)
+                NSPasteboard.general.setString(message.payload.text, forType: .string)
+            }
+            messages.on(DiscussionMessage.Save.self) { message in
+                let save = message.payload
+                let bytes = save.base64 == true ? Data(base64Encoded: save.data) : save.data.data(using: .utf8)
                 guard let bytes else { return }
-                DispatchQueue.main.async { Self.save(bytes, suggested: name) }
-            default: break
+                DispatchQueue.main.async { Self.save(bytes, suggested: save.name) }
             }
         }
 

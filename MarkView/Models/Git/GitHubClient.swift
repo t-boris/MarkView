@@ -1,5 +1,8 @@
 import Foundation
 import Darwin
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// A GitHub repository the workspace talks to: `origin`, or the repository it was forked from.
 struct GitHubRepo: Hashable, Sendable {
@@ -530,121 +533,59 @@ struct GitHubClient: Sendable {
         let stderr: String
     }
 
-    /// Run `gh` (or, with `git: true`, git) in `root`. Never waits for a prompt: stdin is
-    /// closed and git's terminal prompt is off. The blocking reads run on GCD threads, not on
-    /// Swift's small cooperative pool, and a process that hangs (offline, stalled proxy) is
-    /// terminated after `timeout` seconds.
+    /// Run `gh` (or, with `git: true`, git) in `root` through the shared runner (`Subprocess`). Never waits for a prompt:
+    /// stdin is closed and git's terminal prompt is off. A process that hangs (offline, stalled proxy) is ended with its
+    /// whole group after `timeout` seconds, and one that answers with more than 64 MB is ended too.
     static func execute(_ arguments: [String], in root: URL, git: Bool = false, timeout: TimeInterval = 60) async -> Output {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                continuation.resume(returning: runBlocking(arguments, in: root, git: git, timeout: timeout))
-            }
-        }
+        guard let spec = spec(arguments, in: root, git: git, timeout: timeout) else { return missingGitHubCLI }
+        return output(of: await Subprocess.run(spec), timeout: timeout)
     }
 
     /// `gh` for code that already runs on its own thread (the X-Ray's pull-request sources and
-    /// diffs): the runner of `execute`, called directly. Standard output when `gh` exits with 0,
+    /// diffs): the runner of `execute`, blocking that thread. Standard output when `gh` exits with 0,
     /// nil otherwise. GitHub is opt-in: `enabled` is `GitHubSettings.enabled`, read on the main
     /// actor by the caller, and while it is false `gh` is not started at all.
     static func output(_ arguments: [String], in root: URL, enabled: Bool, timeout: TimeInterval = 20) -> String? {
-        guard enabled else { return nil }
-        let output = runBlocking(arguments, in: root, git: false, timeout: timeout)
+        guard enabled, let spec = spec(arguments, in: root, git: false, timeout: timeout) else { return nil }
+        let output = output(of: Subprocess.runBlocking(spec), timeout: timeout)
         return output.status == 0 ? output.stdout : nil
     }
 
-    private static func runBlocking(_ arguments: [String], in root: URL, git: Bool, timeout: TimeInterval) -> Output {
-        let path = CLIToolLocator.subprocessPath(toolPath: nil)
-        let process = Process()
+    private static let missingGitHubCLI = Output(
+        status: -1, stdout: "", stderr: "GitHub CLI (gh) is not installed. Install it with `brew install gh`.")
+    private static let responseLimit = 64 * 1024 * 1024
+
+    /// The command line and environment of one `gh`/`git` run; nil when `gh` is not installed.
+    private static func spec(_ arguments: [String], in root: URL, git: Bool, timeout: TimeInterval) -> SubprocessSpec? {
+        let executable: String
         if git {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            executable = "/usr/bin/git"
         } else {
-            guard let gh = ghPath() else {
-                return Output(status: -1, stdout: "", stderr: "GitHub CLI (gh) is not installed. Install it with `brew install gh`.")
-            }
-            process.executableURL = URL(fileURLWithPath: gh)
+            guard let gh = ghPath() else { return nil }
+            executable = gh
         }
-        process.arguments = arguments
-        process.currentDirectoryURL = root
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = path
+        let inherited = ProcessInfo.processInfo.environment
+        var env = inherited
+        env["PATH"] = CLIToolLocator.subprocessPath(toolPath: nil)
         env["GH_PROMPT_DISABLED"] = "1"
         env["GH_NO_UPDATE_NOTIFIER"] = "1"
         env["NO_COLOR"] = "1"
         env["GIT_TERMINAL_PROMPT"] = "0"
         GitHubProfile.apply(to: &env, root: root)
-        process.environment = env
-        let out = Pipe(), err = Pipe()
-        // A PTY can fork concurrently with Process.run. Do not leave our pipe ends open
-        // after another child's exec, and never depend on EOF from an inherited writer.
-        for handle in [out.fileHandleForReading, out.fileHandleForWriting, err.fileHandleForReading, err.fileHandleForWriting] {
-            let fd = handle.fileDescriptor
-            guard fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC) == 0 else {
-                return Output(status: -1, stdout: "", stderr: "Could not prepare GitHub command output.")
-            }
-        }
-        let outputFD = out.fileHandleForReading.fileDescriptor, errorFD = err.fileHandleForReading.fileDescriptor
-        for fd in [outputFD, errorFD] {
-            guard fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) == 0 else {
-                return Output(status: -1, stdout: "", stderr: "Could not prepare GitHub command output.")
-            }
-        }
-        defer { try? out.fileHandleForReading.close(); try? err.fileHandleForReading.close() }
-        process.standardOutput = out
-        process.standardError = err
-        process.standardInput = FileHandle.nullDevice
-        do { try process.run() } catch {
-            return Output(status: -1, stdout: "", stderr: error.localizedDescription)
-        }
-        var data = Data(), errData = Data()
-        var buffer = [UInt8](repeating: 0, count: 16384)
-        let limit = 64 * 1024 * 1024
-        // A bounded drain lets both pipes progress even when one is continuously producing.
-        func drain(_ fd: Int32, into output: inout Data) {
-            for _ in 0..<16 {
-                let count = read(fd, &buffer, buffer.count)
-                if count > 0 {
-                    output.append(contentsOf: buffer.prefix(count))
-                    if output.count >= limit { return }
-                } else if count < 0 && errno == EINTR { continue }
-                else { return }
-            }
-        }
-        let deadline = ProcessInfo.processInfo.systemUptime + max(0.05, timeout)
-        var timedOut = false, oversized = false
-        var stoppedAt: TimeInterval?
-        while true {
-            drain(outputFD, into: &data); drain(errorFD, into: &errData)
-            oversized = oversized || data.count >= limit || errData.count >= limit
-            let now = ProcessInfo.processInfo.systemUptime
-            let running = process.isRunning
-            if !running {
-                // The process, rather than every possible inheritor of its stdout, owns this
-                // request. Collect its final buffered bytes and finish without waiting for EOF.
-                drain(outputFD, into: &data); drain(errorFD, into: &errData)
-                oversized = oversized || data.count >= limit || errData.count >= limit
-                break
-            }
-            if stoppedAt == nil, now >= deadline || oversized {
-                timedOut = !oversized
-                stoppedAt = now
-                process.terminate()
-            }
-            if let stoppedAt, now - stoppedAt >= 0.2 {
-                _ = kill(process.processIdentifier, SIGKILL)
-                // SIGKILL normally exits immediately. A broken process must not hold a UI
-                // loading flag forever even if the OS has not delivered its exit callback.
-                if now - stoppedAt >= 2 { break }
-            }
-            usleep(10_000)
-        }
-        if oversized {
+        return SubprocessSpec(
+            executable: executable, arguments: arguments, cwd: root, environment: env,
+            removedEnvironment: Set(inherited.keys).subtracting(env.keys),
+            timeout: max(0.05, timeout), maxOutputBytes: responseLimit, terminateOnOverflow: true)
+    }
+
+    private static func output(of result: SubprocessResult, timeout: TimeInterval) -> Output {
+        if result.truncated {
             return Output(status: -1, stdout: "", stderr: "GitHub response exceeded 64 MB. Request a smaller log or fewer results.")
         }
-        if timedOut {
+        if result.timedOut {
             return Output(status: -1, stdout: "", stderr: "GitHub did not answer within \(Int(timeout)) s (offline?).")
         }
-        return Output(status: process.terminationStatus, stdout: String(decoding: data, as: UTF8.self),
-                      stderr: String(decoding: errData, as: UTF8.self))
+        return Output(status: result.exitCode, stdout: result.stdout, stderr: result.stderr)
     }
 
     /// `gh …` for this repository; throws with gh's own message when it fails.

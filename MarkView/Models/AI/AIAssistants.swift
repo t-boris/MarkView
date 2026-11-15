@@ -1,5 +1,8 @@
 import Foundation
 import AppKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // MARK: - CLI Tool Discovery
 
@@ -536,76 +539,17 @@ enum CLIToolLocator {
         var stderr: String
     }
 
-    /// Run a command off the main thread, draining both pipes concurrently with the
-    /// wait so a full pipe can never deadlock the app (CLAUDE.md process rule), and
-    /// terminating it if it outlives `timeout`.
+    /// Run a CLI off the main thread on the PATH the AI CLIs get (`subprocessPath`), through the shared runner
+    /// (`Subprocess`: pipes drained concurrently, the whole process group ended at `timeout`). A timeout is
+    /// exit code -2 with the elapsed time at the start of `stderr`.
     static func run(_ executable: String, _ arguments: [String], timeout: TimeInterval) async -> RunResult {
-        let path = subprocessPath(toolPath: executable)
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: executable)
-                process.arguments = arguments
-                var env = ProcessInfo.processInfo.environment
-                env["PATH"] = path
-                process.environment = env
-
-                let outPipe = Pipe()
-                let errPipe = Pipe()
-                process.standardOutput = outPipe
-                process.standardError = errPipe
-
-                do {
-                    try process.run()
-                } catch {
-                    continuation.resume(returning: RunResult(exitCode: -1, stdout: "", stderr: error.localizedDescription))
-                    return
-                }
-
-                // Read both pipes on their own queues so neither can fill and block.
-                var outData = Data()
-                var errData = Data()
-                let lock = NSLock()
-                let group = DispatchGroup()
-                for (pipe, isStdout) in [(outPipe, true), (errPipe, false)] {
-                    group.enter()
-                    DispatchQueue.global(qos: .utility).async {
-                        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                        lock.lock()
-                        if isStdout { outData = data } else { errData = data }
-                        lock.unlock()
-                        group.leave()
-                    }
-                }
-
-                // Poll instead of blocking forever, so a hung CLI is terminated
-                // rather than pinning this worker. We are already off the main
-                // thread and both pipes are draining on their own queues.
-                let deadline = Date().addingTimeInterval(timeout)
-                var timedOut = false
-                while process.isRunning {
-                    if Date() > deadline {
-                        process.terminate()
-                        timedOut = true
-                        break
-                    }
-                    usleep(50_000)
-                }
-                process.waitUntilExit()
-                _ = group.wait(timeout: .now() + 5)
-
-                lock.lock()
-                let out = String(data: outData, encoding: .utf8) ?? ""
-                let err = String(data: errData, encoding: .utf8) ?? ""
-                lock.unlock()
-
-                continuation.resume(returning: RunResult(
-                    exitCode: timedOut ? -2 : process.terminationStatus,
-                    stdout: out,
-                    stderr: timedOut ? "Timed out after \(Int(timeout))s. \(err)" : err
-                ))
-            }
+        let result = await Subprocess.run(SubprocessSpec(
+            executable: executable, arguments: arguments, environment: ["PATH": subprocessPath(toolPath: executable)],
+            timeout: timeout))
+        if result.timedOut {
+            return RunResult(exitCode: -2, stdout: result.stdout, stderr: "Timed out after \(Int(timeout))s. \(result.stderr)")
         }
+        return RunResult(exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr)
     }
 
     // MARK: - Terminal login

@@ -730,17 +730,20 @@ final class FakeAssistant {
     var prompts: [String] = []
     var answers: [(structured: Any?, costUSD: Double?)]
     init(_ answers: [(structured: Any?, costUSD: Double?)]) { self.answers = answers }
-    func complete(_ prompt: String) async throws -> QAGenerator.Answer {
-        prompts.append(prompt)
+    func run(_ request: CLICompletion.Request, _ onDelta: (@Sendable (String) -> Void)?,
+             _ onActivity: (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result {
+        prompts.append(request.prompt)
         let next = answers.isEmpty ? (structured: nil as Any?, costUSD: nil as Double?) : answers.removeFirst()
-        return QAGenerator.Answer(structured: next.structured, costUSD: next.costUSD)
+        onActivity?(.thinking)
+        return CLICompletion.Result(text: "", structured: next.structured, costUSD: next.costUSD)
     }
 }
 
 do {
     let request = QAGenerationRequest(goal: "g", appKind: .web, apps: [QAApp(id: "app", name: "App")], now: now)
     func run(_ assistant: FakeAssistant, attempts: Int = 3, seen: ((Int) -> Void)? = nil) -> Result<QAGenerator.Outcome, Error> {
-        runAsync { try await QAGenerator.generate(request, maxAttempts: attempts, onAttempt: seen, complete: assistant.complete) }
+        runAsync { try await QAGenerator.generate(request, maxAttempts: attempts, onAttempt: seen, prepare: { CLICompletion.Request(prompt: $0) },
+                                                  runner: assistant.run) }
     }
 
     let good = FakeAssistant([(answer(title: "First"), 0.1)])
@@ -759,6 +762,11 @@ do {
     let gaveUp = try? run(never).get()
     check("generator: after the last try the last scenario comes back with what is wrong", gaveUp?.attempts == 3 && never.prompts.count == 3 && gaveUp?.scenario.title == "Three" && gaveUp?.remaining.isEmpty == false)
     check("generator: no cost is reported when the assistant reports none", gaveUp?.costUSD == nil)
+    final class Labels: @unchecked Sendable { var seen: [String] = [] }
+    let labels = Labels()
+    _ = runAsync { try await QAGenerator.generate(request, prepare: { CLICompletion.Request(prompt: $0) },
+                                                  runner: { request, _, _ in labels.seen.append(request.label); return CLICompletion.Result(structured: answer(title: "Fine")) }) }
+    check("generator: every try is logged under the generator's name", labels.seen == ["qa-generate"])
 
     let silent = FakeAssistant([(nil, nil), (answer(title: "Later"), nil)])
     let afterSilence = try? run(silent).get()
@@ -771,13 +779,14 @@ do {
     check("generator: no tries at all still asks once", (try? run(none, attempts: 0).get())?.attempts == 1 && none.prompts.count == 1)
 
     struct Broken: Error {}
-    let failing = runAsync { try await QAGenerator.generate(request, complete: { _ in throw Broken() }) }
+    let failing = runAsync { try await QAGenerator.generate(request, prepare: { CLICompletion.Request(prompt: $0) }, runner: { _, _, _ in throw Broken() }) }
     check("generator: an error of the assistant is passed on", { if case .failure(let error) = failing { return error is Broken } else { return false } }())
 
     let stopped = runAsync { () async throws -> QAGenerator.Outcome in
         let task = Task { () async throws -> QAGenerator.Outcome in
             while !Task.isCancelled { await Task.yield() }   // runs only once it was stopped, so the stop reaches the loop itself
-            return try await QAGenerator.generate(request, complete: { _ in QAGenerator.Answer(structured: answer(title: "Never"), costUSD: nil) })
+            return try await QAGenerator.generate(request, prepare: { CLICompletion.Request(prompt: $0) },
+                                                  runner: { _, _, _ in CLICompletion.Result(structured: answer(title: "Never")) })
         }
         task.cancel()
         return try await task.value

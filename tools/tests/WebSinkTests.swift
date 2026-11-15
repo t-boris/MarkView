@@ -9,6 +9,8 @@ import WebKit
 //     colours, fonts) are kept.
 //   - A colour in a .canvas file cannot leave the style attribute of the properties panel (attribute injection, markup).
 //   - A result kind from a code-navigation answer is shown as text in the list of definitions.
+//   - Escaping (AR-29): hostile text and quote characters in a JSON tree, a front matter panel, a wikilink and inline math are shown as
+//     text, add no element, and come back unchanged through an attribute (every page script escapes through mvKit).
 // The shipped editor page (index.html) runs in real WebKit with a hidden window and a stubbed bridge. Run through
 // tools/tests/web-sinks-tests.sh (the editor folder is argument 1; run it on an older copy of the folder to see the checks fail).
 setvbuf(stdout, nil, _IONBF, 0)
@@ -36,6 +38,7 @@ let app = NSApplication.shared
 app.setActivationPolicy(.prohibited)
 let config = WKWebViewConfiguration()
 config.userContentController.add(Bridge(), name: "bridge")
+config.userContentController.addUserScript(try! BridgeContract(contentsOf: URL(fileURLWithPath: editor + "/js/bridge-contract.json")).userScript)  // the page gets the bridge contract from the app (AR-28)
 let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1100, height: 760), configuration: config)
 let window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
 window.alphaValue = 0
@@ -205,6 +208,35 @@ runChecks("code peek", #"""
     note('a usage has no kind and the name is still marked', rows[2] && !rows[2].querySelector('i') && rows[2].querySelector('mark') && rows[2].querySelector('mark').textContent === 'foo', rows[2] && rows[2].innerHTML);
     await new Promise(r => setTimeout(r, 300));
     note('nothing the kind carried ran', window.__pwn === 0, window.__pwn);
+    return JSON.stringify(results);
+    """#)
+
+// 4. Text and attribute escaping (AR-29): every page script escapes through mvKit.escapeHtml / escapeAttr. Hostile text and quote
+//    characters are shown as text, add no element, and come back unchanged through an attribute.
+runChecks("escaping", #"""
+    const results = [];
+    const note = (name, ok, detail) => results.push({ name, ok: !!ok, detail: detail === undefined ? '' : String(detail) });
+    window.__pwn = 0;
+    const hostile = '<img src=x onerror=window.__pwn=4>';
+    window.setStructuredContent(JSON.stringify({ [hostile]: 'it\'s "quoted" <b>bold</b> & more', list: [hostile] }), 'json');
+    await new Promise(r => setTimeout(r, 400));
+    const tree = document.getElementById('editor-rendered');
+    note('the JSON tree adds no element for a hostile key or value', tree.querySelectorAll('img, b').length === 0, tree.innerHTML.slice(0, 300));
+    note('a JSON key is shown as text', Array.from(tree.querySelectorAll('.struct-key')).some(k => k.textContent === '"' + hostile + '"'), tree.innerHTML.slice(0, 300));
+    note('a JSON value with both quote characters is shown as it is', Array.from(tree.querySelectorAll('.struct-value')).some(v => v.textContent === '"it\'s "quoted" <b>bold</b> & more"'), tree.innerHTML.slice(0, 300));
+    window.setContent('---\ntitle: ' + hostile + ' it\'s\ntags: [a\'b, "c"]\n---\n\n# Heading\n\n[[Some "page" it\'s|label <b>x</b>]]\n\n$a\'+`b`$\n');
+    await new Promise(r => setTimeout(r, 600));
+    const page = document.getElementById('editor-rendered');
+    const panel = page.querySelector('.frontmatter-panel');
+    note('the front matter panel adds no element for a hostile value', !!panel && panel.querySelectorAll('img').length === 0, panel && panel.innerHTML.slice(0, 300));
+    note('the front matter value is shown as text', !!panel && panel.textContent.includes(hostile + " it's"), panel && panel.textContent);
+    const link = page.querySelector('a.wikilink');
+    note('a wikilink target with quote characters comes back unchanged from its attribute', !!link && link.getAttribute('data-wikilink') === 'Some "page" it\'s', link && link.outerHTML);
+    note('a wikilink label is shown as text', !!link && link.textContent.includes('label <b>x</b>') && link.querySelectorAll('b').length === 0, link && link.outerHTML);
+    const math = page.querySelector('.math-inline');
+    note('inline math keeps its source, quote and backtick included, in its attribute', !!math && math.getAttribute('data-tex') === "a'+`b`", math && math.outerHTML.slice(0, 200));
+    await new Promise(r => setTimeout(r, 300));
+    note('nothing the hostile text carried ran', window.__pwn === 0, window.__pwn);
     return JSON.stringify(results);
     """#)
 

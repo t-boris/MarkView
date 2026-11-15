@@ -539,7 +539,7 @@ final class GitHubRunModel: ObservableObject {
             request.timeout = 300
             var streamed = ""
             do {
-                let result = try await CLICompletion.run(request, onDelta: { text in
+                let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "github-explain-failure", onDelta: { text in
                     Task { @MainActor in
                         streamed += text
                         self.explanation = streamed

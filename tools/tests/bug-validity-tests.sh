@@ -10,5 +10,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/BugValidityTests.swift "$out/main.swift"
-swiftc -O -o "$out/bug-validity-tests" MarkView/Models/Lifecycle/BugValidity.swift MarkView/Models/Workspace/FrontMatter.swift "$out/main.swift"
+swiftc -O -o "$out/bug-validity-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift MarkView/Models/Lifecycle/BugValidity.swift MarkView/Models/Workspace/FrontMatter.swift "$out/main.swift"
 "$out/bug-validity-tests"

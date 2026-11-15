@@ -9,5 +9,5 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/ResearchMapTranslationTests.swift "$out/main.swift"
 swiftc -O -o "$out/research-map-translation-tests" MarkView/Models/Workspace/FrontMatter.swift MarkView/Models/Research/ResearchDocument.swift \
-    MarkView/Models/Research/ResearchMapDocument.swift MarkView/Models/Research/ResearchMapTranslation.swift "$out/main.swift"
+    MarkView/Models/Research/ResearchMapDocument.swift MarkView/Models/Research/ResearchMapTranslation.swift MarkView/Models/AI/AIOperation.swift tools/tests/AIOperationStub.swift "$out/main.swift"
 "$out/research-map-translation-tests"

@@ -9,5 +9,5 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/EditorPageCSPTests.swift "$out/main.swift"
 swiftc -suppress-warnings -target "$(uname -m)-apple-macos13.0" -o "$out/editor-page-csp-tests" \
-    MarkView/Models/Workspace/EditorPage.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift MarkView/Models/Workspace/EditorWindowPrefs.swift "$out/main.swift"
+    MarkView/Bridge/TypedWebBridge.swift MarkView/Models/Workspace/EditorPage.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift MarkView/Models/Workspace/EditorWindowPrefs.swift "$out/main.swift"
 "$out/editor-page-csp-tests" "${1:-$PWD/MarkView/Resources/Editor}"

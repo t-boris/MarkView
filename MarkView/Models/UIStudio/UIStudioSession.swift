@@ -268,9 +268,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// The debounced automatic repair waiting to look at the page.
     var autoRepairTask: Task<Void, Never>?
 
-    /// The page runtime, from the editor bundle (overridable for tests outside the app).
-    static var runtimeURL = Bundle.main.url(forResource: "markview-ui-studio", withExtension: "js", subdirectory: "Editor/js")
-    private static var runtimeSource: String? { runtimeURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } }
+    /// The folder with the page runtime's parts (`StudioRuntime.parts`), from the editor bundle (overridable for tests outside the app).
+    static var runtimeFolder = Bundle.main.url(forResource: StudioRuntime.parts[0], withExtension: nil, subdirectory: "Editor/js")?.deletingLastPathComponent()
+    private static var runtimeSource: String? { runtimeFolder.flatMap(StudioRuntime.source(in:)) }
 
     init(root: URL) {
         self.root = root.standardizedFileURL
@@ -1309,10 +1309,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     func performDataFix(_ error: StudioDataFix.PageError) async -> StudioFixResult {
         let generation = simulator.generation, scenarioID = scenario.id
-        var retryProblems: [String] = []
         sessionLog.add(.notice, "Fix data: asking the assistant about \"\(String(error.key.prefix(160)))\"")
-        for attempt in 1...2 {
-            busyDetail = attempt == 1 ? "The assistant is reading the error and the code" : "The assistant is correcting its answer"
+        func fixRequest(retryProblems: [String]) -> CLICompletion.Request {
             var call = CLICompletion.Request(project: root,
                                              prompt: StudioDataFix.prompt(error: error, route: route, served: servedAnswers, spec: spec,
                                                                           records: scenario.data ?? spec.seed, scenario: scenario,
@@ -1321,46 +1319,60 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             call.timeout = StudioDataFix.timeout
             call.effort = "medium"
             call.label = "ui-studio:fix-data"
-            let plan: StudioDataFix.Plan
-            do {
-                let result = try await CLICompletion.run(call, onActivity: { [weak self] activity in
-                    Task { @MainActor in self?.progress(activity) }
-                })
-                recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
-                guard let parsed = StudioDataFix.plan(from: result.structured) else {
-                    notice = "Fix data: the assistant's answer was not a set of corrections. Nothing was changed."
-                    return .failed("The answer was not a set of corrections.")
-                }
-                plan = parsed
-            } catch is CancellationError {
-                return .cancelled
-            } catch {
-                notice = "Fix data failed: \(error.localizedDescription) Nothing was changed."
-                return .failed(error.localizedDescription)
-            }
-            // The page the assistant looked at is gone (a Reset, another scenario): its corrections would be for other data.
-            guard !closed, simulator.generation == generation, scenario.id == scenarioID else {
-                notice = "Fix data was dropped: the scenario was reset while the assistant worked. Nothing was changed."
-                return .dropped
-            }
-            if plan.kind == .notData {
-                let where_ = plan.codePointer.isEmpty ? "" : " Look at \(plan.codePointer)."
-                notice = "Fix data: data did not cause this error. \(plan.summary)\(where_) Nothing was changed."
-                return .notData(plan.summary + where_)
-            }
-            let outcome = StudioDataFix.apply(plan.changes, spec: spec, scenarioData: scenario.data, redactor: redactor)
-            let problems = plan.unreadable + outcome.problems
-            if problems.isEmpty, outcome.ok {
-                return await commitDataFix(outcome, error: error)
-            }
-            if attempt == 1 {
-                retryProblems = problems
-                continue
-            }
-            for problem in problems.prefix(10) { sessionLog.add(.notice, problem: true, "Fix data refused a correction: " + problem) }
-            notice = "Fix data: the assistant's corrections were refused (\(problems.first ?? "no correction")). Nothing was changed."
+            return call
         }
-        return .refused("The corrections were refused.")
+        // Asked twice at most: the second time with what MarkView refused in the first answer.
+        let fixing = AIOperation<[String], DataFixAnswer>(
+            name: "ui-studio:fix-data",
+            maxRepairAttempts: 1,
+            buildRequest: { fixRequest(retryProblems: $0) },
+            parse: { [weak self] _, result, _ in
+                guard let self else { throw CancellationError() }
+                guard let plan = StudioDataFix.plan(from: result.structured) else { throw DataFixUnreadable() }
+                // The page the assistant looked at is gone (a Reset, another scenario): its corrections would be for other data.
+                guard !self.closed, self.simulator.generation == generation, self.scenario.id == scenarioID else { throw DataFixDropped() }
+                if plan.kind == .notData { return .notData(plan) }
+                let outcome = StudioDataFix.apply(plan.changes, spec: self.spec, scenarioData: self.scenario.data,
+                                                  redactor: self.redactor)
+                let problems = plan.unreadable + outcome.problems
+                guard problems.isEmpty, outcome.ok else { throw DataFixRefused(problems: problems) }
+                return .corrected(outcome)
+            },
+            repair: { [weak self] context in
+                self?.busyDetail = "The assistant is correcting its answer"
+                return fixRequest(retryProblems: (context.error as? DataFixRefused)?.problems ?? [])
+            },
+            onResult: { [weak self] result in self?.recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0) })
+        busyDetail = "The assistant is reading the error and the code"
+        let answer: DataFixAnswer
+        do {
+            answer = try await fixing.execute([], onActivity: { [weak self] activity in
+                Task { @MainActor in self?.progress(activity) }
+            }).output
+        } catch is CancellationError {
+            return .cancelled
+        } catch is DataFixUnreadable {
+            notice = "Fix data: the assistant's answer was not a set of corrections. Nothing was changed."
+            return .failed("The answer was not a set of corrections.")
+        } catch is DataFixDropped {
+            notice = "Fix data was dropped: the scenario was reset while the assistant worked. Nothing was changed."
+            return .dropped
+        } catch let refused as DataFixRefused {
+            for problem in refused.problems.prefix(10) { sessionLog.add(.notice, problem: true, "Fix data refused a correction: " + problem) }
+            notice = "Fix data: the assistant's corrections were refused (\(refused.problems.first ?? "no correction")). Nothing was changed."
+            return .refused("The corrections were refused.")
+        } catch {
+            notice = "Fix data failed: \(error.localizedDescription) Nothing was changed."
+            return .failed(error.localizedDescription)
+        }
+        switch answer {
+        case .notData(let plan):
+            let where_ = plan.codePointer.isEmpty ? "" : " Look at \(plan.codePointer)."
+            notice = "Fix data: data did not cause this error. \(plan.summary)\(where_) Nothing was changed."
+            return .notData(plan.summary + where_)
+        case .corrected(let outcome):
+            return await commitDataFix(outcome, error: error)
+        }
     }
 
     /// Saves checked corrections and reloads the page on them: the scenario's own records first (a failure there changes
@@ -2542,16 +2554,17 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         request.label = "ui-studio:screens"
         request.timeout = 900
         request.effort = "medium"
-        let result: CLICompletion.Result
+        let operation = AIOperation<CLICompletion.Request, (screens: [StudioScreen], notes: String)>(
+            name: "ui-studio:screens",
+            parse: { result in
+                (StudioPrompts.screens(from: result.structured), (result.structured as? [String: Any])?["notes"] as? String ?? "")
+            },
+            onResult: { [weak self] result in self?.recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0) })
+        var report: (@Sendable (CLICompletion.Activity) -> Void)?
         if reportProgress {
-            result = try await CLICompletion.run(request, onActivity: { [weak self] activity in
-                Task { @MainActor in self?.progress(activity) }
-            })
-        } else {
-            result = try await CLICompletion.run(request)
+            report = { [weak self] activity in Task { @MainActor in self?.progress(activity) } }
         }
-        recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
-        return (StudioPrompts.screens(from: result.structured), (result.structured as? [String: Any])?["notes"] as? String ?? "")
+        return try await operation.execute(request, onActivity: report).output
     }
 
     /// Inventory screens without changing the page or writing project files. The list is kept in `.markview/studio/screens.json`.
@@ -2649,11 +2662,16 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                 call.label = "ui-studio:edit"
                 let plan: StudioEditPlan
                 do {
-                    let result = try await CLICompletion.run(call, onActivity: { activity in
+                    // One ask of the request box; what the loop around it does with the answer (a trial on the live page, edits written to
+                    // the project) cannot run inside a validator.
+                    let asking = AIOperation<CLICompletion.Request, StudioEditPlan?>(
+                        name: "ui-studio:edit",
+                        parse: { StudioPrompts.editPlan(from: $0.structured) },
+                        onResult: { [weak session] result in session?.recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0) })
+                    let (answered, _) = try await asking.execute(call, onActivity: { activity in
                         Task { @MainActor in session.progress(activity) }
                     })
-                    session.recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
-                    guard let parsed = StudioPrompts.editPlan(from: result.structured) else {
+                    guard let parsed = answered else {
                         operation.status = .failed
                         operation.answer = "The assistant's answer was not a set of edits."
                         return session.append(operation)
@@ -3766,4 +3784,21 @@ final class StudioReplyOnce {
     }
 
     func callAsFunction(_ value: StudioReply) { reply(value) }
+}
+
+/// What the assistant's answer to a data error came to.
+private enum DataFixAnswer {
+    case notData(StudioDataFix.Plan)
+    case corrected(StudioDataFix.Outcome)
+}
+
+/// The answer was not a set of corrections; asking again does not change what the assistant meant.
+private struct DataFixUnreadable: Error, AIUnrepairable {}
+
+/// The page the answer was about is gone.
+private struct DataFixDropped: Error, AIUnrepairable {}
+
+/// MarkView refused the corrections; the problems go back to the assistant once.
+private struct DataFixRefused: Error {
+    let problems: [String]
 }

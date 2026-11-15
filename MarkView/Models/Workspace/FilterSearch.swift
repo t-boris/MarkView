@@ -39,8 +39,8 @@ enum FilterSearch {
         request.model = request.xrayModel
         request.effort = "low"
         request.timeout = 90
-        let result = try await CLICompletion.run(request)
-        var terms = ((result.structured as? [String: Any])?["terms"] as? [String] ?? [])
+        let (object, _) = try await AIOperation<CLICompletion.Request, [String: Any]>.object(name: "search-terms").execute(request)
+        var terms = (object["terms"] as? [String] ?? [])
             .map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
             .filter { $0.count >= 3 }
         // The criterion's own words always count.

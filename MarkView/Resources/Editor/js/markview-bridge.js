@@ -1,9 +1,9 @@
         // THEME SWITCHING
         // ============================================================================
 
-        // The window theme (markview-themes.js): `id` is one of MarkViewThemes.ids, `accent` a '#RRGGBB' or ''.
-        function applyTheme(id, accent) {
-            const theme = MarkViewThemes.apply(id, accent);
+        // The window theme (markview-themes.js): `id` names the theme, `accent` is a '#RRGGBB' or '', `definition` the theme's data.
+        function applyTheme(id, accent, definition) {
+            const theme = MarkViewThemes.apply(id, accent, definition);
             state.theme = theme.mode;
             // An open Recursive Insight page (same-origin iframe) follows the mode too.
             try {
@@ -23,18 +23,9 @@
         // `window.mvDocumentId` is the id of the tab whose document this page shows. Swift sets it in the
         // same script that loads the document, so a message always names the document it describes, even
         // when the selected tab has changed by the time Swift handles it (BUG-031).
+        // Every message goes through mvBridge.send (mv-kit.js), which checks it against bridge-contract.json (AR-28).
         function sendToSwift(type, payload) {
-            if (window.mvBridge && typeof window.mvBridge.send === 'function') {
-                window.mvBridge.send(type, payload, 'bridge');
-                return;
-            }
-            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.bridge) {
-                window.webkit.messageHandlers.bridge.postMessage({
-                    type: type,
-                    payload: payload,
-                    doc: window.mvDocumentId || ''
-                });
-            }
+            window.mvBridge.send(type, payload, 'bridge');
         }
 
         // ============================================================================

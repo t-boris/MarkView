@@ -171,7 +171,8 @@ enum ResearchMapTranslation {
 
     /// Reads the answer: a bare JSON object, a fenced one, or one inside other words. A missing field reads as empty.
     static func parse(answer: String) -> Result<Answer, Failure> {
-        guard let value = jsonValue(in: answer) else { return .failure(Failure(message: "the answer was not JSON")) }
+        guard let value = try? JSONSerialization.jsonObject(with: Data(AIJSONSalvage.extractJSONString(from: answer).utf8)),
+              value is [String: Any] || value is [Any] else { return .failure(Failure(message: "the answer was not JSON")) }
         let object: [String: Any]
         if let dictionary = value as? [String: Any] {
             object = dictionary
@@ -201,24 +202,6 @@ enum ResearchMapTranslation {
             return text?.isEmpty == false ? text : nil
         }
         return .success(Answer(title: optional("title"), question: optional("question"), nodes: nodes))
-    }
-
-    private static func jsonValue(in text: String) -> Any? {
-        var candidates = [text.trimmingCharacters(in: .whitespacesAndNewlines)]
-        let lines = text.components(separatedBy: "\n")
-        for fence in fences(in: lines) where fence.language == "json" || fence.language.isEmpty {
-            candidates.append(lines[(fence.open + 1)..<fence.close].joined(separator: "\n"))
-        }
-        if let open = text.firstIndex(of: "{"), let close = text.lastIndex(of: "}"), open < close {
-            candidates.append(String(text[open...close]))
-        }
-        if let open = text.firstIndex(of: "["), let close = text.lastIndex(of: "]"), open < close {
-            candidates.append(String(text[open...close]))
-        }
-        for candidate in candidates where !candidate.isEmpty {
-            if let value = try? JSONSerialization.jsonObject(with: Data(candidate.utf8)), value is [String: Any] || value is [Any] { return value }
-        }
-        return nil
     }
 
     /// The answer for the nodes of `repair` replacing those of `base`; nodes only `base` has stay.

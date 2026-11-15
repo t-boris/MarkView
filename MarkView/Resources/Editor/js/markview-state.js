@@ -83,9 +83,7 @@
             // Override image rendering for responsive sizing
             md.renderer.rules.image = function (tokens, idx, options, env, renderer) {
                 const token = tokens[idx];
-                const esc = md.utils && md.utils.escapeHtml ? md.utils.escapeHtml : function(s) {
-                    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-                };
+                const esc = window.mvKit.escapeHtml;
                 const src = esc(token.attrGet('src') || '');
                 const alt = esc(token.content || '');
                 const title = esc(token.attrGet('title') || '');

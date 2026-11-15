@@ -42,28 +42,82 @@ struct WorkspaceDraft: Codable {
     var original: String
 }
 
+/// A tab as a window session keeps it. The JSON of every case is the one the compiler-generated coding wrote before tool tabs became
+/// one case (`{"git":{}}`, `{"image":{"_0":"file:///..."}}`), so sessions saved by any earlier version still load.
 enum WorkspaceTabState: Codable {
     case file(url: URL, draft: WorkspaceDraft?, notes: Bool, scroll: Double)
     case image(URL)
     case pdf(URL)
     /// An archive tab; added in 4.19.
     case archive(URL)
-    /// The Deployments tab; added in 4.25.
-    case deployments
-    /// The Discussions tab; added in 4.51.
-    case discussions
-    /// The Workflow tab of the project; added in 5.45.
-    case workflow
-    case git
-    /// The End-to-End QA tab; added in 5.55.
-    case qa
-    case changeReview
+    /// The tab of a tool in `ToolRegistry`, saved under the tool's id with an empty body: what the Deployments (4.25), Discussions
+    /// (4.51), Workflow (5.45), End-to-End QA (5.55), Git and file-changes cases wrote.
+    case tool(ToolID)
     case github(GitHubItem)
     case architecture(String)
     case terminal(URL)
     case browser(URL)
     /// A data file tab (table, Parquet, SQLite, log); added in 4.7.
     case data(URL)
+
+    /// The name a case is saved under, and the names of its fields.
+    private struct Key: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init(_ name: String) { stringValue = name }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+        /// The key the compiler gives the one unlabeled value of a case.
+        static let value = Key("_0")
+    }
+
+    init(from decoder: Decoder) throws {
+        let outer = try decoder.container(keyedBy: Key.self)
+        guard outer.allKeys.count == 1, let name = outer.allKeys.first else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "A saved tab has exactly one case"))
+        }
+        let body = try outer.nestedContainer(keyedBy: Key.self, forKey: name)
+        switch name.stringValue {
+        case "file":
+            self = .file(url: try body.decode(URL.self, forKey: Key("url")), draft: try body.decodeIfPresent(WorkspaceDraft.self, forKey: Key("draft")),
+                         notes: try body.decode(Bool.self, forKey: Key("notes")), scroll: try body.decode(Double.self, forKey: Key("scroll")))
+        case "image": self = .image(try body.decode(URL.self, forKey: .value))
+        case "pdf": self = .pdf(try body.decode(URL.self, forKey: .value))
+        case "archive": self = .archive(try body.decode(URL.self, forKey: .value))
+        case "github": self = .github(try body.decode(GitHubItem.self, forKey: .value))
+        case "architecture": self = .architecture(try body.decode(String.self, forKey: .value))
+        case "terminal": self = .terminal(try body.decode(URL.self, forKey: .value))
+        case "browser": self = .browser(try body.decode(URL.self, forKey: .value))
+        case "data": self = .data(try body.decode(URL.self, forKey: .value))
+        // Any other name is a tool; one this version does not have is skipped when the window is restored.
+        default: self = .tool(ToolID(rawValue: name.stringValue))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var outer = encoder.container(keyedBy: Key.self)
+        func single<Value: Encodable>(_ name: String, _ value: Value) throws {
+            var body = outer.nestedContainer(keyedBy: Key.self, forKey: Key(name))
+            try body.encode(value, forKey: .value)
+        }
+        switch self {
+        case .file(let url, let draft, let notes, let scroll):
+            var body = outer.nestedContainer(keyedBy: Key.self, forKey: Key("file"))
+            try body.encode(url, forKey: Key("url"))
+            try body.encodeIfPresent(draft, forKey: Key("draft"))
+            try body.encode(notes, forKey: Key("notes"))
+            try body.encode(scroll, forKey: Key("scroll"))
+        case .image(let url): try single("image", url)
+        case .pdf(let url): try single("pdf", url)
+        case .archive(let url): try single("archive", url)
+        case .github(let item): try single("github", item)
+        case .architecture(let scope): try single("architecture", scope)
+        case .terminal(let directory): try single("terminal", directory)
+        case .browser(let url): try single("browser", url)
+        case .data(let url): try single("data", url)
+        case .tool(let id): _ = outer.nestedContainer(keyedBy: Key.self, forKey: Key(id.rawValue))
+        }
+    }
 }
 
 struct WindowSessionArchive: Codable {

@@ -165,8 +165,7 @@ enum DDEAppEntry {
 
 /// Headless structural-index runner for the `--dde-index` child process.
 /// Opens the workspace database, runs `StructuralIndexer.indexAll()`, and exits.
-/// `dispatchMain()` services the main queue so the indexer's `MainActor.run`
-/// DB-write hops execute (blocking the main thread with a semaphore would deadlock).
+/// `dispatchMain()` keeps the process alive while the indexing task runs.
 enum DDEIndexerRunner {
     private static func err(_ msg: String) {
         FileHandle.standardError.write(Data("[mvindexer] \(msg)\n".utf8))
@@ -175,12 +174,12 @@ enum DDEIndexerRunner {
     static func run(folderPath: String) -> Never {
         let url = URL(fileURLWithPath: folderPath)
         err("start \(folderPath)")
-        // SemanticDatabase is @MainActor-isolated; run the whole job on the main
-        // actor. dispatchMain() below services the main queue so this executes.
-        Task { @MainActor in
+        Task {
             do {
-                let db = try SemanticDatabase(workspacePath: url)
-                try db.ensureProject(id: url.lastPathComponent, name: url.lastPathComponent, rootPath: url.path)
+                let db = try await SemanticDatabase.open(workspacePath: url)
+                // A file the app must leave alone (newer schema, failed migration) gives an in-memory index: nothing to write.
+                guard db.dbPath != nil else { err("the index file is left untouched; nothing to index"); exit(1) }
+                try await db.ensureProject(id: url.lastPathComponent, name: url.lastPathComponent, rootPath: url.path)
                 let linked = LinkedFolders.load(project: url)
                 if !linked.isEmpty { err("linked folders: " + linked.map(\.name).joined(separator: ", ")) }
                 let indexer = StructuralIndexer(db: db, rootURL: url, linkedFolders: linked)
@@ -193,7 +192,7 @@ enum DDEIndexerRunner {
                 exit(1)
             }
         }
-        dispatchMain()  // never returns; main queue keeps servicing MainActor hops
+        dispatchMain()  // never returns; the indexing task above runs while the main queue idles
     }
 }
 
@@ -201,6 +200,8 @@ struct MarkViewApp: App {
     @NSApplicationDelegateAdaptor(MarkViewAppDelegate.self) private var appDelegate
     @FocusedValue(\.workspaceManager) private var activeWorkspace
     @FocusedValue(\.workspaceHasFolder) private var activeWorkspaceHasFolder
+    /// The layout presets of View > Layout (`AR-33`).
+    @ObservedObject private var layouts = LayoutCatalog.shared
 
     /// Marketing version from Info.plist, shown in each workspace window's title (ContentView).
     static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
@@ -329,15 +330,7 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut("3", modifiers: [.command])
 
-                Button("Build & Deployment") {
-                    activeWorkspace?.openDeployments()
-                }
-                .keyboardShortcut("d", modifiers: [.command, .control])
-
-                Button("Discussions") {
-                    activeWorkspace?.openDiscussions()
-                }
-                .keyboardShortcut("i", modifiers: [.command, .control])
+                toolMenuItems(.afterAgents)
 
                 Button("X-Ray") {
                     activeWorkspace?.openArchitecture()
@@ -356,17 +349,14 @@ struct MarkViewApp: App {
                 .keyboardShortcut("6", modifiers: [.command])
                 .disabled(activeWorkspaceHasFolder != true)
 
-                Button("UI Studio") {
-                    activeWorkspace?.openUIStudio()
-                }
-                .keyboardShortcut("7", modifiers: [.command])
-                .disabled(activeWorkspaceHasFolder != true)
+                toolMenuItems(.afterWebPreview)
 
-                Button("End-to-End QA") {
-                    activeWorkspace?.openQA()
+                Divider()
+
+                Menu("Layout") {
+                    LayoutMenuItems(library: layouts.library, enabled: activeWorkspaceHasFolder == true,
+                                    apply: { activeWorkspace?.applyLayoutPreset($0) }, reload: { Task { await layouts.reload() } })
                 }
-                .keyboardShortcut("8", modifiers: [.command])
-                .disabled(activeWorkspaceHasFolder != true)
             }
 
             CommandGroup(after: .appSettings) {
@@ -375,6 +365,18 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut(",", modifiers: [.command, .shift])
             }
+        }
+    }
+
+    /// The View menu items of the tools registered for `slot` (`ToolRegistry`), in the registry's order.
+    @ViewBuilder
+    private func toolMenuItems(_ slot: ToolMenuSlot) -> some View {
+        ForEach(ToolRegistry.shared.menuTools(slot)) { tool in
+            Button(tool.title) {
+                activeWorkspace?.openTool(tool.id)
+            }
+            .keyboardShortcut(tool.shortcut?.keyboardShortcut)
+            .disabled(tool.menu?.requiresFolder == true && activeWorkspaceHasFolder != true)
         }
     }
 
@@ -596,6 +598,19 @@ extension Notification {
     /// True when this notification was posted for `workspace`'s window. One posted for no window is for none.
     func isFor(_ workspace: WorkspaceManager) -> Bool {
         (userInfo?[Self.workspaceKey] as? ObjectIdentifier) == ObjectIdentifier(workspace)
+    }
+}
+
+// MARK: - Tool shortcuts
+extension ToolShortcut {
+    /// The SwiftUI shortcut of the registry's plain-data shortcut.
+    var keyboardShortcut: KeyboardShortcut {
+        var flags: EventModifiers = []
+        if modifiers.contains(.command) { flags.insert(.command) }
+        if modifiers.contains(.control) { flags.insert(.control) }
+        if modifiers.contains(.option) { flags.insert(.option) }
+        if modifiers.contains(.shift) { flags.insert(.shift) }
+        return KeyboardShortcut(KeyEquivalent(key), modifiers: flags)
     }
 }
 

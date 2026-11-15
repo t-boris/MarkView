@@ -12,7 +12,7 @@ for _ in {1..50}; do [ -s "$out/port" ] && break; sleep 0.1; done
 M=MarkView/Models
 swiftc -parse-as-library -o "$out/qa-api" \
     "$M/QA/QAAPI.swift" "$M/QA/QAAPIClient.swift" "$M/QA/QAAPIActor.swift" "$M/QA/QAScenario.swift" "$M/QA/QARun.swift" "$M/QA/QAStore.swift" MarkView/Models/Workspace/SchemaVersionedStore.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift \
-    "$M/QA/QAGeneration.swift" "$M/QA/QAGenerator.swift" "$M/QA/QAPlan.swift" "$M/QA/QAGate.swift" "$M/QA/QAEffort.swift" \
+    "$M/QA/QAGeneration.swift" "$M/QA/QAGenerator.swift" "$M/AI/AIOperation.swift" tools/tests/AIOperationStub.swift "$M/QA/QAPlan.swift" "$M/QA/QAGate.swift" "$M/QA/QAEffort.swift" \
     "$M/QA/QATriage.swift" "$M/QA/QAInputMark.swift" "$M/QA/QAActions.swift" "$M/QA/QARunner.swift" "$M/QA/QALanguage.swift" "$M/QA/QAPageEvidence.swift" \
     "$M/QA/QACredentials.swift" tools/tests/QANativeKeychainStub.swift tools/tests/QAAPIChecks.swift
 if [ -n "${QA_API_EXPORT_PROMPTS:-}" ]; then "$out/qa-api" --export "$QA_API_EXPORT_PROMPTS"; fi

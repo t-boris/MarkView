@@ -23,7 +23,7 @@ final class QACLIAssistant: QAAssistant {
         var request = CLICompletion.Request(project: project, prompt: prompt, systemPrompt: system, jsonSchema: schema, readableFolder: nil,
                                             timeout: 150, assistantOverride: assistant, label: "qa-step")
         request.effort = "low"
-        let result = try await CLICompletion.run(request)
+        let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "qa-step")
         lock.withLock {
             cost += result.costUSD ?? 0
             asked += 1

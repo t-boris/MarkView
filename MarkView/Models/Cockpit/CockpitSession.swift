@@ -75,7 +75,7 @@ final class CockpitSession: ObservableObject {
     /// A notification was clicked: bring this window forward and open the run it was about.
     private func showRun(_ id: UUID?) {
         workspace?.hostWindow?.makeKeyAndOrderFront(nil)
-        workspace?.openCockpit()
+        workspace?.openTool(.cockpit)
         if let id { screen = execution?.runID == id ? .live : .saved(id) }
     }
 
@@ -260,11 +260,15 @@ final class CockpitSession: ObservableObject {
         let supervisorTool = CLITool.allCases.first { $0.displayName == reviewed.plan.controls.supervisorAgent }
         let supervisorModel = reviewed.plan.controls.supervisorModel
         attempt.askSupervisor = { [root] prompt in
-            let result = try await CLICompletion.run(CLICompletion.Request(project: root, prompt: prompt,
+            let supervising = AIOperation<CLICompletion.Request, CockpitSupervisor.Answer>(
+                name: "cockpit-supervisor",
+                parse: { result in
+                    guard let answer = CockpitSupervisor.parse(result.structured) else { throw CockpitSupervisor.Failure.unusable }
+                    return answer
+                })
+            return try await supervising.execute(CLICompletion.Request(project: root, prompt: prompt,
                 systemPrompt: CockpitSupervisor.systemPrompt, jsonSchema: CockpitSupervisor.schema, readableFolder: root,
-                timeout: CockpitSupervisor.timeoutSeconds, toolOverride: supervisorTool, model: supervisorModel, effort: "medium", label: "cockpit-supervisor"))
-            guard let answer = CockpitSupervisor.parse(result.structured) else { throw CockpitSupervisor.Failure.unusable }
-            return answer
+                timeout: CockpitSupervisor.timeoutSeconds, toolOverride: supervisorTool, model: supervisorModel, effort: "medium", label: "cockpit-supervisor")).output
         }
         let result = await attempt.run(task)
         guard result.error.isEmpty, result.result.passed, let id = task.step.qaScenarioID, !id.isEmpty else { return result }
@@ -382,7 +386,7 @@ final class CockpitSession: ObservableObject {
 
     func openQAResult(scenarioID: String, runID: String) {
         guard let workspace else { return }
-        workspace.openQA()
+        workspace.openTool(.qa)
         let qa = workspace.qa
         qa.reload()
         Task { [weak self, weak qa] in
@@ -465,10 +469,14 @@ final class CockpitSession: ObservableObject {
                 if refining, let previous {
                     prompt += "Current plan: \(String(decoding: try encoder.encode(previous), as: UTF8.self))\nRequested changes: \(refinement)\n"
                 }
-                let result = try await CLICompletion.run(CLICompletion.Request(project: root, prompt: prompt,
+                let planning = AIOperation<CLICompletion.Request, CockpitPlan>(
+                    name: "cockpit-plan",
+                    parse: { result in
+                        try CockpitPlanning.parse(result.structured, goal: goal, controls: controls, availableAgents: Set(agents), models: models)
+                    })
+                let (plan, _) = try await planning.execute(CLICompletion.Request(project: root, prompt: prompt,
                     systemPrompt: CockpitPlanning.systemPrompt, jsonSchema: CockpitPlanning.schema,
                     readableFolder: root, timeout: nil, toolOverride: plannerTool, model: plannerModel, label: "cockpit-plan"))
-                let plan = try CockpitPlanning.parse(result.structured, goal: goal, controls: controls, availableAgents: Set(agents), models: models)
                 guard Set(plan.scenarios).isSubset(of: Set(listing.scenarios.map(\.id))) else {
                     throw CockpitPlanning.ParseError.invalid(["The proposed QA scenario is not available in this project."])
                 }

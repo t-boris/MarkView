@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'none'">
 <!-- An embedded terminal (TerminalSession.swift): xterm.js drawing a PTY that Swift owns.
-     Swift → JS: mvWrite(base64 output), mvSetTheme(id, accent), mvFocus(), mvReset(), mvExited(code).
+     Swift → JS: mvWrite(base64 output), mvSetTheme(id, accent, definition), mvFocus(), mvReset(), mvExited(code).
      JS → Swift (message handler "terminal"): {type: ready|input|resize|link|resolveLinks|pasteFiles, …}. -->
 <link rel="stylesheet" href="vendor/css/xterm.css">
 <script src="js/markview-themes.js"></script>

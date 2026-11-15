@@ -20,9 +20,9 @@
             const saved = localStorage.getItem('markview-font-size');
             if (saved) { slider.value = saved; applyFontSize(parseFloat(saved)); }
             // Swift mirrors the size for document text it hosts natively (GitHub issue bodies).
-            // Posted directly: this runs before markview-bridge.js defines sendToSwift.
+            // Sent through mvBridge directly: this runs before markview-bridge.js defines sendToSwift.
             function reportSize(size) {
-                try { window.webkit.messageHandlers.bridge.postMessage({ type: 'editorFontSize', payload: { size: size } }); } catch (e) {}
+                try { window.mvBridge.send('editorFontSize', { size: size }, 'bridge'); } catch (e) {}
             }
             reportSize(parseFloat(slider.value));
             slider.addEventListener('input', function() {

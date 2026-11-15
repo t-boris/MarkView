@@ -24,7 +24,7 @@ enum CLIToolLocator {
     static func subprocessPath(toolPath: String?) -> String { ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin" }
 }
 struct AIModelOption { let id: String; let name: String; let detail: String }
-@MainActor final class SemanticDatabase {
+actor SemanticDatabase {
     func addUsage(inputTokens: Int, outputTokens: Int, costCents: Double) {}
 }
 enum LinkedFolders {

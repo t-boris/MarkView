@@ -138,7 +138,8 @@ final class CockpitService {
     func request(_ request: CockpitTemporalRequest) async throws -> Data {
         guard let bundled else { throw Failure.missingRuntime }
         let data = try JSONEncoder().encode(request)
-        let result = await ProcessRunner.run(executable: bundled.appendingPathComponent("bin/control").path, arguments: [], stdin: String(decoding: data, as: UTF8.self), timeout: 30)
+        let result = await Subprocess.run(SubprocessSpec(
+            executable: bundled.appendingPathComponent("bin/control").path, stdin: data, timeout: 30, maxOutputBytes: 2 * 1024 * 1024))
         guard result.succeeded, !result.truncated, let output = result.stdout.data(using: .utf8) else { throw Failure.command }
         return output
     }

@@ -64,7 +64,7 @@ enum ProjectOperationDiscoveryService {
         phase(inputs.grantedFolders.isEmpty ? "project files" : "external folders")
         let localRequest = request(root: root, inputs: inputs, existing: existing, nodes: deploymentNodes,
                                    unknowns: [], web: false)
-        let local = try parse(await CLICompletion.run(localRequest))
+        let local = try await ask(localRequest, name: "project-operations")
         try Task.checkCancellation()
         var candidates = local.operations.map { ($0, false) }
         var unknowns = local.notDetermined
@@ -75,7 +75,7 @@ enum ProjectOperationDiscoveryService {
             phase("web")
             let webRequest = request(root: root, inputs: inputs, existing: existing, nodes: deploymentNodes,
                                      unknowns: unknowns, web: true)
-            let web = try parse(await CLICompletion.run(webRequest))
+            let web = try await ask(webRequest, name: "project-operations:web")
             try Task.checkCancellation()
             webSearched = true
             candidates += web.operations.map { ($0, true) }
@@ -178,6 +178,12 @@ enum ProjectOperationDiscoveryService {
             return (path, digest)
         })
         return Result(operations: operations, report: report, sourceFingerprints: fingerprints)
+    }
+
+    /// One discovery round: the answer must be the operations JSON; a round that does not return it is not repeated, the person
+    /// re-discovers.
+    private static func ask(_ request: CLICompletion.Request, name: String) async throws -> Answer {
+        try await AIOperation<CLICompletion.Request, Answer>(name: name, parse: { try parse($0) }).execute(request).output
     }
 
     private static func parse(_ result: CLICompletion.Result) throws -> Answer {

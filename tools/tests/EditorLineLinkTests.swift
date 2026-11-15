@@ -53,6 +53,8 @@ import WebKit
     func start() {
         let config = WKWebViewConfiguration()
         config.userContentController.add(self, name: "bridge")
+        let editorFolder = URL(fileURLWithPath: CommandLine.arguments[1]).deletingLastPathComponent()
+        config.userContentController.addUserScript(try! BridgeContract(contentsOf: editorFolder.appendingPathComponent("js/bridge-contract.json")).userScript)  // the page gets the bridge contract from the app (AR-28)
         web = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 480), configuration: config)
         window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.title = "MarkView editor line link tests"

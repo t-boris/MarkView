@@ -72,7 +72,7 @@ enum TerminalProfile: String, CaseIterable, Identifiable {
 /// loses the screen. Output is read on a background queue and sent to the page in
 /// batches; keystrokes and size changes come back through the "terminal" handler.
 @MainActor
-final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptMessageHandler {
+final class TerminalSession: NSObject, ObservableObject, Identifiable {
     var connection: TerminalConnection?
     var isRemote: Bool { connection != nil }
     @Published var remoteConnectionState: RemoteConnectionState?
@@ -120,6 +120,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     @Published private(set) var exitCode: Int32?
 
     private(set) lazy var webView: WKWebView = makeWebView()
+    /// The page's messages (channel "terminal" of `bridge-contract.json`), checked, decoded and handed to `registerMessageHandlers`.
+    let messages = TypedWebBridge(channel: "terminal")
     /// Dictation into this terminal. Owned by the session, so a recording survives switching
     /// tabs and panels (the microphone button is only a view of it).
     private(set) lazy var dictation = WhisperClient()
@@ -168,6 +170,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         self.operationCommand = operationCommand
         self.title = title ?? profile.title
         super.init()
+        registerMessageHandlers()
     }
 
     // MARK: - Web view
@@ -177,7 +180,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
 
     private func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        configuration.userContentController.add(WeakMessageHandler(self), name: "terminal")
+        configuration.userContentController.add(WeakMessageHandler(messages), name: "terminal")
+        // `mvBridge.send` in the page validates every message against the contract (AR-28).
+        configuration.userContentController.addUserScript(messages.contract.userScript)
         // The first fit already uses the current scale, so the PTY starts with the final grid.
         // The first paint already has the window's theme (the page is created lazily, after the host applied it).
         configuration.userContentController.addUserScript(WKUserScript(
@@ -190,34 +195,32 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         return view
     }
 
-    nonisolated func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        MainActor.assumeIsolated {
-            guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
-            switch type {
-            case "ready":
-                pageReady = true
-                resize(cols: body["cols"] as? Int ?? 80, rows: body["rows"] as? Int ?? 24)
-                webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(themeArguments))")
-                applyFontScale()
-                if masterFD < 0 && (operationCommand == nil || !operationStartedOnce) { start() }
-                else { flush() }
-                if outputDropped { webView.evaluateJavaScript("window.mvDropped && window.mvDropped()") }
-            case "input":
-                if isRunning, let text = body["data"] as? String { write(text) }
-            case "resize":
-                resize(cols: body["cols"] as? Int ?? 80, rows: body["rows"] as? Int ?? 24)
-            case "pasteFiles":
-                pasteClipboardFiles()
-            case "link":
-                if let text = body["url"] as? String { activateLink(text) }
-            case "resolveLinks":
-                if let request = body["request"] as? Int, request >= 0,
-                   let paths = body["paths"] as? [String], paths.count <= 512 {
-                    resolveLinks(paths, request: request)
-                }
-            default:
-                break
-            }
+    private func registerMessageHandlers() {
+        messages.on(TerminalMessage.Ready.self) { [weak self] message in
+            guard let self else { return }
+            pageReady = true
+            resize(cols: message.payload.cols, rows: message.payload.rows)
+            if let themeArguments { webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(themeArguments))") }
+            applyFontScale()
+            if masterFD < 0 && (operationCommand == nil || !operationStartedOnce) { start() }
+            else { flush() }
+            if outputDropped { webView.evaluateJavaScript("window.mvDropped && window.mvDropped()") }
+        }
+        messages.on(TerminalMessage.Input.self) { [weak self] message in
+            guard let self, isRunning else { return }
+            write(message.payload.data)
+        }
+        messages.on(TerminalMessage.Resize.self) { [weak self] message in
+            self?.resize(cols: message.payload.cols, rows: message.payload.rows)
+        }
+        messages.on(TerminalMessage.PasteFiles.self) { [weak self] _ in
+            self?.pasteClipboardFiles()
+        }
+        messages.on(TerminalMessage.Link.self) { [weak self] message in
+            self?.activateLink(message.payload.url)
+        }
+        messages.on(TerminalMessage.ResolveLinks.self) { [weak self] message in
+            self?.resolveLinks(message.payload.paths, request: message.payload.request)
         }
     }
 
@@ -263,8 +266,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     }
 
     /// The theme of the window this terminal is shown in, as the arguments of the page's `mvSetTheme`
-    /// (`WindowTheme.webArguments`); kept so the page gets it again when it reloads.
-    private var themeArguments = "'classic-dark', null"
+    /// (`WindowTheme.webArguments`); kept so the page gets it again when it reloads. Nil until the view has given it.
+    private var themeArguments: String?
     /// The same theme as <html> attributes, set at document start so a reload paints it from the first frame.
     private var themeFirstPaint = ""
 
@@ -273,7 +276,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         themeArguments = arguments
         themeFirstPaint = firstPaint
         guard pageReady else { return }
-        webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(themeArguments))")
+        webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(arguments))")
     }
 
     func setFontScale(_ scale: CGFloat) {

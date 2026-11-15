@@ -227,12 +227,11 @@ final class CodeExplainStore: ObservableObject {
             let contentHash = ContentHash.of(content)
             let lineCount = min(lines.count, Self.maxLines)
             do {
-                let result = try await CLICompletion.run(request, onActivity: { [weak self] activity in
+                let (object, result) = try await AIOperation<CLICompletion.Request, [String: Any]>.object(name: "explain-file").execute(request, onActivity: { [weak self] activity in
                     guard case .answerDelta(let text) = activity else { return }
                     Task { @MainActor in self?.receive(text, path: path, contentHash: contentHash, lineCount: lineCount) }
                 })
                 result.record(in: db)
-                let object = result.structured as? [String: Any] ?? [:]
                 let sections = (object["sections"] as? [[String: Any]] ?? []).compactMap { raw -> CodeSection? in
                     guard let start = raw["startLine"] as? Int, let end = raw["endLine"] as? Int else { return nil }
                     let level = raw["importance"] as? String ?? "normal"
@@ -333,10 +332,10 @@ final class CodeExplainStore: ObservableObject {
                                                   items: items,
                                                   language: Self.reasonLanguage, project: root)
             do {
-                let result = try await CLICompletion.run(request)
+                let (ratings, result) = try await ImportanceRater.operation(keys: Set(items.map(\.key)), filter: filter).execute(request)
                 result.record(in: db)
                 guard var current = explanations[path] else { return }
-                current.ratings[filter.id] = ImportanceRater.parse(result.structured, keys: Set(items.map(\.key)), filter: filter)
+                current.ratings[filter.id] = ratings
                 explanations[path] = current
                 save(current, directory: directory)
             } catch is CancellationError {

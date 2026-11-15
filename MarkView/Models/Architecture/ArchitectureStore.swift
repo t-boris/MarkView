@@ -1,6 +1,8 @@
 import Foundation
 import CryptoKit
+#if canImport(MarkViewCore)
 import MarkViewCore
+#endif
 
 /// State behind the Architecture tab: the persisted snapshot (Modules, Deployment,
 /// Docs views and documentation coverage), progress of scans and AI passes, and the
@@ -353,23 +355,33 @@ final class ArchitectureStore: ObservableObject {
     /// AI descriptions are kept and only changed modules are re-described later.
     func open(root: URL, db: SemanticDatabase?) {
         rootPath = root.standardizedFileURL.path
-        loadStoredSnapshot(db: db)
-        scan(root: root, db: db)
-        refreshPRSources(root: root)
+        Task {
+            // The scan keeps the AI descriptions of the stored snapshot, so it starts once that is loaded.
+            await loadStoredSnapshot(db: db, root: root)
+            guard rootPath == root.standardizedFileURL.path else { return }
+            scan(root: root, db: db)
+            refreshPRSources(root: root)
+        }
     }
 
     /// Window restoration displays the previous view without starting new AI work.
     func restoreCached(root: URL, db: SemanticDatabase?) {
         rootPath = root.standardizedFileURL.path
-        loadStoredSnapshot(db: db)
-        // Local cached/declaration outlines restore drill-down without starting AI.
-        outlineContents(root: root)
+        Task {
+            await loadStoredSnapshot(db: db, root: root)
+            guard rootPath == root.standardizedFileURL.path else { return }
+            // Local cached/declaration outlines restore drill-down without starting AI.
+            outlineContents(root: root)
+        }
     }
 
-    /// The saved architecture, when nothing is loaded yet.
-    private func loadStoredSnapshot(db: SemanticDatabase?) {
-        guard snapshot == nil, let stored = db?.loadArchitecture() ?? loadPersisted() else { return }
-        snapshot = stored
+    /// The saved architecture, when nothing is loaded yet. The database is read on its own actor, so a slow read
+    /// never holds the main thread; a snapshot that arrived meanwhile (or another project) wins.
+    private func loadStoredSnapshot(db: SemanticDatabase?, root: URL) async {
+        guard snapshot == nil else { return }
+        let stored = await db?.loadArchitecture()
+        guard snapshot == nil, rootPath == root.standardizedFileURL.path, let found = stored ?? loadPersisted() else { return }
+        snapshot = found
         revision += 1
     }
 
@@ -490,10 +502,19 @@ final class ArchitectureStore: ObservableObject {
         return unassigned > 50 || (files.count > 0 && Double(unassigned) / Double(files.count) > 0.1)
     }
 
+    /// The save in flight: snapshots reach the database in the order they were committed.
+    private var databaseSave: Task<Void, Never>?
+
     private func commit(_ next: ArchitectureSnapshot, db: SemanticDatabase?) {
         snapshot = next
-        do { try db?.saveArchitecture(next) } catch {
-            self.error = "Could not save the architecture: \(error.localizedDescription)"
+        if let db {
+            let previous = databaseSave
+            databaseSave = Task {
+                await previous?.value
+                do { try await db.saveArchitecture(next) } catch {
+                    self.error = "Could not save the architecture: \(error.localizedDescription)"
+                }
+            }
         }
         if db == nil, let file = persistenceFile { persist(next, to: file) }
         revision += 1
@@ -818,15 +839,11 @@ final class ArchitectureStore: ObservableObject {
                     )
                 }
             },
-            runner: { [db] req, _ in
-                let result = try await CLICompletion.run(req, onActivity: progressHandler)
-                await MainActor.run { result.record(in: db) }
-                return result
-            }
+            onResult: { [db] result in await MainActor.run { result.record(in: db) } }
         )
 
         do {
-            let (decoded, _) = try await operation.execute(prepared)
+            let (decoded, _) = try await operation.execute(prepared, onActivity: progressHandler)
             let object = decoded.dictionary
             if let data = try? JSONSerialization.data(withJSONObject: object) {
                 try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
@@ -1269,30 +1286,31 @@ final class ArchitectureStore: ObservableObject {
                (try? await Task.detached { try CodeArchitecture.validateModel(cached, modules: modules, root: root) }.value) != nil {
                 model = cached
             }
-            var attempt = prompt
             // The most recent answer that decoded, kept for the grounding fallback below.
             var lastParsed: CodeArchitectureModel?
-            for round in 0...1 where model == nil {
+            if model == nil {
                 try Task.checkCancellation()
                 fromCache = false
-                let result = try await CLICompletion.run(request(attempt), onActivity: activityHandler(root: root))
-                result.record(in: db)
+                // Asked twice at most: the second time with the problems of the first answer and the answer itself.
+                let operation = AIOperation<String, CodeArchitectureModel>(
+                    name: "code-architecture",
+                    maxRepairAttempts: 1,
+                    buildRequest: request,
+                    parse: { _, result, _ in try CodeArchitecture.decode(result) },
+                    validate: { _, parsed, _ in
+                        lastParsed = parsed
+                        try await Task.detached { try CodeArchitecture.validateModel(parsed, modules: modules, root: root) }.value
+                    },
+                    repair: { [weak self] context in
+                        self?.progress?.current = "Refining component ownership and source evidence"
+                        return request(CodeArchitecture.repairPrompt(base: prompt, answer: context.previousAnswer, error: context.error))
+                    },
+                    onResult: { result in await MainActor.run { result.record(in: db) } })
                 do {
-                    let parsed: CodeArchitectureModel
-                    if let object = result.structured, JSONSerialization.isValidJSONObject(object) {
-                        parsed = try JSONDecoder().decode(CodeArchitectureModel.self, from: JSONSerialization.data(withJSONObject: object))
-                    } else {
-                        let text = result.text
-                        guard let open = text.firstIndex(of: "{"), let last = text.lastIndex(of: "}"), open < last else {
-                            throw DiagramAI.Failure.unusable(["The answer was not an architecture JSON object"])
-                        }
-                        parsed = try JSONDecoder().decode(CodeArchitectureModel.self, from: Data(text[open...last].utf8))
-                    }
-                    lastParsed = parsed
-                    try await Task.detached { try CodeArchitecture.validateModel(parsed, modules: modules, root: root) }.value
+                    let (parsed, _) = try await operation.execute(prompt, onActivity: activityHandler(root: root))
                     Self.cache(parsed, at: answerFile)
                     model = parsed
-                } catch let error as DiagramAI.Failure where round == 1 && lastParsed != nil {
+                } catch let error as DiagramAI.Failure where lastParsed != nil {
                     // Last resort for an answer that is sound apart from its citations: keep the
                     // assistant's structure and read a real definition line out of the code each
                     // component already owns, then validate again. A whole analysis is not thrown
@@ -1305,15 +1323,6 @@ final class ArchitectureStore: ObservableObject {
                     guard let grounded else { throw error }
                     Self.cache(grounded, at: answerFile)
                     model = grounded
-                } catch {
-                    if round == 1 { throw error }
-                    let answer: String
-                    if let object = result.structured, JSONSerialization.isValidJSONObject(object),
-                       let data = try? JSONSerialization.data(withJSONObject: object) {
-                        answer = String(decoding: data, as: UTF8.self)
-                    } else { answer = result.text }
-                    attempt = CodeArchitecture.repairPrompt(base: prompt, answer: answer, error: error)
-                    progress?.current = "Refining component ownership and source evidence"
                 }
             }
             try Task.checkCancellation()
@@ -1575,9 +1584,9 @@ final class ArchitectureStore: ObservableObject {
             automaticState = state
         }
         show(.scanning)
-        // The saved architecture, read on a connection of its own so the open does not block the UI.
+        // The saved architecture, read on the database's actor so the open does not block the UI.
         if snapshot == nil {
-            let stored = await db?.loadArchitectureDetached()
+            let stored = await db?.loadArchitecture()
             guard token == runToken, !Task.isCancelled else { return }
             if snapshot == nil, let stored = stored ?? loadPersisted() {
                 snapshot = stored
@@ -1891,9 +1900,8 @@ final class ArchitectureStore: ObservableObject {
                                                   context: context, items: items,
                                                   language: Self.reasonLanguage, project: project)
             do {
-                let result = try await CLICompletion.run(request)
+                let (ratings, result) = try await ImportanceRater.operation(keys: Set(items.map(\.key)), filter: filter).execute(request)
                 result.record(in: db)
-                let ratings = ImportanceRater.parse(result.structured, keys: Set(items.map(\.key)), filter: filter)
                 guard var next = snapshot else { return }
                 for (k, var value) in ratings {
                     value.signature = signatures[k]
@@ -1974,14 +1982,14 @@ final class ArchitectureStore: ObservableObject {
                 let request = ImportanceRater.request(subject: .code, filter: filter, context: context, items: items,
                                                       language: Self.reasonLanguage, project: project)
                 let keys = Set(items.map(\.key))
-                let result = try await CLICompletion.run(request, onActivity: { [weak self] activity in
+                let (ratings, result) = try await ImportanceRater.operation(keys: keys, filter: filter).execute(request, onActivity: { [weak self] activity in
                     guard case .answerDelta(let text) = activity else { return }
                     Task { @MainActor in self?.receiveRatings(text, filterId: filterId, filter: filter, keys: keys) }
                 })
                 result.record(in: db)
                 liveRatings[filterId] = nil
                 guard var confirmed = snapshot else { return }
-                for (k, value) in ImportanceRater.parse(result.structured, keys: keys, filter: filter) {
+                for (k, value) in ratings {
                     confirmed.ratings[filterId, default: [:]][k] = value
                 }
                 commit(confirmed, db: db)
@@ -2088,7 +2096,7 @@ final class ArchitectureStore: ObservableObject {
                     var scopeRequest = XRaySearch.understandingScopeRequest(query: filter.criterion, root: root, attachments: attachmentPaths, project: project)
                     scopeRequest.extraReadableFolders = wholeProject
                     if let note = wholeProjectNote { scopeRequest.prompt += note }
-                    let scope = try await CLICompletion.run(scopeRequest)
+                    let scope = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(scopeRequest, name: "understand-scope")
                     guard understandingTokens[id] == token else { return }
                     scope.record(in: db)
                     historyFiles = await Task.detached { XRaySearch.historyFiles(scope.structured, root: root) }.value
@@ -2122,7 +2130,7 @@ final class ArchitectureStore: ObservableObject {
                     project: project)
                 request.extraReadableFolders = wholeProject
                 if let note = wholeProjectNote { request.prompt += note }
-                let result = try await CLICompletion.run(request, onActivity: { activity in
+                let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "understand", onActivity: { activity in
                     Task { @MainActor in
                         guard self.understandingTokens[id] == token, self.understandingAnswers[id]?.state == "loading" else { return }
                         if case .read(let path) = activity {
@@ -2282,7 +2290,7 @@ final class ArchitectureStore: ObservableObject {
                     .map { "\($0.id.dropFirst(2)) — \($0.name): \($0.summary ?? $0.kind)" }
                 let request = XRaySearch.request(query: filter.criterion, symbol: symbol, hints: hints, root: root,
                                                  components: componentLines, deployment: deploymentLines, project: project)
-                let result = try await CLICompletion.run(request, onActivity: { activity in
+                let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "xray-search", onActivity: { activity in
                     Task { @MainActor in self.receiveSearch(activity, filterId: filterId, root: root, sections: sections) }
                 })
                 result.record(in: db)
@@ -2471,7 +2479,7 @@ final class ArchitectureStore: ObservableObject {
             var streamed = ""
             var pendingRefresh = false
             do {
-                let result = try await CLICompletion.run(request, onDelta: { text in
+                let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-link").execute(request, onDelta: { text in
                     Task { @MainActor in
                         streamed += text
                         self.edgeNotes[key]?.text = streamed
@@ -2483,7 +2491,7 @@ final class ArchitectureStore: ObservableObject {
                     }
                 })
                 result.record(in: db)
-                edgeNotes[key]?.text = result.text.isEmpty ? streamed : result.text
+                edgeNotes[key]?.text = answer.isEmpty ? streamed : answer
             } catch is CancellationError {
             } catch {
                 edgeNotes[key]?.text = "Failed: \(error.localizedDescription)"
@@ -2633,9 +2641,9 @@ final class ArchitectureStore: ObservableObject {
                 readableFolder: root)
             request.timeout = 300
             do {
-                let result = try await CLICompletion.run(request)
+                let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-describe").execute(request)
                 result.record(in: db)
-                let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard var next = snapshot, !text.isEmpty else { return }
                 // Store on the Modules node (the source of truth) and re-derive the Logical view.
                 let path = node.path
@@ -2930,7 +2938,8 @@ final class ArchitectureStore: ObservableObject {
         let rootPath = root.path
         let spec = "\(commit):\(path)"
         let fetched: String? = await Task.detached(priority: .userInitiated) {
-            let result = await ProcessRunner.run(executable: "/usr/bin/env", arguments: ["git", "-C", rootPath, "show", spec], stdin: nil, timeout: 15)
+            let result = await Subprocess.run(SubprocessSpec(
+                executable: "/usr/bin/env", arguments: ["git", "-C", rootPath, "show", spec], timeout: 15, maxOutputBytes: 2 * 1024 * 1024))
             guard result.succeeded, !result.timedOut else { return nil }
             return result.stdout
         }.value
@@ -3693,7 +3702,7 @@ final class ArchitectureStore: ObservableObject {
             var streamed = ""
             var pendingRefresh = false
             do {
-                let result = try await CLICompletion.run(request, onDelta: { [weak self] text in
+                let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-pr-question").execute(request, onDelta: { [weak self] text in
                     Task { @MainActor in
                         guard let self, self.prOverlay?.source.id == source, index < (self.prOverlay?.chat.count ?? 0) else { return }
                         streamed += text
@@ -3707,7 +3716,7 @@ final class ArchitectureStore: ObservableObject {
                 })
                 result.record(in: db)
                 if prOverlay?.source.id == source, index < (prOverlay?.chat.count ?? 0) {
-                    prOverlay?.chat[index].answer = result.text.isEmpty ? streamed : result.text
+                    prOverlay?.chat[index].answer = answer.isEmpty ? streamed : answer
                 }
             } catch is CancellationError {
             } catch {
@@ -3856,7 +3865,7 @@ final class ArchitectureStore: ObservableObject {
             let diff = await Task.detached { Self.diff(for: source, root: root, repo: repo, gitHub: gitHub) }.value ?? ""
             let key = SHA256.hash(data: Data(diff.utf8)).map { String(format: "%02x", $0) }.joined()
             reviewKey = (key, db)
-            if !fresh, let cached = db?.loadArchitectureReview(key: key),
+            if !fresh, let cached = await db?.loadArchitectureReview(key: key),
                let data = cached.data(using: .utf8),
                var reviewed = try? JSONDecoder().decode(PROverlay.self, from: data) {
                 reviewed.info = prOverlay?.info
@@ -3912,9 +3921,8 @@ final class ArchitectureStore: ObservableObject {
             request.effort = "low"
             request.timeout = 600
             do {
-                let result = try await CLICompletion.run(request)
+                let (object, result) = try await AIOperation<CLICompletion.Request, [String: Any]>.object(name: "xray-pr-review").execute(request)
                 result.record(in: db)
-                let object = result.structured as? [String: Any] ?? [:]
                 var byPath: [String: [String: Any]] = [:]
                 for item in object["files"] as? [[String: Any]] ?? [] {
                     if let path = item["path"] as? String { byPath[path.hasPrefix("b/") ? String(path.dropFirst(2)) : path] = item }
@@ -3935,7 +3943,7 @@ final class ArchitectureStore: ObservableObject {
                 next.reviewSummary = object["summary"] as? String
                 prOverlay = next
                 if let data = try? JSONEncoder().encode(next) {
-                    db?.saveArchitectureReview(key: key, json: String(decoding: data, as: UTF8.self))
+                    saveReview(key: key, json: String(decoding: data, as: UTF8.self), db: db)
                 }
             } catch is CancellationError {
             } catch {
@@ -3961,7 +3969,19 @@ final class ArchitectureStore: ObservableObject {
             for i in (overlay.files[f].findings ?? []).indices { overlay.files[f].findings?[i].explaining = nil }
         }
         guard let data = try? JSONEncoder().encode(overlay) else { return }
-        db?.saveArchitectureReview(key: key, json: String(decoding: data, as: UTF8.self))
+        saveReview(key: key, json: String(decoding: data, as: UTF8.self), db: db)
+    }
+
+    /// The review save in flight: marks reach the database in the order they were made.
+    private var reviewSave: Task<Void, Never>?
+
+    private func saveReview(key: String, json: String, db: SemanticDatabase?) {
+        guard let db else { return }
+        let previous = reviewSave
+        reviewSave = Task {
+            await previous?.value
+            await db.saveArchitectureReview(key: key, json: json)
+        }
     }
 
     /// The shown pull request's repository; for local changes, the selected one (issues).
@@ -4083,7 +4103,7 @@ final class ArchitectureStore: ObservableObject {
             var streamed = ""
             var pendingRefresh = false
             do {
-                let result = try await CLICompletion.run(request, onDelta: { text in
+                let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-finding").execute(request, onDelta: { text in
                     Task { @MainActor in
                         streamed += text
                         self.updateFinding(source: source, path: path, index: index) { $0.explanation = streamed }
@@ -4095,7 +4115,7 @@ final class ArchitectureStore: ObservableObject {
                     }
                 })
                 result.record(in: db)
-                let text = result.text.isEmpty ? streamed : result.text
+                let text = answer.isEmpty ? streamed : answer
                 updateFinding(source: source, path: path, index: index) { $0.explanation = text }
             } catch is CancellationError {
             } catch {

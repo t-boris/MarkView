@@ -14,7 +14,7 @@ import MarkViewCore
 // right-pane deep-dive list are all deleted. v2 splits generation into:
 //   Phase 1: `graphRAG.buildSkeleton(...)` returns a strict-schema `InsightSkeleton`
 //            via Anthropic tool_use (single non-streaming call, T4 owns the call).
-//   Phase 2: N parallel `CLICompletion.run(...)` calls — one per section
+//   Phase 2: N parallel `AIOperation.ask(...)` calls — one per section
 //            in the skeleton — capped at 5 concurrent via `withThrowingTaskGroup`. Per
 //            section `SectionState.buffer` accumulates the streamed HTML fragment.
 //
@@ -174,7 +174,7 @@ final class InsightNode: Identifiable, Codable {
 ///   - `cancel()` and `navigateTo(...)` are async — T8 closeTab awaits cancel before
 ///     `cache.cleanup()` to avoid races.
 ///   - All long-lived state mutations happen on `@MainActor`; off-main only the
-///     CLI output reader inside `CLICompletion.run` runs (deltas hop back via `Task { @MainActor }`).
+///     CLI output reader inside the assistant run runs (deltas hop back via `Task { @MainActor }`).
 @MainActor
 final class InsightSession: ObservableObject, Identifiable {
     let id = UUID()
@@ -443,9 +443,10 @@ final class InsightSession: ObservableObject, Identifiable {
         let prompts = rag.buildSectionPrompt(section: section, allFiles: scopedFiles, folderURL: folderURL, contentType: contentType)
         let nodeIdLocal = curId
         do {
-            let result = try await CLICompletion.run(
+            let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(
                 CLICompletion.Request(project: project, prompt: prompts.userMessage, systemPrompt: prompts.systemPrompt,
                                       readableFolder: prompts.needsFolderAccess ? folderURL : nil),
+                name: "insight-section-retry",
                 onDelta: { [weak self] chunk in
                     Task { @MainActor [weak self] in
                         guard let self else { return }
@@ -1274,9 +1275,10 @@ final class InsightSession: ObservableObject, Identifiable {
                     do {
                         try Task.checkCancellation()
                         // Stream. onDelta hops back to MainActor for state mutation.
-                        let result = try await CLICompletion.run(
+                        let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(
                             CLICompletion.Request(project: self.project, prompt: userMessage, systemPrompt: systemPrompt,
                                                   readableFolder: readableFolder),
+                            name: "insight-section",
                             onDelta: { [weak self] chunk in
                                 Task { @MainActor [weak self] in
                                     guard let self else { return }

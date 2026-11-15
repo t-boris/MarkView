@@ -190,7 +190,7 @@ final class FeatureAssistant: ObservableObject {
                                    output: folder.map { "Work · \($0.lastPathComponent)" } ?? "Work result",
                                    started: Date(), stage: "Starting")
         let task = Task {
-            try await CLICompletion.run(request, onDelta: { [weak self] text in
+            try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: key, onDelta: { [weak self] text in
                 onDelta?(text)
                 Task { @MainActor in
                     guard var state = self?.actions[key], state.phase == .running else { return }
@@ -291,7 +291,7 @@ final class FeatureAssistant: ObservableObject {
     /// (answered questions with their answers), accepted facts, the discussion, and related
     /// project documentation.
     func context(_ feature: Feature, focus: [String] = [], query: String = "", budget: Int = 45_000,
-                 discussion: Bool = true) -> String {
+                 discussion: Bool = true) async -> String {
         var out = "# Feature: \(feature.title) (\(feature.slug)) — status \(feature.status)\n\n"
         out += feature.overviewBody.prefix(6_000) + "\n\n"
         // What the user wrote, verbatim: later calls work from the request, not from its paraphrase.
@@ -366,16 +366,16 @@ final class FeatureAssistant: ObservableObject {
             if !transcript.isEmpty { out += "## Discussion so far\n\(transcript)\n\n" }
         }
         // Related project documentation (search index).
-        let related = relatedDocuments(query.isEmpty ? feature.title : query)
+        let related = await relatedDocuments(query.isEmpty ? feature.title : query)
         if !related.isEmpty { out += "## Related project documentation\n" + related + "\n" }
         return String(out.prefix(budget))
     }
 
-    private func relatedDocuments(_ query: String, limit: Int = 5) -> String {
+    private func relatedDocuments(_ query: String, limit: Int = 5) async -> String {
         guard let db = database() else { return "" }
         let terms = query.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).filter { $0.count > 3 }.prefix(6).map(String.init)
         guard !terms.isEmpty else { return "" }
-        let results = db.search(query: terms.joined(separator: " OR "))
+        let results = await db.search(query: terms.joined(separator: " OR "))
             .filter { !$0.documentId.hasPrefix(FeatureStore.folderName + "/") }
             .prefix(limit)
         return results.map { "- \($0.documentId): " + $0.snippet.replacingOccurrences(of: ">>>", with: "").replacingOccurrences(of: "<<<", with: "") }
@@ -505,7 +505,7 @@ final class FeatureAssistant: ObservableObject {
 
         let asked = feature.list(.question).map { "- \($0.id) [\($0.status)] \($0.title)" }.joined(separator: "\n")
         let removed = feature.front.strings("removed_since_explore")
-        let prompt = context(feature) + """
+        let prompt = await context(feature) + """
 
         ## Questions already asked
         \(asked.isEmpty ? "(none)" : asked)
@@ -709,7 +709,7 @@ final class FeatureAssistant: ObservableObject {
             }
             block += "\n"
         }
-        let prompt = context(feature, focus: items.map(\.question.id)) + """
+        let prompt = await context(feature, focus: items.map(\.question.id)) + """
 
         ## The user answered \(items.count == 1 ? "a question" : "\(items.count) questions")
 
@@ -835,7 +835,7 @@ final class FeatureAssistant: ObservableObject {
             let options = (q.front["options"]?.list ?? []).map { "  - \($0["label"]?.string ?? ""): \($0["text"]?.string ?? "")" }
             return "- \(q.id) [\(q.front.string("dimension"))] \(q.title)" + (options.isEmpty ? "" : "\n" + options.joined(separator: "\n"))
         }.joined(separator: "\n")
-        let prompt = context(feature) + """
+        let prompt = await context(feature) + """
 
         ## Dimensions still open
         \(feature.openDimensions.joined(separator: ", "))
@@ -967,7 +967,7 @@ final class FeatureAssistant: ObservableObject {
         defer { preparing.remove("options:" + id) }
         guard let feature = store.feature(slug), let question = feature.object(id) else { return }
         let existing = (question.front["options"]?.list ?? []).map { "\($0["label"]?.string ?? ""): \($0["text"]?.string ?? "")" }
-        let prompt = context(feature, focus: [id]) + """
+        let prompt = await context(feature, focus: [id]) + """
 
         Question \(id): \(question.title)
         Options so far:
@@ -989,7 +989,7 @@ final class FeatureAssistant: ObservableObject {
         defer { preparing.remove("pros:" + id) }
         guard let feature = store.feature(slug), let question = feature.object(id) else { return }
         let existing = (question.front["options"]?.list ?? []).map { "\($0["label"]?.string ?? ""): \($0["text"]?.string ?? "")" }
-        let prompt = context(feature, focus: [id]) + """
+        let prompt = await context(feature, focus: [id]) + """
 
         Question \(id): \(question.title)
         Options:
@@ -1022,7 +1022,7 @@ final class FeatureAssistant: ObservableObject {
         preparing.insert("research:" + slug)
         defer { preparing.remove("research:" + slug) }
         guard let feature = store.feature(slug) else { return nil }
-        let prompt = context(feature, focus: linked.map { [$0] } ?? [], query: topic) + """
+        let prompt = await context(feature, focus: linked.map { [$0] } ?? [], query: topic) + """
 
         ## Research topic
         \(topic)
@@ -1077,7 +1077,7 @@ final class FeatureAssistant: ObservableObject {
         await applyDecisions(slug)
         guard let feature = store.feature(slug) else { return }
         let scope = focus.map { "Review only \($0) and what it depends on." } ?? "Review the whole specification."
-        let prompt = context(feature, focus: focus.map { [$0] } ?? feature.activeRequirements.map(\.id), budget: 70_000) + """
+        let prompt = await context(feature, focus: focus.map { [$0] } ?? feature.activeRequirements.map(\.id), budget: 70_000) + """
 
         Task: \(scope) Judge whether it is complete, consistent, understandable and implementation-ready. \
         Look through these perspectives internally — Product, UX, Architecture, Backend, Frontend, Security, \
@@ -1153,7 +1153,7 @@ final class FeatureAssistant: ObservableObject {
         preparing.insert("criteria:" + id)
         defer { preparing.remove("criteria:" + id) }
         guard let feature = store.feature(slug), let requirement = feature.object(id) else { return }
-        let prompt = context(feature, focus: [id]) + """
+        let prompt = await context(feature, focus: [id]) + """
 
         Task: write testable acceptance criteria for \(id) (\(requirement.title)). Keep the ones it has; \
         add what is missing. Each criterion one line, observable, unambiguous.
@@ -1181,7 +1181,7 @@ final class FeatureAssistant: ObservableObject {
         preparing.insert("resolveopts:" + id)
         defer { preparing.remove("resolveopts:" + id) }
         guard let feature = store.feature(slug), let finding = feature.object(id) else { return }
-        let prompt = context(feature, focus: [id]) + """
+        let prompt = await context(feature, focus: [id]) + """
 
         Task: \(id) (\(finding.title)) must be resolved. Phrase the decision the team has to make as one \
         question, and give 2–4 concrete ways to resolve it (short button labels plus what each means and its \
@@ -1272,7 +1272,7 @@ final class FeatureAssistant: ObservableObject {
                     + (f.front.string("resolution_question").isEmpty ? "" : "\nQuestion: " + f.front.string("resolution_question"))
                     + (options.isEmpty ? "" : "\nWays proposed: " + options.joined(separator: " | "))
             }.joined(separator: "\n\n")
-            let prompt = context(current, focus: chunk.map(\.id)) + """
+            let prompt = await context(current, focus: chunk.map(\.id)) + """
 
             ## Findings to resolve
             \(list)
@@ -1600,7 +1600,9 @@ final class FeatureAssistant: ObservableObject {
     func perform(_ action: FeatureAction, selection: String, document: String?, question: String = "", feature slug: String?) async {
         let feature = slug.flatMap { store.feature($0) }
         let where_ = document.map { " (in \($0))" } ?? ""
-        let base = (feature.map { context($0, query: selection) } ?? "") + "\n\n## Selected text\(where_)\n\n\(selection.prefix(12_000))\n"
+        var featureContext = ""
+        if let feature { featureContext = await context(feature, query: selection) }
+        let base = featureContext + "\n\n## Selected text\(where_)\n\n\(selection.prefix(12_000))\n"
         switch action {
         case .requirement, .decision, .question:
             guard let slug, feature != nil else {
@@ -1706,7 +1708,7 @@ final class FeatureAssistant: ObservableObject {
         store.appendDiscussion(slug, speaker: store.defaultOwner.isEmpty ? "User" : store.defaultOwner, text: message)
         var item = FeatureResult(title: "Discussion", text: "", pending: true, feature: slug)
         results.insert(item, at: 0)
-        let prompt = context(feature, query: message) + """
+        let prompt = await context(feature, query: message) + """
 
         ## New message
         \(message)
@@ -1752,7 +1754,7 @@ final class FeatureAssistant: ObservableObject {
         guard let feature = store.feature(slug) else { return }
         let approved = feature.activeRequirements.filter { $0.status == "approved" }
         let pool = approved.isEmpty ? feature.activeRequirements : approved
-        let prompt = context(feature, focus: pool.map(\.id), budget: 70_000) + """
+        let prompt = await context(feature, focus: pool.map(\.id), budget: 70_000) + """
 
         Task: decompose the requirements \(pool.map(\.id).joined(separator: ", ")) into implementation issues \
         (an epic of 2–10 issues), each a coherent, independently reviewable piece of work: title, one-paragraph \

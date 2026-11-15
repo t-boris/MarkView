@@ -28,8 +28,10 @@ final class WorkspaceFileTreeStore: ObservableObject {
     private var fileWatchTimer: Timer?
     private var fileWatchDebounce: DispatchWorkItem?
     private var lastRootModDate: Date?
-    /// Cached markdown presence flag invalidated when the root tree reloads (`AR-42`).
-    var cachedHasMarkdownFiles: Bool?
+    /// Whether the open folder holds a Markdown file (`AR-42`). A background walk answers it after the tree loads or reloads;
+    /// until it has answered the flag is false, and the views that read it update when it changes.
+    @Published private(set) var hasMarkdownFiles = false
+    private var markdownProbe: Task<Void, Never>?
 
     init() {
         let ud = UserDefaults.standard
@@ -47,13 +49,33 @@ final class WorkspaceFileTreeStore: ObservableObject {
         rootNode = nil
         excludedFolders = []
         lastRootModDate = nil
-        cachedHasMarkdownFiles = nil
+        probeMarkdownFiles()
     }
 
     func setRootNode(_ node: FileNode?) {
         rootNode = node
         lastRootModDate = node.map { rootModificationDate(for: $0.url) } ?? nil
-        cachedHasMarkdownFiles = nil
+        probeMarkdownFiles()
+    }
+
+    /// Look for a Markdown file in the open folder off the main thread; a newer probe (another tree load) replaces this one.
+    private func probeMarkdownFiles() {
+        markdownProbe?.cancel()
+        guard let folder = rootNode?.url else {
+            markdownProbe = nil
+            hasMarkdownFiles = false
+            return
+        }
+        markdownProbe = Task.detached(priority: .utility) { [weak self] in
+            let found = BackgroundFileScans.containsMarkdown(in: folder)
+            guard !Task.isCancelled else { return }
+            await self?.finishMarkdownProbe(folder: folder, found: found)
+        }
+    }
+
+    private func finishMarkdownProbe(folder: URL, found: Bool) {
+        guard rootNode?.url == folder else { return }
+        hasMarkdownFiles = found
     }
 
     func loadExcludedFolders() {
@@ -190,7 +212,7 @@ final class WorkspaceFileTreeStore: ObservableObject {
             await MainActor.run {
                 self.rootNode = rebuilt
                 self.lastRootModDate = self.rootModificationDate(for: rootURL)
-                self.cachedHasMarkdownFiles = nil
+                self.probeMarkdownFiles()
                 Self.log("reloadFileTree: rootNode updated on MainActor")
             }
         }
@@ -372,34 +394,61 @@ class WorkspaceManager: ObservableObject {
         return CLICompletion.Assistant.chosen(tool: tool, project: aiProject)
     }
 
-    func openTool(_ id: ToolDescriptor.ToolID) {
-        switch id {
-        case .git: openGit()
-        case .deployments: openDeployments()
-        case .workflow: openWorkflow()
-        case .qa: openQA()
-        case .uiStudio: openUIStudio()
-        case .cockpit: openCockpit()
-        case .discussions: openDiscussions()
-        case .changeReview: openChangeReview()
-        }
+    // MARK: - Tool tabs
+
+    /// What opening a tool does beyond showing its tab: wiring the tool's own store to the project, or building the tab of a tool that
+    /// carries a session. A tool that needs neither has no entry here; `ToolRegistry` describes the rest of it.
+    private struct ToolOpener {
+        /// Runs on every open, also when the tool's tab exists already.
+        var prepare: (WorkspaceManager, URL) -> Void = { _, _ in }
+        /// The tab of a tool that carries a session; every other tool gets a plain `.tool` tab.
+        var makeTab: ((WorkspaceManager, URL, ToolDescriptor) -> OpenTab)?
+        /// Runs once, after a tab built by `makeTab` was added.
+        var opened: (WorkspaceManager, OpenTab) -> Void = { _, _ in }
     }
 
-    nonisolated static func toolMatches(_ id: ToolDescriptor.ToolID, kind: TabKind) -> Bool {
-        switch (id, kind) {
-        case (.git, .git),
-             (.deployments, .deployments),
-             (.workflow, .workflow),
-             (.qa, .qa),
-             (.uiStudio, .uiStudio),
-             (.cockpit, .cockpit),
-             (.discussions, .discussions),
-             (.changeReview, .changeReview):
-            return true
-        default:
-            return false
+    private static let toolOpeners: [ToolID: ToolOpener] = [
+        .deployments: ToolOpener(prepare: { workspace, root in
+            workspace.deployments.setRoot(root)
+            workspace.deployments.onNeedsAttention = { [weak workspace] in workspace?.openTool(.deployments) }
+        }),
+        .discussions: ToolOpener(prepare: { workspace, root in workspace.discussions.setRoot(root) }),
+        .workflow: ToolOpener(prepare: { workspace, _ in workspace.hostWindow?.makeKeyAndOrderFront(nil) }),
+        .qa: ToolOpener(prepare: { workspace, root in
+            workspace.hostWindow?.makeKeyAndOrderFront(nil)
+            workspace.qa.attach(root: root)
+            if workspace.qa.run.bugFiler == nil { workspace.qa.run.bugFiler = QABugFiler(sink: QAFeatureStoreBugSink(store: workspace.features)) }
+            workspace.qa.archive.bugFiler = workspace.qa.run.bugFiler
+        }),
+        .uiStudio: ToolOpener(
+            makeTab: { workspace, root, tool in workspace.makeUIStudioTab(root: root, tool: tool) },
+            opened: { _, tab in if case .uiStudio(let session) = tab.kind { session.start() } }),
+        .cockpit: ToolOpener(makeTab: { workspace, root, tool in workspace.makeCockpitTab(root: root, tool: tool) })
+    ]
+
+    /// Opens the tab of a tool, or returns to it: a tool has one tab per window.
+    func openTool(_ id: ToolID) {
+        guard let root = rootNode?.url, let tool = ToolRegistry.shared.descriptor(for: id) else { return }
+        let opener = Self.toolOpeners[id] ?? ToolOpener()
+        opener.prepare(self, root)
+        layout.workspaceArea = .files
+        showCenter = true
+        if let index = openTabs.firstIndex(where: { $0.kind.toolID == id }) {
+            activeTabIndex = index
+            return
         }
+        let tab: OpenTab
+        if let makeTab = opener.makeTab {
+            tab = makeTab(self, root, tool)
+        } else {
+            var plain = OpenTab(url: tool.sentinelURL(in: root), content: "", originalContent: "")
+            plain.kind = .tool(id)
+            tab = plain
+        }
+        tabsStore.appendTab(tab, activate: true)
+        opener.opened(self, tab)
     }
+
     /// The project's operations, with this window as the one that shows what the person starts from here.
     func operations() -> ProjectOperationsStore? {
         projectOperations?.presenter = self
@@ -568,7 +617,7 @@ class WorkspaceManager: ObservableObject {
     private var terminalTabs: [UUID: TerminalSession] = [:]
     /// Dev server terminals started by Preview Web App, by app folder path.
     private var previewTerminals: [String: UUID] = [:]
-    private var openFilesWatcher: Timer?
+    private var openFilesWatcher: Task<Void, Never>?
     /// Last seen modification dates of open files (to reload what the assistant changed).
     private var openFileDates: [URL: Date] = [:]
     /// Project architecture (Architecture tab).
@@ -895,10 +944,12 @@ class WorkspaceManager: ObservableObject {
         try? await Task.sleep(nanoseconds: 100_000_000)
 
         do {
-            let db = try SemanticDatabase(workspacePath: url)
+            let db = try await SemanticDatabase.open(workspacePath: url)
             Self.debugLog("initDDE: database opened")
             let projectId = url.lastPathComponent
-            try db.ensureProject(id: projectId, name: url.lastPathComponent, rootPath: url.path)
+            try await db.ensureProject(id: projectId, name: url.lastPathComponent, rootPath: url.path)
+            // Another folder was opened while the file was being opened: this database is not for this window any more.
+            guard !Task.isCancelled else { return }
             self.semanticDatabase = db
 
             indexingProgress = "Initializing engines..."
@@ -988,38 +1039,9 @@ class WorkspaceManager: ObservableObject {
         return results
     }
 
-    /// Cached check for menu disabled-state (`AR-42`): returns `true` as soon as one
-    /// markdown file is found inside `rootNode` and caches the result until the file tree changes.
-    var hasMarkdownFiles: Bool {
-        if let cached = fileTreeStore.cachedHasMarkdownFiles {
-            return cached
-        }
-        guard let folderURL = rootNode?.url else { return false }
-        let resolvedFolderPath = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
-        // Same separator-aware containment as `scanMarkdownFiles(in:)` — keep in sync.
-        let resolvedFolderPrefix = resolvedFolderPath.hasSuffix("/")
-            ? resolvedFolderPath
-            : resolvedFolderPath + "/"
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: folderURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else {
-            fileTreeStore.cachedHasMarkdownFiles = false
-            return false
-        }
-        while let url = enumerator.nextObject() as? URL {
-            guard url.pathExtension.lowercased() == "md" else { continue }
-            guard !url.path.contains(ProjectPaths.localFolderName) else { continue }
-            let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
-            guard resolvedFile == resolvedFolderPath || resolvedFile.hasPrefix(resolvedFolderPrefix) else { continue }
-            fileTreeStore.cachedHasMarkdownFiles = true
-            return true
-        }
-        fileTreeStore.cachedHasMarkdownFiles = false
-        return false
-    }
+    /// Whether the open folder holds a Markdown file, for the menu's disabled state (`AR-42`): the store's flag, found by a
+    /// background walk, so reading it never touches the disk.
+    var hasMarkdownFiles: Bool { fileTreeStore.hasMarkdownFiles }
 
     // MARK: - Folder Exclusion
 
@@ -1027,19 +1049,19 @@ class WorkspaceManager: ObservableObject {
     func excludeFolder(_ folderURL: URL) {
         guard let relativePath = fileTreeStore.excludeFolder(folderURL) else { return }
 
-        // Remove all DB entities for files in this folder
+        // Remove all DB entities for files in this folder: the folder walk and the writes run off the main thread.
         guard let db = semanticDatabase else { return }
-        let fm = FileManager.default
-        if let enumerator = fm.enumerator(at: folderURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-            while let url = enumerator.nextObject() as? URL {
-                guard url.pathExtension.lowercased() == "md" else { continue }
-                let docId = self.docId(for: url)
-                db.clearSymbols(forDocument: docId, kind: "heading")
-                db.clearSymbols(forDocument: docId, kind: "link")
-                db.clearSymbols(forDocument: docId, kind: "code_block")
-                // Remove from FTS
-                db.indexDocumentFTS(documentId: docId, title: "", content: "")
+        let root = rootNode?.url
+        let linked = linkedFolders
+        Task.detached {
+            var ids: [String] = []
+            if let enumerator = FileManager.default.enumerator(at: folderURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                while let url = enumerator.nextObject() as? URL {
+                    guard url.pathExtension.lowercased() == "md" else { continue }
+                    ids.append(LinkedFolders.documentId(for: url, root: root ?? url.deletingLastPathComponent(), linked: linked))
+                }
             }
+            await db.forgetDocuments(ids)
         }
         objectWillChange.send()
         AppLog.workspace.notice("Excluded folder: \(relativePath)")
@@ -1145,7 +1167,7 @@ class WorkspaceManager: ObservableObject {
             var tab = OpenTab(url: url, content: "", originalContent: "")
             tab.kind = .data
             tabsStore.appendTab(tab)
-            openFileDates[url] = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            openFileDates[url] = BackgroundFileScans.modificationDate(of: url)
             addRecentFile(url)
             startWatchingOpenFiles()
             return
@@ -1222,12 +1244,6 @@ class WorkspaceManager: ObservableObject {
             case .image: saved = .image(tab.url)
             case .pdf: saved = .pdf(tab.url)
             case .archive: saved = .archive(tab.url)
-            case .deployments: saved = .deployments
-            case .discussions: saved = .discussions
-            case .workflow: saved = .workflow
-            case .git: saved = .git
-            case .qa: saved = .qa
-            case .changeReview: saved = .changeReview
             case .data: saved = .data(tab.url)
             case .github(let item): saved = .github(item)
             case .architecture(let scope): saved = .architecture(scope)
@@ -1239,8 +1255,11 @@ class WorkspaceManager: ObservableObject {
                 saved = .browser(url)
             case .insight: continue // in-memory jobs have their own export workflow
             case .prototype: continue // reopened from AI Tools → Prototype
-            case .uiStudio: continue // a live session with a development server: opened again from View → UI Studio
-            case .cockpit: continue // reopened from the toolbar
+            case .tool, .uiStudio, .cockpit:
+                // A tool tab is saved when its descriptor says so; UI Studio (a live session with a development server) and the
+                // Cockpit are opened again from the View menu or the toolbar.
+                guard let tool = tab.kind.toolID, ToolRegistry.shared.isRestorable(tool) else { continue }
+                saved = .tool(tool)
             }
             if index == activeTabIndex { state.activeTabIndex = state.tabs.count }
             state.tabs.append(saved)
@@ -1291,12 +1310,8 @@ class WorkspaceManager: ObservableObject {
                     tab.scrollPosition = restoredScroll
                 }
                 scrollState.setScrollPosition(restoredScroll, for: openTabs[before].id)
-            case .deployments: openDeployments()
-            case .discussions: openDiscussions()
-            case .workflow: openWorkflow()
-            case .git: openGit()
-            case .qa: openQA()
-            case .changeReview: openChangeReview()
+            case .tool(let tool):
+                if ToolRegistry.shared.isRestorable(tool) { openTool(tool) }
             case .image(let url), .pdf(let url), .data(let url), .archive(let url):
                 if url.isFileURL, fm.fileExists(atPath: url.path) { openFile(url) }
             case .github(let item): openGitHubTab(item)
@@ -2181,7 +2196,7 @@ class WorkspaceManager: ObservableObject {
 
     /// Check if a file belongs to the currently open workspace
     private func isFileInCurrentWorkspace(_ url: URL) -> Bool {
-        guard semanticDatabase != nil else { return false }
+        guard semanticDatabase != nil || singleFileSetup != nil else { return false }
         guard let root = rootNode else { return false }
         // A pull request's copy of a project file (MarkView's cache, opened from the PR
         // X-Ray) belongs to the open project: it must not turn it into a single-file workspace.
@@ -2197,6 +2212,8 @@ class WorkspaceManager: ObservableObject {
     private func releaseWorkspaceEngines() {
         cockpitSession?.closeProject()
         cockpitSession = nil
+        singleFileSetup?.cancel()
+        singleFileSetup = nil
         semanticDatabase = nil
         graphRAG = nil
         stopAllTerminals()
@@ -2270,6 +2287,10 @@ class WorkspaceManager: ObservableObject {
         return true
     }
 
+    /// The single-file workspace being opened: while its database is still being created, another Markdown file
+    /// from the same folder joins it instead of starting a second one.
+    private var singleFileSetup: Task<Void, Never>?
+
     /// Initialize workspace for a single .md file — DB named after the file, indexes only this file
     private func initSingleFileWorkspace(fileURL: URL) {
         let parentDir = fileURL.deletingLastPathComponent()
@@ -2280,34 +2301,41 @@ class WorkspaceManager: ObservableObject {
 
         releaseWorkspaceEngines()
 
-        do {
-            let db = try SemanticDatabase(workspacePath: parentDir, dbName: dbName)
-            let projectId = fileName
-            try db.ensureProject(id: projectId, name: fileName, rootPath: parentDir.path)
-            self.semanticDatabase = db
-            self.graphRAG = GraphRAG(db: db)
-            self.aiWorkspaceRoot = parentDir
-            gitClient.setup(at: parentDir)
+        aiWorkspaceRoot = parentDir
+        gitClient.setup(at: parentDir)
 
-            // Build file tree showing just the parent dir
-            if rootNode == nil {
-                rootOpenedAsFolder = false
-                fileTreeStore.setRootNode(FileNode.buildTree(from: parentDir, sortOrder: fileTreeStore.sortOrder))
-                fileTreeStore.loadExcludedFolders()
+        // Build file tree showing just the parent dir
+        if rootNode == nil {
+            rootOpenedAsFolder = false
+            fileTreeStore.setRootNode(FileNode.buildTree(from: parentDir, sortOrder: fileTreeStore.sortOrder))
+            fileTreeStore.loadExcludedFolders()
+        }
+
+        // The database is opened and filled off the main thread; the workspace gets it when it is ready.
+        singleFileSetup = Task {
+            do {
+                let db = try await SemanticDatabase.open(workspacePath: parentDir, dbName: dbName)
+                try await db.ensureProject(id: fileName, name: fileName, rootPath: parentDir.path)
+                // Closed, or another file's workspace took over, while the database was being opened.
+                guard !Task.isCancelled else { return }
+                self.semanticDatabase = db
+                self.graphRAG = GraphRAG(db: db)
+                singleFileSetup = nil
+
+                // Index this single file: create root module, parse document, index FTS
+                await indexSingleFile(fileURL: fileURL, db: db)
+
+                AppLog.workspace.notice("Single-file workspace initialized: \(fileName) → \(dbName)")
+            } catch {
+                singleFileSetup = nil
+                AppLog.workspace.error("Failed to init single-file workspace: \(error)")
             }
-
-            // Index this single file: create root module, parse document, index FTS
-            indexSingleFile(fileURL: fileURL, db: db)
-
-            AppLog.workspace.notice("Single-file workspace initialized: \(fileName) → \(dbName)")
-        } catch {
-            AppLog.workspace.error("Failed to init single-file workspace: \(error)")
         }
     }
 
     /// Index a single markdown file — structural parse + FTS + Haiku extraction.
     /// Works fully in sandbox: no directory scan, content passed directly.
-    private func indexSingleFile(fileURL: URL, db: SemanticDatabase) {
+    private func indexSingleFile(fileURL: URL, db: SemanticDatabase) async {
         guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
             AppLog.workspace.error("indexSingleFile: cannot read \(fileURL.path)")
             return
@@ -2318,17 +2346,17 @@ class WorkspaceManager: ObservableObject {
         let modId = "mod_single_file"
 
         // Root module
-        db.upsertModule(id: modId, name: fileName, path: fileURL.deletingLastPathComponent().path,
-                        parentId: nil, level: 0, fileCount: 1)
+        await db.upsertModule(id: modId, name: fileName, path: fileURL.deletingLastPathComponent().path,
+                              parentId: nil, level: 0, fileCount: 1)
 
         // FTS index
-        db.indexDocumentFTS(documentId: docId, title: fileName, content: content)
+        await db.indexDocumentFTS(documentId: docId, title: fileName, content: content)
 
         // Content hash
         var h: UInt32 = 0x811c9dc5
         for byte in content.utf8 { h ^= UInt32(byte); h = h &* 0x01000193 }
-        try? db.upsertDocument(id: docId, projectId: fileName, filePath: fileURL.path,
-                               fileName: docId, fileExt: "md", contentHash: String(h, radix: 16))
+        try? await db.upsertDocument(id: docId, projectId: fileName, filePath: fileURL.path,
+                                     fileName: docId, fileExt: "md", contentHash: String(h, radix: 16))
 
         // Parse symbols inline (headings) — no directory scan
         let lines = content.components(separatedBy: "\n")
@@ -2338,8 +2366,8 @@ class WorkspaceManager: ObservableObject {
                 let level = line.prefix(while: { $0 == "#" }).count
                 let text = String(line.dropFirst(level)).trimmingCharacters(in: .whitespaces)
                 let symId = "sym_h_\(singleFileFnv1a("\(docId):\(lineNum):\(text)"))"
-                db.insertSymbol(id: symId, moduleId: modId, documentId: docId,
-                               name: text, kind: "heading", lineStart: lineNum, lineEnd: lineNum, context: nil)
+                await db.insertSymbol(id: symId, moduleId: modId, documentId: docId,
+                                      name: text, kind: "heading", lineStart: lineNum, lineEnd: lineNum, context: nil)
             }
         }
 
@@ -2578,7 +2606,7 @@ class WorkspaceManager: ObservableObject {
         selectionActions[id] = SelectionActionState(id: id, title: title,
             scope: "\(scope) · selected text", assistant: assistant, started: Date())
         let task = Task { [weak self] in
-            try await CLICompletion.run(request, onDelta: { [weak self] delta in
+            try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "selection-action", onDelta: { [weak self] delta in
                 Task { @MainActor in
                     guard var state = self?.selectionActions[id], state.phase == .running else { return }
                     state.partial += delta
@@ -2799,7 +2827,7 @@ class WorkspaceManager: ObservableObject {
         request.model = engine.model
         request.timeout = 240
         do {
-            let result = try await CLICompletion.run(request)
+            let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "translate-chunk")
             result.record(in: semanticDatabase)
             return normalizeTranslation(result.text)
         } catch {
@@ -3710,31 +3738,27 @@ class WorkspaceManager: ObservableObject {
         // Persist to SQLite
         if let db = semanticDatabase {
             let docId = self.docId(for: tab.url)
-            for block in delta.added + delta.changed {
-                try? db.upsertBlock(block, documentId: docId)
-            }
-            for id in delta.removed {
-                try? db.deleteBlock(id: id)
-                try? db.deleteClaimsForBlock(id)
-                try? db.deleteRelationsForBlock(id)
-                try? db.deleteDiagnosticsForBlock(id)
+            let upserts = delta.added + delta.changed, removed = delta.removed
+            // Deltas reach the database in the order the editor sent them.
+            let previous = blockDeltaSave
+            blockDeltaSave = Task {
+                await previous?.value
+                await db.applyBlockDelta(documentId: docId, upserts: upserts, removed: removed)
             }
         }
     }
+
+    /// The block delta write in flight (`AR-37`): each delta waits for the one before it.
+    private var blockDeltaSave: Task<Void, Never>?
 
     // MARK: - Background Folder Analysis
 
     /// V1: Deterministic structural indexing — instant, no LLM
     /// Then V1.5: Haiku-based content module extraction (cheap, fast)
-    /// Live structural-index child processes — retained PROCESS-WIDE (static) until
-    /// they exit so their `terminationHandler` always fires, independent of which
-    /// `WorkspaceManager` instance (windows create several) spawned them. A `Process`
-    /// with no strong reference is released when the spawning scope returns and its
-    /// handler then never runs.
-    private static var runningIndexers: [Process] = []
-    /// This workspace's indexer, so closing the folder can stop it. Weak: the
-    /// static list above owns it.
-    private weak var structuralIndexer: Process?
+    /// This workspace's indexer, so a newer one (folder closed and reopened) can tell its own exit from an older one's.
+    /// Weak: a started `SubprocessChild` keeps itself alive until it has exited, so its exit handler always runs,
+    /// whichever `WorkspaceManager` instance (windows create several) started it.
+    private weak var structuralIndexer: SubprocessChild?
 
     /// Run structural indexing in a SEPARATE PROCESS (re-exec of this binary with
     /// `--dde-index <folder>`) so the directory scan never competes with the UI.
@@ -3746,48 +3770,34 @@ class WorkspaceManager: ObservableObject {
             return
         }
 
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: exePath)
-        proc.arguments = ["--dde-index", url.path]
-        proc.standardOutput = FileHandle.nullDevice
-
-        // Stream the child's stderr live so its progress shows in the footer.
-        // Draining the pipe also prevents the child blocking on a full buffer.
-        let pipe = Pipe()
-        proc.standardError = pipe
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] fh in
-            let data = fh.availableData
-            guard !data.isEmpty else { fh.readabilityHandler = nil; return }
-            guard let chunk = String(data: data, encoding: .utf8) else { return }
-            for raw in chunk.split(separator: "\n") {
-                let line = String(raw)
-                guard let r = line.range(of: "[mvindexer] ") else { continue }
-                let msg = String(line[r.upperBound...])
-                // The child emits bare "N/M" progress ticks; show them as a count.
-                guard msg.range(of: #"^\d+/\d+$"#, options: .regularExpression) != nil else { continue }
-                Task { @MainActor in self?.structuralIndexProgress = "Indexing \(msg) files" }
-            }
-        }
-
-        proc.terminationHandler = { [weak self] p in
-            AppLog.index.debug("structural index process exited code=\(p.terminationStatus)")
-            Task { @MainActor in
-                WorkspaceManager.runningIndexers.removeAll { $0 === p }
-                guard let self = self else { return }
-                // A newer indexer (folder closed and reopened) owns the footer now.
-                if let current = self.structuralIndexer, current !== p { return }
-                self.structuralIndexProgress = nil  // hide footer progress
-                self.loadCachedResults()
-                self.refreshSemanticViews()
-            }
-        }
-
+        structuralIndexProgress = "Indexing…"  // footer only; updated from child stderr
+        // Stream the child's stderr live so its progress shows in the footer (the runner drains the pipe, so the
+        // child never blocks on a full buffer).
+        let spec = SubprocessSpec(executable: exePath, arguments: ["--dde-index", url.path], timeout: 0, stdoutRouting: .discard)
         do {
-            structuralIndexProgress = "Indexing…"  // footer only; updated from child stderr
-            try proc.run()
-            Self.runningIndexers.append(proc)  // retain until terminationHandler fires
-            structuralIndexer = proc
-            Self.debugLog("structural index process launched pid=\(proc.processIdentifier)")
+            let child = try Subprocess.start(spec, onStderr: { [weak self] data in
+                guard let chunk = String(data: data, encoding: .utf8) else { return }
+                for raw in chunk.split(separator: "\n") {
+                    let line = String(raw)
+                    guard let r = line.range(of: "[mvindexer] ") else { continue }
+                    let msg = String(line[r.upperBound...])
+                    // The child emits bare "N/M" progress ticks; show them as a count.
+                    guard msg.range(of: #"^\d+/\d+$"#, options: .regularExpression) != nil else { continue }
+                    Task { @MainActor in self?.structuralIndexProgress = "Indexing \(msg) files" }
+                }
+            }, onExit: { [weak self] finished, exit in
+                AppLog.index.debug("structural index process exited code=\(exit.status)")
+                Task { @MainActor in
+                    guard let self = self else { return }
+                    // A newer indexer (folder closed and reopened) owns the footer now.
+                    if let current = self.structuralIndexer, current !== finished { return }
+                    self.structuralIndexProgress = nil  // hide footer progress
+                    self.loadCachedResults()
+                    self.refreshSemanticViews()
+                }
+            })
+            structuralIndexer = child
+            Self.debugLog("structural index process launched pid=\(child.pid)")
         } catch {
             structuralIndexProgress = nil
             Self.debugLog("structural index process FAILED to launch: \(error)")
@@ -4683,7 +4693,7 @@ class WorkspaceManager: ObservableObject {
     /// The working copy now holds another branch's files: show them in the tree and open tabs.
     private func branchChanged() {
         refreshFileTree()
-        reloadChangedOpenFiles(all: true)
+        Task { await reloadChangedOpenFiles(all: true) }
     }
 
     /// The branch a pull request comes from, when it is the one checked out.
@@ -4803,15 +4813,8 @@ class WorkspaceManager: ObservableObject {
 
     // MARK: - UI Studio
 
-    /// Opens UI Studio on the project's real web interface (REQ-001); the session already open is shown instead.
-    func openUIStudio() {
-        guard let root = rootNode?.url else { return }
-        layout.workspaceArea = .files
-        showCenter = true
-        if let index = openTabs.firstIndex(where: { if case .uiStudio = $0.kind { return true }; return false }) {
-            activeTabIndex = index
-            return
-        }
+    /// The tab of a new UI Studio session on the project's real web interface (REQ-001); `openTool` shows the session already open instead.
+    private func makeUIStudioTab(root: URL, tool: ToolDescriptor) -> OpenTab {
         let session = StudioSession(root: root)
         let base = root.standardizedFileURL.path + "/"
         session.editorBuffers = { [weak self] in
@@ -4823,16 +4826,15 @@ class WorkspaceManager: ObservableObject {
             return buffers
         }
         session.recordUsage = { [weak self] input, output, cost in
-            self?.semanticDatabase?.addUsage(inputTokens: input, outputTokens: output, costCents: cost * 100)
+            guard let db = self?.semanticDatabase else { return }
+            Task { await db.addUsage(inputTokens: input, outputTokens: output, costCents: cost * 100) }
         }
         session.openFile = { [weak self] url in self?.openFile(url) }
         session.featureStore = { [weak self] in self?.features }
         session.onFeatureExported = { [weak self] slug in self?.showFeatureContext(slug) }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .uiStudio, in: root, suffix: session.id.uuidString),
-                          content: "", originalContent: "")
+        var tab = OpenTab(url: tool.sentinelURL(in: root, suffix: session.id.uuidString), content: "", originalContent: "")
         tab.kind = .uiStudio(session)
-        tabsStore.appendTab(tab, activate: true)
-        session.start()
+        return tab
     }
 
     /// Ends every UI Studio session of this window (closing the window or the folder): development servers a session
@@ -4854,7 +4856,7 @@ class WorkspaceManager: ObservableObject {
     /// Opens the creator sheet of Prototype Studio for requirements; `.code` ("New Prototype from Code…") opens UI Studio
     /// on the real application instead of generating a reconstruction (REQ-001).
     func openPrototypeCreator(mode: PrototypeFiles.Mode) {
-        guard mode == .requirements else { return openUIStudio() }
+        guard mode == .requirements else { return openTool(.uiStudio) }
         prototypeCreatorMode = mode
         showPrototypeCreator = true
     }
@@ -4893,67 +4895,17 @@ class WorkspaceManager: ObservableObject {
     func newPrototype(title: String, brief: String, sources: [String], mode: PrototypeFiles.Mode = .requirements,
                       codeScope: PrototypeAI.CodeScope = PrototypeAI.CodeScope()) {
         // Existing code is not reconstructed any more: it opens in UI Studio (DEC-002, DEC-005).
-        guard mode == .requirements else { return openUIStudio() }
+        guard mode == .requirements else { return openTool(.uiStudio) }
         guard let root = rootNode?.url else { return }
         let session = PrototypeSession(root: root, title: title, brief: brief, sources: sources, mode: mode)
         session.codeScope = codeScope
         openPrototype(session)
     }
 
-    /// The Deployments tab: where the project runs, with CPU, memory, disks, services and logs of each place.
-    func openDeployments() {
-        guard let root = rootNode?.url else { return }
-        deployments.setRoot(root)
-        deployments.onNeedsAttention = { [weak self] in self?.openDeployments() }
-        for index in openTabs.indices {
-            if case .deployments = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .deployments, in: root), content: "", originalContent: "")
-        tab.kind = .deployments
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// Open the project Git workspace once per window.
-    func openGit() {
-        guard let root = rootNode?.url else { return }
-        layout.workspaceArea = .files
-        showCenter = true
-        for index in openTabs.indices {
-            if case .git = openTabs[index].kind { activeTabIndex = index; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .git, in: root), content: "", originalContent: "")
-        tab.kind = .git
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// The Workflow tab: the statuses, transitions and processes of features and bugs in this project, edited graphically or as the
-    /// JSON of `.dde/workflow/workflow.json` (BUG-108). It is the project's own configuration, so it lives in the project window;
-    /// Settings only holds the templates.
-    func openWorkflow() {
-        guard let root = rootNode?.url else { return }
-        hostWindow?.makeKeyAndOrderFront(nil)
-        for index in openTabs.indices {
-            if case .workflow = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .workflow, in: root), content: "", originalContent: "")
-        tab.kind = .workflow
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// One cockpit belongs to this window; the toolbar returns to the existing tab.
-    func openCockpit() {
-        guard let root = rootNode?.url else { return }
-        layout.workspaceArea = .files
-        showCenter = true
-        if let index = openTabs.firstIndex(where: { if case .cockpit = $0.kind { return true }; return false }) {
-            activeTabIndex = index
-            return
-        }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .cockpit, in: root), content: "", originalContent: "")
+    /// The tab of the Cockpit of this window: the window keeps one session for its project, so a tab closed and opened again
+    /// shows the same plans and runs (`openTool` shows the tab already open instead).
+    private func makeCockpitTab(root: URL, tool: ToolDescriptor) -> OpenTab {
+        var tab = OpenTab(url: tool.sentinelURL(in: root), content: "", originalContent: "")
         let session: CockpitSession
         if let existing = cockpitSession, existing.root.standardizedFileURL == root.standardizedFileURL {
             session = existing
@@ -4963,52 +4915,7 @@ class WorkspaceManager: ObservableObject {
             cockpitSession = session
         }
         tab.kind = .cockpit(session)
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// The End-to-End QA tab: scenarios of this project, written from a goal and edited as a graph. The scenarios live in
-    /// `.markview/qa/scenarios` (project assets), so the tab only shows them.
-    func openQA() {
-        guard let root = rootNode?.url else { return }
-        hostWindow?.makeKeyAndOrderFront(nil)
-        qa.attach(root: root)
-        if qa.run.bugFiler == nil { qa.run.bugFiler = QABugFiler(sink: QAFeatureStoreBugSink(store: features)) }
-        qa.archive.bugFiler = qa.run.bugFiler
-        for index in openTabs.indices {
-            if case .qa = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .qa, in: root), content: "", originalContent: "")
-        tab.kind = .qa
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// The review of observed file changes, as a tab (BUG-109): a sheet could not be enlarged, a tab has the whole centre area.
-    func openChangeReview() {
-        guard let root = rootNode?.url else { return }
-        for index in openTabs.indices {
-            if case .changeReview = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .changeReview, in: root), content: "", originalContent: "")
-        tab.kind = .changeReview
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// The Discussions tab: questions asked before there is a feature, each answered as a page.
-    func openDiscussions() {
-        guard let root = rootNode?.url else { return }
-        discussions.setRoot(root)
-        for index in openTabs.indices {
-            if case .discussions = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .discussions, in: root), content: "", originalContent: "")
-        tab.kind = .discussions
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
+        return tab
     }
 
     /// Discussions → ask: the project's assistant reads the project (read-only) and answers inside the conversation,
@@ -5033,7 +4940,7 @@ class WorkspaceManager: ObservableObject {
         discussionTask = Task { [weak self] in
             defer { Task { @MainActor in self?.discussionTask = nil } }
             do {
-                let result = try await CLICompletion.run(request, onDelta: { [weak self] delta in
+                let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "discussion", onDelta: { [weak self] delta in
                     Task { @MainActor in
                         guard let self, self.discussions.asking == slug else { return }
                         self.discussions.live?.text += delta
@@ -5103,7 +5010,7 @@ class WorkspaceManager: ObservableObject {
     /// File tree → "Discuss…": a discussion about this file or folder.
     func openDiscussion(about url: URL) {
         guard let root = rootNode?.url else { return }
-        openDiscussions()
+        openTool(.discussions)
         let rel = workspaceRelativePath(url)
         let path = url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/") ? rel : url.path
         if let existing = discussions.discussions.first(where: { $0.scope == path && $0.turns.isEmpty }) {
@@ -5319,50 +5226,61 @@ class WorkspaceManager: ObservableObject {
         activeAITerminalID = nil
         terminalTabs.values.forEach { $0.terminate() }
         terminalTabs = [:]
-        openFilesWatcher?.invalidate()
+        openFilesWatcher?.cancel()
         openFilesWatcher = nil
     }
 
     /// While terminals run, reload open files an assistant (or a command) changed on disk —
-    /// only tabs without unsaved edits, so nothing typed here is lost.
+    /// only tabs without unsaved edits, so nothing typed here is lost. The loop checks every two seconds; the disk is read
+    /// off the main thread and one check ends before the next begins (`AR-42`).
     private func startWatchingOpenFiles() {
         guard openFilesWatcher == nil else { return }
-        openFilesWatcher = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reloadChangedOpenFiles() }
+        openFilesWatcher = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                await self.reloadChangedOpenFiles()
+            }
         }
     }
 
     /// `all` reloads every unmodified tab whose file differs, not only files newer than last seen
     /// (a branch switch can restore older modification dates).
-    private func reloadChangedOpenFiles(all: Bool = false) {
-        var changed = false
-        // Data tabs: the viewer reads the file again (a followed log scrolls to the new end).
-        for index in openTabs.indices {
-            guard case .data = openTabs[index].kind else { continue }
-            let url = openTabs[index].url
-            guard let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { continue }
-            defer { openFileDates[url] = date }
-            guard let seen = openFileDates[url], date > seen else { continue }
-            tabsStore.updateTab(at: index) { $0.dataRevision += 1 }
-            if openTabs[index].notesView {
-                refreshDataNotes(url, revision: openTabs[index].dataRevision)
+    private func reloadChangedOpenFiles(all: Bool = false) async {
+        var files: [BackgroundFileScans.OpenFile] = []
+        for tab in openTabs {
+            if case .data = tab.kind {
+                // Data tabs: the viewer reads the file again (a followed log scrolls to the new end).
+                files.append(.init(url: tab.url, kind: .data, seen: openFileDates[tab.url], loaded: ""))
+            } else if tab.isFileBacked && !tab.isModified {
+                files.append(.init(url: tab.url, kind: .text, seen: openFileDates[tab.url], loaded: tab.originalContent))
             }
         }
-        for index in openTabs.indices where openTabs[index].isFileBacked && !openTabs[index].isModified {
-            let url = openTabs[index].url
-            guard let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { continue }
-            defer { openFileDates[url] = date }
-            if !all {
-                guard let seen = openFileDates[url], date > seen else { continue }
+        guard !files.isEmpty else { return }
+        let readings = await Task.detached(priority: .utility) { BackgroundFileScans.read(files, all: all) }.value
+
+        var changed = false
+        for reading in readings {
+            let url = reading.file.url
+            openFileDates[url] = reading.date
+            guard let index = tabsStore.firstIndex(of: url) else { continue }
+            if reading.file.kind == .data {
+                guard reading.isNewer, case .data = openTabs[index].kind else { continue }
+                tabsStore.updateTab(at: index) { $0.dataRevision += 1 }
+                if openTabs[index].notesView {
+                    refreshDataNotes(url, revision: openTabs[index].dataRevision)
+                }
+            } else if let text = reading.changedText {
+                // The tab was edited, or reloaded by a faster check, while the file was being read: leave it.
+                guard openTabs[index].isFileBacked, !openTabs[index].isModified,
+                      openTabs[index].originalContent == reading.file.loaded else { continue }
+                tabsStore.updateTab(at: index) { tab in
+                    tab.content = text
+                    tab.originalContent = text
+                    tab.isModified = false
+                }
+                changed = true
             }
-            guard let content = try? String(contentsOf: url, encoding: .utf8),
-                  content != openTabs[index].originalContent else { continue }
-            tabsStore.updateTab(at: index) { tab in
-                tab.content = content
-                tab.originalContent = content
-                tab.isModified = false
-            }
-            changed = true
         }
         if changed { refreshFileTree() }
     }

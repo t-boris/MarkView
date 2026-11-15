@@ -126,16 +126,8 @@ struct TabBarView: View {
         case .image: return "photo"
         case .pdf: return "doc.richtext"
         case .archive: return "archivebox"
-        case .deployments: return "server.rack"
-        case .discussions: return "bubble.left.and.text.bubble.right"
-        case .workflow: return "arrow.triangle.branch"
-        case .git: return "arrow.triangle.branch"
-        case .changeReview: return "doc.text.magnifyingglass"
         case .browser: return "globe"
         case .prototype: return "rectangle.on.rectangle.angled"
-        case .uiStudio: return "macwindow.and.cursorarrow"
-        case .cockpit: return "airplane"
-        case .qa: return "checklist.checked"
         case .data:
             switch tab.fileType {
             case .log: return "list.bullet.rectangle"
@@ -147,6 +139,7 @@ struct TabBarView: View {
             if case .pullRequest = item { return "arrow.triangle.pull" }
             return "smallcircle.filled.circle"
         case .file: return tab.isMarkdown ? "doc.text" : "chevron.left.forwardslash.chevron.right"
+        case .tool, .uiStudio, .cockpit: return tab.kind.toolDescriptor?.icon ?? "wrench.and.screwdriver"
         }
     }
 

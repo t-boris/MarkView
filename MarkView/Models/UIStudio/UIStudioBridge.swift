@@ -1,6 +1,23 @@
 import Foundation
 
-/// Messages the page runtime (`markview-ui-studio.js`) sends to the session, checked at the boundary (REQ-006, §7): the
+/// The page runtime: the classic scripts `Editor/js/markview-ui-studio-<part>.js`, in this order. They share the object
+/// `window.__markviewStudioParts` (the last one deletes it) and are injected as one user script, so a part that throws stops the
+/// parts after it, as the single file did before it was split by responsibility.
+enum StudioRuntime {
+    static let parts = ["core", "browser", "sdk", "diagnostics", "select", "api"].map { "markview-ui-studio-" + $0 + ".js" }
+
+    /// The runtime source from the folder that holds the parts (`Editor/js` in the app bundle); nil when a part cannot be read.
+    static func source(in folder: URL) -> String? {
+        var sources: [String] = []
+        for part in parts {
+            guard let text = try? String(contentsOf: folder.appendingPathComponent(part), encoding: .utf8) else { return nil }
+            sources.append(text)
+        }
+        return sources.joined(separator: "\n")
+    }
+}
+
+/// Messages the page runtime (`markview-ui-studio-*.js`) sends to the session, checked at the boundary (REQ-006, §7): the
 /// frame, the origin, the session, its generation and the payload's schema. A message that fails a check is dropped and
 /// counted; it never reaches the simulation or the history.
 enum StudioBridge {
@@ -344,7 +361,7 @@ enum StudioIPC {
 
     /// The verb of a bridge method or an IPC channel, by the first word of its last part (after `:`, `/` or `.`): get,
     /// list, load, fetch, read, find, query, is, has, can → GET; delete, remove, clear → DELETE; update, patch → PATCH; save,
-    /// set, put, reset, import → PUT; any other → POST. The page runtime (`ipcVerb` in markview-ui-studio.js) uses the
+    /// set, put, reset, import → PUT; any other → POST. The page runtime (`ipcVerb` in markview-ui-studio-diagnostics.js) uses the
     /// same rule.
     static func verb(of name: String) -> String {
         let action = name.split(omittingEmptySubsequences: false, whereSeparator: { ":/.".contains($0) }).last.map(String.init) ?? name

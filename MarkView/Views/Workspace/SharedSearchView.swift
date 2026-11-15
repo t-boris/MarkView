@@ -304,10 +304,10 @@ struct SharedSearchView: View {
                     manager.intake = IntakeRequest(kind: .bug)
                 }),
                 SearchCommand(id: "deployments", title: "Show Build & Deployment", symbol: "server.rack", detail: "Where the project runs", run: {
-                    manager.openDeployments()
+                    manager.openTool(.deployments)
                 }),
                 SearchCommand(id: "git", title: "Show Git", symbol: "arrow.triangle.branch", detail: "Work", run: {
-                    manager.openGit()
+                    manager.openTool(.git)
                 })
             ]
             if manager.gitClient.isGitRepo {
