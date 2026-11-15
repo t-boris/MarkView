@@ -3409,7 +3409,8 @@
         "tools/tests/SemanticDatabaseTestSupport.swift",
         "tools/tests/SemanticDatabaseTests.swift",
         "tools/tests/fixtures/semantic-database/release-6.26-schema.sql",
-        "tools/tests/semantic-database-tests.sh"
+        "tools/tests/semantic-database-tests.sh",
+        "MarkView/Models/AI/AIOperation.swift"
       ]
     },
     {
