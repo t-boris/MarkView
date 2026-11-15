@@ -173,20 +173,18 @@ enum TerminalBrowserBridge {
 
     private static func route(_ url: URL, from terminal: UUID?) {
         // The terminal's own window, or — the terminal has closed meanwhile — any window of this app.
-        let session = terminal.flatMap { sessions[$0]?.session }.flatMap { $0.openInAppBrowser != nil ? $0 : nil }
-            ?? sessions.values.compactMap(\.session).first { $0.openInAppBrowser != nil }
-        guard let session else {
+        let window = terminal.flatMap { sessions[$0]?.session?.links } ?? sessions.values.compactMap { $0.session?.links }.first
+        guard let window else {
             NSWorkspace.shared.open(url)
             return
         }
         guard url.isFileURL else {
-            session.openInAppBrowser?(url)
+            window.openInAppBrowser(url)
             return
         }
         switch destination(of: url) {
-        case .browserTab: session.openInAppBrowser?(url)
-        case .editor:
-            if let openFile = session.openFile { openFile(url, nil) } else { NSWorkspace.shared.open(url) }
+        case .browserTab: window.openInAppBrowser(url)
+        case .editor: window.openFile(url, line: nil, endLine: nil)
         case .system: NSWorkspace.shared.open(url)
         }
     }

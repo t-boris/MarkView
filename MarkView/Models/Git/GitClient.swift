@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 #if canImport(MarkViewCore)
 import MarkViewCore
@@ -36,8 +37,8 @@ class GitClient: ObservableObject {
     @Published var lastError: String?
 
     var workingDirectory: URL?
-    /// Told the current branch after every refresh (the GitHub store follows it).
-    var onBranch: ((String) -> Void)?
+    /// The current branch, sent after every refresh (the GitHub store of the window follows it).
+    let branchReports = PassthroughSubject<String, Never>()
 
     struct GitFileStatus: Identifiable {
         let id = UUID()
@@ -137,7 +138,7 @@ class GitClient: ObservableObject {
 
         // Branch
         branch = (await run("git", "rev-parse", "--abbrev-ref", "HEAD", in: dir) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        onBranch?(branch)
+        branchReports.send(branch)
         await loadBranches(in: dir)
         await loadWorktrees(in: dir)
 
@@ -185,7 +186,7 @@ class GitClient: ObservableObject {
         }
         if branchMoved {
             branch = parsed.head == "(detached)" ? "HEAD" : parsed.head
-            onBranch?(branch)
+            branchReports.send(branch)
             Task { await refresh() }
         }
         let current = Self.operation(in: dir)

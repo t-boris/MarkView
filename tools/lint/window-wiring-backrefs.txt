@@ -3,6 +3,5 @@
 # run tools/lint/architecture-lint.sh --tighten after removing a site.
 1 MarkView/Models/AgentTools/ControlToolRunner.swift
 1 MarkView/Models/Browser/BrowserControlServer.swift
-2 MarkView/Models/Browser/BrowserHost.swift
-2 MarkView/Models/Workspace/WindowSessionController.swift
-2 MarkView/Models/Workspace/WorkspaceManager.swift
+1 MarkView/Models/Browser/BrowserHost.swift
+1 MarkView/Models/Workspace/WorkspaceManager.swift

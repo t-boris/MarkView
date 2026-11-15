@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftUI
 #if canImport(MarkViewCore)
@@ -94,8 +95,8 @@ final class DeploymentStore: ObservableObject {
     static var approvalTimeout: TimeInterval = 180
     private(set) var root: URL?
     private(set) var hasScanned = false
-    /// Asked to bring the Deployments tab forward (an approval is waiting).
-    var onNeedsAttention: (() -> Void)?
+    /// Sent when the Deployments tab should come forward (an approval is waiting).
+    let needsAttention = PassthroughSubject<Void, Never>()
     private var autoTask: Task<Void, Never>?
     private var queue: [DeploymentApproval] = []
 
@@ -350,7 +351,7 @@ final class DeploymentStore: ObservableObject {
                 Task { @MainActor in self?.next() }
             }
             if approval == nil { approval = request } else { queue.append(request) }
-            onNeedsAttention?()
+            needsAttention.send()
             // Nobody at the screen: after three minutes the answer is no.
             let id = request.id
             let wait = Self.approvalTimeout
@@ -381,7 +382,7 @@ final class DeploymentStore: ObservableObject {
     func propose(_ suggestion: DeploymentSuggestion) {
         suggestions.removeAll { $0.id == suggestion.id }
         suggestions.insert(suggestion, at: 0)
-        onNeedsAttention?()
+        needsAttention.send()
     }
 
     // MARK: What an assistant is told

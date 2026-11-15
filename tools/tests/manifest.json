@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 209,
+  "suiteCount": 210,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -4524,6 +4524,18 @@
         "tools/tests/ToolTabsRouterStubs.swift",
         "tools/tests/ToolTabsRouterTests.swift",
         "tools/tests/tool-tabs-router-tests.sh"
+      ]
+    },
+    {
+      "name": "window-composition-tests",
+      "script": "tools/tests/window-composition-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Workspace/TaskBag.swift",
+        "MarkView/Models/Workspace/WindowComposition.swift",
+        "tools/tests/WindowCompositionStubs.swift",
+        "tools/tests/WindowCompositionTests.swift",
+        "tools/tests/window-composition-tests.sh"
       ]
     }
   ]

@@ -27,7 +27,7 @@ final class BrowserSession: NSObject, ObservableObject {
     @Published var agentName = "T1"
     @Published var preview: WebPreviewState?
     @Published var pickNotice: String?
-    weak var host: (any BrowserSessionHost)?
+    private(set) weak var host: (any BrowserSessionHost)?
     var isAppPreview = false
     var localReadRoot: URL?
     var previewTerminalID: UUID?
@@ -35,7 +35,7 @@ final class BrowserSession: NSObject, ObservableObject {
     var loaded: [URL] = []
     var previews: [URL] = []
     var electronStandIn = false
-    init(url: URL?) { self.url = url }
+    init(url: URL?, host: (any BrowserSessionHost)? = nil) { self.url = url; self.host = host }
     func load(_ url: URL) { self.url = url; loaded.append(url) }
     func showPreview(_ url: URL) { previews.append(url); preview = nil; self.url = url }
     func standInForElectron() { electronStandIn = true }
