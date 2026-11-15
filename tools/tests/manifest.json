@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 175,
+  "suiteCount": 176,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1984,6 +1984,14 @@
       "sources": [
         "tools/tests/ResearchMapWebTests.swift",
         "tools/tests/research-map-web-tests.sh"
+      ]
+    },
+    {
+      "name": "run-sh-tests",
+      "script": "tools/tests/run-sh-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "tools/tests/run.sh"
       ]
     },
     {
