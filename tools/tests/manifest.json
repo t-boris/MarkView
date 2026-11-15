@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 185,
+  "suiteCount": 186,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1926,7 +1926,8 @@
         "tools/tests/AIOperationStub.swift",
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/QANativeKeychainStub.swift",
-        "tools/tests/QAWebFaultChecks.swift"
+        "tools/tests/QAWebFaultChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift"
       ]
     },
     {
@@ -2922,7 +2923,8 @@
         "MarkView/Views/Discussion/DiscussionThreadView.swift",
         "tools/tests/BridgeContractSupport.swift",
         "tools/tests/BridgeContractTests.swift",
-        "tools/tests/bridge-contract-tests.sh"
+        "tools/tests/bridge-contract-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift"
       ]
     },
     {
@@ -2948,7 +2950,44 @@
         "MarkView/Views/Discussion/DiscussionThreadView.swift",
         "tools/tests/BridgeContractSupport.swift",
         "tools/tests/BridgeContractWebTests.swift",
-        "tools/tests/bridge-contract-web-tests.sh"
+        "tools/tests/bridge-contract-web-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift"
+      ]
+    },
+    {
+      "name": "js-call-web-tests",
+      "script": "tools/tests/js-call-web-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Bridge/DataFileSchemeHandler.swift",
+        "MarkView/Bridge/PageMessages.swift",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Bridge/WebViewBridge.swift",
+        "MarkView/Models/Appearance/AppFontScale.swift",
+        "MarkView/Models/Insight/InsightModels.swift",
+        "MarkView/Models/Insight/SemanticModels.swift",
+        "MarkView/Models/Remote/RemoteConnectionState.swift",
+        "MarkView/Models/Terminal/PTYWriter.swift",
+        "MarkView/Models/Terminal/TerminalBrowserBridge.swift",
+        "MarkView/Models/Terminal/TerminalChildProcess.swift",
+        "MarkView/Models/Terminal/TerminalLink.swift",
+        "MarkView/Models/Terminal/TerminalSession.swift",
+        "MarkView/Models/Workspace/ArchiveSupport.swift",
+        "MarkView/Models/Workspace/DocumentState.swift",
+        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
+        "MarkView/Models/Workspace/EditorWindowPrefs.swift",
+        "MarkView/Resources/Editor/index.html",
+        "MarkView/Resources/Editor/js/bridge-contract.json",
+        "MarkView/Resources/Editor/js/markview-terminal.js",
+        "MarkView/Resources/Editor/terminal.html",
+        "MarkView/Views/Appearance/AppFontScaleView.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "tools/tests/BridgeContractSupport.swift",
+        "tools/tests/JSCallEditorWebTests.swift",
+        "tools/tests/JSCallTerminalWebTests.swift",
+        "tools/tests/js-call-web-tests.sh"
       ]
     }
   ]

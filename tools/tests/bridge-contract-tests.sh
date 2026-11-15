@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/BridgeContractTests.swift "$out/main.swift"
-swiftc -O -o "$out/bridge-contract-tests" \
+swiftc -O -o "$out/bridge-contract-tests" Packages/MarkViewCore/Sources/MarkViewCore/JS.swift \
     MarkView/Bridge/TypedWebBridge.swift MarkView/Bridge/PageMessages.swift MarkView/Bridge/WebViewBridge.swift \
     MarkView/Bridge/DataFileSchemeHandler.swift MarkView/Models/Workspace/EditorDocumentRouting.swift \
     MarkView/Models/Workspace/EditorWindowPrefs.swift MarkView/Models/Insight/SemanticModels.swift \

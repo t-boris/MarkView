@@ -61,7 +61,7 @@ MainActor.assumeIsolated {
     a.setAccent(ThemeColor(0xFF4D9A))
     check(a.palette.model.accent.rgb == 0xFF4D9A && b.palette.model.accent.rgb == 0x315E9B, "an accent in A does not change B")
     check(a.webAccent == "#FF4D9A" && b.webAccent == nil, "the web payload carries the accent only where it was chosen")
-    check(a.webArguments == "'midnight', '#FF4D9A'" && b.webArguments == "'paper', null", "web call arguments")
+    check(a.webArguments == ["midnight", "#FF4D9A"] && b.webArguments == ["paper", ""], "web call arguments")
     check(a.htmlAttributes == ##"data-preset="midnight" data-theme="dark" data-accent="#FF4D9A""## &&
           b.htmlAttributes == ##"data-preset="paper" data-theme="light""##, "html attributes for the first paint")
 

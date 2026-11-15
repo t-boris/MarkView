@@ -2,6 +2,9 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The tab of Prototype Studio: the live prototype on the left, the review conversation on the right.
 /// "Point" lets the reviewer click an element in the preview and say what to do with it.
@@ -922,10 +925,16 @@ private struct PrototypePreview: NSViewRepresentable {
             let old = theme
             theme = new
             install(on: webView.configuration.userContentController, pickScript: PrototypePreview.pickScript)
-            if let previous = old.attribute, previous != new.attribute {
-                webView.evaluateJavaScript(PrototypeThemes.applyScript(attribute: previous, id: nil))
-            }
-            if let attribute = new.attribute { webView.evaluateJavaScript(PrototypeThemes.applyScript(attribute: attribute, id: new.id)) }
+            if let previous = old.attribute, previous != new.attribute { setThemeAttribute(previous, to: nil) }
+            if let attribute = new.attribute { setThemeAttribute(attribute, to: new.id) }
+        }
+
+        /// Sets (or, with no id, removes) the theme attribute of the page that is open. The names come from the prototype's
+        /// stylesheets, so they travel as `JS.call` arguments, never as script text.
+        private func setThemeAttribute(_ attribute: String, to id: String?) {
+            let script = id.flatMap { JS.call("document.documentElement.setAttribute", args: [attribute, $0]) }
+                ?? JS.call("document.documentElement.removeAttribute", args: [attribute])
+            if let script { webView?.evaluateJavaScript(script) }
         }
 
         /// The last audit request of the session this preview took up (BUG-053).
@@ -982,18 +991,15 @@ private struct PrototypePreview: NSViewRepresentable {
 
         func applyPickMode(_ on: Bool) {
             pickMode = on
-            webView?.evaluateJavaScript("window.__mvPick && window.__mvPick(\(on))")
+            if let script = JS.call("window.__mvPick", args: [on], ifDefined: true) { webView?.evaluateJavaScript(script) }
         }
 
         /// Outlines the instances of `component` in the page (none with nil) and reports how many it holds.
         func applyHighlight(_ component: String?, force: Bool = false) {
             guard force || component != highlighted, let webView else { return }
             highlighted = component
-            let value = component.map { path -> String in
-                let data = (try? JSONSerialization.data(withJSONObject: [path])) ?? Data("[\"\"]".utf8)
-                return String(decoding: data, as: UTF8.self) + "[0]"
-            } ?? "null"
-            webView.evaluateJavaScript("window.__mvHighlight ? window.__mvHighlight(\(value)) : null") { [weak self] result, _ in
+            guard let script = JS.call("window.__mvHighlight", args: [component as Any], ifDefined: true) else { return }
+            webView.evaluateJavaScript(script) { [weak self] result, _ in
                 guard let self, self.highlighted == component else { return }
                 self.session.highlightedInstances = component == nil ? nil : (result as? NSNumber)?.intValue
             }

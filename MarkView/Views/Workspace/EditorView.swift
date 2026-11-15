@@ -110,7 +110,7 @@ struct EditorView: NSViewRepresentable {
         private var currentCodeURL: URL?
         private var pendingCodeReveal: (url: URL, line: Int, endLine: Int?)?
         private var currentLineRevealURL: URL?
-        private var lastTheme: String?
+        private var lastTheme: [String]?
         private var isEditorReady = false
         private var pendingContent: String?
         private var pendingDocumentURL: URL?
@@ -393,13 +393,15 @@ struct EditorView: NSViewRepresentable {
             case .insight(let session):
                 currentCodeURL = nil
                 architectureCancellable = nil
-                webView.evaluateJavaScript("window.leaveCodeView && window.leaveCodeView(); window.leaveArchitectureView && window.leaveArchitectureView(); window.leaveDataView && window.leaveDataView()")
+                if let script = JS.sequence(["window.leaveCodeView", "window.leaveArchitectureView", "window.leaveDataView"].map { JS.call($0, ifDefined: true) }) {
+                    webView.evaluateJavaScript(script)
+                }
                 lastLoadedTabID = nil
                 bridge.clearDocument(in: webView)
                 routeInsight(session: session, webView: webView)
                 return
             case .architecture(let scope):
-                webView.evaluateJavaScript("window.leaveDataView && window.leaveDataView()")
+                if let script = JS.call("window.leaveDataView", ifDefined: true) { webView.evaluateJavaScript(script) }
                 lastLoadedTabID = nil
                 bridge.clearDocument(in: webView)
                 routeArchitecture(scope: scope, webView: webView)
@@ -789,17 +791,19 @@ struct EditorView: NSViewRepresentable {
             uiScale = scale
             guard let webView = webView, isEditorReady, scale != appliedUIScale else { return }
             appliedUIScale = scale
-            webView.evaluateJavaScript("window.mvSetUIScale && window.mvSetUIScale(\(Double(scale)))")
+            if let script = JS.call("window.mvSetUIScale", args: [Double(scale)], ifDefined: true) { webView.evaluateJavaScript(script) }
         }
 
         var workspaceTransparency: Double = 0
         func setWorkspaceTransparency(_ value: Double) {
             workspaceTransparency = value.isFinite ? min(0.7, max(0, value)) : 0
             guard let webView = webView, isEditorReady else { return }
-            webView.evaluateJavaScript("document.documentElement.classList.toggle('workspace-transparent', \(workspaceTransparency > 0 ? "true" : "false"))")
+            if let script = JS.call("document.documentElement.classList.toggle", args: ["workspace-transparent", workspaceTransparency > 0]) {
+                webView.evaluateJavaScript(script)
+            }
         }
 
-        func setTheme(_ arguments: String) {
+        func setTheme(_ arguments: [String]) {
             guard let webView = webView, isEditorReady, arguments != lastTheme else { return }
             lastTheme = arguments
             bridge.setTheme(arguments, in: webView)
@@ -814,10 +818,8 @@ struct EditorView: NSViewRepresentable {
         /// so a table of contents that repeats the heading is skipped.
         func scrollToText(_ text: String, heading: Bool = false) {
             guard let webView = webView, isEditorReady,
-                  let data = try? JSONSerialization.data(withJSONObject: [text]),
-                  let args = String(data: data, encoding: .utf8) else { return }
-            let function = heading ? "scrollToHeadingText" : "scrollToText"
-            webView.evaluateJavaScript("window.\(function) && window.\(function).apply(null, \(args))", completionHandler: nil)
+                  let script = JS.call(heading ? "window.scrollToHeadingText" : "window.scrollToText", args: [text], ifDefined: true) else { return }
+            webView.evaluateJavaScript(script, completionHandler: nil)
         }
 
         func exportPDF(fileName: String) {

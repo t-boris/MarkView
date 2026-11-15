@@ -1,6 +1,9 @@
 import AppKit
 import Darwin
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// An alternate process endpoint. The terminal renderer and prompt delivery do not depend on
 /// whether bytes come from a local PTY or an authenticated remote connection.
@@ -200,11 +203,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             guard let self else { return }
             pageReady = true
             resize(cols: message.payload.cols, rows: message.payload.rows)
-            webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(themeArguments))")
+            callPage("window.mvSetTheme", themeArguments)
             applyFontScale()
             if masterFD < 0 && (operationCommand == nil || !operationStartedOnce) { start() }
             else { flush() }
-            if outputDropped { webView.evaluateJavaScript("window.mvDropped && window.mvDropped()") }
+            if outputDropped { callPage("window.mvDropped") }
         }
         messages.on(TerminalMessage.Input.self) { [weak self] message in
             guard let self, isRunning else { return }
@@ -235,9 +238,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 let cwd = TerminalLink.workingDirectory(foregroundPID: probe.foreground, shellPID: probe.shell, fallback: probe.fallback)
                 return paths.filter { if case .file = TerminalLink.resolve($0, directory: cwd) { return true }; return false }
             }.value
-            guard let data = try? JSONSerialization.data(withJSONObject: valid),
-                  let json = String(data: data, encoding: .utf8) else { return }
-            _ = try? await webView.evaluateJavaScript("window.mvResolvedLinks && window.mvResolvedLinks(\(request), \(json))")
+            guard let script = JS.call("window.mvResolvedLinks", args: [request, valid], ifDefined: true) else { return }
+            _ = try? await webView.evaluateJavaScript(script)
         }
     }
 
@@ -267,16 +269,22 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     /// The theme of the window this terminal is shown in, as the arguments of the page's `mvSetTheme`
     /// (`WindowTheme.webArguments`); kept so the page gets it again when it reloads.
-    private var themeArguments = "'classic-dark', null"
+    private var themeArguments = ["classic-dark", ""]
     /// The same theme as <html> attributes, set at document start so a reload paints it from the first frame.
     private var themeFirstPaint = ""
 
     /// `arguments` and `firstPaint` are `WindowTheme.webArguments` and `WindowTheme.firstPaintScript`.
-    func applyTheme(arguments: String, firstPaint: String) {
+    func applyTheme(arguments: [String], firstPaint: String) {
         themeArguments = arguments
         themeFirstPaint = firstPaint
         guard pageReady else { return }
-        webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(themeArguments))")
+        callPage("window.mvSetTheme", themeArguments)
+    }
+
+    /// Calls a function of the terminal page when it has defined it (`JS.call`: the arguments are JSON, never script text).
+    private func callPage(_ function: String, _ args: [Any] = []) {
+        guard let script = JS.call(function, args: args, ifDefined: true) else { return }
+        webView.evaluateJavaScript(script)
     }
 
     func setFontScale(_ scale: CGFloat) {
@@ -288,18 +296,18 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// The page refits and posts `resize` when the grid changes, which resizes the PTY.
     private func applyFontScale() {
         guard pageReady else { return }
-        webView.evaluateJavaScript("window.mvSetFontScale && window.mvSetFontScale(\(Double(fontScale)))")
+        callPage("window.mvSetFontScale", [Double(fontScale)])
     }
 
     func refit() {
         // The page may finish loading while its web view is still offscreen. Refitting
         // after attachment must also bootstrap the first `ready` message.
-        webView.evaluateJavaScript("window.mvRefit && window.mvRefit()")
+        callPage("window.mvRefit")
     }
 
     func focus() {
         webView.window?.makeFirstResponder(webView)
-        webView.evaluateJavaScript("window.mvFocus && window.mvFocus()")
+        callPage("window.mvFocus")
     }
 
     // MARK: - Process
@@ -482,7 +490,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         pendingOutput.removeAll()
         outputDropped = false
         exitMarkerPending = nil
-        webView.evaluateJavaScript("window.mvReset && window.mvReset()")
+        callPage("window.mvReset")
         start()
     }
 
@@ -501,7 +509,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         let reaping = stoppedPID > 0 ? TerminalChildProcess.stopAndReap(stoppedPID, beforeReap: beforeReap) : nil
         isRunning = false
         exitCode = 130
-        if pageReady { webView.evaluateJavaScript("window.mvExited && window.mvExited(130)") }
+        if pageReady { callPage("window.mvExited", [130]) }
         return reaping
     }
 
@@ -591,7 +599,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// (a terminal that was never shown has no screen yet).
     func screenTail(lines: Int) async -> String? {
         guard pageReady else { return nil }
-        let value = try? await webView.evaluateJavaScript("window.mvTail ? window.mvTail(\(max(1, min(lines, 400)))) : ''")
+        guard let script = JS.call("window.mvTail", args: [max(1, min(lines, 400))], ifDefined: true) else { return nil }
+        let value = try? await webView.evaluateJavaScript(script)
         return value as? String
     }
 
@@ -649,7 +658,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         if operationCommand != nil && pendingOutput.count > 16_000_000 {
             pendingOutput.removeFirst(pendingOutput.count - 8_000_000)
             outputDropped = true
-            if pageReady { webView.evaluateJavaScript("window.mvDropped && window.mvDropped()") }
+            if pageReady { callPage("window.mvDropped") }
         }
         lastOutputAt = Date()
         if !startupSent, let command = resumeCommand ?? startupCommand, !command.isEmpty {
@@ -674,8 +683,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         let count = min(pendingOutput.count, 32_768)
         let chunk = pendingOutput.prefix(count).base64EncodedString()
         pendingOutput.removeFirst(count)
+        guard let script = JS.call("window.mvWrite", args: [chunk]) else { return }
         outputEvaluationsInFlight += 1
-        webView.evaluateJavaScript("window.mvWrite('\(chunk)')") { [weak self] _, _ in
+        webView.evaluateJavaScript(script) { [weak self] _, _ in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.outputEvaluationsInFlight -= 1
@@ -692,7 +702,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         guard pageReady, pendingOutput.isEmpty, outputEvaluationsInFlight == 0,
               let code = exitMarkerPending else { return }
         exitMarkerPending = nil
-        webView.evaluateJavaScript("window.mvExited && window.mvExited(\(code))")
+        callPage("window.mvExited", [Int(code)])
     }
 }
 

@@ -1,6 +1,9 @@
 import Foundation
 import WebKit
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Type-erased codable wrapper for flexible JSON data
 enum AnyCodable: Codable {
@@ -53,19 +56,6 @@ enum AnyCodable: Codable {
         case .object(let object):
             try container.encode(object)
         }
-    }
-}
-
-/// Shared helper for constructing safe Swift-to-JavaScript function calls with JSON-encoded arguments (AR-04).
-enum JS {
-    static func call(_ functionName: String, args: [Any] = []) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: args, options: []),
-              let arrayJSON = String(data: data, encoding: .utf8),
-              arrayJSON.first == "[", arrayJSON.last == "]" else {
-            return nil
-        }
-        let inner = arrayJSON.dropFirst().dropLast()
-        return "\(functionName)(\(inner))"
     }
 }
 
@@ -223,121 +213,92 @@ class WebViewBridge: NSObject {
         }
     }
 
-    // MARK: - Encoding Helpers
+    // MARK: - Commands to JavaScript
+    //
+    // Every command is a `JS.call` of a page function with JSON-encoded arguments (AR-04): no value is ever spliced into script text.
 
-    /// Encode an arbitrary string for safe JS literal embedding using the array-wrap
-    /// idiom: `JSONSerialization` of a single-element array (bare strings cause
-    /// `NSInvalidArgumentException`), then drop the surrounding `[` / `]` brackets,
-    /// leaving a properly JSON-escaped string literal (with quotes + escaped backslashes
-    /// / quotes / control chars / unicode).
-    /// Returns nil on encoding failure (caller should log + bail).
-    private func encodeStringForJS(_ s: String) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: [s], options: []),
-              let arrayString = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        // ["escaped string"] -> "escaped string"
-        return String(arrayString.dropFirst().dropLast())
+    /// Names the tab whose document the page shows next; the page names it in every message (`sendToSwift`). It runs in the same
+    /// script as the load so no message can pair the new id with the old document. An empty id means the page shows no tab's
+    /// document. `mvSetDocument` first hands unsaved WYSIWYG edits of the previous document to the app under the previous id
+    /// (BUG-043).
+    private static func documentIDCall(_ id: UUID?) -> String? {
+        JS.call("window.mvSetDocument", args: [id?.uuidString ?? ""])
     }
 
-    // MARK: - Commands to JavaScript
-
-    /// Script that tells the page which tab its next document belongs to; the page names it in every message
-    /// (`sendToSwift`). It runs in the same script as the load so no message can pair the new id with the old
-    /// document. An empty id means the page shows no tab's document. `mvSetDocument` first hands unsaved WYSIWYG
-    /// edits of the previous document to the app under the previous id (BUG-043); a page that has not defined it
-    /// yet just takes the id.
-    private static func documentIDScript(_ id: UUID?) -> String {
-        let id = id?.uuidString ?? ""
-        return "if (window.mvSetDocument) { window.mvSetDocument(\"\(id)\"); } else { window.mvDocumentId = \"\(id)\"; } "
+    /// Runs `script` and logs `what` when the page reports an error; nil (a value that could not be encoded) is logged and dropped.
+    private func run(_ script: String?, what: String, in webView: WKWebView, completion: (() -> Void)? = nil) {
+        guard let script else {
+            NSLog("Error \(what): the arguments could not be encoded")
+            completion?()
+            return
+        }
+        webView.evaluateJavaScript(script) { _, error in
+            if let error { NSLog("Error \(what): \(error)") }
+            completion?()
+        }
     }
 
     /// Tell the page that no tab's document is on screen (an insight or the X-Ray replaces it).
     func clearDocument(in webView: WKWebView) {
-        webView.evaluateJavaScript(Self.documentIDScript(nil))
+        guard let script = Self.documentIDCall(nil) else { return }
+        webView.evaluateJavaScript(script)
     }
 
     /// Load markdown content into the editor; `documentID` is the tab that owns it.
     func loadContent(_ markdown: String, documentID: UUID?, into webView: WKWebView, completion: @escaping () -> Void) {
-        // Wrap string in an array for valid JSON serialization (bare strings cause NSInvalidArgumentException),
-        // then extract the escaped string element for safe JavaScript embedding
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: [markdown], options: []),
-              let jsonArrayString = String(data: jsonData, encoding: .utf8) else {
-            NSLog("Error encoding markdown content")
-            completion()
-            return
-        }
-        // ["escaped content"] -> "escaped content"
-        let jsonString = String(jsonArrayString.dropFirst().dropLast())
-        let js = Self.documentIDScript(documentID) + "window.setContent(\(jsonString))"
-
-        webView.evaluateJavaScript(js) { _, error in
-            if let error = error {
-                NSLog("Error setting content: \(error)")
-            }
-            completion()
-        }
+        run(JS.sequence([Self.documentIDCall(documentID), JS.call("window.setContent", args: [markdown])]),
+            what: "setting content", in: webView, completion: completion)
     }
 
-    /// Load structured data (JSON/XML/YAML) content into the editor
-    /// Render the Architecture tab (markview-architecture-*.js). `json` is a JSON object literal.
+    /// Render the Architecture tab (markview-architecture-*.js). `json` is a JSON object text.
     func showArchitecture(_ json: String, in webView: WKWebView) {
-        webView.evaluateJavaScript("window.showArchitecture && window.showArchitecture(\(json))") { _, error in
-            if let error { NSLog("Error rendering architecture: \(error)") }
-        }
+        run(JS.call("window.showArchitecture", args: [JS.JSONText(json)], ifDefined: true), what: "rendering architecture", in: webView)
     }
 
-    /// Live AI-analysis progress for the Architecture tab. `json` is an object literal or "null".
+    /// Live AI-analysis progress for the Architecture tab. `json` is a JSON object text or "null".
     func setArchitectureProgress(_ json: String, in webView: WKWebView) {
-        webView.evaluateJavaScript("window.setArchitectureProgress && window.setArchitectureProgress(\(json))")
+        run(JS.call("window.setArchitectureProgress", args: [JS.JSONText(json)], ifDefined: true), what: "sending the architecture progress", in: webView)
     }
 
     /// Project operations are updated independently of the much larger X-Ray snapshot.
     func setProjectOperations(_ json: String, in webView: WKWebView) {
-        webView.evaluateJavaScript("window.setProjectOperations && window.setProjectOperations(\(json))")
+        run(JS.call("window.setProjectOperations", args: [JS.JSONText(json)], ifDefined: true), what: "sending the project operations", in: webView)
     }
 
-    /// The state of the research map the page shows (markview-research-map-*.js). `json` is an object literal.
+    /// The state of the research map the page shows (markview-research-map-*.js). `json` is a JSON object text.
     func setResearchMap(_ json: String, documentID: UUID?, in webView: WKWebView) {
-        let id = documentID?.uuidString ?? ""
-        webView.evaluateJavaScript("window.mvResearchMapSet && window.mvResearchMapSet(\"\(id)\", \(json))") { _, error in
-            if let error { NSLog("Error sending the research map: \(error)") }
-        }
+        run(JS.call("window.mvResearchMapSet", args: [documentID?.uuidString ?? "", JS.JSONText(json)], ifDefined: true),
+            what: "sending the research map", in: webView)
     }
 
     /// Show source code read-only in the code viewer (markview-code.js).
     func loadCodeContent(_ content: String, language: String, fileName: String, returnLabel: String = "", documentID: UUID?, into webView: WKWebView) {
-        guard let data = try? JSONSerialization.data(withJSONObject: [content, language, fileName, returnLabel]),
-              let args = String(data: data, encoding: .utf8) else { return }
-        webView.evaluateJavaScript(Self.documentIDScript(documentID) + "window.setCodeContent.apply(null, \(args))") { _, error in
-            if let error { NSLog("Error setting code content: \(error)") }
-        }
+        run(JS.sequence([Self.documentIDCall(documentID), JS.call("window.setCodeContent", args: [content, language, fileName, returnLabel])]),
+            what: "setting code content", in: webView)
     }
 
-    /// Margin notes for the file in the code viewer (markview-code.js). `json` is an object literal.
+    /// Margin notes for the file in the code viewer (markview-code.js). `json` is a JSON object text.
     func setCodeNotes(_ json: String, in webView: WKWebView) {
-        webView.evaluateJavaScript("window.setCodeNotes && window.setCodeNotes(\(json))")
+        run(JS.call("window.setCodeNotes", args: [JS.JSONText(json)], ifDefined: true), what: "sending the code notes", in: webView)
     }
 
     /// A go-to-definition / usages result or an AI answer for the code viewer.
     func sendCodeNavEvent(_ json: String, in webView: WKWebView) {
-        webView.evaluateJavaScript("window.onCodeNavEvent && window.onCodeNavEvent(\(json))")
+        run(JS.call("window.onCodeNavEvent", args: [JS.JSONText(json)], ifDefined: true), what: "sending the code navigation event", in: webView)
     }
 
     /// Select and centre 1-based lines in the code viewer (queued while it loads).
     func revealCodeLine(_ line: Int, endLine: Int?, in webView: WKWebView) {
-        webView.evaluateJavaScript("window.codeGotoLine && window.codeGotoLine(\(line), \(endLine ?? line))")
+        run(JS.call("window.codeGotoLine", args: [line, endLine ?? line], ifDefined: true), what: "revealing a code line", in: webView)
     }
 
-    /// Show a key of a JSON / YAML file: its node in the tree viewer, or its line in a source view.
+    /// Show a key of a JSON / YAML file: its node in the tree viewer, or its line in a source view. `pathJSON` is the key path as JSON text.
     func revealStructure(pathJSON: String, line: Int, in webView: WKWebView) {
-        let path = (try? JSONSerialization.data(withJSONObject: [pathJSON]))
-            .flatMap { String(data: $0, encoding: .utf8) }.map { String($0.dropFirst().dropLast()) } ?? "\"[]\""
-        webView.evaluateJavaScript("window.revealStructure && window.revealStructure(\(path), \(line))")
+        run(JS.call("window.revealStructure", args: [pathJSON, line], ifDefined: true), what: "revealing a key", in: webView)
     }
 
     func revealDocumentLine(_ line: Int, in webView: WKWebView) {
-        webView.evaluateJavaScript("window.documentGotoLine && window.documentGotoLine(\(line))")
+        run(JS.call("window.documentGotoLine", args: [line], ifDefined: true), what: "revealing a document line", in: webView)
     }
 
     /// Show a data file (table, Parquet, SQLite, log): the page fetches it from `markview-data:`.
@@ -345,35 +306,20 @@ class WebViewBridge: NSObject {
     func loadDataContent(_ url: URL, fileType: String, reload: Bool, documentID: UUID?, into webView: WKWebView) {
         let source = DataFileSchemeHandler.address(of: url)
         let payload: [String: Any] = ["src": source, "kind": fileType, "name": url.lastPathComponent, "reload": reload]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: data, encoding: .utf8) else { return }
-        webView.evaluateJavaScript(Self.documentIDScript(documentID) + "window.setDataContent && window.setDataContent(\(json))")
+        run(JS.sequence([Self.documentIDCall(documentID), JS.call("window.setDataContent", args: [payload], ifDefined: true)]),
+            what: "setting data content", in: webView)
     }
 
     func loadStructuredContent(_ content: String, fileType: String, documentID: UUID?, into webView: WKWebView, completion: @escaping () -> Void) {
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: [content], options: []),
-              let jsonArrayString = String(data: jsonData, encoding: .utf8) else {
-            NSLog("Error encoding structured content")
-            completion()
-            return
-        }
-        let jsonString = String(jsonArrayString.dropFirst().dropLast())
-        let js = Self.documentIDScript(documentID) + "window.setStructuredContent(\(jsonString), '\(fileType)')"
-
-        webView.evaluateJavaScript(js) { _, error in
-            if let error = error {
-                NSLog("Error setting structured content: \(error)")
-            }
-            completion()
-        }
+        run(JS.sequence([Self.documentIDCall(documentID), JS.call("window.setStructuredContent", args: [content, fileType])]),
+            what: "setting structured content", in: webView, completion: completion)
     }
 
     // MARK: - v2 Insight commands (Recursive Insight, Task 7)
     //
-    // The five Swift→JS setters that drive the parent JS that owns the sandboxed
-    // insight iframe (Decision 2). String fields go through `encodeStringForJS`
-    // (the array-wrap idiom — never bare interpolation). Bool serialised as
-    // JS literal `true`/`false` (NEVER `1`/`0`). Skeleton serialised via
-    // `JSONEncoder` then injected verbatim (already valid JSON literal).
+    // The Swift→JS setters that drive the parent JS that owns the sandboxed insight iframe (Decision 2). Booleans are JSON
+    // `true`/`false` (never `1`/`0`: the parent JS branches on the literal). The skeleton is encoded with `JSONEncoder`
+    // and handed over as `JS.JSONText`.
 
     /// Diagnostic logger for Insight bridge events (AR-09: never writes to world-readable /tmp files
     /// and never logs document or section contents).
@@ -387,37 +333,19 @@ class WebViewBridge: NSObject {
     /// Phase-1 paint: tell parent JS to (re)build the iframe srcdoc placeholder
     /// grid for `skeleton` and switch to insight view. Parent owns the iframe;
     /// the bridge speaks only to the parent (not to the iframe).
-    /// Calls `window.loadInsightSkeleton(<json>, '<sessionId>', '<nodeId>')`.
+    /// Calls `window.loadInsightSkeleton(skeleton, sessionId, nodeId, breadcrumbs)`.
     func loadInsightSkeleton(skeleton: InsightSkeleton, sessionId: String, nodeId: String, breadcrumbs: [(String, String)] = [], into webView: WKWebView) {
-        let encoder = JSONEncoder()
-        guard let jsonData = try? encoder.encode(skeleton),
-              let jsonString = String(data: jsonData, encoding: .utf8) else {
-            NSLog("[Insight] Error in loadInsightSkeleton: failed to JSON-encode skeleton")
-            Self.logInsightDiag("loadInsightSkeleton: failed to JSON-encode skeleton")
+        // Empty breadcrumbs mean "use the skeleton title as a single root crumb" — that's the JS fallback. They are passed
+        // separately so the Codable InsightSkeleton schema (used for cache snapshots + tool_use validation) stays unchanged.
+        let crumbs = breadcrumbs.map { ["nodeId": $0.0, "title": $0.1] }
+        guard let skeletonJSON = JS.JSONText(encoding: skeleton),
+              // `window.loadInsightSkeleton` is `async function` → returns a Promise; discarding it avoids the
+              // "unsupported type" error from evaluateJavaScript.
+              let js = JS.call("window.loadInsightSkeleton", args: [skeletonJSON, sessionId, nodeId, crumbs], discardingResult: true) else {
+            NSLog("[Insight] Error in loadInsightSkeleton: failed to encode payload")
+            Self.logInsightDiag("loadInsightSkeleton: failed to encode payload")
             return
         }
-        guard let sidLit = encodeStringForJS(sessionId),
-              let nidLit = encodeStringForJS(nodeId) else {
-            NSLog("[Insight] Error in loadInsightSkeleton: failed to encode sessionId/nodeId")
-            Self.logInsightDiag("loadInsightSkeleton: failed to encode sessionId/nodeId")
-            return
-        }
-        // Encode breadcrumbs as JSON array [{nodeId, title}, ...]. Empty array
-        // means "use the skeleton title as a single root crumb" — that's the
-        // JS fallback. Pass breadcrumbs separately so the Codable InsightSkeleton
-        // schema (used for cache snapshots + tool_use validation) stays
-        // unchanged.
-        let breadcrumbObjs = breadcrumbs.map { ["nodeId": $0.0, "title": $0.1] }
-        let breadcrumbJSON: String
-        if let cdata = try? JSONSerialization.data(withJSONObject: breadcrumbObjs, options: []),
-           let cstr = String(data: cdata, encoding: .utf8) {
-            breadcrumbJSON = cstr
-        } else {
-            breadcrumbJSON = "[]"
-        }
-        // `window.loadInsightSkeleton` is `async function` → returns a Promise.
-        // void() wrapper avoids "unsupported type" error from evaluateJavaScript.
-        let js = "void window.loadInsightSkeleton(\(jsonString), \(sidLit), \(nidLit), \(breadcrumbJSON))"
         Self.logInsightDiag("eval loadInsightSkeleton (bytes=\(js.utf8.count))")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
@@ -430,7 +358,7 @@ class WebViewBridge: NSObject {
     /// Phase-2 streaming: forward a per-section HTML delta to parent JS, which
     /// relays into the iframe via `iframe.contentWindow.postMessage` (the iframe
     /// is sandboxed null-origin, so postMessage is the only inbound channel).
-    /// Calls `window.updateInsightSection('<sessionId>', '<sectionId>', '<htmlChunk>')`.
+    /// Calls `window.updateInsightSection(sessionId, sectionId, htmlChunk)`.
     func updateInsightSection(sessionId: String, sectionId: String, htmlChunk: String, into webView: WKWebView) {
         guard let js = JS.call("window.updateInsightSection", args: [sessionId, sectionId, htmlChunk]) else {
             NSLog("[Insight] Error in updateInsightSection: failed to encode payload")
@@ -447,19 +375,15 @@ class WebViewBridge: NSObject {
     }
 
     /// Render an error banner in parent chrome (status bar). `retryable` is a
-    /// JS boolean LITERAL `true`/`false` — NEVER `1`/`0` (would break JS
-    /// truthiness if the empty string `"0"` ever leaked, and the parent JS
-    /// branches on the literal). Regression guard from v1 round-2 fix.
-    /// Calls `window.setInsightError('<sessionId>', '<message>', <true|false>)`.
+    /// JSON boolean `true`/`false` — NEVER `1`/`0` (the parent JS branches on the
+    /// literal). Regression guard from v1 round-2 fix.
+    /// Calls `window.setInsightError(sessionId, message, retryable)`.
     func setInsightError(sessionId: String, message: String, retryable: Bool, into webView: WKWebView) {
-        guard let sidLit = encodeStringForJS(sessionId),
-              let msgLit = encodeStringForJS(message) else {
+        guard let js = JS.call("window.setInsightError", args: [sessionId, message, retryable]) else {
             NSLog("[Insight] Error in setInsightError: failed to encode payload")
             Self.logInsightDiag("setInsightError: failed to encode payload")
             return
         }
-        let retryableLit = retryable ? "true" : "false"
-        let js = "window.setInsightError(\(sidLit), \(msgLit), \(retryableLit))"
         Self.logInsightDiag("eval setInsightError (msgBytes=\(message.utf8.count))")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
@@ -472,7 +396,7 @@ class WebViewBridge: NSObject {
     /// Update the bottom status bar in parent chrome
     /// (e.g. "Phase 2: 3/7 sections..."). `phase` is a free-form tag the parent
     /// uses for status-bar tinting (`phase-1`, `phase-2`, `ready`, etc.).
-    /// Calls `window.setInsightStatus('<sessionId>', '<message>', '<phase>')`.
+    /// Calls `window.setInsightStatus(sessionId, message, phase)`.
     func setInsightStatus(sessionId: String, message: String, phase: String, into webView: WKWebView) {
         guard let js = JS.call("window.setInsightStatus", args: [sessionId, message, phase]) else {
             NSLog("[Insight] Error in setInsightStatus: failed to encode payload")
@@ -494,7 +418,7 @@ class WebViewBridge: NSObject {
     /// Combine sub fires after revocation.
     /// Calls `window.releaseInsightBlobs()`.
     func releaseInsightBlobs(into webView: WKWebView) {
-        let js = "window.releaseInsightBlobs()"
+        guard let js = JS.call("window.releaseInsightBlobs") else { return }
         Self.logInsightDiag("eval releaseInsightBlobs")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
@@ -504,40 +428,22 @@ class WebViewBridge: NSObject {
         }
     }
 
-    /// Set the document base URL for resolving relative image/link paths (AR-04: JSON-encoded argument)
+    /// Set the document base URL for resolving relative image/link paths.
     func setDocumentBase(_ directoryURL: URL, in webView: WKWebView) {
         var base = directoryURL.absoluteString
         if !base.hasSuffix("/") { base += "/" }
-        guard let js = JS.call("window.setDocumentBase", args: [base]) else { return }
-
-        webView.evaluateJavaScript(js) { _, error in
-            if let error = error {
-                NSLog("Error setting document base: \(error)")
-            }
-        }
+        run(JS.call("window.setDocumentBase", args: [base]), what: "setting the document base", in: webView)
     }
 
     /// Set the theme for the editor
-    /// `arguments` come from `WindowTheme.webArguments`: the appearance id and the accent or null.
-    func setTheme(_ arguments: String, in webView: WKWebView) {
-        let js = "window.setTheme(\(arguments))"
-
-        webView.evaluateJavaScript(js) { _, error in
-            if let error = error {
-                NSLog("Error setting theme: \(error)")
-            }
-        }
+    /// `arguments` come from `WindowTheme.webArguments`: the appearance id and the accent (empty: the appearance's own).
+    func setTheme(_ arguments: [String], in webView: WKWebView) {
+        run(JS.call("window.setTheme", args: arguments), what: "setting the theme", in: webView)
     }
 
-    /// Scroll to a specific heading (AR-04: JSON-encoded argument)
+    /// Scroll to a specific heading.
     func scrollToHeading(_ headingId: String, in webView: WKWebView) {
-        guard let js = JS.call("window.scrollToHeading", args: [headingId]) else { return }
-
-        webView.evaluateJavaScript(js) { _, error in
-            if let error = error {
-                NSLog("Error scrolling to heading: \(error)")
-            }
-        }
+        run(JS.call("window.scrollToHeading", args: [headingId]), what: "scrolling to a heading", in: webView)
     }
 }
 

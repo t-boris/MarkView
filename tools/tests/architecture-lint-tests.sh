@@ -228,6 +228,44 @@ try:
     check(code == 1 and "[no-private-escape] MarkView/Resources/Editor/js/markview-bad.js:2" in out and out.count("[no-private-escape]") == 1,
           "a private HTML escape in a page script fails with file and line")
 
+    # --- js-interpolation
+    root = fresh()
+    write(root, "MarkView/Views/Workspace/GoodPage.swift", (
+        "func ok(_ web: WKWebView, _ value: String) {\n"
+        "    web.evaluateJavaScript(\"window.reset()\")\n"
+        "    if let script = JS.call(\"window.f\", args: [\"a\\(value)\"]) { web.evaluateJavaScript(script) }\n"
+        "    web.evaluateJavaScript(JS.call(\"window.g\") ?? \"\")\n"
+        "    web.callAsyncJavaScript(\"return x\", arguments: [\"x\": value], in: nil, contentWorld: .page) { _ in }\n"
+        "    // web.evaluateJavaScript(\"window.f(\\(value))\") is only a comment\n"
+        "    web.evaluateJavaScript(Self.probe)\n"
+        "    web.evaluateJavaScript(constant)\n"
+        "}\n"
+        "let constant = \"window.k()\"\n"
+        "static let probe = #\"\"\"\n(function () { var n = \\#(3); })()\n\"\"\"#\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0 and "js-interpolation" in out, "constant scripts, JS.call with interpolated Swift arguments, arguments: and a raw-string constant pass js-interpolation")
+    write(root, "MarkView/Views/Workspace/BadPage.swift", (
+        "func bad(_ web: WKWebView, _ value: String) {\n"
+        "    web.evaluateJavaScript(\"window.f(\\(value))\")\n"
+        "    let script = \"window.g('\\(value)')\"\n"
+        "    web.evaluateJavaScript(script)\n"
+        "    web.evaluateJavaScript(Self.build(value))\n"
+        "    web.evaluateJavaScript(\"\"\"\n"
+        "        window.k(\\(value))\n"
+        "        \"\"\")\n"
+        "    web.callAsyncJavaScript(\"return \\(value)\", arguments: [:], in: nil, contentWorld: .page) { _ in }\n"
+        "    let built = Self.build(value)\n"
+        "    web.evaluateJavaScript(built)\n"
+        "}\n"
+        "static func build(_ v: String) -> String { \"window.h(\\(v))\" }\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    reported = {line.split(" ")[3] for line in out.splitlines() if line.startswith("  [js-interpolation]")}
+    check(code == 1 and reported == {f"MarkView/Views/Workspace/BadPage.swift:{n}:" for n in (2, 4, 5, 6, 9, 11)},
+          "a script built by interpolation fails js-interpolation: directly, through a variable, through a helper function, as a multi-line literal, and in callAsyncJavaScript")
+    check("GoodPage.swift" not in out, "the good page is not reported")
+
     # --- lists
     root = fresh()
     (root / "tools/lint/process-allowlist.txt").unlink()

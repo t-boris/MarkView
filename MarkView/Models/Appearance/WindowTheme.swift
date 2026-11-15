@@ -128,8 +128,8 @@ final class WindowTheme: ObservableObject {
 // MARK: - Web pages
 
 extension WindowTheme {
-    /// The arguments of the pages' theme functions (`setTheme`, `mvSetTheme`): the appearance id and the accent or null.
-    var webArguments: String { "'\(webID)', \(webAccent.map { "'\($0)'" } ?? "null")" }
+    /// The arguments of the pages' theme functions (`setTheme`, `mvSetTheme`): the appearance id and the accent (empty: the appearance's own).
+    var webArguments: [String] { [webID, webAccent ?? ""] }
 
     /// The attributes of a page's <html> element that draw it right from the first paint, before its scripts run.
     /// Values are appearance ids and `#RRGGBB` colours only, so they need no escaping.

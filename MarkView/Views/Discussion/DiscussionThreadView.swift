@@ -1,5 +1,8 @@
 import SwiftUI
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The conversation of a discussion as a web page (`Editor/discussion.html`): each answer drawn in the form that fits it.
 /// Swift sends the turns and the live answer; the page requests drawing saves and Markdown copies.
@@ -39,41 +42,42 @@ struct DiscussionThreadView: NSViewRepresentable {
         private var ready = false
         private var sentTurns: [DiscussionTurn]?
         private var sentLive: DiscussionStore.Live??
-        private var sentTheme: String?
-        private var wanted: (turns: [DiscussionTurn], live: DiscussionStore.Live?, theme: String)?
+        private var sentTheme: [String]?
+        private var wanted: (turns: [DiscussionTurn], live: DiscussionStore.Live?, theme: [String])?
 
-        func update(turns: [DiscussionTurn], live: DiscussionStore.Live?, theme: String) {
+        func update(turns: [DiscussionTurn], live: DiscussionStore.Live?, theme: [String]) {
             wanted = (turns, live, theme)
             flush()
         }
 
         private func flush() {
             guard ready, let view, let wanted else { return }
-            if sentTheme != wanted.theme { sentTheme = wanted.theme; view.evaluateJavaScript("mvSetTheme(\(wanted.theme))") }
+            if sentTheme != wanted.theme { sentTheme = wanted.theme; call("window.mvSetTheme", wanted.theme, on: view) }
             if sentTurns != wanted.turns {
                 sentTurns = wanted.turns
-                view.evaluateJavaScript("mvSetTurns(\(Self.literal(Self.json(wanted.turns.map { ["question": $0.question, "answer": $0.answer] }))))")
+                // The page takes the turns as one JSON text and parses it itself.
+                call("window.mvSetTurns", [Self.json(wanted.turns.map { ["question": $0.question, "answer": $0.answer] })], on: view)
             }
             if sentLive == nil || sentLive! != wanted.live {
                 sentLive = .some(wanted.live)
                 if let live = wanted.live {
-                    view.evaluateJavaScript("mvSetLive(\(Self.literal(Self.json(["question": live.question, "text": live.text, "status": live.status]))))")
+                    call("window.mvSetLive", [Self.json(["question": live.question, "text": live.text, "status": live.status])], on: view)
                 } else {
-                    view.evaluateJavaScript("mvSetLive(null)")
+                    call("window.mvSetLive", [NSNull()], on: view)
                 }
             }
+        }
+
+        /// Calls a function of the discussion page (`JS.call`: the arguments are JSON, never script text).
+        private func call(_ function: String, _ args: [Any], on view: WKWebView) {
+            guard let script = JS.call(function, args: args) else { return }
+            view.evaluateJavaScript(script)
         }
 
         /// A plain JSON value as text. Takes no `Any` downcasts: an empty array casts to every array type, which once recursed forever.
         private static func json(_ value: Any) -> String {
             guard JSONSerialization.isValidJSONObject(value), let data = try? JSONSerialization.data(withJSONObject: value) else { return "[]" }
             return String(data: data, encoding: .utf8) ?? "[]"
-        }
-
-        /// A JSON text as a JavaScript string literal.
-        private static func literal(_ text: String) -> String {
-            guard let data = try? JSONSerialization.data(withJSONObject: [text]), let array = String(data: data, encoding: .utf8) else { return "\"[]\"" }
-            return String(array.dropFirst().dropLast())
         }
 
         override init() {
