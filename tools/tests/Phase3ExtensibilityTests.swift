@@ -75,7 +75,11 @@ let fake = ToolDescriptor(id: ToolID(rawValue: "fakeTool"), title: "Fake Tool", 
 let extended = ToolRegistry(tools: registry.tools + [fake])
 check(extended.toolbarTools(.primary).last?.id == fake.id, "AR-31: a new descriptor appears in the toolbar")
 check(extended.menuTools(.afterAgents).last?.id == fake.id && fake.shortcut?.hint == "⌥⌘9", "AR-31: a new descriptor appears in the View menu, with its shortcut")
-check(extended.welcomeTools.last?.id == fake.id, "AR-31: a new descriptor appears among the welcome tiles")
+let fakeTile = WelcomeCatalogue.project(isGitRepo: false, registry: extended).first { $0.section == .explore }?.actions.last
+check(fakeTile?.id == .tool(fake.id) && fakeTile?.title == "Fake Tool" && fakeTile?.symbol == "star" && fakeTile?.shortcut == "⌥⌘9",
+      "AR-31: a new descriptor appears among the welcome tiles, in its section and place, with its icon and shortcut")
+check(WelcomeCatalogue.project(isGitRepo: false, registry: registry).flatMap(\.actions).allSatisfy { $0.id != .tool(fake.id) },
+      "AR-31: the real registry offers no tile for the fake tool")
 check(extended.descriptor(for: fake.id)?.icon == "star" && extended.descriptor(for: fake.id)?.title == "Fake Tool",
       "AR-31: a new descriptor gives its tab an icon and a title")
 check(extended.isRestorable(fake.id) && !registry.isRestorable(fake.id), "AR-31: a new descriptor is in the restore set; the real registry does not know it")

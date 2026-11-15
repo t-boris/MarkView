@@ -1066,6 +1066,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Workspace/ToolRegistry.swift",
+        "MarkView/Models/Workspace/WelcomeActions.swift",
         "MarkView/Models/Workspace/PanelLayout.swift",
         "tools/tests/Phase3ExtensibilityTests.swift"
       ]

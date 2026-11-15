@@ -884,17 +884,12 @@ struct ContentView: View {
             workspaceManager.layout.workspaceArea = .work
         case .understand: workspaceManager.intake = IntakeRequest(kind: .understand)
         case .research: workspaceManager.newResearch()
-        case .discussions: workspaceManager.openTool(.discussions)
+        case .tool(let tool): workspaceManager.openTool(tool)
         case .tasks: activate(.work)
         case .xray: workspaceManager.openArchitecture()
         case .search: workspaceManager.showGlobalSearch = true
         case .files: activate(.files)
         case .openFile: openFile()
-        case .git: workspaceManager.openTool(.git)
-        case .deployments: workspaceManager.openTool(.deployments)
-        case .workflow: workspaceManager.openTool(.workflow)
-        case .qa: workspaceManager.openTool(.qa)
-        case .uiStudio: workspaceManager.openTool(.uiStudio)
         case .browser: _ = workspaceManager.openBrowser(nil)
         case .openFolder: openFolder()
         case .newProject: workspaceManager.newProject = NewProjectRequest()
