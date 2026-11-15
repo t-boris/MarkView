@@ -15,6 +15,9 @@
 #              A timer or `.asyncAfter` is never stored: they are counted unless they are justified.
 #   awaited    `await Task { ... }.value` / `.result`: the caller waits for it in place and is cancelled with it (Task.detached
 #              only; a `Task {` that is awaited is a pointless hop and is counted).
+#   hop        a `Task { ... }` whose body has no `await` and no `async let` (`Task { @MainActor in self?.deliver(data) }`): it
+#              never suspends, so it runs to completion in one turn on its actor and there is nothing to cancel. It is counted
+#              apart in the report. A body that awaits, however short, is not a hop.
 #   justified  a one-line comment `// task: <why it needs no owner>` on the site's line or on the comment line right above it.
 #              Use it for an immediate hop that finishes quickly and touches nothing that dies with its window (a hop onto the main
 #              actor from a callback, a button's one-shot action on a shared store). A reason is required: `// task:` alone is not one.
@@ -158,6 +161,8 @@ def classify(code, raw_lines, match, kind, line):
     if kind not in ("task", "detached"):
         return None
     end = closure_end(code, match, kind)
+    if kind == "task" and not re.search(r"\bawait\b|\basync\s+let\b", code[match.end():end]):
+        return "hop"                               # a body that never suspends is done in one turn: there is nothing to cancel
     if kind == "detached" and re.match(r"\s*\.\s*(?:value|result)\b", code[end + 1:end + 40]):
         return "awaited"
     # stored: look at what precedes the site on its statement (the previous code line when this one starts with the site)

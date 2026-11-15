@@ -322,6 +322,10 @@ try:
         "        Task { await Shared.open(url) }\n"
         "        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { Shared.tick() } // task: process-wide, no window state\n"
         "    }\n"
+        "    func hops() {\n"
+        "        Task { @MainActor in self.apply(data) }\n"                              # no await: it finishes in one turn
+        "        Task { [weak self] in self?.apply() }\n"
+        "    }\n"
         "    // Task { await work() } in a comment, and \"Task { await work() }\" and \"Timer.scheduledTimer(\" in a string, are not code\n"
         "    let text = \"Task { await work() } Task.detached { } .asyncAfter(\"\n"
         "    struct Task { }\n"
@@ -331,7 +335,7 @@ try:
     project(root, app_swift(root))
     code, out = run(root)
     check(code == 0 and "unowned-task: 0 in 0 file(s), 0 allowed" in out,
-          "a task that is stored, awaited in place or justified by `// task: why`, and one in a comment or a string, is not a site")
+          "a task that is stored, awaited in place, never suspends or is justified by `// task: why`, and one in a comment or a string, is not a site")
     UNOWNED = (
         "final class Loose {\n"
         "    func fireAndForget() {\n"
@@ -347,17 +351,18 @@ try:
         "        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { tick() }\n"
         "        let before = 1\n"
         "        Task { await work() }\n"                                                  # not stored: the line above is another statement
+        "        Task { @MainActor in await self.apply() }\n"                            # it suspends, so it is not a hop
         "    }\n"
         "}\n")
     root = fresh()
     write(root, "MarkView/Models/Workspace/Loose.swift", UNOWNED)
     project(root, app_swift(root))
     code, out = run(root)
-    check(code == 1 and "[unowned-task] MarkView/Models/Workspace/Loose.swift: 10 unowned task site(s), 0 allowed (new sites)" in out,
-          "unowned Task, Task.detached, discarded and unread tasks, a marker without a reason, Timer and asyncAfter fail and are counted")
+    check(code == 1 and "[unowned-task] MarkView/Models/Workspace/Loose.swift: 11 unowned task site(s), 0 allowed (new sites)" in out,
+          "unowned Task, Task.detached, discarded and unread tasks, a Task that suspends, a marker without a reason, Timer and asyncAfter fail and are counted")
     done = subprocess.run([str(Path(lint).parent / "task-ownership.sh"), "--root", str(root), "--sites"], stdout=subprocess.PIPE, text=True)
     check(done.stdout.splitlines() == [f"MarkView/Models/Workspace/Loose.swift:{n}: {kind}" for n, kind in
-                                      ((3, "task"), (4, "detached"), (5, "task"), (6, "task"), (7, "task"), (9, "task"), (10, "timer"), (11, "timer"), (12, "after"), (14, "task"))],
+                                      ((3, "task"), (4, "detached"), (5, "task"), (6, "task"), (7, "task"), (9, "task"), (10, "timer"), (11, "timer"), (12, "after"), (14, "task"), (15, "task"))],
           "--sites names every unowned site with its line and kind")
     root = fresh()
     write(root, "MarkView/Models/Workspace/Loose.swift", "func f() { Task { await work() } }\n")
