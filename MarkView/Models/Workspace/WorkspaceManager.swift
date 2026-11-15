@@ -426,6 +426,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         }
     }
 
+    // MARK: - Opening documents
+
     /// Show a text file's Explain notes, or return to its dedicated viewer.
     func setNotesView(_ show: Bool, explain: Bool = false) {
         guard let tab = activeTab else { return }
@@ -433,7 +435,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             guard FileType.hasTextSource(tab.url) else { return }
             if show {
                 let url = tab.url
-                Task {
+                taskBag.store(Task {
                     do {
                         let text = try await Task.detached(priority: .userInitiated) { try FileType.readText(at: url) }.value
                         guard activeTab?.url == url, let index = tabs.firstIndex(of: url) else { return }
@@ -444,15 +446,13 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
                         }
                         if explain { codeXRay.explainIfNeeded(url) }
                     } catch { tabs.showReadError(error, url: url) }
-                }
+                }, for: "notes:" + url.path)
             } else { tabs.updateActiveTab { $0.notesView = false } }
         } else if tab.isFileBacked {
             tabs.updateActiveTab { $0.notesView = show }
             if show && explain { codeXRay.explainIfNeeded(tab.url) }
         }
     }
-
-    // MARK: - Opening documents
 
     /// Open a file with its Explain notes, starting an explanation if there is none yet.
     func explainFile(_ url: URL) {
@@ -461,7 +461,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             openFile(url)
             return
         }
-        Task {
+        taskBag.store(Task {
             if FileType.isData(url) {
                 openFile(url)
             } else {
@@ -469,7 +469,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             }
             guard activeTab?.url == url else { return }
             setNotesView(true, explain: true)
-        }
+        }, for: "explain:" + url.path)
     }
 
     /// Open `url` and, for code, reveal `line`…`endLine` in the code viewer.
@@ -508,7 +508,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         let hasExtension = !(note as NSString).pathExtension.isEmpty && FileType.isSupported(URL(fileURLWithPath: note))
         let fileName = hasExtension ? note : note + ".md"
         let currentFolder = activeTab?.url.deletingLastPathComponent().standardizedFileURL.path
-        Task {
+        taskBag.store(Task {
             let found: URL? = await Task.detached {
                 if fileName.contains("/") {
                     let direct = root.appendingPathComponent(fileName)
@@ -526,17 +526,18 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
                 return WikiLinkResolver.choose(candidates: matches.map(\.path), from: currentFolder)
                     .map { URL(fileURLWithPath: $0) }
             }.value
+            guard !Task.isCancelled else { return }
             guard let found else {
                 NSSound.beep()
                 return
             }
             openFile(found)
             if let heading, !heading.isEmpty {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                    NotificationCenter.default.post(.scrollToText, for: self, object: heading, userInfo: ["heading": true])
-                }
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                guard !Task.isCancelled else { return }
+                NotificationCenter.default.post(.scrollToText, for: self, object: heading, userInfo: ["heading": true])
             }
-        }
+        }, for: "wikilink:" + note)
     }
 
     /// Open a file referenced by a JSON Canvas file-node. Canvas paths are
@@ -602,12 +603,13 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
                 alert.addButton(withTitle: "Stop operations and close")
                 guard alert.runModal() == .alertSecondButtonReturn else { return false }
                 operations.cancelForClose()
-                Task { [weak self] in
-                    while operations.runs.values.contains(where: \.isActive) {
+                taskBag.store(Task { [weak self] in
+                    while operations.runs.values.contains(where: \.isActive), !Task.isCancelled {
                         try? await Task.sleep(nanoseconds: 250_000_000)
                     }
+                    guard !Task.isCancelled else { return }
                     _ = self?.closeFolder()
-                }
+                }, for: "closeFolderAfterOperations")
                 return false
             }
         }
@@ -692,71 +694,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         editDiagram(instruction: instruction, currentMermaid: currentMermaid)
     }
 
-    // MARK: - DDE Block Handling
-
-    /// Handle block delta from JS extraction — wrapped in safety guard.
-    /// The insight player does not run the DDE block extractor, so this path
-    /// should not fire for insight tabs in practice; the kind-check is defense
-    /// in depth so a stray delta cannot pollute SQLite with a `.insight-<uuid>` doc.
-    func handleBlocksDelta(_ delta: BlocksDelta) {
-        guard activeTabIndex >= 0, activeTabIndex < openTabs.count else { return }
-        guard !delta.isEmpty else { return }
-        if !openTabs[activeTabIndex].isFileBacked { return }
-
-        let tabIndex = activeTabIndex
-        var tab = openTabs[tabIndex]
-
-        tab.blocks.removeAll { delta.removed.contains($0.id) }
-
-        for changed in delta.changed {
-            if let idx = tab.blocks.firstIndex(where: { $0.id == changed.id }) {
-                tab.blocks[idx] = changed
-            }
-        }
-
-        tab.blocks.append(contentsOf: delta.added)
-        tab.blocks.sort { $0.position < $1.position }
-
-        tabs.updateTab(at: tabIndex) { currentTab in
-            currentTab = tab
-        }
-
-        // Persist to SQLite
-        if let db = semanticDatabase {
-            let docId = project.documentId(for: tab.url)
-            let upserts = delta.added + delta.changed, removed = delta.removed
-            // Deltas reach the database in the order the editor sent them.
-            let previous = blockDeltaSave
-            blockDeltaSave = Task {
-                await previous?.value
-                await db.applyBlockDelta(documentId: docId, upserts: upserts, removed: removed)
-            }
-        }
-    }
-
-    /// The block delta write in flight (`AR-37`): each delta waits for the one before it.
-    private var blockDeltaSave: Task<Void, Never>?
-
-    func navigateToText(filePath: String?, fallbackDocumentId: String? = nil, searchText: String) {
-        let trimmedText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty else { return }
-
-        if let url = project.fileURL(filePath: filePath, fallbackDocumentId: fallbackDocumentId) {
-            openFile(url)
-        }
-
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            NotificationCenter.default.post(.scrollToText, for: self, object: trimmedText)
-        }
-    }
-
-    /// Cursor moved to a different block
-    func handleCursorBlockChange(_ blockId: String) {
-        tabs.updateActiveTab { tab in
-            tab.activeBlockId = blockId
-        }
-    }
+    // MARK: - Agents surface and handoff
 
     /// Show the floating agents surface without changing the other panels.
     func showAIConsole() { chrome.agentsVisible = true }
@@ -765,7 +703,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
     func resumeHandoff(slug: String, title: String, linkedFiles: [String]) {
         guard let root = features.root else { return }
-        Task {
+        taskBag.store(Task {
             let checked = await Task.detached { () -> (available: [URL], missing: [String]) in
                 let base = root.resolvingSymlinksInPath().standardizedFileURL.path + "/"
                 var available: [URL] = []
@@ -787,12 +725,12 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
                 }
                 return (available, missing)
             }.value
-            guard features.root == root else { return }
+            guard !Task.isCancelled, features.root == root else { return }
             requests.handoffResume = HandoffResume(slug: slug, title: title,
                                           linkedFiles: linkedFiles, missingFiles: checked.missing)
             for url in checked.available { openFile(url) }
             layout.workspaceArea = .files
-        }
+        }, for: "resumeHandoff:" + slug)
     }
 
     // MARK: - Browser control

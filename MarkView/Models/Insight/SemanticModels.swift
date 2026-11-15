@@ -85,15 +85,6 @@ struct BlocksDelta {
     }
 }
 
-// MARK: - Block Compilation State
-
-enum BlockCompilationState: Equatable {
-    case pending
-    case compiling
-    case compiled
-    case error(String)
-}
-
 // MARK: - Semantic Entity (§3.2)
 
 struct SemanticEntity: Identifiable, Codable {

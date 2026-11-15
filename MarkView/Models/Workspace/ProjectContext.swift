@@ -269,6 +269,24 @@ final class ProjectContext: ObservableObject, ProjectProviding {
         database = nil
     }
 
+    // MARK: - Document blocks
+
+    /// The block delta write in flight (`AR-37`): each delta waits for the one before it.
+    private var blockDeltaSave: Task<Void, Never>?
+
+    /// Writes the blocks the editor extracted from the document at `url` into the project's database. Deltas reach it in the order the
+    /// editor sent them, and one that arrives while there is no database is dropped.
+    func saveBlocks(_ delta: BlocksDelta, of url: URL) {
+        guard !delta.isEmpty, let db = database else { return }
+        let docId = documentId(for: url)
+        let upserts = delta.added + delta.changed, removed = delta.removed
+        let previous = blockDeltaSave
+        blockDeltaSave = Task {
+            await previous?.value
+            await db.applyBlockDelta(documentId: docId, upserts: upserts, removed: removed)
+        }
+    }
+
     /// The folder closes: the index process, the tree, the links and the database go. The recents stay.
     func closeFolder() {
         stopIndexing()

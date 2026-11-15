@@ -343,11 +343,6 @@ struct OpenTab: Identifiable {
     /// Bumped when a data tab's file changes on disk: its viewer reads it again (a log follows).
     var dataRevision = 0
 
-    // Semantic block extraction (DDE Stage 1)
-    var blocks: [SemanticBlock] = []
-    var activeBlockId: String?
-    var blockCompilationState: [String: BlockCompilationState] = [:]
-
     /// The display name for the tab (file name)
     var displayName: String {
         if case .terminal = kind { return "Terminal: " + url.deletingLastPathComponent().lastPathComponent }
