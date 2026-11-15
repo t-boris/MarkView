@@ -32,7 +32,7 @@ No `gh` process starts while the integration is off. The PR X-Ray still offers t
 
 ## Environment
 
-MarkView main (b2df2b9), MarkView/Models/ArchitectureStore.swift `refreshPRSources`, `listPRSources`, `runGH`; MarkView/Models/WorkspaceManager.swift callers of `refreshPRSources`; code reading only.
+MarkView main (b2df2b9), MarkView/Models/Architecture/ArchitectureStore.swift `refreshPRSources`, `listPRSources`, `runGH`; MarkView/Models/Workspace/WorkspaceManager.swift callers of `refreshPRSources`; code reading only.
 
 ## Cause
 
@@ -56,7 +56,7 @@ call path asked the GitHub switch.
 using the switch every other caller uses (`GitHubSettings.enabled`, key `settings.github.enabled`). No second
 switch was added.
 
-- `GitHubClient.output(_:in:enabled:timeout:)` (new, `MarkView/Models/GitHubClient.swift`) is a blocking entry
+- `GitHubClient.output(_:in:enabled:timeout:)` (new, `MarkView/Models/Git/GitHubClient.swift`) is a blocking entry
   to the runner behind `GitHubClient.execute`: the same `gh` lookup and PATH, stdin closed, both pipes drained
   while the process runs, the process terminated (then killed) after `timeout` seconds. It returns standard output
   when `gh` exits with 0 and nil otherwise. With `enabled` false it returns nil before touching `Process`, so a

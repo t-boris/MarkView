@@ -31,14 +31,14 @@ MarkView уже предлагает сильный сценарий для ра
 ## Findings
 
 - [Project fact] README позиционирует MarkView как среду для изучения проекта через X-Ray, редактирования документов и работы с AI-терминалами. Это содержательная основа продукта, но описание охватывает много разных задач и предполагает знакомство с инструментами разработчика. `README.md:5`, `README.md:23`, `README.md:85`
-- [Project fact] Окно состоит из левой панели, центрального редактора и правой панели. Слева переключаются `Files` и `Issues`; справа — `Contents`, `Search`, `Git`, `Terminal`, `Feature`. Терминал размещён внутри правой панели, хотя его собственный экран рассчитан примерно на 340 пунктов ширины. `MarkView/Views/ContentView.swift:95`, `MarkView/Views/FeatureNavigatorView.swift:28`, `MarkView/Views/TOCView.swift:9`, `MarkView/Views/ModuleExplorerView.swift:34`
+- [Project fact] Окно состоит из левой панели, центрального редактора и правой панели. Слева переключаются `Files` и `Issues`; справа — `Contents`, `Search`, `Git`, `Terminal`, `Feature`. Терминал размещён внутри правой панели, хотя его собственный экран рассчитан примерно на 340 пунктов ширины. `MarkView/Views/Workspace/ContentView.swift:95`, `MarkView/Views/Lifecycle/FeatureNavigatorView.swift:28`, `MarkView/Views/Workspace/TOCView.swift:9`, `MarkView/Views/Architecture/ModuleExplorerView.swift:34`
 - [AI inference] Такая компоновка заставляет чтение документа, поиск, работу с Git и AI делить одно и то же узкое пространство. Самое перспективное изменение — пересмотреть распределение задач по окну, а не только оформить существующие вкладки по-новому.
-- [Project fact] Сейчас поиск устроен тремя разными способами: фильтр файлов действует в текущей папке, полнотекстовый поиск находится в правой панели и запускается по Enter, а поиск в документе живёт внутри редактора. Единого быстрого перехода к файлу или команде в просмотренном коде нет. `MarkView/Views/FileTreeView.swift:61`, `MarkView/Views/TOCView.swift:120`, `MarkView/Resources/Editor/index.html:1322`
+- [Project fact] Сейчас поиск устроен тремя разными способами: фильтр файлов действует в текущей папке, полнотекстовый поиск находится в правой панели и запускается по Enter, а поиск в документе живёт внутри редактора. Единого быстрого перехода к файлу или команде в просмотренном коде нет. `MarkView/Views/Workspace/FileTreeView.swift:61`, `MarkView/Views/Workspace/TOCView.swift:120`, `MarkView/Resources/Editor/index.html:1322`
 - [Project fact] Редактор Markdown показывает постоянно видимую строку с форматированием, вставкой объектов, переводом, сохранением и переключением в Source; отдельная панель появляется при выделении текста. Интерфейс использует `contenteditable` и скрытое поле с Markdown. Рабочая версия редактора находится в `MarkView/Resources/Editor/`; `EditorWeb/` пока не подключён к приложению. `MarkView/Resources/Editor/index.html:1333`, `MarkView/Resources/Editor/index.html:1365`, `MarkView/Resources/Editor/index.html:1463`, `CLAUDE.md:9`
-- [Project fact] Многие элементы панелей используют базовый текст 9–11 пунктов, а вкладки документов имеют высоту 24 пункта. При этом в приложении уже есть отдельное масштабирование интерфейсного текста от 80% до 200% — полезная основа для проверки новой типографики. Эти размеры сами по себе не доказывают проблему доступности; её нужно проверить на экранах и с пользователями. `MarkView/Views/TabBarView.swift:39`, `MarkView/Views/FeaturePanelView.swift:136`, `MarkView/Models/AppFontScale.swift:7`
-- [Project fact] Первый экран предлагает открыть файл, папку или создать проект, а после открытия папки — X-Ray либо файл. Пошаговый сценарий создания проекта уже существует, но простой пример того, зачем открывать X-Ray и что делать дальше, на стартовом экране не показан. `MarkView/Views/ContentView.swift:351`, `MarkView/Views/NewProjectSheet.swift:23`
+- [Project fact] Многие элементы панелей используют базовый текст 9–11 пунктов, а вкладки документов имеют высоту 24 пункта. При этом в приложении уже есть отдельное масштабирование интерфейсного текста от 80% до 200% — полезная основа для проверки новой типографики. Эти размеры сами по себе не доказывают проблему доступности; её нужно проверить на экранах и с пользователями. `MarkView/Views/Workspace/TabBarView.swift:39`, `MarkView/Views/Lifecycle/FeaturePanelView.swift:136`, `MarkView/Models/Appearance/AppFontScale.swift:7`
+- [Project fact] Первый экран предлагает открыть файл, папку или создать проект, а после открытия папки — X-Ray либо файл. Пошаговый сценарий создания проекта уже существует, но простой пример того, зачем открывать X-Ray и что делать дальше, на стартовом экране не показан. `MarkView/Views/Workspace/ContentView.swift:351`, `MarkView/Views/Workspace/NewProjectSheet.swift:23`
 - [Project fact] Задача `feature-2` посвящена различению окон нескольких проектов. Уже приняты автоматическое назначение цвета с возможностью замены, цветная иконка проекта, показ цвета в окне и при переключении окон; ответ на `Q-005` выбирает изменение цвета нажатием на иконку. При этом раздел `Scope` обзорного документа всё ещё называет некоторые из этих решений открытыми. `docs/features/feature-2/overview.md:39`, `docs/features/feature-2/overview.md:47`, `docs/features/feature-2/decisions/DEC-002.md:25`, `docs/features/feature-2/decisions/DEC-003.md:25`, `docs/features/feature-2/decisions/DEC-004.md:25`, `docs/features/feature-2/questions/Q-005.md:52`
-- [Project fact] Сейчас заголовок окна содержит название приложения, версию и имя папки; `representedURL` связывает окно с папкой и даёт ему системную иконку документа. Отдельного цветового элемента в просмотренном коде окна пока нет. `MarkView/Models/WindowTitle.swift:3`, `MarkView/Views/ContentView.swift:257`, `MarkView/Views/ContentView.swift:291`
+- [Project fact] Сейчас заголовок окна содержит название приложения, версию и имя папки; `representedURL` связывает окно с папкой и даёт ему системную иконку документа. Отдельного цветового элемента в просмотренном коде окна пока нет. `MarkView/Models/Workspace/WindowTitle.swift:3`, `MarkView/Views/Workspace/ContentView.swift:257`, `MarkView/Views/Workspace/ContentView.swift:291`
 - [External fact] Apple рекомендует давать окнам короткие содержательные названия и не занимать заголовок именем приложения; для macOS также важны настраиваемые окна, меню и клавиатурные команды. Для MarkView это аргумент в пользу заголовка, где первым читается **проект**, а версия остаётся в About. [Toolbars — Apple](https://developer.apple.com/design/human-interface-guidelines/toolbars), [Designing for macOS — Apple](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos/)
 - [External fact] `NSWindow.representedURL` управляет иконкой файла в заголовке; Apple описывает возможность заменить изображение этой иконки. Mission Control показывает окна для выбора, но найденная документация не подтверждает, что небольшая иконка заголовка будет различима на его миниатюрах. Поэтому требование `feature-2` о переключении окон нуждается в прототипе и проверке на поддерживаемых macOS. [representedURL — Apple](https://developer.apple.com/documentation/appkit/nswindow/representedurl), [Mission Control — Apple](https://support.apple.com/en-mn/guide/mac-help/mh35798/mac)
 - [External fact] Apple советует не передавать смысл одним цветом и использовать системные цвета с учётом светлого, тёмного и повышенно контрастного режимов. Для проекта цвет стоит сочетать с текстовым названием и различимой формой либо буквенным знаком; цветные статусы задач требуют такой же проверки. [Color — Apple](https://developer.apple.com/design/human-interface-guidelines/color), [Differentiate Without Color Alone — Apple](https://developer.apple.com/help/app-store-connect/manage-app-accessibility/differentiate-without-color-alone-evaluation-criteria)
@@ -72,22 +72,22 @@ Project files:
 
 - `docs/features/feature-2/overview.md`
 - `README.md`
-- `MarkView/Views/ContentView.swift`
-- `MarkView/Views/FeatureNavigatorView.swift`
-- `MarkView/Views/TOCView.swift`
-- `MarkView/Views/ModuleExplorerView.swift`
-- `MarkView/Views/FileTreeView.swift`
+- `MarkView/Views/Workspace/ContentView.swift`
+- `MarkView/Views/Lifecycle/FeatureNavigatorView.swift`
+- `MarkView/Views/Workspace/TOCView.swift`
+- `MarkView/Views/Architecture/ModuleExplorerView.swift`
+- `MarkView/Views/Workspace/FileTreeView.swift`
 - `MarkView/Resources/Editor/index.html`
 - `CLAUDE.md`
-- `MarkView/Views/TabBarView.swift`
-- `MarkView/Views/FeaturePanelView.swift`
-- `MarkView/Models/AppFontScale.swift`
-- `MarkView/Views/NewProjectSheet.swift`
+- `MarkView/Views/Workspace/TabBarView.swift`
+- `MarkView/Views/Lifecycle/FeaturePanelView.swift`
+- `MarkView/Models/Appearance/AppFontScale.swift`
+- `MarkView/Views/Workspace/NewProjectSheet.swift`
 - `docs/features/feature-2/decisions/DEC-002.md`
 - `docs/features/feature-2/decisions/DEC-003.md`
 - `docs/features/feature-2/decisions/DEC-004.md`
 - `docs/features/feature-2/questions/Q-005.md`
-- `MarkView/Models/WindowTitle.swift`
+- `MarkView/Models/Workspace/WindowTitle.swift`
 
 Web pages:
 
@@ -121,7 +121,7 @@ Web searches:
 
 ### Findings
 
-- [Project fact] Сейчас `ContentView` собирает левую панель, редактор и правую панель в `HSplitView`; справа переключаются `Contents`, `Search`, `Git`, `Terminal`, `Feature`. В коде уже появились нажимаемая цветная иконка проекта и полоса высотой 3 пункта под toolbar. Значит, редизайн должен включить их как существующую идентификацию окна. `MarkView/Views/ContentView.swift:98`, `MarkView/Views/TOCView.swift:9`, `MarkView/Views/ProjectColorViews.swift:9`, `MarkView/Views/ProjectColorViews.swift:69`
+- [Project fact] Сейчас `ContentView` собирает левую панель, редактор и правую панель в `HSplitView`; справа переключаются `Contents`, `Search`, `Git`, `Terminal`, `Feature`. В коде уже появились нажимаемая цветная иконка проекта и полоса высотой 3 пункта под toolbar. Значит, редизайн должен включить их как существующую идентификацию окна. `MarkView/Views/Workspace/ContentView.swift:98`, `MarkView/Views/Workspace/TOCView.swift:9`, `MarkView/Views/Appearance/ProjectColorViews.swift:9`, `MarkView/Views/Appearance/ProjectColorViews.swift:69`
 - [Project fact] Постоянная панель редактора содержит форматирование, вставку, AI-действия, сохранение и переключение в `Source`; при выделении текста появляется ещё одна панель. X-Ray тоже размещает виды, фильтры и действия в одной строке. Это конкретные места, где новому дизайну нужна более ясная иерархия элементов. `MarkView/Resources/Editor/index.html:1333`, `MarkView/Resources/Editor/index.html:1395`, `MarkView/Resources/Editor/index.html:1463`
 - [External fact] Apple рекомендует оставлять в toolbar частые действия и поиск, не переполнять его, а боковую панель делать скрываемой при нехватке места. Для macOS Apple указывает 13 пунктов как рекомендуемый базовый размер интерфейсного текста и советует проверять увеличение до 200%. Эти правила поддерживают предложенные ниже размеры и поведение узкого окна. [Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars), [Sidebars](https://developer.apple.com/design/human-interface-guidelines/sidebars), [Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility)
 - [AI inference] **Визуальный характер:** MarkView должен ощущаться как место для чтения и осмысления проекта, а не как набор служебных панелей. В светлой теме — мягкий нейтральный фон окна, чистая поверхность документа, тёмный текст и один постоянный цвет для действий. В тёмной — такие же отношения яркости без сплошного чёрного поля. Цвет конкретного проекта остаётся у его названия и в полосе окна; он не окрашивает кнопки, вкладки и документ. Отправные размеры для макета: toolbar 48–52 пункта, боковая панель 250–280, инспектор 270–300, строки списка 32–36; интерфейсный текст 13–14, текст документа 16, заголовок документа 26–28 пунктов. Это проектные значения, контраст и масштабирование нужно проверить.
@@ -165,7 +165,7 @@ Web searches:
   └─────────────────────┴────────────────────────────────┴───────────────┘
   ```
   «Структура» и «Документы» должны быть полезны сразу после локального сканирования; AI-анализ обогащает карту по явному действию. Цветовые наложения показывают состояние только вместе с подписью или значком. Так пользователь видит проект до выбора модели AI.
-- [AI inference] **«Работа» даёт задачам полноценный экран.** Нынешние этапы `Explore`, `Review`, `Resolve`, `Build` уже существуют в узкой панели `FeaturePanelView`; в новом UI они становятся последовательностью в основной области. Git и GitHub — соседние разделы «Работы», а терминал открывается снизу с достаточной высотой либо разворачивается во вкладку. `MarkView/Views/FeaturePanelView.swift:5`, `MarkView/Views/FeaturePanelView.swift:136`, `MarkView/Views/GitView.swift:22`, `MarkView/Views/ModuleExplorerView.swift:34`
+- [AI inference] **«Работа» даёт задачам полноценный экран.** Нынешние этапы `Explore`, `Review`, `Resolve`, `Build` уже существуют в узкой панели `FeaturePanelView`; в новом UI они становятся последовательностью в основной области. Git и GitHub — соседние разделы «Работы», а терминал открывается снизу с достаточной высотой либо разворачивается во вкладку. `MarkView/Views/Lifecycle/FeaturePanelView.swift:5`, `MarkView/Views/Lifecycle/FeaturePanelView.swift:136`, `MarkView/Views/Git/GitView.swift:22`, `MarkView/Views/Architecture/ModuleExplorerView.swift:34`
   ```text
   ┌─────────────────────┬────────────────────────────────┬───────────────┐
   │ Работа              │ Цветовая идентификация проектов│ Контекст      │
@@ -199,7 +199,7 @@ Web searches:
   │  Незавершённый черновик проекта                           Продолжить │
   └──────────────────────────────────────────────────────────────────────┘
   ```
-  Существующий мастер создания проекта уже сохраняет черновик и показывает его на стартовом экране; здесь меняются подача и приоритеты действий. `MarkView/Views/NewProjectSheet.swift:5`, `MarkView/Views/ContentView.swift:399`
+  Существующий мастер создания проекта уже сохраняет черновик и показывает его на стартовом экране; здесь меняются подача и приоритеты действий. `MarkView/Views/Workspace/NewProjectSheet.swift:5`, `MarkView/Views/Workspace/ContentView.swift:399`
 - [AI inference] **Поиск и AI — два компактных слоя поверх текущей работы.** Поиск открывается по `⌘K` и сразу показывает область каждого результата; `⌘F` остаётся поиском внутри документа. Перед AI-действием пользователь видит конкретный охват и место результата.
   ```text
   ╭─ ⌕  Где сохраняется цвет проекта? ──────────────── Все области ▾ ─╮
@@ -215,7 +215,7 @@ Web searches:
   ╰─────────────────────────────────────────────────────────────────────╯
   ```
   Во время выполнения эта карточка показывает шаг, прошедшее время и «Остановить». Если действие меняет файлы, результат сначала показывается как изменения для просмотра. Поиск остаётся доступным и без настроенного AI.
-- [AI inference] **Правило для размеров окна:** при ширине около 1200 пунктов инспектор закрывается первым и открывается кнопкой; при ширине около 900 левая панель становится выдвижной; текст и основные действия остаются видимыми. При масштабе интерфейса 200% панели переходят в эти состояния раньше. Для MarkView это особенно важно, потому что приложение уже поддерживает масштаб интерфейсного текста 80–200%. `MarkView/Models/AppFontScale.swift:7`
+- [AI inference] **Правило для размеров окна:** при ширине около 1200 пунктов инспектор закрывается первым и открывается кнопкой; при ширине около 900 левая панель становится выдвижной; текст и основные действия остаются видимыми. При масштабе интерфейса 200% панели переходят в эти состояния раньше. Для MarkView это особенно важно, потому что приложение уже поддерживает масштаб интерфейсного текста 80–200%. `MarkView/Models/Appearance/AppFontScale.swift:7`
 - [Open assumption] Макеты показывают предлагаемое состояние, а не измеренные экраны текущей сборки. Фактическую читаемость, поведение узких окон и различимость проектной полосы в Mission Control нужно проверить на работающем приложении; код и документы этого не подтверждают.
 - [AI inference] Для этой дополнительной проверки отправлены ровно два веб-запроса: `site:developer.apple.com/design/human-interface-guidelines macOS sidebars toolbars search navigation content design`; `site:developer.apple.com/design/human-interface-guidelines macOS accessibility color contrast layout text size`.
 
@@ -231,16 +231,16 @@ Web searches:
 
 Project files:
 
-- `MarkView/Views/ContentView.swift`
-- `MarkView/Views/TOCView.swift`
-- `MarkView/Views/ProjectColorViews.swift`
+- `MarkView/Views/Workspace/ContentView.swift`
+- `MarkView/Views/Workspace/TOCView.swift`
+- `MarkView/Views/Appearance/ProjectColorViews.swift`
 - `MarkView/Resources/Editor/index.html`
 - `README.md`
-- `MarkView/Views/FeaturePanelView.swift`
-- `MarkView/Views/GitView.swift`
-- `MarkView/Views/ModuleExplorerView.swift`
-- `MarkView/Views/NewProjectSheet.swift`
-- `MarkView/Models/AppFontScale.swift`
+- `MarkView/Views/Lifecycle/FeaturePanelView.swift`
+- `MarkView/Views/Git/GitView.swift`
+- `MarkView/Views/Architecture/ModuleExplorerView.swift`
+- `MarkView/Views/Workspace/NewProjectSheet.swift`
+- `MarkView/Models/Appearance/AppFontScale.swift`
 
 Web pages:
 

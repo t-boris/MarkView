@@ -59,9 +59,9 @@ MarkView macOS app, Feature panel → Implement with AI. The user tried all avai
 
 ## Suspected code
 
-- `MarkView/Models/WorkspaceManager.swift` — implementWithAI sends a path-based prompt for both Claude and other backends. Neither prompt names answered questions or accepted decisions; sendToAssistant pastes the prompt into a terminal session.
-- `MarkView/Views/FeaturePanelView.swift` — The Feature panel’s Implement with AI button calls implementWithAI with the feature folder.
-- `MarkView/Models/FeatureModels.swift` — Questions and decisions have distinct statuses, including answered and accepted, that the handoff could direct the agent to review.
+- `MarkView/Models/Workspace/WorkspaceManager.swift` — implementWithAI sends a path-based prompt for both Claude and other backends. Neither prompt names answered questions or accepted decisions; sendToAssistant pastes the prompt into a terminal session.
+- `MarkView/Views/Lifecycle/FeaturePanelView.swift` — The Feature panel’s Implement with AI button calls implementWithAI with the feature folder.
+- `MarkView/Models/Lifecycle/FeatureModels.swift` — Questions and decisions have distinct statuses, including answered and accepted, that the handoff could direct the agent to review.
 
 ## Likely causes
 

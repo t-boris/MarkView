@@ -98,8 +98,8 @@ flowchart LR
 ## 7. Where to start reading
 
 1. `MarkView/App/MarkViewApp.swift`: entry point and menus.
-2. `MarkView/Views/ContentView.swift`: window layout.
-3. `MarkView/Models/WorkspaceManager.swift`: `openFolder`, `openFile`, `saveActiveFile`, and the bridge action switch.
-4. `MarkView/Views/EditorView.swift` + `MarkView/Bridge/WebViewBridge.swift`: the Swift side of the editor.
+2. `MarkView/Views/Workspace/ContentView.swift`: window layout.
+3. `MarkView/Models/Workspace/WorkspaceManager.swift`: `openFolder`, `openFile`, `saveActiveFile`, and the bridge action switch.
+4. `MarkView/Views/Workspace/EditorView.swift` + `MarkView/Bridge/WebViewBridge.swift`: the Swift side of the editor.
 5. `MarkView/Resources/Editor/index.html`: script load order, then `markview-render.js`.
-6. `MarkView/Models/AIAssistants.swift`: how every AI call is made.
+6. `MarkView/Models/AI/AIAssistants.swift`: how every AI call is made.

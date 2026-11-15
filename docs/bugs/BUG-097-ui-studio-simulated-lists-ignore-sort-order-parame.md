@@ -34,4 +34,4 @@ The list comes back in seed order and every record matches the search word. Only
 
 ## Environment
 
-MarkView 5.35.0, `MarkView/Models/UIStudioSimulation.swift` (`StudioPaging`, list operation at ~line 314). Feature markview-ui-studio, REQ-014 criterion 4 (left unticked).
+MarkView 5.35.0, `MarkView/Models/UIStudio/UIStudioSimulation.swift` (`StudioPaging`, list operation at ~line 314). Feature markview-ui-studio, REQ-014 criterion 4 (left unticked).

@@ -46,9 +46,9 @@ MarkView 5.43.0 on macOS. The screenshot shows a modified Swift file selected in
 
 ## Suspected code
 
-- `MarkView/Views/ProjectChangeReviewView.swift` — Presents the SwiftUI sheet, specifies its dimensions, and displays the snapshots in separate plain-text scroll views.
-- `MarkView/Models/ProjectChangeReview.swift` — Captures and classifies file-level snapshots without producing change-level comparisons; readable text capture is limited to files of at most 512 KiB.
-- `MarkView/Views/ContentView.swift` — Hosts the observed changes bar and supplies the parent context for the review sheet.
+- `MarkView/Views/Architecture/ProjectChangeReviewView.swift` — Presents the SwiftUI sheet, specifies its dimensions, and displays the snapshots in separate plain-text scroll views.
+- `MarkView/Models/Architecture/ProjectChangeReview.swift` — Captures and classifies file-level snapshots without producing change-level comparisons; readable text capture is limited to files of at most 512 KiB.
+- `MarkView/Views/Workspace/ContentView.swift` — Hosts the observed changes bar and supplies the parent context for the review sheet.
 - `docs/bugs/BUG-107-observed-changes-comparison-is-too-narrow.md` — Documents the related 5.42.1 layout fix and its off-screen verification, without a manual check of resizing in the installed app.
 - `README.md` — Describes Review as a side-by-side diff.
 

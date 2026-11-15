@@ -54,8 +54,8 @@ MarkView native macOS app, X-Ray Logical view, file contents drill-down. Long co
 
 ## Suspected code
 
-- `MarkView/Models/XRayContent.swift` — Defines the 250-line AI threshold, prompts long-code outlines to create 3–12 parts and type groups, creates local “Functions” groups for shorter code, and converts outline collections and groups into diagram nodes without a sparse-group threshold.
-- `MarkView/Models/ArchitectureStore.swift` — Selects the AI or local outline path, caches generated outlines, and inserts XRayContent nodes into the Logical view; relevant for locating which path produced an affected example.
+- `MarkView/Models/Architecture/XRayContent.swift` — Defines the 250-line AI threshold, prompts long-code outlines to create 3–12 parts and type groups, creates local “Functions” groups for shorter code, and converts outline collections and groups into diagram nodes without a sparse-group threshold.
+- `MarkView/Models/Architecture/ArchitectureStore.swift` — Selects the AI or local outline path, caches generated outlines, and inserts XRayContent nodes into the Logical view; relevant for locating which path produced an affected example.
 - `docs/architecture/modules/architecture-and-xray.md` — Documents the X-Ray Logical view and content-outline flow; it does not describe a minimum group size.
 
 ## Likely causes

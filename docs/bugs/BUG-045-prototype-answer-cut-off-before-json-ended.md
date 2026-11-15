@@ -48,7 +48,7 @@ spent at all or with turns that did not move the answer forward.
 ## Environment
 
 MarkView 5.0.0 (e816bbe), GitHub Copilot CLI over ACP, model Claude Sonnet 5.5,
-`MarkView/Models/ACPAssistant.swift` (`answer`, `looksCutOff`), Prototype Studio.
+`MarkView/Models/AI/ACPAssistant.swift` (`answer`, `looksCutOff`), Prototype Studio.
 
 ## Cause
 

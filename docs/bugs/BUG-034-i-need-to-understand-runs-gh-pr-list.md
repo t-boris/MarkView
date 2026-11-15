@@ -32,7 +32,7 @@ No `gh` process starts; the answer notes that no PR data was available.
 
 ## Environment
 
-MarkView current main (ade7910), MarkView/Models/XRaySearch.swift line 63, MarkView/Models/GitHubStore.swift line 7; code reading only.
+MarkView current main (ade7910), MarkView/Models/Architecture/XRaySearch.swift line 63, MarkView/Models/Git/GitHubStore.swift line 7; code reading only.
 
 ## Cause
 
@@ -53,7 +53,7 @@ The pull-request lookup of "I Need to Understand" started `gh` on its own, witho
 The pull-request lookup now runs only when the GitHub integration is on, using the switch the other callers use
 (`GitHubSettings.enabled`, key `settings.github.enabled`). No second switch was added.
 
-- `PullRequestHistory` (new, `MarkView/Models/PullRequestHistory.swift`, Foundation only) builds the
+- `PullRequestHistory` (new, `MarkView/Models/Git/PullRequestHistory.swift`, Foundation only) builds the
   pull-request part of the history context. `section(enabled:fetch:)` starts `fetch` (the `gh pr list` call) only when
   `enabled` is true. When it is false the context says: "PR data unavailable: the GitHub integration is turned off in
   MarkView settings, so pull requests were not read. Do not invent PRs." and no pull-request URL can be cited, so the

@@ -83,9 +83,9 @@ A new top-level page in `Resources/Editor` must be added to the script in `proje
 
 | Bundle path | Put there by | Loaded by |
 |---|---|---|
-| `Contents/Resources/Editor/index.html` | pre-build script | `MarkView/Views/EditorView.swift:26` |
+| `Contents/Resources/Editor/index.html` | pre-build script | `MarkView/Views/Workspace/EditorView.swift:26` |
 | `Contents/Resources/index.html` (flat copy) | Resources phase (`project.pbxproj:397`) | fallback, `EditorView.swift:27` |
-| `Contents/Resources/Editor/terminal.html` | pre-build script | `MarkView/Models/TerminalSession.swift:110` |
+| `Contents/Resources/Editor/terminal.html` | pre-build script | `MarkView/Models/Terminal/TerminalSession.swift:110` |
 | `Contents/Resources/Editor/vendor/{js,css}` | pre-build script | `index.html`, `terminal.html` (`terminal.html:19`) |
 | `Assets.xcassets` (AppIcon) | Resources phase (`project.pbxproj:392`) | `ASSETCATALOG_COMPILER_APPICON_NAME` |
 | `BUILD_NOTES.md`, `FILES_CREATED.txt`, `MANIFEST.md`, `README.md` | Resources phase (`project.pbxproj:393-396`) | nothing (stale docs, see section 12) |
@@ -116,13 +116,13 @@ HTML-to-Markdown save (`index.html:1542`), so that path needs network access.
 `MarkView/MarkViewDebug.entitlements:6-7`). Stated reason: sandboxing blocks `Process()` from
 running the `claude` / `codex` CLIs (`MarkView.entitlements:5-6`). The app also reads other
 tools' files, for example `~/.claude/.credentials.json`, `~/.codex/auth.json` and the Claude Code
-keychain item via `/usr/bin/security` (`MarkView/Models/AgentUsageTracker.swift:483-493`).
+keychain item via `/usr/bin/security` (`MarkView/Models/AI/AgentUsageTracker.swift:483-493`).
 
 | Entitlement | Release | Debug | What it enables |
 |---|---|---|---|
 | `com.apple.security.app-sandbox` = false | yes (`:7-8`) | yes (`:6-7`) | Unsandboxed: child processes, full file system, network |
-| `com.apple.security.device.audio-input` | yes (`:11-12`) | yes (`:14-15`) | Microphone under the hardened runtime, for Whisper dictation (`MarkView/Models/WhisperClient.swift:60-101`) |
-| `com.apple.security.automation.apple-events` | yes (`:13-14`) | **no** | Apple Events under the hardened runtime, for "Open in Terminal.app" via `NSAppleScript` (`MarkView/Views/FileTreeView.swift:522`) |
+| `com.apple.security.device.audio-input` | yes (`:11-12`) | yes (`:14-15`) | Microphone under the hardened runtime, for Whisper dictation (`MarkView/Models/Dictation/WhisperClient.swift:60-101`) |
+| `com.apple.security.automation.apple-events` | yes (`:13-14`) | **no** | Apple Events under the hardened runtime, for "Open in Terminal.app" via `NSAppleScript` (`MarkView/Views/Workspace/FileTreeView.swift:522`) |
 | `com.apple.security.network.client` | no | yes (`:10-11`) | Only matters inside a sandbox, so it has no effect here |
 
 Signing paths:
@@ -217,11 +217,11 @@ that compile selected app source files together with a test `main`, then run the
 
 | Script | Compiles | Covers | Needs |
 |---|---|---|---|
-| `tools/tests/cycle-time-tests.sh` | `Models/CycleTime.swift`, `Models/CycleTimeReport.swift`, `Models/EvidenceTimings.swift` + the workflow models + `CycleTimeChecks.swift` | Stays and rounds folded from journal records (baseline, replacement, reopen, rollback, external edit, forced step, unknown status, clock skew), the four measures by role for Kanban and the standard flow, missing-reason per item, distribution, pace colours (grey under 8 samples), trend, needs-attention list, exclusions and Measure since, the settings file round trip, model-name canonicalisation, delivery evidence per unit and per process; one check fails when a replacement counts as an event | CLI only |
-| `tools/tests/agent-usage-tests.sh` | `Models/AgentUsage.swift`, `Models/AgentUsageLogs.swift` + `AgentUsageTests.swift` (`:10-11`) | usage levels 80/95%, headline window, pace, fallback windows (month clamping), official Claude/Codex usage parsing, token formatting (`AgentUsageTests.swift:29-149`) | CLI only |
-| `tools/tests/dictation-insertion-tests.sh` | `enum DictationInsertion` cut out of `Views/DictationViews.swift` with awk (`:10`) | inserting at the cursor, replacing a selection, spacing, undo, append when the field is unfocused, never writing into another window (`DictationInsertionTests.swift:23-64`) | logged-in GUI session, briefly opens a window (`:3-4`) |
-| `tools/tests/transcription-failure-tests.sh` | `struct TranscriptionFailure` cut out of `Models/WhisperClient.swift` with awk | readable message, next step and tag for OpenAI error bodies (the captured 401 `invalid_api_key` body, quota, rate limit, model, 403, 413, 5xx, non-JSON), free-text codes dropped, network errors; no JSON or key fragment in any message | CLI only |
-| `tools/tests/terminal-link-tests.sh` | `Models/TerminalLink.swift`, `Models/TerminalSession.swift`, the `FileType` part of `DocumentState.swift` (`:9-21`); then `EditorLineLinkTests.swift` (`:24-26`) | terminal link resolution, OSC 8, Cmd-click under mouse-tracking TUIs, live shell cwd, the shipping `terminal.html` in a real WKWebView; editor go-to-line in the shipping `index.html` | GUI session. `--open-browser` also opens the real default browser (`TerminalLinkTests.swift:147-152`) |
+| `tools/tests/cycle-time-tests.sh` | `Models/Lifecycle/CycleTime.swift`, `Models/Lifecycle/CycleTimeReport.swift`, `Models/Lifecycle/EvidenceTimings.swift` + the workflow models + `CycleTimeChecks.swift` | Stays and rounds folded from journal records (baseline, replacement, reopen, rollback, external edit, forced step, unknown status, clock skew), the four measures by role for Kanban and the standard flow, missing-reason per item, distribution, pace colours (grey under 8 samples), trend, needs-attention list, exclusions and Measure since, the settings file round trip, model-name canonicalisation, delivery evidence per unit and per process; one check fails when a replacement counts as an event | CLI only |
+| `tools/tests/agent-usage-tests.sh` | `Models/AI/AgentUsage.swift`, `Models/AI/AgentUsageLogs.swift` + `AgentUsageTests.swift` (`:10-11`) | usage levels 80/95%, headline window, pace, fallback windows (month clamping), official Claude/Codex usage parsing, token formatting (`AgentUsageTests.swift:29-149`) | CLI only |
+| `tools/tests/dictation-insertion-tests.sh` | `enum DictationInsertion` cut out of `Views/Dictation/DictationViews.swift` with awk (`:10`) | inserting at the cursor, replacing a selection, spacing, undo, append when the field is unfocused, never writing into another window (`DictationInsertionTests.swift:23-64`) | logged-in GUI session, briefly opens a window (`:3-4`) |
+| `tools/tests/transcription-failure-tests.sh` | `struct TranscriptionFailure` cut out of `Models/Dictation/WhisperClient.swift` with awk | readable message, next step and tag for OpenAI error bodies (the captured 401 `invalid_api_key` body, quota, rate limit, model, 403, 413, 5xx, non-JSON), free-text codes dropped, network errors; no JSON or key fragment in any message | CLI only |
+| `tools/tests/terminal-link-tests.sh` | `Models/Terminal/TerminalLink.swift`, `Models/Terminal/TerminalSession.swift`, the `FileType` part of `DocumentState.swift` (`:9-21`); then `EditorLineLinkTests.swift` (`:24-26`) | terminal link resolution, OSC 8, Cmd-click under mouse-tracking TUIs, live shell cwd, the shipping `terminal.html` in a real WKWebView; editor go-to-line in the shipping `index.html` | GUI session. `--open-browser` also opens the real default browser (`TerminalLinkTests.swift:147-152`) |
 Fixtures:
 - `Tests/Fixtures/marker-cases/`, `sse-anthropic-sample.txt` and `insight-skeleton-sample.json`
   are referenced from the specs under `work/recursive-insight*/`.

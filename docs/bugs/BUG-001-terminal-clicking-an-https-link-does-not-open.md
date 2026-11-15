@@ -98,8 +98,8 @@ MarkView macOS app (SwiftUI + WKWebView), macOS Darwin 27.0.0. Terminal: xterm.j
 ## Suspected code
 
 - `MarkView/Resources/Editor/terminal.html` — No `linkHandler` for OSC 8 links. Cmd+click is not intercepted before mouse reporting. No file-path link provider.
-- `MarkView/Models/TerminalSession.swift` — The 'link' handler accepted only http(s) URLs. There was no cwd-aware file resolution or file-open route.
-- `MarkView/Views/EditorView.swift` — Reference open-file-at-line behaviour. Markdown and structured views needed line reveal.
+- `MarkView/Models/Terminal/TerminalSession.swift` — The 'link' handler accepted only http(s) URLs. There was no cwd-aware file resolution or file-open route.
+- `MarkView/Views/Workspace/EditorView.swift` — Reference open-file-at-line behaviour. Markdown and structured views needed line reveal.
 
 ## Likely causes
 

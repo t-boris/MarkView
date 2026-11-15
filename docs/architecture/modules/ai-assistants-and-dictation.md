@@ -19,7 +19,7 @@ Sibling modules: [app-shell-and-workspace](app-shell-and-workspace.md) ·
 **Owns**
 
 - Discovery, probing and login of the four assistant CLIs (`CLITool`, `CLIToolLocator`) —
-  `MarkView/Models/AIAssistants.swift:13-518`.
+  `MarkView/Models/AI/AIAssistants.swift:13-518`.
 - The user's assistant/model choice, including a separate X-Ray model
   (`AIAssistantPreferences`) — `AIAssistants.swift:87-213`.
 - An operation tied to an open window (End-to-End QA) takes the shown agent's tool but the model
@@ -27,21 +27,21 @@ Sibling modules: [app-shell-and-workspace](app-shell-and-workspace.md) ·
   agent tab reports after a `/model` switch.
 - One-shot, read-only completions for every in-app AI feature (`CLICompletion`), with
   streaming, structured (JSON Schema) output, token/cost accounting, timeout and
-  cancellation — `MarkView/Models/CLICompletion.swift`.
+  cancellation — `MarkView/Models/AI/CLICompletion.swift`.
 - The Agent Client Protocol (JSON-RPC over stdio) client for Cline and Copilot, including
-  the read-only permission policy — `MarkView/Models/ACPAssistant.swift`.
+  the read-only permission policy — `MarkView/Models/AI/ACPAssistant.swift`.
 - The AI output language setting and the SHA-256 content hash helper —
-  `MarkView/Models/OutputLanguage.swift`.
+  `MarkView/Models/AI/OutputLanguage.swift`.
 - Canned prompts for the AI terminal (`AIPrompts`, `TerminalPrompt`) —
-  `MarkView/Models/AIPrompts.swift`.
-- Code viewer margin notes (`CodeExplainStore`) — `MarkView/Models/CodeExplainer.swift`.
+  `MarkView/Models/AI/AIPrompts.swift`.
+- Code viewer margin notes (`CodeExplainStore`) — `MarkView/Models/Architecture/CodeExplainer.swift`.
 - LSP-less navigation and "Ask AI about the selection" (`CodeNavigator`,
-  `CodeNavigationStore`) — `MarkView/Models/CodeNavigation.swift`.
+  `CodeNavigationStore`) — `MarkView/Models/Architecture/CodeNavigation.swift`.
 - OpenAI clients: embeddings (`EmbeddingClient`) and Whisper transcription
-  (`WhisperClient`) — `MarkView/Models/EmbeddingClient.swift`, `MarkView/Models/WhisperClient.swift`.
-- Dictation state machine and its SwiftUI controls — `MarkView/Models/DictationController.swift`,
-  `MarkView/Views/DictationViews.swift`.
-- The assistant/model picker used in DDE Settings — `MarkView/Views/AIAssistantPickerView.swift`.
+  (`WhisperClient`) — `MarkView/Models/Insight/EmbeddingClient.swift`, `MarkView/Models/Dictation/WhisperClient.swift`.
+- Dictation state machine and its SwiftUI controls — `MarkView/Models/Dictation/DictationController.swift`,
+  `MarkView/Views/Dictation/DictationViews.swift`.
+- The assistant/model picker used in DDE Settings — `MarkView/Views/AI/AIAssistantPickerView.swift`.
 
 **Does not own**
 
@@ -55,7 +55,7 @@ Sibling modules: [app-shell-and-workspace](app-shell-and-workspace.md) ·
 - The JS side of the code viewer (`markview-code.js`) and the bridge transport — see
   [editor-and-bridge](editor-and-bridge.md).
 - The toolbar assistant menu `AIToolbarMenu` lives in
-  `MarkView/Views/ContentView.swift:387-452` but edits the same keys documented here.
+  `MarkView/Views/Workspace/ContentView.swift:387-452` but edits the same keys documented here.
 
 ---
 
@@ -63,18 +63,18 @@ Sibling modules: [app-shell-and-workspace](app-shell-and-workspace.md) ·
 
 | Path | Role |
 |---|---|
-| `MarkView/Models/AIAssistants.swift` | `CLITool` enum, `AIModelOption`, `AIAssistantPreferences` (UserDefaults-backed choice + model catalogs), `CLIToolLocator` (path resolution, probing, generic process runner, Terminal login) |
-| `MarkView/Models/CLICompletion.swift` | `CLICompletion` (request/result/failure/activity types, argv building for Claude/Codex, strict-schema transform) and private `Invocation` (one CLI process: stdin feed, NDJSON stream parsing, timeout) |
-| `MarkView/Models/ACPAssistant.swift` | `ACPAssistant` (Cline/Copilot run, prompt composition, JSON repair, model refresh/cache) and private `ACPConnection` (JSON-RPC 2.0 over stdio, permission answers) |
-| `MarkView/Models/AIPrompts.swift` | `AIPrompts.codebaseAuditPrompt`; `TerminalPrompt` catalog for the AI terminal prompt bar |
-| `MarkView/Models/OutputLanguage.swift` | `ActionOutputLanguage` (AI output language setting and prompt lines); `ContentHash` (SHA-256 hex) |
-| `MarkView/Models/CodeExplainer.swift` | `String.editorLines`, `CodeSection`, `CodeExplanation`, `@MainActor CodeExplainStore` (explain, rate, freshness, cache) |
-| `MarkView/Models/CodeNavigation.swift` | `CodeNavigator` (git grep / walk + regex definition detection), `@MainActor CodeNavigationStore` (history, go-to-definition, usages, AI Q&A), `AnswerBuffer`, `Notification.Name.codeNavEvent` |
-| `MarkView/Models/EmbeddingClient.swift` | OpenAI embeddings client (`text-embedding-3-small`, 1536 dims), vector file I/O, cosine similarity, OpenAI key storage |
-| `MarkView/Models/WhisperClient.swift` | `@MainActor WhisperClient`: microphone permission, WAV recording, multipart upload to `/v1/audio/transcriptions`, self-test |
-| `MarkView/Models/DictationController.swift` | `@MainActor DictationController`: phase machine (idle/starting/recording/transcribing), elapsed timer, cap warning, cancel |
-| `MarkView/Views/AIAssistantPickerView.swift` | Settings picker: assistant segmented control, model list, custom model entry |
-| `MarkView/Views/DictationViews.swift` | `DictationButton`, `DictationStatusView`, `DictationInsertion` (cursor-aware insertion into an `NSTextView`) |
+| `MarkView/Models/AI/AIAssistants.swift` | `CLITool` enum, `AIModelOption`, `AIAssistantPreferences` (UserDefaults-backed choice + model catalogs), `CLIToolLocator` (path resolution, probing, generic process runner, Terminal login) |
+| `MarkView/Models/AI/CLICompletion.swift` | `CLICompletion` (request/result/failure/activity types, argv building for Claude/Codex, strict-schema transform) and private `Invocation` (one CLI process: stdin feed, NDJSON stream parsing, timeout) |
+| `MarkView/Models/AI/ACPAssistant.swift` | `ACPAssistant` (Cline/Copilot run, prompt composition, JSON repair, model refresh/cache) and private `ACPConnection` (JSON-RPC 2.0 over stdio, permission answers) |
+| `MarkView/Models/AI/AIPrompts.swift` | `AIPrompts.codebaseAuditPrompt`; `TerminalPrompt` catalog for the AI terminal prompt bar |
+| `MarkView/Models/AI/OutputLanguage.swift` | `ActionOutputLanguage` (AI output language setting and prompt lines); `ContentHash` (SHA-256 hex) |
+| `MarkView/Models/Architecture/CodeExplainer.swift` | `String.editorLines`, `CodeSection`, `CodeExplanation`, `@MainActor CodeExplainStore` (explain, rate, freshness, cache) |
+| `MarkView/Models/Architecture/CodeNavigation.swift` | `CodeNavigator` (git grep / walk + regex definition detection), `@MainActor CodeNavigationStore` (history, go-to-definition, usages, AI Q&A), `AnswerBuffer`, `Notification.Name.codeNavEvent` |
+| `MarkView/Models/Insight/EmbeddingClient.swift` | OpenAI embeddings client (`text-embedding-3-small`, 1536 dims), vector file I/O, cosine similarity, OpenAI key storage |
+| `MarkView/Models/Dictation/WhisperClient.swift` | `@MainActor WhisperClient`: microphone permission, WAV recording, multipart upload to `/v1/audio/transcriptions`, self-test |
+| `MarkView/Models/Dictation/DictationController.swift` | `@MainActor DictationController`: phase machine (idle/starting/recording/transcribing), elapsed timer, cap warning, cancel |
+| `MarkView/Views/AI/AIAssistantPickerView.swift` | Settings picker: assistant segmented control, model list, custom model entry |
+| `MarkView/Views/Dictation/DictationViews.swift` | `DictationButton`, `DictationStatusView`, `DictationInsertion` (cursor-aware insertion into an `NSTextView`) |
 
 ---
 

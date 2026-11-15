@@ -32,13 +32,13 @@ Run panel says which one is missing. Old runs are cleaned up by a retention rule
 | Run engine | `QARun.swift` (outcomes and the state machine), `QARunner.swift` (the loop), `QAActions.swift` (the actions the assistant may ask for and how they are validated), `QAEffort.swift` (measured counts, `QAFinding`) |
 | Web player | `QAWebActor.swift` (`QAWebActor`, `QAWebDriverFactory`), `QACredentials.swift` (placeholders and scrubbing), `BrowserSession.swift` (optional website data store) |
 | Native player | `QANativeTree.swift` (pure: the element model, the text the assistant reads, key parsing, measured evidence), `QANativeAccessibility.swift` (the Accessibility layer), `QANativeCapture.swift` (window pictures), `QANativeActor.swift` (`QANativeActor`, `QANativeError`), `QANativeFactory.swift` (`QANativeDriverFactory`, `QANativePermissions`) |
-| HTTP API | `QAAPI.swift` (persisted request, JSON Pointer checks), `QAAPIClient.swift` (bounded HTTP transport, isolated sessions and captures), `QAAPIActor.swift` (driver and factory), `Views/QAAPIRequestEditor.swift` (editable request fields) |
+| HTTP API | `QAAPI.swift` (persisted request, JSON Pointer checks), `QAAPIClient.swift` (bounded HTTP transport, isolated sessions and captures), `QAAPIActor.swift` (driver and factory), `Views/QA/QAAPIRequestEditor.swift` (editable request fields) |
 | Assistant | `QARunAssistant.swift` (`QACLIAssistant`: one `CLICompletion` call per turn, effort `low`), `QALanguage.swift` (names the language of the scenario for the prompts) |
 | Video | `QAFrameComposer.swift` (players side by side), `QAVideoWriter.swift` (H.264, subtitle band) |
 | Review | `QAReview.swift` (prompt, schema, parsing, effort summary), `QAPageEvidence.swift` (in-page measurements) |
 | Bugs | `QABugs.swift` (drafts), `QABugFiler.swift` (idempotent filing), `QAFeatureStoreBugSink.swift` (writes through `FeatureStore.createBug`) |
 | Cleanup | `QARunRetention.swift` (pure rule), `QARunCleanup.swift` (applies it to the disk), `QAStore.swift` (`deleteRun`, `deleteRuns`, `sizeOfRuns`) |
-| UI | `QAModel.swift`, `QARunModel.swift` (`@MainActor`), `Views/QAViews.swift` (editor, setup, run panel), `Views/QANativePermissionsView.swift`, `Views/QARunViews.swift` (live run), `Views/QARunReportViews.swift` (earlier runs, delete) |
+| UI | `QAModel.swift`, `QARunModel.swift` (`@MainActor`), `Views/QA/QAViews.swift` (editor, setup, run panel), `Views/QA/QANativePermissionsView.swift`, `Views/QA/QARunViews.swift` (live run), `Views/QA/QARunReportViews.swift` (earlier runs, delete) |
 
 The QA tab is a tab kind (`.qa`) opened by `WorkspaceManager.openQA()`. The editor is native SwiftUI over
 the pure layered layout in `QAGraphLayout`, so no bridge message exists and the shipping editor

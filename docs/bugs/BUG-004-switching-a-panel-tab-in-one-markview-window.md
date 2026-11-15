@@ -62,10 +62,10 @@ MarkView macOS app (SwiftUI), macOS Darwin 27.0.0, multiple windows open at once
 
 ## Suspected code
 
-- `MarkView/Views/TOCView.swift` — Line 6: `@AppStorage(Tab.storageKey) private var selectedTab` with storageKey "layout.navigatorTab" (line 15). The value is app-global in UserDefaults, so it syncs live across all windows. Confirmed as the reported tab.
-- `MarkView/Views/FeatureNavigatorView.swift` — Lines 16/18: @AppStorage for left-panel mode and open feature slug. Same pattern, so it likely has the same cross-window sync (not the reported symptom).
-- `MarkView/Views/GitView.swift` — Line 12: @AppStorage("layout.gitSection"). Same pattern.
-- `MarkView/Views/TerminalView.swift` — Line 106: @AppStorage("layout.terminalPromptsExpanded"). Same pattern.
+- `MarkView/Views/Workspace/TOCView.swift` — Line 6: `@AppStorage(Tab.storageKey) private var selectedTab` with storageKey "layout.navigatorTab" (line 15). The value is app-global in UserDefaults, so it syncs live across all windows. Confirmed as the reported tab.
+- `MarkView/Views/Lifecycle/FeatureNavigatorView.swift` — Lines 16/18: @AppStorage for left-panel mode and open feature slug. Same pattern, so it likely has the same cross-window sync (not the reported symptom).
+- `MarkView/Views/Git/GitView.swift` — Line 12: @AppStorage("layout.gitSection"). Same pattern.
+- `MarkView/Views/Terminal/TerminalView.swift` — Line 106: @AppStorage("layout.terminalPromptsExpanded"). Same pattern.
 
 ## Likely causes
 
@@ -99,7 +99,7 @@ pattern and had the same defect: the left panel Files/Issues mode (`layout.leftP
 open in the Issues list (`layout.issuesFeature`), the Git section (`layout.gitSection`) and the
 feature stage (`feature.stage`).
 
-**Fix.** The new `Models/PanelLayout.swift` is a per-window `ObservableObject`, owned by each window's
+**Fix.** The new `Models/Workspace/PanelLayout.swift` is a per-window `ObservableObject`, owned by each window's
 `WorkspaceManager` (`layout`). It holds all five states. It reads the existing keys once when the
 window opens, and writes each change back only as the starting value for the next window and for
 relaunch (the same rule as `showTOC`). `TOCView`, the left panel, `GitView` and `FeaturePanelView`

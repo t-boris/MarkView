@@ -58,7 +58,7 @@ It does **not** own:
 
 | Path | Role |
 |---|---|
-| `MarkView/Views/EditorView.swift` | `NSViewRepresentable` hosting the editor `WKWebView`; `Coordinator` = navigation delegate + `WebViewBridgeDelegate`; routes tabs by kind; image inlining; notification observers |
+| `MarkView/Views/Workspace/EditorView.swift` | `NSViewRepresentable` hosting the editor `WKWebView`; `Coordinator` = navigation delegate + `WebViewBridgeDelegate`; routes tabs by kind; image inlining; notification observers |
 | `MarkView/Bridge/WebViewBridge.swift` | `WKScriptMessageHandler` for `bridge`; payload parsing/validation; all typed Swift→JS commands; `/tmp` diag logger; `WebViewBridgeDelegate` protocol |
 | `MarkView/Bridge/PDFExporter.swift` | Entry points (active tab, research-map report), save panel with paper and style, `render` through `BookPDFRenderer` in `document` mode, atomic save |
 | `MarkView/Bridge/PrototypeSchemeHandler.swift` | `mvproto://site/<path>`: serves a prototype's `site/` folder to the Prototype Studio preview so all files share one origin and a script error keeps its text and line (a `file://` page reports only "Script error."); paths are confined to the folder (`..`, encoded `..` and symlinks out of it → 403); no caching |
@@ -70,7 +70,7 @@ It does **not** own:
 | `js/markview-render.js` | `renderMarkdown`, frontmatter panel, Mermaid/Prism passes, headings, semantic blocks + diff, heading IntersectionObserver |
 | `js/markview-edit.js` | Stats, font slider, Turndown, source/WYSIWYG mode switch, format commands, floating format bar, save/translate/refresh senders |
 | `js/markview-find.js` | Selection actions (translate/explain), feature-action menu, action popup, `window.showSelectionResult`, find bar |
-| `js/markview-themes.js` | The window theme: tokens of the eleven appearances (classic-dark, classic-light, darcula, midnight, graphite, tokyo-night, carbon-red, nord, forest, paper, daylight) as ~118 CSS custom properties on `<html>`, `data-preset` / `data-theme` / `data-accent`; `MarkViewThemes.apply(id, accent)`; shared by the editor, discussion and terminal pages. Its base colours are compared with `Models/AppTheme.swift` by `tools/tests/theme-model-tests.sh` |
+| `js/markview-themes.js` | The window theme: tokens of the eleven appearances (classic-dark, classic-light, darcula, midnight, graphite, tokyo-night, carbon-red, nord, forest, paper, daylight) as ~118 CSS custom properties on `<html>`, `data-preset` / `data-theme` / `data-accent`; `MarkViewThemes.apply(id, accent)`; shared by the editor, discussion and terminal pages. Its base colours are compared with `Models/Appearance/AppTheme.swift` by `tools/tests/theme-model-tests.sh` |
 | `js/markview-bridge.js` | Theme entry (`applyTheme`), `sendToSwift`, second error capture, base `window.setContent` |
 | `js/markview-structured.js` | JSON/XML/YAML tree view, format/minify, struct headings; `window.setStructuredContent` |
 | `js/markview-insight-srcdoc.js` | Insight: escapes, lib map, blob materialisation, iframe `srcdoc` builder incl. the iframe script |

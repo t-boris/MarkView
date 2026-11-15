@@ -67,7 +67,7 @@ status: complete
 
 #### Evidence
 
-- [Project fact] Окно уже состоит из левой панели, центральной области вкладок и правой панели; каждую область можно показывать отдельно. — `MarkView/Views/ContentView.swift:217`
+- [Project fact] Окно уже состоит из левой панели, центральной области вкладок и правой панели; каждую область можно показывать отдельно. — `MarkView/Views/Workspace/ContentView.swift:217`
 - [AI inference] Сохранение привычной структуры с сокращением постоянных элементов даст заметное упрощение без необходимости заново осваивать приложение.
 
 ### Вариант B: фокус на документе {#n7}
@@ -78,7 +78,7 @@ status: complete
 
 #### Evidence
 
-- [Project fact] Верхняя панель уже управляет видимостью навигации, центральной области и Agents; активность агента отображается отдельным индикатором. — `MarkView/Views/ContentView.swift:404`
+- [Project fact] Верхняя панель уже управляет видимостью навигации, центральной области и Agents; активность агента отображается отдельным индикатором. — `MarkView/Views/Workspace/ContentView.swift:404`
 - [AI inference] Режим с закрытыми боковыми панелями увеличит полезную площадь документа и уменьшит визуальный шум.
 
 ### Вариант C: работа с агентом {#n8}
@@ -89,7 +89,7 @@ status: complete
 
 #### Evidence
 
-- [Project fact] Правая область уже рассчитана на широкую панель, а Agents доступен через верхнюю кнопку и ⌘3. — `MarkView/Views/ContentView.swift:225`
+- [Project fact] Правая область уже рассчитана на широкую панель, а Agents доступен через верхнюю кнопку и ⌘3. — `MarkView/Views/Workspace/ContentView.swift:225`
 - [Open assumption] Во время работы с агентом пользователю чаще нужны одновременно терминал и результат, чем постоянно открытое Contents; это стоит проверить на реальных задачах.
 
 ### Вариант D: управление работой {#n9}
@@ -100,8 +100,8 @@ status: complete
 
 #### Evidence
 
-- [Project fact] Левая панель уже переключается между Files и Issues, а список Issues содержит features, bugs, фильтрацию и сортировку. — `MarkView/Views/FeatureNavigatorView.swift:3`
-- [Project fact] При выборе Work приложение переключает левую панель на issues и показывает контекст feature. — `MarkView/Views/ContentView.swift:729`
+- [Project fact] Левая панель уже переключается между Files и Issues, а список Issues содержит features, bugs, фильтрацию и сортировку. — `MarkView/Views/Lifecycle/FeatureNavigatorView.swift:3`
+- [Project fact] При выборе Work приложение переключает левую панель на issues и показывает контекст feature. — `MarkView/Views/Workspace/ContentView.swift:729`
 - [AI inference] Сценарное представление позволит сохранить развитый workflow, не заставляя видеть его элементы при обычном чтении.
 
 ### Как переключать сценарии {#n10}
@@ -112,7 +112,7 @@ status: complete
 
 #### Evidence
 
-- [Project fact] PanelLayout хранит выбор областей отдельно для каждого окна, а сохранённые значения используются для следующего окна и перезапуска. — `MarkView/Models/PanelLayout.swift:30`
+- [Project fact] PanelLayout хранит выбор областей отдельно для каждого окна, а сохранённые значения используются для следующего окна и перезапуска. — `MarkView/Models/Workspace/PanelLayout.swift:30`
 - [AI inference] Пресеты поверх существующих панелей проще объяснить и проверить, чем полностью независимые интерфейсы.
 
 ### Навигация и разделы {#n3}
@@ -129,7 +129,7 @@ status: complete
 
 #### Evidence
 
-- [Project fact] TerminalPromptBar отображается в панели агента при открытом проекте; свёрнутое состояние всё равно показывает строку PROMPTS. — `MarkView/Views/TerminalView.swift:215`
+- [Project fact] TerminalPromptBar отображается в панели агента при открытом проекте; свёрнутое состояние всё равно показывает строку PROMPTS. — `MarkView/Views/Terminal/TerminalView.swift:215`
 - [AI inference] Скрытие панели и удаление самих шаблонов – разные решения: первое обратимо и быстрее проверяется.
 
 ### Search: объединить точки входа {#n12}
@@ -140,8 +140,8 @@ status: complete
 
 #### Evidence
 
-- [Project fact] Общий поиск уже показывает файлы, содержимое и команды, а результаты содержимого открывают файл с переходом к совпадению. — `MarkView/Views/SharedSearchView.swift:36`
-- [Project fact] Боковой Search дополнительно содержит режим Documents для поиска по смыслу в Markdown; общий поиск этого режима в показанном интерфейсе не содержит. — `MarkView/Views/SearchPanelView.swift:3`
+- [Project fact] Общий поиск уже показывает файлы, содержимое и команды, а результаты содержимого открывают файл с переходом к совпадению. — `MarkView/Views/Workspace/SharedSearchView.swift:36`
+- [Project fact] Боковой Search дополнительно содержит режим Documents для поиска по смыслу в Markdown; общий поиск этого режима в показанном интерфейсе не содержит. — `MarkView/Views/Workspace/SearchPanelView.swift:3`
 - [AI inference] Простое удаление бокового Search без переноса режима Documents привело бы к потере доступной функции.
 
 ### Tasks: сохранить по контексту {#n13}
@@ -152,7 +152,7 @@ status: complete
 
 #### Evidence
 
-- [Project fact] Справа вкладка Tasks показывает FeaturePanelView и, для открытого файла feature, HandoffPanelView; слева уже есть список Issues. — `MarkView/Views/TOCView.swift:41`
+- [Project fact] Справа вкладка Tasks показывает FeaturePanelView и, для открытого файла feature, HandoffPanelView; слева уже есть список Issues. — `MarkView/Views/Workspace/TOCView.swift:41`
 - [Open assumption] Неизвестно, насколько часто вам нужен именно правый Tasks, включая handoff и стадии задачи; от этого зависит окончательное решение.
 
 ### Contents: контекстный инспектор {#n14}
@@ -163,7 +163,7 @@ status: complete
 
 #### Evidence
 
-- [Project fact] Contents показывает заголовки, структуру, HTML, архив, сведения о файле и контекст некоторых специальных вкладок в зависимости от типа. — `MarkView/Views/ContentsPanelView.swift:4`
+- [Project fact] Contents показывает заголовки, структуру, HTML, архив, сведения о файле и контекст некоторых специальных вкладок в зависимости от типа. — `MarkView/Views/Workspace/ContentsPanelView.swift:4`
 - [AI inference] Название, связанное с активной вкладкой, яснее объяснит, почему содержимое панели меняется при переключении документа.
 
 ### Git и Guide: отдельные решения {#n15}
@@ -174,7 +174,7 @@ status: complete
 
 #### Evidence
 
-- [Project fact] В правой панели есть вкладка Git, а при открытии GitHub issue, pull request или run приложение выбирает соответствующий раздел Git. — `MarkView/Views/ContentView.swift:265`
+- [Project fact] В правой панели есть вкладка Git, а при открытии GitHub issue, pull request или run приложение выбирает соответствующий раздел Git. — `MarkView/Views/Workspace/ContentView.swift:265`
 - [Open assumption] Слово «Гид» может означать Git или руководство; без уточнения нельзя считать один вариант установленным.
 - [AI inference] Полноценная вкладка даст сложным Git-операциям больше места, а справка в отдельной вкладке не будет конкурировать с рабочими панелями.
 
@@ -192,7 +192,7 @@ status: complete
 
 #### Evidence
 
-- [Project fact] Сейчас в верхней строке одновременно находятся переключатели панелей и WorkspaceArea, проект, активность и квоты агентов, Contents, инструменты проекта, Discussions, UI Studio, браузер, Search, New, AI и при наличии Deploy. — `MarkView/Views/ContentView.swift:398`
+- [Project fact] Сейчас в верхней строке одновременно находятся переключатели панелей и WorkspaceArea, проект, активность и квоты агентов, Contents, инструменты проекта, Discussions, UI Studio, браузер, Search, New, AI и при наличии Deploy. — `MarkView/Views/Workspace/ContentView.swift:398`
 - [AI inference] Группировка по назначению и ограниченное число постоянных действий сделают строку легче для просмотра.
 
 ### Deploy убрать из шапки {#n17}
@@ -203,7 +203,7 @@ status: complete
 
 #### Evidence
 
-- [Project fact] ProjectDeployButton появляется в шапке при наличии projectOperations; Build & Deployment также доступен в меню Project tools. — `MarkView/Views/ContentView.swift:484`
+- [Project fact] ProjectDeployButton появляется в шапке при наличии projectOperations; Build & Deployment также доступен в меню Project tools. — `MarkView/Views/Workspace/ContentView.swift:484`
 - [AI inference] Отдельный постоянный запуск Deploy не нужен для доступа к самому разделу Build & Deployment.
 
 ### Сгруппировать вторичные действия {#n18}
@@ -214,8 +214,8 @@ status: complete
 
 #### Evidence
 
-- [Project fact] Project tools уже объединяет Build & Deployment, Workflow, End-to-End QA и Cycle Time; компактная шапка также содержит меню дополнительных действий. — `MarkView/Views/ContentView.swift:495`
-- [Project fact] Browser предлагает Preview Web App, новую вкладку и настройки подключения агентов; New содержит создание project items. — `MarkView/Views/ContentView.swift:576`
+- [Project fact] Project tools уже объединяет Build & Deployment, Workflow, End-to-End QA и Cycle Time; компактная шапка также содержит меню дополнительных действий. — `MarkView/Views/Workspace/ContentView.swift:495`
+- [Project fact] Browser предлагает Preview Web App, новую вкладку и настройки подключения агентов; New содержит создание project items. — `MarkView/Views/Workspace/ContentView.swift:576`
 - [AI inference] Необязательно прятать часто используемые инструменты для всех: закрепление позволит настроить шапку под реальную частоту использования.
 
 ### Состояния вместо лишних кнопок {#n19}
@@ -226,7 +226,7 @@ status: complete
 
 #### Evidence
 
-- [Project fact] AgentActivityChip и AgentUsageBar сейчас отображаются рядом, а часть интерфейса уже меняется при компактной ширине. — `MarkView/Views/ContentView.swift:400`
+- [Project fact] AgentActivityChip и AgentUsageBar сейчас отображаются рядом, а часть интерфейса уже меняется при компактной ширине. — `MarkView/Views/Workspace/ContentView.swift:400`
 - [AI inference] Сведение статуса в одно место сокращает визуальную конкуренцию, если важные предупреждения остаются заметны без раскрытия.
 
 ### Внедрение и проверка {#n5}
@@ -253,7 +253,7 @@ status: complete
 
 #### Evidence
 
-- [Project fact] Шапка и панели уже используют пороги ширины и масштаб шрифта для компактного режима. — `MarkView/Views/ContentView.swift:400`
+- [Project fact] Шапка и панели уже используют пороги ширины и масштаб шрифта для компактного режима. — `MarkView/Views/Workspace/ContentView.swift:400`
 - [AI inference] Сравнение одинаковых задач выявит, какие скрытые действия стали труднее находить, до реализации полного редизайна.
 
 ### Критерии удачного редизайна {#n22}
@@ -264,7 +264,7 @@ status: complete
 
 #### Evidence
 
-- [Project fact] Кнопки шапки имеют подсказки и accessibilityLabel, а раскладка окна управляется состоянием PanelLayout. — `MarkView/Views/ContentView.swift:534`
+- [Project fact] Кнопки шапки имеют подсказки и accessibilityLabel, а раскладка окна управляется состоянием PanelLayout. — `MarkView/Views/Workspace/ContentView.swift:534`
 - [AI inference] Сокращение видимых элементов полезно только при сохранении доступности функций и предсказуемого состояния рабочего пространства.
 
 ### Границы исследования {#n23}
@@ -299,8 +299,8 @@ status: complete
 
 #### Evidence
 
-- [Project fact] Элементы приветственного экрана уже имеют accessibilityLabel и accessibilityHint. — `MarkView/Views/WelcomeView.swift:236`
-- [Project fact] Анимация приветственного фона учитывает системную настройку уменьшения движения. — `MarkView/Views/WelcomeBackdropView.swift:60`
+- [Project fact] Элементы приветственного экрана уже имеют accessibilityLabel и accessibilityHint. — `MarkView/Views/Workspace/WelcomeView.swift:236`
+- [Project fact] Анимация приветственного фона учитывает системную настройку уменьшения движения. — `MarkView/Views/Appearance/WelcomeBackdropView.swift:60`
 - [AI inference] Компактным иконочным элементам нужны доступные имена и видимый фокус, чтобы экономия места не затрудняла управление.
 
 ### Типографика документа и оболочки {#n27}
@@ -322,8 +322,8 @@ status: complete
 
 #### Evidence
 
-- [Project fact] Для пустого окна каталог предлагает открыть папку, открыть файл или создать проект; для открытого проекта доступен отдельный набор действий. — `MarkView/Models/WelcomeActions.swift:72`
-- [Project fact] Приветственный экран меняет заголовок и подсказку в зависимости от наличия проекта и использует подложку для читаемости текста. — `MarkView/Views/WelcomeView.swift:100`
+- [Project fact] Для пустого окна каталог предлагает открыть папку, открыть файл или создать проект; для открытого проекта доступен отдельный набор действий. — `MarkView/Models/Workspace/WelcomeActions.swift:72`
+- [Project fact] Приветственный экран меняет заголовок и подсказку в зависимости от наличия проекта и использует подложку для читаемости текста. — `MarkView/Views/Workspace/WelcomeView.swift:100`
 - [AI inference] Контекстные пустые состояния могут сокращать время до первого полезного действия без дополнительного обучения.
 
 ### Ошибки и восстановление {#n29}
@@ -334,5 +334,5 @@ status: complete
 
 #### Evidence
 
-- [Project fact] Панель действий над выделением показывает ошибку или остановку, частичный результат и подсказку повторить действие. — `MarkView/Views/SelectionActionBar.swift:37`
+- [Project fact] Панель действий над выделением показывает ошибку или остановку, частичный результат и подсказку повторить действие. — `MarkView/Views/Workspace/SelectionActionBar.swift:37`
 - [AI inference] Единый шаблон сообщений и понятные действия восстановления помогут пользователю продолжить работу после сбоя.

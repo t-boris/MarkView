@@ -90,9 +90,9 @@ MarkView on macOS 13+ using X-Ray and the Codex CLI. The failure occurred during
 
 ## Suspected code
 
-- `MarkView/Models/ArchitectureStore.swift` — analyze starts the “Reading contents” phase; buildOutlines loads cached outlines and selects missing files; outlineWithAssistant sets the timeout and formats request failures as read errors.
-- `MarkView/Models/XRayContent.swift` — Defines assistant eligibility, selection and concurrency limits, prompt clipping, and cache validation using file size and modification time.
-- `MarkView/Models/CLICompletion.swift` — Enforces the request timeout and produces the observed Codex timeout message.
+- `MarkView/Models/Architecture/ArchitectureStore.swift` — analyze starts the “Reading contents” phase; buildOutlines loads cached outlines and selects missing files; outlineWithAssistant sets the timeout and formats request failures as read errors.
+- `MarkView/Models/Architecture/XRayContent.swift` — Defines assistant eligibility, selection and concurrency limits, prompt clipping, and cache validation using file size and modification time.
+- `MarkView/Models/AI/CLICompletion.swift` — Enforces the request timeout and produces the observed Codex timeout message.
 
 ## Likely causes
 

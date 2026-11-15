@@ -52,4 +52,4 @@ OUT: automatic PR creation; running batches in parallel; a persistent batch reco
 
 ## Implementation
 
-`Models/BugBasket.swift` (rules and prompts, tested by `tools/tests/bug-basket-tests.sh`), `Models/BugBatch.swift` (the window's basket), `Views/BugBasketView.swift` and the basket toggle in `Views/FeatureNavigatorView.swift`, `WorkspaceManager.fixBasketWithAI()` and `assistantIsBusy`. Version 2.21.0.
+`Models/Lifecycle/BugBasket.swift` (rules and prompts, tested by `tools/tests/bug-basket-tests.sh`), `Models/Lifecycle/BugBatch.swift` (the window's basket), `Views/Lifecycle/BugBasketView.swift` and the basket toggle in `Views/Lifecycle/FeatureNavigatorView.swift`, `WorkspaceManager.fixBasketWithAI()` and `assistantIsBusy`. Version 2.21.0.

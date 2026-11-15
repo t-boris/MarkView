@@ -32,7 +32,7 @@ The indicator and the total-cost label are hidden completely and polling stops u
 
 ## Environment
 
-MarkView current main (ade7910), MarkView/Views/ModuleExplorerView.swift lines 12-20; code reading only.
+MarkView current main (ade7910), MarkView/Views/Architecture/ModuleExplorerView.swift lines 12-20; code reading only.
 
 ## Cause
 

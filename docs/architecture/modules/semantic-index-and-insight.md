@@ -22,19 +22,19 @@ What this subsystem owns:
 - **Workspace database engine.** `SemanticDatabase` is a thin wrapper over the
   system `SQLite3` C API. It opens `.dde/state.db`, sets pragmas, creates about 35
   tables, and gives typed CRUD helpers to the rest of the app
-  (`MarkView/Models/SemanticDatabase.swift:4-60`).
+  (`MarkView/Models/Insight/SemanticDatabase.swift:4-60`).
 - **Structural (no-LLM) indexing.** `StructuralIndexer` walks the folder once. It
   records directories as `modules`, each `.md` file as a `documents` row, headings,
   links and code fences as `symbols`, Markdown links as `struct_relations`, and the
   full text in the FTS5 table `fts_documents`
-  (`MarkView/Models/StructuralIndexer.swift:3-48`). The app runs it in a separate
+  (`MarkView/Models/Architecture/StructuralIndexer.swift:3-48`). The app runs it in a separate
   child process (`MarkView/App/MarkViewApp.swift:137-166`).
 - **Full-text search.** `SemanticDatabase.search(query:limit:)` runs an FTS5 `MATCH`
   query (`SemanticDatabase.swift:1196-1212`). The TOC search UI and FeatureAI's
   "related documents" context use it.
 - **Persisted AI usage counter.** A one-row `usage_stats` table that every
   `CLICompletion.Result.record(in:)` call adds to (`SemanticDatabase.swift:1050-1085`,
-  `MarkView/Models/CLICompletion.swift:40-44`).
+  `MarkView/Models/AI/CLICompletion.swift:40-44`).
 - **Storage for the architecture snapshot and review cache.** These are the
   `arch_*` tables, written and read for `ArchitectureStore`
   (`SemanticDatabase.swift:592-654, 686-852`).
@@ -65,7 +65,7 @@ What it does **not** own:
 - **Embeddings and vector retrieval: they do not exist in practice.** The `chunks`
   table and `insertChunk` / `chunksForDocument` are never called from outside the
   file. `EmbeddingClient` (OpenAI `text-embedding-3-small`) is created as
-  `WorkspaceManager.embeddingClient` (`MarkView/Models/WorkspaceManager.swift:328`),
+  `WorkspaceManager.embeddingClient` (`MarkView/Models/Workspace/WorkspaceManager.swift:328`),
   but `embed` / `embedBatch` have no callers. "GraphRAG" is a historical name. The
   class does no graph retrieval. It builds prompts from raw file bodies and uses the
   database only to record usage.
@@ -74,15 +74,15 @@ What it does **not** own:
 
 | Path | Role |
 |---|---|
-| `MarkView/Models/SemanticDatabase.swift` | SQLite engine: open/reset, pragmas, schema, CRUD, FTS, usage stats, architecture persistence |
-| `MarkView/Models/SemanticModels.swift` | Codable value types for blocks, entities, claims, relations, temporal contexts, AI jobs, diagnostics, templates (mostly legacy "semantic compiler" model) |
+| `MarkView/Models/Insight/SemanticDatabase.swift` | SQLite engine: open/reset, pragmas, schema, CRUD, FTS, usage stats, architecture persistence |
+| `MarkView/Models/Insight/SemanticModels.swift` | Codable value types for blocks, entities, claims, relations, temporal contexts, AI jobs, diagnostics, templates (mostly legacy "semantic compiler" model) |
 | `MarkView/Models/SemanticModel.swift` | Two-line stub: "created by mistake and should be deleted". Not in the Xcode project (`grep` finds 0 references in `project.pbxproj`) |
-| `MarkView/Models/StructuralIndexer.swift` | Deterministic tree walk + Markdown parse → modules, documents, symbols, relations, FTS |
-| `MarkView/Models/GraphRAG.swift` | Insight prompt builder: Phase 0 classifier, Phase 1 skeleton (structured JSON call), Phase 2 per-section prompts, catalog mode, prompt-injection escaping |
-| `MarkView/Models/InsightSession.swift` | `@MainActor` session: node tree, pipeline orchestration, caps, retries, snapshot, deterministic HTML rebuild |
-| `MarkView/Models/InsightModels.swift` | `InsightSkeleton`, `InsightSection`, `SectionType`, `InsightDeepDiveTopic`, `InsightContentType`, `SectionState` |
-| `MarkView/Models/InsightCache.swift` | Disk cache under `<folder>/.markview-insight/`: node HTML, manifest, snapshot, vendored `_assets/` |
-| `MarkView/Models/InsightArchiveExporter.swift` | Runs `/usr/bin/zip -r` to bundle an export staging dir |
+| `MarkView/Models/Architecture/StructuralIndexer.swift` | Deterministic tree walk + Markdown parse → modules, documents, symbols, relations, FTS |
+| `MarkView/Models/Insight/GraphRAG.swift` | Insight prompt builder: Phase 0 classifier, Phase 1 skeleton (structured JSON call), Phase 2 per-section prompts, catalog mode, prompt-injection escaping |
+| `MarkView/Models/Insight/InsightSession.swift` | `@MainActor` session: node tree, pipeline orchestration, caps, retries, snapshot, deterministic HTML rebuild |
+| `MarkView/Models/Insight/InsightModels.swift` | `InsightSkeleton`, `InsightSection`, `SectionType`, `InsightDeepDiveTopic`, `InsightContentType`, `SectionState` |
+| `MarkView/Models/Insight/InsightCache.swift` | Disk cache under `<folder>/.markview-insight/`: node HTML, manifest, snapshot, vendored `_assets/` |
+| `MarkView/Models/Insight/InsightArchiveExporter.swift` | Runs `/usr/bin/zip -r` to bundle an export staging dir |
 | `MarkView/Resources/Editor/js/markview-insight-srcdoc.js` | Escape helpers, lib selection, blob materialization, iframe `srcdoc` builder (with the iframe-side script and CSS) |
 | `MarkView/Resources/Editor/js/markview-insight-helpers.js` | View switching, loading overlay, breadcrumbs, status bar, 10 s iframe load timer |
 | `MarkView/Resources/Editor/js/markview-insight-handlers.js` | `stripCDNTags`, the five Swift→JS setters, the parent `message` listener with the type allowlist |
@@ -128,15 +128,15 @@ enums, `Diagnostic`, `DocumentTemplate`, `CompletenessEvaluation`. Only
 | `WorkspaceManager.runStructuralIndex` (`WorkspaceManager.swift:2987-3044`) | Spawns the child. It drains stderr through `readabilityHandler`, and on exit calls `loadCachedResults()` and `refreshSemanticViews()` |
 | `WorkspaceManager.handleBlocksDelta` (`:2931-2966`) and `IncrementalCompiler.compileDelta` (`IncrementalCompiler.swift:21-57`) | `upsertBlock`, `deleteBlock`, `upsertDocument`, `delete{Claims,Relations,Diagnostics}ForBlock` |
 | `WorkspaceManager.excludeFolder` (`:633-652`) | `clearSymbols` ×3 kinds, and `indexDocumentFTS(title:"", content:"")` to blank the FTS row |
-| `TOCView.performSearch` (`MarkView/Views/TOCView.swift:161-164`) | `db.search(query:)` with the raw user text |
-| `FeatureAI.relatedDocuments` (`MarkView/Models/FeatureAI.swift:216-226`) | `db.search` with up to 6 terms joined by `OR` |
-| `ModuleExplorerView` (`MarkView/Views/ModuleExplorerView.swift:18-24`) | `getUsageStats()` for the `$x.xx` badge |
+| `TOCView.performSearch` (`MarkView/Views/Workspace/TOCView.swift:161-164`) | `db.search(query:)` with the raw user text |
+| `FeatureAI.relatedDocuments` (`MarkView/Models/Lifecycle/FeatureAI.swift:216-226`) | `db.search` with up to 6 terms joined by `OR` |
+| `ModuleExplorerView` (`MarkView/Views/Architecture/ModuleExplorerView.swift:18-24`) | `getUsageStats()` for the `$x.xx` badge |
 | `ArchitectureStore` (`ArchitectureStore.swift:262, 355, 2876, 2902`) | `loadArchitecture`, `saveArchitecture`, `saveArchitectureReview` |
 | `CLICompletion.Result.record(in:)` | `addUsage` |
 | `WorkspaceManager.startRecursiveInsight` (`WorkspaceManager.swift:2102-2184`) | `scanMarkdownFiles(in:)`, `InsightCache(workspaceURL: folderURL, ...)`, `InsightSession(...)`, `generateRoot()` |
 | `WorkspaceManager.didRequestInsight*` forwarders (`:2212-2365`) | `expand`, `navigateTo`, `regenerateRoot`, `expandCustom`, `expandAllTopicsOnCurrentNode`, `retrySection`; `exportInsightArchive` (`:2391-2485`) |
 | `WorkspaceManager.closeTab` (`:1566-1597`) | `session.cancel()` (the cache is intentionally **not** cleaned up) |
-| `EditorView.Coordinator.routeInsight` (`MarkView/Views/EditorView.swift:437-611`) | Subscribes to `$skeleton`, `$currentNodeSections`, `$lastError`, `$statusMessage` and forwards to `WebViewBridge.loadInsightSkeleton / updateInsightSection / setInsightError / setInsightStatus` |
+| `EditorView.Coordinator.routeInsight` (`MarkView/Views/Workspace/EditorView.swift:437-611`) | Subscribes to `$skeleton`, `$currentNodeSections`, `$lastError`, `$statusMessage` and forwards to `WebViewBridge.loadInsightSkeleton / updateInsightSection / setInsightError / setInsightStatus` |
 
 ### What it calls out to
 

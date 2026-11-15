@@ -51,10 +51,10 @@ MarkView native macOS app (macOS 13+), Feature tab for an existing bug with an A
 
 ## Suspected code
 
-- `MarkView/Views/FeaturePanelView.swift` — BugQuestionCard renders a plain TextField and answer buttons, with no attachment picker, preview, or image-aware paste view; it calls answerBug with text only.
-- `MarkView/Models/FeatureIntake.swift` — answerBug accepts only a URL, question ID, and String answer, then records text in Clarifications. newBug has attachment copying and prompt references, but follow-up does not.
-- `MarkView/Views/FeatureNavigatorView.swift` — The New Bug intake sheet provides Add Files, attachment state, and an IntakeTextEditor with image paste guidance; this UI is separate from existing-bug follow-up.
-- `MarkView/Views/IntakeTextEditor.swift` — AttachmentTextView converts pasted images into attachment URLs, but BugQuestionCard does not use it.
+- `MarkView/Views/Lifecycle/FeaturePanelView.swift` — BugQuestionCard renders a plain TextField and answer buttons, with no attachment picker, preview, or image-aware paste view; it calls answerBug with text only.
+- `MarkView/Models/Lifecycle/FeatureIntake.swift` — answerBug accepts only a URL, question ID, and String answer, then records text in Clarifications. newBug has attachment copying and prompt references, but follow-up does not.
+- `MarkView/Views/Lifecycle/FeatureNavigatorView.swift` — The New Bug intake sheet provides Add Files, attachment state, and an IntakeTextEditor with image paste guidance; this UI is separate from existing-bug follow-up.
+- `MarkView/Views/Lifecycle/IntakeTextEditor.swift` — AttachmentTextView converts pasted images into attachment URLs, but BugQuestionCard does not use it.
 - `docs/architecture/modules/feature-workflow.md` — The documented workflow describes attachments at bug creation and question rounds during investigation, but no follow-up attachment flow.
 
 ## Likely causes

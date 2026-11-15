@@ -951,8 +951,8 @@ xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug -de
 ```
 MarkView/
 ├── App/            MarkViewApp.swift: windows, menus, shortcuts, Finder "Open With"
-├── Models/         ~170 files
-│   ├── WorkspaceManager.swift        central state: tabs, files, AI routing, terminals
+├── Models/         341 files in 21 domain folders (Workspace/, AI/, Lifecycle/, Insight/, Git/, QA/, ...)
+│   ├── Workspace/WorkspaceManager.swift   central state: tabs, files, AI routing, terminals
 │   ├── ArchitectureStore / Scanner, XRayCluster, CodeArchitecture
 │   │                                 X-Ray: scan, clustering, AI naming, overlays, PR X-Ray
 │   ├── FeatureStore / FeatureAI, Discussion*, Research*, Prototype*
@@ -961,23 +961,23 @@ MarkView/
 │   │                                 Claude Code, Codex, Cline, Copilot, Antigravity
 │   ├── Deployment*, CloudServices, DatabaseExplorer, CommandPolicy   Deployments
 │   ├── BookPDF*, BookBuilder, BookAnnotator                          PDF books, Book X-Ray
-│   ├── TerminalSession.swift         PTY (forkpty) + xterm.js web view
+│   ├── Terminal/TerminalSession.swift     PTY (forkpty) + xterm.js web view
 │   ├── Browser*, TerminalBrowserBridge, WebAppPreview, WebClip       in-app browser, pages opened by agents
 │   ├── GitClient, GitHubClient / Store / Publisher, IssueSync        Git and GitHub (gh)
-│   ├── SemanticDatabase.swift        SQLite + FTS5 documents index (.dde/state.db)
-│   ├── ProjectSearch.swift           in-memory ⌘⇧K index
+│   ├── Insight/SemanticDatabase.swift     SQLite + FTS5 documents index (.dde/state.db)
+│   ├── Workspace/ProjectSearch.swift      in-memory ⌘⇧K index
 │   ├── CycleTime / CycleTimeReport / CycleTimeModel, EvidenceTimings, LifecycleLog, DefinitionOfDone
 │   ├── ProjectToolRunner, ControlToolRunner       the markview and markview-control MCP servers
 │   └── Remote/                       Remote Assistants (relay client)
-├── Views/          ~50 SwiftUI files: ContentView, EditorView (WKWebView), FileTreeView,
-│                   FeaturePanelView, TerminalView, BrowserTabView, GitView, DeploymentsView,
-│                   PrototypeStudioView…
+├── Views/          96 SwiftUI files in 19 domain folders: Workspace/ (ContentView, EditorView
+│                   (WKWebView), FileTreeView), Lifecycle/, Terminal/, Browser/, Git/,
+│                   Deployments/, Prototype/…
 ├── Bridge/         WebViewBridge (Swift ↔ JS), PDFExporter, BookPDFRenderer,
 │                   DataFileSchemeHandler, PrototypeSchemeHandler
 └── Resources/Editor/
     ├── index.html, terminal.html, discussion.html, book.html
-    └── vendor/js/  markview-*.js (editor, X-Ray, code viewer, data, canvas…),
-                    CodeMirror, Cytoscape + ELK, xterm.js, d3, Mermaid, KaTeX, markdown-it, Prism
+    ├── js/         first-party markview-*.js and mv-kit.js (editor, X-Ray, code viewer, data, canvas…)
+    └── vendor/js/  CodeMirror, Cytoscape + ELK, xterm.js, d3, Mermaid, KaTeX, markdown-it, Prism
 tools/              web-vendor (esbuild), tests (standalone checks), remote-relay
 docs/               features, bugs, architecture, plans, images
 ```

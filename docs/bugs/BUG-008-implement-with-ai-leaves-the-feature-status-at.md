@@ -83,9 +83,9 @@ MarkView macOS app on Darwin 27.0.0; Feature panel button; Claude Code CLI backe
 
 ## Suspected code
 
-- `MarkView/Models/WorkspaceManager.swift` — `implementWithAI` sends the prompt but does not call `updateFeature` to set `implementing`. It records the event only when both a CLI tool and feature slug are available.
-- `MarkView/Models/FeatureStore.swift` — `recordImplementationStarted` returns if there is no lifecycle project, then records from a detached task after `answeringModel` returns. That task may wait up to 15 minutes; it has no diagnostic reporting for failure or noncompletion.
-- `MarkView/Views/FeaturePanelView.swift` — The reported button calls `implementWithAI(feature.folder)` directly; its action does not update feature status.
+- `MarkView/Models/Workspace/WorkspaceManager.swift` — `implementWithAI` sends the prompt but does not call `updateFeature` to set `implementing`. It records the event only when both a CLI tool and feature slug are available.
+- `MarkView/Models/Lifecycle/FeatureStore.swift` — `recordImplementationStarted` returns if there is no lifecycle project, then records from a detached task after `answeringModel` returns. That task may wait up to 15 minutes; it has no diagnostic reporting for failure or noncompletion.
+- `MarkView/Views/Lifecycle/FeaturePanelView.swift` — The reported button calls `implementWithAI(feature.folder)` directly; its action does not update feature status.
 - `docs/architecture/modules/feature-workflow.md` — The status diagram documents entry to `implementing` through `createIssues`, but omits the user-required transition when `Implement with AI` hands off the feature.
 
 ## Likely causes

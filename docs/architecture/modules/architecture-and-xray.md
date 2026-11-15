@@ -129,13 +129,13 @@ The subsystem owns:
   links resolved to the section), computes per-file metrics
   (LOC, McCabe complexity per function, commits and bug-fix commits from git, tests, lcov or
   Cobertura line coverage) and documentation coverage, and lists deployment config files.
-  See `MarkView/Models/ArchitectureScanner.swift:44-112`.
+  See `MarkView/Models/Architecture/ArchitectureScanner.swift:44-112`.
 - **Local groundwork for the AI** (`XRayDigest`). It picks "unit" folders, collects facts
   about each (manifest, README line, declarations, file names, dependencies, language of its
-  prose) and writes a project overview. See `MarkView/Models/XRayDigest.swift:90-171`.
+  prose) and writes a project overview. See `MarkView/Models/Architecture/XRayDigest.swift:90-171`.
 - **Clustering without AI** (`XRayCluster`). It runs a deterministic Louvain pass over
   imports, note links, git co-change and a weak folder-tree tie
-  (`MarkView/Models/XRayCluster.swift:46-102`).
+  (`MarkView/Models/Architecture/XRayCluster.swift:46-102`).
 - **AI enrichment and state** (`ArchitectureStore`, `@MainActor`). This covers naming the
   clusters and grouping them into subsystems, the Deployment view, file contents outlines,
   on-demand descriptions, importance ratings, topic filters, the ⚡ search, explanations of
@@ -157,7 +157,7 @@ The subsystem owns:
     block-dependency graph (see §10).
   - `GraphCreatorSheet`: a prompt builder for Mermaid diagrams, sent to the AI terminal.
   - `ModuleExplorerView`: now only the right panel's Terminal tab header
-    (`MarkView/Views/ModuleExplorerView.swift:3-6`).
+    (`MarkView/Views/Architecture/ModuleExplorerView.swift:3-6`).
 
 It does **not** own:
 
@@ -183,20 +183,20 @@ It does **not** own:
 
 | Path | Role |
 |---|---|
-| `MarkView/Models/ArchitectureModel.swift` | Codable data model: `ArchNode`, `ArchEdge`, `ArchView`, `CoverageEntry`, `FileMetrics`, `LogicalAssignment`, `LogicalComponent`, `ArchitectureSnapshot` |
-| `MarkView/Models/ArchitectureScanner.swift` | Deterministic scan: file listing, git history, import resolution (`ImportResolver`), Modules and Book views, coverage, metrics, diff dependency changes |
-| `MarkView/Models/BookBuilder.swift` | The Book's skeleton without AI: text-document formats and their headings, GitHub slugs, chapters with nested sections and line ranges, link extraction (Markdown, reference, wiki, AsciiDoc, RST) and resolution to the section, reading order, nodes and `links` edges |
-| `MarkView/Models/BookAnnotator.swift` | The Book's AI step as pure functions: the chapter prompt and schema, windows for long chapters, answer validation, applying summaries, importance, `related` edges, AI sections for headless documents and items; the parts/book call |
-| `MarkView/Models/WikiLinkResolver.swift` | Obsidian's choice among same-named notes (own folder, shortest path, alphabetical); used by the editor's wiki-link click and the Book |
-| `MarkView/Models/ArchitectureStore.swift` | `@MainActor` state and orchestration: scan, the 4-step AI analysis, Logical view derivation, contents, ratings, filters, ⚡ search, edge notes, PR overlay, persistence, web payload |
-| `MarkView/Models/XRayDigest.swift` | Unit folder plan and project overview for prompts; `completedObjects` and related parsers for streamed JSON |
-| `MarkView/Models/XRayCluster.swift` | Louvain clustering of unit folders into clusters (components) and groups (provisional subsystems) |
-| `MarkView/Models/XRayContent.swift` | Per-file contents outline (local declarations or AI), its cache, diagram nodes |
-| `MarkView/Models/XRaySearch.swift` | ⚡ search request (prompt and schema), symbol hints, validation of the places |
+| `MarkView/Models/Architecture/ArchitectureModel.swift` | Codable data model: `ArchNode`, `ArchEdge`, `ArchView`, `CoverageEntry`, `FileMetrics`, `LogicalAssignment`, `LogicalComponent`, `ArchitectureSnapshot` |
+| `MarkView/Models/Architecture/ArchitectureScanner.swift` | Deterministic scan: file listing, git history, import resolution (`ImportResolver`), Modules and Book views, coverage, metrics, diff dependency changes |
+| `MarkView/Models/Book/BookBuilder.swift` | The Book's skeleton without AI: text-document formats and their headings, GitHub slugs, chapters with nested sections and line ranges, link extraction (Markdown, reference, wiki, AsciiDoc, RST) and resolution to the section, reading order, nodes and `links` edges |
+| `MarkView/Models/Book/BookAnnotator.swift` | The Book's AI step as pure functions: the chapter prompt and schema, windows for long chapters, answer validation, applying summaries, importance, `related` edges, AI sections for headless documents and items; the parts/book call |
+| `MarkView/Models/Workspace/WikiLinkResolver.swift` | Obsidian's choice among same-named notes (own folder, shortest path, alphabetical); used by the editor's wiki-link click and the Book |
+| `MarkView/Models/Architecture/ArchitectureStore.swift` | `@MainActor` state and orchestration: scan, the 4-step AI analysis, Logical view derivation, contents, ratings, filters, ⚡ search, edge notes, PR overlay, persistence, web payload |
+| `MarkView/Models/Architecture/XRayDigest.swift` | Unit folder plan and project overview for prompts; `completedObjects` and related parsers for streamed JSON |
+| `MarkView/Models/Architecture/XRayCluster.swift` | Louvain clustering of unit folders into clusters (components) and groups (provisional subsystems) |
+| `MarkView/Models/Architecture/XRayContent.swift` | Per-file contents outline (local declarations or AI), its cache, diagram nodes |
+| `MarkView/Models/Architecture/XRaySearch.swift` | ⚡ search request (prompt and schema), symbol hints, validation of the places |
 | `MarkView/Models/IncrementalCompiler.swift` | Writes editor block deltas to the semantic DB and marks blocks dirty |
 | `MarkView/Models/DependencyGraphScheduler.swift` | In-memory block, entity and claim dependency graph with dirty tracking |
-| `MarkView/Views/ModuleExplorerView.swift` | Right-panel Terminal tab (historical name) with usage and cost header |
-| `MarkView/Views/GraphCreatorSheet.swift` | "New Graph Diagram" sheet: builds a Mermaid-generation prompt for the AI terminal |
+| `MarkView/Views/Architecture/ModuleExplorerView.swift` | Right-panel Terminal tab (historical name) with usage and cost header |
+| `MarkView/Views/Architecture/GraphCreatorSheet.swift` | "New Graph Diagram" sheet: builds a Mermaid-generation prompt for the AI terminal |
 | `MarkView/Resources/Editor/js/markview-architecture.js` | X-Ray web UI: Cytoscape + ELK rendering, overlays, details panel, PR panel |
 | `MarkView/Resources/Editor/js/markview-canvas.js` | JSON Canvas (`.canvas`) viewer with pan/zoom, properties panel and TOC headings |
 | `MarkView/Resources/Editor/js/markview-diagram-viewer.js` | Full-screen pan/zoom overlay for rendered Mermaid SVGs |

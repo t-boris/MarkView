@@ -5,7 +5,7 @@ repository. A feature is a folder `docs/features/<slug>/` holding an overview pl
 per requirement, question, decision, finding, research note and source. A bug is one file
 `docs/bugs/BUG-nnn-<slug>.md`. AI calls go through the user's Claude Code or Codex CLI, with
 JSON-schema answers. The app parses each answer and writes the parts it keeps back to those
-files. Everything the UI shows is read back from disk (`MarkView/Models/FeatureModels.swift:3-6`).
+files. Everything the UI shows is read back from disk (`MarkView/Models/Lifecycle/FeatureModels.swift:3-6`).
 
 Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 [editor-and-bridge](editor-and-bridge.md), [ai-assistants-and-dictation](ai-assistants-and-dictation.md),
@@ -42,17 +42,17 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
   - intake sheet
   - right panel Feature tab with the Explore, Review and Build stages
   - bug investigation panel and cleanup sheet
-  (`Views/FeatureNavigatorView.swift`, `Views/FeaturePanelView.swift`)
+  (`Views/Lifecycle/FeatureNavigatorView.swift`, `Views/Lifecycle/FeaturePanelView.swift`)
 
 **Does NOT own**
 
 - Running the CLI, parsing its output and usage accounting: `CLICompletion` ([ai-assistants-and-dictation](ai-assistants-and-dictation.md)).
-- The YAML subset parser and writer: `MarkView/Models/FrontMatter.swift`. This module consumes it.
+- The YAML subset parser and writer: `MarkView/Models/Workspace/FrontMatter.swift`. This module consumes it.
 - GitHub API calls (`GitHubClient`, `GitHubStore`), git execution, the lifecycle event log file (`LifecycleLog`), lifecycle analytics and the lifecycle views ([git-github-terminal-lifecycle-usage](git-github-terminal-lifecycle-usage.md)).
 - Handing a spec or bug to the Terminal assistant (`WorkspaceManager.implementWithAI` / `fixBugWithAI`, `WorkspaceManager.swift:3264-3284`).
 - The "I Need to Understand" answer. It is delegated to the X-Ray temporary filter (`WorkspaceManager.swift:3241-3246`, [architecture-and-xray](architecture-and-xray.md)).
 - Whisper transcription and dictation (`WhisperClient`, `DictationController`).
-- `ImportanceRater` (`MarkView/Models/ImportanceRater.swift`) and `tools/importance-check.sh`. They are listed here on request, but belong to the X-Ray / Architecture filters: the callers are `ArchitectureStore.swift:1231,1313,1691`, `CodeExplainer.swift:285` and `WorkspaceManager.swift:850,857`. See section 3.6.
+- `ImportanceRater` (`MarkView/Models/Architecture/ImportanceRater.swift`) and `tools/importance-check.sh`. They are listed here on request, but belong to the X-Ray / Architecture filters: the callers are `ArchitectureStore.swift:1231,1313,1691`, `CodeExplainer.swift:285` and `WorkspaceManager.swift:850,857`. See section 3.6.
 
 ---
 
@@ -60,18 +60,18 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 
 | Path | Role |
 |---|---|
-| `MarkView/Models/FeatureModels.swift` | Value types: `FeatureObjectKind`, `FeatureVocabulary`, `FeatureObject`, `PlannedIssue`, `Feature` (loading, graph, readiness, cleanup), `BugReport`, `BugQuestion`, `featureSlug()`, `FeatureCleanup` |
-| `MarkView/Models/FeatureStore.swift` | `@MainActor` store: setup and polling, reload, every write path, Trash, plan and discussion files, lifecycle capture, git history |
-| `MarkView/Models/FeatureAI.swift` | `FeatureAssistant` (`@MainActor`): system prompt, context builder, JSON schemas, all AI operations on features, GitHub issue creation; `FeatureResult`, `DecisionCandidate`, `FeatureAction` |
-| `MarkView/Models/FeatureIngest.swift` | `FeatureAssistant` extension: `SourceOrigin`, `ingest`, `extractFacts`, `setFact`, `readableText` (PDFKit, Whisper), `fetchText` (HTML to text) |
-| `MarkView/Models/FeatureIntake.swift` | `IntakeKind`, `IntakeRequest`; `FeatureAssistant` extension: `newFeature`, `newBug`, `answerBug`, `investigateBug`, bug section helpers, `nextNumbered` |
-| `MarkView/Models/ImportanceRater.swift` | X-Ray rating filters (not part of this workflow; see 3.6) |
-| `MarkView/Views/FeatureNavigatorView.swift` | `LeftPanelView` (Files/Issues switch), `IssuesListView`, `IssueLinks`, `FeatureNavigatorView`, `FeatureStatusMenu`, `ReadinessBar`, `FeatureStatusDot`, `IntakeSheet` |
-| `MarkView/Models/IssueSync.swift` | Sync to GitHub (issue #36), Foundation only: `IssueSyncItem`, `IssueSyncLinks` (explicit references), `IssueSyncPlan` (pairs, unique lookups, shared-issue rule), `IssueSyncRemote`, `IssueSyncReport`, `IssueSyncPreflight`; tested by `tools/tests/issue-sync-tests.sh` |
-| `MarkView/Models/IssueSyncRun.swift` | `IssueSyncRun` (`@MainActor`, owned by `FeatureStore.issueSync`): preflight, per-issue lookup and close; `IssueSyncLoader` reads items from disk off the main thread |
-| `MarkView/Views/IssueSyncViews.swift` | `IssueSyncButton` and `IssueSyncReportView` in the Issues list header |
-| `MarkView/Views/FeaturePanelView.swift` | `FeatureStage`, `FeaturePanelView` and the stage views: `ExploreStageView`, `ReviewStageView` (with `BeforeBuildSection`), `BuildStageView`. Also the question, bug, source, finding and plan cards, `ObjectContextView` (trace, impact, history), `FeatureCleanupSheet`, `FlowLayout` |
-| `MarkView/Models/FrontMatter.swift` | (dependency) Ordered YAML subset; `isLossless` guards rewrites (`FrontMatter.swift:52-54,83-96`) |
+| `MarkView/Models/Lifecycle/FeatureModels.swift` | Value types: `FeatureObjectKind`, `FeatureVocabulary`, `FeatureObject`, `PlannedIssue`, `Feature` (loading, graph, readiness, cleanup), `BugReport`, `BugQuestion`, `featureSlug()`, `FeatureCleanup` |
+| `MarkView/Models/Lifecycle/FeatureStore.swift` | `@MainActor` store: setup and polling, reload, every write path, Trash, plan and discussion files, lifecycle capture, git history |
+| `MarkView/Models/Lifecycle/FeatureAI.swift` | `FeatureAssistant` (`@MainActor`): system prompt, context builder, JSON schemas, all AI operations on features, GitHub issue creation; `FeatureResult`, `DecisionCandidate`, `FeatureAction` |
+| `MarkView/Models/Lifecycle/FeatureIngest.swift` | `FeatureAssistant` extension: `SourceOrigin`, `ingest`, `extractFacts`, `setFact`, `readableText` (PDFKit, Whisper), `fetchText` (HTML to text) |
+| `MarkView/Models/Lifecycle/FeatureIntake.swift` | `IntakeKind`, `IntakeRequest`; `FeatureAssistant` extension: `newFeature`, `newBug`, `answerBug`, `investigateBug`, bug section helpers, `nextNumbered` |
+| `MarkView/Models/Architecture/ImportanceRater.swift` | X-Ray rating filters (not part of this workflow; see 3.6) |
+| `MarkView/Views/Lifecycle/FeatureNavigatorView.swift` | `LeftPanelView` (Files/Issues switch), `IssuesListView`, `IssueLinks`, `FeatureNavigatorView`, `FeatureStatusMenu`, `ReadinessBar`, `FeatureStatusDot`, `IntakeSheet` |
+| `MarkView/Models/Lifecycle/IssueSync.swift` | Sync to GitHub (issue #36), Foundation only: `IssueSyncItem`, `IssueSyncLinks` (explicit references), `IssueSyncPlan` (pairs, unique lookups, shared-issue rule), `IssueSyncRemote`, `IssueSyncReport`, `IssueSyncPreflight`; tested by `tools/tests/issue-sync-tests.sh` |
+| `MarkView/Models/Lifecycle/IssueSyncRun.swift` | `IssueSyncRun` (`@MainActor`, owned by `FeatureStore.issueSync`): preflight, per-issue lookup and close; `IssueSyncLoader` reads items from disk off the main thread |
+| `MarkView/Views/Lifecycle/IssueSyncViews.swift` | `IssueSyncButton` and `IssueSyncReportView` in the Issues list header |
+| `MarkView/Views/Lifecycle/FeaturePanelView.swift` | `FeatureStage`, `FeaturePanelView` and the stage views: `ExploreStageView`, `ReviewStageView` (with `BeforeBuildSection`), `BuildStageView`. Also the question, bug, source, finding and plan cards, `ObjectContextView` (trace, impact, history), `FeatureCleanupSheet`, `FlowLayout` |
+| `MarkView/Models/Workspace/FrontMatter.swift` | (dependency) Ordered YAML subset; `isLossless` guards rewrites (`FrontMatter.swift:52-54,83-96`) |
 | `tools/importance-check.sh` | Live-CLI check of `ImportanceRater` against `Tests/Fixtures/importance` (currently broken, see 10) |
 | `docs/features/*/`, `docs/bugs/*.md` | Real files produced by this module (examples in section 6) |
 
@@ -200,12 +200,12 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 | `WorkspaceManager.openFolder` → `setUpFeatures` | `features.setup(root:)`, wiring of `assistant.database` and `assistant.gitHubClient` (`WorkspaceManager.swift:530,3320-3324`) |
 | `WorkspaceManager` folder close | `features.reset()` (`WorkspaceManager.swift:1446`) |
 | `GitHubStore.onPoll` | `features.syncLifecycle(with:)` (`WorkspaceManager.swift:3339`) |
-| Editor selection menu (JS `featureAction('…')`, `Resources/Editor/index.html:1480+`) → `WebViewBridge` `featureAction` message (`Bridge/WebViewBridge.swift:319-323`) → `EditorView` delegate (`Views/EditorView.swift:844-846`) → `WorkspaceManager.runFeatureAction` (`WorkspaceManager.swift:3307-3317`) | `assistant.perform(action, selection:document:question:feature:)`. The action name is validated with `FeatureAction(rawValue:)` |
-| Toolbar "New" menu (`Views/ContentView.swift:113`), issue and PR menus (`WorkspaceManager.startIntake`, `:3227-3259`) | Set `workspaceManager.intake` and present `IntakeSheet` (`ContentView.swift:170`) |
+| Editor selection menu (JS `featureAction('…')`, `Resources/Editor/index.html:1480+`) → `WebViewBridge` `featureAction` message (`Bridge/WebViewBridge.swift:319-323`) → `EditorView` delegate (`Views/Workspace/EditorView.swift:844-846`) → `WorkspaceManager.runFeatureAction` (`WorkspaceManager.swift:3307-3317`) | `assistant.perform(action, selection:document:question:feature:)`. The action name is validated with `FeatureAction(rawValue:)` |
+| Toolbar "New" menu (`Views/Workspace/ContentView.swift:113`), issue and PR menus (`WorkspaceManager.startIntake`, `:3227-3259`) | Set `workspaceManager.intake` and present `IntakeSheet` (`ContentView.swift:170`) |
 | `IntakeSheet.submit` → `WorkspaceManager.intakeFinished` | Opens the result, switches the left panel to Issues and the right panel to the Feature tab (`WorkspaceManager.swift:3287-3304`) |
 | `BuildStageView` "Implement with AI" → `WorkspaceManager.implementWithAI` | Chooses the receiving terminal first, then sends its goal handoff: `/goal` for Claude Code and Codex, `/autopilot` for Copilot, or an explicit Cline task goal. The assistant reads the whole folder; recorded answers (answered questions, accepted decisions, resolved findings, discussion.md) are binding and not asked again, and new answers are written back (BUG-011). Then `features.markImplementing` (status `ready/resolving/review/draft/exploring` → `implementing`, BUG-008) and `features.recordImplementationStarted` (`WorkspaceManager.swift`) run. |
 | `BugPanelView` "Fix with AI" → `WorkspaceManager.fixBugWithAI` | Sets the bug status to `fixing` with `updateBug` and sends `HandoffPrompt.bug` (answered report questions and `## Clarifications` are binding; new answers go to `## Clarifications`) (`WorkspaceManager.swift:3277-3284`) |
-| `TOCView` | Shows `FeaturePanelView` when `hasIssues` (`Views/TOCView.swift:26-31`) |
+| `TOCView` | Shows `FeaturePanelView` when `hasIssues` (`Views/Workspace/TOCView.swift:26-31`) |
 | `LifecycleViews` | Read `store.features` and `lifecycleEvents` (`Views/LifecycleViews.swift:22,106,206`) |
 | `ArchitectureStore` | Reuses `FeatureAssistant.nextNumbered("RES", …)` and `FeatureStore.today` for saved X-Ray answers (`ArchitectureStore.swift:1465,1481`) |
 
@@ -529,9 +529,9 @@ The first load only records a baseline (no backfill). A restart suppresses event
 
 ### 5.9 New Research (feature `new-research-repository-grounded-analysis`)
 
-- **Files**: `Models/ResearchDocument.swift` (pure: path, template, label check, sections, status, comment
-  sections; `tools/tests/research-document-tests.sh`), `Models/ResearchJobs.swift` (per-window jobs, scope,
-  settings), `Models/ResearchPrompt.swift`, `Views/ResearchViews.swift` (intake fields, bar, follow-up sheet).
+- **Files**: `Models/Research/ResearchDocument.swift` (pure: path, template, label check, sections, status, comment
+  sections; `tools/tests/research-document-tests.sh`), `Models/Research/ResearchJobs.swift` (per-window jobs, scope,
+  settings), `Models/Research/ResearchPrompt.swift`, `Views/Research/ResearchViews.swift` (intake fields, bar, follow-up sheet).
 - **Start**: the intake sheet (`.research`) takes the question, target documents (the open document by default),
   attachments (copied to `docs/research/assets/<id>/`), the output path `docs/research/<date>-<slug>.md` and the
   per-folder web opt-out. AI Tools › Deep Research… opens the same sheet; the old `research` terminal prompt is gone.

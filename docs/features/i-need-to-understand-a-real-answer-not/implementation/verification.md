@@ -21,7 +21,7 @@ Automated checks:
 - `tools/tests/understanding-answer-tests.sh`: 30 checks for typed evidence, path/URL boundaries, full explicit saves, attachments and concurrent ID allocation.
 - `tools/tests/intake-clipboard-tests.sh`: PNG/TIFF, unique filenames, Finder URLs, text/HTML fallback and write errors.
 - Existing research document checks and updated dictation insertion checks. The old dictation fixture expected direct view edits predating BUG-003; it now verifies binding edits, cursor ranges, Unicode, window isolation and stale-selection fallback.
-- `node --check MarkView/Resources/Editor/vendor/js/markview-architecture.js` and `git diff --check`.
+- `node --check MarkView/Resources/Editor/js/markview-architecture.js` and `git diff --check`.
 - Debug build and Developer ID signed Release build; signature verified with `codesign --verify --deep --strict`.
 
 The native navigation/error/folder checks used deterministic CLI responses. Meaning/origin and image interpretation were additionally tested with the real Claude CLI. Other assistant backends and a full timeout-duration wait were not exercised.

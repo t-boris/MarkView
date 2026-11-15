@@ -7,20 +7,20 @@ Snapshot of `main` at `85b6f8d` (2.17.0). Every claim cites `path:line` relative
 This subsystem is the process entry point, the window shell, and the per-window workspace model. It covers:
 
 - **Process entry**: normal GUI launch, or the headless `--dde-index <folder>` child process that runs the structural indexer (`MarkView/App/MarkViewApp.swift:126-167`).
-- **Scene and menus**: `WindowGroup`, File/View/Settings commands, and routing of commands to the focused window's `WorkspaceManager` through `FocusedValue` (`MarkView/App/MarkViewApp.swift:169-298`, `MarkView/Views/ContentView.swift:4-23`).
-- **External open requests**: Finder "Open With", `application(_:open:)`, the validated `markview_open_path.txt` Quick Action handoff (`temporaryDirectory` and `/tmp`, `O_NOFOLLOW` + regular/owner `fstat`), drag-and-drop onto the window, and session/last-folder restore (`MarkView/App/MarkViewApp.swift`, `MarkView/Views/ContentView.swift`).
-- **Workspace lifecycle**: open folder, single-file workspace, close folder, remove or recreate metadata; creates `.dde/` and the SQLite `SemanticDatabase`; starts the out-of-process structural index (`MarkView/Models/WorkspaceManager.swift:451-545,771-824,1394-1531,2987-3045`).
-- **Tabs**: open, switch, reorder, close, save, reload from disk, and the tab kinds (file, image, X-Ray, terminal, GitHub, Insight) (`MarkView/Models/WorkspaceManager.swift:212-291`, `MarkView/Models/DocumentState.swift:137-232`).
-- **File tree**: a one-folder-at-a-time browser with breadcrumbs, filtering, sort, create file/folder, drag-and-drop move/copy, git badges, and "Reveal in File Tree" (`MarkView/Views/FileTreeView.swift`).
+- **Scene and menus**: `WindowGroup`, File/View/Settings commands, and routing of commands to the focused window's `WorkspaceManager` through `FocusedValue` (`MarkView/App/MarkViewApp.swift:169-298`, `MarkView/Views/Workspace/ContentView.swift:4-23`).
+- **External open requests**: Finder "Open With", `application(_:open:)`, the validated `markview_open_path.txt` Quick Action handoff (`temporaryDirectory` and `/tmp`, `O_NOFOLLOW` + regular/owner `fstat`), drag-and-drop onto the window, and session/last-folder restore (`MarkView/App/MarkViewApp.swift`, `MarkView/Views/Workspace/ContentView.swift`).
+- **Workspace lifecycle**: open folder, single-file workspace, close folder, remove or recreate metadata; creates `.dde/` and the SQLite `SemanticDatabase`; starts the out-of-process structural index (`MarkView/Models/Workspace/WorkspaceManager.swift:451-545,771-824,1394-1531,2987-3045`).
+- **Tabs**: open, switch, reorder, close, save, reload from disk, and the tab kinds (file, image, X-Ray, terminal, GitHub, Insight) (`MarkView/Models/Workspace/WorkspaceManager.swift:212-291`, `MarkView/Models/Workspace/DocumentState.swift:137-232`).
+- **File tree**: a one-folder-at-a-time browser with breadcrumbs, filtering, sort, create file/folder, drag-and-drop move/copy, git badges, and "Reveal in File Tree" (`MarkView/Views/Workspace/FileTreeView.swift`).
   Rows are selected as in Finder (`ListSelection`): a click selects and opens, ⌘-click adds or removes, ⇧-click
   selects a range; the selection clears when the folder changes. With two or more selected, a bottom bar and the
   selected rows' context menu act on all of them: Move to… (`transfer`, tabs follow), Move to Trash (one
   confirmation, tabs close; also ⌫ in the focused list), Stage / Unstage / Discard Changes, Copy Paths. Every
   file and folder has Rename… (`WorkspaceManager.rename` → `FileTransfer.rename`, refuses taken or invalid names,
   case-only renames via a temporary name, tabs follow).
-- **Right panel shell** (`TOCView`): Contents, Search (FTS), Git, Terminal, Feature tabs (`MarkView/Views/TOCView.swift:4-33`).
+- **Right panel shell** (`TOCView`): Contents, Search (FTS), Git, Terminal, Feature tabs (`MarkView/Views/Workspace/TOCView.swift:4-33`).
 - **Supporting views and models**: image viewer, status bar, theme, color palette, YAML front matter, file transfer, AI filter term search, DDE Settings window.
-- **Dispatcher for bridge actions**: `WorkspaceManager` is the Swift-side target of most editor/X-Ray/code-viewer/Insight bridge messages. It forwards them to other subsystems' stores (`MarkView/Models/WorkspaceManager.swift:915-1000,1127-1275,2216-2366`).
+- **Dispatcher for bridge actions**: `WorkspaceManager` is the Swift-side target of most editor/X-Ray/code-viewer/Insight bridge messages. It forwards them to other subsystems' stores (`MarkView/Models/Workspace/WorkspaceManager.swift:915-1000,1127-1275,2216-2366`).
 
 What it does **not** own. It calls into these, but the logic lives in sibling modules:
 
@@ -39,26 +39,26 @@ What it does **not** own. It calls into these, but the logic lives in sibling mo
 | Path | Role |
 |---|---|
 | `MarkView/App/MarkViewApp.swift` | `@main` entry (`DDEAppEntry`), headless indexer runner, `MarkViewApp` scene and menus, app delegate, external-open queue, notification names, unused `MarkdownDocument` and `MarkViewApplication` |
-| `MarkView/Views/ContentView.swift` | Window root: three-pane `HSplitView`, toolbar, welcome screen, drop target, open-request draining, last-folder restore, `AIToolbarMenu`, `AIToolsMenuItems` |
-| `MarkView/Models/WorkspaceManager.swift` (3766 lines) | `WorkspaceFileTreeStore`, `WorkspaceTabsStore`, `WorkspaceAITool`, `WorkspaceManager` (workspace state, tab operations, bridge-action dispatch, translation, Insight export, terminals, GitHub glue, AI prompts) |
-| `MarkView/Models/FileNode.swift` | `FileNode` tree node, `FileTreeSortField` / `FileTreeSortOrder` |
-| `MarkView/Models/DocumentState.swift` | `FileType` (extension to viewer/language map), `HeadingItem`, `TabKind`, `GitHubItem`, `OpenTab` |
-| `MarkView/Views/FileTreeView.swift` | File browser pane (left panel "Files" mode) |
-| `MarkView/Views/TabBarView.swift` | Tab strip, tab menu, drag reorder, horizontal wheel scrolling |
-| `MarkView/Views/TOCView.swift` | Right panel tabs; `WorkspaceSearchView` (FTS search) |
-| `MarkView/Views/DiagnosticsBarView.swift` | Status bar: active block and structural-index progress |
-| `MarkView/Views/ImageViewerView.swift` | Image tab: `ImageCanvasController`, `ImageCanvasView` (pan/zoom/drop) |
-| `MarkView/Views/DDESettingsView.swift` | DDE Settings window: OpenAI key, assistant/model, CLI paths, extra PATH, usage chips, Whisper test, GitHub section, metadata maintenance |
-| `MarkView/Models/AppTheme.swift` | Foundation-only theme model: `ThemeColor` (contrast maths), `AppTheme` (System, Classic Dark/Light, Darcula, Midnight, Graphite, Tokyo Night, Carbon Red, Nord, Forest, Paper, Daylight), `ThemePalette` (native tokens), `WindowThemeSettings` (theme + accent per theme), `ThemeSettingsStore` (legacy `theme` migration, last change for new windows). Checked by `tools/tests/theme-model-tests.sh` |
-| `MarkView/Models/WindowUIState.swift`, `MarkView/Views/WindowStorage.swift` | `WindowUIState` (one per window, owned by `WorkspaceManager.windowUI`; values saved in the window session) and the `@WindowStorage` property wrapper that reads it |
-| `MarkView/Models/EditorWindowPrefs.swift`, `MarkView/Models/ExcludedFolders.swift` | The editor page's per-window choices (script for the page, key allow-list); a project's excluded folders keyed by its full path |
-| `MarkView/Models/WindowTheme.swift` | `WindowTheme`: one per window (owned by `WorkspaceManager`); sets `NSWindow.appearance`, publishes the palette, builds the web payload; `SystemAppearance` follows macOS |
-| `MarkView/Views/AppPalette.swift` | `AppPalette` (SwiftUI colours of a `ThemePalette`), the `\.palette` environment value, `.windowThemed(_:)`, `WindowThemeHost` |
-| `MarkView/Views/ThemePickerView.swift` | The picker popover (themes, accent swatches, colour well) and `.themePicker(_:)` |
-| `MarkView/Views/PanelTabButton.swift` | `Color(hex:)`, `PanelTabButton` |
-| `MarkView/Models/FrontMatter.swift` | `YAMLValue`, `FrontMatter` (order-preserving YAML subset parser/writer with a `isLossless` flag) |
-| `MarkView/Models/FileTransfer.swift` | Non-overwriting move/copy with "name 2" naming |
-| `MarkView/Models/FilterSearch.swift` | AI filter: criterion to search terms (one cached CLI call) plus local scoring |
+| `MarkView/Views/Workspace/ContentView.swift` | Window root: three-pane `HSplitView`, toolbar, welcome screen, drop target, open-request draining, last-folder restore, `AIToolbarMenu`, `AIToolsMenuItems` |
+| `MarkView/Models/Workspace/WorkspaceManager.swift` (3766 lines) | `WorkspaceFileTreeStore`, `WorkspaceTabsStore`, `WorkspaceAITool`, `WorkspaceManager` (workspace state, tab operations, bridge-action dispatch, translation, Insight export, terminals, GitHub glue, AI prompts) |
+| `MarkView/Models/Workspace/FileNode.swift` | `FileNode` tree node, `FileTreeSortField` / `FileTreeSortOrder` |
+| `MarkView/Models/Workspace/DocumentState.swift` | `FileType` (extension to viewer/language map), `HeadingItem`, `TabKind`, `GitHubItem`, `OpenTab` |
+| `MarkView/Views/Workspace/FileTreeView.swift` | File browser pane (left panel "Files" mode) |
+| `MarkView/Views/Workspace/TabBarView.swift` | Tab strip, tab menu, drag reorder, horizontal wheel scrolling |
+| `MarkView/Views/Workspace/TOCView.swift` | Right panel tabs; `WorkspaceSearchView` (FTS search) |
+| `MarkView/Views/Architecture/DiagnosticsBarView.swift` | Status bar: active block and structural-index progress |
+| `MarkView/Views/Workspace/ImageViewerView.swift` | Image tab: `ImageCanvasController`, `ImageCanvasView` (pan/zoom/drop) |
+| `MarkView/Views/Workspace/DDESettingsView.swift` | DDE Settings window: OpenAI key, assistant/model, CLI paths, extra PATH, usage chips, Whisper test, GitHub section, metadata maintenance |
+| `MarkView/Models/Appearance/AppTheme.swift` | Foundation-only theme model: `ThemeColor` (contrast maths), `AppTheme` (System, Classic Dark/Light, Darcula, Midnight, Graphite, Tokyo Night, Carbon Red, Nord, Forest, Paper, Daylight), `ThemePalette` (native tokens), `WindowThemeSettings` (theme + accent per theme), `ThemeSettingsStore` (legacy `theme` migration, last change for new windows). Checked by `tools/tests/theme-model-tests.sh` |
+| `MarkView/Models/Workspace/WindowUIState.swift`, `MarkView/Views/Workspace/WindowStorage.swift` | `WindowUIState` (one per window, owned by `WorkspaceManager.windowUI`; values saved in the window session) and the `@WindowStorage` property wrapper that reads it |
+| `MarkView/Models/Workspace/EditorWindowPrefs.swift`, `MarkView/Models/Workspace/ExcludedFolders.swift` | The editor page's per-window choices (script for the page, key allow-list); a project's excluded folders keyed by its full path |
+| `MarkView/Models/Appearance/WindowTheme.swift` | `WindowTheme`: one per window (owned by `WorkspaceManager`); sets `NSWindow.appearance`, publishes the palette, builds the web payload; `SystemAppearance` follows macOS |
+| `MarkView/Views/Appearance/AppPalette.swift` | `AppPalette` (SwiftUI colours of a `ThemePalette`), the `\.palette` environment value, `.windowThemed(_:)`, `WindowThemeHost` |
+| `MarkView/Views/Appearance/ThemePickerView.swift` | The picker popover (themes, accent swatches, colour well) and `.themePicker(_:)` |
+| `MarkView/Views/Workspace/PanelTabButton.swift` | `Color(hex:)`, `PanelTabButton` |
+| `MarkView/Models/Workspace/FrontMatter.swift` | `YAMLValue`, `FrontMatter` (order-preserving YAML subset parser/writer with a `isLossless` flag) |
+| `MarkView/Models/Workspace/FileTransfer.swift` | Non-overwriting move/copy with "name 2" naming |
+| `MarkView/Models/Workspace/FilterSearch.swift` | AI filter: criterion to search terms (one cached CLI call) plus local scoring |
 | `MarkView/Info.plist` | Document types (md, json, xml/plist/svg, yaml, canvas, folder), imported UTIs, usage strings, ATS |
 | `MarkView/MarkView.entitlements` / `MarkViewDebug.entitlements` | Sandbox off; audio input; Apple Events (release); network client (debug) |
 
@@ -92,7 +92,7 @@ Menu commands (`:215-297`):
 | X-Ray | ⌘4 | `openArchitecture()` |
 | DDE Settings... | ⇧⌘, | `openDDESettings()` (one cached `NSWindow`) |
 
-### 3.2 `ContentView` (`MarkView/Views/ContentView.swift`)
+### 3.2 `ContentView` (`MarkView/Views/Workspace/ContentView.swift`)
 
 - Owns `@StateObject WorkspaceManager` (one per window) (`:27`). It publishes the manager to menus through `.focusedSceneValue` (`:152-153`).
 - Layout: `LeftPanelView` (defined in `FeatureNavigatorView.swift`, switching between Files and Issues) | `TabBarView` + `EditorView` with overlays for terminal, image and GitHub tabs, then `DiagnosticsBarView`, or `welcomeView` | `TOCView` (`:35-87`).
@@ -103,7 +103,7 @@ Menu commands (`:215-297`):
 - `AIToolbarMenu` (the one AI menu of the toolbar: assistant, model, X-Ray model and the AI tools as submenus): `@AppStorage` for the backend, per-tool model and per-tool X-Ray model. It loads model options off the main thread with `Task.detached` and fetches ACP models on first use.
 - `AIToolsMenuItems` (the Diagrams, Prototype and Analysis submenus of the AI menu): diagram tools open the Graph Creator. Analysis tools go to `runAITool` or `startRecursiveInsight`.
 
-### 3.3 Workspace model (`MarkView/Models/WorkspaceManager.swift`)
+### 3.3 Workspace model (`MarkView/Models/Workspace/WorkspaceManager.swift`)
 
 | Type | Isolation | Responsibility |
 |---|---|---|
@@ -128,7 +128,7 @@ Important `WorkspaceManager` state:
 | `semanticRefreshVersion` | Counter that forces a re-render (`:364`) |
 | `pendingGraphCreatorType`, `graphCreatorFolder`, `intake`, `fileTreeRevealRequest` | Sheet and reveal requests (`:366,2825,3224,1635`) |
 | `folderXRays` | `[scope: ArchitectureStore]` for folder X-Rays (`:1006`) |
-| `releaseInsightBlobsHook` | Closure set by `EditorView.Coordinator` (`:379`, `MarkView/Views/EditorView.swift:465`) |
+| `releaseInsightBlobsHook` | Closure set by `EditorView.Coordinator` (`:379`, `MarkView/Views/Workspace/EditorView.swift:465`) |
 | `runningIndexers` (static), `structuralIndexer` (weak) | Keep the child `Process` alive until `terminationHandler` runs (`:2978-2981`) |
 
 Public operations, grouped:
@@ -141,7 +141,7 @@ Public operations, grouped:
 - **AI terminal**: `openAITerminal` `:3120`, `ensureAITerminal` `:3134`, `closeAITerminal` `:3139`, `restartAITerminal` `:3148`, `aiBackendChanged` / `aiModelChanged` `:3156-3180`, `sendToAssistant(_:submit:)` `:3188`, `openTerminal(in:)` `:3453`, `runAITool(named:)` `:2836`, `runGraphEdit` `:2848`.
 - **GitHub and features glue**: `openGitHubIssue` `:3209`, `openGitHubTab` `:3364`, `reviewPullRequest` `:3375`, `checkoutPullRequest` `:3382`, `fixInPullRequest` `:3404`, `startIssueWithAI` `:3417`, `fixRunWithAI` `:3440`, `startIntake(…)` `:3227-3259`, `implementWithAI` `:3264`, `fixBugWithAI` `:3277`, `intakeFinished` `:3287`, `runFeatureAction` `:3307`.
 
-### 3.4 Document and tab model (`MarkView/Models/DocumentState.swift`)
+### 3.4 Document and tab model (`MarkView/Models/Workspace/DocumentState.swift`)
 
 - `FileType` maps extensions and file names to a viewer or a CodeMirror language id. Helpers: `isSupported`, `isImage` (`UTType` conforms to `.image`), `isOpenable`, `from(url:)`, `codeLanguage(for:)` (`:6-124`). An unknown extension becomes `.markdown` (`:51`).
 - `TabKind`: `.file`, `.insight(InsightSession)`, `.architecture(scope:)`, `.terminal(UUID)`, `.image`, `.github(GitHubItem)`. `pullRequestScope = "#pr"` (`:141-156`).
@@ -169,7 +169,7 @@ Public operations, grouped:
 
 | Caller | Calls |
 |---|---|
-| `EditorView.Coordinator` / JS bridge (`MarkView/Views/EditorView.swift:265-962`) | `updateActiveTabContent`, `updateActiveTabHeadings`, `updateActiveHeading`, `updateActiveTabScrollPosition`, `setNotesView`, `handleCodeAction`, `handleArchitectureAction`, `openFile`, `openWikiLink`, `handleBlocksDelta`, `handleCursorBlockChange`, `translateDocument`, `runFeatureAction`, `openCanvasFileReference`, `codeNotesJSON`, all `didRequestInsight*`, and sets `releaseInsightBlobsHook` |
+| `EditorView.Coordinator` / JS bridge (`MarkView/Views/Workspace/EditorView.swift:265-962`) | `updateActiveTabContent`, `updateActiveTabHeadings`, `updateActiveHeading`, `updateActiveTabScrollPosition`, `setNotesView`, `handleCodeAction`, `handleArchitectureAction`, `openFile`, `openWikiLink`, `handleBlocksDelta`, `handleCursorBlockChange`, `translateDocument`, `runFeatureAction`, `openCanvasFileReference`, `codeNotesJSON`, all `didRequestInsight*`, and sets `releaseInsightBlobsHook` |
 | `LeftPanelView`, `FeaturePanelView`, `ModuleExplorerView`, `GitView`, `GitHubViews`, `TerminalView`, `GraphCreatorSheet`, `IntakeSheet` | `WorkspaceManager` as an `@EnvironmentObject` or passed in (list from grep of `workspaceManager.` under `MarkView/Views`) |
 | `TerminalSession.openFile` closure | `openFile(_:line:)` (`WorkspaceManager.swift:3125,3455`) |
 | `GitClient.onBranch`, `GitHubStore.onRepoChange` / `onPoll` | wired in `setUpGitHub` (`:3337-3339`) |
@@ -260,7 +260,7 @@ flowchart TD
 
 ### 5.2a Linked folders (Task 59)
 
-- `LinkedFolders` (`Models/LinkedFolders.swift`) keeps, per project, the folders attached as aliases: local
+- `LinkedFolders` (`Models/Workspace/LinkedFolders.swift`) keeps, per project, the folders attached as aliases: local
   settings under `project.linkedFolders[<project key>]` (JSON `[LinkedFolder]`: canonical path, unique name,
   date), never a file in the project. A folder can be linked when it exists, is not the project, not inside
   it, does not contain it, and is not nested with another linked folder either way.
@@ -339,20 +339,20 @@ flowchart TD
 | `workspace.lastFolder` | String (standardized path) | `WorkspaceManager.lastFolderKey` `:449`; set `:452`, removed `:1424`, read `ContentView.swift:204` |
 | `layout.showTOC` | Bool | `WorkspaceManager.showTOC`. `showFileTree` (the left panel) is not stored globally: it starts `false` in every window and is restored from the window's session (`restoreWindowState`) |
 | `fileTree.sortField` (`"Name"`/`"Date Modified"`), `fileTree.sortAscending` | String, Bool | `WorkspaceManager.swift:13-14,28-34` |
-| `excludedFolders.<standardized root path>` | [String] relative paths; a list saved under `excludedFolders.<folder name>` is copied to the new key once | `Models/ExcludedFolders.swift`, used by `WorkspaceFileTreeStore` |
-| `project.linkedFolders` | [project key: Data (JSON `[LinkedFolder]`)] | `LinkedFolders.load/save` (`Models/LinkedFolders.swift`) |
+| `excludedFolders.<standardized root path>` | [String] relative paths; a list saved under `excludedFolders.<folder name>` is copied to the new key once | `Models/Workspace/ExcludedFolders.swift`, used by `WorkspaceFileTreeStore` |
+| `project.linkedFolders` | [project key: Data (JSON `[LinkedFolder]`)] | `LinkedFolders.load/save` (`Models/Workspace/LinkedFolders.swift`) |
 | `layout.navigatorTab` | `TOCView.Tab` raw (`Contents`…`Feature`) | `PanelLayout.navigatorTab`; set by `TOCView`, `showAIConsole`, `intakeFinished`, `runFeatureAction` |
 | `layout.leftPanel` (`files`/`issues`), `layout.issuesFeature` | String | `PanelLayout.leftPanel` / `.issuesFeature`; `FeatureNavigatorView.swift`, `intakeFinished` |
 | `feature.stage` (`FeatureStage.storageKey`) | String | `PanelLayout.featureStage`; `FeaturePanelView`, `intakeFinished` |
 
-These four are per-window state: `WorkspaceManager.layout` (`Models/PanelLayout.swift`) reads them once when the
+These four are per-window state: `WorkspaceManager.layout` (`Models/Workspace/PanelLayout.swift`) reads them once when the
 window opens and writes each change back only to seed the next window and relaunch. Views observe the window's
 `PanelLayout`, never the keys. `@AppStorage` would switch every window at once (BUG-004).
 
 Everything else a window shows of itself (expanded sections, panel widths, the Search mode, the Files view and filters, the
 Prototype and UI Studio widths, the interface text size the GitHub viewers follow) lives in `WorkspaceManager.windowUI`
-(`Models/WindowUIState.swift`), a per-window dictionary that `ContentView` puts in the environment. Views declare
-`@WindowStorage("key") var x = default` (`Views/WindowStorage.swift`), the same call as `@AppStorage` with the sharing taken
+(`Models/Workspace/WindowUIState.swift`), a per-window dictionary that `ContentView` puts in the environment. Views declare
+`@WindowStorage("key") var x = default` (`Views/Workspace/WindowStorage.swift`), the same call as `@AppStorage` with the sharing taken
 out. The window saves the dictionary in `WorkspaceWindowState.uiState`; UserDefaults gets each change only as the starting value
 of the next window, which takes a snapshot of those values when it is created and never reads the keys again. Divider
 positions kept by AppKit views are written with `publishing: false` (no redraw per drag frame). Other per-window rules:

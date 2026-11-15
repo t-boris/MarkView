@@ -69,7 +69,7 @@ These are not architecture work. They are small, concrete and several are securi
 
 ### AR-14 `WorkspaceManager` is a god object and still growing (critical, L)
 
-- `MarkView/Models/WorkspaceManager.swift`: 5,851 lines (3,766 when the risk register was written, +55%), 49 `@Published`, about 83 stored properties, about 290 methods, 19 stores built in property initializers, 20 of the 34 alert and panel call sites in Models.
+- `MarkView/Models/Workspace/WorkspaceManager.swift`: 5,851 lines (3,766 when the risk register was written, +55%), 49 `@Published`, about 83 stored properties, about 290 methods, 19 stores built in property initializers, 20 of the 34 alert and panel call sites in Models.
 - Named in 37 of 93 view files (62 `@EnvironmentObject`, 7 `@ObservedObject`, about 200 distinct members used) and in 27 model files. Six model types hold a weak back-reference to it; it references all 20 other domains. Every feature and the workspace form a dependency cycle.
 - Its `MARK` sections no longer describe their contents: "Moving and copying files" holds the X-Ray action dispatcher and tab closing; "GitHub" holds intake, research and implement-with-AI; "Prototype Studio" holds deployments, the Cockpit, QA and discussions.
 - One file compiles it in tests (as text, see AR-35). Tab closing, save, session save and restore, and opening a folder cannot be tested without the whole app.

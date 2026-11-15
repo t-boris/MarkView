@@ -66,4 +66,4 @@ MarkView 3.4.2 on macOS, X-Ray backend Codex with the X-Ray model `gpt-6-luna` a
 
 ## Suspected code
 
-- `MarkView/Models/ArchitectureStore.swift` — `analyze`, `mapDeployment`, `xrayCall`.
+- `MarkView/Models/Architecture/ArchitectureStore.swift` — `analyze`, `mapDeployment`, `xrayCall`.

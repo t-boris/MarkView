@@ -47,7 +47,7 @@ open -n -a /tmp/MarkViewDerivedData/Build/Products/Debug/MarkView.app TestFiles/
 - `open -n` with the DerivedData app together with the debug log is the verification method
   from `tasks/lessons.md:196-197`.
 - On launch the app reopens the last folder (`workspace.lastFolder`,
-  `MarkView/Models/WorkspaceManager.swift:447`). Before any scripted UI action, confirm that the
+  `MarkView/Models/Workspace/WorkspaceManager.swift:447`). Before any scripted UI action, confirm that the
   key window shows your fixture, not the user's workspace (`tasks/lessons.md:208-211`).
 - Stopping a test instance: in the **same** command, find the PID whose `ps -o command=`
   path is your build (for example `build/release/MarkView.app`) and kill only that one. Never
@@ -96,7 +96,7 @@ The app does **not** use `Logger` / `os_log` subsystems or categories: there is 
 
 | Channel | Location | Written by | Line prefix |
 |---|---|---|---|
-| Debug file log | `~/markview_debug.log` (appends, never rotated) | `WorkspaceManager.debugLog` (`MarkView/Models/WorkspaceManager.swift:436-446`), `[FileTree]` (`:192-203`), `[NSApp]` (`MarkView/App/MarkViewApp.swift:16-26`), `[AppDelegate]` (`:75-85`), `[Static]` (`:329-339`), indexer exit (`WorkspaceManager.swift:3020-3023`) | ISO-8601 timestamp, then tag |
+| Debug file log | `~/markview_debug.log` (appends, never rotated) | `WorkspaceManager.debugLog` (`MarkView/Models/Workspace/WorkspaceManager.swift:436-446`), `[FileTree]` (`:192-203`), `[NSApp]` (`MarkView/App/MarkViewApp.swift:16-26`), `[AppDelegate]` (`:75-85`), `[Static]` (`:329-339`), indexer exit (`WorkspaceManager.swift:3020-3023`) | ISO-8601 timestamp, then tag |
 | Insight diagnostics | `/tmp/markview-insight-diag.log`, plus stderr and NSLog | `WebViewBridge.logInsightDiag` (`MarkView/Bridge/WebViewBridge.swift:458-477`) | `[InsightDiag]` |
 | `NSLog` (unified log, no subsystem) | Console.app / `log` | 111 calls. Tags: `[Insight]` 57, `[DDE]` 14, `[Whisper]` 6, `[StructuralIndexer]` 4, `[SemanticDB]` 2, `[Compiler]` 1, `[PDFExport]` 1 | tag in message |
 
@@ -107,7 +107,7 @@ tail -f ~/markview_debug.log
 ```
 
 - Web Inspector: `developerExtrasEnabled` is set on the editor web view
-  (`MarkView/Views/EditorView.swift:19`). Right-click the editor and choose Inspect Element.
+  (`MarkView/Views/Workspace/EditorView.swift:19`). Right-click the editor and choose Inspect Element.
 - Never log API keys or any part of them, only whether a key exists and its length
   (`tasks/lessons.md:177-179`, `CLAUDE.md` Working Rules).
 
@@ -117,16 +117,16 @@ Quit the instance you are resetting first. Never reset the user's live app witho
 
 | State | Location | Source |
 |---|---|---|
-| Preferences (layout, theme, sort order, AI backend, CLI extra PATH, GitHub settings, Whisper model, custom AI filters, last folder) | UserDefaults domain `com.markview.MarkView` | bundle id `project.pbxproj:584`. Keys include `layout.*`, `settings.ai.backend`, `settings.cli.extraPATH` (`MarkView/Models/AIAssistants.swift:219`), `settings.github.*`, `settings.whisper.model`, `ai.customFilters`, `workspace.lastFolder` |
-| OpenAI API key (Whisper, embeddings), stored in plain text | same domain, key `com.markview.dde.openai.apikey` | `MarkView/Models/WhisperClient.swift:26`, `MarkView/Models/EmbeddingClient.swift:125` |
-| Per-folder index (SQLite + FTS5), caches, overlays | `<folder>/.dde/` (`state.db`, `cache/`, `overlays/`), git-ignored (`.gitignore:34-35`) | `MarkView/Models/SemanticDatabase.swift:12-31` |
+| Preferences (layout, theme, sort order, AI backend, CLI extra PATH, GitHub settings, Whisper model, custom AI filters, last folder) | UserDefaults domain `com.markview.MarkView` | bundle id `project.pbxproj:584`. Keys include `layout.*`, `settings.ai.backend`, `settings.cli.extraPATH` (`MarkView/Models/AI/AIAssistants.swift:219`), `settings.github.*`, `settings.whisper.model`, `ai.customFilters`, `workspace.lastFolder` |
+| OpenAI API key (Whisper, embeddings), stored in plain text | same domain, key `com.markview.dde.openai.apikey` | `MarkView/Models/Dictation/WhisperClient.swift:26`, `MarkView/Models/Insight/EmbeddingClient.swift:125` |
+| Per-folder index (SQLite + FTS5), caches, overlays | `<folder>/.dde/` (`state.db`, `cache/`, `overlays/`), git-ignored (`.gitignore:34-35`) | `MarkView/Models/Insight/SemanticDatabase.swift:12-31` |
 | Index fallback when `.dde/` cannot be created | `~/Library/Application Support/MarkView/<folder-name>/` | `SemanticDatabase.swift:21-26` |
 | Recent files | `~/Library/Application Support/MarkView/recentFiles.json` | `WorkspaceManager.swift:403-406` |
-| Lifecycle events (append-only, shared by all windows) | `~/Library/Application Support/MarkView/lifecycle-events.jsonl` | `MarkView/Models/LifecycleLog.swift:23-24` |
-| CLI login helpers | `~/Library/Application Support/MarkView/login-*.command` | `AIAssistants.swift:496-498`, `MarkView/Views/GitHubViews.swift:1406-1408` |
-| PR X-Ray file copies | `~/Library/Caches/MarkView/pull-requests/<hash>/<label>/` | `MarkView/Models/ArchitectureStore.swift:1943-1947` |
-| Pasted terminal images | `~/Library/Caches/MarkView/pasted-images/` | `MarkView/Models/TerminalSession.swift:349-350` |
-| Temp files | `$TMPDIR/markview-cli/` (empty cwd for CLI runs), `$TMPDIR/insight-v1-compat/`, `$TMPDIR/markview_whisper_<uuid>.wav` | `MarkView/Models/CLICompletion.swift:167-171`, `MarkView/Models/InsightSession.swift:312-313`, `WhisperClient.swift:97` |
+| Lifecycle events (append-only, shared by all windows) | `~/Library/Application Support/MarkView/lifecycle-events.jsonl` | `MarkView/Models/Lifecycle/LifecycleLog.swift:23-24` |
+| CLI login helpers | `~/Library/Application Support/MarkView/login-*.command` | `AIAssistants.swift:496-498`, `MarkView/Views/Git/GitHubViews.swift:1406-1408` |
+| PR X-Ray file copies | `~/Library/Caches/MarkView/pull-requests/<hash>/<label>/` | `MarkView/Models/Architecture/ArchitectureStore.swift:1943-1947` |
+| Pasted terminal images | `~/Library/Caches/MarkView/pasted-images/` | `MarkView/Models/Terminal/TerminalSession.swift:349-350` |
+| Temp files | `$TMPDIR/markview-cli/` (empty cwd for CLI runs), `$TMPDIR/insight-v1-compat/`, `$TMPDIR/markview_whisper_<uuid>.wav` | `MarkView/Models/AI/CLICompletion.swift:167-171`, `MarkView/Models/Insight/InsightSession.swift:312-313`, `WhisperClient.swift:97` |
 | Legacy sandbox container | `~/Library/Containers/com.markview.MarkView/` (from before the sandbox was turned off) | `install.sh:18` |
 
 Resets:

@@ -69,10 +69,10 @@ MarkView native macOS app (macOS 13+), left sidebar Issues panel, Date → Newes
 
 ## Suspected code
 
-- `MarkView/Models/IssueListing.swift` — Computes the effective date, parses front matter dates, and compares items in descending order with title and ID tie breakers.
-- `MarkView/Models/FeatureModels.swift` — Supplies feature and bug front matter dates and file modification times to the comparator.
-- `MarkView/Views/FeatureNavigatorView.swift` — Binds the selected Date → Newest First mode and sorts Features and Bugs separately before display.
-- `MarkView/Models/FeatureStore.swift` — Loads and refreshes issue models and persists the per-project sort selection; relevant if the displayed data or selected mode is stale.
+- `MarkView/Models/Lifecycle/IssueListing.swift` — Computes the effective date, parses front matter dates, and compares items in descending order with title and ID tie breakers.
+- `MarkView/Models/Lifecycle/FeatureModels.swift` — Supplies feature and bug front matter dates and file modification times to the comparator.
+- `MarkView/Views/Lifecycle/FeatureNavigatorView.swift` — Binds the selected Date → Newest First mode and sorts Features and Bugs separately before display.
+- `MarkView/Models/Lifecycle/FeatureStore.swift` — Loads and refreshes issue models and persists the per-project sort selection; relevant if the displayed data or selected mode is stale.
 - `docs/features/issues-panel-status-filters-sorting-status-display-and/requirements/REQ-002.md` — Defines the expected date key and fallback order used to assess the report.
 
 ## Likely causes

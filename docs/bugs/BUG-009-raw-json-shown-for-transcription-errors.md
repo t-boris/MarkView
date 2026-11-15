@@ -53,9 +53,9 @@ MarkView native macOS app (macOS 13+), in a New Bug or New Feature intake form. 
 
 ## Suspected code
 
-- `MarkView/Models/WhisperClient.swift` — For a non-200 response, constructs the published error from the HTTP status, selected model, and first 300 characters of the raw response body.
-- `MarkView/Models/DictationController.swift` — On failed transcription, copies WhisperClient.error into the intake field’s inline message.
-- `MarkView/Views/DictationViews.swift` — Renders the inline message directly; its only contextual recovery button is for denied microphone access.
+- `MarkView/Models/Dictation/WhisperClient.swift` — For a non-200 response, constructs the published error from the HTTP status, selected model, and first 300 characters of the raw response body.
+- `MarkView/Models/Dictation/DictationController.swift` — On failed transcription, copies WhisperClient.error into the intake field’s inline message.
+- `MarkView/Views/Dictation/DictationViews.swift` — Renders the inline message directly; its only contextual recovery button is for denied microphone access.
 
 ## Likely causes
 

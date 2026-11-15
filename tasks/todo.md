@@ -68,8 +68,8 @@ Reading of the request (to confirm): "themes" = window appearances in the theme 
 
 Final hex values are tuned by the existing contrast checks (body text and accent >= 4.5 on bg and sidebar), not guessed.
 
-- [ ] `Models/AppTheme.swift`: three cases, `displayName`, `summary`, `isPreset`, `isDark`, `webID`, `pickerChoices`, one `Base` palette each. Stored name of an unknown theme already falls back to Classic Dark, so no migration.
-- [ ] `Resources/Editor/vendor/js/markview-themes.js`: base + `t` + `syn` + `struct` + `term` tokens per theme (the web editor, code colours, terminal).
+- [ ] `Models/Appearance/AppTheme.swift`: three cases, `displayName`, `summary`, `isPreset`, `isDark`, `webID`, `pickerChoices`, one `Base` palette each. Stored name of an unknown theme already falls back to Classic Dark, so no migration.
+- [ ] `Resources/Editor/js/markview-themes.js`: base + `t` + `syn` + `struct` + `term` tokens per theme (the web editor, code colours, terminal).
 - [ ] `tools/tests`: add the three to `ThemeModelTests` (presets), `ThemeWebTests` (Look list, compares Swift and JS base colours), `WindowThemeTests` (list).
 - [ ] Docs: `docs/architecture/modules/app-shell-and-workspace.md`, `editor-and-bridge.md`, README theme list.
 
@@ -83,8 +83,8 @@ Final hex values are tuned by the existing contrast checks (body text and accent
 
 Spare ideas: Snowfall, Paper Planes, Fireflies, Rainy Window.
 
-- [ ] `Models/WelcomeBackdrop.swift`: cases `gitflow`, `deepsea`, `warp`, `typewriter` with title and symbol, added to `animated` (so Shuffle includes them). By Project rules stay as they are.
-- [ ] `Views/BackdropLayerBuilders.swift`: dispatch; new files `Views/DevBackdropLayers.swift` (Git Flow, Typewriter) and `Views/AtmosphereBackdropLayers.swift` (Deep Sea, Warp) (project.yml and `MarkView.xcodeproj` kept aligned) with the four builders as a `BackdropBuilder` extension, `detail` 1...4 respected.
+- [ ] `Models/Appearance/WelcomeBackdrop.swift`: cases `gitflow`, `deepsea`, `warp`, `typewriter` with title and symbol, added to `animated` (so Shuffle includes them). By Project rules stay as they are.
+- [ ] `Views/Appearance/BackdropLayerBuilders.swift`: dispatch; new files `Views/Appearance/DevBackdropLayers.swift` (Git Flow, Typewriter) and `Views/Appearance/AtmosphereBackdropLayers.swift` (Deep Sea, Warp) (project.yml and `MarkView.xcodeproj` kept aligned) with the four builders as a `BackdropBuilder` extension, `detail` 1...4 respected.
 - [ ] Background pill/menu picks the new cases up from `allCases`; check that the menu stays one screen tall.
 - [ ] `tools/tests/WelcomeScreenTests.swift`: new scenes in the dark / light / narrow checks, presentation-layer motion, changing rendered frames, layer-count bound, click-through, Reduce Motion.
 - [ ] `docs/architecture/modules/welcome-backdrops.md` (nine -> thirteen), README.
@@ -216,7 +216,7 @@ Boris, dictated: (1) the toolbar buttons of singleton tabs (Git, Build & Deploym
 
 - [x] Docs: DEC-028 (proposed), REQ-009 (draft), REQ-008 updated, in `copilot-cockpit`.
 - [x] Toolbar: `open` mark next to `selected` in `ContentView.workspaceHeader` for the 7 singleton buttons; Browser and New Prototype unchanged; accessibility value "open"/"current". Checked in the real app (S17): all six states (none open, current, current + open, hidden behind Tasks, re-chosen, closed).
-- [x] Readings: `Models/CockpitInstruments.swift` (Foundation only) + `tools/tests/cockpit-instruments-tests.sh`.
+- [x] Readings: `Models/Cockpit/CockpitInstruments.swift` (Foundation only) + `tools/tests/cockpit-instruments-tests.sh`.
 - [x] Levers: `CockpitLiveSwitches` (cuts only), `CockpitStepPolicy.narrowed(by:)`, registry evaluates the narrowed policy on every call, supervisor checks its cut, `CockpitExecution.setSwitches`, event kind `switched`; checks in `cockpit-policy-tests.sh` and `cockpit-run-tests.sh`.
 - [x] Notes: `CockpitRun.notes`, event kind `note`, supervisor prompt block, next-step briefing, `DictationInput` field.
 - [x] Views: `CockpitInstrumentPanel`, `CockpitFlightPath` (replaces the flow strip), `CockpitLeverPanel`; the four role cards removed, their facts moved; saved runs parked; labels kept for `tools/tests/cockpit-e2e` and `scenarios.py` updated.

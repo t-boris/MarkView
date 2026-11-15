@@ -72,9 +72,9 @@ MarkView native macOS app (macOS 13+), X-Ray Logical view, bundled Cytoscape/ELK
 
 ## Suspected code
 
-- `MarkView/Resources/Editor/vendor/js/markview-architecture.js` — The expansion handler updates the expanded set and calls render; render rebuilds nodes and edges and reruns ELK. Per-container link density selects rectangle packing or rightward layered layout, followed by a fit animation around the expanded node.
-- `MarkView/Models/ArchitectureStore.swift` — applyLogical assigns files to components, optionally inserts folder parents, and maps module edges into Logical view. This defines the child graph and link density used by the layout.
-- `MarkView/Models/XRayCluster.swift` — Cluster construction is a secondary lead only if the affected snapshot shows files assigned to the wrong components; that has not been established.
+- `MarkView/Resources/Editor/js/markview-architecture.js` — The expansion handler updates the expanded set and calls render; render rebuilds nodes and edges and reruns ELK. Per-container link density selects rectangle packing or rightward layered layout, followed by a fit animation around the expanded node.
+- `MarkView/Models/Architecture/ArchitectureStore.swift` — applyLogical assigns files to components, optionally inserts folder parents, and maps module edges into Logical view. This defines the child graph and link density used by the layout.
+- `MarkView/Models/Architecture/XRayCluster.swift` — Cluster construction is a secondary lead only if the affected snapshot shows files assigned to the wrong components; that has not been established.
 
 ## Likely causes
 
