@@ -26,17 +26,22 @@ check(!fm.fileExists(atPath: root.appendingPathComponent("EDITOR_IMPLEMENTATION.
 check(!fm.fileExists(atPath: root.appendingPathComponent("QUICKSTART.md").path),
       "AR-30: QUICKSTART.md is removed")
 
-// 2. AR-46 / DEC-005: setup.sh and project.yml deleted; bump-version.sh & release.sh read project.pbxproj
+// 2. AR-46 / DEC-005 / FU-06: setup.sh and project.yml deleted; bump-version.sh, release.sh, & publish-release.yml read project.pbxproj
 check(!fm.fileExists(atPath: root.appendingPathComponent("setup.sh").path),
       "AR-46: setup.sh is removed")
 check(!fm.fileExists(atPath: root.appendingPathComponent("project.yml").path),
       "AR-46: project.yml is removed")
+check(!fm.fileExists(atPath: root.appendingPathComponent("MarkView/Core").path),
+      "FU-04: duplicate MarkView/Core/ directory removed in favor of Packages/MarkViewCore")
 let bumpScript = (try? String(contentsOf: root.appendingPathComponent("bump-version.sh"), encoding: .utf8)) ?? ""
 let releaseScript = (try? String(contentsOf: root.appendingPathComponent("release.sh"), encoding: .utf8)) ?? ""
+let publishWorkflow = (try? String(contentsOf: root.appendingPathComponent(".github/workflows/publish-release.yml"), encoding: .utf8)) ?? ""
 check(!bumpScript.contains("project.yml") && bumpScript.contains("project.pbxproj") && bumpScript.contains("marketing_count"),
       "AR-46/AR-47: bump-version.sh reads and verifies MARKETING_VERSION in project.pbxproj")
 check(!releaseScript.contains("project.yml") && releaseScript.contains("project.pbxproj"),
       "AR-46: release.sh reads MARKETING_VERSION from project.pbxproj")
+check(!publishWorkflow.contains("project.yml") && publishWorkflow.contains("MarkView.xcodeproj/project.pbxproj"),
+      "FU-06: publish-release.yml reads MARKETING_VERSION from project.pbxproj without project.yml")
 
 // 3. AR-47 / AR-48: install.sh, tools/importance-check.sh, dead compiler/model files, and dead bridge methods removed
 check(!fm.fileExists(atPath: root.appendingPathComponent("install.sh").path),
@@ -77,12 +82,26 @@ check(fm.fileExists(atPath: root.appendingPathComponent("THIRD_PARTY_NOTICES.md"
       fm.fileExists(atPath: root.appendingPathComponent(".editorconfig").path),
       "AR-47: THIRD_PARTY_NOTICES.md and .editorconfig exist")
 
-// 6. AR-44 step 1: tools/tests/manifest.json and tools/tests/run.sh exist and list > 160 suites
+// 6. AR-44 step 1 & FU-07: tools/tests/manifest.json has accurate suiteCount, valid paths, and executable tools/tests/run.sh
 let manifestData = (try? Data(contentsOf: root.appendingPathComponent("tools/tests/manifest.json"))) ?? Data()
 let manifestObj = (try? JSONSerialization.jsonObject(with: manifestData)) as? [String: Any]
+let declaredCount = manifestObj?["suiteCount"] as? Int ?? -1
 let suites = manifestObj?["suites"] as? [[String: Any]] ?? []
-check(suites.count >= 160 && fm.isExecutableFile(atPath: root.appendingPathComponent("tools/tests/run.sh").path),
-      "AR-44 step 1: tools/tests/manifest.json (\(suites.count) suites) and executable tools/tests/run.sh exist")
+check(suites.count >= 160 && declaredCount == suites.count && fm.isExecutableFile(atPath: root.appendingPathComponent("tools/tests/run.sh").path),
+      "AR-44/FU-07: tools/tests/manifest.json suiteCount (\(declaredCount)) matches suites.count (\(suites.count)) and run.sh is executable")
+var missingPaths: [String] = []
+for s in suites {
+    if let script = s["script"] as? String, !fm.fileExists(atPath: root.appendingPathComponent(script).path) {
+        missingPaths.append(script)
+    }
+    for src in (s["sources"] as? [String] ?? []) {
+        if !fm.fileExists(atPath: root.appendingPathComponent(src).path) {
+            missingPaths.append(src)
+        }
+    }
+}
+check(missingPaths.isEmpty,
+      "FU-07: every script and source path in tools/tests/manifest.json exists on disk (\(missingPaths))")
 
 print("\nPhase 1 cleanup checks: \(passed) passed, \(failed) failed")
 if failed > 0 { exit(1) }

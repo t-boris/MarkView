@@ -13,7 +13,7 @@ func check(_ condition: Bool, _ label: String) {
     }
 }
 
-print("=== Phase 6 Storage, SQLite, Control Socket Auth & Concurrency Tests (AR-36..AR-43) ===")
+print("=== Phase 6 Storage, Schema Versioning, Control Socket Auth & Concurrency Tests (AR-36..AR-43, FU-03, FU-04) ===")
 
 struct SamplePreferencesRecord: Codable, Equatable {
     var recentPaths: [String]
@@ -26,7 +26,7 @@ func runPhase6Tests() async {
     try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: tempDir) }
 
-    // 1. AR-36 & AR-39: SchemaVersionedStore and StoreLoadResult
+    // 1. AR-36, AR-39 & FU-04: SchemaVersionedStore, non-clobbering corrupt backups, and downgrade refusal
     let store = SchemaVersionedStore<SamplePreferencesRecord>(currentSchemaVersion: 2, backupCorruptedOnSave: true)
     let fileURL = tempDir.appendingPathComponent("prefs.json")
 
@@ -48,15 +48,22 @@ func runPhase6Tests() async {
         check(false, "AR-36: SchemaVersionedStore transparently loads legacy unversioned JSON")
     }
 
-    // Corrupted file detection & .corrupt backup before atomic save
-    try! Data("{broken json".utf8).write(to: fileURL)
+    // Corrupted file detection & multiple non-clobbering .corrupt-<timestamp>-<suffix> backups
+    let updatedRecord = SamplePreferencesRecord(recentPaths: ["/tmp/a", "/tmp/b"], maxItems: 25)
+    try! Data("{broken json 1".utf8).write(to: fileURL)
     let corruptResult = store.load(from: fileURL)
     check(corruptResult.isCorrupted, "AR-36: StoreLoadResult distinguishes .corrupted from .missing")
+    try! store.save(updatedRecord, to: fileURL, permissions: 0o600)
 
-    let updatedRecord = SamplePreferencesRecord(recentPaths: ["/tmp/a", "/tmp/b"], maxItems: 25)
-    try! store.save(updatedRecord, to: fileURL)
-    let backupURL = fileURL.appendingPathExtension("corrupt")
-    check(FileManager.default.fileExists(atPath: backupURL.path), "AR-36: SchemaVersionedStore backs up corrupted file to .corrupt before overwriting")
+    try! Data("{broken json 2".utf8).write(to: fileURL)
+    try! store.save(updatedRecord, to: fileURL, permissions: 0o600)
+    let backups = ((try? FileManager.default.contentsOfDirectory(atPath: tempDir.path)) ?? [])
+        .filter { $0.hasPrefix("prefs.json.corrupt-") }
+    check(backups.count == 2,
+          "FU-04: SchemaVersionedStore preserves non-clobbering timestamped .corrupt backups across repeated failures")
+
+    let perms = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0
+    check(perms == 0o600, "AR-39/FU-04: SchemaVersionedStore writes private files atomically with 0o600 permissions")
 
     let savedResult = store.load(from: fileURL)
     if case .loaded(let val, let version) = savedResult {
@@ -65,41 +72,59 @@ func runPhase6Tests() async {
         check(false, "AR-36: SchemaVersionedStore writes and reloads schemaVersion 2 envelope")
     }
 
-    // 2. AR-37 & AR-38: Off-main-thread SemanticDatabaseExecutor actor & ordered PRAGMA user_version migrations
-    let dbPath = tempDir.appendingPathComponent("test.db").path
-    let migrations: [SQLiteMigration] = [
-        SQLiteMigration(version: 1, name: "create_items", statements: [
-            "CREATE TABLE items (id INTEGER PRIMARY KEY, title TEXT NOT NULL)"
-        ]),
-        SQLiteMigration(version: 2, name: "seed_item", statements: [
-            "INSERT INTO items (id, title) VALUES (1, 'First migrated item')"
-        ]),
-    ]
-    let executor = try! SemanticDatabaseExecutor(dbPath: dbPath, migrations: migrations)
-    let versionAfterInit = await executor.currentUserVersion()
-    check(versionAfterInit == 2, "AR-37 & AR-38: SemanticDatabaseExecutor applies numbered migrations and sets PRAGMA user_version = 2")
-    let itemCount = await executor.queryScalarInt("SELECT COUNT(*) FROM items")
-    check(itemCount == 1, "AR-37: SemanticDatabaseExecutor executes off-main-thread queries")
-    let migrationCount = await executor.queryScalarInt("SELECT COUNT(*) FROM schema_migrations")
-    check(migrationCount == 2, "AR-38: schema_migrations table records applied migration versions")
+    // Newer-schema downgrade protection (`FU-04`)
+    let futureURL = tempDir.appendingPathComponent("future-prefs.json")
+    let futurePayload = Data(#"{"schema":99,"updatedAt":"2026-11-15T00:00:00Z","data":{"recentPaths":[],"maxItems":1}}"#.utf8)
+    try! futurePayload.write(to: futureURL)
+    let newerLoad = store.load(from: futureURL)
+    check(newerLoad.isNewerSchema, "FU-04: SchemaVersionedStore returns .newerSchema when on-disk schema exceeds currentSchemaVersion")
+    var threwNewer = false
+    do {
+        try store.save(updatedRecord, to: futureURL)
+    } catch let err as SchemaStoreError {
+        if case .newerSchemaVersion(_, let found, let supported) = err, found == 99, supported == 2 {
+            threwNewer = true
+        }
+    } catch {}
+    let preservedFutureData = try? Data(contentsOf: futureURL)
+    check(threwNewer && preservedFutureData == futurePayload,
+          "FU-04: SchemaVersionedStore.save throws SchemaStoreError.newerSchemaVersion and leaves newer file untouched")
 
-    // 3. AR-40 & DEC-009: Control socket per-instance token & peer verification
+    // 2. AR-40, DEC-009 & FU-03: Control socket fail-closed constant-time token verification & file/env precedence
     let fakeSock = tempDir.appendingPathComponent("mv-browser-99999.sock").path
     let generatedToken = BrowserAgentTools.writeSocketToken(forSocket: fakeSock)
     check(generatedToken != nil && generatedToken?.count == 64, "AR-40: writeSocketToken generates 256-bit hex token")
     let tokenPath = BrowserAgentTools.tokenPath(forSocket: fakeSock)
-    let perms = (try? FileManager.default.attributesOfItem(atPath: tokenPath)[.posixPermissions] as? NSNumber)?.intValue ?? 0
-    check(perms == 0o600, "AR-40: Control socket token file is created with mode 0600")
+    let tokenPerms = (try? FileManager.default.attributesOfItem(atPath: tokenPath)[.posixPermissions] as? NSNumber)?.intValue ?? 0
+    check(tokenPerms == 0o600, "AR-40: Control socket token file is created with mode 0600")
     let readBack = BrowserAgentTools.readSocketToken(forSocket: fakeSock)
     check(readBack == generatedToken, "AR-40: readSocketToken reads back 0600 token file owned by current user")
+
+    setenv(BrowserAgentTools.controlTokenEnvKey, "env-fallback-token", 1)
+    defer { unsetenv(BrowserAgentTools.controlTokenEnvKey) }
+    check(BrowserAgentTools.readSocketToken(forSocket: fakeSock) == generatedToken,
+          "FU-03: readSocketToken prefers on-disk 0600 token file over MARKVIEW_CONTROL_TOKEN env var")
+
+    try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: tokenPath)
+    check(BrowserAgentTools.readSocketToken(forSocket: fakeSock) == nil,
+          "FU-03: readSocketToken rejects token file with group/world permissions even if env var is set")
+    try? FileManager.default.removeItem(atPath: tokenPath)
+    check(BrowserAgentTools.readSocketToken(forSocket: fakeSock) == "env-fallback-token",
+          "FU-03: readSocketToken falls back to MARKVIEW_CONTROL_TOKEN only when token file is absent")
+
+    check(!BrowserControlServer.verifyToken(nil, expected: nil), "FU-03: verifyToken fails closed when expected token is nil")
+    check(!BrowserControlServer.verifyToken("", expected: ""), "FU-03: verifyToken fails closed when expected token is empty")
+    check(!BrowserControlServer.verifyToken("anything", expected: ""), "FU-03: verifyToken rejects arbitrary token against empty expected")
     check(!BrowserControlServer.verifyToken(nil, expected: generatedToken), "AR-40: verifyToken rejects missing token when instance token is active")
     check(!BrowserControlServer.verifyToken("wrong", expected: generatedToken), "AR-40: verifyToken rejects mismatched token")
     check(BrowserControlServer.verifyToken(generatedToken, expected: generatedToken), "AR-40: verifyToken accepts matching per-instance token")
+    check(BrowserAgentTools.verifyToken(generatedToken, expected: generatedToken) && !BrowserAgentTools.verifyToken(nil, expected: nil),
+          "FU-03: BrowserAgentTools.verifyToken shares fail-closed constant-time semantics")
 
     let ancestors = BrowserAgentTools.ancestorPIDs(startingAt: getpid())
     check(ancestors.first == getpid(), "AR-40: ancestorPIDs(startingAt:) starts from kernel-verified peer PID")
 
-    // 4. AR-41..AR-43 & DEC-010: Info.plist ATS, cached hasMarkdownFiles, @MainActor TabStripScroller, and SWIFT_STRICT_CONCURRENCY
+    // 3. AR-41..AR-43 & DEC-010: Info.plist ATS, cached hasMarkdownFiles, @MainActor TabStripScroller, and SWIFT_STRICT_CONCURRENCY
     let plistText = (try? String(contentsOfFile: "MarkView/Info.plist", encoding: .utf8)) ?? ""
     check(plistText.contains("<key>NSAllowsArbitraryLoads</key>\n        <false/>"),
           "AR-41: Info.plist sets NSAllowsArbitraryLoads to false while preserving web content / local networking")

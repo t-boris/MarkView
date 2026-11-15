@@ -27,6 +27,7 @@ EOF
 cp "$ROOT/tools/tests/Phase5AITests.swift" "$out/main.swift"
 
 swiftc -o "$out/phase5-tests" \
+    "$ROOT"/Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     "$ROOT/MarkView/Models/AIAssistants.swift" \
     "$ROOT/MarkView/Models/AILayer.swift" \
     "$ROOT/MarkView/Models/ProjectColor.swift" \

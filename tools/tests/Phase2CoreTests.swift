@@ -72,7 +72,39 @@ let idB = ProjectPaths.projectCacheIdentifier(for: URL(fileURLWithPath: "/Users/
 check(idA != idB && idA.hasPrefix("app-"),
       "AR-24/AR-38: ProjectPaths.projectCacheIdentifier disambiguates identically named folders")
 
-// 4. AR-24: RotatingJSONLinesFile rotation
+// 4. AR-24 & FU-04: RotatingJSONLinesFile rotation + newline separation + pre-rename AtomicFile 0600 permissions
+let permURL = temp.appendingPathComponent("perm.secret")
+try? AtomicFile.write("secret-v1", to: permURL, permissions: 0o600)
+let perm1 = (try? FileManager.default.attributesOfItem(atPath: permURL.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0
+try? AtomicFile.write("secret-v2", to: permURL, permissions: 0o600)
+let perm2 = (try? FileManager.default.attributesOfItem(atPath: permURL.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0
+check(perm1 == 0o600 && perm2 == 0o600, "FU-04: AtomicFile.write sets 0600 permissions on initial write and atomic overwrite")
+
+let extraBinDir = temp.appendingPathComponent("extra-bin")
+try? FileManager.default.createDirectory(at: extraBinDir, withIntermediateDirectories: true)
+let toolScript = extraBinDir.appendingPathComponent("mv-phase2-probe")
+try? AtomicFile.write("#!/bin/sh\necho extra-path-ok\n", to: toolScript, permissions: 0o755)
+let extraSuite = "com.markview.phase2.extrapath.\(UUID().uuidString)"
+if let extraDefaults = UserDefaults(suiteName: extraSuite) {
+    defer { extraDefaults.removePersistentDomain(forName: extraSuite) }
+    extraDefaults.set(extraBinDir.path, forKey: Subprocess.extraPATHDefaultsKey)
+    let dirs = Subprocess.configuredExtraPATHDirectories(defaults: extraDefaults)
+    let resolvedViaExtra = Subprocess.resolveExecutable(
+        "mv-phase2-probe",
+        searchPaths: Subprocess.effectiveSearchPaths(extra: dirs)
+    )
+    check(resolvedViaExtra == toolScript.path,
+          "FU-04: Subprocess resolves executables from settings.cli.extraPATH")
+}
+
+let noTrailingNewline = temp.appendingPathComponent("notrailing.jsonl")
+try? Data("{\"first\":true}".utf8).write(to: noTrailingNewline)
+let jsonlNoNL = RotatingJSONLinesFile(url: noTrailingNewline, maxBytes: 4096)
+try? jsonlNoNL.appendLine("{\"second\":true}")
+let joinedLines = jsonlNoNL.readLines()
+check(joinedLines == ["{\"first\":true}", "{\"second\":true}"],
+      "FU-04: RotatingJSONLinesFile inserts newline before appending to a file without trailing newline")
+
 let jsonl = RotatingJSONLinesFile(url: temp.appendingPathComponent("log.jsonl"), maxBytes: 1024)
 for i in 0..<50 {
     try? jsonl.appendLine("{\"i\":\(i),\"pad\":\"\(String(repeating: "a", count: 32))\"}")

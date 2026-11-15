@@ -46,24 +46,13 @@ jobs:
       - name: Run MarkViewCore Swift Package tests
         run: swift test --package-path Packages/MarkViewCore
 
-      - name: Run Architecture Review verification suites (Phases 0-7)
+      - name: Run pure regression test suite
+        run: ./tools/tests/run.sh --tier pure
+
+      - name: Run headless WebKit & window session regression suites
         run: |
           bash tools/tests/phase0-safety-tests.sh
-          bash tools/tests/phase1-cleanup-tests.sh
-          bash tools/tests/phase2-core-tests.sh
-          bash tools/tests/phase3-extensibility-tests.sh
-          bash tools/tests/phase4-shell-tests.sh
-          bash tools/tests/phase5-ai-tests.sh
-          bash tools/tests/phase6-storage-security-tests.sh
-          bash tools/tests/phase7-web-ci-tests.sh
-
-      - name: Run core regression suites
-        run: |
-          bash tools/tests/theme-model-tests.sh
           bash tools/tests/window-session-tests.sh
-          bash tools/tests/project-ai-choice-tests.sh
-          bash tools/tests/project-agent-tools-tests.sh
-          bash tools/tests/remote-browser-tests.sh
 
       - name: Restore build cache
         id: cache

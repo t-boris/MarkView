@@ -50,6 +50,14 @@ func runPhase5Tests() async {
     let decodedProse = try? AIJSONSalvage.decode(SampleDiagramPayload.self, from: proseWrapped)
     check(decodedProse == SampleDiagramPayload(title: "Pipeline", nodeCount: 7), "AR-26: AIJSONSalvage extracts outermost JSON braces from prose")
 
+    let rawObjText = "Here is the annotation:\n```json\n{\"summary\":\"Intro\",\"parts\":[{\"id\":\"p1\",\"count\":2}],\"ok\":true}\n```"
+    let rawObj = try? AIJSONSalvage.decode(AIRawJSONObject.self, from: rawObjText)
+    let rawParts = rawObj?.dictionary["parts"] as? [[String: Any]]
+    check(rawObj?.dictionary["summary"] as? String == "Intro" &&
+          rawObj?.dictionary["ok"] as? Bool == true &&
+          (rawParts?.first?["count"] as? Int) == 2,
+          "AR-26: AIRawJSONObject decodes arbitrary JSON objects for BookAnnotator/X-Ray AIOperation calls")
+
     // 3. AR-26: AIOperation executes, validates, and repairs invalid output automatically
     var attempts = 0
     var stages: [AIOperationStage] = []

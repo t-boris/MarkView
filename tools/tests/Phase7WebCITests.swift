@@ -1,4 +1,5 @@
 import Foundation
+import JavaScriptCore
 
 private var failures = 0
 
@@ -15,18 +16,23 @@ private func runPhase7WebCITests() {
     print("Phase 7 & Continuous — Web Bridge, mv-kit, CI Consolidation & Documentation Tests")
     let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 
-    // 1. AR-28 & AR-29: mv-kit.js provides window.mvKit and window.mvBridge
+    // 1. AR-28 & AR-29: mv-kit.js provides window.mvKit and window.mvBridge and executes real escaping + bridge send
     let mvKitPath = repoRoot.appendingPathComponent("MarkView/Resources/Editor/vendor/js/mv-kit.js")
     let mvKitSrc = (try? String(contentsOf: mvKitPath, encoding: .utf8)) ?? ""
     check(!mvKitSrc.isEmpty, "mv-kit.js exists in MarkView/Resources/Editor/vendor/js/ (AR-28, AR-29)")
-    check(
-        mvKitSrc.contains("global.mvKit =") && mvKitSrc.contains("global.mvBridge = mvBridge"),
-        "mv-kit.js exports window.mvKit and window.mvBridge (AR-28, AR-29)"
-    )
-    check(
-        mvKitSrc.contains("escapeHtml") && mvKitSrc.contains("attachPanZoom") && mvKitSrc.contains("send: function"),
-        "mv-kit.js defines shared escapeHtml, attachPanZoom, and mvBridge.send primitives (AR-28, AR-29)"
-    )
+
+    if let ctx = JSContext() {
+        ctx.evaluateScript("var window = this; var __sent = []; window.webkit = { messageHandlers: { bridge: { postMessage: function(m) { __sent.push(m); } } } };")
+        ctx.evaluateScript(mvKitSrc)
+        let escaped = ctx.evaluateScript("mvKit.escapeHtml(\"<script>'\\\"&\")")?.toString() ?? ""
+        let sendResult = ctx.evaluateScript("mvBridge.send('ping', { ok: true }); JSON.stringify(__sent);")?.toString() ?? ""
+        check(escaped == "&lt;script&gt;&#39;&quot;&amp;",
+              "mvKit.escapeHtml escapes HTML/attribute special characters at runtime (AR-29)")
+        check(sendResult.contains("\"type\":\"ping\"") && sendResult.contains("\"ok\":true"),
+              "mvBridge.send delivers structured JSON messages to webkit.messageHandlers.bridge (AR-28)")
+    } else {
+        check(false, "JavaScriptCore context initializes cleanly")
+    }
 
     // 2. HTML entry points load mv-kit.js and markview-bridge.js delegates to mvBridge
     for htmlName in ["index.html", "discussion.html", "book.html", "terminal.html"] {
@@ -45,7 +51,7 @@ private func runPhase7WebCITests() {
         "markview-bridge.js routes bridge calls through window.mvBridge.send when present (AR-28)"
     )
 
-    // 3. AR-45 & DEC-008: Unified ci.yml workflow with caching and concurrency cancel-in-progress: true
+    // 3. AR-45, DEC-008 & FU-06: Unified ci.yml workflow runs ./tools/tests/run.sh --tier pure and publish-release reads project.pbxproj
     let ciPath = repoRoot.appendingPathComponent(".github/workflows/ci.yml")
     let ciSrc = (try? String(contentsOf: ciPath, encoding: .utf8)) ?? ""
     check(!ciSrc.isEmpty, ".github/workflows/ci.yml exists (AR-45, DEC-008)")
@@ -54,9 +60,15 @@ private func runPhase7WebCITests() {
         "ci.yml configures concurrency group with cancel-in-progress: true (AR-45, DEC-008)"
     )
     check(
-        ciSrc.contains("actions/cache/restore@v4") && ciSrc.contains("swift test --package-path Packages/MarkViewCore"),
-        "ci.yml runs MarkViewCore swift test and caches DerivedData (AR-44, AR-45)"
+        ciSrc.contains("actions/cache/restore@v4") &&
+        ciSrc.contains("swift test --package-path Packages/MarkViewCore") &&
+        ciSrc.contains("./tools/tests/run.sh --tier pure"),
+        "ci.yml runs MarkViewCore swift test, ./tools/tests/run.sh --tier pure, and caches DerivedData (AR-44, AR-45, FU-06)"
     )
+
+    let pubSrc = (try? String(contentsOf: repoRoot.appendingPathComponent(".github/workflows/publish-release.yml"), encoding: .utf8)) ?? ""
+    check(!pubSrc.contains("project.yml") && pubSrc.contains("MarkView.xcodeproj/project.pbxproj"),
+          "publish-release.yml reads MARKETING_VERSION from project.pbxproj with zero project.yml references (FU-06)")
 
     for wf in ["build-release.yml", "publish-release.yml", "copilot-cockpit.yml", "remote-workspace.yml"] {
         let wfPath = repoRoot.appendingPathComponent(".github/workflows/\(wf)")
