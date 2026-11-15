@@ -1023,25 +1023,23 @@ private struct PrototypePreview: NSViewRepresentable {
             }
         }
 
-        nonisolated func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             let name = message.name, body = message.body
-            Task { @MainActor in
-                if name == "mvError", let text = body as? String {
-                    session.report(error: String(text.prefix(300)))
-                } else if name == "mvAudit" {
-                    session.finishAudit(PrototypeAudit.report(from: body))
-                } else if name == "mvPick", let info = body as? [String: Any] {
-                    func field(_ key: String) -> String { info[key] as? String ?? "" }
-                    let box = info["rect"] as? [String: Any] ?? [:]
-                    func number(_ key: String) -> CGFloat { CGFloat((box[key] as? NSNumber)?.doubleValue ?? 0) }
-                    let rect = CGRect(x: number("x"), y: number("y"), width: number("w"), height: number("h"))
-                    let component = PrototypeFiles.componentPath(field("component"))
-                    let pick = PrototypeAI.Pick(selector: field("selector"), tag: field("tag"), text: field("text"),
-                                                html: field("html"), screen: field("screen"), rect: rect, component: component)
-                    session.pick = pick
-                    session.pickMode = false
-                    snapshot(of: pick)
-                }
+            if name == "mvError", let text = body as? String {
+                session.report(error: String(text.prefix(300)))
+            } else if name == "mvAudit" {
+                session.finishAudit(PrototypeAudit.report(from: body))
+            } else if name == "mvPick", let info = body as? [String: Any] {
+                func field(_ key: String) -> String { info[key] as? String ?? "" }
+                let box = info["rect"] as? [String: Any] ?? [:]
+                func number(_ key: String) -> CGFloat { CGFloat((box[key] as? NSNumber)?.doubleValue ?? 0) }
+                let rect = CGRect(x: number("x"), y: number("y"), width: number("w"), height: number("h"))
+                let component = PrototypeFiles.componentPath(field("component"))
+                let pick = PrototypeAI.Pick(selector: field("selector"), tag: field("tag"), text: field("text"),
+                                            html: field("html"), screen: field("screen"), rect: rect, component: component)
+                session.pick = pick
+                session.pickMode = false
+                snapshot(of: pick)
             }
         }
     }

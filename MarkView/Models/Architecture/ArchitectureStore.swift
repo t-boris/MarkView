@@ -381,7 +381,8 @@ final class ArchitectureStore: ObservableObject {
 
                 beginStep(2, "Naming components", started: started)
                 setProgressScope("\(clusters.count) components from \(plan.units.count) folders")
-                async let deployment = mapDeployment(in: next, plan: plan, root: root, db: db)
+                let deploymentBase = next
+                async let deployment = mapDeployment(in: deploymentBase, plan: plan, root: root, db: db)
                 next = try await nameClusters(clusters, plan: plan, base: next, root: root, db: db)
                 commit(next, db: db)
 
@@ -664,7 +665,7 @@ final class ArchitectureStore: ObservableObject {
 
     /// A validated answer of the code analysis or a trace, cached as the JSON of its
     /// decoded value under the key of the request that produced it (off the main thread).
-    nonisolated private static func cachedValue<T: Decodable>(_ type: T.Type, at file: URL) async -> T? {
+    nonisolated private static func cachedValue<T: Decodable & Sendable>(_ type: T.Type, at file: URL) async -> T? {
         await Task.detached(priority: .utility) {
             guard let data = try? Data(contentsOf: file) else { return nil }
             return try? JSONDecoder().decode(type, from: data)
@@ -747,16 +748,17 @@ final class ArchitectureStore: ObservableObject {
         var names: [String: [String: Any]] = [:]
         var grouping: [String: Any]?
         var latest = base
-        try await withThrowingTaskGroup(of: [String: Any].self) { group in
+        try await withThrowingTaskGroup(of: AIRawJSONObject.self) { group in
             for (index, chunk) in chunks.enumerated() {
                 let prompt = plan.overview + "\n\nClusters:\n" + chunk.map { LogicalView.clusterLine($0, plan: plan) }.joined(separator: "\n")
                 group.addTask { @MainActor in
                     var request = CLICompletion.Request(project: self.project, prompt: prompt, systemPrompt: system, jsonSchema: schema)
                     request.timeout = 240
-                    return try await self.xrayCall(request, root: root, db: db, call: index)
+                    return AIRawJSONObject(try await self.xrayCall(request, root: root, db: db, call: index))
                 }
             }
-            for try await answer in group {
+            for try await answered in group {
+                let answer = answered.dictionary
                 for item in answer["clusters"] as? [[String: Any]] ?? [] {
                     if let id = item["id"] as? String { names[id] = item }
                 }
@@ -1780,7 +1782,7 @@ final class ArchitectureStore: ObservableObject {
             if save { commit(next, db: db) } else { snapshot = next; revision += 1 }
         }
 
-        try await withThrowingTaskGroup(of: (Int, [String: Any]?, [String]).self) { group in
+        try await withThrowingTaskGroup(of: (Int, AIRawJSONObject?, [String]).self) { group in
             var nextJob = 0
             func start(_ i: Int) {
                 let job = jobs[i]
@@ -1798,7 +1800,7 @@ final class ArchitectureStore: ObservableObject {
                     do {
                         let answer = try await self.xrayCall(request, root: root, db: db, call: 100 + i,
                                                              accept: { BookAnnotator.isUsable($0, job: job) })
-                        return (i, BookAnnotator.isUsable(answer, job: job) ? answer : nil, lines)
+                        return (i, BookAnnotator.isUsable(answer, job: job) ? AIRawJSONObject(answer) : nil, lines)
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
@@ -1808,7 +1810,8 @@ final class ArchitectureStore: ObservableObject {
                 }
             }
             while nextJob < min(Self.bookConcurrency, jobs.count) { start(nextJob); nextJob += 1 }
-            for try await (i, answer, lines) in group {
+            for try await (i, answered, lines) in group {
+                let answer = answered?.dictionary
                 try Task.checkCancellation()
                 if nextJob < jobs.count { start(nextJob); nextJob += 1 }
                 let job = jobs[i]

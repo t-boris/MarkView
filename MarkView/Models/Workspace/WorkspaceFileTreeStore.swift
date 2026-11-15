@@ -207,8 +207,8 @@ final class WorkspaceFileTreeStore: ObservableObject {
 
         reloadTask?.cancel()
         reloadTask = Task.detached { [weak self] in
-            let rebuilt = FileNode.buildTree(from: rootURL, sortOrder: sort)
-            rebuilt.restoreExpansionState(from: expandedPaths, sortOrder: sort)
+            var rebuilt = FileTree.build(from: rootURL, sortOrder: sort)
+            rebuilt.restoreExpansion(from: expandedPaths, sortOrder: sort)
             let childCount = rebuilt.children?.count ?? 0
             Self.log("reloadFileTree: rebuilt with \(childCount) children")
             guard !Task.isCancelled else { return }
@@ -217,9 +217,9 @@ final class WorkspaceFileTreeStore: ObservableObject {
     }
 
     /// Shows a rebuilt tree unless the folder changed while it was being built.
-    private func finishReload(_ rebuilt: FileNode, of rootURL: URL) {
+    private func finishReload(_ rebuilt: FileTree, of rootURL: URL) {
         guard rootNode?.url == rootURL else { return }
-        rootNode = rebuilt
+        rootNode = FileNode(rebuilt)
         lastRootModDate = rootModificationDate(for: rootURL)
         probeMarkdownFiles()
         Self.log("reloadFileTree: rootNode updated on MainActor")

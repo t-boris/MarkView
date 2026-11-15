@@ -435,7 +435,7 @@ final class ProjectOperationsStore: ObservableObject {
         discoveryReport = nil
         discoveryPhase = "project files"
         revision += 1
-        discoveryTask = Task {
+        discoveryTask = Task { [self] in
             defer { discoveryTask = nil; discoveryPhase = nil; revision += 1 }
             do {
                 let result = try await ProjectOperationDiscoveryService.discover(
@@ -600,7 +600,7 @@ final class ProjectOperationsStore: ObservableObject {
             command: snapshot.command, cwd: snapshot.cwd, started: run.started, ended: nil, state: "running", exitCode: nil)
         lastRuns[id] = history
         Task.detached { try? ProjectOperationHistory.save(history, root: root) }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
         run.session.onExit = { [weak self, weak run] code in
             guard let self, let run else { return }
             run.finish(exitCode: code)

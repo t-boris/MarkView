@@ -59,7 +59,7 @@ final class StudioCaptures: ObservableObject {
 
     func captureNow() {
         session.runWork("Capturing") { session in
-            if let capture = await session.captureStore.capture(label: "Capture of \(session.scenario.name)") {
+            if await session.captureStore.capture(label: "Capture of \(session.scenario.name)") != nil {
                 session.notice = "Saved a capture of \(session.scenario.name)."
             }
         }

@@ -547,10 +547,11 @@ struct QAFileThumbnail: View {
         .clipShape(RoundedRectangle(cornerRadius: 3))
         .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.gray.opacity(0.3)))
         .task(id: url) {
-            image = await Task.detached(priority: .utility) { () -> NSImage? in
+            let picture = await Task.detached(priority: .utility) { () -> CGImage? in
                 guard let data = try? Data(contentsOf: url) else { return nil }
-                return QAFrameComposer.thumbnail(from: data, width: 240)
+                return QAFrameComposer.thumbnailImage(from: data, width: 240)
             }.value
+            image = picture.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
         }
     }
 }

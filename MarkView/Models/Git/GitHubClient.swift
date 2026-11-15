@@ -749,7 +749,7 @@ struct GitHubClient: Sendable {
     func pullRequestHTML(_ number: Int) async throws -> GHIssueHTML {
         let accept = ["-H", "Accept: application/vnd.github.full+json"]
         let body = try await gh(["api", "repos/\(repo.slug)/pulls/\(number)"] + accept + ["-q", ".body_html // \"\""])
-        func entries(_ path: String, _ shape: String) async throws -> [GHIssueHTML.Comment] {
+        @Sendable func entries(_ path: String, _ shape: String) async throws -> [GHIssueHTML.Comment] {
             let lines = try await gh(["api", "repos/\(repo.slug)/\(path)?per_page=100", "--paginate"] + accept + ["-q", shape])
             return lines.split(separator: "\n").compactMap { try? JSONDecoder().decode(GHIssueHTML.Comment.self, from: Data($0.utf8)) }
         }

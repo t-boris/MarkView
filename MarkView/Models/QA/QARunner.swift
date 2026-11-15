@@ -7,7 +7,7 @@ import Foundation
 // checked on its own (tools/tests/qa-tests.sh). Foundation only.
 
 /// One browser (or application) session that belongs to one player. Sessions of different players never share cookies or storage.
-protocol QAActorDriver: AnyObject {
+protocol QAActorDriver: AnyObject, Sendable {
     func open(_ address: String) async throws
     func observe() async throws -> QAObservation
     /// Does what the action says and answers, in a few words, what came of it. A failed action throws.

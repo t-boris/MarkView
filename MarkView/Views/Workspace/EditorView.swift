@@ -962,7 +962,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             // filling in progressively.
             if let error, let webView = self.webView,
                let script = JS.call("window.showSelectionResult", args: ["Translation", error]) {
-                webView.evaluateJavaScript(script) { _, _ in }
+                _ = try? await webView.evaluateJavaScript(script)
             }
         }
     }

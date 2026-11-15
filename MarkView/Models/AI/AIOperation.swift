@@ -104,8 +104,12 @@ enum AIJSONSalvage {
 }
 
 /// Decodes an arbitrary JSON object into a Foundation dictionary for schema-validated CLI outputs (`AR-26`).
+// unchecked Sendable: the dictionary holds JSON values only (String, Int, Double, Bool, NSNull, Array, Dictionary), is a `let`, and is never mutated.
 struct AIRawJSONObject: Decodable, @unchecked Sendable {
     let dictionary: [String: Any]
+
+    /// A dictionary that is JSON already (an answer read back from the cache, or one that was decoded earlier).
+    init(_ dictionary: [String: Any]) { self.dictionary = dictionary }
 
     private enum JSONValue: Decodable {
         case object([String: JSONValue])

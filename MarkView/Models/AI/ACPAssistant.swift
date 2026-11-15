@@ -536,12 +536,15 @@ private final class ACPConnection: @unchecked Sendable {
 
     /// Send a request and wait for its result.
     func request(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
-        try await withCheckedThrowingContinuation { continuation in
+        // The parameters reach the queue as JSON bytes (a Sendable value), not as a `[String: Any]`.
+        let encoded = try JSONSerialization.data(withJSONObject: params)
+        return try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 if let failure = self.failure { continuation.resume(throwing: failure); return }
                 let id = self.nextId
                 self.nextId += 1
                 self.pending[id] = continuation
+                let params = (try? JSONSerialization.jsonObject(with: encoded)) ?? [String: Any]()
                 self.write(["jsonrpc": "2.0", "id": id, "method": method, "params": params])
             }
         }

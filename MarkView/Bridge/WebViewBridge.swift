@@ -6,7 +6,7 @@ import MarkViewCore
 #endif
 
 /// Type-erased codable wrapper for flexible JSON data
-enum AnyCodable: Codable {
+enum AnyCodable: Codable, Sendable {
     case null
     case bool(Bool)
     case int(Int)

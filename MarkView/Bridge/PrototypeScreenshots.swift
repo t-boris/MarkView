@@ -128,7 +128,7 @@ final class PrototypeScreenshots {
         try await loader.finished(within: Self.loadLimit)
 
         if target.page == nil, let id = target.screen {
-            guard let plan = try await web.evaluate("return JSON.stringify((window.App && App.plan) || []);") as? String,
+            guard let plan = try await web.evaluate("return JSON.stringify((window.App && App.plan) || []);"),
                   let route = Self.route(of: id, inPlan: plan) else { throw Failure.noScreen(id) }
             _ = try await web.evaluate("location.hash = hash; return 'ok'", arguments: ["hash": "#" + route])
         }
@@ -186,12 +186,13 @@ final class PrototypeScreenshots {
 }
 
 private extension WKWebView {
-    /// Runs an async function body in the page and returns its result; a thrown page error becomes a `Failure`.
+    /// Runs an async function body in the page and returns the string it answers (nil for any other answer); a thrown page error
+    /// becomes a `Failure`.
     @MainActor
-    func evaluate(_ body: String, arguments: [String: Any] = [:], limit: TimeInterval = 10) async throws -> Any? {
-        try await withThrowingTaskGroup(of: Any?.self) { group in
+    func evaluate(_ body: String, arguments: [String: Any] = [:], limit: TimeInterval = 10) async throws -> String? {
+        try await withThrowingTaskGroup(of: String?.self) { group in
             group.addTask { @MainActor in
-                do { return try await self.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page) }
+                do { return try await self.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page) as? String }
                 catch { throw PrototypeScreenshots.Failure.loadFailed(((error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String) ?? error.localizedDescription) }
             }
             group.addTask {

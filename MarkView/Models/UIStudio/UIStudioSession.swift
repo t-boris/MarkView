@@ -143,7 +143,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// Unsaved editor buffers of files in the project (path relative to the root → text).
     var editorBuffers: () -> [String: String] = { [:] }
     /// Counts an assistant run in the workspace's usage.
-    var recordUsage: (Int, Int, Double) -> Void = { _, _, _ in }
+    var recordUsage: @MainActor @Sendable (Int, Int, Double) -> Void = { _, _, _ in }
     var openFile: (URL) -> Void = { _ in }
     var featureStore: () -> FeatureStore? = { nil }
     var onFeatureExported: (String) -> Void = { _ in }

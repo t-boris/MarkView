@@ -470,7 +470,7 @@ final class ChangeReviewStore {
         request.effort = "low"
         request.timeout = 300
         let source = overlay.source.id
-        Task {
+        Task { [self] in
             var streamed = ""
             var pendingRefresh = false
             do {

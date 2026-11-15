@@ -117,6 +117,7 @@ final class CockpitAgentAttempt {
                     Assignment and prior results (JSON):
                     \(assignment)
                     """
+                    let root = self.root
                     watchdogTask = Task { [weak self, weak terminal] in
                         do {
                             let watcher = try await CockpitService.forProject(root).watchdog(ptyDescriptor: pty.descriptor, shell: pty.shell,

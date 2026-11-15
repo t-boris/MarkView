@@ -213,7 +213,7 @@ final class CodeExplainStore: ObservableObject {
         let clipped = lines.count > Self.maxLines ? "\n[file continues to line \(lines.count); explain the part shown]" : ""
         let task = FileExplanationPrompt.instructions(path: path)
         liveAnswers[path] = ""
-        Task {
+        Task { [self] in
             defer { working.remove(path); activity[path] = nil; liveAnswers[path] = nil; revision += 1 }
             // One pass over the file itself: no tools, the fast model at low effort.
             var request = CLICompletion.Request(

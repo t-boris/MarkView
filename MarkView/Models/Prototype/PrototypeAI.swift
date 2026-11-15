@@ -179,7 +179,7 @@ enum PrototypeAI {
         request.timeout = timeout
         request.label = label
         stage(.log("Started the assistant"))
-        let tracker = PrototypeProgressTracker(root: root, reading: reading, onRead: readLog.map { log in { log.add($0) } }, emit: stage)
+        let tracker = PrototypeProgressTracker(root: root, reading: reading, onRead: readLog.map { log in { @Sendable path in log.add(path) } }, emit: stage)
         let asking = AIOperation<CLICompletion.Request, CLICompletion.Result>(
             name: label, parse: { $0 },
             onResult: { result in

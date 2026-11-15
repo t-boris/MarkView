@@ -21,6 +21,11 @@ final class DeploymentAdvisor: ObservableObject {
     func latest(_ env: String) -> Exchange? { exchanges[env]?.last }
     func isWorking(_ env: String) -> Bool { if case .working? = latest(env)?.state { return true } else { return false } }
 
+    private func update(_ envID: String, _ id: UUID, _ change: (inout Exchange) -> Void) {
+        guard var list = exchanges[envID], let i = list.firstIndex(where: { $0.id == id }) else { return }
+        change(&list[i]); exchanges[envID] = list
+    }
+
     /// `log`: a log the person is reading (sent as evidence too). `record` adds the run to the usage counter.
     func ask(_ question: String, env: DeploymentEnvironment, store: DeploymentStore, root: URL?, log: (title: String, text: String)? = nil,
              record: @escaping @MainActor (CLICompletion.Result) -> Void) {
@@ -32,10 +37,6 @@ final class DeploymentAdvisor: ObservableObject {
         let id = exchange.id
         tasks[id] = Task { [weak self] in
             guard let self else { return }
-            @MainActor func update(_ change: (inout Exchange) -> Void) {
-                guard var list = exchanges[env.id], let i = list.firstIndex(where: { $0.id == id }) else { return }
-                change(&list[i]); exchanges[env.id] = list
-            }
             // 1. The state, now.
             await store.refresh(env.id)
             var evidence: [(title: String, text: String)] = []
@@ -44,7 +45,7 @@ final class DeploymentAdvisor: ObservableObject {
             let plan = DeploymentLogs.evidencePlan(question: q, env: env, snapshot: store.states[env.id]?.snapshot)
             for source in plan {
                 if Task.isCancelled { return }
-                update { $0.state = .working("Reading \(source.title)…") }
+                self.update(env.id, id) { $0.state = .working("Reading \(source.title)…") }
                 if case .ran(let result) = await store.run(source.command, on: env.id, origin: "Ask the AI", purpose: "Read \(source.title) to answer a question", timeout: 40) {
                     let text = result.stdout.split(separator: "\n", omittingEmptySubsequences: false).suffix(90).joined(separator: "\n")
                     evidence.append((source.title, result.succeeded ? text : "(could not be read: \(result.stderr.split(separator: "\n").first.map(String.init) ?? "exit \(result.status)"))"))
@@ -52,23 +53,23 @@ final class DeploymentAdvisor: ObservableObject {
             }
             // Cloud commands already ran during the look.
             for command in env.cloudCommands { if let out = store.states[env.id]?.cloud[command.id] { evidence.append((command.title, out.result.succeeded ? out.result.stdout : out.result.stderr)) } }
-            update { $0.evidence = evidence.map(\.title) }
+            self.update(env.id, id) { $0.evidence = evidence.map(\.title) }
             // 3. The assistant reads it.
-            update { $0.state = .working("Asking the assistant to read it…") }
+            self.update(env.id, id) { $0.state = .working("Asking the assistant to read it…") }
             let prompt = DeploymentPrompt.answer(environment: env.name, id: env.id, question: q, report: store.report(for: env.id), evidence: evidence)
             var request = CLICompletion.Request(project: root, prompt: prompt)
             request.timeout = 150
             request.label = "deployments:\(env.id)"
             do {
                 let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "deployments-ask", onDelta: { text in
-                    Task { @MainActor in update { $0.answer += text; if case .working = $0.state { $0.state = .working("Writing the answer…") } } }
+                    Task { @MainActor in self.update(env.id, id) { $0.answer += text; if case .working = $0.state { $0.state = .working("Writing the answer…") } } }
                 })
-                update { if $0.answer.isEmpty { $0.answer = result.text }; $0.state = .done }
+                self.update(env.id, id) { if $0.answer.isEmpty { $0.answer = result.text }; $0.state = .done }
                 record(result)
             } catch is CancellationError {
-                update { $0.state = .failed("Stopped.") }
+                self.update(env.id, id) { $0.state = .failed("Stopped.") }
             } catch {
-                update { $0.state = .failed(error.localizedDescription) }
+                self.update(env.id, id) { $0.state = .failed(error.localizedDescription) }
             }
             tasks[id] = nil
         }

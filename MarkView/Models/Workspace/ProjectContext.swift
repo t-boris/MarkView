@@ -194,8 +194,9 @@ final class ProjectContext: ObservableObject, ProjectProviding {
     /// on to another folder meanwhile (the task was cancelled).
     func loadTree(of url: URL) async -> Bool {
         let sort = fileTree.sortOrder
-        let node = await Task.detached { FileNode.buildTree(from: url, sortOrder: sort) }.value
+        let tree = await Task.detached { FileTree.build(from: url, sortOrder: sort) }.value
         guard !Task.isCancelled else { return false }
+        let node = FileNode(tree)
         fileTree.setRootNode(node)
         fileTree.loadExcludedFolders()
         loadLinkedFolders()

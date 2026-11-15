@@ -13,44 +13,40 @@ struct FileTreeSortOrder: Equatable {
     var ascending: Bool = true
 }
 
-/// Represents a file or folder in the workspace tree
-class FileNode: Identifiable, ObservableObject, Hashable {
-    let id: String
+/// A folder as read off the main thread: a plain value that can cross to the main actor, where `FileNode(tree)` makes the
+/// nodes the views observe. A listing holds the immediate children only; an expansion that is restored lists the expanded
+/// folders too.
+struct FileTree: Sendable {
     let url: URL
-    let name: String
     let isDirectory: Bool
-
-    @Published var children: [FileNode]?
-    @Published var isExpanded: Bool = false
+    var isExpanded = false
+    /// nil for a file; empty for a folder that has not been listed.
+    var children: [FileTree]?
 
     init(url: URL, isDirectory: Bool) {
-        let normalizedURL = url.standardizedFileURL
-        self.url = normalizedURL
-        self.id = normalizedURL.path
+        self.url = url.standardizedFileURL
         self.isDirectory = isDirectory
-        self.name = normalizedURL.lastPathComponent
-
-        if isDirectory {
-            self.children = []
-        }
+        self.children = isDirectory ? [] : nil
     }
 
-    /// Indicates if this node represents a Markdown file
-    var isMarkdown: Bool {
-        url.pathExtension.lowercased() == "md"
+    var id: String { url.path }
+
+    /// The tree of `url` with only the root's immediate children listed.
+    static func build(from url: URL, sortOrder: FileTreeSortOrder = FileTreeSortOrder()) -> FileTree {
+        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        var tree = FileTree(url: url, isDirectory: isDirectory)
+        if isDirectory { tree.children = listing(of: tree.url, sortOrder: sortOrder) }
+        return tree
     }
 
-    /// Load children from the file system
-    func loadChildren(sortOrder: FileTreeSortOrder = FileTreeSortOrder()) {
-        guard isDirectory else { return }
-
-        let fileManager = FileManager.default
+    /// The openable files and the folders in `url`, folders first, in the order of `sortOrder`; empty when the folder cannot be read.
+    static func listing(of url: URL, sortOrder: FileTreeSortOrder) -> [FileTree] {
         do {
             let needsDate = sortOrder.field == .dateModified
             let prefetchKeys: [URLResourceKey] = needsDate
                 ? [.isDirectoryKey, .contentModificationDateKey]
                 : [.isDirectoryKey]
-            let contents = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: prefetchKeys)
+            let contents = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: prefetchKeys)
 
             let items: [(url: URL, isDir: Bool, modDate: Date?)] = contents.compactMap { itemURL in
                 let vals = try? itemURL.resourceValues(forKeys: Set(prefetchKeys))
@@ -75,38 +71,14 @@ class FileNode: Identifiable, ObservableObject, Hashable {
                 }
             }
 
-            self.children = sorted.map { FileNode(url: $0.url, isDirectory: $0.isDir) }
+            return sorted.map { FileTree(url: $0.url, isDirectory: $0.isDir) }
         } catch {
-            self.children = []
+            return []
         }
-    }
-
-    /// Build tree with only the root's immediate children loaded.
-    /// Subdirectory contents are loaded on-demand when expanded.
-    static func buildTree(from url: URL, sortOrder: FileTreeSortOrder = FileTreeSortOrder()) -> FileNode {
-        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-        let node = FileNode(url: url, isDirectory: isDirectory)
-
-        if isDirectory {
-            node.loadChildren(sortOrder: sortOrder)
-        }
-
-        return node
-    }
-
-    /// Capture expanded directory paths so a rebuilt tree can restore UI state.
-    func expandedDirectoryPaths() -> Set<String> {
-        guard isDirectory else { return [] }
-
-        var paths: Set<String> = isExpanded ? [id] : []
-        for child in children ?? [] {
-            paths.formUnion(child.expandedDirectoryPaths())
-        }
-        return paths
     }
 
     /// Restore expanded folders on a rebuilt tree without forcing unrelated folders open.
-    func restoreExpansionState(from expandedPaths: Set<String>, sortOrder: FileTreeSortOrder = FileTreeSortOrder()) {
+    mutating func restoreExpansion(from expandedPaths: Set<String>, sortOrder: FileTreeSortOrder = FileTreeSortOrder()) {
         guard isDirectory else { return }
 
         let expandedHere = expandedPaths.contains(id)
@@ -118,12 +90,70 @@ class FileNode: Identifiable, ObservableObject, Hashable {
         guard expandedHere || hasExpandedDescendant else { return }
 
         if children?.isEmpty != false {
-            loadChildren(sortOrder: sortOrder)
+            children = Self.listing(of: url, sortOrder: sortOrder)
         }
 
-        for child in children ?? [] {
-            child.restoreExpansionState(from: expandedPaths, sortOrder: sortOrder)
+        for index in children?.indices ?? 0..<0 {
+            children?[index].restoreExpansion(from: expandedPaths, sortOrder: sortOrder)
         }
+    }
+}
+
+/// Represents a file or folder in the workspace tree
+class FileNode: Identifiable, ObservableObject, Hashable {
+    let id: String
+    let url: URL
+    let name: String
+    let isDirectory: Bool
+
+    @Published var children: [FileNode]?
+    @Published var isExpanded: Bool = false
+
+    init(url: URL, isDirectory: Bool) {
+        let normalizedURL = url.standardizedFileURL
+        self.url = normalizedURL
+        self.id = normalizedURL.path
+        self.isDirectory = isDirectory
+        self.name = normalizedURL.lastPathComponent
+
+        if isDirectory {
+            self.children = []
+        }
+    }
+
+    /// The nodes of a tree that was read off the main thread.
+    convenience init(_ tree: FileTree) {
+        self.init(url: tree.url, isDirectory: tree.isDirectory)
+        isExpanded = tree.isExpanded
+        children = tree.children?.map { FileNode($0) }
+    }
+
+    /// Indicates if this node represents a Markdown file
+    var isMarkdown: Bool {
+        url.pathExtension.lowercased() == "md"
+    }
+
+    /// Load children from the file system
+    func loadChildren(sortOrder: FileTreeSortOrder = FileTreeSortOrder()) {
+        guard isDirectory else { return }
+        children = FileTree.listing(of: url, sortOrder: sortOrder).map { FileNode($0) }
+    }
+
+    /// Build tree with only the root's immediate children loaded.
+    /// Subdirectory contents are loaded on-demand when expanded.
+    static func buildTree(from url: URL, sortOrder: FileTreeSortOrder = FileTreeSortOrder()) -> FileNode {
+        FileNode(FileTree.build(from: url, sortOrder: sortOrder))
+    }
+
+    /// Capture expanded directory paths so a rebuilt tree can restore UI state.
+    func expandedDirectoryPaths() -> Set<String> {
+        guard isDirectory else { return [] }
+
+        var paths: Set<String> = isExpanded ? [id] : []
+        for child in children ?? [] {
+            paths.formUnion(child.expandedDirectoryPaths())
+        }
+        return paths
     }
 
     // MARK: - Hashable Conformance

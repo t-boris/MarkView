@@ -159,7 +159,7 @@ final class XRayFilterStore {
         host.setStatus(label)
         let cache = host.answerCache(root)
         let context = "System: \(current.systemName ?? root.lastPathComponent)" + (current.systemPurpose.map { " — " + $0 } ?? "")
-        Task {
+        Task { [self] in
             defer { rating.remove("search|" + filterId); if host.status?.hasPrefix("Finding") == true || host.status?.hasPrefix("Checking") == true { host.setStatus(nil) } }
             do {
                 let terms = try await FilterSearch.terms(for: filter, cache: cache, project: host.project)

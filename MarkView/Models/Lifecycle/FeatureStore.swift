@@ -728,8 +728,8 @@ final class FeatureStore: ObservableObject {
         Task.detached(priority: .userInitiated) {
             let model = Self.answeredModel(tool, directory: directory, since: runningSince) ?? fallback ?? tool.displayName
             await MainActor.run {
-                LifecycleLog.shared.record(.workStarted, project: project, feature: slug, actor: actor,
-                                           model: LifecycleModels.use(model), note: "Implement with AI · \(tool.displayName)", at: started)
+                _ = LifecycleLog.shared.record(.workStarted, project: project, feature: slug, actor: actor,
+                                               model: LifecycleModels.use(model), note: "Implement with AI · \(tool.displayName)", at: started)
             }
         }
     }

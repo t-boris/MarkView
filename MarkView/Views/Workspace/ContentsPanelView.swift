@@ -109,7 +109,10 @@ private struct ImageThumbnail: View {
                 Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 220).padding(10)
             }
         }
-        .task { image = await Task.detached(priority: .utility) { NSImage(contentsOf: url) }.value }
+        .task {
+            let data = await Task.detached(priority: .utility) { try? Data(contentsOf: url) }.value
+            image = data.flatMap { NSImage(data: $0) }
+        }
     }
 }
 

@@ -68,7 +68,7 @@ final class QANativeAccessibility: @unchecked Sendable {
 
     // MARK: Running on the queue
 
-    private func run<T>(_ work: @escaping () throws -> T) async throws -> T {
+    private func run<T>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { continuation.resume(with: Result { try work() }) }
         }

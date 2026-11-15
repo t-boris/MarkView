@@ -263,7 +263,7 @@ final class StudioRepair: ObservableObject {
     /// The action of one problem row. The work starts at once (the busy banner is up when this returns).
     func repairProblem(_ item: StudioProblem.Item) {
         guard let box = startRepair(item, automatic: false) else { return }
-        Task { [weak self, session] in
+        Task { [weak self] in
             await self?.session.awaitWork()
             self?.finishRepair(item, box: box, automatic: false)
         }
@@ -276,7 +276,7 @@ final class StudioRepair: ObservableObject {
     func scheduleAutoRepair(delay: TimeInterval = 2) {
         guard session.spec.repairsAutomatically else { return }
         autoRepairTask?.cancel()
-        autoRepairTask = Task { [weak self, session] in
+        autoRepairTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled, let self else { return }
             await self.runAutomaticRepair()

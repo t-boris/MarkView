@@ -27,11 +27,11 @@ enum CycleTimeBuilder {
                 for flow in WorkflowFlow.catalogue { if let role = flow.lifecycle(kind).role(of: status) { return role } }
                 return nil
             })
-        func acceptance(_ kind: IssueKind) -> Bool {
+        @Sendable func acceptance(_ kind: IssueKind) -> Bool {
             let own = workflow.lifecycle(kind).rules.contains { $0.kind == .acceptance }
             return own || workflow.variants(for: kind).contains { ($0.rules ?? []).contains { $0.kind == .acceptance } }
         }
-        func accepting(_ kind: IssueKind, _ status: String) -> Bool {
+        @Sendable func accepting(_ kind: IssueKind, _ status: String) -> Bool {
             let value = IssueStatus.normalize(status)
             let rules = workflow.lifecycle(kind).rules + workflow.variants(for: kind).flatMap { $0.rules ?? [] }
             return rules.contains { $0.kind == .acceptance && $0.from.contains(value) }
@@ -118,11 +118,11 @@ final class CycleTimeModel: ObservableObject {
         let url = CycleSettingsFile.url(projectRoot: snapshot.root)
         Task.detached(priority: .userInitiated) {
             let loaded = CycleSettingsFile.load(url)
-            var used = CycleSettings.empty
-            var problem: String?
+            let used: CycleSettings
+            let problem: String?
             switch loaded {
-            case .settings(let value): used = value
-            case .unreadable(let message): problem = message
+            case .settings(let value): used = value; problem = nil
+            case .unreadable(let message): used = .empty; problem = message
             }
             let built = CycleTimeBuilder.report(snapshot, settings: used)
             await MainActor.run {
