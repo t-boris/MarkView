@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 186,
+  "suiteCount": 187,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2979,6 +2979,16 @@
         "tools/tests/ProjectContextTests.swift",
         "tools/tests/SemanticDatabaseTestSupport.swift",
         "tools/tests/project-context-tests.sh"
+      ]
+    },
+    {
+      "name": "xray-command-tests",
+      "script": "tools/tests/xray-command-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Architecture/XRayCommand.swift",
+        "tools/tests/XRayCommandTests.swift",
+        "tools/tests/xray-command-tests.sh"
       ]
     }
   ]

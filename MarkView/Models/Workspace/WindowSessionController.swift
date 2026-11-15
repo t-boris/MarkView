@@ -131,6 +131,8 @@ final class WindowSessionController {
                 workspace?.closeUIStudioSessions()
                 // The project's index process, file watcher and background jobs end with its window (AR-19).
                 workspace?.project.close()
+                // So do the code analysis, the X-Ray scans and the AI answers about code that it started (AR-14 step 11).
+                workspace?.codeXRay.close()
                 self?.remove(id)
             }
             .store(in: &entry.subscriptions)

@@ -331,7 +331,7 @@ struct MarkViewApp: App {
                 toolMenuItems(.afterAgents)
 
                 Button("X-Ray") {
-                    activeWorkspace?.openArchitecture()
+                    activeWorkspace?.codeXRay.openArchitecture()
                 }
                 .keyboardShortcut("4", modifiers: [.command])
                 .disabled(activeWorkspaceHasFolder != true)

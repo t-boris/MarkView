@@ -415,7 +415,7 @@ struct FileTreeView: View {
         .padding(.vertical, 4)
         .overlay(alignment: .trailing) {
             HStack(spacing: 0) {
-            Button(action: { workspaceManager.openArchitecture() }) {
+            Button(action: { workspaceManager.codeXRay.openArchitecture() }) {
                 Image(systemName: "viewfinder")
                     .uiFont(size: 9, weight: .semibold)
                     .foregroundColor(palette.textDim)
@@ -881,7 +881,7 @@ struct FileTreeView: View {
                     }
                     Divider()
                 }
-                Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
+                Button { workspaceManager.codeXRay.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
                 Button { workspaceManager.startRecursiveInsight(at: url) } label: { Label("Recursive Insight", systemImage: "sparkles") }
                 Button { workspaceManager.openDiscussion(about: url) } label: { Label("Discuss…", systemImage: "bubble.left.and.text.bubble.right") }
                 Button { workspaceManager.startResearch(fromFolder: url) } label: { Label("New Research from This Folder…", systemImage: "books.vertical") }
@@ -933,7 +933,7 @@ struct FileTreeView: View {
             if entry.isUnsupported {
                 Button { NSWorkspace.shared.open(url) } label: { Label("Open with Default App", systemImage: "arrow.up.forward.app") }
             } else {
-                if inProject { Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") } }
+                if inProject { Button { workspaceManager.codeXRay.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") } }
                 if FileType.isHTML(url) {
                     Button { workspaceManager.openHTMLInBrowser(url) } label: { Label("Open in Browser", systemImage: "safari") }
                 }

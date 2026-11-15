@@ -250,32 +250,6 @@ class WorkspaceManager: ObservableObject {
     @Published var agentsVisible = false
     @Published var handoffResume: HandoffResume?
     @Published var showGlobalSearch = false
-    struct SelectionActionState: Identifiable {
-        enum Phase { case running, completed, stopped, failed }
-        let id: UUID
-        let title: String
-        let scope: String
-        let assistant: String
-        let started: Date
-        var stage: String = "Starting"
-        var partial: String = ""
-        var phase: Phase = .running
-    }
-    @Published private(set) var selectionActions: [UUID: SelectionActionState] = [:]
-    private var selectionTasks: [UUID: Task<CLICompletion.Result, Error>] = [:]
-    private var stoppedSelectionActions: Set<UUID> = []
-
-    func stopSelectionAction(_ id: UUID) {
-        stoppedSelectionActions.insert(id)
-        selectionTasks[id]?.cancel()
-        if var state = selectionActions[id] {
-            state.stage = "Stopping…"
-            selectionActions[id] = state
-        }
-    }
-
-    func dismissSelectionAction(_ id: UUID) { selectionActions.removeValue(forKey: id) }
-
     func toggleNavigation() {
         guard !showFileTree || showCenter || terminalVisible else { return }
         showFileTree.toggle()
@@ -394,18 +368,14 @@ class WorkspaceManager: ObservableObject {
     private var openFilesWatcher: Task<Void, Never>?
     /// Last seen modification dates of open files (to reload what the assistant changed).
     private var openFileDates: [URL: Date] = [:]
-    /// Project architecture (Architecture tab).
-    let architecture = ArchitectureStore()
+    /// Code explanations, code navigation, the X-Ray tabs and the AI actions on selected text (`AR-14` step 11).
+    let codeXRay: CodeAndXRayCoordinator
     /// Team-shared operation definitions and the process registry for this workspace root.
     @Published private(set) var projectOperations: ProjectOperationsStore?
     /// What this window has open of the project's operations; the store is shared by every window on the folder, these are not.
     @Published var operationConsoleVisible = false
     @Published var operationSelectedRunID: String?
     @Published var operationEditRequest: ProjectOperationEditRequest?
-    /// AI margin notes for code files (code viewer → Explain).
-    let codeExplain = CodeExplainStore()
-    /// Go to definition / find usages, jump history and AI answers about selected code.
-    let codeNav = CodeNavigationStore()
     @Published var pendingGraphCreatorType: String?
     private let tabsStore = WorkspaceTabsStore()
     private var cancellables: Set<AnyCancellable> = []
@@ -443,6 +413,8 @@ class WorkspaceManager: ObservableObject {
 
     init() {
         Self.debugLog("WorkspaceManager init START")
+        codeXRay = CodeAndXRayCoordinator(project: project)
+        codeXRay.host = self
         research.workspace = self
         qa.assistantSelection = { [weak self] in
             guard let self, let terminal = self.assistantTerminal, let tool = terminal.profile.tool else { return nil }
@@ -469,6 +441,11 @@ class WorkspaceManager: ObservableObject {
             Task { await self.gitClient.refreshStatus() }
         }
         project.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+        codeXRay.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
@@ -517,9 +494,7 @@ class WorkspaceManager: ObservableObject {
         taskBag.cancelAll()
         scrollState.reset()
         tabsStore.reset()
-        architecture.reset()
-        folderXRays = [:]
-        codeNav.reset()
+        codeXRay.reset()
         Self.debugLog("openFolder START: \(url.path)")
 
         // Run setup steps asynchronously — sleep briefly to let SwiftUI render each step
@@ -549,7 +524,7 @@ class WorkspaceManager: ObservableObject {
             // honours the switch (`.off`, DEC-001) and applies the size cap from its own scan (DEC-003).
             let isCode = await Task.detached { ArchitectureScanner.looksLikeCodeProject(url) }.value
             if project.root == url, isCode {
-                architecture.startAutomaticCodeAnalysis(root: url, db: project.database)
+                codeXRay.architecture.startAutomaticCodeAnalysis(root: url, db: project.database)
             }
             completion?()
         }
@@ -806,9 +781,7 @@ class WorkspaceManager: ObservableObject {
                                       content: "", originalContent: "")
                     tab.kind = .architecture(scope: scope)
                     tabsStore.appendTab(tab)
-                    if let context = xrayContext(scope) {
-                        xrayStore(for: scope).restoreCached(root: context.root, db: context.db)
-                    }
+                    codeXRay.restoreCachedXRay(scope: scope)
                 }
             case .terminal(let directory):
                 if directory.isFileURL, (try? directory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
@@ -875,9 +848,7 @@ class WorkspaceManager: ObservableObject {
         let keep = openTabs.enumerated().filter { $0.element.isFileBacked }.map(\.offset)
         for index in openTabs.indices.reversed() where !keep.contains(index) { tabsStore.removeTab(at: index) }
         releaseWorkspaceEngines()
-        architecture.reset()
-        folderXRays = [:]
-        codeExplain.reset()
+        codeXRay.reset()
 
         let failures = project.deleteMetadata(items)
         if !failures.isEmpty {
@@ -890,86 +861,6 @@ class WorkspaceManager: ObservableObject {
         if recreate {
             taskBag.store(Task { await initDDEWorkspaceAsync(at: root) }, for: "recreateWorkspace")
         }
-    }
-
-    // MARK: - Code explanations
-
-    private func explainDirectory(for url: URL) -> URL {
-        // A pull request's copy of a project file keeps its notes with the project's.
-        if architecture.prRelativePath(for: url) != nil, let root = rootNode?.url {
-            return root.appendingPathComponent(".dde/cache/explain", isDirectory: true)
-        }
-        return project.cacheDirectory(for: url).appendingPathComponent("explain", isDirectory: true)
-    }
-
-    /// AI filters available to the code viewer: Importance and the user's own.
-    /// The one-off filter of this window (typed into an X-Ray or notes filter box); other windows have their own.
-    private(set) var temporaryFilter: ImportanceRater.Filter?
-    private var aiFilters: [ImportanceRater.Filter] { ImportanceRater.allFilters(temporary: temporaryFilter) }
-
-    /// Create or delete a user filter (from the Architecture tab or the code viewer).
-    func createFilter(name: String, criterion: String) {
-        ImportanceRater.addFilter(name: name, criterion: criterion)
-        allXRayStores.forEach { $0.filtersChanged() }
-        codeExplain.filtersChanged()
-    }
-
-    /// The one-off AI filter from a filter box (X-Ray or notes); empty clears it.
-    func setTemporaryFilter(_ criterion: String) {
-        let previous = temporaryFilter
-        temporaryFilter = ImportanceRater.temporaryFilter(for: criterion)
-        allXRayStores.forEach { $0.temporaryFilter = temporaryFilter }
-        if let previous {
-            architecture.forgetRatings(filterId: previous.id, db: semanticDatabase)
-            folderXRays.values.forEach { $0.forgetRatings(filterId: previous.id, db: nil) }
-        }
-        allXRayStores.forEach { $0.filtersChanged() }
-        codeExplain.filtersChanged()
-    }
-
-    func deleteFilter(id: String) {
-        if ImportanceRater.isTemporary(id) {
-            if temporaryFilter?.id == id { setTemporaryFilter("") }
-            return
-        }
-        ImportanceRater.removeFilter(id: id)
-        architecture.forgetRatings(filterId: id, db: semanticDatabase)
-        codeExplain.filtersChanged()
-    }
-
-    /// Project path of a file in the code viewer. A file shown from a fetched pull request
-    /// (MarkView's cache) counts as that project path, so its notes, explanations and PR
-    /// lens are all about the same file.
-    private func codePath(for url: URL) -> String {
-        architecture.prRelativePath(for: url) ?? project.relativePath(of: url)
-    }
-
-    /// Load cached notes for a code file that just opened.
-    func prepareCodeNotes(for url: URL) {
-        codeExplain.load(path: codePath(for: url), directory: explainDirectory(for: url))
-        codeNav.sendState(url: url)
-    }
-
-    /// The margin panel state for `url`, as a JSON object literal.
-    func codeNotesJSON(for url: URL) -> String {
-        let content = openTabs.first { $0.url.standardizedFileURL == url.standardizedFileURL }?.content ?? ""
-        let path = codePath(for: url)
-        return codeExplain.payloadJSON(path: path, content: content, filters: aiFilters,
-                                       pr: architecture.prFileNotes(path: path, content: content),
-                                       search: architecture.searchNotes(path: path))
-    }
-
-    // MARK: - Explain with AI
-
-    /// "Explain with AI — everything related" on a code element: the X-Ray's ⚡ search for
-    /// it, with everything connected to it in red.
-    func explainSymbol(name: String, path: String, line: Int) {
-        guard rootNode != nil, CodeNavigator.isNavigable(name) else { return }
-        let criterion = "\(name) — \((path as NSString).lastPathComponent):\(line)"
-        architecture.searchSymbols[criterion] = XRaySearch.Symbol(name: name, path: path, line: line)
-        setTemporaryFilter(criterion)
-        openArchitecture()
-        if let id = temporaryFilter?.id { architecture.activate(filterId: id) }
     }
 
     /// Show a text file's Explain notes, or return to its dedicated viewer.
@@ -988,170 +879,14 @@ class WorkspaceManager: ObservableObject {
                             tab.originalContent = text
                             tab.notesView = true
                         }
-                        if explain { explainIfNeeded(url) }
+                        if explain { codeXRay.explainIfNeeded(url) }
                     } catch { showTextReadError(error, url: url) }
                 }
             } else { tabsStore.updateActiveTab { $0.notesView = false } }
         } else if tab.isFileBacked {
             tabsStore.updateActiveTab { $0.notesView = show }
-            if show && explain { explainIfNeeded(tab.url) }
+            if show && explain { codeXRay.explainIfNeeded(tab.url) }
         }
-    }
-
-    private func explainIfNeeded(_ url: URL) {
-        prepareCodeNotes(for: url)
-        if codeExplain.explanations[codePath(for: url)] == nil {
-            handleCodeAction("explain", payload: [:], url: url)
-        }
-    }
-
-    /// Requests from the code viewer's margin panel.
-    func handleCodeAction(_ action: String, payload: [String: Any], url: URL) {
-        guard let tab = openTabs.first(where: { $0.url.standardizedFileURL == url.standardizedFileURL }) else { return }
-        let root = rootNode?.url ?? url.deletingLastPathComponent()
-        let path = codePath(for: url)
-        switch action {
-        case "explain":
-            codeExplain.explain(path: path, content: tab.content, root: root, directory: explainDirectory(for: url),
-                                db: semanticDatabase)
-        case "rate":
-            let id = payload["filter"] as? String ?? ImportanceRater.importance.id
-            guard let filter = aiFilters.first(where: { $0.id == id }) else { return }
-            codeExplain.rate(path: path, content: tab.content, filter: filter, root: root,
-                             directory: explainDirectory(for: url), db: semanticDatabase)
-        case "freshness":
-            codeExplain.freshness(path: path, root: root, directory: explainDirectory(for: url))
-        case "explainPR":
-            architecture.explainPRFile(path: path, root: root, db: semanticDatabase)
-        case "createFilter":
-            createFilter(name: payload["name"] as? String ?? "", criterion: payload["criterion"] as? String ?? "")
-        case "tempFilter":
-            setTemporaryFilter(payload["criterion"] as? String ?? "")
-        case "explainSymbol":
-            guard let name = payload["name"] as? String else { return }
-            explainSymbol(name: name, path: path, line: (payload["line"] as? NSNumber)?.intValue ?? 1)
-        case "navDefinition", "navUsages", "navOpen", "navBack", "navForward", "askAI", "askStop":
-            handleNavigation(action, payload: payload, url: url, path: path, root: root)
-        default:
-            break
-        }
-    }
-
-    /// Go to definition, find usages, history and AI questions from the code viewer.
-    private func handleNavigation(_ action: String, payload: [String: Any], url: URL, path: String, root: URL) {
-        let line = (payload["line"] as? NSNumber)?.intValue ?? 1
-        let here = CodeNavigationStore.Place(url: url.standardizedFileURL, line: line)
-        let open: (URL, Int) -> Void = { [weak self] target, line in self?.openFile(target, line: line) }
-        switch action {
-        case "navDefinition":
-            guard let name = payload["name"] as? String else { return }
-            codeNav.goToDefinition(name: name, line: line, url: url, path: path, root: root, open: open)
-        case "navUsages":
-            guard let name = payload["name"] as? String else { return }
-            codeNav.findUsages(name: name, url: url, path: path, root: root)
-        case "navOpen":
-            // A result from the viewer's list or a `path:line` in an AI answer: a file inside
-            // the project only. A bare or partial path is looked up by its ending.
-            guard let target = payload["path"] as? String, let targetLine = (payload["target"] as? NSNumber)?.intValue else { return }
-            let base = root.standardizedFileURL.path + "/"
-            let file = root.appendingPathComponent(target).standardizedFileURL
-            if file.path.hasPrefix(base), FileManager.default.fileExists(atPath: file.path) {
-                codeNav.jump(from: here, to: file, line: targetLine, open: open)
-                return
-            }
-            let suffix = "/" + target.trimmingCharacters(in: CharacterSet(charactersIn: "./"))
-            let current = path
-            Task {
-                let match = await Task.detached(priority: .userInitiated) { () -> String? in
-                    let candidates = ArchitectureScanner.listFiles(root: root).filter { ("/" + $0).hasSuffix(suffix) }
-                    // Nearest to the file the question was about.
-                    let folder = (current as NSString).deletingLastPathComponent
-                    return candidates.max { a, b in
-                        a.commonPrefix(with: folder).count < b.commonPrefix(with: folder).count
-                    }
-                }.value
-                guard let match else { return }
-                codeNav.jump(from: here, to: root.appendingPathComponent(match), line: targetLine, open: open)
-            }
-        case "navBack":
-            codeNav.goBack(current: here, open: open)
-        case "navForward":
-            codeNav.goForward(current: here, open: open)
-        case "askAI":
-            guard let id = payload["id"] as? String, let question = payload["question"] as? String,
-                  let snippet = payload["text"] as? String, !snippet.isEmpty else { return }
-            let start = (payload["start"] as? NSNumber)?.intValue ?? 1
-            let history = (payload["history"] as? [[String: String]]) ?? []
-            codeNav.ask(id: id, question: question, snippet: snippet, start: start,
-                        end: (payload["end"] as? NSNumber)?.intValue ?? start, path: path,
-                        language: FileType.codeLanguage(for: url), history: history, url: url,
-                        root: root, db: semanticDatabase)
-        case "askStop":
-            if let id = payload["id"] as? String { codeNav.stopAnswer(id: id) }
-        default:
-            break
-        }
-    }
-
-    // MARK: - Architecture
-
-    /// Folder X-Rays by folder path (relative to the project root). The project's own
-    /// X-Ray is `architecture` (scope "").
-    private var folderXRays: [String: ArchitectureStore] = [:]
-
-    /// The store behind an X-Ray tab.
-    func xrayStore(for scope: String) -> ArchitectureStore {
-        if scope.isEmpty || scope == TabKind.pullRequestScope { return architecture }
-        if let store = folderXRays[scope] { return store }
-        let store = ArchitectureStore()
-        store.projectRoot = rootNode?.url
-        if let root = rootNode?.url {
-            // Kept in the project's .dde, never inside the folder itself.
-            let key = String(ContentHash.of(scope).prefix(24))
-            let base = root.appendingPathComponent(".dde/xray-folders", isDirectory: true)
-            store.persistenceFile = base.appendingPathComponent(key + ".json")
-            store.cacheDirectory = root.appendingPathComponent(".dde/cache/xray", isDirectory: true)
-        }
-        store.temporaryFilter = temporaryFilter
-        folderXRays[scope] = store
-        return store
-    }
-
-    /// Every X-Ray store that exists (the project's and the folders').
-    private var allXRayStores: [ArchitectureStore] { [architecture] + folderXRays.values }
-
-    /// Root folder and database of an X-Ray scope (folder X-Rays keep no database).
-    private func xrayContext(_ scope: String) -> (root: URL, db: SemanticDatabase?)? {
-        guard let root = rootNode?.url else { return nil }
-        if scope.isEmpty || scope == TabKind.pullRequestScope { return (root, semanticDatabase) }
-        return (root.appendingPathComponent(scope), nil)
-    }
-
-    /// Open (or switch to) the project's X-Ray. The first time the folder is scanned;
-    /// later openings show the stored result.
-    func openArchitecture() {
-        layout.workspaceArea = .projectMap
-        openXRayTab(scope: "")
-    }
-
-    private func openXRayTab(scope: String) {
-        guard let root = rootNode?.url, let context = xrayContext(scope) else { return }
-        layout.workspaceArea = .projectMap
-        let isThisTab = { (tab: OpenTab) -> Bool in
-            if case .architecture(let s) = tab.kind { return s == scope }
-            return false
-        }
-        if let index = openTabs.firstIndex(where: isThisTab) {
-            tabsStore.activeTabIndex = index
-        } else {
-            let marker = scope.isEmpty ? ".markview-architecture"
-                : scope == TabKind.pullRequestScope ? ".markview-pr-xray"
-                : ".markview-architecture-" + String(ContentHash.of(scope).prefix(12))
-            var tab = OpenTab(url: root.appendingPathComponent(marker), content: "", originalContent: "")
-            tab.kind = .architecture(scope: scope)
-            tabsStore.appendTab(tab)
-        }
-        xrayStore(for: scope).open(root: context.root, db: context.db)
     }
 
     // MARK: - Moving and copying files
@@ -1191,53 +926,8 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    /// The PR X-Ray tab: the project's X-Ray seen through one change — what it touches,
-    /// the links it adds or removes, and the AI's architectural reading of it.
-    func openPRXRay(source: String?) {
-        guard let root = rootNode?.url else { return }
-        openXRayTab(scope: TabKind.pullRequestScope)
-        if let source, !source.isEmpty {
-            architecture.refreshPRSources(root: root)
-            // A comparison with an earlier commit can span months of work: it is shown, and analysed when asked.
-            architecture.analyzeWhenLoaded = HistoricalBaseline.commitHash(fromSourceId: source) == nil
-            architecture.showPR(source, root: root, db: semanticDatabase)
-        } else {
-            // Nothing chosen yet: everything on this branch vs main, uncommitted included.
-            architecture.selectDefaultSource = true
-            architecture.refreshPRSources(root: root)
-        }
-    }
-
-    /// Compare this checkout with another branch in the PR X-Ray. `reverse` shows what `ref` has that this
-    /// branch lacks (read from `ref`, nothing is checked out); otherwise this branch's commits and uncommitted
-    /// changes against `ref`.
-    func compareBranch(_ ref: String, reverse: Bool) {
-        guard let root = rootNode?.url, GitClient.isPlausibleBranchName(ref) else { return }
-        let current = gitClient.branch.isEmpty ? "this checkout" : gitClient.branch
-        let title = reverse ? "\(ref) vs \(current): what \(ref) adds"
-                            : "\(current) vs \(ref) (commits + uncommitted)"
-        openXRayTab(scope: TabKind.pullRequestScope)
-        // No AI run until asked: Analyze and Review are buttons in the view.
-        architecture.showComparison(id: (reverse ? "rev:" : "cmp:") + ref, title: title, root: root, db: semanticDatabase)
-        architecture.refreshPRSources(root: root)
-    }
-
-    /// X-Ray from the file tree. A folder gets its own X-Ray tab — its own structure,
-    /// found and named inside it as if it were the project. A file opens with Explain
-    /// (its sections, importance, freshness and filters).
-    func openXRay(for url: URL) {
-        guard let root = rootNode?.url.standardizedFileURL else { return }
-        let target = url.standardizedFileURL
-        let isFolder = (try? target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-        guard isFolder else {
-            explainFile(target)
-            return
-        }
-        openXRayTab(scope: target.path == root.path ? "" : project.relativePath(of: target))
-    }
-
     /// Open a file with its Explain notes, starting an explanation if there is none yet.
-    private func explainFile(_ url: URL) {
+    func explainFile(_ url: URL) {
         layout.workspaceArea = .files
         guard !FileType.isImage(url), !Archive.isArchive(url), FileType.hasTextSource(url) else {
             openFile(url)
@@ -1251,297 +941,6 @@ class WorkspaceManager: ObservableObject {
             }
             guard activeTab?.url == url else { return }
             setNotesView(true, explain: true)
-        }
-    }
-
-    /// Requests from an X-Ray tab's web view, for the X-Ray of the active tab.
-    func handleArchitectureAction(_ action: String, payload: [String: Any]) {
-        var scope = ""
-        if case .architecture(let s) = activeTab?.kind { scope = s }
-        guard let (root, db) = xrayContext(scope) else { return }
-        let architecture = xrayStore(for: scope)
-        let semanticDatabase = db
-        switch action {
-        case "operationRun":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let id = payload["id"] as? String else { return }
-            operations()?.run(id: id)
-        case "operationOpen":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let id = payload["id"] as? String else { return }
-            operations()?.openPanel(id: id)
-        case "operationEdit":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let id = payload["id"] as? String else { return }
-            operations()?.edit(id: id)
-        case "operationAdd":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
-            operations()?.edit(id: nil)
-        case "operationAdopt":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let id = payload["id"] as? String else { return }
-            projectOperations?.adoptDiscovered(id: id)
-        case "operationDiscover":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
-            let nodes = architecture.snapshot?.view("deployment")?.nodes
-                .filter { $0.kind != "root" && $0.kind != "moduleRef" }
-                .map { ProjectOperation.Node(id: $0.id, name: $0.name) } ?? []
-            projectOperations?.discover(nodes: nodes)
-        case "operationCancelDiscovery":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
-            projectOperations?.cancelDiscovery()
-        case "operationDismissReport":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
-            projectOperations?.dismissDiscoveryReport()
-        case "operationAcceptProposal":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let index = payload["index"] as? Int else { return }
-            projectOperations?.acceptProposal(index: index)
-        case "operationRejectProposal":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let index = payload["index"] as? Int else { return }
-            projectOperations?.rejectProposal(index: index)
-        case "operationAddUnknown":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let index = payload["index"] as? Int else { return }
-            operations()?.addUnknown(index: index)
-        case "openFile":
-            guard let path = payload["path"] as? String, !path.isEmpty else { return }
-            let url = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path)).standardizedFileURL
-            // Stay inside the X-Ray's folder or, for a folder X-Ray's answer, the open project.
-            let projectPath = (rootNode?.url ?? root).standardizedFileURL.path
-            guard url.path.hasPrefix(root.standardizedFileURL.path + "/") || url.path.hasPrefix(projectPath + "/") else { return }
-            // From the PR X-Ray: the viewer opens on the change ("Pull request" lens), showing
-            // a fetched pull request's own version of the file (which may not exist here).
-            // From the ⚡ search's answer: the viewer opens on the search's places in the file.
-            if payload["fromSearch"] as? Bool == true { architecture.markSearchFocus(path: path) }
-            if payload["fromPR"] as? Bool == true {
-                architecture.markPRFocus(path: path)
-                let line = payload["line"] as? Int
-                let endLine = payload["endLine"] as? Int
-                let findText = payload["find"] as? String
-                if let cached = architecture.prFileURL(path: path) {
-                    openFile(cached, line: line, endLine: endLine)
-                    return
-                }
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if let prFile = await self.architecture.resolvePRFileURL(path: path) {
-                        self.openFile(prFile, line: line, endLine: endLine)
-                        return
-                    }
-                    guard FileManager.default.fileExists(atPath: url.path) else { return }
-                    if FileType.isOpenable(url) {
-                        self.openFile(url, line: line, endLine: endLine)
-                        if let text = findText, !text.isEmpty, FileType.from(url: url) == .markdown {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                                NotificationCenter.default.post(.scrollToText, for: self, object: String(text.prefix(80)))
-                            }
-                        }
-                    } else {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    }
-                }
-                return
-            }
-            guard FileManager.default.fileExists(atPath: url.path) else { return }
-            if FileType.isOpenable(url) {
-                openFile(url, line: payload["line"] as? Int, endLine: payload["endLine"] as? Int)
-                // Markdown: scroll to a heading or to where the document mentions something.
-                if let text = payload["find"] as? String, !text.isEmpty, FileType.from(url: url) == .markdown {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        NotificationCenter.default.post(.scrollToText, for: self, object: String(text.prefix(80)))
-                    }
-                }
-            } else {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
-            }
-        case "rescan":
-            architecture.scan(root: root, db: semanticDatabase)
-        case "analyze":
-            architecture.analyze(root: root, db: semanticDatabase)
-        case "describeBook":
-            // Book view: "Describe this chapter" (path) or "Describe remaining chapters" (no path).
-            architecture.describeBook(path: payload["path"] as? String, root: root, db: semanticDatabase)
-        case "recursiveInsight":
-            // Book panel: the insight of a part (folder) or chapter (document) of this X-Ray.
-            let relative = payload["path"] as? String ?? ""
-            let target = relative.isEmpty ? root : root.appendingPathComponent(relative).standardizedFileURL
-            guard target.path == root.standardizedFileURL.path || target.path.hasPrefix(root.standardizedFileURL.path + "/"),
-                  FileManager.default.fileExists(atPath: target.path) else { return }
-            startRecursiveInsight(at: target)
-        case "askBook":
-            // A question about the book: answered like "I need to understand" (what, why, how,
-            // origin, with sources), over this X-Ray's root — the project's or the folder's.
-            let question = (payload["question"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !question.isEmpty else { return }
-            setTemporaryFilter(question)
-            if let filter = temporaryFilter {
-                architecture.understand(filter: filter, root: root, db: semanticDatabase)
-                architecture.activate(filterId: filter.id)
-            }
-        case "cancelAnalysis":
-            architecture.cancelAnalysis()
-        case "tempFilter":
-            setTemporaryFilter(payload["criterion"] as? String ?? "")
-        case "openPRXRay":
-            openPRXRay(source: payload["source"] as? String)
-        case "openPRNumber":
-            // "123", "#123" or a GitHub link ".../pull/123".
-            let text = (payload["text"] as? String ?? "").trimmingCharacters(in: .whitespaces)
-            let number = text.range(of: #"(\d+)\s*$|pull/(\d+)"#, options: .regularExpression)
-                .map { String(text[$0]).filter(\.isNumber) } ?? ""
-            if !number.isEmpty { openPRXRay(source: "gh:" + number) }
-        case "analyzePR":
-            architecture.analyzePR(root: root, db: semanticDatabase, fresh: payload["again"] as? Bool == true)
-        case "historyCommits":
-            // Comparison by date: the commits of the calendar day chosen in the PR X-Ray ("YYYY-MM-DD").
-            architecture.listHistory(day: payload["day"] as? String ?? "", root: root)
-        case "compareWithCommit":
-            // The comparison with a date opens in the comparison view, like a branch comparison, from the project's X-Ray
-            // as well as from the PR X-Ray (BUG-110): it needs no pull request.
-            if scope.isEmpty { openXRayTab(scope: TabKind.pullRequestScope) }
-            architecture.compareWithCommit(sha: payload["sha"] as? String ?? "", root: root, db: semanticDatabase)
-        case "prFileDiff":
-            architecture.showFileDiff(path: payload["path"] as? String ?? "")
-        case "explainPRFile":
-            architecture.explainPRFile(path: payload["path"] as? String ?? "", root: root, db: semanticDatabase)
-        case "askPR":
-            let path = payload["path"] as? String
-            architecture.askPR(question: payload["question"] as? String ?? "", path: path?.isEmpty == true ? nil : path,
-                               root: root, db: semanticDatabase)
-        case "filterSearch":
-            architecture.searchFilter(filterId: payload["filter"] as? String ?? "", root: root, db: semanticDatabase)
-        case "showPR":
-            architecture.showPR(payload["source"] as? String ?? "", root: root)
-        case "reviewPR":
-            if payload["again"] as? Bool == true {
-                architecture.reviewAgain(root: root, db: semanticDatabase)
-            } else {
-                architecture.reviewPR(root: root, db: semanticDatabase)
-            }
-        case "prTasksToTerminal":
-            // Typed at the assistant's prompt, not sent: check the list and press Enter.
-            if let text = architecture.prTasksText() { sendToAssistant(text, submit: false) }
-        case "copyPRTasks":
-            if let text = architecture.prTasksText() {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-            }
-        case "refreshPRSources":
-            architecture.refreshPRSources(root: root)
-        case "prAction":
-            // op: approve | requestChanges | comment | merge | close; method: merge | squash | rebase.
-            let op = payload["op"] as? String ?? ""
-            let method = payload["method"] as? String ?? "squash"
-            guard ["approve", "requestChanges", "comment", "merge", "close"].contains(op),
-                  GitHubClient.mergeMethods.contains(method) else { return }
-            architecture.prAction(op, body: payload["body"] as? String ?? "", method: method, root: root)
-        case "prFindingFix", "prFixAll":
-            let prompt = action == "prFixAll"
-                ? architecture.prTasksText()
-                : architecture.findingFixPrompt(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1)
-            guard let prompt else { return }
-            let number = architecture.shownPRNumber
-            Task {
-                if let error = await fixInPullRequest(number, prompt: prompt) {
-                    let alert = NSAlert()
-                    alert.messageText = "Cannot fix in the pull request"
-                    alert.informativeText = error
-                    alert.runModal()
-                }
-            }
-        case "prFindingExplain":
-            architecture.explainFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1, db: semanticDatabase)
-        case "prFindingComment":
-            architecture.commentFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1, root: root)
-        case "prFindingIssue":
-            architecture.issueFromFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1, root: root)
-        case "prFindingDismiss":
-            architecture.dismissFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1)
-        case "openURL":
-            // Only GitHub links, opened in the browser.
-            if let text = payload["url"] as? String, let url = URL(string: text), url.scheme == "https",
-               url.host == "github.com" {
-                NSWorkspace.shared.open(url)
-            }
-        case "setComponent":
-            architecture.setComponent(path: payload["path"] as? String ?? "", component: payload["component"] as? String ?? "",
-                                      db: semanticDatabase)
-        case "rateImportance":
-            architecture.rateImportance(viewId: payload["view"] as? String ?? "modules",
-                                        parentId: payload["parent"] as? String ?? "",
-                                        filterId: payload["filter"] as? String ?? "importance",
-                                        root: root, db: semanticDatabase)
-        case "createFilter":
-            createFilter(name: payload["name"] as? String ?? "", criterion: payload["criterion"] as? String ?? "")
-        case "deleteFilter":
-            deleteFilter(id: payload["id"] as? String ?? "")
-        case "outlineFile":
-            guard let path = payload["path"] as? String, !path.isEmpty else { return }
-            architecture.outlineFile(path: path, root: root, db: semanticDatabase)
-        case "saveSearchAnswer":
-            let filterId = payload["filter"] as? String ?? ""
-            if architecture.understandingAnswers[filterId] != nil {
-                Task {
-                    if let file = await architecture.saveUnderstanding(filterId: filterId, root: root, author: features.defaultOwner) {
-                        refreshFileTree()
-                        openFile(file)
-                    }
-                }
-                return
-            }
-            if let file = architecture.saveSearchAnswer(filterId: payload["filter"] as? String ?? "", root: root,
-                                                        author: features.defaultOwner) {
-                refreshFileTree()
-                openFile(file)
-            }
-        case "retryUnderstanding":
-            architecture.retryUnderstanding(filterId: payload["filter"] as? String ?? "", root: root, db: db)
-        case "openUnderstandingSource":
-            guard let source = architecture.understandingSource(filterId: payload["filter"] as? String ?? "",
-                                                                sourceId: payload["source"] as? String ?? "") else { return }
-            if source.kind == .document {
-                // Inside the X-Ray's folder, or (from a folder X-Ray) anywhere in the open project.
-                if let path = UnderstandingAnswer.relativePath(source.path, root: root) {
-                    openFile(root.appendingPathComponent(path), line: source.start, endLine: source.end)
-                } else if let projectURL = rootNode?.url, let path = UnderstandingAnswer.relativePath(source.path, root: projectURL) {
-                    openFile(projectURL.appendingPathComponent(path), line: source.start, endLine: source.end)
-                }
-            } else if source.kind == .pr || source.kind == .commit {
-                if !source.url.isEmpty, UnderstandingAnswer.isGitHubURL(source.url, kind: source.kind, target: source.target),
-                   let url = URL(string: source.url) {
-                    NSWorkspace.shared.open(url)
-                } else if source.kind == .commit {
-                    let hash = source.target
-                    guard hash.count == 40, hash.allSatisfy(\.isHexDigit) else { return }
-                    Task {
-                        let result = await GitHubClient.execute(["show", "--format=fuller", "--stat", "--patch", hash, "--"], in: root, git: true)
-                        guard result.status == 0 else { return }
-                        let file = FileManager.default.temporaryDirectory.appendingPathComponent("MarkView-commit-\(hash).md")
-                        // Indent rather than fence: commit content may itself contain fences.
-                        let text = "# Commit \(hash)\n\n" + result.stdout.components(separatedBy: "\n").map { "    " + $0 }.joined(separator: "\n")
-                        do { try Data(text.utf8).write(to: file); openFile(file) }
-                        catch { NSLog("Could not open the commit document") }
-                    }
-                }
-            }
-        case "explainEdge":
-            guard let source = payload["source"] as? String, let target = payload["target"] as? String else { return }
-            architecture.explainEdge(view: payload["view"] as? String ?? "modules", source: source, target: target,
-                                     kind: payload["kind"] as? String ?? "uses", label: payload["label"] as? String,
-                                     root: root, db: semanticDatabase, fresh: payload["again"] as? Bool == true)
-        case "refreshCode":
-            // The Code view's Refresh (DEC-002): the automatic pipeline now, forced.
-            architecture.refreshCode(root: root, db: semanticDatabase)
-        case "traceCode":
-            guard let scope = payload["scope"] as? String, let question = payload["question"] as? String else { return }
-            architecture.traceCode(scope: scope, question: question, root: root, db: semanticDatabase)
-        case "describe":
-            architecture.describe(viewId: payload["view"] as? String ?? "modules", nodeId: payload["id"] as? String ?? "",
-                                  root: root, db: semanticDatabase)
-        default:
-            break
         }
     }
 
@@ -1646,7 +1045,7 @@ class WorkspaceManager: ObservableObject {
         guard project.hasWorkspace else { return false }
         // A pull request's copy of a project file (MarkView's cache, opened from the PR
         // X-Ray) belongs to the open project: it must not turn it into a single-file workspace.
-        if architecture.prRelativePath(for: url) != nil { return true }
+        if codeXRay.architecture.prRelativePath(for: url) != nil { return true }
         return project.contains(url)
     }
 
@@ -1705,10 +1104,8 @@ class WorkspaceManager: ObservableObject {
         tabsStore.reset()
         project.closeFolder()
         releaseWorkspaceEngines()
-        architecture.reset()
-        folderXRays = [:]
+        codeXRay.reset()
         projectOperations = nil
-        codeNav.reset()
         gitClient.reset()
         gitHubRoot = nil
         gitHub.reset()
@@ -1929,88 +1326,6 @@ class WorkspaceManager: ObservableObject {
         guard let index = editorTabIndex(documentID: documentID, event: "save"),
               openTabs[index].isFileBacked else { return }
         saveFile(at: index)
-    }
-
-    /// Handle selection actions: translate or explain selected text via the selected AI CLI.
-    /// Result is shown in a popup — see `translateDocument` for the whole-document
-    /// path, which produces a translated copy in a new tab instead.
-    func handleSelectionAction(action: String, text: String, completion: @escaping (String, String) -> Void) async {
-        let (systemPrompt, title): (String, String) = {
-            switch action {
-            case "translate_ru":
-                return ("You are a professional translator. Translate the user's text to Russian word-for-word. Do NOT summarize, do NOT shorten, do NOT skip anything. Translate every single sentence. Return ONLY the translated text in markdown format.", "Translation to Russian")
-            case "translate_en":
-                return ("You are a professional translator. Translate the user's text to English word-for-word. Do NOT summarize, do NOT shorten, do NOT skip anything. Translate every single sentence. Return ONLY the translated text in markdown format.", "Translation to English")
-            case "explain":
-                return ("You are a knowledgeable assistant. Explain the following text clearly and concisely. Use markdown formatting. If it contains technical terms, define them. If it contains code, explain what it does.", "Explanation")
-            default:
-                return ("Process the following text.", "Result")
-            }
-        }()
-
-        var request = CLICompletion.Request(project: aiProject, prompt: text, systemPrompt: systemPrompt)
-        request.timeout = 120
-        let id = UUID()
-        let scope = activeTab.map { project.relativePath(of: $0.url) } ?? "Selected text"
-        let assistant = AIAssistantPreferences.summary(tool: request.tool,
-            model: request.model ?? AIAssistantPreferences.model(for: request.tool, project: request.project) ?? "")
-        selectionActions[id] = SelectionActionState(id: id, title: title,
-            scope: "\(scope) · selected text", assistant: assistant, started: Date())
-        let task = Task { [weak self] in
-            try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "selection-action", onDelta: { [weak self] delta in
-                Task { @MainActor in
-                    guard var state = self?.selectionActions[id], state.phase == .running else { return }
-                    state.partial += delta
-                    state.stage = "Writing answer"
-                    self?.selectionActions[id] = state
-                }
-            }, onActivity: { [weak self] activity in
-                Task { @MainActor in
-                    guard var state = self?.selectionActions[id], state.phase == .running else { return }
-                    switch activity {
-                    case .thinking: state.stage = "Thinking"
-                    case .writing, .answerDelta: state.stage = "Writing answer"
-                    case .read, .search, .run: state.stage = "Reading project context"
-                    case .webSearch, .webFetch: state.stage = "Reading web context"
-                    }
-                    self?.selectionActions[id] = state
-                }
-            })
-        }
-        selectionTasks[id] = task
-        defer {
-            selectionTasks.removeValue(forKey: id)
-            stoppedSelectionActions.remove(id)
-        }
-        do {
-            let result = try await task.value
-            if stoppedSelectionActions.contains(id) {
-                finishSelectionAction(id, phase: .stopped, stage: "Stopped · partial answer retained")
-                completion(title, selectionActions[id]?.partial ?? "Stopped")
-                return
-            }
-            result.record(in: semanticDatabase)
-            finishSelectionAction(id, phase: .completed, stage: "Completed")
-            completion(title, result.text)
-        } catch is CancellationError {
-            finishSelectionAction(id, phase: .stopped, stage: "Stopped · partial answer retained")
-            completion(title, selectionActions[id]?.partial ?? "Stopped")
-        } catch {
-            if stoppedSelectionActions.contains(id) {
-                finishSelectionAction(id, phase: .stopped, stage: "Stopped · partial answer retained")
-                completion(title, selectionActions[id]?.partial ?? "Stopped")
-                return
-            }
-            finishSelectionAction(id, phase: .failed, stage: error.localizedDescription)
-            completion(title, "Error: \(error.localizedDescription)")
-        }
-    }
-
-    private func finishSelectionAction(_ id: UUID, phase: SelectionActionState.Phase, stage: String) {
-        guard var state = selectionActions[id] else { return }
-        state.phase = phase
-        state.stage = stage
-        selectionActions[id] = state
     }
 
     // MARK: - Document Translation
@@ -2879,7 +2194,7 @@ class WorkspaceManager: ObservableObject {
             // A file saved inside the project is a change the automatic code analysis refreshes
             // from (REQ-002), at once rather than after the change watcher's latency.
             if let root = rootNode?.url.standardizedFileURL.path, tab.url.standardizedFileURL.path.hasPrefix(root + "/") {
-                architecture.noteProjectChanged()
+                codeXRay.architecture.noteProjectChanged()
             }
         } catch {
             lastSaveError = "Could not save “\(tab.displayName)”: \(error.localizedDescription)"
@@ -3599,20 +2914,6 @@ class WorkspaceManager: ObservableObject {
                                loadPullRequest: pr.number)
     }
 
-    /// "I need to understand …": the X-Ray's ⚡ search for the question — what takes part is
-    /// marked in every view, the answer and its places are on the right, and a file opened from
-    /// there shows the places inside it.
-    func understandInXRay(_ question: String, attachments: [URL] = []) {
-        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let root = rootNode?.url, !text.isEmpty else { return }
-        setTemporaryFilter(text)
-        openArchitecture()
-        if let filter = temporaryFilter {
-            architecture.understand(filter: filter, root: root, db: semanticDatabase, attachments: attachments)
-            architecture.activate(filterId: filter.id)
-        }
-    }
-
     /// "New … from this document": the document is the material (attached, so the AI reads it whole).
     func startIntake(_ kind: IntakeKind, fromDocument url: URL) {
         let path = project.relativePath(of: url)
@@ -3865,7 +3166,7 @@ class WorkspaceManager: ObservableObject {
     private func setUpGitHub(at root: URL) {
         gitHubRoot = root
         gitClient.onBranch = { [weak self] branch in self?.gitHub.branchChanged(branch) }
-        gitHub.onRepoChange = { [weak self] repo in self?.architecture.gitHubRepo = repo }
+        gitHub.onRepoChange = { [weak self] repo in self?.codeXRay.architecture.gitHubRepo = repo }
         gitHub.onPoll = { [weak self] client in self?.features.syncLifecycle(with: client) }
         if gitHubSettingObserver == nil {
             gitHubSettingObserver = NotificationCenter.default.addObserver(
@@ -3906,13 +3207,6 @@ class WorkspaceManager: ObservableObject {
         var tab = OpenTab(url: url, content: "", originalContent: "")
         tab.kind = .github(item)
         tabsStore.appendTab(tab)
-    }
-
-    /// "Review" on a pull request: its PR X-Ray, with the AI review started once it loads
-    /// (unless turned off in Settings).
-    func reviewPullRequest(_ number: Int) {
-        architecture.reviewWhenLoaded = GitHubSettings.autoReview
-        openPRXRay(source: "gh:\(number)")
     }
 
     /// Work on a pull request's code: check its branch out, refusing when the working tree
@@ -4862,4 +4156,39 @@ extension WorkspaceManager: ProjectOperationsPresenter {
     }
 
     var operationsHostWindow: NSWindow? { hostWindow }
+}
+
+/// What `CodeAndXRayCoordinator` needs of this window; the coordinator holds no other reference to it (`AR-14` step 11).
+extension WorkspaceManager: CodeXRayHost {
+    var activeTabKind: TabKind? { activeTab?.kind }
+    var activeTabURL: URL? { activeTab?.url }
+    var gitBranch: String { gitClient.branch }
+    var defaultAuthor: String { features.defaultOwner }
+
+    func openTabContent(for url: URL) -> String? {
+        openTabs.first { $0.url.standardizedFileURL == url.standardizedFileURL }?.content
+    }
+
+    func scrollToText(_ text: String) {
+        NotificationCenter.default.post(.scrollToText, for: self, object: text)
+    }
+
+    /// Bring the X-Ray tab of `scope` to the front, opening it when it is not there yet.
+    func showXRayTab(scope: String, root: URL) {
+        layout.workspaceArea = .projectMap
+        let isThisTab = { (tab: OpenTab) -> Bool in
+            if case .architecture(let s) = tab.kind { return s == scope }
+            return false
+        }
+        if let index = openTabs.firstIndex(where: isThisTab) {
+            tabsStore.activeTabIndex = index
+        } else {
+            let marker = scope.isEmpty ? ".markview-architecture"
+                : scope == TabKind.pullRequestScope ? ".markview-pr-xray"
+                : ".markview-architecture-" + String(ContentHash.of(scope).prefix(12))
+            var tab = OpenTab(url: root.appendingPathComponent(marker), content: "", originalContent: "")
+            tab.kind = .architecture(scope: scope)
+            tabsStore.appendTab(tab)
+        }
+    }
 }

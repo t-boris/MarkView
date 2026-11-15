@@ -289,7 +289,7 @@ struct SharedSearchView: View {
         if manager.rootNode != nil {
             commands += [
                 SearchCommand(id: "map", title: "Show Project Map", symbol: "viewfinder", detail: "⌘4", run: {
-                    manager.openArchitecture()
+                    manager.codeXRay.openArchitecture()
                 }),
                 SearchCommand(id: "work", title: "Show Work", symbol: "checklist", detail: "Workspace", run: {
                     manager.layout.workspaceArea = .work
