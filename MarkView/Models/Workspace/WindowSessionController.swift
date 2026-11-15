@@ -115,7 +115,7 @@ final class WindowSessionController {
         }
 
         workspace.objectWillChange.merge(with: workspace.tabs.objectWillChange, workspace.fileTreeStore.objectWillChange, workspace.layout.objectWillChange,
-                                         workspace.theme.objectWillChange, workspace.windowUI.objectWillChange)
+                                         workspace.chrome.objectWillChange, workspace.theme.objectWillChange, workspace.windowUI.objectWillChange)
             .sink { [weak self] _ in self?.scheduleSave() }
             .store(in: &entry.subscriptions)
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification,
@@ -140,7 +140,7 @@ final class WindowSessionController {
         }
         if let state {
             if let frame = state.frame { restoreFrame(frame, on: window) }
-            await workspace.restoreWindowState(state)
+            await WindowSessionSnapshotter.restore(state, into: workspace)
             if state.minimized { window.miniaturize(nil) }
         }
         guard entries[id] === entry else { return } // closed while its folder was loading
@@ -168,7 +168,7 @@ final class WindowSessionController {
         var states = pending
         for (id, entry) in entries where !entry.restoring {
             guard let window = entry.window, let workspace = entry.workspace else { continue }
-            var state = workspace.windowState(id: id)
+            var state = WindowSessionSnapshotter.snapshot(of: workspace, id: id)
             state.frame = window.frame
             state.minimized = window.isMiniaturized
             states[id] = state

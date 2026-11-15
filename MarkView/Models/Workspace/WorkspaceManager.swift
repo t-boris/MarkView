@@ -255,7 +255,7 @@ enum WorkspaceAITool: String {
 
 /// Manages the workspace state including open files, tabs, and folder structure
 @MainActor
-class WorkspaceManager: ObservableObject, TabsProviding {
+class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// Recently opened folders (standardized paths), most recent first.
     @Published private(set) var recentProjects: [String] =
         UserDefaults.standard.stringArray(forKey: WorkspaceManager.recentProjectsKey) ?? []
@@ -920,126 +920,33 @@ class WorkspaceManager: ObservableObject, TabsProviding {
 
     // MARK: - Window session
 
-    func windowState(id: UUID) -> WorkspaceWindowState {
-        var state = WorkspaceWindowState(id: id, folder: rootNode?.url)
-        state.theme = theme.settings
-        state.uiState = windowUI.saved
-        for (index, tab) in openTabs.enumerated() {
-            let saved: WorkspaceTabState
-            switch tab.kind {
-            case .file:
-                let draft = tab.isModified ? WorkspaceDraft(content: tab.content, original: tab.originalContent) : nil
-                let currentScroll = tabs.scroll.scrollPosition(for: tab.id)
-                saved = .file(url: tab.url, draft: draft, notes: tab.notesView, scroll: Double(currentScroll))
-            case .image: saved = .image(tab.url)
-            case .pdf: saved = .pdf(tab.url)
-            case .archive: saved = .archive(tab.url)
-            case .data: saved = .data(tab.url)
-            case .github(let item): saved = .github(item)
-            case .architecture(let scope): saved = .architecture(scope)
-            case .terminal(let terminalID):
-                guard let terminal = terminalTabs[terminalID] else { continue }
-                saved = .terminal(terminal.directory)
-            case .browser(let session):
-                guard let url = session.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { continue }
-                saved = .browser(url)
-            case .insight: continue // in-memory jobs have their own export workflow
-            case .prototype: continue // reopened from AI Tools → Prototype
-            case .tool, .uiStudio, .cockpit:
-                // A tool tab is saved when its descriptor says so; UI Studio (a live session with a development server) and the
-                // Cockpit are opened again from the View menu or the toolbar.
-                guard let tool = tab.kind.toolID, ToolRegistry.shared.isRestorable(tool) else { continue }
-                saved = .tool(tool)
-            }
-            if index == activeTabIndex { state.activeTabIndex = state.tabs.count }
-            state.tabs.append(saved)
+    // The session of a window is saved and restored by `WindowSessionSnapshotter`; this is what the window itself opens for it.
+    var windowFolder: URL? { rootNode?.url }
+    var themeSettings: WindowThemeSettings { theme.settings }
+
+    func terminalDirectory(for id: UUID) -> URL? { terminalTabs[id]?.directory }
+
+    func restoreFolder(_ folder: URL) async {
+        await withCheckedContinuation { continuation in
+            openFolder(folder) { continuation.resume() }
         }
-        var panels = WorkspacePanelState(workspaceArea: layout.workspaceArea.rawValue,
-            workSection: layout.workSection.rawValue,
-            navigator: layout.navigatorTab.rawValue, left: layout.leftPanel,
-            feature: layout.issuesFeature, git: layout.gitSection.rawValue, stage: layout.featureStage.rawValue,
-            showFiles: false, showNavigator: false, welcomeBackdrop: layout.welcomeBackdrop.rawValue)
-        chrome.save(into: &panels)
-        state.panels = panels
-        return state
     }
 
-    func restoreWindowState(_ state: WorkspaceWindowState) async {
-        windowUI.restore(state.uiState)
-        let fm = FileManager.default
-        if let folder = state.folder, folder.isFileURL,
-           (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-            await withCheckedContinuation { continuation in
-                openFolder(folder) { continuation.resume() }
-            }
-            // A folder chosen meanwhile wins over the old session.
-            guard rootNode?.url == folder else { return }
-        }
-        var selected: Int?
-        for (savedIndex, saved) in state.tabs.enumerated() {
-            let before = openTabs.count
-            switch saved {
-            case .file(let url, let draft, let notes, let scroll):
-                guard url.isFileURL else { continue }
-                if fm.fileExists(atPath: url.path) { await tabs.openTextFile(url) }
-                if openTabs.count == before, let draft {
-                    // A removed file must not take the unsaved editor text with it.
-                    var tab = OpenTab(url: url, content: draft.content, originalContent: draft.original)
-                    tab.headings = TabsController.headings(in: draft.content)
-                    tabs.appendTab(tab)
-                }
-                guard openTabs.count > before else { continue }
-                let restoredScroll: CGFloat = scroll.isFinite ? CGFloat(max(0, scroll)) : 0
-                tabs.updateTab(at: before) { tab in
-                    if let draft {
-                        tab.content = draft.content
-                        tab.isModified = draft.content != tab.originalContent
-                        tab.headings = TabsController.headings(in: draft.content)
-                    }
-                    tab.notesView = notes
-                }
-                tabs.scroll.setScrollPosition(restoredScroll, for: openTabs[before].id)
-            case .tool(let tool):
-                if ToolRegistry.shared.isRestorable(tool) { openTool(tool) }
-            case .image(let url), .pdf(let url), .data(let url), .archive(let url):
-                if url.isFileURL, fm.fileExists(atPath: url.path) { openFile(url) }
-            case .github(let item): openGitHubTab(item)
-            case .architecture(let scope):
-                // Reopen cached views without triggering new scans/reviews during launch.
-                if let root = rootNode?.url {
-                    var tab = OpenTab(url: root.appendingPathComponent(".markview-restored-xray-" + String(ContentHash.of(scope).prefix(12))),
-                                      content: "", originalContent: "")
-                    tab.kind = .architecture(scope: scope)
-                    tabs.appendTab(tab)
-                    if let context = xrayContext(scope) {
-                        xrayStore(for: scope).restoreCached(root: context.root, db: context.db)
-                    }
-                }
-            case .terminal(let directory):
-                if directory.isFileURL, (try? directory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                    openTerminal(in: directory)
-                }
-            case .browser(let url):
-                if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { openBrowser(url, activate: false) }
-            }
-            if savedIndex == state.activeTabIndex, openTabs.count > before { selected = before }
-        }
-        activeTabIndex = state.activeTabIndex == -1 ? -1 : (selected ?? (openTabs.isEmpty ? -1 : 0))
-        if let panels = state.panels {
-            layout.workspaceArea = panels.workspaceArea.flatMap(WorkspaceArea.init) ?? .files
-            let restoredWorkSection = panels.workSection.flatMap(WorkSection.init) ?? .features
-            layout.workSection = restoredWorkSection == .terminal ? .features : restoredWorkSection
-            let restoredNavigator = NavigatorTab(rawValue: panels.navigator) ?? .contents
-            layout.navigatorTab = [.terminal, .git, .search].contains(restoredNavigator) ? .contents : restoredNavigator
-            layout.leftPanel = panels.left == "issues" ? "issues" : "files"
-            layout.issuesFeature = panels.feature
-            layout.gitSection = GitSection(rawValue: panels.git) ?? .changes
-            layout.featureStage = FeatureStage.stored(panels.stage)
-            // A session saved before BUG-120 has none: the window keeps the starting choice it was created with.
-            if let backdrop = panels.welcomeBackdrop { layout.welcomeBackdrop = WelcomeBackdrop.stored(backdrop) }
-            chrome.restore(panels)
+    func restoreArchitectureTab(scope: String) {
+        // Reopen cached views without triggering new scans/reviews during launch.
+        guard let root = rootNode?.url else { return }
+        var tab = OpenTab(url: root.appendingPathComponent(".markview-restored-xray-" + String(ContentHash.of(scope).prefix(12))),
+                          content: "", originalContent: "")
+        tab.kind = .architecture(scope: scope)
+        tabs.appendTab(tab)
+        if let context = xrayContext(scope) {
+            xrayStore(for: scope).restoreCached(root: context.root, db: context.db)
         }
     }
+
+    func restoreTerminal(in directory: URL) { openTerminal(in: directory) }
+
+    func restoreBrowser(_ url: URL) { _ = openBrowser(url, activate: false) }
 
     // MARK: - Workspace metadata
 

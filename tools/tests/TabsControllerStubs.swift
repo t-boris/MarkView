@@ -8,7 +8,10 @@ struct InsightSession {
 }
 struct SemanticBlock {}
 struct BlockCompilationState {}
-struct BrowserSession { func close() {} }
+struct BrowserSession {
+    var url: URL?
+    func close() {}
+}
 struct PrototypeSession { let slug: String }
 struct StudioSession { func close() async {} }
 struct CockpitSession { func cancel() {} }
