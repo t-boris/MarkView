@@ -404,3 +404,100 @@ Themes as data, layout presets, the backdrop registry and the typed bridge do no
   - **Grab-bag splits (`AR-23`):** Split `WorkspaceControllers.swift` into `DocumentScrollSideTable.swift`, `TaskBag.swift`, and `MarkdownDocumentChunker.swift`; split `AILayer.swift` into `AIOperation.swift` and `AssistantProviderRegistry.swift`; renamed `StorageAndSecurity.swift` to `SchemaVersionedStore.swift`.
   - **WindowSessionStorage (`FU-14`):** Guarded `WindowSessionStorage.save` against overwriting legacy un-enveloped archives with `version > 1` as well as future `"schema" > 1` envelopes, and covered both paths in `tools/tests/window-session-tests.sh`.
   - **Safety & hygiene cleanup (`AR-04`, `AR-11`, `AR-13`, `AR-22`, `AR-47`, `AR-48`):** Migrated `EditorView` selection result evaluations onto `JS.call` and removed `jsString`; removed the `NSAppleScript` fallback in `FileTreeView.openTerminal`; switched `WorkspaceManager.saveFile` to `AtomicFile.write`, removed modal save `NSAlert`, and surfaced `lastSaveError` via a dismissible banner in `ContentView`; replaced `TOCView.Tab` with `NavigatorTab` in `WorkspaceManager`; declared all 20 `.go` files in `"Build Cockpit runtime"` `inputPaths`; removed the stale tracked `work/` directory.
+
+## 12. Third check: what 6.26.2 (PR #417) really changed
+
+Date: 2026-11-15. Checked commit: `6facd9f` (`main`, version 6.26.2). Two independent read-only
+passes, counts, and a full run:
+
+- Debug build: **succeeded**, 189 distinct warnings (mostly strict concurrency).
+- `swift test --package-path Packages/MarkViewCore`: **9 passed**.
+- `./tools/tests/run.sh --tier pure`: **105 passed, 0 failed**.
+- The built bundle carries the scripts in `Editor/js/`; no page or Swift lookup points at the old
+  path.
+- One function was executed in a hidden web view against the built bundle (12.2, FU-20).
+- Not run: `gui` and `live` tiers; the app was not launched or looked at.
+
+### 12.1 Verdict
+
+**The section 10 items are closed almost completely, and the claims in section 11 are accurate
+with a few exceptions. The architecture measures have not moved.** The folder reorganisation is a
+clean, byte-identical move (451 renames, project file consistent, 0 broken test paths); it makes
+the tree readable, and it changes no dependency.
+
+| Measure | Review | 6.26.1 | 6.26.2 | Target |
+|---|---|---|---|---|
+| `WorkspaceManager.swift` lines | 5851 | 5749 | 5747 | under 1000 |
+| Views taking the whole manager | 62 | 62 | 62 | 0 |
+| Flat files in `Models/` and `Views/` | 338 + 96 | same | 0 (21 + 19 folders) | layered folders |
+| Mutual dependencies between Models folders | 6 cycles (domains) | — | 28 mutual pairs | 0 |
+| `Process()` outside `Subprocess` | about 12 | 17 | 17 in 15 files | 0 |
+| `CLICompletion.run` outside `AIOperation` | — | 58 | 55 in 28 files | 0 |
+| `SchemaVersionedStore` users | — | 1 | 1 | all `.dde` stores |
+| `sqlite3_*` on the main actor | all | all | all | 0 |
+| Lists to edit for a new tool tab | 9 | about 7 | about 7 | 1 |
+| JS files over 2800 lines | 3 | 3 | 3 | 0 |
+
+### 12.2 New problems from PR #417
+
+| ID | Severity | Problem | Fix |
+|---|---|---|---|
+| FU-20 | **High** | **Mermaid diagrams lose their stylesheet.** `mvKit.sanitizeMermaidSvg` forbids `<style>` (`js/mv-kit.js:185,288`); Mermaid keeps its whole theme in a `<style>` inside the SVG. Confirmed by running the shipped function in a hidden web view: a styled SVG comes back without the `<style>` element. By reading, the editor (`markview-render.js:52`), book and PDF (`markview-book.js:462`), X-Ray (`markview-architecture.js:2091`), research map (`markview-research-map.js:279`) and discussions all pass their SVG through it. Expected on screen: black fills and wrong text colours; **not looked at in the app.** `Phase0SafetyTests` asserts the strip, so CI is green on it. | Allow `<style>` inside Mermaid SVG (Mermaid's output with `securityLevel: 'strict'` is already sanitised by Mermaid), or scope the stylesheet instead of dropping it. Add a test that renders a real diagram and checks a computed fill. |
+| FU-21 | Medium | **Quit can be refused every time.** When the session file is judged "newer" (now also a legacy file with `version > 1`), `saveBeforeTermination` still calls `save`, it throws, and the app shows an error and cancels quit (`WindowSessionController.swift:202-213`, `MarkViewApp.swift:78-85`). The refusal is only logged; FU-15 asked to show it once. | Skip the save on quit when blocked; show one notice. |
+| FU-22 | Medium | **The process-group kill never runs.** `Subprocess.swift:197-207` signals the group only if the child leads one, and nothing puts the child in its own group. Grandchildren survive as before. Section 11 states this as fixed. | Spawn with a new process group, or state the limit. |
+| FU-23 | Low-Medium | **Saving a document through `AtomicFile`** replaces a symlinked file by a regular file, drops extended attributes and hard links, and creates `.name.tmp-UUID` inside the project folder (seen by watchers and git, left after a crash). The previous write was also atomic through Foundation; whether it kept links was not checked. | Resolve the link before writing; put the temp file in a temp directory on the same volume or use `replaceItemAt`. |
+| FU-24 | Low | The CSS filter in `mv-kit.js:220-234` is a regex on raw text; CSS escapes pass it (`position:f\69xed`). `position:absolute` is allowed. No script can run; the effect is restyling. | Parse with `CSSStyleDeclaration` and allow-list properties. |
+| FU-25 | Low | Remaining sinks: `markview-canvas.js:497-498` (colour from a `.canvas` file into a `style` attribute unescaped), `markview-insight-srcdoc.js:524` (Mermaid SVG without the shared sanitiser, sandboxed frame). Cached or exported Insight HTML still carries `'unsafe-inline'` (`InsightSession.swift:1648`). | Escape or sanitise. |
+| FU-26 | Low | The CSP nonce is injected by regex; a miss is silent and Insight goes blank. The app's own injection path has no test. | Log the miss; test the real path. |
+| FU-27 | Low | Test runner: the 180 s limit kills only the shell, not the suite's children, and applies to gui and live suites too. A bare `--changed` that selects nothing exits 0. | Kill the process group; per-tier limits. |
+| FU-28 | Low | Tests that are structural rules, not behaviour (rule 4): `Phase1CleanupTests.swift:85-110` pins the 21 + 19 folder names, so adding a shared folder fails CI; `Phase7WebCITests.swift:108` fails when `tasks/todo.md` passes 500 lines, and docs go to `main` untested. | Move both to a named lint script. |
+| FU-29 | Low | Dead data again: `ToolSurface.viewMenu`, `.welcomeTile`, `.sessionRestore` are set on every descriptor and read nowhere, while menu, tiles and restore are hand-written. | Delete until used, or use them (AR-31). |
+| FU-30 | Process | **Rule 3 broken by its own follow-up:** one squashed commit of 848 files covers about twenty findings and cannot be reverted per finding (for example to undo FU-20 alone). | One finding per pull request. |
+
+Still open from before and not mentioned in section 11: the Cockpit and Remote sockets have no
+token or peer check (`CockpitHostBridge.swift:31-44`, `Remote/RemoteToolBridge.swift:17-22`).
+
+### 12.3 The folder structure (AR-20)
+
+Done: folders. Not done: layers, boundaries, lower coupling.
+
+- All 21 Models folders are peers in one module. `Workspace` depends on 19 of the 20 others and
+  14 depend on it; `AI` is used by 17. Nothing enforces a boundary (no lint, no access control,
+  no package).
+- `Workspace/` and `AI/` double as the shared-infrastructure folder. Clear misplacements:
+  `FrontMatter` / `YAMLParser` (used by 6 folders), `SchemaVersionedStore`, `TaskBag`,
+  `ArchiveSupport`, `TextDiff`, `FilterSearch`, `ListSelection`, `ContentHash` (inside
+  `AI/OutputLanguage.swift`, used by 7 folders), `Views/Workspace/WindowStorage.swift` (used by 5
+  view folders); `WebClip`, `WebAppPreview`, `ImageAttachments` belong to other features;
+  `SystemProbe` and `CommandPolicy` in `AI/` are used only by Deployments.
+- `ExtensionRegistries.swift` holds only the tool registry; the name is from the deleted content.
+
+Next step for AR-20: a `Shared` (or the package) home for the items above, then one lint script
+with an allowed-dependency table per folder and a count of violations that must go down.
+
+### 12.4 Records
+
+Accurate now: `CLAUDE.md` (one slip: line 8 still says "(`Core/`)"), phase status lines, feature
+status `implementing`. Not accurate:
+
+- The review says `docs/architecture/` is synchronised; 140 path references in 12 files there
+  point at the old flat paths (914 across all docs, most in historical feature and bug records).
+- REQ-008 ticks AR-20 and labels the script move AR-29; the three large JS files are unchanged.
+- REQ-006 and the Phase 5 line say `BookAnnotator` uses `AIOperation`; the only caller is
+  `ArchitectureStore`.
+- Section 11 lists the process-group kill as fixed (FU-22).
+
+Two worktrees hold uncommitted changes at the old flat paths
+(`/private/tmp/MarkView-native-qa-attach`, 10 files; `/private/tmp/MarkView-workspace-performance`,
+12 files), on bases 160-176 commits behind. If they are live work, carrying them over now depends
+on rename detection.
+
+### 12.5 What to do next
+
+1. **FU-20 first** (look at one Mermaid diagram in 6.26.2; fix and release if confirmed), with
+   FU-21.
+2. Records and small items: 12.4, FU-22, FU-28, FU-29, the two open sockets.
+3. **Stop follow-up rounds and start Step E**, one finding per pull request, each with its count:
+   `Subprocess` across 15 files (AR-25), `AIOperation` across 28 files (AR-26), registry to the
+   end (AR-31), then `WorkspaceManager` (AR-14). Three rounds have cleaned the edges; none has yet
+   reduced a count in the table of 12.1 apart from the folders.
