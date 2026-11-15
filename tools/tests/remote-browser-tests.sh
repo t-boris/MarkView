@@ -4,7 +4,7 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 swiftc -parse-as-library -o "$out/remote-browser-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/Browser/BrowserControlServer.swift \
+    MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/Browser/BrowserControlServer.swift MarkView/Models/Browser/BrowserAgentExecutor.swift \
     MarkView/Models/Remote/RemoteProtocol.swift MarkView/Models/Remote/RemoteWorkspaceTools.swift \
     MarkView/Models/Remote/RemoteWorkspace.swift MarkView/Models/Remote/RemoteCommand.swift \
     MarkView/Models/Terminal/PTYWriter.swift MarkView/Models/AI/AgentProcesses.swift \

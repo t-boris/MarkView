@@ -5,6 +5,7 @@
 1 MarkView/Bridge/PDFExporter.swift
 1 MarkView/Models/AI/AIAssistants.swift
 1 MarkView/Models/AI/AICallLog.swift
+1 MarkView/Models/AI/Providers/CodexProvider.swift
 1 MarkView/Models/Architecture/ArchitectureStore.swift
 2 MarkView/Models/Architecture/UnderstandingAnswer.swift
 1 MarkView/Models/Book/BookPDFExportModel.swift
