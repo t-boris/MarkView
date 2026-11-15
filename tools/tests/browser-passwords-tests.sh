@@ -8,5 +8,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/BrowserPasswordsTests.swift "$out/main.swift"
-swiftc -O -o "$out/browser-passwords-tests" MarkView/Models/Browser/BrowserPasswords.swift MarkView/Models/Browser/BrowserDownloads.swift "$out/main.swift"
+swiftc -O -o "$out/browser-passwords-tests" Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift MarkView/Models/Browser/BrowserPasswords.swift MarkView/Models/Browser/BrowserDownloads.swift "$out/main.swift"
 "$out/browser-passwords-tests"

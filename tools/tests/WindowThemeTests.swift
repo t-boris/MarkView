@@ -78,8 +78,9 @@ MainActor.assumeIsolated {
     a.setAccent(ThemeColor(0xFF4D9A))
     check(a.palette.model.accent.rgb == 0xFF4D9A && b.palette.model.accent.rgb == 0x315E9B, "an accent in A does not change B")
     check(a.webAccent == "#FF4D9A" && b.webAccent == nil, "the web payload carries the accent only where it was chosen")
-    check(a.webArguments.hasPrefix("'midnight', '#FF4D9A', {") && b.webArguments.hasPrefix("'paper', null, {"), "web call arguments: id, accent, theme")
-    let tail = String(a.webArguments.dropFirst("'midnight', '#FF4D9A', ".count))
+    check(a.webArguments.id == "midnight" && a.webArguments.accent == "#FF4D9A" && a.webArguments.list.count == 3 &&
+          b.webArguments.id == "paper" && b.webArguments.accent == nil && b.webArguments.list[1] is NSNull, "web call arguments: id, accent, theme")
+    let tail = a.webArguments.payload
     let sent = (try? JSONSerialization.jsonObject(with: Data(tail.utf8))) as? [String: Any]
     check(sent?["id"] as? String == "midnight" && sent?["mode"] as? String == "dark" && (sent?["t"] as? [String: String])?.isEmpty == false,
           "the web call carries the whole theme as JSON")
@@ -185,7 +186,7 @@ MainActor.assumeIsolated {
     check(own.library.definition("ocean") != nil && own.library.ignored.map(\.file) == ["broken.json"], "the person's folder is read and the bad file is reported")
     let mine = WindowTheme(store: freshStore(), catalog: own)
     mine.select(AppTheme("ocean"))
-    check(mine.webID == "ocean" && mine.isDark && mine.palette.model.bg.rgb == 0x0B1620 && mine.webArguments.contains(#""id":"ocean""#),
+    check(mine.webID == "ocean" && mine.isDark && mine.palette.model.bg.rgb == 0x0B1620 && mine.webArguments.payload.contains(#""id":"ocean""#),
           "a user theme draws natively and is sent to the web pages by the same data")
     check(centre(render(Probe().windowThemed(mine))) == 0x0B1620, "a view in a user-theme window draws the file's background")
     check(own.library.choices(current: .system).contains { $0.name == "Ocean" } && render(ThemePickerView().windowThemed(mine)) != nil,

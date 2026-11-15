@@ -1,5 +1,8 @@
 import AppKit
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// A `window.open` popup (sign-in with Google or Firebase, OAuth consent): a small window whose
 /// page keeps its link to the opener, so `window.opener`, `postMessage` and `window.close()` work.
@@ -21,7 +24,7 @@ final class BrowserPopup: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUI
     init(configuration: WKWebViewConfiguration, features: WKWindowFeatures) {
         let width = min(max(CGFloat(features.width?.doubleValue ?? 500), 320), 900)
         let height = min(max(CGFloat(features.height?.doubleValue ?? 640), 320), 900)
-        webView = WKWebView(frame: NSRect(x: 0, y: 0, width: width, height: height), configuration: configuration)
+        webView = WebHost.makeWebView(frame: NSRect(x: 0, y: 0, width: width, height: height), configuration: configuration)
         window = NSWindow(contentRect: webView.frame, styleMask: [.titled, .closable, .resizable],
                           backing: .buffered, defer: false)
         super.init()

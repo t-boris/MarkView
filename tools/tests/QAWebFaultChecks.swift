@@ -6,10 +6,9 @@ import Network
 // the production QAWebActor in real, independent WKWebViews against a loopback server.
 @MainActor final class BrowserSession {
     let webView: WKWebView
-    init(url: URL?, dataStore: WKWebsiteDataStore) {
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = dataStore
-        webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800), configuration: config)
+    init(url: URL?, dataStore: WKWebsiteDataStore, extraHandlers: [WebHost.Handler] = []) {
+        let config = WebHost.makeConfiguration(dataStore: .store(dataStore), handlers: extraHandlers)
+        webView = WebHost.makeWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800), configuration: config)
     }
 }
 enum BrowserAgentExecutor {

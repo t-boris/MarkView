@@ -143,7 +143,7 @@ final class WindowTheme: ObservableObject {
 extension WindowTheme {
     /// The arguments of the pages' theme functions (`setTheme`, `mvSetTheme`): the id of the drawn theme, the accent or null, and the
     /// theme itself (`ThemeDefinition.webPayload`), so a page needs no table of themes of its own.
-    var webArguments: String { "'\(webID)', \(webAccent.map { "'\($0)'" } ?? "null"), \(definition.webPayload)" }
+    var webArguments: WebThemeArguments { WebThemeArguments(id: webID, accent: webAccent, payload: definition.webPayload) }
 
     /// The attributes of a page's <html> element that draw it right from the first paint, before its scripts run: the id, the mode,
     /// the accent, and the theme's tokens. Values are ids, `#RRGGBB` colours and the payload JSON, which is escaped where it is written.

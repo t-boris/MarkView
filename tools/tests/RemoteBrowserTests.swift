@@ -84,7 +84,7 @@ private func rawControlReply(_ path: String, _ request: [String: Any]) -> Browse
     @MainActor static func main() async throws {
         _ = NSApplication.shared
         let defaults = UserDefaults.standard
-        for key in ["test.browser.enabled", BrowserControlServer.agentToolsKey(.claude), BrowserControlServer.agentToolsKey(.codex)] {
+        for key in ["test.browser.enabled", BrowserControlServer.agentToolsKey(.claude).name, BrowserControlServer.agentToolsKey(.codex).name] {
             defaults.removeObject(forKey: key)
         }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("mv-browser-" + UUID().uuidString)
@@ -164,10 +164,10 @@ private func rawControlReply(_ path: String, _ request: [String: Any]) -> Browse
         let stopped = await call("browser_click", ["ref": .string("e1")])
         check(stopped["isError"].bool == true && text(stopped).contains("stopped"), "The user's stopped tab is respected")
         session.agentStopped = false
-        defaults.set(false, forKey: BrowserControlServer.agentToolsKey(.codex))
+        Settings.standard.set(false, for: BrowserControlServer.agentToolsKey(.codex))
         let disabled = await call("browser_tabs")
         check(disabled["isError"].bool == true, "Per-agent browser opt-out is respected")
-        defaults.removeObject(forKey: BrowserControlServer.agentToolsKey(.codex))
+        Settings.standard.remove(BrowserControlServer.agentToolsKey(.codex))
         defaults.set(false, forKey: "test.browser.enabled")
         let globalDisabled = await call("browser_tabs")
         check(globalDisabled["isError"].bool == true, "Terminal browser opt-out is respected")

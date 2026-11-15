@@ -27,8 +27,6 @@ struct WelcomeBackdrop: Hashable, Identifiable, RawRepresentable {
     static let shuffle = WelcomeBackdrop(mode: ShuffleBackdrop.descriptor.id)
     static let off = WelcomeBackdrop(mode: OffBackdrop.descriptor.id)
 
-    /// Starting choice for new windows; each window keeps its own actual choice (DEC-002, BUG-120).
-    static let storageKey = "welcomeBackdrop"
     /// Matrix Rain; Off when no build of it is registered (a check that compiles only part of the scenes).
     static let defaultChoice = WelcomeBackdrop(rawValue: "matrix") ?? .off
 

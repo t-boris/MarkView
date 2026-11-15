@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// A folder attached to a project as an alias (Task 59): browsed in the file tree, searched and
 /// indexed together with the project, readable by the AI. The project's own elements — features,
@@ -21,21 +24,20 @@ enum LinkedFolders {
 
     // MARK: Store — local settings of the project, never in the project folder
 
-    static let defaultsKey = "project.linkedFolders"
     /// Posted when a project's linked folders change; `object` is the project key.
     static let didChange = Notification.Name("LinkedFoldersDidChange")
 
     static func key(_ project: URL) -> String { ProjectColor.projectKey(for: project) }
 
     static func load(project: URL?) -> [LinkedFolder] {
-        guard let project, let data = UserDefaults.standard.dictionary(forKey: defaultsKey)?[key(project)] as? Data else { return [] }
+        guard let project, let data = Settings.standard.value(Setting.linkedFolders)[key(project)] as? Data else { return [] }
         return decode(data)
     }
 
     static func save(_ folders: [LinkedFolder], project: URL) {
-        var all = UserDefaults.standard.dictionary(forKey: defaultsKey) ?? [:]
+        var all = Settings.standard.value(Setting.linkedFolders)
         if folders.isEmpty { all[key(project)] = nil } else { all[key(project)] = encode(folders) }
-        UserDefaults.standard.set(all, forKey: defaultsKey)
+        Settings.standard.set(all, for: Setting.linkedFolders)
         NotificationCenter.default.post(name: didChange, object: key(project))
     }
 

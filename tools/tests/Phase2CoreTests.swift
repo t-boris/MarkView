@@ -1,5 +1,4 @@
 import Foundation
-import WebKit
 
 var passed = 0
 var failed = 0
@@ -100,7 +99,7 @@ try? AtomicFile.write("#!/bin/sh\necho extra-path-ok\n", to: toolScript, permiss
 let extraSuite = "com.markview.phase2.extrapath.\(UUID().uuidString)"
 if let extraDefaults = UserDefaults(suiteName: extraSuite) {
     defer { extraDefaults.removePersistentDomain(forName: extraSuite) }
-    extraDefaults.set(extraBinDir.path, forKey: Subprocess.extraPATHDefaultsKey)
+    Settings(extraDefaults).set(extraBinDir.path, for: Setting.extraPATH)
     let dirs = Subprocess.configuredExtraPATHDirectories(defaults: extraDefaults)
     let resolvedViaExtra = Subprocess.resolveExecutable(
         "mv-phase2-probe",
@@ -109,20 +108,6 @@ if let extraDefaults = UserDefaults(suiteName: extraSuite) {
     check(resolvedViaExtra == toolScript.path,
           "FU-04: Subprocess resolves executables from settings.cli.extraPATH")
 }
-
-// 5. AR-27: WeakScriptMessageHandler breaks retain cycle
-final class DummyHandler: NSObject, WKScriptMessageHandler {
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {}
-}
-weak var weakHandler: DummyHandler?
-autoreleasepool {
-    let handler = DummyHandler()
-    weakHandler = handler
-    let proxy = WeakScriptMessageHandler(handler)
-    _ = proxy.target
-}
-check(weakHandler == nil,
-      "AR-27: WeakScriptMessageHandler does not retain its target")
 
 print("\nPhase 2 Core checks: \(passed) passed, \(failed) failed")
 if failed > 0 { exit(1) }

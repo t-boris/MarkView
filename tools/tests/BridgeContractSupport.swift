@@ -7,7 +7,7 @@ import SwiftUI
 struct HeadingItem { let id: String; let level: Int; let text: String }
 struct DiscussionTurn: Equatable { var question: String; var answer: String }
 enum DiscussionStore { struct Live: Equatable { var question: String; var text: String; var status: String } }
-final class WindowTheme: ObservableObject { var firstPaintScript = ""; var webArguments = "" }
+final class WindowTheme: ObservableObject { var firstPaintScript = ""; var webArguments = WebThemeArguments(id: "", accent: nil, payload: "{}") }
 
 /// What the delegate was told, in order.
 final class RecordingDelegate: WebViewBridgeDelegate {
@@ -18,7 +18,8 @@ final class RecordingDelegate: WebViewBridgeDelegate {
     var lastHeadings: [HeadingItem] = []
     var lastDelta: BlocksDelta?
     var lastPayload: [String: Any] = [:]
-    func bridge(_ bridge: WebViewBridge, didUpdateContent content: String, documentID: UUID?) { calls.append("didUpdateContent"); documentIDs.append(documentID) }
+    var lastContent: String?
+    func bridge(_ bridge: WebViewBridge, didUpdateContent content: String, documentID: UUID?) { calls.append("didUpdateContent"); documentIDs.append(documentID); lastContent = content }
     func bridge(_ bridge: WebViewBridge, didExtractHeadings headings: [HeadingItem]) { calls.append("didExtractHeadings"); lastHeadings = headings }
     func bridge(_ bridge: WebViewBridge, didSelectHeading headingId: String) { calls.append("didSelectHeading") }
     func bridge(_ bridge: WebViewBridge, didClickLink href: String) { calls.append("didClickLink") }
