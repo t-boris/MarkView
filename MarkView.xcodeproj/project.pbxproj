@@ -474,6 +474,11 @@
 		FDEC1C9110BC9238829B7A22 /* BugBasketView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 477DD53694435ADC874CA1A0 /* BugBasketView.swift */; };
 		FE65CF5E21B3802C1110F123 /* DiscussionToolRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35456F1E8AE265DB77CE801 /* DiscussionToolRunner.swift */; };
 		FE92D8886919B6864DC4A936 /* PrototypeAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E8965BA2170772C6393FB45 /* PrototypeAI.swift */; };
+		07F5F5F296D890D18379F1FF /* PrototypeExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEAC089E2E5E3E81638D6FAF /* PrototypeExport.swift */; };
+		C33E2F636D7FFAE778BD5823 /* PrototypeProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EB700BEE6D0C74C21575296 /* PrototypeProgress.swift */; };
+		A4108502B3ABDAF9F1181F71 /* PrototypePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 107E9DAC848385CFE8A7C9BF /* PrototypePlan.swift */; };
+		C787A4C530879C6D4CA2AE27 /* PrototypeSchemas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC4AC115A58B5D271771702 /* PrototypeSchemas.swift */; };
+		9AF0E7C263E45A66149C3A97 /* PrototypePrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15283357F18060A808DC215 /* PrototypePrompts.swift */; };
 		FF31A6655922E26D0D222D9B /* ImageAttachmentViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1352CCA937A85BB9BD45E31 /* ImageAttachmentViews.swift */; };
 		FF677307133FE1CCD7D71308 /* WebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB0155B5E7A0A09A6D2FD67 /* WebViewBridge.swift */; };
 		4C8DC8563E21AD0A4691B829 /* PageMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FEC8F875A454EC8F0C7DC58 /* PageMessages.swift */; };
@@ -833,6 +838,11 @@
 		8DE180277E01B9DBC61C4110 /* FeatureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureModels.swift; sourceTree = "<group>"; };
 		8E12A0F93CB8CBC21446ABCE /* markview-early.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-early.js"; sourceTree = "<group>"; };
 		8E8965BA2170772C6393FB45 /* PrototypeAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeAI.swift; sourceTree = "<group>"; };
+		CEAC089E2E5E3E81638D6FAF /* PrototypeExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeExport.swift; sourceTree = "<group>"; };
+		6EB700BEE6D0C74C21575296 /* PrototypeProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeProgress.swift; sourceTree = "<group>"; };
+		107E9DAC848385CFE8A7C9BF /* PrototypePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypePlan.swift; sourceTree = "<group>"; };
+		4FC4AC115A58B5D271771702 /* PrototypeSchemas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeSchemas.swift; sourceTree = "<group>"; };
+		A15283357F18060A808DC215 /* PrototypePrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypePrompts.swift; sourceTree = "<group>"; };
 		8EEBBA8DD1B02E66BC2AFAC6 /* SearchPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchPanelView.swift; sourceTree = "<group>"; };
 		901ED09E28D33F6F03D15605 /* PrototypeHandoffDraftView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeHandoffDraftView.swift; sourceTree = "<group>"; };
 		90BE2B919FD21F9154C78744 /* UIStudioSession+Review.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIStudioSession+Review.swift"; sourceTree = "<group>"; };
@@ -1468,6 +1478,11 @@
 			children = (
 				EBF852F0FD6018D2E711401C /* PrototypeAI+Handoff.swift */,
 				8E8965BA2170772C6393FB45 /* PrototypeAI.swift */,
+				CEAC089E2E5E3E81638D6FAF /* PrototypeExport.swift */,
+				6EB700BEE6D0C74C21575296 /* PrototypeProgress.swift */,
+				107E9DAC848385CFE8A7C9BF /* PrototypePlan.swift */,
+				4FC4AC115A58B5D271771702 /* PrototypeSchemas.swift */,
+				A15283357F18060A808DC215 /* PrototypePrompts.swift */,
 				3EBA0E9DC5756C90FFE50D30 /* PrototypeAudit.swift */,
 				440AF91F7109BA8A660AAEDA /* PrototypeBaseline.swift */,
 				7FE78C53DEED7EB4A038D5AA /* PrototypeEmbedded.swift */,
@@ -2617,6 +2632,11 @@
 				9C4DA44F3BEA0F4D04B30E15 /* ProjectWorkflowStore.swift in Sources */,
 				598C33AB8B8DA0A9FC3D8315 /* PrototypeAI+Handoff.swift in Sources */,
 				FE92D8886919B6864DC4A936 /* PrototypeAI.swift in Sources */,
+				07F5F5F296D890D18379F1FF /* PrototypeExport.swift in Sources */,
+				C33E2F636D7FFAE778BD5823 /* PrototypeProgress.swift in Sources */,
+				A4108502B3ABDAF9F1181F71 /* PrototypePlan.swift in Sources */,
+				C787A4C530879C6D4CA2AE27 /* PrototypeSchemas.swift in Sources */,
+				9AF0E7C263E45A66149C3A97 /* PrototypePrompts.swift in Sources */,
 				90FBEE7F8E1CC870B1044E53 /* PrototypeAudit.swift in Sources */,
 				C1A9BADA3BA5517EE0FEA4FC /* PrototypeBaseline.swift in Sources */,
 				BD0E1A552EBABF480B72BB04 /* PrototypeCreatorSheet.swift in Sources */,

@@ -136,14 +136,14 @@ do {
     for phrase in [PrototypeShellStructure.href, "`html`, `body` and `#app`", "`app-main`", "`app-main-single`", "`app-screen-fill`", "`app-load`", "zero specificity"] {
         check(contract.contains(phrase), "the contract says: \(phrase)")
     }
-    check(PrototypeAI.shellSystem(language: "", ownsStructure: true).contains(contract), "the shell prompt of a prototype from code carries it")
-    check(PrototypeAI.stylesSystem(language: "", ownsStructure: true).contains(contract), "the styles prompt carries it")
-    check(PrototypeAI.stylesSystem(language: "", originals: true, ownsStructure: true).contains(contract), "so does the bridge prompt")
-    check(!PrototypeAI.shellSystem(language: "").contains(PrototypeShellStructure.href)
-          && !PrototypeAI.stylesSystem(language: "").contains(PrototypeShellStructure.href)
-          && !PrototypeAI.stylesSystem(language: "", originals: true).contains(PrototypeShellStructure.href),
+    check(PrototypePrompts.shellSystem(language: "", ownsStructure: true).contains(contract), "the shell prompt of a prototype from code carries it")
+    check(PrototypePrompts.stylesSystem(language: "", ownsStructure: true).contains(contract), "the styles prompt carries it")
+    check(PrototypePrompts.stylesSystem(language: "", originals: true, ownsStructure: true).contains(contract), "so does the bridge prompt")
+    check(!PrototypePrompts.shellSystem(language: "").contains(PrototypeShellStructure.href)
+          && !PrototypePrompts.stylesSystem(language: "").contains(PrototypeShellStructure.href)
+          && !PrototypePrompts.stylesSystem(language: "", originals: true).contains(PrototypeShellStructure.href),
           "a prompt that does not ask for it says nothing about it")
-    check(PrototypeAI.shellSystem(language: "", widgets: true).contains("panel body"), "the widget contract still tells hosts to give a widget a box")
+    check(PrototypePrompts.shellSystem(language: "", widgets: true).contains("panel body"), "the widget contract still tells hosts to give a widget a box")
 }
 
 if failures > 0 { print("\(failures) FAILED"); exit(1) }
