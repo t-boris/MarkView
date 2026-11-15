@@ -19,7 +19,7 @@ swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library -o "$out/tool-tab
     MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Workspace/WindowChrome.swift MarkView/Models/Workspace/ProjectProviding.swift \
     MarkView/Models/Workspace/ToolOpener.swift MarkView/Models/Workspace/ToolTabsRouter.swift MarkView/Models/Terminal/AssistantProviding.swift \
     MarkView/Models/Book/PDFReader.swift MarkView/Models/AI/OutputLanguage.swift MarkView/Models/AI/AIOperation.swift \
-    MarkView/Models/AI/CommandPolicy.swift MarkView/Models/Deployments/DeploymentModels.swift MarkView/Models/AI/SystemProbe.swift \
+    MarkView/Models/AI/CommandPolicy.swift MarkView/Models/Deployments/DeploymentModels.swift MarkView/Models/Deployments/SystemProbe.swift \
     MarkView/Models/Deployments/DeploymentDiscovery.swift MarkView/Models/Deployments/DeploymentExecutor.swift \
     MarkView/Models/Deployments/DeploymentLogs.swift MarkView/Models/Deployments/CloudServices.swift MarkView/Models/AI/ProviderHints.swift \
     MarkView/Models/Deployments/DeploymentStore.swift MarkView/Models/Deployments/DeploymentStore+Databases.swift \

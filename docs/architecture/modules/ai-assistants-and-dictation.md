@@ -51,7 +51,7 @@ Sibling modules: [app-shell-and-workspace](app-shell-and-workspace.md) ·
 - The prompts/schemas of X-Ray, filters, Insight, GraphRAG, feature facilitation, PR
   review; those callers build `CLICompletion.Request`s themselves (see §4).
 - Usage accounting storage (`SemanticDatabase.addUsage`) — only called via
-  `CLICompletion.Result.record(in:)` (`CLICompletion.swift:40-44`).
+  `CLICompletion.Result.record(in:)` (`Models/Insight/SemanticUsage.swift`: the AI layer knows no database).
 - The JS side of the code viewer (`markview-code.js`) and the bridge transport — see
   [editor-and-bridge](editor-and-bridge.md).
 - The toolbar assistant menu `AIToolbarMenu` lives in

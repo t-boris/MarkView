@@ -529,6 +529,9 @@
 		DFCCA5B9F345746CF38F84D8 /* BrowserAgentTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF0651EA6827C3F52E6109C3 /* BrowserAgentTabs.swift */; };
 		DACFE168BEC6DE68C45A3370 /* AgentToolsSetting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710DA6A885E9635F708C4AF2 /* AgentToolsSetting.swift */; };
 		AD2A1654121A6771ABDC0409 /* RemoteBrowserRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10A5A02ED3E3CC72D20A0191 /* RemoteBrowserRelay.swift */; };
+		9DEAEA568832F4D1371B13B2 /* WorkspaceManager+AIToolRuns.swift in Sources */ = {isa = PBXBuildFile; fileRef = E61D82FA88BB378EFC77777D /* WorkspaceManager+AIToolRuns.swift */; };
+		4FDFFDD06B7BE4819E0AB414 /* SemanticUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A570A96D297E393CA7B03DAE /* SemanticUsage.swift */; };
+		1B46D4E785E0A6E4CE027DDB /* LinkedFolderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C45064930C8A1B6E9C790215 /* LinkedFolderStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1172,6 +1175,9 @@
 		AF0651EA6827C3F52E6109C3 /* BrowserAgentTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserAgentTabs.swift; sourceTree = "<group>"; };
 		710DA6A885E9635F708C4AF2 /* AgentToolsSetting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentToolsSetting.swift; sourceTree = "<group>"; };
 		10A5A02ED3E3CC72D20A0191 /* RemoteBrowserRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteBrowserRelay.swift; sourceTree = "<group>"; };
+		E61D82FA88BB378EFC77777D /* WorkspaceManager+AIToolRuns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceManager+AIToolRuns.swift"; sourceTree = "<group>"; };
+		A570A96D297E393CA7B03DAE /* SemanticUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticUsage.swift; sourceTree = "<group>"; };
+		C45064930C8A1B6E9C790215 /* LinkedFolderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkedFolderStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1240,7 +1246,6 @@
 			isa = PBXGroup;
 			children = (
 				7EC1F9BA32F5B57727E0D268 /* ACPAssistant.swift */,
-				11C21E5BBAD478CDEDD9BEC6 /* AgentActivityMonitor.swift */,
 				14DA99E32A3358E5851D585A /* AgentProcesses.swift */,
 				2844310A95C80FBE1E88187C /* AgentUsageTracker.swift */,
 				43F98342E7F3820A62C4E015 /* AIAssistants.swift */,
@@ -1253,9 +1258,9 @@
 				CF4BDCBD84C68089E10F1CCC /* DiagramAI.swift */,
 				2DDC0BA825074D867C9D7697 /* OutputLanguage.swift */,
 				3C5186158816AE816A500A12 /* ProviderHints.swift */,
-				2813544220B3EBEC33B10F32 /* SystemProbe.swift */,
 				DAFD936599E6497BB1CC0AB4 /* Providers */,
 				710DA6A885E9635F708C4AF2 /* AgentToolsSetting.swift */,
+				C45064930C8A1B6E9C790215 /* LinkedFolderStore.swift */,
 			);
 			path = AI;
 			sourceTree = "<group>";
@@ -1410,6 +1415,7 @@
 				67A74C82B85BED9820E113A2 /* DeploymentsHost.swift */,
 				11A52E34064E19CA3B2691E2 /* DeploymentStore+Databases.swift */,
 				847DBF92043DDF1F0644B95D /* DeploymentStore.swift */,
+				2813544220B3EBEC33B10F32 /* SystemProbe.swift */,
 			);
 			path = Deployments;
 			sourceTree = "<group>";
@@ -1464,6 +1470,7 @@
 				6D939016101CACDA109D5AD0 /* SemanticDatabase.swift */,
 				1C295E57029BBB9E5280963B /* SemanticSchema.swift */,
 				234669AA71D7061108B72B97 /* SemanticModels.swift */,
+				A570A96D297E393CA7B03DAE /* SemanticUsage.swift */,
 			);
 			path = Insight;
 			sourceTree = "<group>";
@@ -1639,6 +1646,7 @@
 				04A68BEAB6A7E9B3F0ACAAE4 /* AssistantProviding.swift */,
 				1257F7721DD8501CDE88B79D /* AITerminalsController.swift */,
 				61FB7EE1BB94329885567434 /* TerminalProfile.swift */,
+				11C21E5BBAD478CDEDD9BEC6 /* AgentActivityMonitor.swift */,
 			);
 			path = Terminal;
 			sourceTree = "<group>";
@@ -1745,6 +1753,7 @@
 				6ED484A68FCCB897811B8168 /* WindowTitle.swift */,
 				EC1C0A804E69DC5393170AEF /* WindowUIState.swift */,
 				BDC9210ADC47CAF918764DB3 /* WorkspaceManager.swift */,
+				E61D82FA88BB378EFC77777D /* WorkspaceManager+AIToolRuns.swift */,
 			);
 			path = Workspace;
 			sourceTree = "<group>";
@@ -2925,6 +2934,9 @@
 				DFCCA5B9F345746CF38F84D8 /* BrowserAgentTabs.swift in Sources */,
 				DACFE168BEC6DE68C45A3370 /* AgentToolsSetting.swift in Sources */,
 				AD2A1654121A6771ABDC0409 /* RemoteBrowserRelay.swift in Sources */,
+				9DEAEA568832F4D1371B13B2 /* WorkspaceManager+AIToolRuns.swift in Sources */,
+				4FDFFDD06B7BE4819E0AB414 /* SemanticUsage.swift in Sources */,
+				1B46D4E785E0A6E4CE027DDB /* LinkedFolderStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

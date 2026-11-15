@@ -131,9 +131,9 @@ swiftc -o "$out/ai-terminals-controller-tests" -target "$(uname -m)-apple-macos1
     MarkView/Models/Workspace/ProjectProviding.swift \
     MarkView/Models/Remote/RemoteAssistantHost.swift MarkView/Models/Remote/RemoteProtocol.swift \
     MarkView/Models/Remote/RemoteConnectionState.swift \
-    MarkView/Models/AI/AgentActivityMonitor.swift \
+    MarkView/Models/Terminal/AgentActivityMonitor.swift \
     MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/Providers/*.swift \
     MarkView/Models/AI/AICallLog.swift MarkView/Models/AI/AgentProcesses.swift MarkView/Models/AI/AIOperation.swift \
-    MarkView/Models/AI/OutputLanguage.swift MarkView/Models/Workspace/TaskBag.swift MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/Appearance/ProjectColor.swift \
+    MarkView/Models/AI/OutputLanguage.swift MarkView/Models/Workspace/TaskBag.swift MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/AI/LinkedFolderStore.swift MarkView/Models/Appearance/ProjectColor.swift \
     "$out/Stub.swift" "$out/main.swift"
 "$out/ai-terminals-controller-tests"

@@ -742,23 +742,6 @@ enum CodeArchitecture {
         }
         if !problems.isEmpty { throw DiagramAI.Failure.unusable(problems) }
     }
-
-    static func sequenceMermaid(_ spec: DiagramSpec) -> String {
-        // Never interpolate model text as Mermaid syntax or HTML.
-        func label(_ text: String) -> String {
-            text.map { ch -> String in
-                if ch.isLetter || ch.isNumber || " .,_()-/".contains(ch) { return String(ch) }
-                return " "
-            }.joined()
-        }
-        var lines = ["sequenceDiagram"]
-        for (i, node) in spec.nodes.enumerated() { lines.append("participant p\(i) as \(label(node.label))") }
-        let ids = Dictionary(spec.nodes.enumerated().map { ($0.element.id, "p\($0.offset)") }, uniquingKeysWith: { a, _ in a })
-        for edge in spec.edges {
-            if let from = ids[edge.from], let to = ids[edge.to] { lines.append("\(from)->>\(to): \(label(edge.label))") }
-        }
-        return lines.joined(separator: "\n")
-    }
 }
 
 /// One traced scenario of the Code view. Fields after `createdAt` are additive:

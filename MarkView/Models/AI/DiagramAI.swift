@@ -273,10 +273,28 @@ enum DiagramAI {
         return "the title, labels and notes are written in \(found.name) but must be written in \(wanted); rewrite every one of them in \(wanted) and keep the names of files and code"
     }
 
+    /// A sequence diagram (`sequenceDiagram`): one participant per node, one message per edge, in the order of the edges.
+    static func sequenceMermaid(_ spec: DiagramSpec) -> String {
+        // Never interpolate model text as Mermaid syntax or HTML.
+        func label(_ text: String) -> String {
+            text.map { ch -> String in
+                if ch.isLetter || ch.isNumber || " .,_()-/".contains(ch) { return String(ch) }
+                return " "
+            }.joined()
+        }
+        var lines = ["sequenceDiagram"]
+        for (i, node) in spec.nodes.enumerated() { lines.append("participant p\(i) as \(label(node.label))") }
+        let ids = Dictionary(spec.nodes.enumerated().map { ($0.element.id, "p\($0.offset)") }, uniquingKeysWith: { a, _ in a })
+        for edge in spec.edges {
+            if let from = ids[edge.from], let to = ids[edge.to] { lines.append("\(from)->>\(to): \(label(edge.label))") }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// The diagram as plain Mermaid for a node description: no editor markers and no comment lines, so that any Mermaid
     /// renderer draws it. A `sequence` diagram is a real `sequenceDiagram`; the other kinds are flowcharts.
     static func plainMermaid(_ spec: DiagramSpec, kind: DiagramKind) -> String {
-        if kind == .sequence { return CodeArchitecture.sequenceMermaid(spec) }
+        if kind == .sequence { return sequenceMermaid(spec) }
         // The editor's own parser reads bare edge labels; the Mermaid library does not accept brackets in them, so they are quoted here.
         let edge = try! NSRegularExpression(pattern: #"^(\S+) -->\|(.*)\| (\S+)$"#)
         return mermaid(spec).components(separatedBy: "\n").filter { !$0.hasPrefix("%%") }.map { line -> String in

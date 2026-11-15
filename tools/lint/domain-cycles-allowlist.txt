@@ -3,14 +3,9 @@
 # A ratchet that only falls: remove the dependency (a protocol in the lower domain, or move the type) and run --tighten; the goal is an
 # empty list. The back-edge points away from `Workspace`, which composes the others; a pair that is not listed gets the lighter
 # direction. A new cycle is written here by a person, with the reason it stays.
-1 Models/AI -> Models/Architecture
-1 Models/AI -> Models/Deployments
-1 Models/AI -> Models/Insight
-2 Models/AI -> Models/Terminal
-3 Models/AI -> Models/Workspace
 2 Models/Architecture -> Models/Book
 1 Models/Architecture -> Models/Insight
-10 Models/Architecture -> Models/Workspace
+8 Models/Architecture -> Models/Workspace
 1 Models/Book -> Models/Workspace
 1 Models/Browser -> Models/Terminal
 10 Models/Browser -> Models/Workspace
