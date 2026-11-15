@@ -161,7 +161,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
         tabs.polling = polling
         project.fileTree.onTimer = { [weak self] in
             guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating else { return }
-            Task { await self.gitClient.refreshStatus() }
+            self.taskBag.store(Task { await self.gitClient.refreshStatus() }, for: "git-status")
         }
         project.objectWillChange
             .sink { [weak self] _ in
@@ -197,7 +197,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in
                 guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating else { return }
-                Task { await self.gitClient.refresh() }
+                self.taskBag.store(Task { await self.gitClient.refresh() }, for: "git-refresh")
             }
             .store(in: &cancellables)
         Self.debugLog("WorkspaceManager init DONE")

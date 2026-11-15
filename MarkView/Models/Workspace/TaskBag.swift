@@ -4,7 +4,8 @@ import Foundation
 ///
 /// Storing a task under an existing key cancels the previous task for that key, so a new run replaces the old one. A task that
 /// ends on its own leaves the bag, so `activeCount` counts work that is still running and a unique key per run never piles up.
-/// `cancelAll()` on folder switch, close of the tool or close of the window cancels everything that is tracked.
+/// `cancelAll()` on folder switch, close of the tool or close of the window cancels everything that is tracked, and so does the
+/// bag's own release.
 @MainActor
 final class TaskBag {
     private struct Entry {
@@ -14,6 +15,9 @@ final class TaskBag {
 
     private var entries: [String: Entry] = [:]
     private var serial: UInt64 = 0
+
+    /// The owner is gone: whatever it still tracks stops with it.
+    deinit { for entry in entries.values { entry.cancel() } }
 
     /// Store `task` under `key`, cancelling any prior task with the same key.
     func store<Success, Failure: Error>(_ task: Task<Success, Failure>, for key: String) {

@@ -109,6 +109,15 @@ func runPhase4Tests() async {
     check(!bag.contains(key: "throws"), "AR-19: a throwing task is stored and leaves the bag when it ends")
     bag.cancelAll()
     check(second.isCancelled && bag.activeCount == 0, "AR-19: cancelAll cancels what is left")
+    var released: Task<()?, Never>?
+    do {
+        let owned = TaskBag()
+        let running = Task { try? await Task.sleep(nanoseconds: 5_000_000_000) }
+        owned.store(running, for: "work")
+        released = running
+        check(!running.isCancelled, "AR-19: a task is running while its bag is alive")
+    }
+    check(released?.isCancelled == true, "AR-19: the release of a bag cancels what it still tracks")
 
     // 4. FU-11: DocumentScrollSideTable cleans up per-tab scroll state when tabs close
     let closedTabID = UUID()

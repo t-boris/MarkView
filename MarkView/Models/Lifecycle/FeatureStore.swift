@@ -46,6 +46,8 @@ final class FeatureStore: ObservableObject {
     var polling = PollingScheduler.app
     private var changeMonitor: ProjectChangeMonitor?
     private var changeDebounce: Task<Void, Never>?
+    /// The reads and the lifecycle syncs that are running, keyed so that a new one replaces the old; a reset cancels them (`AR-19`).
+    private let tasks = TaskBag()
     private var fingerprint = ""
     /// Bumped by every write and reset: a background reload that started earlier is dropped.
     private var generation = 0
@@ -93,6 +95,7 @@ final class FeatureStore: ObservableObject {
             path == prefix || path == prefix + "/docs" || path == prefix + "/docs/features" || path.hasPrefix(prefix + "/docs/features/") ||
                 path == prefix + "/docs/bugs" || path.hasPrefix(prefix + "/docs/bugs/")
         }) { [weak self] in
+            // task: hops onto the main actor from the file-system event callback; it only restarts the debounce
             Task { @MainActor [weak self] in
                 guard let self, self.root == root else { return }
                 self.changeDebounce?.cancel()
@@ -115,6 +118,7 @@ final class FeatureStore: ObservableObject {
 
     func reset() {
         generation += 1
+        tasks.cancelAll()
         if let project = lifecycleProject { LifecycleLog.shared.release(project, by: self) }
         lastLifecycleSync = nil
         polling.stop(key: pollKey)
@@ -138,12 +142,12 @@ final class FeatureStore: ObservableObject {
     func reload() {
         guard let folder = featuresFolder, let bugsFolder else { return }
         let started = generation
-        Task {
+        tasks.store(Task {
             let (loaded, bugList, print) = await Task.detached { () -> ([Feature], [BugReport], String) in
                 (Self.loadAll(folder), Self.loadBugs(bugsFolder), Self.fingerprint(folder) + "#" + Self.fingerprint(bugsFolder))
             }.value
             // The app wrote something meanwhile: this read may miss it.
-            guard folder == featuresFolder, started == generation else { return }
+            guard !Task.isCancelled, folder == featuresFolder, started == generation else { return }
             features = loaded
             bugs = bugList
             hasLoaded = true
@@ -151,16 +155,16 @@ final class FeatureStore: ObservableObject {
             lifecycle.requestReconciliation()
             fingerprint = print
             if let activeSlug, !loaded.contains(where: { $0.slug == activeSlug }) { self.activeSlug = loaded.first?.slug }
-        }
+        }, for: "reload")
     }
 
     private func reloadIfChanged() {
         guard let folder = featuresFolder, let bugsFolder else { return }
         let started = generation
-        Task {
+        tasks.store(Task {
             let print = await Task.detached { Self.fingerprint(folder) + "#" + Self.fingerprint(bugsFolder) }.value
-            if started == generation, print != fingerprint { reload() }
-        }
+            if !Task.isCancelled, started == generation, print != fingerprint { reload() }
+        }, for: "fingerprint")
     }
 
     private func updateFolderFlags() {
@@ -219,10 +223,11 @@ final class FeatureStore: ObservableObject {
 
     private func loadGitUser() {
         guard let root else { return }
-        Task {
+        tasks.store(Task {
             let output = await GitHubClient.execute(["config", "user.name"], in: root, git: true)
+            guard !Task.isCancelled else { return }
             gitUserName = output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        }, for: "git-user")
     }
 
     // MARK: Writing
@@ -770,8 +775,9 @@ final class FeatureStore: ObservableObject {
         guard !targets.isEmpty else { return }
         lastLifecycleSync = Date()
         let actor = lifecycleActor
-        Task {
+        tasks.store(Task {
             for target in targets {
+                guard !Task.isCancelled else { return }
                 if !target.issues.isEmpty, let found = try? await client.lifecycleCaptures(numbers: target.issues) {
                     for capture in found.captures where capture.date >= target.since {
                         recordCapture(capture.stage, date: capture.date, note: capture.note, feature: target.slug, project: project, actor: actor)
@@ -806,7 +812,7 @@ final class FeatureStore: ObservableObject {
                     recordCapture(.ciPassed, date: date, note: note, feature: target.slug, project: project, actor: actor)
                 }
             }
-        }
+        }, for: "lifecycle-github")
     }
 
     /// Work committed straight to the default branch: a commit naming the feature folder or one of
@@ -817,9 +823,10 @@ final class FeatureStore: ObservableObject {
         let targets = lifecycleTargets
         guard !targets.isEmpty else { return }
         let actor = lifecycleActor
-        Task {
+        tasks.store(Task {
             guard let branch = await Self.defaultBranch(root) else { return }
             let output = await GitHubClient.execute(LifecycleGit.logArguments(branch: branch), in: root, git: true)
+            guard !Task.isCancelled else { return }
             let commits = LifecycleGit.commits(from: output.stdout)
             for target in targets {
                 for commit in commits where commit.date >= target.since
@@ -827,7 +834,7 @@ final class FeatureStore: ObservableObject {
                     recordCapture(.mergedToMain, date: commit.date, note: commit.note, feature: target.slug, project: project, actor: actor)
                 }
             }
-        }
+        }, for: "lifecycle-git")
     }
 
     /// The branch `origin/HEAD` points at (its local copy when there is one), else main or master.

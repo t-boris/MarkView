@@ -52,6 +52,8 @@ final class CockpitSession: ObservableObject {
     /// What the Cockpit needs of the window's tabs: which one is shown, and to open a file.
     private weak var tabs: TabsProviding?
     private let notifier = CockpitNotifier()
+    /// The reads, the replan and the controls that are running, keyed so that a new one replaces the old; closing the project cancels them (`AR-19`).
+    private let tasks = TaskBag()
     private var observedRecord: CockpitRun?
     /// The once-a-minute look for a step that went silent, a job of the app's scheduler (`AR-19`). It keeps running while the app is in the
     /// background: that is when the person needs the notice.
@@ -76,6 +78,7 @@ final class CockpitSession: ObservableObject {
             guard let self, let path = note.userInfo?["cockpitRoot"] as? String,
                   URL(fileURLWithPath: path).standardizedFileURL == self.root.standardizedFileURL else { return }
             let id = (note.userInfo?["cockpitRunID"] as? String).flatMap(UUID.init(uuidString:))
+            // task: hops onto the main actor from a notification callback; it only shows a run and holds nothing of its own
             Task { @MainActor in self.showRun(id) }
         }
     }
@@ -146,11 +149,11 @@ final class CockpitSession: ObservableObject {
     }
 
     func refreshAgents() {
-        Task { [weak self] in
+        tasks.store(Task { [weak self] in
             guard let self else { return }
             let found = await self.loadAgents()
             if found != self.agents { self.agents = found }
-        }
+        }, for: "agents")
     }
 
     // MARK: Editing the plan
@@ -211,6 +214,7 @@ final class CockpitSession: ObservableObject {
         loadedTerminalStatus = nil
         executionChange = execution.objectWillChange.sink { [weak self, weak execution] _ in
             self?.objectWillChange.send()
+            // task: lets the change land before it is observed, then ends; weak references only
             Task { @MainActor [weak self, weak execution] in
                 await Task.yield()
                 if let self, let execution { self.observe(execution) }
@@ -267,6 +271,7 @@ final class CockpitSession: ObservableObject {
         // The runtime does not carry the model (it only knows the fields it declares), so it comes from the approved plan by the step's id.
         attempt.stepModel = reviewed.plan.steps.first { $0.id.uuidString == task.step.id }?.chosenModel
         attempt.planOutline = reviewed.plan.steps.map { "\($0.title) (\($0.agent))" }
+        // task: records one exchange on the execution, which owns its own end
         attempt.onExchange = { [weak self] exchange in Task { await self?.execution?.recordExchange(exchange) } }
         let supervisorTool = CLITool.allCases.first { $0.displayName == reviewed.plan.controls.supervisorAgent }
         let supervisorModel = reviewed.plan.controls.supervisorModel
@@ -309,19 +314,19 @@ final class CockpitSession: ObservableObject {
         pendingPlan = reviewed
         revisingExecution = true
         error = nil
-        Task { [weak self] in
+        tasks.store(Task { [weak self] in
             do { try await execution.replan(reviewed, approval: approval, step: index) }
             catch { self?.error = error.localizedDescription }
             self?.revisingExecution = false
-        }
+        }, for: "replan")
     }
 
     func control(_ command: String) {
         guard let execution else { return }
-        Task { [weak self] in
+        tasks.store(Task { [weak self] in
             do { try await execution.control(command) }
             catch { self?.error = error.localizedDescription }
-        }
+        }, for: "control:" + UUID().uuidString)
     }
 
     func cancelExecutionStartup() {
@@ -331,6 +336,7 @@ final class CockpitSession: ObservableObject {
 
     func closeProject() {
         PollingScheduler.app.stop(key: silenceKey)
+        tasks.cancelAll()
         cancel()
         executionTask?.cancel()
         execution?.shutdown()
@@ -338,11 +344,11 @@ final class CockpitSession: ObservableObject {
 
     func loadRuns() {
         let root = self.root
-        Task { [weak self] in
+        tasks.store(Task { [weak self] in
             do {
                 let runs = try await Task.detached { try CockpitRunStore.loadAll(root: root) }.value
                 let qaResults = await Task.detached { Result { try CockpitResults.loadAll(root: root) } }.value
-                guard let self else { return }
+                guard !Task.isCancelled, let self else { return }
                 switch qaResults {
                 case .success(let results): self.savedQAResults = results
                 case .failure(let error): self.error = "Some QA evidence could not be loaded: \(error.localizedDescription)"
@@ -365,7 +371,7 @@ final class CockpitSession: ObservableObject {
                 }.value
             }
             catch { self?.error = "Saved cockpit runs could not be loaded: \(error.localizedDescription)" }
-        }
+        }, for: "runs")
     }
 
     func prepareRecovery(_ run: CockpitRun, usePending: Bool = false) {
@@ -374,12 +380,12 @@ final class CockpitSession: ObservableObject {
         guard let selected = usePending ? run.pendingRevision?.plan : run.plan else { return }
         loadingRecovery = true
         let root = root
-        Task { [weak self] in
+        tasks.store(Task { [weak self] in
             let listing = await Task.detached { QAStore.loadScenarios(root) }.value
             let saved: [SavedLogin]
             if selected.scenarios.isEmpty { saved = [] }
             else { saved = await Task.detached { BrowserPasswordStore.shared.all() }.value }
-            guard let self else { return }
+            guard !Task.isCancelled, let self else { return }
             self.qaScenarios = listing.scenarios
             self.qaLogins = Set(saved.map { QALoginReference(host: $0.host, username: $0.username) })
             self.qaTargets = (selected.qaReviews ?? []).reduce(into: [:]) { $0[$1.scenarioID] = $1.targetID }
@@ -390,7 +396,7 @@ final class CockpitSession: ObservableObject {
             self.planNeedsRecheck = false
             self.screen = .plan
             self.loadingRecovery = false
-        }
+        }, for: "recovery")
     }
 
     func cancelRecovery() { recoveryRun = nil }
@@ -400,7 +406,7 @@ final class CockpitSession: ObservableObject {
         workspace.openTool(.qa)
         let qa = workspace.qa
         qa.reload()
-        Task { [weak self, weak qa] in
+        tasks.store(Task { [weak self, weak qa] in
             guard let qa else { return }
             for _ in 0..<100 {
                 if qa.scenarios.contains(where: { $0.id == scenarioID }) { break }
@@ -415,27 +421,27 @@ final class CockpitSession: ObservableObject {
             }
             guard qa.archive.runs.contains(where: { $0.id == runID }) else { self?.error = "The linked QA run details were deleted or are unavailable."; return }
             qa.archive.open(runID)
-        }
+        }, for: "open-qa-result")
     }
 
     func openBug(_ key: String) {
         guard let workspace, let tabs else { return }
         if let bug = workspace.features.bugs.first(where: { $0.key == key }) { tabs.openFile(bug.url); return }
         workspace.features.reload()
-        Task { [weak self, weak workspace, weak tabs] in
+        tasks.store(Task { [weak self, weak workspace, weak tabs] in
             for _ in 0..<100 {
                 guard let workspace, let tabs else { return }
                 if let bug = workspace.features.bugs.first(where: { $0.key == key }) { tabs.openFile(bug.url); return }
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
             self?.error = "The linked bug is no longer available: \(key)"
-        }
+        }, for: "open-bug")
     }
 
     func openBuildLog(_ path: String) {
         guard let tabs, !path.isEmpty else { return }
         let root = root
-        Task { [weak self, weak tabs] in
+        tasks.store(Task { [weak self, weak tabs] in
             let candidate = await Task.detached { () -> URL? in
                 let project = root.standardizedFileURL.resolvingSymlinksInPath()
                 let candidate = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : project.appendingPathComponent(path)).standardizedFileURL.resolvingSymlinksInPath()
@@ -444,7 +450,7 @@ final class CockpitSession: ObservableObject {
             }.value
             guard let candidate else { self?.error = "The linked build log is unavailable inside this project."; return }
             tabs?.openFile(candidate)
-        }
+        }, for: "open-build-log")
     }
 
     func generate(refining: Bool = false) {

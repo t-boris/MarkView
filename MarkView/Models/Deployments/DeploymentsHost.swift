@@ -30,6 +30,12 @@ final class DeploymentsHost {
     /// The window lets go of its folder.
     func projectClosed() { store.setRoot(nil) }
 
+    /// The window closes: the store's auto-refresh and looks, a request waiting for a yes, and the answers being written end.
+    func close() {
+        store.close()
+        advisor.close()
+    }
+
     /// Answers a question about an environment from what MarkView read of it (and the log being read), in the tab.
     func advise(_ question: String, env: DeploymentEnvironment, log: (title: String, text: String)? = nil) {
         let project = project

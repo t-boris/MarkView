@@ -99,6 +99,9 @@ final class DeploymentStore: ObservableObject {
     /// The 30 s refresh of every environment, a job of the app's scheduler (`AR-19`): paused while the app is in the background.
     private let autoKey = "deployments-auto-" + UUID().uuidString
     var polling = PollingScheduler.app
+    /// The looks, the scan and the waits for an answer that are running, keyed so that a new one replaces the old; closing the window or
+    /// opening another folder cancels them (`AR-19`).
+    let tasks = TaskBag()
     private var queue: [DeploymentApproval] = []
 
     // MARK: Files
@@ -111,6 +114,8 @@ final class DeploymentStore: ObservableObject {
     func setRoot(_ url: URL?) {
         guard url?.standardizedFileURL != root?.standardizedFileURL else { return }
         polling.stop(key: autoKey)
+        tasks.cancelAll()
+        scanning = false
         root = url
         environments = []; states = [:]; suggestions = []; log = []; selected = nil; hasScanned = false
         defer { loadLog() }
@@ -190,12 +195,13 @@ final class DeploymentStore: ObservableObject {
         scanning = true
         hasScanned = true
         let configText = try? String(contentsOfFile: NSHomeDirectory() + "/.ssh/config", encoding: .utf8)
-        Task {
+        tasks.store(Task {
             let found = await Task.detached(priority: .userInitiated) { DeploymentDiscovery.scan(root: root, sshConfig: configText) }.value
+            guard !Task.isCancelled else { return }
             let known = Set(environments.map { $0.host.isEmpty ? $0.provider : $0.host })
             suggestions = found.filter { !known.contains($0.host.isEmpty ? $0.provider : $0.host) }
             scanning = false
-        }
+        }, for: "scan")
     }
 
     /// The logs of an environment: its own sources, then what the machine and the last look suggest.
@@ -208,7 +214,13 @@ final class DeploymentStore: ObservableObject {
 
     func executor(for env: DeploymentEnvironment) -> DeploymentExecutor { DeploymentExecutors.make(for: env, projectRoot: root) }
 
-    func refreshAll() { for env in environments { Task { await refresh(env.id) } } }
+    /// Looks at every environment; a look still running at one is replaced by the new one.
+    func refreshAll() {
+        for env in environments {
+            let id = env.id
+            tasks.store(Task { await refresh(id) }, for: "refresh:" + id)
+        }
+    }
 
     func refresh(_ id: String) async {
         guard let env = environment(id) else { return }
@@ -245,6 +257,8 @@ final class DeploymentStore: ObservableObject {
                 if result.history.count > 120 { result.history.removeFirst(result.history.count - 120) }
             }
         }
+        // The window closed or the folder changed while the machine was being asked: the answer is of no one now.
+        guard !Task.isCancelled else { return }
         result.updated = Date()
         states[id] = result
     }
@@ -347,6 +361,7 @@ final class DeploymentStore: ObservableObject {
         await withCheckedContinuation { continuation in
             let request = DeploymentApproval(environment: env, command: command, reason: reason, origin: origin, purpose: purpose) { [weak self] yes in
                 continuation.resume(returning: yes)
+                // task: hops onto the main actor to show the next request; it holds nothing of its own
                 Task { @MainActor in self?.next() }
             }
             if approval == nil { approval = request } else { queue.append(request) }
@@ -354,10 +369,11 @@ final class DeploymentStore: ObservableObject {
             // Nobody at the screen: after three minutes the answer is no.
             let id = request.id
             let wait = Self.approvalTimeout
-            Task { [weak self] in
+            tasks.store(Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+                guard !Task.isCancelled else { return }
                 self?.expire(id)
-            }
+            }, for: "expire:" + id.uuidString)
         }
     }
 
@@ -366,10 +382,22 @@ final class DeploymentStore: ObservableObject {
         else if let index = queue.firstIndex(where: { $0.id == id }) { queue.remove(at: index).answer(false) }
     }
 
+    /// The window closes: the auto-refresh, the looks, the scan and the waits end, and a command still waiting for a yes counts as no.
+    func close() {
+        polling.stop(key: autoKey)
+        tasks.cancelAll()
+        scanning = false
+        let waiting = [approval].compactMap { $0 } + queue
+        approval = nil
+        queue = []
+        for request in waiting { request.answer(false) }
+    }
+
     /// The person's answer to the request on screen.
     func answer(_ yes: Bool) {
         guard let current = approval else { return }
         approval = nil
+        tasks.cancel(key: "expire:" + current.id.uuidString)
         current.answer(yes)
     }
 

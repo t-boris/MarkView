@@ -67,7 +67,7 @@ extension DeploymentStore {
         let id = DeploymentEnvironment.slug(title.isEmpty ? candidate.key : title, existing: Set(environment(envID)?.databases.map(\.id) ?? []))
         let target = DatabaseTarget(id: id, title: title.isEmpty ? "Database (\(candidate.redacted))" : title, source: .envFile, file: candidate.file, key: candidate.key)
         addTarget(target, to: envID)
-        Task { await loadOverview(env: envID, target: id) }
+        tasks.store(Task { await loadOverview(env: envID, target: id) }, for: "overview:" + Self.databaseKey(envID, id))
     }
 
     /// nil when saved, else what is wrong with the text.
@@ -76,7 +76,7 @@ extension DeploymentStore {
         let id = DeploymentEnvironment.slug(title.isEmpty ? url.database : title, existing: Set(environment(envID)?.databases.map(\.id) ?? []))
         guard DatabaseKeychain.save(pastedURL.trimmingCharacters(in: .whitespacesAndNewlines), account: keychainAccount(envID, id)) else { return "The Keychain did not accept it." }
         addTarget(DatabaseTarget(id: id, title: title.isEmpty ? "Database (\(url.redacted))" : title, source: .keychain), to: envID)
-        Task { await loadOverview(env: envID, target: id) }
+        tasks.store(Task { await loadOverview(env: envID, target: id) }, for: "overview:" + Self.databaseKey(envID, id))
         return nil
     }
 

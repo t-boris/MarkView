@@ -474,7 +474,7 @@ final class TabsController: ObservableObject {
             removeTab(at: index)
             return
         case .uiStudio(let session):
-            // Teardown outlives the tab and the window, so it is not in `tasks`: cancelling it would leave the server running.
+            // task: teardown outlives the tab and the window, so it is not in `tasks`: cancelling it would leave the server running
             Task { await session.close() }
             removeTab(at: index)
             return
@@ -548,6 +548,7 @@ final class TabsController: ObservableObject {
     func closeUIStudioSessions() {
         for tab in openTabs {
             if case .uiStudio(let session) = tab.kind {
+                // task: teardown outlives the window; cancelling it would leave the development server running
                 Task { await session.close() }
             }
         }

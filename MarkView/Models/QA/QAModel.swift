@@ -52,6 +52,8 @@ final class QAModel: ObservableObject {
     let archive = QARunArchive()
 
     private var saveTask: Task<Void, Never>?
+    /// The reads of the scenarios and the saved logins, keyed so that a new one replaces the old; closing the tool cancels them (`AR-19`).
+    private let tasks = TaskBag()
     private var cockpitReservation: UUID?
     private var writeTail: Task<Void, Never>?
     private var writesPending = 0
@@ -104,13 +106,13 @@ final class QAModel: ObservableObject {
 
     func reload() {
         guard let root else { return }
-        Task { [weak self] in
+        tasks.store(Task { [weak self] in
             let listing = await Task.detached(priority: .userInitiated) { QAStore.loadScenarios(root) }.value
-            guard let self, self.root == root else { return }
+            guard !Task.isCancelled, let self, self.root == root else { return }
             self.scenarios = listing.scenarios
             self.unreadable = listing.unreadable
             if let id = self.current?.id, !listing.scenarios.contains(where: { $0.id == id }), self.saveTask == nil { self.current = nil }
-        }
+        }, for: "reload")
     }
 
     // MARK: Opening and creating
@@ -132,6 +134,7 @@ final class QAModel: ObservableObject {
     }
 
     func close() {
+        tasks.cancelAll()
         summaryTask?.cancel(); summaryToken = UUID(); summaryBusy = false; summaryError = nil
         flush()
         current = nil
@@ -225,9 +228,9 @@ final class QAModel: ObservableObject {
 
     /// Reads the saved logins (user names and hosts only) off the main thread.
     func loadSavedLogins() {
-        Task { [weak self] in
+        tasks.store(Task { [weak self] in
             await self?.refreshSavedLogins()
-        }
+        }, for: "logins")
     }
 
     func refreshSavedLogins() async {
@@ -316,9 +319,9 @@ final class QAModel: ObservableObject {
             notice = "The local edits could not be backed up. Save a copy before reloading."
             return
         }
-        Task { [weak self] in
+        tasks.store(Task { [weak self] in
             let listing = await Task.detached(priority: .userInitiated) { QAStore.loadScenarios(root) }.value
-            guard let self, self.root == root, self.current?.id == id, self.saveTask == nil, self.writesPending == 0 else { return }
+            guard !Task.isCancelled, let self, self.root == root, self.current?.id == id, self.saveTask == nil, self.writesPending == 0 else { return }
             self.scenarios = listing.scenarios
             self.unreadable = listing.unreadable
             guard let id else { self.notice = "Scenario list refreshed."; return }
@@ -335,7 +338,7 @@ final class QAModel: ObservableObject {
             self.summaryTask?.cancel(); self.summaryToken = UUID(); self.summaryBusy = false; self.summaryError = nil
             self.refreshSummary()
             self.notice = "Scenario reloaded from disk. Review the plan again before running."
-        }
+        }, for: "refresh")
     }
 
     // MARK: Scenario discussion and readable summary

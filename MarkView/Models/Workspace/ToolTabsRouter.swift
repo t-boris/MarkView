@@ -116,5 +116,6 @@ final class ToolTabsRouter: ToolOpening {
     func close() {
         discussions.close()
         uiStudio.close()
+        deployments.close()
     }
 }

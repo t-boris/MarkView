@@ -135,6 +135,7 @@ final class WindowSessionController {
                 // The project's index process, file watcher and background jobs end with its window (AR-19), and so do the window's polls.
                 workspace?.project.close()
                 workspace?.polling.stopAll()
+                workspace?.taskBag.cancelAll()
                 // So do the code analysis, the X-Ray scans and the AI answers about code that it started (AR-14 step 11).
                 workspace?.codeXRay.close()
                 // And the feature flow's: the GitHub setting is no longer watched and its tasks stop (AR-14 step 9).

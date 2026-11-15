@@ -559,14 +559,16 @@ func lifecycle() async {
     Settings.standard.set(false, for: Setting.gitHubEnabled)
     check(await waitUntil { rig.flow.gitHub.resets == before + 1 }, "turning it off resets GitHub")
 
+    let beforeClose = rig.flow.gitHub.resets
     rig.flow.close()
     let resets = rig.flow.gitHub.resets
+    check(resets == beforeClose + 1 && rig.flow.features.resets == 1, "closing the window lets GitHub and the features go: their polls and tasks end")
     Settings.standard.set(true, for: Setting.gitHubEnabled)
     await settle(0.3)
     check(rig.flow.gitHub.setups == [a] && rig.flow.gitHub.resets == resets, "a window that closed no longer follows the Settings switch")
 
     rig.flow.reset()
-    check(rig.flow.features.resets == 1 && rig.flow.gitHub.resets == resets + 1 && rig.flow.features.root == nil,
+    check(rig.flow.features.resets == 2 && rig.flow.gitHub.resets == resets + 1 && rig.flow.features.root == nil,
           "closing the folder resets both stores")
     Settings.standard.remove(Setting.gitHubEnabled)
 

@@ -117,8 +117,8 @@ final class FeatureFlowCoordinator: ObservableObject {
 
     /// The window closes: nothing started here keeps running and the Settings switch is no longer watched.
     func close() {
-        tasks.cancelAll()
         gitHubSettingObserver = nil
+        reset()
     }
 
     // MARK: - Showing a feature
