@@ -1,5 +1,8 @@
 import Foundation
 import Combine
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One run of Start a Project from Scratch in a window: idea → adaptive clarification →
 /// confirmed brief → destination → local project → optional GitHub (REQ-001…004).
@@ -28,14 +31,13 @@ final class NewProjectFlow: ObservableObject {
     var assistant: FeatureAssistant { store.assistant }
     private let drafts = ProjectDraftStore.shared
 
-    private static let parentKey = "newProject.parentFolder"
     /// The specification and the AI's running jobs change inside the store and the assistant; the
     /// sheet's buttons (Confirm Brief) follow them through this flow.
     private var forwarding: [AnyCancellable] = []
 
     init(resume id: UUID? = nil) {
         store.recordsLifecycle = false
-        let saved = UserDefaults.standard.string(forKey: Self.parentKey).map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let saved = Settings.standard.stored(Setting.newProjectParentFolder).map { URL(fileURLWithPath: $0, isDirectory: true) }
         parentFolder = saved.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? Self.defaultParent
         assistant.projectDiscovery = true
         forwarding = [
@@ -146,7 +148,7 @@ final class NewProjectFlow: ObservableObject {
         draft.folderName = folderName
         draft.stage = .creating
         draft.lastError = nil
-        UserDefaults.standard.set(parentFolder.path, forKey: Self.parentKey)
+        Settings.standard.set(parentFolder.path, for: Setting.newProjectParentFolder)
         let readme = ProjectFoundation.readme(
             title: feature.title, idea: goal,
             problem: ProjectFoundation.section("Problem", of: feature.overviewBody),

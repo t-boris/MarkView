@@ -1,5 +1,8 @@
 import Foundation
 import Security
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One saved login of the browser. `password` is filled only when a login is read for filling.
 struct SavedLogin: Identifiable, Equatable {
@@ -81,8 +84,6 @@ struct BrowserPasswordStore {
 
 /// Which pages may be offered saved passwords, and for which sites the person said "never".
 enum PasswordRules {
-    private static let neverKey = "browserNeverSavePasswordHosts"
-
     /// The host a login belongs to: lower case, without a leading `www.`.
     static func host(of url: URL?) -> String? {
         guard let host = url?.host?.lowercased(), !host.isEmpty else { return nil }
@@ -103,15 +104,15 @@ enum PasswordRules {
     }
 
     static func neverHosts(_ defaults: UserDefaults = .standard) -> Set<String> {
-        Set(defaults.stringArray(forKey: neverKey) ?? [])
+        Set(Settings(defaults).value(Setting.neverSavePasswordHosts))
     }
 
     static func neverSave(host: String, _ defaults: UserDefaults = .standard) {
-        defaults.set(Array(neverHosts(defaults).union([host])).sorted(), forKey: neverKey)
+        Settings(defaults).set(Array(neverHosts(defaults).union([host])).sorted(), for: Setting.neverSavePasswordHosts)
     }
 
     static func allowSaving(host: String, _ defaults: UserDefaults = .standard) {
-        defaults.set(Array(neverHosts(defaults).subtracting([host])).sorted(), forKey: neverKey)
+        Settings(defaults).set(Array(neverHosts(defaults).subtracting([host])).sorted(), for: Setting.neverSavePasswordHosts)
     }
 }
 

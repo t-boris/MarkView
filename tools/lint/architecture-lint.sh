@@ -14,6 +14,20 @@
 #                        EditorWindowPrefs.swift, and no string `case "..."` in Bridge/WebViewBridge.swift (handlers are registered)
 #   no-private-escape    (AR-29) no private HTML escaping in Editor/js/*.js: every `&amp;` literal outside mv-kit.js (mvKit.escapeHtml and
 #                        escapeAttr are the one implementation) needs an `mvkit-exempt:` note within three lines above it
+#   js-interpolation     (AR-04) no `evaluateJavaScript(` or `callAsyncJavaScript(` in MarkView/ or Packages/ takes a script that is built by
+#                        string interpolation `\(...)`, directly or through a variable or a helper function: a script that takes values
+#                        is a `JS.call(function, args:)` (JSON-encoded arguments) or a constant literal with `arguments:`. A raw string
+#                        (`#"..."#`) interpolates with `\#(`; it is not scanned and is for a script made of compile-time constants only
+#   webview-configuration (AR-27) no `WKWebViewConfiguration(...)` and no `WKWebView(...)` in MarkView/: every host makes its configuration
+#                        with WebHost.makeConfiguration and its web view with WebHost.makeWebView (a subclass of WKWebView calls
+#                        WebHost.markInspectable), so handlers are registered weakly and a Debug build is inspectable the same way
+#   settings-literal     (AR-18) no setting is named by a string literal outside the registry: no `@AppStorage("...")`, `@WindowStorage("...")`
+#                        or `AppStorage(wrappedValue: x, "...")`, and no direct UserDefaults call (`UserDefaults.standard.set`,
+#                        `defaults.string(forKey:)` ...) in MarkView/ or in a package's Sources outside Settings.swift: a setting is a
+#                        SettingsKey of `Setting` (Packages/MarkViewCore SettingsKeys.swift), read and written through `Settings`
+#   settings-observer    (AR-18) no `didChangeNotification` outside Settings.swift: the notification fires on every write to the
+#                        preferences (a divider drag, a window's own state); a view or a model that follows a setting uses
+#                        SettingsObserver(keys) or SettingsObserver.changes(of:), which calls back only when one of its keys changed
 #   tabs-direct          (AR-15) a view never reads the window's tabs (openTabs, activeTab, activeTabIndex, lastSaveError) through the
 #                        manager, and the manager never forwards a part's objectWillChange (tabs, file tree, layout, Git) into its own:
 #                        a view observes the part it shows, so typing redraws what shows the tabs and nothing else
@@ -313,6 +327,195 @@ if js_dir.is_dir():
             if "&amp;" in line and not any("mvkit-exempt:" in near for near in text_lines[max(0, index - 3):index + 1]):
                 violations.append(("no-private-escape", f"{rel(path)}:{index + 1}: escapes HTML itself; use window.mvKit.escapeHtml / escapeAttr"))
 
+# --- js-interpolation (AR-04)
+def skip_literal(text, i):
+    """`text[i]` starts a Swift string literal (`"`, `\"\"\"`, or raw `#"`). Returns (index after it, whether it interpolates with `\\(`)."""
+    hashes = 0
+    k = i
+    while text[k] == "#":
+        hashes += 1
+        k += 1
+    multi = text.startswith('"' * 3, k)
+    k += 3 if multi else 1
+    close = ('"' * 3 if multi else '"') + "#" * hashes
+    marker = "\\" + "#" * hashes
+    interpolates = False
+    while k < len(text):
+        if text.startswith(close, k):
+            return k + len(close), interpolates
+        if text.startswith(marker, k):
+            k += len(marker)
+            if k < len(text) and text[k] == "(":
+                if hashes == 0:
+                    interpolates = True
+                k = skip_group(text, k)
+            else:
+                k += 1
+            continue
+        k += 1
+    return k, interpolates
+
+def skip_group(text, i):
+    """`text[i]` is `(`: the index after its matching `)`, with string literals skipped whole."""
+    depth = 0
+    k = i
+    while k < len(text):
+        c = text[k]
+        if c == '"' or (c == "#" and re.match(r'#+"', text[k:k + 40])):
+            k, _ = skip_literal(text, k)
+            continue
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return k + 1
+        k += 1
+    return k
+
+def expression(text, i, stop_at_comma):
+    """The Swift expression that starts at `text[i]`: (its text, whether a string literal in it interpolates). It ends at a
+    top-level `)` or `,` (an argument) or, for an initializer, at the first line break that does not continue it."""
+    k = i
+    depth = 0
+    interpolates = False
+    while k < len(text):
+        c = text[k]
+        if c == '"' or (c == "#" and re.match(r'#+"', text[k:k + 40])):
+            k, hit = skip_literal(text, k)
+            interpolates = interpolates or hit
+            continue
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif c == "," and depth == 0 and stop_at_comma:
+            break
+        elif c == "\n" and depth == 0 and not stop_at_comma:
+            rest = text[k:].lstrip()
+            if not rest.startswith(("+", ".", "?", ":", "&&", "||")):
+                break
+        k += 1
+    return text[i:k], interpolates
+
+def function_bodies(files):
+    """name -> [(file, line, body text)] of every `func name(` in the given files."""
+    found = {}
+    for path in files:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for match in re.finditer(r"\bfunc\s+([A-Za-z_]\w*)\s*[<(]", text):
+            brace = text.find("{", match.end())
+            if brace < 0:
+                continue
+            depth, k = 0, brace
+            while k < len(text):
+                c = text[k]
+                if c == '"' or (c == "#" and re.match(r'#+"', text[k:k + 40])):
+                    k, _ = skip_literal(text, k)
+                    continue
+                if c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                k += 1
+            found.setdefault(match.group(1), []).append((path, text.count("\n", 0, match.start()) + 1, text[brace:k]))
+    return found
+
+def literal_interpolates(text):
+    """Whether any string literal in `text` interpolates with `\\(`."""
+    k = 0
+    while k < len(text):
+        c = text[k]
+        if c == '"' or (c == "#" and re.match(r'#+"', text[k:k + 40])):
+            k, hit = skip_literal(text, k)
+            if hit:
+                return True
+            continue
+        k += 1
+    return False
+
+script_files = swift_files("MarkView", "Packages")
+script_functions = function_bodies(script_files)
+for path in script_files:
+    if "/Tests/" in rel(path):
+        continue
+    text = path.read_text(encoding="utf-8", errors="replace")
+    for match in re.finditer(r"\b(?:evaluateJavaScript|callAsyncJavaScript)\(", text):
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        if text[line_start:match.start()].lstrip().startswith("//"):
+            continue
+        number = text.count("\n", 0, match.start()) + 1
+        argument, interpolates = expression(text, match.end(), True)
+        argument = argument.strip()
+        where = f"{rel(path)}:{number}"
+        if argument.startswith("JS."):
+            continue
+        if interpolates:
+            violations.append(("js-interpolation", f"{where}: the script is built by string interpolation; use JS.call(function, args:) or a constant script with `arguments:`"))
+            continue
+        name = re.match(r"^(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)\s*(\(|$)", argument)
+        if not name:
+            continue
+        if name.group(2) == "(":   # a helper function builds the script
+            for helper_path, helper_line, body in script_functions.get(name.group(1), []):
+                if literal_interpolates(body):
+                    violations.append(("js-interpolation", f"{where}: `{name.group(1)}` ({rel(helper_path)}:{helper_line}) builds the script by string interpolation"))
+            continue
+        # a variable or a property: its initializer (a bare name is looked up in this file, a qualified one in all files)
+        declaration = None
+        text_of = text
+        pattern = r"\b(?:static\s+)?(?:let|var)\s+" + re.escape(name.group(1)) + r"\b[^=\n{]*=\s*"
+        for candidate in re.finditer(pattern, text):
+            if declaration is None or candidate.start() < match.start():
+                declaration = candidate
+        if declaration is None and "." in argument.split("(")[0]:
+            for other in script_files:
+                other_text = other.read_text(encoding="utf-8", errors="replace")
+                found = re.search(pattern, other_text)
+                if found:
+                    declaration, text_of = found, other_text
+                    break
+        if declaration is None:
+            continue   # a parameter: the caller builds the script
+        initializer, init_interpolates = expression(text_of, declaration.end(), False)
+        if initializer.strip().startswith("JS."):
+            continue
+        if init_interpolates:
+            violations.append(("js-interpolation", f"{where}: `{name.group(1)}` is built by string interpolation; use JS.call(function, args:)"))
+            continue
+        helper = re.match(r"\s*(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)\s*\(", initializer)
+        if helper:
+            for helper_path, helper_line, body in script_functions.get(helper.group(1), []):
+                if literal_interpolates(body):
+                    violations.append(("js-interpolation", f"{where}: `{name.group(1)}` comes from `{helper.group(1)}` ({rel(helper_path)}:{helper_line}), which builds the script by string interpolation"))
+
+# --- webview-configuration (AR-27)
+creation = re.compile(r"(?<![A-Za-z0-9_])(WKWebViewConfiguration|WKWebView)\s*\(")
+for path in swift_files("MarkView"):
+    for number, line in code_lines(path):
+        found = creation.search(re.split(r"\s//", line)[0])
+        if found:
+            violations.append(("webview-configuration", f"{rel(path)}:{number}: creates a `{found.group(1)}` itself; use WebHost.makeConfiguration and WebHost.makeWebView"))
+
+# --- settings-literal and settings-observer (AR-18)
+settings_home = "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift"
+settings_files = [p for p in app_swift + [q for q in package_swift if "/Sources/" in rel(q)] if rel(p) != settings_home]
+storage_literal = re.compile(r'(?<![A-Za-z0-9_])(?:AppStorage|WindowStorage)\s*\(\s*(?:wrappedValue\s*:[^,"]*,\s*)?"')
+defaults_call = re.compile(r"(?<![A-Za-z0-9_])(?:UserDefaults\.standard|UserDefaults\s*\(|(?:defaults|ud|userDefaults)\s*\.\s*(?:set|string|bool|integer|double|float|object|data|array|stringArray|dictionary|url|removeObject|register|setVolatileDomain|removePersistentDomain)\()")
+for path in settings_files:
+    for number, line in code_lines(path):
+        text = re.split(r"\s//", line)[0]
+        if storage_literal.search(text):
+            violations.append(("settings-literal", f"{rel(path)}:{number}: names a setting by a string literal; pass a SettingsKey from `Setting` (SettingsKeys.swift)"))
+        elif defaults_call.search(text):
+            violations.append(("settings-literal", f"{rel(path)}:{number}: reads or writes UserDefaults directly; use `Settings` with a key from `Setting`"))
+        if "didChangeNotification" in text:
+            violations.append(("settings-observer", f"{rel(path)}:{number}: observes every UserDefaults write; use SettingsObserver(keys) or SettingsObserver.changes(of:)"))
+
 # --- tabs-direct
 tab_read = re.compile(r"\b(?:workspaceManager|manager|workspace|wm)\??\.(?:openTabs|activeTab|activeTabIndex|lastSaveError)\b")
 for path in swift_files("MarkView/Views"):
@@ -327,7 +530,7 @@ if manager_file.is_file():
             violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
 
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "bridge-no-bypass", "no-private-escape", "tabs-direct"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

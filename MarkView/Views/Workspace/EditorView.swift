@@ -15,18 +15,6 @@ struct EditorView: NSViewRepresentable {
     private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
 
     func makeNSView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        let userController = WKUserContentController()
-
-        // Set up script message handler wrapped in WeakScriptMessageHandler (`AR-27`)
-        // to avoid WKUserContentController retaining Coordinator -> WebView cycles.
-        let bridge = context.coordinator.bridge
-        userController.add(WeakScriptMessageHandler(bridge.messages), name: "bridge")
-
-        config.userContentController = userController
-        #if DEBUG
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
-        #endif
         // Data viewers read their file through `markview-data:` (only files open in a data tab).
         let dataFiles = DataFileSchemeHandler()
         dataFiles.isAllowed = { [weak tabs] url in
@@ -37,7 +25,6 @@ struct EditorView: NSViewRepresentable {
                 } ?? false
             }
         }
-        config.setURLSchemeHandler(dataFiles, forURLScheme: DataFileSchemeHandler.scheme)
         // The pictures a document refers to by a relative path (BUG-061): the project folder and the folder of each open document.
         let documentFiles = context.coordinator.documentFiles
         documentFiles.allowedRoots = { [weak workspaceManager, weak tabs] in
@@ -47,9 +34,11 @@ struct EditorView: NSViewRepresentable {
                                            documents: tabs.openTabs.filter(\.isFileBacked).map(\.url))
             }
         }
-        config.setURLSchemeHandler(documentFiles, forURLScheme: DocumentFileSchemeHandler.scheme)
 
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let config = WebHost.makeConfiguration(
+            handlers: [.message("bridge", context.coordinator.bridge.messages)],
+            urlSchemeHandlers: [(DataFileSchemeHandler.scheme, dataFiles), (DocumentFileSchemeHandler.scheme, documentFiles)])
+        let webView = WebHost.makeWebView(configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
@@ -109,7 +98,7 @@ struct EditorView: NSViewRepresentable {
         private var currentCodeURL: URL?
         private var pendingCodeReveal: (url: URL, line: Int, endLine: Int?)?
         private var currentLineRevealURL: URL?
-        private var lastTheme: String?
+        private var lastTheme: WebThemeArguments?
         private var isEditorReady = false
         private var pendingContent: String?
         private var pendingDocumentURL: URL?
@@ -252,7 +241,7 @@ struct EditorView: NSViewRepresentable {
             let windowUI = parent.workspaceManager.windowUI
             var own: [String: String] = [:]
             for key in EditorWindowPrefs.keys {
-                if let value: String = windowUI.existing(EditorWindowPrefs.stateKey(key)) { own[key] = value }
+                if let value = windowUI.existing(Setting.editorPref(key)) { own[key] = value }
             }
             let prefsScript = WKUserScript(
                 source: EditorWindowPrefs.script(values: own),
@@ -392,13 +381,15 @@ struct EditorView: NSViewRepresentable {
             case .insight(let session):
                 currentCodeURL = nil
                 architectureCancellable = nil
-                webView.evaluateJavaScript("window.leaveCodeView && window.leaveCodeView(); window.leaveArchitectureView && window.leaveArchitectureView(); window.leaveDataView && window.leaveDataView()")
+                if let script = JS.sequence(["window.leaveCodeView", "window.leaveArchitectureView", "window.leaveDataView"].map { JS.call($0, ifDefined: true) }) {
+                    webView.evaluateJavaScript(script)
+                }
                 lastLoadedTabID = nil
                 bridge.clearDocument(in: webView)
                 routeInsight(session: session, webView: webView)
                 return
             case .architecture(let scope):
-                webView.evaluateJavaScript("window.leaveDataView && window.leaveDataView()")
+                if let script = JS.call("window.leaveDataView", ifDefined: true) { webView.evaluateJavaScript(script) }
                 lastLoadedTabID = nil
                 bridge.clearDocument(in: webView)
                 routeArchitecture(scope: scope, webView: webView)
@@ -782,17 +773,19 @@ struct EditorView: NSViewRepresentable {
             uiScale = scale
             guard let webView = webView, isEditorReady, scale != appliedUIScale else { return }
             appliedUIScale = scale
-            webView.evaluateJavaScript("window.mvSetUIScale && window.mvSetUIScale(\(Double(scale)))")
+            if let script = JS.call("window.mvSetUIScale", args: [Double(scale)], ifDefined: true) { webView.evaluateJavaScript(script) }
         }
 
         var workspaceTransparency: Double = 0
         func setWorkspaceTransparency(_ value: Double) {
             workspaceTransparency = value.isFinite ? min(0.7, max(0, value)) : 0
             guard let webView = webView, isEditorReady else { return }
-            webView.evaluateJavaScript("document.documentElement.classList.toggle('workspace-transparent', \(workspaceTransparency > 0 ? "true" : "false"))")
+            if let script = JS.call("document.documentElement.classList.toggle", args: ["workspace-transparent", workspaceTransparency > 0]) {
+                webView.evaluateJavaScript(script)
+            }
         }
 
-        func setTheme(_ arguments: String) {
+        func setTheme(_ arguments: WebThemeArguments) {
             guard let webView = webView, isEditorReady, arguments != lastTheme else { return }
             lastTheme = arguments
             bridge.setTheme(arguments, in: webView)
@@ -807,10 +800,8 @@ struct EditorView: NSViewRepresentable {
         /// so a table of contents that repeats the heading is skipped.
         func scrollToText(_ text: String, heading: Bool = false) {
             guard let webView = webView, isEditorReady,
-                  let data = try? JSONSerialization.data(withJSONObject: [text]),
-                  let args = String(data: data, encoding: .utf8) else { return }
-            let function = heading ? "scrollToHeadingText" : "scrollToText"
-            webView.evaluateJavaScript("window.\(function) && window.\(function).apply(null, \(args))", completionHandler: nil)
+                  let script = JS.call(heading ? "window.scrollToHeadingText" : "window.scrollToText", args: [text], ifDefined: true) else { return }
+            webView.evaluateJavaScript(script, completionHandler: nil)
         }
 
         func exportPDF(fileName: String) {
@@ -931,11 +922,11 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     }
 
     func bridge(_ bridge: WebViewBridge, didChangeEditorFontSize size: Double) {
-        Task { @MainActor in self.parent.workspaceManager.windowUI.set(size, for: EditorTextSize.mirrorKey) }
+        Task { @MainActor in self.parent.workspaceManager.windowUI.set(size, for: Setting.editorTextSizeMirror) }
     }
 
     func bridge(_ bridge: WebViewBridge, didSetWindowPref key: String, value: String) {
-        Task { @MainActor in self.parent.workspaceManager.windowUI.set(value, for: EditorWindowPrefs.stateKey(key)) }
+        Task { @MainActor in self.parent.workspaceManager.windowUI.set(value, for: Setting.editorPref(key)) }
     }
 
     func bridgeEditorReady(_ bridge: WebViewBridge) {

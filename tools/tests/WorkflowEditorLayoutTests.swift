@@ -15,9 +15,6 @@ extension View {
 }
 
 /// The part of the coordinator the tab calls; the real one needs a project folder on disk.
-/// The part of GitHubSettings (GitHubStore.swift) that the Done panel reads.
-enum GitHubSettings { static let enabledKey = "settings.github.enabled" }
-
 @MainActor final class IssueLifecycleCoordinator {
     struct WorkflowSaveReport: Equatable {
         var workflow: ProjectWorkflow

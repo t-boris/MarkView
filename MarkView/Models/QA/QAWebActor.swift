@@ -1,5 +1,8 @@
 import AppKit
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // End-to-End QA (feature end-to-end-qa, DEC-001, DEC-003, DEC-012): one player of a scenario in MarkView's own browser. Every player has a
 // browser tab of its own with a cookie store of its own, so two players never share a sign-in. The tab sits in a window kept off every
@@ -38,7 +41,7 @@ final class QAWebActor: QAActorDriver {
     init(request: QADriverRequest, credentials: QACredentials) {
         self.request = request
         origin = URL(string: request.address)
-        session = BrowserSession(url: nil, dataStore: .nonPersistent())
+        session = BrowserSession(url: nil, dataStore: .nonPersistent(), extraHandlers: [.message(QAFaultHandler.name, faultHandler)])
         self.credentials = credentials
         let size = Self.viewport
         window = QAWebWindow(contentRect: NSRect(x: -30000, y: -30000, width: size.width, height: size.height),
@@ -52,7 +55,6 @@ final class QAWebActor: QAActorDriver {
         window.contentView = web
         window.orderBack(nil)
         faultHandler.owner = self
-        web.configuration.userContentController.add(faultHandler, contentWorld: .page, name: QAFaultHandler.name)
     }
 
     // MARK: QAActorDriver
@@ -120,17 +122,21 @@ final class QAWebActor: QAActorDriver {
         if action.ref.hasPrefix("f") { return mark }
         let ref = action.ref.range(of: "^e[0-9]{1,6}$", options: .regularExpression) != nil ? action.ref : ""
         let usesTarget = [.click, .fill, .select].contains(action.kind)
+        // A constant script: which element to measure and its ref are arguments, never script text (AR-04).
         let script = """
-        const el = \(usesTarget ? "document.querySelector('[data-mv-ref=\"\(ref)\"]')" : action.kind == .key ? "document.activeElement" : "null");
+        let el = null;
+        if (mode === 'target') el = document.querySelector('[data-mv-ref="' + CSS.escape(ref) + '"]');
+        else if (mode === 'active') el = document.activeElement;
         if (!el || el === document.body || el === document.documentElement) return null;
         const parents = []; for (let p = el.parentElement; p; p = p.parentElement) parents.push([p, p.scrollTop, p.scrollLeft]);
         const before = el.getBoundingClientRect();
-        \(usesTarget ? "el.scrollIntoView({block:'center',inline:'center',behavior:'instant'});" : "")
+        if (mode === 'target') el.scrollIntoView({block:'center',inline:'center',behavior:'instant'});
         const r = el.getBoundingClientRect();
         return {x:r.x,y:r.y,width:r.width,height:r.height,vw:innerWidth,vh:innerHeight,
           scroll:parents.some(([p,y,x])=>p.scrollTop!==y||p.scrollLeft!==x) ? (before.y > r.y ? 'down' : 'up') : null};
         """
-        guard let value = try? await session.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page),
+        let mode = usesTarget ? "target" : action.kind == .key ? "active" : "none"
+        guard let value = try? await session.webView.callAsyncJavaScript(script, arguments: ["mode": mode, "ref": ref], in: nil, contentWorld: .page),
               let rect = value as? [String: Any], let x = rect["x"] as? Double, let y = rect["y"] as? Double,
               let width = rect["width"] as? Double, let height = rect["height"] as? Double,
               let vw = rect["vw"] as? Double, let vh = rect["vh"] as? Double else { return mark }
@@ -142,7 +148,7 @@ final class QAWebActor: QAActorDriver {
     func arm(_ fault: QAFault) async throws {
         rules.append(fault)
         // Each arming adds a script that carries every rule so far; they run in order, so the last list wins and the wrapper is installed once.
-        let source = Self.faultScript(rules)
+        guard let source = Self.faultScript(rules) else { throw QAWebError.failed("The fault rules could not be encoded.") }
         let controller = session.webView.configuration.userContentController
         controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         // The page that is open already meets the fault too.
@@ -250,7 +256,7 @@ final class QAWebActor: QAActorDriver {
 
     /// Wraps `fetch` and `XMLHttpRequest` in the page: a request whose address holds a rule's pattern is delayed, fails, or gets the
     /// status of the rule. Every such request is counted, so a fault that was never met is told apart from one that held.
-    static func faultScript(_ faults: [QAFault]) -> String {
+    static func faultScript(_ faults: [QAFault]) -> String? {
         let list = faults.map { fault -> [String: Any] in
             var object: [String: Any] = ["pattern": fault.urlPattern, "mode": fault.mode.rawValue]
             object["status"] = fault.status ?? 500
@@ -258,10 +264,14 @@ final class QAWebActor: QAActorDriver {
             if let method = fault.method { object["method"] = method.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() }
             return object
         }
-        let json = (try? JSONSerialization.data(withJSONObject: list)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        return """
+        // The wrapper is a constant script; the rules reach it as the JSON arguments of one call (AR-04).
+        guard let rules = JS.call("window.__qaSetRules", args: [list, QAFaultHandler.name]) else { return nil }
+        return faultWrapper + "\n" + rules
+    }
+
+    private static let faultWrapper = """
         (function () {
-          window.__qaRules = \(json);
+          window.__qaSetRules = function (rules, handlerName) { window.__qaRules = rules; window.__qaHandler = handlerName; };
           if (window.__qaInstalled) return;
           window.__qaInstalled = true;
           function rule(url, method) {
@@ -273,7 +283,7 @@ final class QAWebActor: QAActorDriver {
             }
             return null;
           }
-          function hit(r) { try { window.webkit.messageHandlers.\(QAFaultHandler.name).postMessage(r.pattern); } catch (e) {} }
+          function hit(r) { try { window.webkit.messageHandlers[window.__qaHandler].postMessage(r.pattern); } catch (e) {} }
           var realFetch = window.fetch;
           if (realFetch) {
             window.fetch = function (input, init) {
@@ -309,7 +319,6 @@ final class QAWebActor: QAActorDriver {
           };
         })();
         """
-    }
 }
 
 /// Receives the page's report that a fault was met.

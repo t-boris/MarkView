@@ -214,7 +214,7 @@ expect(CLITool.usageTracked.map(\.rawValue), ["claude", "codex", "antigravity"],
 expect(CLITool.usageTracked.map(\.hasLocalLogs), [true, true, false], "only Claude and Codex have local logs")
 expect(CLITool.antigravity.displayName, "Antigravity", "antigravity name")
 expect(CLITool.antigravity.dataDirectoryName, ".gemini/antigravity-cli", "antigravity data directory")
-expect(CLITool.antigravity.hiddenKey, "settings.usage.antigravity.hidden", "antigravity hide key")
+expect(Setting.usageHidden(CLITool.antigravity.rawValue).name, "settings.usage.antigravity.hidden", "antigravity hide key")
 expect(CLITool.usageTracked.map { $0.signedOutInterval ?? -1 }, [-1, -1, 1800], "only Antigravity waits longer (30 minutes) while signed out")
 expect(AgentUsageState.resolve(official: antigravity, limit: nil, limitUsage: nil, today: nil, localError: nil, now: now).headline?.id,
        "gemini-argon-wtu-weekly", "antigravity official state")

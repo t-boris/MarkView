@@ -628,7 +628,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         guard tabs.resolveUnsavedChanges(at: Array(openTabs.indices), before: "closing the folder") else { return false }
 
         Self.debugLog("closeFolder: \(rootNode?.url.path ?? "(no folder)")")
-        UserDefaults.standard.removeObject(forKey: ProjectContext.lastFolderKey)
+        Settings.standard.remove(Setting.lastFolder)
 
         // Stop work that would otherwise keep writing into the old workspace.
         insight.cancelSessions()
@@ -1095,7 +1095,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         guard let root = rootNode?.url, root.standardizedFileURL == folder.standardizedFileURL else {
             return "This window does not show \(folder.lastPathComponent) any more. Open it and use File › Publish to GitHub… to finish."
         }
-        if !GitHubSettings.enabled { UserDefaults.standard.set(true, forKey: GitHubSettings.enabledKey) }
+        if !GitHubSettings.enabled { Settings.standard.set(true, for: Setting.gitHubEnabled) }
         // The remote was added after the folder opened: detect again.
         gitHub.reset()
         gitHubRoot = root
@@ -1361,8 +1361,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     private var gitHubRoot: URL?
 
     /// Watches the Settings switch (every window follows it).
-    private var gitHubSettingObserver: NSObjectProtocol?
-    private var gitHubWasEnabled = GitHubSettings.enabled
+    private var gitHubSettingObserver: SettingsObserver?
 
     /// Find the folder's GitHub repository and follow the current branch's CI — only when
     /// the integration is turned on in Settings (MarkView stays a plain viewer otherwise).
@@ -1372,12 +1371,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         gitHub.onRepoChange = { [weak self] repo in self?.codeXRay.architecture.gitHubRepo = repo }
         gitHub.onPoll = { [weak self] client in self?.features.syncLifecycle(with: client) }
         if gitHubSettingObserver == nil {
-            gitHubSettingObserver = NotificationCenter.default.addObserver(
-                forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, GitHubSettings.enabled != self.gitHubWasEnabled else { return }
-                    self.gitHubSettingChanged()
-                }
+            gitHubSettingObserver = SettingsObserver([Setting.gitHubEnabled.erased]) { [weak self] in
+                MainActor.assumeIsolated { self?.gitHubSettingChanged() }
             }
         }
         gitHubSettingChanged()
@@ -1385,7 +1380,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
     /// Start or stop the integration for the open folder, as the Settings switch says.
     private func gitHubSettingChanged() {
-        gitHubWasEnabled = GitHubSettings.enabled
         if GitHubSettings.enabled, let root = gitHubRoot {
             gitHub.setup(root: root)
             if !gitClient.branch.isEmpty { gitHub.branchChanged(gitClient.branch) }

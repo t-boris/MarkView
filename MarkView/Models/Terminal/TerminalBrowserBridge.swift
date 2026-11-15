@@ -17,11 +17,7 @@ import MarkViewCore
 @MainActor
 enum TerminalBrowserBridge {
     /// Setting: open terminal web links in MarkView (default on).
-    static let enabledKey = "browser.openTerminalLinksInApp"
-
-    static var isEnabled: Bool {
-        UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true
-    }
+    static var isEnabled: Bool { Settings.standard.value(Setting.openTerminalLinksInApp) }
 
     private static var sessions: [UUID: WeakTerminal] = [:]
     private static var watcher: DispatchSourceFileSystemObject?

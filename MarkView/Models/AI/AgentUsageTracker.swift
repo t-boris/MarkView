@@ -1,6 +1,9 @@
 import Foundation
 import AppKit
 import CoreServices
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // Keeps the usage of the AI agents current for the Terminal tab's indicators
 // (docs/features/ai-agent-usage-quota-tracker-codex-claude-code): official limit data from the
@@ -144,7 +147,7 @@ final class AgentUsageTracker: ObservableObject {
     }
 
     static func isHidden(_ agent: CLITool) -> Bool {
-        UserDefaults.standard.bool(forKey: agent.hiddenKey)
+        Settings.standard.value(Setting.usageHidden(agent.rawValue))
     }
 
     /// Detected agents the user has not hidden.
@@ -186,16 +189,16 @@ final class AgentUsageTracker: ObservableObject {
     // MARK: - Fallback limit (DEC-014)
 
     static func limit(for agent: CLITool) -> FallbackLimit? {
-        guard let data = UserDefaults.standard.data(forKey: agent.limitKey) else { return nil }
+        guard let data = Settings.standard.stored(Setting.usageLimit(agent.rawValue)) else { return nil }
         return try? JSONDecoder().decode(FallbackLimit.self, from: data)
     }
 
     /// Saves the user's limit, or clears it with nil (back to the no-limit state).
     func setLimit(_ limit: FallbackLimit?, for agent: CLITool) {
         if let limit, let data = try? JSONEncoder().encode(limit) {
-            UserDefaults.standard.set(data, forKey: agent.limitKey)
+            Settings.standard.set(data, for: Setting.usageLimit(agent.rawValue))
         } else {
-            UserDefaults.standard.removeObject(forKey: agent.limitKey)
+            Settings.standard.remove(Setting.usageLimit(agent.rawValue))
         }
         objectWillChange.send()
         rebuild(agent)
