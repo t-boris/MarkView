@@ -1317,9 +1317,7 @@
       "script": "tools/tests/github-command-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/Lifecycle/EvidenceTimings.swift",
         "MarkView/Models/Git/GitHubClient.swift",
-        "MarkView/Models/Lifecycle/LifecycleCapture.swift",
         "tools/tests/GitHubCommandTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
@@ -1330,9 +1328,7 @@
       "script": "tools/tests/github-remote-profile-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/Lifecycle/EvidenceTimings.swift",
         "MarkView/Models/Git/GitHubClient.swift",
-        "MarkView/Models/Lifecycle/LifecycleCapture.swift",
         "tools/tests/CLIToolLocatorStub.swift",
         "tools/tests/GitHubRemoteProfileTests.swift",
         "tools/tests/github-remote-profile-tests.sh",
@@ -1646,9 +1642,7 @@
       "script": "tools/tests/new-project-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/Lifecycle/EvidenceTimings.swift",
         "MarkView/Models/Git/GitHubClient.swift",
-        "MarkView/Models/Lifecycle/LifecycleCapture.swift",
         "MarkView/Models/Workspace/NewProject.swift",
         "MarkView/Models/Workspace/ProjectDraftStore.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
@@ -3011,6 +3005,7 @@
         "MarkView/Models/Architecture/CodeArchitecture.swift",
         "MarkView/Models/Architecture/CodePathTags.swift",
         "MarkView/Models/Insight/SemanticDatabase.swift",
+        "MarkView/Models/Architecture/SemanticDatabase+Architecture.swift",
         "MarkView/Models/Insight/SemanticUsage.swift",
         "MarkView/Models/Insight/SemanticModels.swift",
         "MarkView/Models/Insight/SemanticSchema.swift",
@@ -4147,6 +4142,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Insight/SemanticDatabase.swift",
+        "MarkView/Models/Architecture/SemanticDatabase+Architecture.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "MarkView/Models/Insight/SemanticSchema.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
@@ -4426,8 +4422,6 @@
         "MarkView/Models/Architecture/CodeExplainer.swift",
         "MarkView/Models/Architecture/HistoricalBaseline.swift",
         "MarkView/Models/Git/GitHubClient.swift",
-        "MarkView/Models/Lifecycle/EvidenceTimings.swift",
-        "MarkView/Models/Lifecycle/LifecycleCapture.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",

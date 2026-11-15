@@ -19,7 +19,7 @@ cp tools/tests/ChangeSourceTests.swift "$out/main.swift"
 swiftc -o "$out/change-source-tests" -target "$(uname -m)-apple-macos13.0" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Models/Architecture/ChangeSource.swift MarkView/Models/Architecture/ChangeReviewModel.swift \
-    MarkView/Models/Architecture/HistoricalBaseline.swift MarkView/Models/Git/GitHubClient.swift MarkView/Models/Lifecycle/EvidenceTimings.swift \
-    MarkView/Models/Lifecycle/LifecycleCapture.swift MarkView/Models/AI/OutputLanguage.swift tools/tests/CLIToolLocatorStub.swift \
+    MarkView/Models/Architecture/HistoricalBaseline.swift MarkView/Models/Git/GitHubClient.swift \
+    MarkView/Models/AI/OutputLanguage.swift tools/tests/CLIToolLocatorStub.swift \
     "$out/EditorLines.swift" "$out/main.swift"
 "$out/change-source-tests"

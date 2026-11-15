@@ -532,6 +532,8 @@
 		9DEAEA568832F4D1371B13B2 /* WorkspaceManager+AIToolRuns.swift in Sources */ = {isa = PBXBuildFile; fileRef = E61D82FA88BB378EFC77777D /* WorkspaceManager+AIToolRuns.swift */; };
 		4FDFFDD06B7BE4819E0AB414 /* SemanticUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A570A96D297E393CA7B03DAE /* SemanticUsage.swift */; };
 		1B46D4E785E0A6E4CE027DDB /* LinkedFolderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C45064930C8A1B6E9C790215 /* LinkedFolderStore.swift */; };
+		5B72C033A148D35BAD39C366 /* GitHubClient+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C3DC7970F1547304F5EC541 /* GitHubClient+Lifecycle.swift */; };
+		79CFBF599DB81A644A8F40ED /* SemanticDatabase+Architecture.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1E7B92D5AC1540B56D94175 /* SemanticDatabase+Architecture.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1178,6 +1180,8 @@
 		E61D82FA88BB378EFC77777D /* WorkspaceManager+AIToolRuns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceManager+AIToolRuns.swift"; sourceTree = "<group>"; };
 		A570A96D297E393CA7B03DAE /* SemanticUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticUsage.swift; sourceTree = "<group>"; };
 		C45064930C8A1B6E9C790215 /* LinkedFolderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkedFolderStore.swift; sourceTree = "<group>"; };
+		1C3DC7970F1547304F5EC541 /* GitHubClient+Lifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GitHubClient+Lifecycle.swift"; sourceTree = "<group>"; };
+		B1E7B92D5AC1540B56D94175 /* SemanticDatabase+Architecture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SemanticDatabase+Architecture.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1336,6 +1340,7 @@
 				E3CB217F1317B780D7EE6C48 /* XRayContent.swift */,
 				60EBF634DBCC210E31CDDF84 /* XRayDigest.swift */,
 				6E10D6ADB4ADB8D0AE4BC89E /* XRaySearch.swift */,
+				B1E7B92D5AC1540B56D94175 /* SemanticDatabase+Architecture.swift */,
 			);
 			path = Architecture;
 			sourceTree = "<group>";
@@ -1526,6 +1531,7 @@
 				713A7BA330E95450C16AA739 /* WorkflowTemplate.swift */,
 				4733EE4943A98D4C4C4B9C28 /* WorkflowTemplateLibrary.swift */,
 				EE1DFF07F339BAFE450407A7 /* WorkflowTransitionStory.swift */,
+				1C3DC7970F1547304F5EC541 /* GitHubClient+Lifecycle.swift */,
 			);
 			path = Lifecycle;
 			sourceTree = "<group>";
@@ -2937,6 +2943,8 @@
 				9DEAEA568832F4D1371B13B2 /* WorkspaceManager+AIToolRuns.swift in Sources */,
 				4FDFFDD06B7BE4819E0AB414 /* SemanticUsage.swift in Sources */,
 				1B46D4E785E0A6E4CE027DDB /* LinkedFolderStore.swift in Sources */,
+				5B72C033A148D35BAD39C366 /* GitHubClient+Lifecycle.swift in Sources */,
+				79CFBF599DB81A644A8F40ED /* SemanticDatabase+Architecture.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

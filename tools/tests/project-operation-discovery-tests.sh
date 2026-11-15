@@ -21,10 +21,6 @@ ln -s "$test_root/infra/.env" "$test_root/infra/scripts/linked.env"
 cat > "$test_root/main.swift" <<'SWIFT'
 import Foundation
 
-struct ArchitectureScanner {
-    static func isDeploymentHint(_ path: String) -> Bool { path == "Makefile" }
-}
-
 @main struct Check {
     static func main() {
         let root = URL(fileURLWithPath: CommandLine.arguments[1])
