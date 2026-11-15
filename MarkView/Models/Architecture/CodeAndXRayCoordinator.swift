@@ -205,7 +205,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
     /// Create or delete a user filter (from the Architecture tab or the code viewer).
     func createFilter(name: String, criterion: String) {
         ImportanceRater.addFilter(name: name, criterion: criterion)
-        allXRayStores.forEach { $0.filtersChanged() }
+        allXRayStores.forEach { $0.filters.filtersChanged() }
         codeExplain.filtersChanged()
     }
 
@@ -213,12 +213,12 @@ final class CodeAndXRayCoordinator: ObservableObject {
     func setTemporaryFilter(_ criterion: String) {
         let previous = temporaryFilter
         temporaryFilter = ImportanceRater.temporaryFilter(for: criterion)
-        allXRayStores.forEach { $0.temporaryFilter = temporaryFilter }
+        allXRayStores.forEach { $0.filters.temporaryFilter = temporaryFilter }
         if let previous {
-            architecture.forgetRatings(filterId: previous.id, db: project.database)
-            folderXRays.values.forEach { $0.forgetRatings(filterId: previous.id, db: nil) }
+            architecture.filters.forgetRatings(filterId: previous.id, db: project.database)
+            folderXRays.values.forEach { $0.filters.forgetRatings(filterId: previous.id, db: nil) }
         }
-        allXRayStores.forEach { $0.filtersChanged() }
+        allXRayStores.forEach { $0.filters.filtersChanged() }
         codeExplain.filtersChanged()
     }
 
@@ -228,7 +228,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
             return
         }
         ImportanceRater.removeFilter(id: id)
-        architecture.forgetRatings(filterId: id, db: project.database)
+        architecture.filters.forgetRatings(filterId: id, db: project.database)
         codeExplain.filtersChanged()
     }
 
@@ -251,7 +251,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
         let path = codePath(for: url)
         return codeExplain.payloadJSON(path: path, content: content, filters: aiFilters,
                                        pr: architecture.review.prFileNotes(path: path, content: content),
-                                       search: architecture.searchNotes(path: path))
+                                       search: architecture.filters.searchNotes(path: path))
     }
 
     /// Start an explanation of a file's notes when it has none yet.
@@ -269,10 +269,10 @@ final class CodeAndXRayCoordinator: ObservableObject {
     func explainSymbol(name: String, path: String, line: Int) {
         guard project.root != nil, CodeNavigator.isNavigable(name) else { return }
         let criterion = "\(name) — \((path as NSString).lastPathComponent):\(line)"
-        architecture.searchSymbols[criterion] = XRaySearch.Symbol(name: name, path: path, line: line)
+        architecture.filters.searchSymbols[criterion] = XRaySearch.Symbol(name: name, path: path, line: line)
         setTemporaryFilter(criterion)
         openArchitecture()
-        if let id = temporaryFilter?.id { architecture.activate(filterId: id) }
+        if let id = temporaryFilter?.id { architecture.filters.activate(filterId: id) }
     }
 
     /// Requests from the code viewer's margin panel.
@@ -379,7 +379,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
             store.persistenceFile = base.appendingPathComponent(key + ".json")
             store.cacheDirectory = ProjectPaths.xrayCacheFolder(root)
         }
-        store.temporaryFilter = temporaryFilter
+        store.filters.temporaryFilter = temporaryFilter
         folderXRays[scope] = store
         return store
     }
@@ -474,8 +474,8 @@ final class CodeAndXRayCoordinator: ObservableObject {
         setTemporaryFilter(text)
         openArchitecture()
         if let filter = temporaryFilter {
-            architecture.understand(filter: filter, root: root, db: project.database, attachments: attachments)
-            architecture.activate(filterId: filter.id)
+            architecture.filters.understand(filter: filter, root: root, db: project.database, attachments: attachments)
+            architecture.filters.activate(filterId: filter.id)
         }
     }
 
@@ -514,8 +514,8 @@ final class CodeAndXRayCoordinator: ObservableObject {
         case .askBook(let question):
             setTemporaryFilter(question)
             if let filter = temporaryFilter {
-                architecture.understand(filter: filter, root: root, db: db)
-                architecture.activate(filterId: filter.id)
+                architecture.filters.understand(filter: filter, root: root, db: db)
+                architecture.filters.activate(filterId: filter.id)
             }
         case .cancelAnalysis:
             architecture.cancelAnalysis()
@@ -540,7 +540,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
         case .askPR(let question, let path):
             architecture.review.askPR(question: question, path: path, root: root, db: db)
         case .filterSearch(let filter):
-            architecture.searchFilter(filterId: filter, root: root, db: db)
+            architecture.filters.searchFilter(filterId: filter, root: root, db: db)
         case .showPR(let source):
             architecture.review.showPR(source, root: root)
         case .reviewPR(let again):
@@ -580,7 +580,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
         case .setComponent(let path, let component):
             architecture.setComponent(path: path, component: component, db: db)
         case .rateImportance(let view, let parent, let filter):
-            architecture.rateImportance(viewId: view, parentId: parent, filterId: filter, root: root, db: db)
+            architecture.filters.rateImportance(viewId: view, parentId: parent, filterId: filter, root: root, db: db)
         case .createFilter(let name, let criterion):
             createFilter(name: name, criterion: criterion)
         case .deleteFilter(let id):
@@ -590,7 +590,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
         case .saveSearchAnswer(let filterId):
             saveSearchAnswer(filterId: filterId, root: root, architecture: architecture)
         case .retryUnderstanding(let filter):
-            architecture.retryUnderstanding(filterId: filter, root: root, db: db)
+            architecture.filters.retryUnderstanding(filterId: filter, root: root, db: db)
         case .openUnderstandingSource(let filter, let sourceId):
             openUnderstandingSource(filterId: filter, sourceId: sourceId, root: root, architecture: architecture)
         case .explainEdge(let view, let source, let target, let kind, let label, let again):
@@ -634,7 +634,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
         // From the PR X-Ray: the viewer opens on the change ("Pull request" lens), showing
         // a fetched pull request's own version of the file (which may not exist here).
         // From the ⚡ search's answer: the viewer opens on the search's places in the file.
-        if request.fromSearch { architecture.markSearchFocus(path: path) }
+        if request.fromSearch { architecture.filters.markSearchFocus(path: path) }
         if request.fromPR {
             architecture.review.markPRFocus(path: path)
             if let cached = architecture.review.prFileURL(path: path) {
@@ -689,9 +689,9 @@ final class CodeAndXRayCoordinator: ObservableObject {
     /// Save an answer of the ⚡ search as a document of the project, and open it.
     private func saveSearchAnswer(filterId: String, root: URL, architecture: ArchitectureStore) {
         let author = host?.defaultAuthor ?? ""
-        if architecture.understandingAnswers[filterId] != nil {
+        if architecture.filters.understandingAnswers[filterId] != nil {
             tasks.store(Task { [weak self] in
-                if let file = await architecture.saveUnderstanding(filterId: filterId, root: root, author: author) {
+                if let file = await architecture.filters.saveUnderstanding(filterId: filterId, root: root, author: author) {
                     guard !Task.isCancelled else { return }
                     self?.host?.refreshFileTree()
                     self?.host?.openFile(file, line: nil, endLine: nil)
@@ -699,7 +699,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
             }, for: "saveUnderstanding")
             return
         }
-        if let file = architecture.saveSearchAnswer(filterId: filterId, root: root, author: author) {
+        if let file = architecture.filters.saveSearchAnswer(filterId: filterId, root: root, author: author) {
             host?.refreshFileTree()
             host?.openFile(file, line: nil, endLine: nil)
         }
@@ -707,7 +707,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
 
     /// A source of an "I need to understand" answer: a document of the project, a pull request or a commit.
     private func openUnderstandingSource(filterId: String, sourceId: String, root: URL, architecture: ArchitectureStore) {
-        guard let source = architecture.understandingSource(filterId: filterId, sourceId: sourceId) else { return }
+        guard let source = architecture.filters.understandingSource(filterId: filterId, sourceId: sourceId) else { return }
         if source.kind == .document {
             // Inside the X-Ray's folder, or (from a folder X-Ray) anywhere in the open project.
             if let path = UnderstandingAnswer.relativePath(source.path, root: root) {

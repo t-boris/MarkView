@@ -1,6 +1,5 @@
 # Swift files longer than 2000 lines (AR-16): `<lines beyond the limit> <path>`; a ratchet that only falls. Split a file along
 # its responsibilities (a type with its own state, not an extension that only moves lines) and run --tighten; the goal is an empty list.
-614 MarkView/Models/Architecture/ArchitectureStore.swift
 159 MarkView/Models/Prototype/PrototypeAI.swift
 1804 MarkView/Models/UIStudio/UIStudioSession.swift
 62 MarkView/Models/Workspace/WorkspaceManager.swift
