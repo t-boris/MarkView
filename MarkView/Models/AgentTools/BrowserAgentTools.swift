@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Agents in MarkView's terminals drive the window's browser tabs instead of Chrome (Tasks 80, 82).
 ///
@@ -422,84 +425,12 @@ enum BrowserAgentTools {
         return out
     }
 
-    // MARK: - Control Socket Token & Peer Verification (`AR-40`, `DEC-009`)
-
-    static func tokenPath(forSocket socketPath: String) -> String {
-        if socketPath.hasSuffix(".sock") {
-            return String(socketPath.dropLast(".sock".count)) + ".token"
-        }
-        return socketPath + ".token"
-    }
-
-    /// Generates a 256-bit cryptographically random hex token and writes it with `0600` permissions next to `socketPath` (`AR-40`).
-    @discardableResult
-    static func writeSocketToken(forSocket socketPath: String) -> String? {
-        var bytes = [UInt8](repeating: 0, count: 32)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return nil }
-        let token = bytes.map { String(format: "%02x", $0) }.joined()
-        let path = tokenPath(forSocket: socketPath)
-        unlink(path)
-        let fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o600)
-        guard fd >= 0 else { return nil }
-        defer { close(fd) }
-        _ = fchmod(fd, 0o600)
-        guard writeAll(fd, Data(token.utf8)) else { return nil }
-        return token
-    }
-
-    /// Verifies a control socket token against `expectedToken` fail-closed and constant-time (`AR-40`, `FU-03`).
-    static func verifyToken(_ provided: String?, expected: String?) -> Bool {
-        guard let expected, !expected.isEmpty,
-              let provided, !provided.isEmpty else { return false }
-        let a = Array(expected.utf8)
-        let b = Array(provided.utf8)
-        guard a.count == b.count else { return false }
-        var diff: UInt8 = 0
-        for i in 0..<a.count { diff |= a[i] ^ b[i] }
-        return diff == 0
-    }
-
-    /// Reads the per-instance token from the `0600` regular token file owned by `getuid()` (`AR-40`, `FU-03`).
-    static func readSocketToken(forSocket socketPath: String) -> String? {
-        let path = tokenPath(forSocket: socketPath)
-        let fd = open(path, O_RDONLY | O_NOFOLLOW)
-        guard fd >= 0 else { return nil }
-        defer { close(fd) }
-        var st = stat()
-        guard fstat(fd, &st) == 0,
-              (st.st_mode & S_IFMT) == S_IFREG,
-              (st.st_mode & 0o077) == 0,
-              st.st_uid == getuid() else { return nil }
-        var data = Data()
-        var buf = [UInt8](repeating: 0, count: 1024)
-        while true {
-            let n = Darwin.read(fd, &buf, buf.count)
-            if n > 0 { data.append(buf, count: n) }
-            else { break }
-            if data.count > 8192 { return nil }
-        }
-        let raw = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return raw.isEmpty ? nil : raw
-    }
-
-    /// Kernel-verified peer process ID (`LOCAL_PEERPID`) and user ID (`LOCAL_PEERCRED`) of an accepted Unix domain socket (`AR-40`).
-    static func peerCredentials(for clientFD: Int32) -> (pid: Int32?, uid: uid_t?) {
-        var peerPID: pid_t = 0
-        var pidLen = socklen_t(MemoryLayout<pid_t>.size)
-        let gotPID = getsockopt(clientFD, SOL_LOCAL, LOCAL_PEERPID, &peerPID, &pidLen) == 0 && peerPID > 0
-
-        var cred = xucred()
-        var credLen = socklen_t(MemoryLayout<xucred>.size)
-        let gotCred = getsockopt(clientFD, SOL_LOCAL, LOCAL_PEERCRED, &cred, &credLen) == 0 && cred.cr_version == XUCRED_VERSION
-        return (gotPID ? peerPID : nil, gotCred ? cred.cr_uid : nil)
-    }
-
     // MARK: - Socket client
 
     /// Send one request line to the app and read its reply line.
     static func request(socket path: String, payload: [String: Any], timeout: Int = 120) -> Reply {
         var outbound = payload
-        if outbound["token"] == nil, let token = readSocketToken(forSocket: path) {
+        if outbound["token"] == nil, let token = PrivateSocket.readToken(forSocket: path) {
             outbound["token"] = token
         }
         guard let body = try? JSONSerialization.data(withJSONObject: outbound) else { return .error("Bad request") }
@@ -510,7 +441,7 @@ enum BrowserAgentTools {
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         var wait = timeval(tv_sec: timeout, tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
-        guard var address = unixAddress(path) else { return .error("Socket path too long") }
+        guard var address = PrivateSocket.address(path) else { return .error("Socket path too long") }
         let connected = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
@@ -521,18 +452,6 @@ enum BrowserAgentTools {
         guard let line = readLine(fd), let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
               let reply = Reply(json: object) else { return .error("MarkView did not answer in time") }
         return reply
-    }
-
-    static func unixAddress(_ path: String) -> sockaddr_un? {
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let bytes = Array(path.utf8)
-        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { return nil }
-        withUnsafeMutableBytes(of: &address.sun_path) { raw in
-            for (index, byte) in bytes.enumerated() { raw[index] = byte }
-            raw[bytes.count] = 0
-        }
-        return address
     }
 
     static func writeAll(_ fd: Int32, _ data: Data) -> Bool {

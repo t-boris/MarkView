@@ -1,5 +1,8 @@
 import Foundation
 import Darwin
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 struct CockpitHostStep: Codable, Sendable { var id: String; var title: String = ""; var agent: String; var assignment: String; var completionCondition: String = ""; var prerequisite: Bool; var qaScenarioID: String? = nil }
 struct CockpitHostResult: Codable, Sendable { var passed: Bool; var detail: String; var build: String; var scenarioID: String? = nil; var qaRunID: String? = nil; var progress: CockpitProgress? = nil; var interrupted: Bool? = nil }
@@ -15,12 +18,16 @@ struct CockpitHostTask: Codable, Sendable {
 }
 struct CockpitHostReply: Codable, Sendable { var result: CockpitHostResult; var error: String }
 
-/// Private per-window IPC. Closing a connection cancels its handler, so a dead worker cannot leave an agent running.
+/// The token a worker presents with its task (`PrivateSocket`, `AR-40`); read before the task is decoded.
+private struct CockpitHostAuth: Decodable { let token: String? }
+
+/// Private per-window IPC. A caller must be this user and present the token in `host.token` next to the socket;
+/// closing a connection cancels its handler, so a dead worker cannot leave an agent running.
 final class CockpitHostBridge: @unchecked Sendable {
     enum Failure: Error { case socket }
     let path: String
     private let directory: String
-    private let listener: Int32
+    private let listener: PrivateSocket.Listener
     private let lock = NSLock()
     private var stopped = false
     private var clients: [Int32: Connection] = [:]
@@ -31,20 +38,8 @@ final class CockpitHostBridge: @unchecked Sendable {
         directory = "/tmp/mvc-" + UUID().uuidString.lowercased()
         guard mkdir(directory, 0o700) == 0 else { throw Failure.socket }
         path = directory + "/host.sock"
-        var address = sockaddr_un(); address.sun_family = sa_family_t(AF_UNIX)
-        let bytes = Array(path.utf8)
-        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { rmdir(directory); throw Failure.socket }
-        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
-            for (i, b) in bytes.enumerated() { buffer[i] = b }
-            buffer[bytes.count] = 0
-        }
-        listener = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard listener >= 0 else { rmdir(directory); throw Failure.socket }
-        let bound = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
-        guard bound == 0, chmod(path, 0o600) == 0, listen(listener, 8) == 0 else {
-            close(listener); unlink(path); rmdir(directory); throw Failure.socket
-        }
-        let fd = listener
+        do { listener = try PrivateSocket.open(at: path, backlog: 8) } catch { rmdir(directory); throw Failure.socket }
+        let fd = listener.fd
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             while true {
                 let client = accept(fd, nil, nil)
@@ -67,7 +62,10 @@ final class CockpitHostBridge: @unchecked Sendable {
     private func serve(_ client: Connection) {
         var noSignal: Int32 = 1
         setsockopt(client.fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
-        guard let data = Self.readLine(client.fd), let request = try? JSONDecoder().decode(CockpitHostTask.self, from: data) else {
+        guard PrivateSocket.peer(of: client.fd).isCurrentUser,
+              let data = Self.readLine(client.fd),
+              let auth = try? JSONDecoder().decode(CockpitHostAuth.self, from: data), listener.accepts(token: auth.token),
+              let request = try? JSONDecoder().decode(CockpitHostTask.self, from: data) else {
             finish(client); return
         }
         let task = Task { [handler] in
@@ -112,7 +110,7 @@ final class CockpitHostBridge: @unchecked Sendable {
         stopped = true
         let active = Array(clients.values)
         lock.unlock()
-        Darwin.shutdown(listener, SHUT_RDWR); close(listener); unlink(path); rmdir(directory)
+        listener.stop(); rmdir(directory)
         active.forEach { $0.cancel(); $0.shutdown() }
     }
     deinit { stop() }

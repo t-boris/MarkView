@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 174,
+  "suiteCount": 175,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -138,6 +138,7 @@
       "tier": "gui",
       "sources": [
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/BrowserAgentToolsTests.swift",
         "tools/tests/browser-agent-tools-tests.sh"
       ]
@@ -251,6 +252,7 @@
         "MarkView/Models/Cockpit/CockpitPlan.swift",
         "MarkView/Models/Cockpit/CockpitStepPolicy.swift",
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/CockpitAgentRegistryChecks.swift"
       ]
     },
@@ -280,6 +282,7 @@
       "sources": [
         "MarkView/Models/Cockpit/CockpitHostBridge.swift",
         "MarkView/Models/Cockpit/CockpitPlan.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/CockpitHostBridgeChecks.swift"
       ]
     },
@@ -293,6 +296,7 @@
         "MarkView/Models/Cockpit/CockpitPlan.swift",
         "MarkView/Models/Cockpit/CockpitRun.swift",
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/CockpitInstrumentsChecks.swift",
         "tools/tests/cockpit-instruments-tests.sh"
       ]
@@ -328,6 +332,7 @@
         "MarkView/Models/Cockpit/CockpitStepMeter.swift",
         "MarkView/Models/Cockpit/CockpitStepPolicy.swift",
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/CockpitPolicyChecks.swift",
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/cockpit-policy-tests.sh"
@@ -353,6 +358,7 @@
         "MarkView/Models/Cockpit/CockpitRun.swift",
         "MarkView/Models/Cockpit/CockpitRunStore.swift",
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/CockpitRunChecks.swift"
       ]
     },
@@ -372,6 +378,7 @@
         "MarkView/Models/Cockpit/CockpitStepMeter.swift",
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/CockpitRuntimeChecks.swift"
       ]
     },
@@ -429,6 +436,7 @@
         "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
         "MarkView/Models/Lifecycle/WorkflowDescription.swift",
         "MarkView/Models/Lifecycle/WorkflowEvents.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/ControlAgentToolsTests.swift",
         "tools/tests/control-agent-tools-tests.sh"
       ]
@@ -948,6 +956,7 @@
         "MarkView/Models/Remote/RemoteToolRequests.swift",
         "MarkView/Models/Remote/RemoteWorkspace.swift",
         "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/PersistentRemoteSessionTests.swift",
         "tools/tests/persistent-remote-relay.mjs"
       ]
@@ -1055,7 +1064,6 @@
       "sources": [
         "MarkView/Info.plist",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
-        "MarkView/Models/Browser/BrowserControlServer.swift",
         "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/Phase6StorageSecurityTests.swift"
@@ -1075,6 +1083,15 @@
       ]
     },
     {
+      "name": "private-socket-tests",
+      "script": "tools/tests/private-socket-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
+        "tools/tests/PrivateSocketTests.swift"
+      ]
+    },
+    {
       "name": "project-agent-tools-tests",
       "script": "tools/tests/project-agent-tools-tests.sh",
       "tier": "pure",
@@ -1091,6 +1108,7 @@
         "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
         "MarkView/Models/Lifecycle/WorkflowDescription.swift",
         "MarkView/Models/Lifecycle/WorkflowEvents.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/ProjectAgentToolsTests.swift",
         "tools/tests/project-agent-tools-tests.sh"
       ]
@@ -1785,6 +1803,7 @@
         "MarkView/Models/Remote/RemoteProtocol.swift",
         "MarkView/Models/Remote/RemoteWorkspace.swift",
         "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/RemoteBrowserTests.swift"
       ]
     },
@@ -1801,6 +1820,7 @@
         "MarkView/Models/Remote/RemoteProtocol.swift",
         "MarkView/Models/Remote/RemoteProviderConfiguration.swift",
         "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/RemoteCodexContextTests.swift"
       ]
     },
@@ -1832,6 +1852,7 @@
         "MarkView/Models/Remote/RemoteToolRequests.swift",
         "MarkView/Models/Remote/RemoteWorkspace.swift",
         "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/RemoteProviderLiveChecks.swift"
       ]
     },
@@ -1852,6 +1873,7 @@
         "MarkView/Models/Remote/RemoteToolRequests.swift",
         "MarkView/Models/Remote/RemoteWorkspace.swift",
         "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/RemoteChannelTests.swift",
         "tools/tests/RemoteWorkspaceTests.swift",
         "tools/tests/remote-browser-tests.sh",

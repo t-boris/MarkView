@@ -5,6 +5,7 @@ out=$(mktemp -d)
 relay_pid=''
 trap 'if [[ -n "$relay_pid" ]]; then kill "$relay_pid"; wait "$relay_pid" || true; fi; rm -rf "$out"' EXIT
 swiftc -parse-as-library -o "$out/persistent-remote-session-tests" \
+    Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift \
     MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/Remote/RemoteProtocol.swift \
     MarkView/Models/Remote/RemoteConnectionState.swift MarkView/Models/Remote/RemoteChannel.swift \
     MarkView/Models/Remote/RemoteFraming.swift MarkView/Models/Remote/RemoteWorkspace.swift \
