@@ -76,18 +76,8 @@ See [concurrency §4–5](./concurrency.md#4-known-main-thread-hazards). Top ite
 
 ## 6. Build, release, docs
 
-- `tools/importance-check.sh` is broken: it reads the deleted `AIConsoleEngine.swift` and uses a
-  stale `ImportanceRater.request` signature.
-- `project.yml` and the checked-in pbxproj disagree on the resources phase. Diff them after any
-  `xcodegen generate`.
-- Four stale scaffold docs ship inside the app bundle: `MarkView/BUILD_NOTES.md`, `MANIFEST.md`,
-  `FILES_CREATED.txt`, `README.md`.
-- CI replaces the `latest` release with an ad-hoc-signed zip on every push to main, and runs no
-  tests.
-- `install.sh` runs `pkill -9 MarkView`. See the memory rule: never kill the running app.
-- Stale statements are in `QUICKSTART.md`, `EDITOR_IMPLEMENTATION.md`, `README.md:162-175`, the
-  `CLAUDE.md` web-vendor line (omits xterm.js) and `tasks/lessons.md:173-175`. Full table:
-  [build-release-testing §13](./modules/build-release-testing.md).
+- Obsolete docs and scaffolding (`tools/importance-check.sh`, `project.yml`, `setup.sh`, `install.sh`, `EditorWeb/`, `QUICKSTART.md`, `EDITOR_IMPLEMENTATION.md`, and bundled scaffold files) were removed in 6.26.0.
+- Unified CI runs via `.github/workflows/ci.yml` (`Packages/MarkViewCore` `swift test`, `./tools/tests/run.sh --tier pure`, and cached Debug `xcodebuild`). Note `release.sh` handles signed DMG publishing cleanly from a clean `origin/main` checkout.
 
 ## 7. Suggested order of work
 

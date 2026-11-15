@@ -17,59 +17,44 @@ Related modules: [app-shell-and-workspace](app-shell-and-workspace.md) ·
 
 | Tool | Needed for | Source |
 |---|---|---|
-| Xcode 15+ (project format), Swift 5.9 | every build | `project.yml:6`, `project.yml:12` |
-| macOS SDK, deployment target 13.0 | every build | `project.yml:4-5`, `project.yml:13` |
-| `xcodebuild` | Debug/Release builds | `CLAUDE.md` Verification, `release.sh:24-25`, `install.sh:11` |
-| XcodeGen (`brew install xcodegen`) | regenerating the project only | `setup.sh:11-19` |
-| `codesign`, `security`, `hdiutil`, `ditto`, `shasum` | release | `release.sh:14`, `release.sh:29-46` |
-| Developer ID Application certificate in the keychain | release signing | `release.sh:14-15` |
-| `xcrun notarytool` + keychain profile, `xcrun stapler` | optional notarization | `release.sh:41-45` |
-| Node.js + npm (`npx esbuild` 0.28.2) | rebuilding vendored JS only | `tools/web-vendor/build.sh:8-11`, `tools/web-vendor/package.json:38-40` |
-| `swiftc`, `python3` | standalone tests | `tools/tests/*.sh`, `tools/importance-check.sh:13`, `tools/tests/terminal-link-tests.sh:9` |
-| `claude` and/or `codex` CLI, signed in | `tools/importance-check.sh` (real AI calls) | `tools/importance-check.sh:28`, `:40` |
-| `gh` | CI release job; PR X-Ray at runtime | `.github/workflows/build-release.yml:43`, `:54` |
+| Xcode 15+ (project format), Swift 5.9 | every build | `MarkView.xcodeproj/project.pbxproj` |
+| macOS SDK, deployment target 13.0 | every build | `MarkView.xcodeproj/project.pbxproj` |
+| `xcodebuild` | Debug/Release builds | `CLAUDE.md` Verification, `release.sh` |
+| `codesign`, `security`, `hdiutil`, `ditto`, `shasum` | release | `release.sh` |
+| Developer ID Application certificate in the keychain | release signing | `release.sh` |
+| `xcrun notarytool` + keychain profile, `xcrun stapler` | optional notarization | `release.sh` |
+| Node.js + npm (`npx esbuild` 0.28.2) | rebuilding vendored JS only | `tools/web-vendor/build.sh`, `tools/web-vendor/package.json` |
+| `swift`, `swiftc`, `python3` | package & standalone tests | `Packages/MarkViewCore`, `tools/tests/run.sh`, `tools/tests/*.sh` |
+| `gh` | CI release job; PR X-Ray at runtime | `.github/workflows/build-release.yml`, `release.sh --publish` |
 
-No Swift packages, CocoaPods or Carthage: `project.yml` has no `packages:` section.
-`EditorWeb/` has its own `package.json` (`vite build`, `tsc --noEmit`), but its output is not
-part of the app (`CLAUDE.md` Project).
+Local Swift package: `Packages/MarkViewCore` is linked directly into the `MarkView` app target
+in `MarkView.xcodeproj` (XcodeGen/`project.yml`, `setup.sh`, and `EditorWeb/` have been removed).
 
-## 2. Project structure and XcodeGen workflow
+## 2. Project structure (`MarkView.xcodeproj` + `Packages/MarkViewCore`)
 
-- `project.yml` is the declared source of truth (`CLAUDE.md` Repository Map). It defines one
-  target, `MarkView` (application, macOS), `project.yml:23-26`, and one scheme with Run = Debug and
-  Archive = Release (`project.yml:53-61`). `defaultConfig: Release` (`project.yml:8`) makes plain
-  `xcodebuild` without `-configuration` build Release.
-- Sources: the whole `MarkView/` folder, minus `Resources/Editor/node_modules/**`
-  (`project.yml:27-30`). Because of that, non-code files under `MarkView/` end up in the
-  Resources phase: `BUILD_NOTES.md`, `FILES_CREATED.txt`, `MANIFEST.md`, `README.md`
-  (`MarkView.xcodeproj/project.pbxproj:393-396`). They ship inside the app bundle.
-- `MarkView.xcodeproj` is checked in and is edited alongside `project.yml`
-  (`CLAUDE.md` Working Rules). The two are **not** equivalent today:
-  - `project.yml:31-33` declares all of `MarkView/Resources/Editor` as resources, while the
-    pbxproj `Editor` group contains only `index.html` (`project.pbxproj:307-313`).
-  - `Assets.xcassets` uses hand-written object IDs (`project.pbxproj:47`, `:158`).
-  - Running `./setup.sh` (`xcodegen generate`, `setup.sh:19`) therefore rewrites the pbxproj.
-    Diff the result and check the bundle (section 5) before committing it.
-- `setup.sh` also runs `open MarkView.xcodeproj` (`setup.sh:24`) and tells you to pick a team
-  (`setup.sh:31`).
+- `MarkView.xcodeproj/project.pbxproj` is the single source of truth (`CLAUDE.md` Working Rules).
+  It defines one application target, `MarkView`, and links `Packages/MarkViewCore`.
+- Non-code markdown scaffold docs (`BUILD_NOTES.md`, `FILES_CREATED.txt`, `MANIFEST.md`) were
+  removed in 6.26.0 so they are not bundled into app resources.
+- `Assets.xcassets`, `Resources/Editor/`, and Swift source memberships are maintained directly
+  in `MarkView.xcodeproj` (no generated-pbxproj drift from XcodeGen).
 
 ## 3. Build configurations and settings
 
-Shared settings (`project.yml:10-21`): `SWIFT_VERSION 5.9`, `MACOSX_DEPLOYMENT_TARGET 13.0`,
+Shared settings (`MarkView.xcodeproj/project.pbxproj`): `SWIFT_VERSION 5.9`, `MACOSX_DEPLOYMENT_TARGET 13.0`,
 `ARCHS $(ARCHS_STANDARD)`, `CODE_SIGN_STYLE Automatic`, `INFOPLIST_FILE MarkView/Info.plist`,
-`GENERATE_INFOPLIST_FILE false`, `MARKETING_VERSION` = `CURRENT_PROJECT_VERSION`.
-Bundle identifier: `com.markview.MarkView` (`project.pbxproj:584`, `:670`, from
-`bundleIdPrefix`, `project.yml:3`).
+`GENERATE_INFOPLIST_FILE false`, `SWIFT_STRICT_CONCURRENCY = targeted`, `MARKETING_VERSION` = `CURRENT_PROJECT_VERSION`.
+Bundle identifier: `com.markview.MarkView`.
 
 | Setting | Debug | Release |
 |---|---|---|
-| Entitlements | `MarkView/MarkViewDebug.entitlements` (`project.pbxproj:663`) | `MarkView/MarkView.entitlements` (`project.pbxproj:577`, `project.yml:36`) |
+| Entitlements | `MarkView/MarkViewDebug.entitlements` | `MarkView/MarkView.entitlements` |
 | Swift optimization | `-Onone` (`:654`) | `-O`, whole module (`:567-568`) |
 | Conditions | `DEBUG` (`:653`) | none |
 | Debug info | `dwarf` (`:626`) | `dwarf-with-dsym` (`:547`) |
 | Other | `ONLY_ACTIVE_ARCH YES` (`:649`), `ENABLE_TESTABILITY YES` (`:628`) | `ENABLE_NS_ASSERTIONS NO` (`:548`) |
 
-Not set anywhere: `ENABLE_HARDENED_RUNTIME`, `DEVELOPMENT_TEAM`, `SWIFT_STRICT_CONCURRENCY`.
+Not set in `project.pbxproj`: `ENABLE_HARDENED_RUNTIME`, `DEVELOPMENT_TEAM` (`SWIFT_STRICT_CONCURRENCY = targeted` is set in both configurations).
 The hardened runtime is applied only by `release.sh` at signing time (`release.sh:29`).
 
 `Info.plist` highlights:
@@ -85,16 +70,14 @@ The hardened runtime is applied only by `release.sh` at signing time (`release.s
 
 ## 4. Pre-build script: "Build Web Editor (optional)"
 
-Defined in `project.yml:38-51` and mirrored in `project.pbxproj:404-422` (`alwaysOutOfDate = 1`).
-It does not build anything. It copies the checked-in editor into the bundle:
+Defined in `MarkView.xcodeproj/project.pbxproj` (`alwaysOutOfDate = 1`).
+It copies the checked-in editor into the bundle:
 
 1. `DEST=$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Editor`
-2. `ditto` `index.html` and `terminal.html` into `DEST`.
+2. `ditto` top-level editor HTML files (`index.html`, `terminal.html`, `discussion.html`, `book.html`) into `DEST`.
 3. If `Resources/Editor/vendor` exists, delete `DEST/vendor` and `ditto` the folder.
 
-Only these three items are copied. A new top-level page in `Resources/Editor` must be added to
-the script in both `project.yml` and `project.pbxproj`, otherwise `Bundle.main.url(...)` returns
-nil and the web view stays blank (`tasks/lessons.md:268-270`).
+A new top-level page in `Resources/Editor` must be added to the script in `project.pbxproj`, otherwise `Bundle.main.url(...)` returns nil and the web view stays blank (`tasks/lessons.md`).
 
 ## 5. Resource bundling
 
@@ -120,14 +103,12 @@ HTML-to-Markdown save (`index.html:1542`), so that path needs network access.
   (`CLAUDE.md` Versioning): patch = fixes, minor = features, major = removed/reworked features
   or incompatible `.dde/` / settings-key changes. Docs, `tasks/` and build-script-only changes
   do not bump. Several changes in one commit get one bump at the highest level.
-- `./bump-version.sh patch|minor|major` (`bump-version.sh:4`):
-  - reads the current `MARKETING_VERSION` from `project.yml` (`bump-version.sh:9`);
-  - rewrites `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml`
-    (`:19-20`) and in every configuration in `project.pbxproj` (`:21-22`);
+- `./bump-version.sh patch|minor|major`:
+  - reads the current `MARKETING_VERSION` from `MarkView.xcodeproj/project.pbxproj`;
+  - rewrites `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in every configuration in `project.pbxproj` and verifies every target line updated;
   - build number equals marketing version.
-- Current version: 2.17.0 (`project.yml:18-19`, `project.pbxproj:546`, `:561`, `:625`, `:646`).
-- Release tags follow `v<version>` (for example `v2.15.0` in `git tag`). The README badge reads
-  `v*` releases (`README.md:12`). No script creates tags or uploads the DMG.
+- Release tags follow `v<version>` (for example `v6.26.0`, `v6.26.1` in `git tag`). The README badge reads
+  `v*` releases (`README.md`). `./release.sh --publish` tags and publishes the DMG from a clean `origin/main` checkout.
 
 ## 7. Signing, entitlements and sandbox
 
@@ -150,15 +131,13 @@ Signing paths:
 - `release.sh` builds unsigned (`release.sh:24-25`), then signs the app with
   `--options runtime --timestamp --entitlements MarkView/MarkView.entitlements`
   (`release.sh:29-31`) and signs the DMG (`release.sh:39`).
-- CI signs ad hoc (`CODE_SIGN_IDENTITY="-"`, `.github/workflows/build-release.yml:24-25`).
-- `install.sh` archives with the project's Automatic signing and no team
-  (`install.sh:11`, `project.yml:16`).
+- CI signs ad hoc (`CODE_SIGN_IDENTITY="-"`, `.github/workflows/build-release.yml`).
 
 ## 8. Release pipeline (`release.sh`)
 
 ```mermaid
 flowchart TD
-    A[./release.sh] --> B[VERSION from project.yml MARKETING_VERSION]
+    A[./release.sh] --> B[VERSION from project.pbxproj MARKETING_VERSION]
     B --> C{SIGN_IDENTITY set?}
     C -- no --> C1[first 'Developer ID Application' identity in keychain]
     C -- yes --> D
@@ -243,56 +222,29 @@ that compile selected app source files together with a test `main`, then run the
 | `tools/tests/dictation-insertion-tests.sh` | `enum DictationInsertion` cut out of `Views/DictationViews.swift` with awk (`:10`) | inserting at the cursor, replacing a selection, spacing, undo, append when the field is unfocused, never writing into another window (`DictationInsertionTests.swift:23-64`) | logged-in GUI session, briefly opens a window (`:3-4`) |
 | `tools/tests/transcription-failure-tests.sh` | `struct TranscriptionFailure` cut out of `Models/WhisperClient.swift` with awk | readable message, next step and tag for OpenAI error bodies (the captured 401 `invalid_api_key` body, quota, rate limit, model, 403, 413, 5xx, non-JSON), free-text codes dropped, network errors; no JSON or key fragment in any message | CLI only |
 | `tools/tests/terminal-link-tests.sh` | `Models/TerminalLink.swift`, `Models/TerminalSession.swift`, the `FileType` part of `DocumentState.swift` (`:9-21`); then `EditorLineLinkTests.swift` (`:24-26`) | terminal link resolution, OSC 8, Cmd-click under mouse-tracking TUIs, live shell cwd, the shipping `terminal.html` in a real WKWebView; editor go-to-line in the shipping `index.html` | GUI session. `--open-browser` also opens the real default browser (`TerminalLinkTests.swift:147-152`) |
-| `tools/importance-check.sh [claude\|codex] [model]` | FileType + CLI helpers extracted by python, `CLICompletion`, `ArchitectureModel`, `ArchitectureScanner`, `ImportanceRater` (`:13-22`, `:91-93`) | AI importance ratings on `Tests/Fixtures/importance/*.md` against `expected.json`, plus a custom filter (`:26-86`) | signed-in `claude`/`codex`; costs tokens. **Currently broken**, see section 12 |
-
-Every script builds into a `mktemp -d` folder that is removed on exit. Each prints its failures
-and exits non-zero on failure.
-
 Fixtures:
-- `Tests/Fixtures/importance/` is used by `tools/importance-check.sh`.
 - `Tests/Fixtures/marker-cases/`, `sse-anthropic-sample.txt` and `insight-skeleton-sample.json`
-  are referenced only from the specs under `work/recursive-insight*/`. No script runs them.
-- `TestFiles/` holds files for manual checks: `demo.md` (`setup.sh:35`), `demo.canvas`,
-  `structured/test.{json,xml,yaml}`, `translation-fixture.md`, plus ad-hoc files
-  (`new_test.md`, `should_appear.md` and others).
+  are referenced from the specs under `work/recursive-insight*/`.
+- `TestFiles/` holds files for manual checks: `demo.md`, `demo.canvas`,
+  `structured/test.{json,xml,yaml}`, `translation-fixture.md`, plus ad-hoc files.
 
 ## 12. Verification checklist
 
 1. Debug build:
    `xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug -derivedDataPath /tmp/MarkViewDerivedData CODE_SIGNING_ALLOWED=NO build`
    (`CLAUDE.md` Verification).
-2. Bundle check: `ls /tmp/MarkViewDerivedData/Build/Products/Debug/MarkView.app/Contents/Resources/Editor/`
-   must list `index.html`, `terminal.html` and `vendor/` (`tasks/lessons.md:268-270`).
-3. Run the standalone tests that cover the changed modules (section 11).
-4. Toolbar or menu changes: launch the built app. The build does not catch a missing
-   `EnvironmentObject` in toolbar content (`tasks/lessons.md:45-53`).
-5. Editor UI: check in real WebKit, not Chrome (`tasks/lessons.md:255-257`).
-6. Bump the version before committing an app change (section 6). Keep `project.yml` and the
-   pbxproj in step.
-7. Release: `./release.sh` without `--install`, and let the user install (runbook).
+2. Package tests: `swift test --package-path Packages/MarkViewCore`.
+3. Pure standalone suite: `./tools/tests/run.sh --tier pure` (or targeted `./tools/tests/run.sh --changed`).
+4. Bundle check: `ls /tmp/MarkViewDerivedData/Build/Products/Debug/MarkView.app/Contents/Resources/Editor/`
+   must list `index.html`, `terminal.html`, `discussion.html`, `book.html`, and `vendor/` (`tasks/lessons.md`).
+5. Toolbar or menu changes: launch the built app. The build does not catch a missing
+   `EnvironmentObject` in toolbar content (`tasks/lessons.md`).
+6. Editor UI: check in real WebKit, not Chrome (`tasks/lessons.md`).
+7. Bump the version before committing an app change (`./bump-version.sh`). Keep both build configurations in `MarkView.xcodeproj/project.pbxproj` in step.
+8. Release: `./release.sh` (or `./release.sh --publish` from a clean `origin/main` checkout).
 
-## 13. Stale or contradictory docs
+## 13. Historical cleanup notes
 
-| Location | Claim | Reality |
-|---|---|---|
-| `tools/importance-check.sh:19` | reads `MarkView/Models/AIConsoleEngine.swift` | That file was removed in `0bad0d6` (1.25.0). The `// MARK: - CLI Tool Discovery` marker is now in `MarkView/Models/AIAssistants.swift`, so the script fails before compiling |
-| `MarkView/BUILD_NOTES.md:6`, `:38` | 12 Swift files | 75 files: App 1, Bridge 2, Models 52, Views 20 |
-| `MarkView/BUILD_NOTES.md:36-40` | create the Xcode project by hand, enable strict concurrency | XcodeGen `project.yml`; strict concurrency is not set |
-| `MarkView/BUILD_NOTES.md:51`, `:122-157` | `window.editorBridge`, `webkit.messageHandlers.markviewBridge` | Editor JS posts to `messageHandlers.bridge`; `editorBridge` exists nowhere |
-| `MarkView/BUILD_NOTES.md:99-114` | `NSDocumentTypes` / `MarkdownDocument` | not in `Info.plist` |
-| `MarkView/BUILD_NOTES.md:283-299` | bare `xcodebuild`, generic signing notes | `CLAUDE.md` build command; `release.sh` |
-| `MarkView/MANIFEST.md:240` | "Uses macOS sandbox" | sandbox off (`MarkView.entitlements:7-8`) |
-| `MarkView/MANIFEST.md`, `MarkView/FILES_CREATED.txt:29`, `MarkView/README.md:7-10` | 12-file inventory, `/sessions/gracious-loving-goodall/...` path | March 2026 scaffold. These four files are also bundled into the app (`project.pbxproj:393-396`) |
-| `QUICKSTART.md:9-11` | `index.html` is 1087 lines, "no build" | 1595 lines; vendored bundles built by `tools/web-vendor` |
-| `QUICKSTART.md:23`, `:89`, `:288-294` | EditorWeb is "for production"; integrate `dist/` | `CLAUDE.md`: EditorWeb is not wired into the app |
-| `EDITOR_IMPLEMENTATION.md:9`, `:20` | libraries from CDN (jsDelivr) | mostly vendored; only D3, Dagre and Turndown remain on the CDN (`index.html:1539-1544`) |
-| `EDITOR_IMPLEMENTATION.md:15`, `:174` | absolute `/sessions/...` paths | nonexistent |
-| `EDITOR_IMPLEMENTATION.md:467-480` | add to Copy Bundle Resources; integrate EditorWeb `dist/` | pre-build script copies the editor (section 4) |
-| `README.md:162-163` | only `%%INTERACTIVE` diagrams need the CDN | Turndown (WYSIWYG save) also loads from the CDN (`index.html:1543-1544`) |
-| `README.md:145-149` vs `.github/workflows/build-release.yml:52-66` | install from a Developer ID DMG | CI also publishes an ad-hoc-signed `latest` zip on every push to main |
-| `README.md:175` | `./install.sh` for development | quits the running app; copies a key from the sandbox container, which is no longer used (`install.sh:17-24`) |
-| `.gitignore:47-48` | Debug entitlements are the sandbox-off file that must not ship | Release entitlements are also sandbox-off; the ignore line is commented out |
-| `MarkView/Models/WorkspaceManager.swift:435` | log at `/tmp/markview_debug.log` | `~/markview_debug.log` (`:438`) |
-| `MarkView/App/MarkViewApp.swift:10-11` | `MarkViewApplication` is the `NSPrincipalClass` | `Info.plist:27-28` says `NSApplication` |
-| `CLAUDE.md` Repository Map | web-vendor builds CodeMirror, Cytoscape, ELK | it also builds xterm.js (`build.sh:11-13`) |
-| `tasks/lessons.md:173-175` | avoid `NSAppleScript` so Apple Events are not needed | `FileTreeView.swift:522` uses `NSAppleScript`; the entitlement and usage string were added for it |
+Obsolete scaffolds removed in 6.26.0 (`DEC-004`, `DEC-005`): `project.yml`, `setup.sh`, `install.sh`, `EditorWeb/`, `tools/importance-check.sh`, `QUICKSTART.md`, `EDITOR_IMPLEMENTATION.md`, `MarkView/BUILD_NOTES.md`, `MarkView/MANIFEST.md`, `MarkView/FILES_CREATED.txt`, and `MarkView/README.md`.
+- `.gitignore`: sandbox-off entitlements are intentional for spawning local CLIs (`CLAUDE.md`).
+- Web vendor libraries (including Turndown, DOMPurify, CodeMirror, Cytoscape, ELK, xterm.js) are bundled locally via `tools/web-vendor/build.sh` with zero CDN loads in `index.html`.

@@ -3,7 +3,7 @@
 Scope: the bundled HTML/JS editor that ships in the app (`MarkView/Resources/Editor/`), the
 Swift side that hosts it (`EditorView.swift`, `WebViewBridge.swift`), PDF export
 (`PDFExporter.swift`), the embedded terminal page (`terminal.html`, JS side only), the
-vendor build tooling (`tools/web-vendor/`), and the dormant `EditorWeb/` project.
+vendor build tooling (`tools/web-vendor/`). (The old dormant `EditorWeb/` prototype has been deleted.)
 
 Sibling docs: [app-shell-and-workspace](app-shell-and-workspace.md) ·
 [ai-assistants-and-dictation](ai-assistants-and-dictation.md) ·
@@ -87,8 +87,7 @@ It does **not** own:
 | `vendor/css/markview-canvas.css` | Canvas viewer styles |
 | `vendor/MANIFEST.txt` | Supply-chain manifest (version, SHA-256, source URL, CVE check) for the CDN-sourced vendored libs |
 | `tools/web-vendor/build.sh`, `package.json`, `package-lock.json`, `codemirror-entry.js`, `xterm-entry.js` | esbuild bundling of CodeMirror (`MVCode`) and xterm (`MVTerm`); copies Cytoscape/ELK/xterm.css |
-| `project.yml:31-51` | Bundles `Resources/Editor` and a pre-build `ditto` of `index.html`, `terminal.html`, `vendor/` into `Editor/` |
-| `EditorWeb/` | Dormant Vite/TypeScript editor, not wired into the app (section 11) |
+| `MarkView.xcodeproj/project.pbxproj` | Bundles `Resources/Editor` (including `vendor/`, `book.html`, `discussion.html`, `terminal.html`, `index.html`) |
 
 ### Third-party vendored assets
 
@@ -701,7 +700,7 @@ load. Reset `lastLoadedContent` when leaving the file pipeline (as `routeArchite
 - To vendor the CDN libraries (d3, dagre, turndown, turndown-plugin-gfm), add them to
   `tools/web-vendor/package.json`, copy their dist files in `build.sh`, switch the tags at
   `index.html:1539-1544`, and drop `https://cdn.jsdelivr.net` from the CSP (`index.html:21`).
-- `project.yml:38-51` copies the whole `vendor/` directory, so new files need no project change.
+- `MarkView.xcodeproj/project.pbxproj` copies the `Resources/Editor` resource files (and `tools/web-vendor/build.sh` updates `vendor/`).
   Rebuild the app afterwards (`CLAUDE.md` Verification).
 
 ### Add a script module
@@ -709,21 +708,6 @@ load. Reset `lastLoadedContent` when leaving the file pipeline (as `routeArchite
 Add a `<script src="vendor/js/markview-<name>.js">` in `index.html` at the correct position of the
 wrap chain (§3). Each module is a classic script; top-level `const`/`let` share the global lexical
 scope, so names must be unique across modules.
-
----
-
-## 12. EditorWeb (not shipped)
-
-`EditorWeb/` is a Vite 5 + TypeScript library build (`EditorWeb/vite.config.ts`) with 8 source
-files (~1,700 lines: `editor.ts`, `bridge.ts`, `toc.ts`, `theme.ts`, `pdf-prepare.ts`, and
-admonition/graphviz/plantuml plugins). It depends on Milkdown 7, markdown-it, mermaid, KaTeX,
-Prism and `@viz-js/viz` (`EditorWeb/package.json`), externalises mermaid/Prism/markdown-it as
-globals, and its PlantUML plugin defaults to `https://www.plantuml.com/plantuml/svg`
-(`EditorWeb/src/plugins/plantuml.ts:22`). Its Swift interface is `window.editorInterface.*`
-(`EditorWeb/src/bridge.ts:121`), not the `window.setContent`-style globals Swift calls, so it is
-not drop-in compatible. It has not changed since the initial commit (`334735a`), has no
-`node_modules`, and nothing in `project.yml` references it. Treat it as a design sketch; building
-it does not change the app.
 
 ---
 
