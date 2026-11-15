@@ -12,6 +12,7 @@ actor CockpitExitSignal {
 }
 
 /// A long-lived bundled helper. File handles are drained off the main thread; stdin is the app-lifetime lease.
+// unchecked Sendable: `lock` guards the process, the pending continuation, the buffered output and the flags.
 final class CockpitChild: @unchecked Sendable {
     enum Failure: LocalizedError {
         case launch, exited, timeout, responseTooLarge

@@ -1,4 +1,5 @@
 import Foundation
+import os
 import MarkViewCore
 
 /// Code navigation across the project without a language server: where a symbol is
@@ -402,20 +403,23 @@ final class CodeNavigationStore {
 }
 
 /// Streamed answer text, forwarded at most every 150 ms.
-private final class AnswerBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = ""
-    private var lastSent = Date.distantPast
+private final class AnswerBuffer: Sendable {
+    private struct State: Sendable {
+        var value = ""
+        var lastSent = Date.distantPast
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
-    var text: String { lock.lock(); defer { lock.unlock() }; return value }
+    var text: String { state.withLock { $0.value } }
 
     /// Append `delta`; true when enough time passed to send the text again.
     func append(_ delta: String) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        value += delta
-        guard Date().timeIntervalSince(lastSent) > 0.15 else { return false }
-        lastSent = Date()
-        return true
+        state.withLock { state in
+            state.value += delta
+            guard Date().timeIntervalSince(state.lastSent) > 0.15 else { return false }
+            state.lastSent = Date()
+            return true
+        }
     }
 }
 

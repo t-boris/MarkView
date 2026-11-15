@@ -105,6 +105,7 @@ enum OnDeviceSpeech {
 
     /// One recognition: resumes its continuation exactly once, whether the recognizer answers,
     /// fails or is cancelled, and cancels the recognizer's task when the caller's task is cancelled.
+    // unchecked Sendable: `lock` guards the continuation, the recognition task, the flags and the transcript windows.
     private final class Job: @unchecked Sendable {
         private let lock = NSLock()
         private var continuation: CheckedContinuation<String, Error>?

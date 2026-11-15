@@ -172,6 +172,7 @@ struct StudioLogLines: Sendable {
 
 /// `.dde/studio/session.log` (REQ-011): one line per entry. Before a line would take the file past `limit` bytes the file
 /// becomes `session.log.1`, replacing the one before. Used only on one serial queue; the file is readable by its owner only.
+// unchecked Sendable: `size` is touched only on the session's serial I/O queue (see the type's documentation).
 final class StudioLogFile: @unchecked Sendable {
     static let rotationSize = 2 * 1024 * 1024
 

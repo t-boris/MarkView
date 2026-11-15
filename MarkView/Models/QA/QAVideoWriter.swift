@@ -189,6 +189,7 @@ struct QASubtitleLayout {
     }
 }
 
+// unchecked Sendable: the AVFoundation objects are `let` and used on `queue` only; `lock` guards the counters shared with the caller's thread.
 final class QAVideoWriter: @unchecked Sendable {
     let url: URL
     let framesPerSecond: Int

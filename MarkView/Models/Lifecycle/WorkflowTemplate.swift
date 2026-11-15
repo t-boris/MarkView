@@ -87,7 +87,7 @@ enum WorkflowTemplateError: Error, LocalizedError, Equatable {
     }
 }
 
-final class WorkflowTemplateStore: @unchecked Sendable {
+final class WorkflowTemplateStore: Sendable {
     /// A file that is in the folder but cannot be used.
     struct Unusable: Equatable, Identifiable, Sendable {
         let file: String

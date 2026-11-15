@@ -451,6 +451,49 @@ try:
           and out.count("[tabs-direct]") == 5,
           "a view that reads the tabs through the manager and a manager that forwards a part's changes fail with file and line")
 
+    # --- unchecked-sendable (AR-43)
+    root = fresh()
+    write(root, "MarkView/Models/QA/GoodBoxes.swift", (
+        "// unchecked Sendable: in a whole-line comment only, as is nonisolated(unsafe)\n"
+        "/// A doc comment may say @unchecked Sendable without being a site.\n"
+        "// unchecked Sendable: `lock` guards every field.\n"
+        "final class Above: @unchecked Sendable {}\n"
+        "final class Same: @unchecked Sendable {} // unchecked Sendable: only `queue` touches it\n"
+        "enum Registry {\n"
+        "    // unchecked Sendable: every access is inside `lock.withLock`.\n"
+        "    nonisolated(unsafe) private static var running: [Int: Int] = [:]\n"
+        "    private nonisolated(unsafe) var other = 0 // unchecked Sendable: main actor only\n"
+        "}\n"
+        "final class Checked: Sendable {}\n"
+        "let note = \"@unchecked Sendable in a string\" // @unchecked Sendable in a trailing comment\n"))
+    write(root, "Packages/MarkViewCore/Sources/MarkViewCore/GoodBox.swift", (
+        "// unchecked Sendable: `lock` guards every field.\n"
+        "public final class Box: @unchecked Sendable {}\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0 and "unchecked-sendable" in out, "a justified escape hatch (same line or previous line), a checked Sendable and comments pass unchecked-sendable")
+    write(root, "MarkView/Models/QA/BadBoxes.swift", (
+        "final class NoComment: @unchecked Sendable {}\n"
+        "// unchecked Sendable: this comment belongs to the line below, not to the one after it\n"
+        "let unrelated = 1\n"
+        "final class TwoAway: @unchecked Sendable {}\n"
+        "// unchecked Sendable:\n"
+        "final class EmptyReason: @unchecked Sendable {}\n"
+        "// guarded by a lock\n"
+        "final class WrongMarker: @unchecked Sendable {}\n"
+        "enum Statics {\n"
+        "    nonisolated(unsafe) static var counter = 0\n"
+        "    nonisolated (unsafe) static var spaced = 0\n"
+        "}\n"))
+    write(root, "Packages/MarkViewCore/Sources/MarkViewCore/BadBox.swift", "public final class Box2: @unchecked Sendable {}\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    reported = {line.split(" ")[3] for line in out.splitlines() if line.startswith("  [unchecked-sendable]")}
+    check(code == 1 and reported == {f"MarkView/Models/QA/BadBoxes.swift:{n}:" for n in (1, 4, 6, 8, 10, 11)}
+          | {"Packages/MarkViewCore/Sources/MarkViewCore/BadBox.swift:1:"},
+          "an @unchecked Sendable or nonisolated(unsafe) with no `// unchecked Sendable: <reason>` on the same or the previous line fails unchecked-sendable with file and line")
+    check("GoodBoxes.swift" not in out and "GoodBox.swift" not in out, "the justified file is not reported")
+
     # --- lists
     root = fresh()
     (root / "tools/lint/process-allowlist.txt").unlink()

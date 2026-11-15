@@ -50,6 +50,7 @@ public struct SubprocessLaunchError: Error, LocalizedError, Equatable, Sendable 
 /// child unless the caller passes one), so the callbacks arrive in order: all output first, then the exit. An exit is
 /// reported when the leader has ended and what it wrote is read; a descendant that still holds a pipe open does not
 /// delay it. A child is retained until it has ended: dropping the handle neither stops nor loses it.
+// unchecked Sendable: `lock` guards the exit state and the waiters; the rest is a `let` or touched only on `queue`, a serial queue.
 public final class SubprocessChild: @unchecked Sendable {
     public let pid: pid_t
 

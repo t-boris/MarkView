@@ -23,6 +23,7 @@ private struct CockpitHostAuth: Decodable { let token: String? }
 
 /// Private per-window IPC. A caller must be this user and present the token in `host.token` next to the socket;
 /// closing a connection cancels its handler, so a dead worker cannot leave an agent running.
+// unchecked Sendable: `lock` guards `stopped` and `clients`; every other stored property is a `let`.
 final class CockpitHostBridge: @unchecked Sendable {
     enum Failure: Error { case socket }
     let path: String
@@ -115,6 +116,7 @@ final class CockpitHostBridge: @unchecked Sendable {
     }
     deinit { stop() }
 
+    // unchecked Sendable: `lock` guards `closed` and `task`; `fd` is a `let`.
     private final class Connection: @unchecked Sendable {
         let fd: Int32
         private let lock = NSLock()

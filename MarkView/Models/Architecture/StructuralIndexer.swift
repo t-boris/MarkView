@@ -1,20 +1,23 @@
 import Foundation
+#if canImport(MarkViewCore)
 import MarkViewCore
+#endif
 
 /// Deterministic structural indexer — no LLM.
 /// Scans directory tree, parses markdown, records per-folder rows, indexes FTS5.
 /// File I/O runs off the main thread, and so do the database writes: `SemanticDatabase` is an actor.
-class StructuralIndexer: @unchecked Sendable {
+final class StructuralIndexer: Sendable {
     let db: SemanticDatabase
     let rootURL: URL
     /// Folders linked to the project (Task 59): their Markdown is indexed under `@linked/<name>/…` ids.
     let linkedFolders: [LinkedFolder]
-    var progress: (@Sendable (String) -> Void)?
+    let progress: (@Sendable (String) -> Void)?
 
-    init(db: SemanticDatabase, rootURL: URL, linkedFolders: [LinkedFolder] = []) {
+    init(db: SemanticDatabase, rootURL: URL, linkedFolders: [LinkedFolder] = [], progress: (@Sendable (String) -> Void)? = nil) {
         self.db = db
         self.rootURL = rootURL
         self.linkedFolders = linkedFolders
+        self.progress = progress
     }
 
     // MARK: - Full Index

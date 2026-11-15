@@ -82,9 +82,11 @@ public struct SettingsKey<Value: SettingsValue> {
 }
 
 /// A key holds a name, an immutable default and a scope, so it can be shared between threads whatever the value type.
+// unchecked Sendable: every stored property is a `let`; the default value is only ever read.
 extension SettingsKey: @unchecked Sendable {}
 
 /// The settings of one `UserDefaults` (the app's, or a test's own suite).
+// unchecked Sendable: its only stored property is a UserDefaults, which Foundation documents as safe to use from any thread.
 public struct Settings: @unchecked Sendable {
     public static let standard = Settings(.standard)
 

@@ -1,23 +1,17 @@
 import Foundation
+import os
 
 /// Widgets and modals of a reconstructed window as screens of their own (BUG-050): the isolated page of such a screen,
 /// which needs no assistant, and the coverage figure of a code-mode build. Pure functions and one small log; the
 /// caller owns all file and assistant work.
 enum PrototypeEmbedded {
     /// The source files the screen and component writers read, as project-relative paths. The side-by-side runs share one.
-    final class ReadLog: @unchecked Sendable {
-        private let lock = NSLock()
-        private var paths = Set<String>()
+    final class ReadLog: Sendable {
+        private let paths = OSAllocatedUnfairLock(initialState: Set<String>())
 
-        func add(_ path: String) {
-            lock.lock(); defer { lock.unlock() }
-            paths.insert(path)
-        }
+        func add(_ path: String) { paths.withLock { _ = $0.insert(path) } }
 
-        var all: Set<String> {
-            lock.lock(); defer { lock.unlock() }
-            return paths
-        }
+        var all: Set<String> { paths.withLock { $0 } }
     }
 
     // MARK: - Isolated page

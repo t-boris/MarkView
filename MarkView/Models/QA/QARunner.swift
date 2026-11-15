@@ -89,6 +89,7 @@ protocol QARunObserver: AnyObject {
 }
 
 /// One execution owns this gate. All state is protected because UI requests can race an assistant response.
+// unchecked Sendable: `lock` guards every mutable field: the UI and the assistant's response race on them.
 final class QARunControl: @unchecked Sendable {
     enum Command { case proceed, jump(String), stop }
     private let lock = NSLock()

@@ -6,6 +6,7 @@ import MarkViewCore
 
 /// A work-computer command, independent of the home CLI's PTY. Pipes are drained while the process
 /// runs, output is bounded, and polling never blocks the main thread or waits for EOF before draining.
+// unchecked Sendable: `lock` guards the process state and the output buffer; input is written through the serial `inputQueue`.
 final class RemoteCommand: @unchecked Sendable {
     struct Snapshot { let output: String; let exitCode: Int32? }
     private let inputQueue = DispatchQueue(label: "MarkView.remote.command-input")

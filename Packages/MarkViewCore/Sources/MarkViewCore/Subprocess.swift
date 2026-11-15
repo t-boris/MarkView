@@ -237,11 +237,13 @@ public enum Subprocess {
         control.attach(child)
     }
 
+    // unchecked Sendable: written before the semaphore is signalled and read only after it was waited on, so the semaphore orders the two.
     private final class ResultBox: @unchecked Sendable {
         var result = SubprocessResult(exitCode: -1, stdout: "", stderr: "")
     }
 
     /// Lets the cancellation of a task and the output cap reach a child that is being started.
+    // unchecked Sendable: `lock` guards `child` and `cancelled`.
     private final class OneShotControl: @unchecked Sendable {
         private let lock = NSLock()
         private var child: SubprocessChild?
@@ -277,6 +279,7 @@ public enum Subprocess {
         }
     }
 
+    // unchecked Sendable: `lock` guards the collected data and the truncation flag; `maxBytes` is a `let`.
     private final class PipeCollector: @unchecked Sendable {
         private let lock = NSLock()
         private var data = Data()

@@ -159,6 +159,7 @@ enum BrowserControlServer {
         // Older servers do not say; their folder counts.
         let trusted = request["cwdTrusted"] as? Bool ?? true
         let tool = request["tool"] as? String ?? ""
+        // unchecked Sendable: a `let` dictionary decoded from the request JSON, never mutated, and read only by the one task below.
         nonisolated(unsafe) let arguments = request["arguments"] as? [String: Any] ?? [:]
         Task { @MainActor in
             let reply = await perform(tool, arguments, window: window, pids: pids, cwd: cwd, declared: declared, cwdTrusted: trusted)

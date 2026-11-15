@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 import SQLite3
 
 // Opens real state.db files in a temporary folder through the shipping SemanticDatabase and checks what the schema
@@ -269,6 +270,38 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
     }
 }
 
+/// What the indexer reported, collected from its progress callback (which may run on any thread).
+final class ProgressLog: Sendable {
+    private let lines = OSAllocatedUnfairLock(initialState: [String]())
+    func add(_ line: String) { lines.withLock { $0.append(line) } }
+    var all: [String] { lines.withLock { $0 } }
+}
+
+/// The headless `--dde-index` path: StructuralIndexer is Sendable and takes its progress callback at creation (AR-43).
+func runIndexer() async throws {
+    let root = sandbox.appendingPathComponent("indexed", isDirectory: true)
+    try fm.createDirectory(at: root.appendingPathComponent("docs"), withIntermediateDirectories: true)
+    try "# One\n\nBody of one.\n".write(to: root.appendingPathComponent("docs/one.md"), atomically: true, encoding: .utf8)
+    try "# Two\n\nBody of two.\n".write(to: root.appendingPathComponent("docs/two.md"), atomically: true, encoding: .utf8)
+    let db = try await SemanticDatabase.open(workspacePath: root)
+    try await db.ensureProject(id: "indexed", name: "indexed", rootPath: root.path)
+
+    let first = ProgressLog()
+    await StructuralIndexer(db: db, rootURL: root, progress: { first.add($0) }).indexAll()
+    let stored = await db.allDocumentMeta()
+    check(Set(stored.keys) == ["docs/one.md", "docs/two.md"], "the indexer stores the Markdown files of the folder: \(stored.keys.sorted())")
+    check(first.all.first == "Scanning directory tree..." && first.all.last == "Indexing complete",
+          "the progress callback given at creation reports from the scan to the end: \(first.all)")
+
+    let second = ProgressLog()
+    await StructuralIndexer(db: db, rootURL: root, progress: { second.add($0) }).indexAll()
+    check(second.all.last == "Index up to date", "a second run over an unchanged folder says so and writes nothing: \(second.all)")
+
+    await StructuralIndexer(db: db, rootURL: root).indexAll()
+    check(await db.allDocumentMeta().count == 2, "an indexer made without a progress callback runs the same")
+}
+
 try await run()
+try await runIndexer()
 print("\(failures) failures")
 exit(failures == 0 ? 0 : 1)

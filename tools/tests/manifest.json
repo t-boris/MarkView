@@ -4208,7 +4208,10 @@
         "tools/tests/SemanticDatabaseTests.swift",
         "tools/tests/fixtures/semantic-database/release-6.26-schema.sql",
         "tools/tests/semantic-database-tests.sh",
-        "MarkView/Models/AI/AIOperation.swift"
+        "MarkView/Models/AI/AIOperation.swift",
+        "MarkView/Models/Architecture/StructuralIndexer.swift",
+        "MarkView/Models/Workspace/LinkedFolders.swift",
+        "MarkView/Models/Appearance/ProjectColor.swift"
       ]
     },
     {

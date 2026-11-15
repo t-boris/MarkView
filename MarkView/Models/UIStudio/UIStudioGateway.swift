@@ -467,6 +467,7 @@ enum StudioGatewayError: LocalizedError, Equatable {
 /// what the guards refuse, call the handler, wait `delayMs`, write the response and close. A client that closes its side
 /// before the answer is dropped and its late reply ignored. The whole request must arrive within `requestTimeout`
 /// (408 otherwise); at most `maxConnections` connections are open at once (extra ones are closed at once).
+// unchecked Sendable: the mutable state is touched only on the serial `queue`; every other stored property is a `let`.
 final class StudioGateway: @unchecked Sendable {
     typealias Handler = @Sendable (StudioGatewayRequest, @escaping @Sendable (StudioGatewayResponse) -> Void) -> Void
 

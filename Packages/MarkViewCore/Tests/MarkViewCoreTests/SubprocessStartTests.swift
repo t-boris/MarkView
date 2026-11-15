@@ -8,6 +8,7 @@ import XCTest
 /// the input pipe and how the child ended.
 final class SubprocessStartTests: XCTestCase {
     /// What the callbacks of one child delivered, in order. `events` holds "out", "err" and "exit" markers.
+    // unchecked Sendable: `lock` guards every field.
     private final class Recorder: @unchecked Sendable {
         private let lock = NSLock()
         private var out = Data(), err = Data()

@@ -42,6 +42,7 @@ enum UsageLogLine {
 /// Reads an agent's logs incrementally: each file is read from where the last scan stopped, so a
 /// rescan after the CLI appended a few lines costs only those lines. Not thread-safe: it is
 /// confined to one serial queue (`AgentUsageTracker.logQueue`), hence `@unchecked Sendable`.
+// unchecked Sendable: used only on `AgentUsageTracker.logQueue`, a serial queue, so two threads never touch it at once.
 final class UsageLogReader: @unchecked Sendable {
     let agent: CLITool
     private let format: any UsageLogFormat

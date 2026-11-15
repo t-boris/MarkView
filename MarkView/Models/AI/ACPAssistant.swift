@@ -411,6 +411,7 @@ enum ACPAssistant {
     // MARK: - Streaming state
 
     /// The answer as it streams, and progress for the caller.
+    // unchecked Sendable: `lock` guards the answer and the token counts; the callbacks and the notice prefix are `let`.
     private final class RunState: @unchecked Sendable {
         private let lock = NSLock()
         private var answer = ""
@@ -476,6 +477,7 @@ enum ACPAssistant {
 // MARK: - JSON-RPC connection
 
 /// One `<cli> --acp` process and its JSON-RPC traffic. All state lives on `queue`.
+// unchecked Sendable: all state is touched only on `queue`, a serial queue, except `permit` and `onUpdate`, which the owner sets before `start()`.
 private final class ACPConnection: @unchecked Sendable {
     /// Whether a tool call of `kind` with `input` may run.
     var permit: ((String, [String: Any]) -> Bool)?

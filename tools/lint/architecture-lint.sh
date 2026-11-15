@@ -31,6 +31,9 @@
 #   tabs-direct          (AR-15) a view never reads the window's tabs (openTabs, activeTab, activeTabIndex, lastSaveError) through the
 #                        manager, and the manager never forwards a part's objectWillChange (tabs, file tree, layout, Git) into its own:
 #                        a view observes the part it shows, so typing redraws what shows the tabs and nothing else
+#   unchecked-sendable   (AR-43) every `@unchecked Sendable` and `nonisolated(unsafe)` in MarkView/ and Packages/ says what guards it, in a
+#                        `// unchecked Sendable: <what guards it>` comment on the same or the previous line; a type that can be
+#                        checked says `Sendable` and a value behind a lock is an OSAllocatedUnfairLock, so the escape hatch stays rare
 # Ratchets: a count that may fall and never rise. Today's sites are listed per file in an allow-list; a new site or a higher
 # count fails, and so does a lower count that the list does not yet say (run `--tighten`), so that the allowance never has slack.
 #   process              Process() outside Packages/MarkViewCore Subprocess.swift     tools/lint/process-allowlist.txt
@@ -516,6 +519,19 @@ for path in settings_files:
         if "didChangeNotification" in text:
             violations.append(("settings-observer", f"{rel(path)}:{number}: observes every UserDefaults write; use SettingsObserver(keys) or SettingsObserver.changes(of:)"))
 
+# --- unchecked-sendable (AR-43)
+unchecked_escape = re.compile(r"@unchecked\s+Sendable|nonisolated\s*\(\s*unsafe\s*\)")
+unchecked_reason = re.compile(r"//\s*unchecked Sendable:\s*\S")
+for path in app_swift + package_swift:
+    source = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for number, line in code_lines(path):
+        if not unchecked_escape.search(re.split(r"\s//", re.sub(r'"(?:[^"\\]|\\.)*"', '""', line))[0]):
+            continue
+        before = source[number - 2].strip() if number >= 2 else ""
+        if unchecked_reason.search(line) or (before.startswith("//") and unchecked_reason.search(before)):
+            continue
+        violations.append(("unchecked-sendable", f"{rel(path)}:{number}: `@unchecked Sendable` or `nonisolated(unsafe)` without a `// unchecked Sendable: <what guards it>` comment on the same or the previous line"))
+
 # --- tabs-direct
 tab_read = re.compile(r"\b(?:workspaceManager|manager|workspace|wm)\??\.(?:openTabs|activeTab|activeTabIndex|lastSaveError)\b")
 for path in swift_files("MarkView/Views"):
@@ -530,7 +546,7 @@ if manager_file.is_file():
             violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
 
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "unchecked-sendable"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

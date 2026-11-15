@@ -14,6 +14,7 @@ struct RemoteBridgeRequest: Codable, Sendable {
 /// connection. Only this user's process that reads the `.token` file next to the socket is served. The
 /// descriptor is closed on stop; neither pairing secrets nor provider credentials appear in child
 /// arguments or MCP configuration.
+// unchecked Sendable: `lock` guards `stopped` and `clients`; every other stored property is a `let`.
 final class RemoteToolBridge: @unchecked Sendable {
     let path: String
     private let listener: PrivateSocket.Listener

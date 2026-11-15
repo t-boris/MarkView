@@ -384,6 +384,7 @@ enum ApplyResult: Equatable, Sendable {
 
 /// Serial: one transition at a time per project in this process. Another process or window is guarded by the
 /// compare-and-set on the stored status.
+// unchecked Sendable: every stored property is a `let` (the store protocols and the clock are not declared Sendable); `lock` serializes each transition.
 final class IssueTransitionService: @unchecked Sendable {
     private let storage: TransitionStorage
     private let statuses: LifecycleStatusStore

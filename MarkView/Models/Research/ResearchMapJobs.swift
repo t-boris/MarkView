@@ -380,6 +380,7 @@ final class MapRunDriver {
 
 /// The thread-safe half of a map run: parses the agent's text into node events and collects them
 /// until the driver takes them.
+// unchecked Sendable: `lock` guards every field except `onReady`, which the owner assigns once in its init before any callback can run.
 final class ResearchMapStream: @unchecked Sendable {
     private let lock = NSLock()
     private var parser: ResearchMapRun
