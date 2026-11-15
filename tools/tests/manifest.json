@@ -1035,7 +1035,7 @@
       "script": "tools/tests/phase3-extensibility-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/Workspace/ExtensionRegistries.swift",
+        "MarkView/Models/Workspace/ToolRegistry.swift",
         "MarkView/Models/Workspace/PanelLayout.swift",
         "tools/tests/Phase3ExtensibilityTests.swift"
       ]
