@@ -13,7 +13,7 @@ import Combine
 // right-pane deep-dive list are all deleted. v2 splits generation into:
 //   Phase 1: `graphRAG.buildSkeleton(...)` returns a strict-schema `InsightSkeleton`
 //            via Anthropic tool_use (single non-streaming call, T4 owns the call).
-//   Phase 2: N parallel `CLICompletion.run(...)` calls — one per section
+//   Phase 2: N parallel `AIOperation.ask(...)` calls — one per section
 //            in the skeleton — capped at 5 concurrent via `withThrowingTaskGroup`. Per
 //            section `SectionState.buffer` accumulates the streamed HTML fragment.
 //
@@ -173,7 +173,7 @@ final class InsightNode: Identifiable, Codable {
 ///   - `cancel()` and `navigateTo(...)` are async — T8 closeTab awaits cancel before
 ///     `cache.cleanup()` to avoid races.
 ///   - All long-lived state mutations happen on `@MainActor`; off-main only the
-///     CLI output reader inside `CLICompletion.run` runs (deltas hop back via `Task { @MainActor }`).
+///     CLI output reader inside the assistant run runs (deltas hop back via `Task { @MainActor }`).
 @MainActor
 final class InsightSession: ObservableObject, Identifiable {
     let id = UUID()
