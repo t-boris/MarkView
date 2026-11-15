@@ -530,7 +530,8 @@
         "tools/tests/DataViewersTests.swift",
         "tools/tests/data-viewers-tests.sh",
         "MarkView/Bridge/TypedWebBridge.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json"
+        "MarkView/Resources/Editor/js/bridge-contract.json",
+        "MarkView/Resources/Editor/js/markview-data.js"
       ]
     },
     {
@@ -710,7 +711,8 @@
         "tools/tests/EditorDiagramsWebTests.swift",
         "tools/tests/editor-diagrams-tests.sh",
         "MarkView/Bridge/TypedWebBridge.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json"
+        "MarkView/Resources/Editor/js/bridge-contract.json",
+        "MarkView/Resources/Editor/js/markview-d3-mermaid.js"
       ]
     },
     {
@@ -2493,7 +2495,11 @@
         "tools/tests/WebSinkTests.swift",
         "tools/tests/web-sinks-tests.sh",
         "MarkView/Bridge/TypedWebBridge.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json"
+        "MarkView/Resources/Editor/js/bridge-contract.json",
+        "MarkView/Resources/Editor/js/markview-structured.js",
+        "MarkView/Resources/Editor/js/markview-mdext.js",
+        "MarkView/Resources/Editor/js/markview-state.js",
+        "MarkView/Resources/Editor/js/markview-find.js"
       ]
     },
     {

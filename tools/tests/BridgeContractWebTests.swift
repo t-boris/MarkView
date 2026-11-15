@@ -165,5 +165,14 @@ check(discussionRefusals.isEmpty, "nothing the discussion page sent was refused"
 let refusedByPage = discussion.js("window.__errors = []; console.error = function(m) { window.__errors.push(String(m)); }; return String(mvBridge.send('copy', { text: '' }, 'discussion')) + ':' + String(mvBridge.send('save', { name: 'a' }, 'discussion')) + ':' + window.__errors.length;")
 check(refusedByPage == "false:false:2", "the discussion page refuses an empty copy and a save without data", refusedByPage)
 
+// A hostile turn: the page shows markup and quote characters as text (AR-29: it escapes through mvKit.escapeHtml).
+let hostileQuestion = "<img src=x onerror=window.__pwn=1> it's \"quoted\" & <b>bold</b>"
+coordinator.update(turns: [DiscussionTurn(question: hostileQuestion, answer: "plain answer")], live: nil, theme: "'classic-dark', null")
+spin(10) { discussion.js("return document.getElementById('thread').textContent;").contains("plain answer") }
+let hostile = discussion.js("const q = document.querySelector('#thread .q'); return JSON.stringify({ text: q ? q.textContent : null, imgs: document.querySelectorAll('#thread img, #thread .q b').length, ran: window.__pwn === undefined });")
+let hostileResult = (try? JSONSerialization.jsonObject(with: Data(hostile.utf8))) as? [String: Any] ?? [:]
+check(hostileResult["text"] as? String == hostileQuestion && hostileResult["imgs"] as? Int == 0 && hostileResult["ran"] as? Bool == true,
+      "a question with markup and both quote characters is shown as text and runs nothing", hostile)
+
 print("\(failures) failures")
 exit(failures == 0 ? 0 : 1)

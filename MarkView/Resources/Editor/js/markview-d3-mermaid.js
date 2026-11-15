@@ -186,12 +186,12 @@
                     event.stopPropagation();
                     showPopup(popup, event.pageX-container.getBoundingClientRect().left,
                         event.pageY-container.getBoundingClientRect().top,
-                        `<div class="popup-title">${esc(l.srcNode.label)} → ${esc(l.tgtNode.label)}</div>
-                         <div class="popup-type">${esc(l.label||'depends on')}</div>
-                         ${l.evidence?`<div class="popup-actions"><button class="popup-btn" data-open-source="${esc(l.evidence)}">Evidence: ${esc(l.evidence)}</button></div>`:''}
+                        `<div class="popup-title">${window.mvKit.escapeHtml(l.srcNode.label)} → ${window.mvKit.escapeHtml(l.tgtNode.label)}</div>
+                         <div class="popup-type">${window.mvKit.escapeHtml(l.label||'depends on')}</div>
+                         ${l.evidence?`<div class="popup-actions"><button class="popup-btn" data-open-source="${window.mvKit.escapeHtml(l.evidence)}">Evidence: ${window.mvKit.escapeHtml(l.evidence)}</button></div>`:''}
                          <div class="popup-actions">
                            <input class="popup-input" id="edge-prompt-${container.id}" placeholder="Ask AI to change..." />
-                           <button class="popup-btn" data-ai-edit="${esc(container.id)}" data-ai-input="edge-prompt-${esc(container.id)}" data-ai-prefix="${esc('Change relationship between ' + l.srcNode.label + ' and ' + l.tgtNode.label + ': ')}">AI Edit</button>
+                           <button class="popup-btn" data-ai-edit="${window.mvKit.escapeHtml(container.id)}" data-ai-input="edge-prompt-${window.mvKit.escapeHtml(container.id)}" data-ai-prefix="${window.mvKit.escapeHtml('Change relationship between ' + l.srcNode.label + ' and ' + l.tgtNode.label + ': ')}">AI Edit</button>
                          </div>`);
                 });
             });
@@ -241,14 +241,14 @@
                     event.stopPropagation();
                     const rect = container.getBoundingClientRect();
                     showPopup(popup, event.pageX-rect.left, event.pageY-rect.top,
-                        `<div class="popup-title">${esc(n.label)}</div>
-                         <div class="popup-type">[${esc(n.type)}] ${n.group?'• '+esc(n.group):''}</div>
-                         ${n.note?`<div class="popup-type">${esc(n.note)}</div>`:''}
-                         ${n.source?`<div class="popup-actions"><button class="popup-btn" data-open-source="${esc(n.source)}">Open ${esc(n.source)}</button></div>`:''}
+                        `<div class="popup-title">${window.mvKit.escapeHtml(n.label)}</div>
+                         <div class="popup-type">[${window.mvKit.escapeHtml(n.type)}] ${n.group?'• '+window.mvKit.escapeHtml(n.group):''}</div>
+                         ${n.note?`<div class="popup-type">${window.mvKit.escapeHtml(n.note)}</div>`:''}
+                         ${n.source?`<div class="popup-actions"><button class="popup-btn" data-open-source="${window.mvKit.escapeHtml(n.source)}">Open ${window.mvKit.escapeHtml(n.source)}</button></div>`:''}
                          <div class="popup-actions">
                            <input class="popup-input" id="node-prompt-${container.id}" placeholder="Ask AI: remove, replace, modify..." />
-                           <button class="popup-btn" data-ai-edit="${esc(container.id)}" data-ai-input="node-prompt-${esc(container.id)}" data-ai-prefix="${esc('Regarding ' + n.label + ': ')}">AI Edit</button>
-                           <button class="popup-btn danger" data-ai-edit="${esc(container.id)}" data-ai-fixed="${esc('Remove ' + n.label + ' from the diagram and adjust connections')}">Delete</button>
+                           <button class="popup-btn" data-ai-edit="${window.mvKit.escapeHtml(container.id)}" data-ai-input="node-prompt-${window.mvKit.escapeHtml(container.id)}" data-ai-prefix="${window.mvKit.escapeHtml('Regarding ' + n.label + ': ')}">AI Edit</button>
+                           <button class="popup-btn danger" data-ai-edit="${window.mvKit.escapeHtml(container.id)}" data-ai-fixed="${window.mvKit.escapeHtml('Remove ' + n.label + ' from the diagram and adjust connections')}">Delete</button>
                          </div>`);
                 });
             });
@@ -305,10 +305,6 @@
             layoutDone.then(draw).catch(err => {
                 container.innerHTML = '<div style="padding:20px;color:#f44747;font-size:11px;">Layout failed: ' + window.mvKit.escapeHtml(err && err.message || err) + '</div>';
             });
-        }
-
-        function esc(t) {
-            return String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
 
         // "path/File.swift:42" -> opens the project file (the line is not used yet)

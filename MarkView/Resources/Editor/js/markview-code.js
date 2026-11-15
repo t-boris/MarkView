@@ -140,9 +140,9 @@
                             const renderedCodeMD = md.renderer.render(tokens, md.options, {});
                             html = (typeof window.sanitizeMarkdownHTML === 'function')
                                 ? window.sanitizeMarkdownHTML(renderedCodeMD)
-                                : '<pre class="sanitization-error">' + source.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
+                                : '<pre class="sanitization-error">' + window.mvKit.escapeHtml(source) + '</pre>';
                         } catch (e) {
-                            html = '<pre>' + source.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
+                            html = '<pre>' + window.mvKit.escapeHtml(source) + '</pre>';
                         }
                         body.innerHTML = html;
                         // Its pictures come from the app at markview-doc: addresses, like the document view
@@ -993,14 +993,10 @@
                 if (menu && !menu.contains(e.target)) closeMenu();
             });
 
-            function escapeHTML(text) {
-                return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-            }
-
             /** The line text with `name` marked as a word. */
             function markName(text, name) {
                 const re = new RegExp('(^|[^\\w$])(' + name.replace(/\$/g, '\\$') + ')(?![\\w$])', 'g');
-                return escapeHTML(text).replace(re, '$1<mark>$2</mark>');
+                return window.mvKit.escapeHtml(text).replace(re, '$1<mark>$2</mark>');
             }
 
             /** A list of definitions or usages, grouped by file; click (or ↵) opens one. */
@@ -1246,9 +1242,9 @@
                             const renderedAI = aiMd.render(turn.a);
                             a.innerHTML = (typeof window.sanitizeMarkdownHTML === 'function')
                                 ? window.sanitizeMarkdownHTML(renderedAI)
-                                : '<pre class="sanitization-error">' + escapeHTML(turn.a) + '</pre>';
+                                : '<pre class="sanitization-error">' + window.mvKit.escapeHtml(turn.a) + '</pre>';
                         } else {
-                            a.innerHTML = escapeHTML(turn.a).replace(/\n/g, '<br>');
+                            a.innerHTML = window.mvKit.escapeHtml(turn.a).replace(/\n/g, '<br>');
                         }
                         linkPlaces(a);
                     }

@@ -69,7 +69,7 @@
     style.textContent = css;
     document.head.appendChild(style);
 
-    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const esc = window.mvKit.escapeHtml;
     const q = (name) => '"' + String(name).replace(/"/g, '""') + '"';
     const fmtCount = (n) => Number(n).toLocaleString();
 

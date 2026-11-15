@@ -203,6 +203,17 @@ try:
           and "[bridge-no-bypass] MarkView/Bridge/WebViewBridge.swift:2" in out and out.count("[bridge-no-bypass]") == 3,
           "a direct messageHandlers call in a page script or in EditorWindowPrefs, and a string case in WebViewBridge, fail with file and line")
 
+    # --- no-private-escape
+    root = fresh()
+    write(root, "MarkView/Resources/Editor/js/mv-kit.js", "var table = { '&': '&amp;' };\n")
+    write(root, "MarkView/Resources/Editor/js/markview-iframe.js", "// mvkit-exempt: runs in a document without mv-kit.js\nfunction e(s) {\n    return s.replace(/&/g, '&amp;');\n}\n")
+    code, out = run(root)
+    check(code == 0, "mv-kit.js and a line with an exemption note above it are not private escaping")
+    write(root, "MarkView/Resources/Editor/js/markview-bad.js", "ok();\nfunction esc(s) { return s.replace(/&/g, '&amp;'); }\n")
+    code, out = run(root)
+    check(code == 1 and "[no-private-escape] MarkView/Resources/Editor/js/markview-bad.js:2" in out and out.count("[no-private-escape]") == 1,
+          "a private HTML escape in a page script fails with file and line")
+
     # --- lists
     root = fresh()
     (root / "tools/lint/process-allowlist.txt").unlink()

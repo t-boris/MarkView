@@ -6,7 +6,7 @@
 
     // Every message goes through mvBridge.send (mv-kit.js), which checks it against bridge-contract.json (AR-28).
     function post(type, payload) { window.mvBridge.send(type, payload, 'discussion'); }
-    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const esc = window.mvKit.escapeHtml;
     const VISUAL = ['mermaid', 'svg', 'chart', 'html'];
 
     function sanitizeDiscussionHTML(rawHTML) {
