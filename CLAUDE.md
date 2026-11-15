@@ -4,8 +4,8 @@
 
 MarkView is a native macOS 13+ documentation environment built with Swift 5.9,
 SwiftUI, AppKit, and WKWebView. The Xcode project has one application target (`MarkView`)
-and a local Swift package (`Packages/MarkViewCore`) providing pure domain logic and
-shared infrastructure (`Core/`).
+and a local Swift package (`Packages/MarkViewCore`) providing shared infrastructure helpers
+(sources in `Packages/MarkViewCore/Sources/MarkViewCore/`; it holds no domain logic yet).
 
 The editor used by the app lives in `MarkView/Resources/Editor/`. In particular,
 `index.html`, `js/mv-kit.js`, and `js/markview-*.js` are the shipping
@@ -16,7 +16,7 @@ implementation.
 - `MarkView/App/`: application entry point, window scenes, Finder open handoff (`MarkViewApp.swift`)
 - `Packages/MarkViewCore/`: local Swift package linked into `MarkView` (`Subprocess`, `AtomicFile`, `ProjectPaths`, `WeakScriptMessageHandler`) with `swift test` target (`MarkViewCoreTests`)
 - `MarkView/Views/`: SwiftUI views and `WKWebView` coordination organized into 19 domain subfolders (`Workspace/`, `Lifecycle/`, `Cockpit/`, `QA/`, `UIStudio/`, `Appearance/`, etc.; `EditorView`, `ContentView`, etc.)
-- `MarkView/Models/`: domain-organized across 21 domain subfolders (`AI/`, `AgentTools/`, `Appearance/`, `Architecture/`, `Book/`, `Browser/`, `Cockpit/`, `Deployments/`, `Dictation/`, `Discussion/`, `Git/`, `Insight/`, `Lifecycle/`, `ProjectOps/`, `Prototype/`, `QA/`, `Remote/`, `Research/`, `Terminal/`, `UIStudio/`, `Workspace/`) with single-responsibility files (`DocumentScrollSideTable`, `TaskBag`, `MarkdownDocumentChunker`, `AIOperation`, `AssistantProviderRegistry`, `SchemaVersionedStore`, `WorkspaceManager`, `ToolRegistry`, `SemanticDatabase`, `BrowserControlServer`)
+- `MarkView/Models/`: grouped by feature into 21 domain subfolders (`AI/`, `AgentTools/`, `Appearance/`, `Architecture/`, `Book/`, `Browser/`, `Cockpit/`, `Deployments/`, `Dictation/`, `Discussion/`, `Git/`, `Insight/`, `Lifecycle/`, `ProjectOps/`, `Prototype/`, `QA/`, `Remote/`, `Research/`, `Terminal/`, `UIStudio/`, `Workspace/`). The folders are not layers: all of them are one module and nothing enforces a dependency direction. Helper types added by the architecture review (`DocumentScrollSideTable`, `TaskBag`, `MarkdownDocumentChunker`, `AIOperation`, `AssistantProviderRegistry`, `SchemaVersionedStore`, `ToolRegistry`) have 1 to a few callers each; `WorkspaceManager` (5747 lines) is still the central object
 - `MarkView/Bridge/`: Swift-to-JavaScript bridge (`WebViewBridge`) and PDF export
 - `MarkView/Resources/Editor/`: bundled HTML (`index.html`, `terminal.html`, `discussion.html`, `book.html`), first-party JavaScript under `js/` (`mv-kit.js`, `markview-*.js`), and third-party vendor bundles under `vendor/` (`dompurify.min.js`, `turndown.js`, etc.)
 - `Tests/Fixtures/` and `TestFiles/`: manual and fixture data, plus `tools/tests/` automated test suites (`tools/tests/run.sh` and `tools/tests/manifest.json`)
@@ -41,9 +41,10 @@ implementation.
 - Keep UI state mutations on `@MainActor`; move file, database, network, and
   child-process work off the main thread (`SWIFT_STRICT_CONCURRENCY = targeted` is enabled).
 - Never call `Process.waitUntilExit()` on the main thread. Use `MarkViewCore.Subprocess` for
-  new and migrated child-process call sites (currently adopted in `InsightArchiveExporter`;
-  remaining `Process()` call sites are tracked under `AR-25`) so pipes are drained concurrently
-  with waiting and bounded by timeouts and output caps.
+  new and migrated child-process call sites so pipes are drained concurrently with waiting and
+  bounded by timeouts and output caps. Today it has 1 caller (`InsightArchiveExporter`) and
+  17 `Process()` creations in 15 files remain (`AR-25`, in progress on
+  `feat/architecture-review-finish`; the target is 0).
 - For a hang or beachball, collect evidence first with
   `/usr/bin/sample <pid> 3` and inspect thread 0.
 - Treat API keys and document contents as sensitive. Do not print credentials,
