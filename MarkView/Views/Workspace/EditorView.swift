@@ -8,6 +8,7 @@ import MarkViewCore
 /// NSViewRepresentable wrapper for WKWebView markdown editor
 struct EditorView: NSViewRepresentable {
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject var tabs: TabsController
     @EnvironmentObject var windowTheme: WindowTheme
     @Environment(\.appFontScale) private var fontScale
     @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
@@ -28,9 +29,9 @@ struct EditorView: NSViewRepresentable {
         #endif
         // Data viewers read their file through `markview-data:` (only files open in a data tab).
         let dataFiles = DataFileSchemeHandler()
-        dataFiles.isAllowed = { [weak workspaceManager] url in
+        dataFiles.isAllowed = { [weak tabs] url in
             MainActor.assumeIsolated {
-                workspaceManager?.openTabs.contains { tab in
+                tabs?.openTabs.contains { tab in
                     if case .data = tab.kind { return tab.url.standardizedFileURL.path == url.standardizedFileURL.path }
                     return false
                 } ?? false
@@ -39,11 +40,11 @@ struct EditorView: NSViewRepresentable {
         config.setURLSchemeHandler(dataFiles, forURLScheme: DataFileSchemeHandler.scheme)
         // The pictures a document refers to by a relative path (BUG-061): the project folder and the folder of each open document.
         let documentFiles = context.coordinator.documentFiles
-        documentFiles.allowedRoots = { [weak workspaceManager] in
+        documentFiles.allowedRoots = { [weak workspaceManager, weak tabs] in
             MainActor.assumeIsolated {
-                guard let workspaceManager else { return [] }
+                guard let workspaceManager, let tabs else { return [] }
                 return DocumentFiles.roots(project: workspaceManager.project.root,
-                                           documents: workspaceManager.openTabs.filter(\.isFileBacked).map(\.url))
+                                           documents: tabs.openTabs.filter(\.isFileBacked).map(\.url))
             }
         }
         config.setURLSchemeHandler(documentFiles, forURLScheme: DocumentFileSchemeHandler.scheme)
@@ -72,9 +73,7 @@ struct EditorView: NSViewRepresentable {
         let coordinator = context.coordinator
 
         // Load content when tab changes
-        if workspaceManager.activeTabIndex >= 0,
-           workspaceManager.activeTabIndex < workspaceManager.openTabs.count {
-            let tab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
+        if let tab = tabs.activeTab {
             coordinator.pendingTab = tab
             coordinator.loadContentIfNeeded(tab.content, documentURL: tab.url, tab: tab)
         }
@@ -507,7 +506,7 @@ struct EditorView: NSViewRepresentable {
                 .sink { [weak self] _ in
                     guard let self, let webView = self.webView, let id = self.lastLoadedTabID,
                           ResearchMap.isMap(self.lastLoadedContent),
-                          let current = self.parent.workspaceManager.openTabs.first(where: { $0.id == id }) else { return }
+                          let current = self.parent.tabs.openTabs.first(where: { $0.id == id }) else { return }
                     // The text of the map reaches the page when the file changes; this push is for the job's own
                     // progress (its step and start), so it is sent only when that changed.
                     let info = self.parent.workspaceManager.research.jobs.mapJobInfo(for: current.url)
@@ -839,19 +838,19 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             if EditorDocumentRouting.reportsShownDocument(documentID: documentID, shown: self.lastLoadedTabID) {
                 self.lastLoadedContent = content
             }
-            self.parent.workspaceManager.updateTabContent(content, documentID: documentID)
+            self.parent.tabs.updateTabContent(content, documentID: documentID)
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didExtractHeadings headings: [HeadingItem]) {
         Task { @MainActor in
-            self.parent.workspaceManager.updateActiveTabHeadings(headings)
+            self.parent.tabs.updateActiveTabHeadings(headings)
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didSelectHeading headingId: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.updateActiveHeading(headingId)
+            self.parent.tabs.updateActiveHeading(headingId)
         }
     }
 
@@ -946,9 +945,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             self.setTheme(self.parent.windowTheme.webArguments)
             self.setUIScale(self.uiScale)
             self.setWorkspaceTransparency(self.workspaceTransparency)
-            let idx = self.parent.workspaceManager.activeTabIndex
-            if idx >= 0, idx < self.parent.workspaceManager.openTabs.count {
-                let tab = self.parent.workspaceManager.openTabs[idx]
+            if let tab = self.parent.tabs.activeTab {
                 self.pendingTab = tab
                 self.loadContentIfNeeded(tab.content, documentURL: tab.url, tab: tab)
             }
@@ -960,7 +957,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         // tab (BUG-031). Insight tabs have their own Save flow (didRequestInsightSave) — the generic
         // save bridge must not touch them; `saveEditorDocument` skips every tab that is not file-backed.
         Task { @MainActor in
-            self.parent.workspaceManager.saveEditorDocument(documentID: documentID)
+            self.parent.tabs.saveEditorDocument(documentID: documentID)
         }
     }
 
@@ -1014,19 +1011,15 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     func bridgeRefreshRequested(_ bridge: WebViewBridge) {
         // Insight tabs are ephemeral — reloading from the placeholder URL would
         // either fail (no file) or clobber session state if a stray write ever
-        // produced one. WorkspaceManager.reloadActiveTabFromDisk also no-ops.
+        // produced one. TabsController.reloadActiveTabFromDisk also no-ops.
         Task { @MainActor in
-            let wm = self.parent.workspaceManager
-            let idx = wm.activeTabIndex
-            if idx >= 0, idx < wm.openTabs.count,
-               !wm.openTabs[idx].isFileBacked {
-                return
-            }
-            if let content = wm.reloadActiveTabFromDisk() {
+            let tabs = self.parent.tabs
+            guard let tab = tabs.activeTab, tab.isFileBacked else { return }
+            if let content = tabs.reloadActiveTabFromDisk() {
                 self.lastLoadedContent = content
                 if let webView = self.webView {
-                    self.lastLoadedTabID = wm.openTabs[idx].id
-                    self.bridge.loadContent(content, documentID: wm.openTabs[idx].id, into: webView) {}
+                    self.lastLoadedTabID = tab.id
+                    self.bridge.loadContent(content, documentID: tab.id, into: webView) {}
                 }
             }
         }
@@ -1102,7 +1095,9 @@ extension EditorView.Coordinator: InsightPage {
 }
 
 #Preview {
+    let workspace = WorkspaceManager()
     EditorView()
-        .environmentObject(WorkspaceManager())
+        .environmentObject(workspace)
+        .observingParts(of: workspace)
         .environmentObject(WindowTheme())
 }

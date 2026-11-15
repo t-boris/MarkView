@@ -8,6 +8,5 @@ swiftc -parse-as-library -o "$out/saved-remote-connections-tests" \
     MarkView/Models/Remote/RemoteProtocol.swift MarkView/Models/Remote/RemoteConnectionState.swift \
     MarkView/Models/Remote/RemoteChannel.swift MarkView/Models/Remote/RemoteFraming.swift \
     MarkView/Models/Remote/RemoteRelaySettings.swift MarkView/Models/Remote/RemoteConnectionsStore.swift \
-    MarkView/Models/Remote/RemoteAssistantHost.swift MarkView/Models/AI/Providers/*.swift \
-    Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift tools/tests/SavedRemoteConnectionsTests.swift
+    MarkView/Models/Remote/RemoteAssistantHost.swift MarkView/Models/AI/Providers/*.swift tools/tests/SavedRemoteConnectionsTests.swift
 "$out/saved-remote-connections-tests" --run "$test_service"

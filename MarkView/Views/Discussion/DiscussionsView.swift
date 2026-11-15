@@ -5,6 +5,7 @@ import SwiftUI
 struct DiscussionsView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
     @ObservedObject var store: DiscussionStore
     @State private var creating = false
     @State private var newTitle = ""
@@ -117,7 +118,7 @@ struct DiscussionsView: View {
     private func scopeMenu(_ discussion: Discussion) -> some View {
         Menu {
             Button("Whole project") { store.setScope(discussion.slug, to: nil) }
-            if let tab = workspaceManager.activeTab, case .file = tab.kind, tab.url.isFileURL, FileManager.default.fileExists(atPath: tab.url.path) {
+            if let tab = tabs.activeTab, case .file = tab.kind, tab.url.isFileURL, FileManager.default.fileExists(atPath: tab.url.path) {
                 Button("This document: \(tab.url.lastPathComponent)") { store.setScope(discussion.slug, to: scopePath(tab.url)) }
             }
             Button("Choose a file or folder…") {

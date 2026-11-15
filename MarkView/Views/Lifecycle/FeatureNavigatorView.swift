@@ -298,7 +298,7 @@ struct IssuesListView: View {
                 }
             }.buttonStyle(.plain)
             Spacer()
-            Button(action: { workspaceManager.intake = IntakeRequest(kind: kind) }) {
+            Button(action: { workspaceManager.requests.intake = IntakeRequest(kind: kind) }) {
                 Image(systemName: "plus").uiFont(size: 9).foregroundColor(palette.textDim)
             }.buttonStyle(.plain).help(kind.title)
         }
@@ -365,6 +365,7 @@ struct FeatureNavigatorView: View {
     @ObservedObject var store: FeatureStore
     var onBack: (() -> Void)? = nil
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
     @State private var expanded: Set<String> = ["requirement", "question", "decision", "documents"]
     @State private var history: [String] = []
     @State private var showHistory = false
@@ -588,7 +589,7 @@ struct FeatureNavigatorView: View {
     }
 
     private func isActive(_ url: URL) -> Bool {
-        workspaceManager.activeTab?.url.standardizedFileURL == url.standardizedFileURL
+        tabs.activeTab?.url.standardizedFileURL == url.standardizedFileURL
     }
 
     private func open(_ url: URL) { workspaceManager.openFile(url) }
@@ -957,7 +958,7 @@ enum FeatureObjectDeletion {
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return false }
-        for object in objects { workspace.closeTabs(under: object.url) }
+        for object in objects { workspace.tabs.closeTabs(under: object.url) }
         return store.deleteObjects(feature.slug, ids: Set(objects.map(\.id))) > 0
     }
 }

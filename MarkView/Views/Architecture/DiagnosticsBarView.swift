@@ -4,11 +4,12 @@ import SwiftUI
 struct DiagnosticsBarView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
 
     var body: some View {
         HStack(spacing: 0) {
             // Left: active block info
-            if let tab = activeTab, let activeId = tab.activeBlockId,
+            if let tab = tabs.activeTab, let activeId = tab.activeBlockId,
                let block = tab.blocks.first(where: { $0.id == activeId }) {
                 HStack(spacing: 4) {
                     Image(systemName: "square.text.square")
@@ -43,11 +44,5 @@ struct DiagnosticsBarView: View {
         .frame(height: 20)
         .background(palette.bgBanner)
         .overlay(Rectangle().frame(height: 1).foregroundColor(palette.border), alignment: .top)
-    }
-
-    private var activeTab: OpenTab? {
-        guard workspaceManager.activeTabIndex >= 0,
-              workspaceManager.activeTabIndex < workspaceManager.openTabs.count else { return nil }
-        return workspaceManager.openTabs[workspaceManager.activeTabIndex]
     }
 }

@@ -68,6 +68,7 @@ struct HandoffStartList: View {
 }
 
 struct HandoffPanelView: View {
+    @EnvironmentObject private var chrome: WindowChrome
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     let feature: Feature
@@ -157,8 +158,8 @@ struct HandoffPanelView: View {
                     .environmentObject(workspaceManager)
             }
         }
-        .onAppear { if workspaceManager.compactLayout { expanded = false } }
-        .onChange(of: workspaceManager.compactLayout) { compact in
+        .onAppear { if chrome.compactLayout { expanded = false } }
+        .onChange(of: chrome.compactLayout) { compact in
             if compact { expanded = false }
         }
         .task(id: feature.slug) {
@@ -267,13 +268,13 @@ struct HandoffResumeBar: View {
                 Label("Resume: \(resume.title)", systemImage: "checkmark.seal")
                     .uiFont(size: 12, weight: .semibold)
                 Spacer()
-                Button("Browse files") { workspaceManager.toggleNavigation() }
+                Button("Browse files") { workspaceManager.chrome.toggleNavigation() }
                 Button("Open specification") {
                     workspaceManager.features.activeSlug = resume.slug
                     workspaceManager.layout.workspaceArea = .work
                     workspaceManager.layout.workSection = .features
                 }
-                Button { workspaceManager.handoffResume = nil } label: { Image(systemName: "xmark") }
+                Button { workspaceManager.requests.handoffResume = nil } label: { Image(systemName: "xmark") }
                     .help("Dismiss handoff")
                     .accessibilityLabel("Dismiss handoff")
             }

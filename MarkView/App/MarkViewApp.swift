@@ -224,9 +224,9 @@ struct MarkViewApp: App {
                         Self.enqueueOpen(urls)
                     }
 
-                    appDelegate.log("ContentView onAppear: handler set, ensuring poll timer")
-                    // Poll for Finder Quick Action requests via a single app-wide timer (`AR-19`)
-                    Self.ensureFinderOpenPollTimer()
+                    appDelegate.log("ContentView onAppear: handler set, starting the Finder request poll")
+                    // One app-wide poll for Finder Quick Action requests while a window is open (`AR-19`)
+                    FinderOpenRequests.shared.start { Self.enqueueOpen($0) }
                 }
         } defaultValue: {
             UUID()
@@ -247,7 +247,7 @@ struct MarkViewApp: App {
                 Button("New Project…") {
                     // A window without a folder takes it; otherwise a new window does.
                     if let workspace = activeWorkspace, activeWorkspaceHasFolder != true {
-                        workspace.newProject = NewProjectRequest()
+                        workspace.requests.newProject = NewProjectRequest()
                     } else {
                         Self.pendingNewProject = true
                         newWindow()
@@ -255,7 +255,7 @@ struct MarkViewApp: App {
                 }
 
                 Button("Publish to GitHub…") {
-                    activeWorkspace?.gitHubPublishRequested = true
+                    activeWorkspace?.requests.gitHubPublishRequested = true
                 }
                 .disabled(activeWorkspaceHasFolder != true)
 
@@ -286,7 +286,7 @@ struct MarkViewApp: App {
 
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
-                    activeWorkspace?.saveActiveFile()
+                    activeWorkspace?.tabs.saveActiveFile()
                 }
                 .keyboardShortcut("s", modifiers: .command)
             }
@@ -306,7 +306,7 @@ struct MarkViewApp: App {
                 Divider()
 
                 Button("Search Project…") {
-                    activeWorkspace?.showGlobalSearch = true
+                    activeWorkspace?.chrome.showGlobalSearch = true
                 }
                 .keyboardShortcut("k", modifiers: [.command, .shift])
 
@@ -316,12 +316,12 @@ struct MarkViewApp: App {
                 .keyboardShortcut("t", modifiers: [.command, .shift])
 
                 Button("Toggle File Tree") {
-                    activeWorkspace?.toggleNavigation()
+                    activeWorkspace?.chrome.toggleNavigation()
                 }
                 .keyboardShortcut("1", modifiers: [.command])
 
                 Button("Toggle Right Panel") {
-                    activeWorkspace?.toggleRightPanel()
+                    activeWorkspace?.chrome.toggleRightPanel()
                 }
                 .keyboardShortcut("2", modifiers: [.command])
 
@@ -387,46 +387,6 @@ struct MarkViewApp: App {
         AppLog.finder.debug("[Static] \(msg)")
     }
 
-    private static func checkFinderOpenRequest(handler: @escaping ([URL]) -> Void) {
-        // Check both the per-user temporary directory and `/tmp` with O_NOFOLLOW + fstat to reject symlinks or foreign-owned files (AR-12, FU-09).
-        let fm = FileManager.default
-        let candidates = [
-            fm.temporaryDirectory.appendingPathComponent("markview_open_path.txt").path,
-            "/tmp/markview_open_path.txt"
-        ]
-        for path in candidates {
-            let fd = open(path, O_RDONLY | O_NOFOLLOW)
-            guard fd >= 0 else { continue }
-            var st = stat()
-            guard fstat(fd, &st) == 0,
-                  (st.st_mode & S_IFMT) == S_IFREG,
-                  st.st_uid == getuid() else {
-                close(fd)
-                continue
-            }
-            var data = Data()
-            var buf = [UInt8](repeating: 0, count: 4096)
-            while data.count < 65536 {
-                let n = Darwin.read(fd, &buf, buf.count)
-                if n > 0 { data.append(buf, count: n) }
-                else { break }
-            }
-            close(fd)
-            // Delete immediately so we don't re-process.
-            try? fm.removeItem(atPath: path)
-
-            guard let content = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-                  !content.isEmpty else { continue }
-
-            let url = URL(fileURLWithPath: content)
-            debugLogStatic("checkFinderOpenRequest: found \(url.lastPathComponent), calling handler")
-            handler([url])
-            debugLogStatic("checkFinderOpenRequest: handler called, notification posted")
-            return
-        }
-    }
-
     private func openFile() {
         let panel = NSOpenPanel()
         panel.showsHiddenFiles = true
@@ -438,23 +398,6 @@ struct MarkViewApp: App {
                 activeWorkspace?.openFile(url)
             }
         }
-    }
-
-    /// Single shared timer polling for Finder Quick Action requests so opening additional windows does not stack timers (`AR-19`).
-    private static var finderOpenPollTimer: Timer?
-
-    static func ensureFinderOpenPollTimer() {
-        guard finderOpenPollTimer == nil else { return }
-        finderOpenPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            Self.checkFinderOpenRequest { urls in
-                Self.enqueueOpen(urls)
-            }
-        }
-    }
-
-    static func stopFinderOpenPollTimer() {
-        finderOpenPollTimer?.invalidate()
-        finderOpenPollTimer = nil
     }
 
     /// Pending folder URL for new window to pick up
@@ -569,6 +512,7 @@ enum DDESettingsWindow {
             rootView: DDESettingsView()
                 .environmentObject(workspace)
                 .environmentObject(workspace.windowUI)
+                .observingParts(of: workspace)
                 .appFontScaled()
                 .windowThemed(workspace.theme)
         )

@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(MarkViewCore)
-import MarkViewCore
-#endif
 
 /// Codex (`codex`).
 struct CodexProvider: AssistantProvider {
@@ -140,7 +137,7 @@ extension CodexProvider: AssistantCompletionSupport {
         var schemaFile: URL?
         if let schema = request.jsonSchema {
             let url = request.scratchDirectory().appendingPathComponent("schema-\(UUID().uuidString).json")
-            try AtomicFile.write(CompletionJSON.string(Self.strictSchema(schema)), to: url)
+            try Data(CompletionJSON.string(Self.strictSchema(schema)).utf8).write(to: url)
             schemaFile = url
             arguments += ["--output-schema", url.path]
         }

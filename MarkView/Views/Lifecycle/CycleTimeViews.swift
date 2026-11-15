@@ -15,7 +15,7 @@ struct CycleTimeLink: View {
     let issue: String
 
     var body: some View {
-        Button(action: { workspaceManager.cycleTimeItem = kind.rawValue + ":" + issue }) {
+        Button(action: { workspaceManager.requests.cycleTimeItem = kind.rawValue + ":" + issue }) {
             HStack(spacing: 4) {
                 Image(systemName: "timer").uiFont(size: 9).foregroundColor(palette.textDim)
                 Text("Cycle time and timeline").uiFont(size: 10).foregroundColor(palette.textDim)

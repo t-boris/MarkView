@@ -209,8 +209,8 @@ Insight iframe `<script src>` for prism/mermaid/chart/katex (`markview-insight-s
   `.performPDFExport` (posted `ContentView.swift:339`), `.scrollToHeading` (`TOCView.swift:50`),
   `.scrollToText` (`TOCView.swift:173`, `WorkspaceManager.swift:1156`, `:1334`, `:3061`),
   `.revealCodeLine` (`WorkspaceManager.swift:1281`), `.codeNavEvent` (`CodeNavigation.swift:396`).
-- `WorkspaceManager.releaseInsightBlobsHook` (`WorkspaceManager.swift:379`) is set by
-  `routeInsight` (`EditorView.swift:465`) and invoked from `closeTab` (`WorkspaceManager.swift:1567`).
+- `InsightCoordinator.page` (an `InsightPage`) is set by `routeInsight` (`EditorView.swift`) and used by
+  `InsightCoordinator.close`, which the window runs when `TabsController.closeTab` reports `TabsEvent.insightClosed`.
 - Published stores observed: `InsightSession.$skeleton/$currentNodeSections/$lastError/$statusMessage`,
   `ArchitectureStore.$revision/$progress`, `codeExplain.$revision`, `architecture.$revision`.
 

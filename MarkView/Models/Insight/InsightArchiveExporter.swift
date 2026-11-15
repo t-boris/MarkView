@@ -21,7 +21,7 @@
 //   - Wires `process.terminate()` (SIGTERM) into `withTaskCancellationHandler`'s
 //     `onCancel:` so closing the insight tab during a long export kills the in-flight
 //     `zip` process. Combined with `InsightCoordinator.close`'s ordered cleanup
-//     (`releaseInsightBlobs → session.cancel → cache.cleanup → tabsStore.removeTab`),
+//     (`releaseInsightBlobs → session.cancel → cache.cleanup → TabsController.removeTab`),
 //     the staging directory is removed by `cache.cleanup` after the exporter exits.
 
 import Foundation

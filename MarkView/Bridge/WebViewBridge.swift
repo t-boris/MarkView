@@ -492,7 +492,7 @@ class WebViewBridge: NSObject {
     }
 
     /// Revoke ALL blob URLs created for the closing insight session
-    /// (Decision 11 §2). Called by `WorkspaceManager.closeTab` insight branch
+    /// (Decision 11 §2). Called by `InsightCoordinator.close` (through its page)
     /// as STEP 1 of 4 (BEFORE `await session.cancel()`) so no in-flight
     /// Combine sub fires after revocation.
     /// Calls `window.releaseInsightBlobs()`.

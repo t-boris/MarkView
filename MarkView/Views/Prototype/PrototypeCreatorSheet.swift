@@ -9,6 +9,7 @@ import SwiftUI
 struct PrototypeCreatorSheet: View {
     @Environment(\.palette) private var palette
     @ObservedObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
     @Binding var isPresented: Bool
     var mode: PrototypeFiles.Mode = .requirements
 
@@ -177,7 +178,7 @@ struct PrototypeCreatorSheet: View {
 
     /// The active tab's file, relative to the project, when it is a real file inside it.
     private var currentFile: String? {
-        guard root != nil, let tab = workspaceManager.activeTab, case .file = tab.kind else { return nil }
+        guard root != nil, let tab = tabs.activeTab, case .file = tab.kind else { return nil }
         return relative(tab.url)
     }
 

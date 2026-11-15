@@ -167,7 +167,7 @@ struct GitView: View {
             if !gitHub.isAvailable {
                 // Not connected (no GitHub remote, or the integration is off): create or connect
                 // a repository and publish (REQ-003).
-                Button(action: { workspaceManager.gitHubPublishRequested = true }) {
+                Button(action: { workspaceManager.requests.gitHubPublishRequested = true }) {
                     Image(systemName: "icloud.and.arrow.up").uiFont(size: 10).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain).help("Publish to GitHub…")
             }

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 193,
+  "suiteCount": 197,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -106,9 +106,7 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift"
       ]
     },
     {
@@ -318,7 +316,7 @@
       "script": "tools/tests/browser-frame-tests.sh",
       "tier": "gui",
       "sources": [
-        "MarkView/Models/Browser/BrowserControlServer.swift",
+        "MarkView/Models/Browser/BrowserAgentExecutor.swift",
         "MarkView/Views/QA/QAWebWindow.swift",
         "tools/tests/BrowserFrameChecks.swift"
       ]
@@ -1074,6 +1072,17 @@
       ]
     },
     {
+      "name": "finder-open-requests-tests",
+      "script": "tools/tests/finder-open-requests-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Workspace/FinderOpenRequests.swift",
+        "MarkView/Models/Workspace/TaskBag.swift",
+        "tools/tests/FinderOpenRequestsTests.swift",
+        "tools/tests/finder-open-requests-tests.sh"
+      ]
+    },
+    {
       "name": "git-status-tests",
       "script": "tools/tests/git-status-tests.sh",
       "tier": "pure",
@@ -1460,25 +1469,30 @@
       "script": "tools/tests/pdf-reader-tests.sh",
       "tier": "gui",
       "sources": [
+        "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/Appearance/AppTheme.swift",
-        "MarkView/Models/Workspace/BackgroundFileScans.swift",
-        "MarkView/Models/Workspace/DocumentState.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Workspace/ToolRegistry.swift",
-        "MarkView/Models/Lifecycle/FeatureIngest.swift",
-        "MarkView/Models/Book/PDFReader.swift",
-        "MarkView/Models/Workspace/TabClosing.swift",
+        "MarkView/Models/Appearance/ThemeCatalog.swift",
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/WindowTheme.swift",
-        "MarkView/Models/Workspace/WorkspaceManager.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "MarkView/Models/Book/PDFReader.swift",
+        "MarkView/Models/Lifecycle/FeatureIngest.swift",
+        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
+        "MarkView/Models/Workspace/DocumentState.swift",
+        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
+        "MarkView/Models/Workspace/TabClosing.swift",
+        "MarkView/Models/Workspace/TabsController.swift",
+        "MarkView/Models/Workspace/TaskBag.swift",
+        "MarkView/Models/Workspace/ToolRegistry.swift",
         "MarkView/Views/Appearance/AppPalette.swift",
         "MarkView/Views/Book/PDFReaderView.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/PDFReaderRoutingTests.swift",
         "tools/tests/PDFReaderTests.swift",
         "tools/tests/PDFReaderViewTests.swift",
         "tools/tests/TabClosingStoreTests.swift",
-        "MarkView/Models/Appearance/ThemeDefinition.swift",
-        "MarkView/Models/Appearance/ThemeCatalog.swift"
+        "tools/tests/TabsControllerStubs.swift"
       ]
     },
     {
@@ -2926,9 +2940,7 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift"
       ]
     },
     {
@@ -2970,6 +2982,27 @@
       "sources": [
         "MarkView/Models/Workspace/TabClosing.swift",
         "tools/tests/TabClosingChecks.swift"
+      ]
+    },
+    {
+      "name": "tabs-controller-tests",
+      "script": "tools/tests/tabs-controller-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AI/OutputLanguage.swift",
+        "MarkView/Models/Book/PDFReader.swift",
+        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
+        "MarkView/Models/Workspace/DocumentState.swift",
+        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
+        "MarkView/Models/Workspace/TabClosing.swift",
+        "MarkView/Models/Workspace/TabsController.swift",
+        "MarkView/Models/Workspace/TaskBag.swift",
+        "MarkView/Models/Workspace/ToolRegistry.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/TabsControllerStubs.swift",
+        "tools/tests/TabsControllerTests.swift",
+        "tools/tests/tabs-controller-tests.sh"
       ]
     },
     {
@@ -3480,6 +3513,62 @@
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/ThemeCatalog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift"
+      ]
+    },
+    {
+      "name": "window-chrome-tests",
+      "script": "tools/tests/window-chrome-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Appearance/AppTheme.swift",
+        "MarkView/Models/Appearance/BackdropRegistry.swift",
+        "MarkView/Models/Appearance/ProjectBackdrop.swift",
+        "MarkView/Models/Appearance/ThemeCatalog.swift",
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
+        "MarkView/Models/Appearance/WelcomeBackdrop.swift",
+        "MarkView/Models/Workspace/DocumentState.swift",
+        "MarkView/Models/Workspace/PanelLayout.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
+        "MarkView/Models/Workspace/ToolRegistry.swift",
+        "MarkView/Models/Workspace/WindowChrome.swift",
+        "MarkView/Models/Workspace/WindowSession.swift",
+        "MarkView/Models/Workspace/WindowUIState.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/WindowChromeTests.swift",
+        "tools/tests/window-chrome-tests.sh"
+      ]
+    },
+    {
+      "name": "window-session-snapshotter-tests",
+      "script": "tools/tests/window-session-snapshotter-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AI/OutputLanguage.swift",
+        "MarkView/Models/Appearance/AppTheme.swift",
+        "MarkView/Models/Appearance/BackdropRegistry.swift",
+        "MarkView/Models/Appearance/ProjectBackdrop.swift",
+        "MarkView/Models/Appearance/ThemeCatalog.swift",
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
+        "MarkView/Models/Appearance/WelcomeBackdrop.swift",
+        "MarkView/Models/Book/PDFReader.swift",
+        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
+        "MarkView/Models/Workspace/DocumentState.swift",
+        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
+        "MarkView/Models/Workspace/PanelLayout.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
+        "MarkView/Models/Workspace/TabClosing.swift",
+        "MarkView/Models/Workspace/TabsController.swift",
+        "MarkView/Models/Workspace/TaskBag.swift",
+        "MarkView/Models/Workspace/ToolRegistry.swift",
+        "MarkView/Models/Workspace/WindowChrome.swift",
+        "MarkView/Models/Workspace/WindowSession.swift",
+        "MarkView/Models/Workspace/WindowSessionSnapshotter.swift",
+        "MarkView/Models/Workspace/WindowUIState.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/TabsControllerStubs.swift",
+        "tools/tests/WindowSessionSnapshotterTests.swift",
+        "tools/tests/window-session-snapshotter-tests.sh"
       ]
     },
     {
