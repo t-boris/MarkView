@@ -234,9 +234,9 @@
         timer = setTimeout(() => { timer = null; render(); }, 180);
     }
 
-    // Swift: mvSetTheme('midnight', '#79B8FF') (accent '' = the appearance's own).
-    window.mvSetTheme = function (id, accent) {
-        T.apply(id, accent);
+    // Swift: mvSetTheme('midnight', '#79B8FF', definition) (accent '' or null = the appearance's own).
+    window.mvSetTheme = function (id, accent, definition) {
+        T.apply(id, accent, definition);
         themeMermaid();
         render();
     };

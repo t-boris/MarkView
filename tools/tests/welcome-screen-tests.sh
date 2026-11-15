@@ -12,6 +12,7 @@ cp tools/tests/WelcomeScreenTests.swift "$out/main.swift"
 swiftc -suppress-warnings -target "$(uname -m)-apple-macos13.0" \
     MarkView/Models/Appearance/ProjectBackdrop.swift MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Workspace/WelcomeActions.swift \
     MarkView/Views/Appearance/ProjectBackdropLayers.swift MarkView/Views/Appearance/DevBackdropLayers.swift MarkView/Views/Appearance/AtmosphereBackdropLayers.swift MarkView/Views/Appearance/BackdropLayerBuilders.swift MarkView/Views/Appearance/WelcomeBackdropView.swift MarkView/Views/Workspace/WelcomeView.swift \
-    MarkView/Models/Appearance/AppFontScale.swift MarkView/Views/Appearance/AppFontScaleView.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/WindowTheme.swift MarkView/Views/Appearance/AppPalette.swift \
+    MarkView/Models/Appearance/AppFontScale.swift MarkView/Views/Appearance/AppFontScaleView.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift MarkView/Models/Appearance/WindowTheme.swift MarkView/Views/Appearance/AppPalette.swift \
     "$out/main.swift" -o "$out/welcome-tests"
+cp -R MarkView/Resources/Themes "$out/Themes"
 "$out/welcome-tests"

@@ -1,9 +1,9 @@
         // THEME SWITCHING
         // ============================================================================
 
-        // The window theme (markview-themes.js): `id` is one of MarkViewThemes.ids, `accent` a '#RRGGBB' or ''.
-        function applyTheme(id, accent) {
-            const theme = MarkViewThemes.apply(id, accent);
+        // The window theme (markview-themes.js): `id` names the theme, `accent` is a '#RRGGBB' or '', `definition` the theme's data.
+        function applyTheme(id, accent, definition) {
+            const theme = MarkViewThemes.apply(id, accent, definition);
             state.theme = theme.mode;
             // An open Recursive Insight page (same-origin iframe) follows the mode too.
             try {

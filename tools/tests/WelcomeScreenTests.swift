@@ -15,6 +15,15 @@ func check(_ ok: Bool, _ message: String, _ detail: String = "") {
 
 func finite(_ value: CGFloat) -> Bool { value.isFinite }
 
+// MARK: - The themes (files in MarkView/Resources/Themes, copied next to this program by the script)
+
+extension AppTheme { static let midnight = AppTheme("midnight") }
+let shippedThemes = ThemeLibrary.load(builtInFolder: ThemeCatalog.bundledFolder, userFolder: nil)
+/// The palette of a shipped theme, as a window with that theme draws it.
+func themePalette(_ theme: AppTheme, accent: ThemeColor? = nil) -> ThemePalette {
+    ThemePalette.make(shippedThemes.resolve(theme, systemIsDark: true).definition, accent: accent)
+}
+
 // MARK: - The choice
 
 func choiceChecks() {
@@ -224,8 +233,8 @@ func catalogueChecks() {
 func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []).flatMap(allLayers) }
 
 @MainActor func layerChecks() {
-    let darkColors = BackdropColors(AppPalette(ThemePalette.make(.classicDark)))
-    let lightColors = BackdropColors(AppPalette(ThemePalette.make(.classicLight)))
+    let darkColors = BackdropColors(AppPalette(themePalette(.classicDark)))
+    let lightColors = BackdropColors(AppPalette(themePalette(.classicLight)))
     check(darkColors.isDark && !lightColors.isDark, "colours: the theme says whether it is dark")
     let font = NSFont.monospacedSystemFont(ofSize: 15, weight: .medium)
     let glyphs = Array("ｦｱｳｴｵｶｷｹｺｻｼｽｾﾀﾂﾃﾅﾆ")
@@ -357,7 +366,7 @@ private struct ProjectContextScreen: View {
 
 @MainActor func projectContextChecks() {
     let fixture = ProjectContextFixture()
-    let hosting = NSHostingView(rootView: ProjectContextScreen(fixture: fixture).environment(\.palette, AppPalette(ThemePalette.make(.midnight))))
+    let hosting = NSHostingView(rootView: ProjectContextScreen(fixture: fixture).environment(\.palette, AppPalette(themePalette(.midnight))))
     let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 1000, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.contentView = hosting
@@ -411,7 +420,7 @@ private struct ProjectContextScreen: View {
             Text("Recent projects").font(.system(size: 13, weight: .semibold))
         }
     }
-    let hosting = NSHostingView(rootView: AnyView(screen.environment(\.palette, AppPalette(ThemePalette.make(theme, accent: accent)))))
+    let hosting = NSHostingView(rootView: AnyView(screen.environment(\.palette, AppPalette(themePalette(theme, accent: accent)))))
     let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.contentView = hosting
@@ -433,7 +442,7 @@ private struct ProjectContextScreen: View {
             for (project, git, size) in [("MarkView", true, NSSize(width: 1142, height: 1068)), (nil, false, NSSize(width: 900, height: 700)), ("A-long-project-folder-name", false, NSSize(width: 560, height: 800))] as [(String?, Bool, NSSize)] {
                 let (window, hosting) = host(project: project, git: git, theme: theme, size: size, still: true, backdrop: backdrop)
                 settle(hosting)
-                let name = "\(backdrop.rawValue)-\(theme.rawValue)-\(project == nil ? "empty" : (size.width < 600 ? "narrow" : "project"))"
+                let name = "\(backdrop.rawValue)-\(theme.id)-\(project == nil ? "empty" : (size.width < 600 ? "narrow" : "project"))"
                 let views = descendants(hosting)
                 let backdropViews = views.compactMap { $0 as? BackdropHostView }
                 check(backdropViews.count == (backdrop == .off ? 0 : 1), "\(name): \(backdrop == .off ? "no backdrop view" : "one backdrop view")")
@@ -442,7 +451,7 @@ private struct ProjectContextScreen: View {
                     check(!layers.isEmpty, "\(name): the backdrop has \(layers.count) layers", "bounds \(view.bounds)")
                     check(view.hitTest(NSPoint(x: view.bounds.midX, y: view.bounds.midY)) == nil, "\(name): the backdrop takes no mouse event")
                     let builds = view.buildCount
-                    view.configure(kind: backdrop.scene(pick: 0), colors: BackdropColors(AppPalette(ThemePalette.make(theme))), seed: view.currentSeed, still: true)
+                    view.configure(kind: backdrop.scene(pick: 0), colors: BackdropColors(AppPalette(themePalette(theme))), seed: view.currentSeed, still: true)
                     check(view.buildCount == builds, "\(name): an update that changes nothing does not rebuild (the animation keeps running)")
                     check(view.frame.size == hosting.bounds.size, "\(name): the backdrop fills the window")
                 }
@@ -633,7 +642,7 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
         guard let view = descendants(hosting).compactMap({ $0 as? BackdropHostView }).first, let root = view.layer else {
             check(false, "frames \(backdrop.rawValue): the backdrop view exists"); continue
         }
-        let background = NSColor(AppPalette(ThemePalette.make(.classicDark)).model.bg)
+        let background = NSColor(AppPalette(themePalette(.classicDark)).model.bg)
         CATransaction.flush()
         guard let early = presentationImage(root, size: view.bounds.size, background: background) else { check(false, "frames \(backdrop.rawValue): a frame can be drawn"); continue }
         RunLoop.main.run(until: Date().addingTimeInterval(1.5))

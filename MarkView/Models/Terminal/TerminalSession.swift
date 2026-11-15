@@ -197,7 +197,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
             case "ready":
                 pageReady = true
                 resize(cols: body["cols"] as? Int ?? 80, rows: body["rows"] as? Int ?? 24)
-                webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(themeArguments))")
+                if let themeArguments { webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(themeArguments))") }
                 applyFontScale()
                 if masterFD < 0 && (operationCommand == nil || !operationStartedOnce) { start() }
                 else { flush() }
@@ -263,8 +263,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     }
 
     /// The theme of the window this terminal is shown in, as the arguments of the page's `mvSetTheme`
-    /// (`WindowTheme.webArguments`); kept so the page gets it again when it reloads.
-    private var themeArguments = "'classic-dark', null"
+    /// (`WindowTheme.webArguments`); kept so the page gets it again when it reloads. Nil until the view has given it.
+    private var themeArguments: String?
     /// The same theme as <html> attributes, set at document start so a reload paints it from the first frame.
     private var themeFirstPaint = ""
 
@@ -273,7 +273,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         themeArguments = arguments
         themeFirstPaint = firstPaint
         guard pageReady else { return }
-        webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(themeArguments))")
+        webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(arguments))")
     }
 
     func setFontScale(_ scale: CGFloat) {

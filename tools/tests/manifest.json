@@ -867,7 +867,9 @@
         "MarkView/Views/Appearance/AppFontScaleView.swift",
         "MarkView/Views/Appearance/AppPalette.swift",
         "MarkView/Views/Lifecycle/IntakeTextEditor.swift",
-        "tools/tests/IntakeClipboardTests.swift"
+        "tools/tests/IntakeClipboardTests.swift",
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
+        "MarkView/Models/Appearance/ThemeCatalog.swift"
       ]
     },
     {
@@ -1018,7 +1020,9 @@
         "tools/tests/PDFReaderRoutingTests.swift",
         "tools/tests/PDFReaderTests.swift",
         "tools/tests/PDFReaderViewTests.swift",
-        "tools/tests/TabClosingStoreTests.swift"
+        "tools/tests/TabClosingStoreTests.swift",
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
+        "MarkView/Models/Appearance/ThemeCatalog.swift"
       ]
     },
     {
@@ -1120,7 +1124,8 @@
       "sources": [
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "MarkView/Models/Workspace/PanelLayout.swift",
-        "tools/tests/Phase3ExtensibilityTests.swift"
+        "tools/tests/Phase3ExtensibilityTests.swift",
+        "MarkView/Models/Appearance/ThemeDefinition.swift"
       ]
     },
     {
@@ -1247,7 +1252,9 @@
         "MarkView/Views/Appearance/AppPalette.swift",
         "MarkView/Views/Architecture/ProjectChangeReviewView.swift",
         "tools/tests/ProjectChangeReviewLayoutTests.swift",
-        "tools/tests/project-change-review-layout-tests.sh"
+        "tools/tests/project-change-review-layout-tests.sh",
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
+        "MarkView/Models/Appearance/ThemeCatalog.swift"
       ]
     },
     {
@@ -2109,7 +2116,10 @@
       "tier": "gui",
       "sources": [
         "tools/tests/ResearchMapWebTests.swift",
-        "tools/tests/research-map-web-tests.sh"
+        "tools/tests/research-map-web-tests.sh",
+        "MarkView/Models/Appearance/AppTheme.swift",
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
+        "MarkView/Models/Appearance/ThemeCatalog.swift"
       ]
     },
     {
@@ -2249,7 +2259,9 @@
       "sources": [
         "MarkView/Models/Appearance/AppTheme.swift",
         "tools/tests/ThemeModelTests.swift",
-        "tools/tests/theme-model-tests.sh"
+        "tools/tests/theme-model-tests.sh",
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
+        "MarkView/Models/Appearance/ThemeCatalog.swift"
       ]
     },
     {
@@ -2258,7 +2270,9 @@
       "tier": "gui",
       "sources": [
         "tools/tests/ThemeWebTests.swift",
-        "tools/tests/theme-web-tests.sh"
+        "tools/tests/theme-web-tests.sh",
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
+        "MarkView/Models/Appearance/ThemeCatalog.swift"
       ]
     },
     {
@@ -2550,7 +2564,9 @@
         "MarkView/Views/Appearance/WelcomeBackdropView.swift",
         "MarkView/Views/Workspace/WelcomeView.swift",
         "tools/tests/WelcomeScreenTests.swift",
-        "tools/tests/welcome-screen-tests.sh"
+        "tools/tests/welcome-screen-tests.sh",
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
+        "MarkView/Models/Appearance/ThemeCatalog.swift"
       ]
     },
     {
@@ -2564,7 +2580,8 @@
         "MarkView/Models/Workspace/WindowSession.swift",
         "MarkView/Models/Workspace/WindowUIState.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/WindowSessionTests.swift"
+        "tools/tests/WindowSessionTests.swift",
+        "MarkView/Models/Appearance/ThemeDefinition.swift"
       ]
     },
     {
@@ -2579,7 +2596,9 @@
         "MarkView/Views/Appearance/AppPalette.swift",
         "MarkView/Views/Appearance/ThemePickerView.swift",
         "tools/tests/WindowThemeTests.swift",
-        "tools/tests/window-theme-tests.sh"
+        "tools/tests/window-theme-tests.sh",
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
+        "MarkView/Models/Appearance/ThemeCatalog.swift"
       ]
     },
     {
@@ -2671,7 +2690,9 @@
         "MarkView/Views/Lifecycle/WorkflowTabView.swift",
         "MarkView/Views/Lifecycle/WorkflowTemplatesSettings.swift",
         "tools/tests/WorkflowEditorLayoutTests.swift",
-        "tools/tests/workflow-editor-layout-tests.sh"
+        "tools/tests/workflow-editor-layout-tests.sh",
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
+        "MarkView/Models/Appearance/ThemeCatalog.swift"
       ]
     },
     {
@@ -2749,7 +2770,10 @@
       "tier": "pure",
       "sources": [
         "tools/tests/XRayComparisonWebTests.swift",
-        "tools/tests/xray-comparison-web-tests.sh"
+        "tools/tests/xray-comparison-web-tests.sh",
+        "MarkView/Models/Appearance/AppTheme.swift",
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
+        "MarkView/Models/Appearance/ThemeCatalog.swift"
       ]
     },
     {

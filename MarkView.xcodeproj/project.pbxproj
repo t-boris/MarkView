@@ -139,6 +139,8 @@
 		50C9811EB6493D805B5FA933 /* ImageAttachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A43E6F411BFA9317576340 /* ImageAttachments.swift */; };
 		50D251A1681AFC25E03D6ADE /* QATriage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C8AE85C96F4CB7538464D4 /* QATriage.swift */; };
 		51B9668C9837BB172207FCF7 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8092DC6E5F714F3D3FCECDA6 /* AppTheme.swift */; };
+		FC23C53CC58B8C4823CA32DC /* ThemeCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859D442D26FFA14CBAAC4CA9 /* ThemeCatalog.swift */; };
+		C6AA1BB96A823FAF0EFF7B8A /* ThemeDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43CE70B29B8B41798599E7A3 /* ThemeDefinition.swift */; };
 		51C77BD7462326A12025316B /* RemoteConnectionsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A7D6D41319CC3068C3A8F1A /* RemoteConnectionsStore.swift */; };
 		51EF23EFF18B23D265B0671C /* UIStudioLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1128F0C9820E78B348DCCB79 /* UIStudioLog.swift */; };
 		5267607F0F025A3799E9CCF1 /* WorkflowProposal.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89F1284B57A1B17703A148F /* WorkflowProposal.swift */; };
@@ -455,6 +457,7 @@
 		FF677307133FE1CCD7D71308 /* WebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB0155B5E7A0A09A6D2FD67 /* WebViewBridge.swift */; };
 		FF7B7975E6E5BB57226F4446 /* QAPageEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10AB314CA9B3FD3A9A58668 /* QAPageEvidence.swift */; };
 		FF99949FBDA0BB735F226A9B /* QARun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C0F0778AC373BF137EF446E /* QARun.swift */; };
+		BD375AC847408FB729CCA3D8 /* Themes in Resources */ = {isa = PBXBuildFile; fileRef = 19A6C275D7F3349437E8936A /* Themes */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -733,6 +736,8 @@
 		7EF62FDEADD2FAE576E0E24D /* DictationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationViews.swift; sourceTree = "<group>"; };
 		7FE78C53DEED7EB4A038D5AA /* PrototypeEmbedded.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeEmbedded.swift; sourceTree = "<group>"; };
 		8092DC6E5F714F3D3FCECDA6 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		859D442D26FFA14CBAAC4CA9 /* ThemeCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeCatalog.swift; sourceTree = "<group>"; };
+		43CE70B29B8B41798599E7A3 /* ThemeDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeDefinition.swift; sourceTree = "<group>"; };
 		822BBB9906718BE7001F081A /* DatabaseKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseKeychain.swift; sourceTree = "<group>"; };
 		823643E6B47C049231687A8C /* QAActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAActions.swift; sourceTree = "<group>"; };
 		8342199E7F182C48ECA2B9C3 /* ProjectOperationsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperationsStore.swift; sourceTree = "<group>"; };
@@ -1010,6 +1015,7 @@
 		8481AD7D0786783E89B0C11E /* markview-book-md.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-book-md.js"; sourceTree = "<group>"; };
 		AF4999B5DE274BA1571F8ADA /* markview-terminal.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-terminal.js"; sourceTree = "<group>"; };
 		5D42EFED00836F5D45A63E3C /* mv-kit.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "mv-kit.js"; sourceTree = "<group>"; };
+		19A6C275D7F3349437E8936A /* Themes */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Themes; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1126,6 +1132,8 @@
 			children = (
 				F4B5A603D8B6885145771D0A /* AppFontScale.swift */,
 				8092DC6E5F714F3D3FCECDA6 /* AppTheme.swift */,
+				859D442D26FFA14CBAAC4CA9 /* ThemeCatalog.swift */,
+				43CE70B29B8B41798599E7A3 /* ThemeDefinition.swift */,
 				FEFEA342845F3A1FEE82AFF9 /* ProjectBackdrop.swift */,
 				BA8F968A66CC85F478E65280 /* ProjectColor.swift */,
 				5D0BA904D56E2EC5A116AF06 /* WelcomeBackdrop.swift */,
@@ -1846,6 +1854,7 @@
 			isa = PBXGroup;
 			children = (
 				E8077A542DBDB29608BB9BC4 /* Editor */,
+				19A6C275D7F3349437E8936A /* Themes */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -2072,6 +2081,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D7042AC7B61742EF5FAF04C6 /* Assets.xcassets in Resources */,
+				BD375AC847408FB729CCA3D8 /* Themes in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2175,6 +2185,8 @@
 				F4E8E20ACAFF5B15F70E79AC /* AppFontScale.swift in Sources */,
 				A7CEF9D3F896F83A07ED97DD /* AppPalette.swift in Sources */,
 				51B9668C9837BB172207FCF7 /* AppTheme.swift in Sources */,
+				FC23C53CC58B8C4823CA32DC /* ThemeCatalog.swift in Sources */,
+				C6AA1BB96A823FAF0EFF7B8A /* ThemeDefinition.swift in Sources */,
 				66A2E7B7F4FDF6FD2B44C822 /* ArchitectureModel.swift in Sources */,
 				CC06E828F3E074262772D431 /* ArchitectureScanner.swift in Sources */,
 				ACC4EC4EED2064E5A42D8B93 /* ArchitectureStore.swift in Sources */,
