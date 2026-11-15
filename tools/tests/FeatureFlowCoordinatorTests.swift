@@ -611,8 +611,13 @@ enum FeatureFlowCoordinatorChecks {
         await lifecycle()
         await activation()
         for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
-        UserDefaults.standard.removePersistentDomain(forName: defaultsSuite)
+        UserDefaults(suiteName: defaultsSuite)?.removePersistentDomain(forName: defaultsSuite)
         Settings.standard.remove(Setting.gitHubEnabled)
+        // The preference files of the check's own domains stay empty: remove them rather than leave them in the person's Library.
+        let preferences = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Preferences")
+        for name in [defaultsSuite, ProcessInfo.processInfo.processName] {
+            try? FileManager.default.removeItem(at: preferences.appendingPathComponent("\(name).plist"))
+        }
         print("Feature flow coordinator summary: \(passed) passed, \(failed) failed")
         exit(failed == 0 ? 0 : 1)
     }
