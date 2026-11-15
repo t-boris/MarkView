@@ -108,7 +108,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
     func dismissSelectionAction(_ id: UUID) { selectionActions.removeValue(forKey: id) }
 
     /// Handle selection actions: translate or explain selected text via the selected AI CLI.
-    /// Result is shown in a popup — see `translateDocument` for the whole-document
+    /// Result is shown in a popup — see `DocumentTranslator` for the whole-document
     /// path, which produces a translated copy in a new tab instead.
     func handleSelectionAction(action: String, text: String, completion: @escaping (String, String) -> Void) async {
         let (systemPrompt, title): (String, String) = {

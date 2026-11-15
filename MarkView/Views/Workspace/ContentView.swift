@@ -194,8 +194,8 @@ struct ContentView: View {
 }
 
 extension View {
-    /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, folder tree, Git):
-    /// `@EnvironmentObject` for each.
+    /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, folder tree, Git,
+    /// the translation in progress): `@EnvironmentObject` for each.
     func observingParts(of workspace: WorkspaceManager) -> some View {
         environmentObject(workspace.tabs)
             .environmentObject(workspace.layout)
@@ -203,6 +203,7 @@ extension View {
             .environmentObject(workspace.requests)
             .environmentObject(workspace.project.fileTree)
             .environmentObject(workspace.gitClient)
+            .environmentObject(workspace.translator)
     }
 }
 

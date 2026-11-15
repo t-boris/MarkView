@@ -963,7 +963,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
     func bridge(_ bridge: WebViewBridge, didRequestTranslation markdown: String, targetLang: String) {
         Task { @MainActor in
-            let error = await self.parent.workspaceManager.translateDocument(markdown: markdown, targetLang: targetLang)
+            let error = await self.parent.workspaceManager.translator.translate(markdown: markdown, targetLang: targetLang)
             // Only failures need reporting — success is visible as a new tab
             // filling in progressively.
             if let error, let webView = self.webView,

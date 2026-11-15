@@ -11,6 +11,7 @@ struct FileTreeView: View {
     @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
     @EnvironmentObject private var git: GitClient
     @EnvironmentObject private var requests: WindowRequests
+    @EnvironmentObject private var translator: DocumentTranslator
     /// The view and the filter choices of this window; they persist across restarts with its session (AC-5, DEC-008)
     /// and no other window follows them. The sort order persists in the file tree store.
     @WindowStorage("fileBrowser.viewMode") private var storedMode = FileBrowserViewMode.list
@@ -62,6 +63,8 @@ struct FileTreeView: View {
 
     private var mode: FileBrowserViewMode { preferences.mode }
     private var projectRootURL: URL? { fileTree.rootNode?.url }
+    /// What the window is working on in the background: a document being translated, else the folder being opened or indexed.
+    private var backgroundProgress: String? { translator.progress ?? workspaceManager.project.indexingProgress }
 
     // MARK: Model glue
 
@@ -294,11 +297,11 @@ struct FileTreeView: View {
 
             if projectRootURL != nil {
                 browserArea
-            } else if workspaceManager.project.indexingProgress != nil {
+            } else if let progress = backgroundProgress {
                 VStack(spacing: 12) {
                     Spacer()
                     ProgressView().scaleEffect(0.8)
-                    Text(workspaceManager.project.indexingProgress ?? "")
+                    Text(progress)
                         .uiFont(size: 11).foregroundColor(palette.blue)
                         .lineLimit(2).multilineTextAlignment(.center)
                     Spacer()
@@ -321,7 +324,7 @@ struct FileTreeView: View {
             }
 
             // Progress bar
-            if let progress = workspaceManager.project.indexingProgress {
+            if let progress = backgroundProgress {
                 Divider().background(palette.border)
                 HStack(spacing: 6) {
                     ProgressView().scaleEffect(0.4).frame(width: 12, height: 12)
