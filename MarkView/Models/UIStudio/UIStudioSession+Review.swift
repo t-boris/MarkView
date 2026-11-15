@@ -36,10 +36,13 @@ extension StudioSession {
             request.label = "ui-studio:review"
             request.timeout = 900
             request.effort = "medium"
-            let result = try await CLICompletion.run(request)
-            recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
+            let review = AIOperation<CLICompletion.Request, StudioReview.Outcome?>(
+                name: "ui-studio:review",
+                parse: { StudioReview.outcome(from: $0.structured) },
+                onResult: { [weak self] result in self?.recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0) })
+            let (reading, _) = try await review.execute(request)
             guard !Task.isCancelled, !closed else { return }
-            guard let outcome = StudioReview.outcome(from: result.structured) else {
+            guard let outcome = reading else {
                 sessionLog.add(.preparation, problem: true, "The review of the environment came back in a form MarkView cannot read; it is tried again at the next open.")
                 return
             }

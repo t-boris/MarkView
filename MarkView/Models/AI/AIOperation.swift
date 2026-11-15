@@ -165,6 +165,9 @@ enum AIAssistantRunner {
     }
 }
 
+/// An error of `parse` or `validate` that asking again cannot mend: the operation ends with it at once, attempts left or not.
+protocol AIUnrepairable: Error {}
+
 /// Which attempt of an operation is being judged: the first is 1, `isLast` when no repair request follows a rejection.
 struct AIAttempt: Equatable, Sendable {
     let number: Int
@@ -193,7 +196,7 @@ struct AIRepair<Input> {
 ///
 /// A feature declares what is its own: the request (prompt, system prompt, schema, timeout, effort, label), what its answer
 /// becomes, what makes it unacceptable, and how the next request differs. Errors of the run itself (CLI missing, failed, timed out)
-/// and cancellation are never repaired: they end the operation at once.
+/// and cancellation are never repaired, and neither is an `AIUnrepairable` rejection: they end the operation at once.
 struct AIOperation<Input, Output> {
     typealias Delta = @Sendable (String) -> Void
     typealias Activity = @Sendable (CLICompletion.Activity) -> Void
@@ -256,7 +259,7 @@ struct AIOperation<Input, Output> {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                guard !judged.isLast else { throw error }
+                guard !judged.isLast, !(error is AIUnrepairable) else { throw error }
                 let context = AIRepair(input: input, original: original, request: request, result: result, error: error, attempt: judged)
                 request = Self.labelled(repair?(context) ?? Self.defaultRepair(context), as: name)
                 attempt += 1

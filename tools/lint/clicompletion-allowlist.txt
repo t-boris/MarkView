@@ -15,8 +15,4 @@
 1 MarkView/Models/QA/QARunModel.swift
 1 MarkView/Models/Research/ResearchJobs.swift
 1 MarkView/Models/Research/ResearchMapOutputJobs.swift
-2 MarkView/Models/UIStudio/UIStudioAgents.swift
-1 MarkView/Models/UIStudio/UIStudioSession+Review.swift
-1 MarkView/Models/UIStudio/UIStudioSession+Screens.swift
-4 MarkView/Models/UIStudio/UIStudioSession.swift
 3 MarkView/Models/Workspace/WorkspaceManager.swift

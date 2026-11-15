@@ -243,6 +243,14 @@ func runPipelineTests() async {
           && boundedScript.requests[2].prompt.contains("rejected 2") && !boundedScript.requests[2].prompt.contains("rejected 1"),
           "AR-26: the default repair is built on the original prompt and the last answer, it does not stack")
 
+    // A rejection that asking again cannot mend ends the operation at once.
+    struct Final: AIUnrepairable, LocalizedError { var errorDescription: String? { "final" } }
+    let finalScript = ScriptedRunner([answer("1"), answer("2")])
+    let finalOp = AIOperation<CLICompletion.Request, String>(name: "final", maxRepairAttempts: 3, parse: { _ in throw Final() }, runner: finalScript.run)
+    var finalError: Error?
+    do { _ = try await finalOp.execute(base) } catch { finalError = error }
+    check(finalScript.calls == 1 && finalError is Final, "AR-26: an unrepairable rejection is thrown at once, with attempts left")
+
     // Failures of the run itself are not repaired.
     let failScript = ScriptedRunner([.failure(CLICompletion.Failure.timedOut(.claude, 30)), answer("never")])
     let failing = AIOperation<CLICompletion.Request, String>(name: "failing", maxRepairAttempts: 3, parse: { $0.text }, runner: failScript.run)

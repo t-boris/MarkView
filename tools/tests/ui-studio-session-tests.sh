@@ -29,5 +29,5 @@ swiftc -o "$out/ui-studio-session-harness" Packages/MarkViewCore/Sources/MarkVie
   MarkView/Models/UIStudio/UIStudioEnvironmentMap.swift MarkView/Models/UIStudio/UIStudioEnvironmentMapper.swift \
   MarkView/Models/UIStudio/UIStudioGraphQL.swift MarkView/Models/UIStudio/UIStudioChannels.swift \
   MarkView/Models/UIStudio/UIStudioGatewayStreams.swift MarkView/Models/UIStudio/UIStudioRealtimePrompts.swift MarkView/Models/UIStudio/UIStudioDataFix.swift MarkView/Models/UIStudio/UIStudioRepair.swift MarkView/Models/UIStudio/UIStudioScreens.swift MarkView/Models/UIStudio/UIStudioReview.swift MarkView/Models/UIStudio/UIStudioSession+Repair.swift MarkView/Models/UIStudio/UIStudioSession+Screens.swift MarkView/Models/UIStudio/UIStudioSession+Review.swift \
-  MarkView/Views/UIStudio/UIStudioPreviewHost.swift tools/tests/UIStudioSessionStubs.swift tools/tests/UIStudioAuthHarness.swift "$out/main.swift"
+  MarkView/Models/AI/AIOperation.swift MarkView/Views/UIStudio/UIStudioPreviewHost.swift tools/tests/UIStudioSessionStubs.swift tools/tests/UIStudioAuthHarness.swift "$out/main.swift"
 "$out/ui-studio-session-harness" MarkView/Resources/Editor/js/markview-ui-studio.js

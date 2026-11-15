@@ -23,12 +23,16 @@ struct StudioCLIPreparer: StudioRulePreparing {
         request.effort = "low"
         request.allowWeb = false
         request.label = "ui-studio:prepare"
-        let result = try await CLICompletion.run(request)
-        usage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
-        guard let proposal = StudioRealtimePrompts.proposal(StudioPrompts.proposal(from: result.structured), from: result.structured) else {
-            throw Unreadable()
-        }
-        return proposal
+        let operation = AIOperation<CLICompletion.Request, StudioProposal>(
+            name: "ui-studio:prepare",
+            parse: { result in
+                guard let proposal = StudioRealtimePrompts.proposal(StudioPrompts.proposal(from: result.structured), from: result.structured) else {
+                    throw Unreadable()
+                }
+                return proposal
+            },
+            onResult: { [usage] result in usage(result.inputTokens, result.outputTokens, result.costUSD ?? 0) })
+        return try await operation.execute(request).output
     }
 }
 
@@ -124,8 +128,10 @@ struct StudioCLIMapAssistant: StudioMapAssistant {
         completion.effort = "low"
         completion.allowWeb = false
         completion.label = request.label
-        let result = try await CLICompletion.run(completion)
-        usage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
-        return result.structured
+        let operation = AIOperation<CLICompletion.Request, Any?>(
+            name: completion.label,
+            parse: { $0.structured },
+            onResult: { [usage] result in usage(result.inputTokens, result.outputTokens, result.costUSD ?? 0) })
+        return try await operation.execute(completion).output
     }
 }
