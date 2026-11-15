@@ -98,6 +98,7 @@ final class UsageLogReader: @unchecked Sendable {
         switch agent {
         case .claude: roots = [base.appendingPathComponent("projects")]
         case .codex: roots = [base.appendingPathComponent("sessions"), base.appendingPathComponent("archived_sessions")]
+        case .antigravity: roots = []  // no readable local logs (`UsageAgent.hasLocalLogs`)
         }
     }
 
@@ -227,6 +228,8 @@ final class UsageLogReader: @unchecked Sendable {
                 let delta = total >= state.lastTotal ? total - state.lastTotal : total
                 state.lastTotal = total
                 if delta > 0 { state.events.append(UsageEvent(date: date, tokens: delta, costUSD: nil)) }
+            case .antigravity:
+                continue  // never read: `UsageAgent.hasLocalLogs` is false
             }
         }
     }

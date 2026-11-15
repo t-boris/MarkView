@@ -1,6 +1,6 @@
 import Foundation
 
-// Usage and quota of the AI coding agents (Claude Code, Codex): quota windows, the headline
+// Usage and quota of the AI coding agents (Claude Code, Codex, Antigravity): quota windows, the headline
 // window, colour levels, the user's fallback limit and its window, pace, the display state and
 // the parsers of the vendors' official usage responses. Foundation only, no app state:
 // tools/tests/agent-usage-tests.sh compiles this file on its own and checks the rules.
@@ -8,7 +8,7 @@ import Foundation
 
 /// The agents whose usage is tracked (DEC-012: a built-in list).
 enum UsageAgent: String, CaseIterable, Identifiable, Sendable {
-    case claude, codex
+    case claude, codex, antigravity
 
     var id: String { rawValue }
 
@@ -16,6 +16,7 @@ enum UsageAgent: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude: return "Claude Code"
         case .codex: return "Codex"
+        case .antigravity: return "Antigravity"
         }
     }
 
@@ -23,6 +24,7 @@ enum UsageAgent: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude: return "Claude"
         case .codex: return "Codex"
+        case .antigravity: return "Antigravity"
         }
     }
 
@@ -31,8 +33,21 @@ enum UsageAgent: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude: return ".claude"
         case .codex: return ".codex"
+        case .antigravity: return ".gemini/antigravity-cli"
         }
     }
+
+    /// Whether usage can also be counted from local logs (the fallback of DEC-007). Antigravity keeps binary
+    /// protobuf conversation files, so its only source is its own `/usage` command (DEC-020).
+    var hasLocalLogs: Bool { self != .antigravity }
+
+    /// Seconds between automatic refreshes of the official data. `agy` starts a process and makes several
+    /// requests per read, so Antigravity is read less often than the two HTTP endpoints (DEC-020).
+    var pollInterval: TimeInterval { self == .antigravity ? 10 * 60 : 5 * 60 }
+
+    /// Seconds before the next automatic try while signed out. For Antigravity every try starts a sign-in
+    /// prompt that only ends at our timeout, so it waits longer.
+    var signedOutInterval: TimeInterval { self == .antigravity ? 30 * 60 : pollInterval }
 
     /// UserDefaults key: the user hid this agent's indicator (Settings → DDE).
     var hiddenKey: String { "settings.usage.\(rawValue).hidden" }
@@ -360,6 +375,64 @@ enum OfficialUsageParser {
                                resetsAt: resetsAt, duration: seconds, source: .official)
         }
         return windows.isEmpty ? nil : windows
+    }
+
+    // MARK: Antigravity
+
+    /// `agy --output-format json -p "/usage"` (DEC-020): `command.data.groups[].buckets[]` with `window`
+    /// ("5h" / "weekly"), `remaining_fraction` and `reset_time`. Models share a bucket inside a group, so the
+    /// group name is the window's scope. A bucket nobody has used reports a reset time of now + window that moves
+    /// on every call, so it gets none (it would show a countdown that never runs down).
+    static func antigravity(_ data: Data) -> [QuotaWindow]? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let command = root["command"] as? [String: Any],
+              let payload = command["data"] as? [String: Any],
+              let groups = payload["groups"] as? [[String: Any]] else { return nil }
+        var windows: [QuotaWindow] = []
+        for (groupIndex, group) in groups.enumerated() {
+            let groupName = (group["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Group \(groupIndex + 1)"
+            var short = groupName
+            if short.lowercased().hasSuffix(" models") { short = String(short.dropLast(" models".count)) }
+            for (bucketIndex, bucket) in (group["buckets"] as? [[String: Any]] ?? []).enumerated() {
+                guard let remaining = number(bucket["remaining_fraction"]), remaining.isFinite else { continue }
+                let percent = min(100, max(0, (1 - remaining) * 100))
+                let kind = bucket["window"] as? String
+                let (label, title, duration): (String, String, TimeInterval?)
+                switch kind {
+                case "5h": (label, title, duration) = ("5h", "5-hour", fiveHours)
+                case "weekly": (label, title, duration) = ("wk", "Weekly", week)
+                default: (label, title, duration) = (kind ?? "limit", kind ?? "Limit", nil)
+                }
+                let untouched = remaining >= 1 - 1e-9
+                let id = (bucket["id"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "\(groupIndex)_\(bucketIndex)_\(kind ?? "limit")"
+                windows.append(QuotaWindow(id: id, label: "\(short) \(label)", title: "\(groupName) · \(title)",
+                                           percentUsed: percent,
+                                           resetsAt: untouched ? nil : isoDate(bucket["reset_time"]),
+                                           duration: duration, source: .official, modelScope: groupName))
+            }
+        }
+        return windows.isEmpty ? nil : windows
+    }
+
+    /// What reading Antigravity's usage made of one `agy` run (DEC-020): the windows, "signed out" (the CLI
+    /// printed its sign-in prompt instead of an answer), or why there is nothing.
+    enum AntigravityRun: Equatable, Sendable {
+        case windows([QuotaWindow])
+        case signedOut
+        case failed(String)
+    }
+
+    /// `exitCode` -1 is "could not start" and -2 "stopped at our timeout" (`CLIToolLocator.run`). A signed-out
+    /// CLI waits for a pasted code, so its prompt can arrive together with the timeout.
+    static func antigravityRun(exitCode: Int32, stdout: String, stderr: String) -> AntigravityRun {
+        if let windows = antigravity(Data(stdout.utf8)) { return .windows(windows) }
+        let text = (stdout + "\n" + stderr).lowercased()
+        if text.contains("authentication required") || text.contains("authentication failed") { return .signedOut }
+        switch exitCode {
+        case -1: return .failed("could not start the agy command")
+        case -2: return .failed("agy did not answer in time")
+        default: return .failed("response not recognised")
+        }
     }
 
     /// "5h" / "5-hour window", "week" / "Weekly", "3d" / "3-day window".

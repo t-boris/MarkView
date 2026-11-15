@@ -144,6 +144,82 @@ expect(QuotaWindow.headline(of: codex)?.id, "secondary_window", "codex headline"
 expect(OfficialUsageParser.codex(Data(#"{"rate_limit":{"primary_window":null,"secondary_window":null}}"#.utf8), now: now) == nil,
        true, "codex without windows unrecognised")
 
+// Antigravity (DEC-020): `agy --output-format json -p "/usage"`, shape seen 2026-11-14 (descriptions shortened)
+func antigravityJSON(_ groups: String) -> String {
+    #"{"conversation_id":"","status":"SUCCESS","response":"x","duration_seconds":0,"num_turns":0,"usage":{"total_tokens":0},"command":{"name":"usage","data":{"description":"d","groups":[\#(groups)]}}}"#
+}
+let antigravityGroups = """
+{"name":"Gemini Models","description":"Models within this group: Gemini 4 Hydrogen, Gemini 3.8 Flash","buckets":[
+  {"id":"gemini-weekly","name":"Weekly Limit Remaining","window":"weekly","remaining_fraction":1,"reset_time":"2026-11-22T03:19:24Z"},
+  {"id":"gemini-5h","name":"Five Hour Limit Remaining","window":"5h","remaining_fraction":1,"reset_time":"2026-11-15T08:19:24Z"}]},
+{"name":"Claude and GPT models","description":"Models within this group: Claude Opus 5.5","buckets":[
+  {"id":"3p-weekly","name":"Weekly Limit Remaining","window":"weekly","remaining_fraction":1,"reset_time":"2026-11-22T03:19:24Z"},
+  {"id":"3p-5h","name":"Five Hour Limit Remaining","window":"5h","remaining_fraction":1,"reset_time":"2026-11-15T08:19:24Z"}]},
+{"name":"Gemini 4 Argon","description":"Argon quota is separate.","buckets":[
+  {"id":"gemini-argon-wtu-weekly","name":"Gemini 4 Argon Weekly Limit","description":"You have used some.","window":"weekly","remaining_fraction":0.9298666715621948,"reset_time":"2026-11-22T03:10:56Z"}]}
+"""
+let antigravityData = Data(antigravityJSON(antigravityGroups).utf8)
+let antigravity = OfficialUsageParser.antigravity(antigravityData) ?? []
+expect(antigravity.map(\.id), ["gemini-weekly", "gemini-5h", "3p-weekly", "3p-5h", "gemini-argon-wtu-weekly"], "antigravity bucket ids")
+expect(antigravity.map(\.label), ["Gemini wk", "Gemini 5h", "Claude and GPT wk", "Claude and GPT 5h", "Gemini 4 Argon wk"],
+       "antigravity labels carry the group, without the word models")
+expect(antigravity.map(\.title).last, "Gemini 4 Argon · Weekly", "antigravity title")
+expect(antigravity.map(\.title).first, "Gemini Models · Weekly", "antigravity title keeps the full group name")
+expect(antigravity.map { ($0.percentUsed * 10).rounded() / 10 }, [0, 0, 0, 0, 7.0], "antigravity percent used is 1 - remaining fraction")
+expect(antigravity.map { $0.duration ?? -1 }, [7 * day, 5 * hour, 7 * day, 5 * hour, 7 * day], "antigravity window lengths")
+expect(antigravity.map { $0.resetsAt == nil }, [true, true, true, true, false], "a bucket nobody used has no reset time (agy reports now + window)")
+expect(antigravity.last?.resetsAt, date("2026-11-22T03:10:56Z"), "a used bucket keeps its reset time")
+expect(antigravity.map { $0.modelScope ?? "" }, ["Gemini Models", "Gemini Models", "Claude and GPT models", "Claude and GPT models", "Gemini 4 Argon"],
+       "antigravity group is the scope")
+expect(antigravity.allSatisfy { $0.source == .official }, true, "antigravity is official data")
+expect(QuotaWindow.headline(of: antigravity)?.id, "gemini-argon-wtu-weekly", "antigravity headline is the most used window")
+expect(antigravity.last?.pace(now: date("2026-11-19T03:10:56Z")), .under, "7% used with 4 of 7 days gone: under pace")
+expect(antigravity.last?.pace(now: date("2026-11-15T03:10:56Z")), .ahead, "7% used before the window has started to run: ahead")
+expect(antigravity.first?.pace(now: now), nil, "an unused bucket has no pace")
+
+let exhausted = OfficialUsageParser.antigravity(Data(antigravityJSON(#"""
+{"name":"Gemini Models","buckets":[{"id":"a","window":"5h","remaining_fraction":0,"reset_time":"2026-11-15T08:19:24Z"},
+ {"id":"b","window":"weekly","remaining_fraction":-0.2,"reset_time":"2026-11-22T03:19:24Z"},
+ {"id":"c","window":"weekly","remaining_fraction":1.3,"reset_time":"2026-11-22T03:19:24Z"},
+ {"id":"d","window":"daily","remaining_fraction":0.5,"reset_time":"2026-11-15T03:19:24Z"},
+ {"id":"e","window":"5h","reset_time":"2026-11-15T03:19:24Z"}]}
+"""#).utf8)) ?? []
+expect(exhausted.map(\.id), ["a", "b", "c", "d"], "a bucket without a fraction is skipped")
+expect(exhausted.map(\.percentUsed), [100, 100, 0, 50], "fractions are clamped to 0...100% used")
+expect(exhausted.first?.level, .critical, "an exhausted bucket is critical")
+expect(exhausted.first?.resetsAt, date("2026-11-15T08:19:24Z"), "an exhausted bucket keeps its reset time")
+expect(exhausted.last?.label, "Gemini daily", "unknown window kind keeps its name")
+expect(exhausted.last?.duration, nil, "unknown window kind has no length")
+let unnamed = OfficialUsageParser.antigravity(Data(antigravityJSON(#"{"buckets":[{"window":"5h","remaining_fraction":0.4,"reset_time":"2026-11-15T08:19:24Z"}]}"#).utf8)) ?? []
+expect(unnamed.map(\.id), ["0_0_5h"], "bucket without an id gets a stable one")
+expect(unnamed.map(\.label), ["Group 1 5h"], "group without a name")
+expect(OfficialUsageParser.antigravity(Data("{}".utf8)) == nil, true, "antigravity: empty object unrecognised")
+expect(OfficialUsageParser.antigravity(Data(antigravityJSON("").utf8)) == nil, true, "antigravity: no groups unrecognised")
+expect(OfficialUsageParser.antigravity(Data(antigravityJSON(#"{"name":"G","buckets":[]}"#).utf8)) == nil, true, "antigravity: no buckets unrecognised")
+expect(OfficialUsageParser.antigravity(Data("Authentication required".utf8)) == nil, true, "antigravity: text unrecognised")
+
+// What one `agy` run means (exit -1: could not start, -2: stopped at our timeout)
+let signInPrompt = "Authentication required. Please visit the URL to log in:\n  https://accounts.google.com/o/oauth2/auth?client_id=x\n\nWaiting for authentication (timeout 60s)..."
+expect(OfficialUsageParser.antigravityRun(exitCode: 0, stdout: String(data: antigravityData, encoding: .utf8)!, stderr: ""),
+       .windows(antigravity), "a good answer gives the windows")
+expect(OfficialUsageParser.antigravityRun(exitCode: -2, stdout: signInPrompt, stderr: ""), .signedOut, "sign-in prompt cut at our timeout is signed out")
+expect(OfficialUsageParser.antigravityRun(exitCode: 1, stdout: "", stderr: "Error: authentication failed or timed out"), .signedOut, "authentication failed is signed out")
+expect(OfficialUsageParser.antigravityRun(exitCode: -2, stdout: "", stderr: ""), .failed("agy did not answer in time"), "timeout without output")
+expect(OfficialUsageParser.antigravityRun(exitCode: -1, stdout: "", stderr: "no such file"), .failed("could not start the agy command"), "could not start")
+expect(OfficialUsageParser.antigravityRun(exitCode: 0, stdout: "{\"status\":\"SUCCESS\"}", stderr: ""), .failed("response not recognised"), "unknown json")
+expect(OfficialUsageParser.antigravityRun(exitCode: 2, stdout: "boom", stderr: ""), .failed("response not recognised"), "other failure")
+
+// The agents and what differs between them
+expect(UsageAgent.allCases.map(\.rawValue), ["claude", "codex", "antigravity"], "agents in bar order")
+expect(UsageAgent.allCases.map(\.hasLocalLogs), [true, true, false], "only Claude and Codex have local logs")
+expect(UsageAgent.antigravity.displayName, "Antigravity", "antigravity name")
+expect(UsageAgent.antigravity.dataDirectoryName, ".gemini/antigravity-cli", "antigravity data directory")
+expect(UsageAgent.antigravity.hiddenKey, "settings.usage.antigravity.hidden", "antigravity hide key")
+expect(UsageAgent.allCases.map(\.pollInterval), [300, 300, 600], "Antigravity is read every 10 minutes")
+expect(UsageAgent.allCases.map(\.signedOutInterval), [300, 300, 1800], "Antigravity waits 30 minutes while signed out")
+expect(AgentUsageState.resolve(official: antigravity, limit: nil, limitUsage: nil, today: nil, localError: nil, now: now).headline?.id,
+       "gemini-argon-wtu-weekly", "antigravity official state")
+
 // Formatting
 expect(UsageFormat.tokens(950), "950", "tokens plain")
 expect(UsageFormat.tokens(12_345), "12.3K", "tokens K")

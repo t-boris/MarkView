@@ -162,7 +162,7 @@ struct DDESettingsView: View {
             GroupBox("Agent usage (Terminal tab)") {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(UsageAgent.allCases) { agent in AgentUsageVisibilityToggle(agent: agent) }
-                    Text("Official limit data is requested with the agent's own sign-in, read locally and sent only to its vendor. Otherwise usage is counted from local logs (~/.claude, ~/.codex).")
+                    Text("Official limit data is requested with the agent's own sign-in, read locally and sent only to its vendor. Otherwise usage is counted from local logs (~/.claude, ~/.codex). Antigravity's numbers come from its own command (agy /usage); MarkView reads no sign-in for it.")
                         .uiFont(size: 9).foregroundColor(palette.textDim)
                 }.padding(8)
             }

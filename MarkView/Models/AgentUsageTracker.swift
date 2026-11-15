@@ -5,7 +5,8 @@ import CoreServices
 // Keeps the usage of the AI agents current for the Terminal tab's indicators
 // (docs/features/ai-agent-usage-quota-tracker-codex-claude-code): official limit data from the
 // vendors with the agents' own stored credentials (DEC-005, DEC-011), local log usage as the
-// fallback (DEC-007), refreshed only while an indicator is on screen (DEC-010).
+// fallback (DEC-007), refreshed only while an indicator is on screen (DEC-010). Antigravity has no
+// credentials MarkView reads and no local fallback: its own `agy` command answers (DEC-020).
 
 /// What the indicator and the popover show for one agent.
 struct AgentUsageSnapshot {
@@ -36,7 +37,7 @@ struct AgentUsageSnapshot {
 final class AgentUsageTracker: ObservableObject {
     static let shared = AgentUsageTracker()
 
-    // DEC-010 constants, fixed in v1.
+    // DEC-010 constants, fixed in v1. `pollInterval` is the default; `UsageAgent.pollInterval` is per agent.
     nonisolated static let pollInterval: TimeInterval = 5 * 60
     nonisolated static let manualCooldown: TimeInterval = 60
     nonisolated static let backoffStart: TimeInterval = 5 * 60
@@ -85,7 +86,7 @@ final class AgentUsageTracker: ObservableObject {
     private var eventStream: FSEventStreamRef?
 
     private init() {
-        readers = Dictionary(uniqueKeysWithValues: UsageAgent.allCases.map { ($0, UsageLogReader(agent: $0)) })
+        readers = Dictionary(uniqueKeysWithValues: UsageAgent.allCases.filter(\.hasLocalLogs).map { ($0, UsageLogReader(agent: $0)) })
         let center = NotificationCenter.default
         center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             Task { @MainActor in AgentUsageTracker.shared.setAppActive(true) }
@@ -138,7 +139,12 @@ final class AgentUsageTracker: ObservableObject {
     /// DEC-012: the CLI is found, or its data directory exists.
     static func isDetected(_ agent: UsageAgent) -> Bool {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let tool: CLITool = agent == .claude ? .claude : .codex
+        let tool: CLITool
+        switch agent {
+        case .claude: tool = .claude
+        case .codex: tool = .codex
+        case .antigravity: tool = .antigravity
+        }
         return CLIToolLocator.resolve(tool) != nil
             || FileManager.default.fileExists(atPath: home.appendingPathComponent(agent.dataDirectoryName).path)
     }
@@ -177,8 +183,10 @@ final class AgentUsageTracker: ObservableObject {
         state.blocked = false
         official[agent] = state
         if !state.inFlight { fetchOfficial(agent) }
-        local[agent, default: LocalState()].dirty = true
-        scanLocal(agent)
+        if agent.hasLocalLogs {
+            local[agent, default: LocalState()].dirty = true
+            scanLocal(agent)
+        }
     }
 
     // MARK: - Fallback limit (DEC-014)
@@ -221,7 +229,7 @@ final class AgentUsageTracker: ObservableObject {
             state.windows = windows
             state.fetchedAt = time
             state.backoff = 0
-            state.nextFetch = time.addingTimeInterval(Self.pollInterval)
+            state.nextFetch = time.addingTimeInterval(agent.pollInterval)
             state.note = nil
             WorkspaceManager.debugLog("agent usage: \(agent.rawValue) official data, \(windows.count) window(s)")
         case .signedOut:
@@ -229,7 +237,7 @@ final class AgentUsageTracker: ObservableObject {
             state.windows = nil
             state.fetchedAt = nil
             state.backoff = 0
-            state.nextFetch = time.addingTimeInterval(Self.pollInterval)
+            state.nextFetch = time.addingTimeInterval(agent.signedOutInterval)
             state.note = "Official limit data unavailable — open \(name) to refresh sign-in"
             WorkspaceManager.debugLog("agent usage: \(agent.rawValue) official data unavailable (signed out or expired)")
         case .keychainDenied:
@@ -287,12 +295,12 @@ final class AgentUsageTracker: ObservableObject {
     /// Any change under the watched log folders. Both agents are marked: a scan without new
     /// lines costs a directory listing.
     private func logsChanged() {
-        for agent in UsageAgent.allCases { local[agent, default: LocalState()].dirty = true }
+        for agent in UsageAgent.allCases where agent.hasLocalLogs { local[agent, default: LocalState()].dirty = true }
         scanDueLocal()
     }
 
     private func scanDueLocal() {
-        for agent in shownAgents {
+        for agent in shownAgents where agent.hasLocalLogs {
             let state = local[agent] ?? LocalState()
             if state.dirty && now.timeIntervalSince(state.lastScan) >= Self.localDebounce { scanLocal(agent) }
         }
@@ -348,8 +356,23 @@ final class AgentUsageTracker: ObservableObject {
 
     private func rebuild(_ agent: UsageAgent) {
         let officialState = official[agent] ?? OfficialState()
-        let localState = local[agent] ?? LocalState()
         let windows = currentOfficialWindows(agent)
+        guard agent.hasLocalLogs else {
+            // Antigravity: the official windows, or nothing to show (never a made-up number). Before the first
+            // answer there is no state yet rather than "unavailable".
+            if let windows {
+                snapshots[agent] = AgentUsageSnapshot(state: .official(windows), today: nil, officialUpdatedAt: officialState.fetchedAt,
+                                                      localUpdatedAt: nil, officialNote: officialState.note)
+            } else if officialState.note != nil || officialState.fetchedAt != nil {
+                snapshots[agent] = AgentUsageSnapshot(
+                    state: .unavailable(reason: officialState.note == nil ? "waiting for the next refresh" : "no official limit data"),
+                    today: nil, officialUpdatedAt: nil, localUpdatedAt: nil, officialNote: officialState.note)
+            } else {
+                snapshots[agent] = nil
+            }
+            return
+        }
+        let localState = local[agent] ?? LocalState()
         let events = localState.events
         let startOfDay = Calendar.current.startOfDay(for: now)
         let limit = Self.limit(for: agent)
@@ -405,6 +428,7 @@ enum OfficialUsageClient {
     }
 
     static func fetch(_ agent: UsageAgent) async -> Result {
+        if agent == .antigravity { return await fetchAntigravity() }
         let credential: Credential
         switch await readCredential(agent) {
         case .found(let found): credential = found
@@ -419,6 +443,8 @@ enum OfficialUsageClient {
         case .codex:
             request = URLRequest(url: URL(string: "https://chatgpt.com/backend-api/wham/usage")!)
             if let account = credential.accountID { request.setValue(account, forHTTPHeaderField: "ChatGPT-Account-Id") }
+        case .antigravity:
+            return .failed(reason: "no HTTP source", retryAfter: nil)  // handled above; never reached
         }
         request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -444,6 +470,23 @@ enum OfficialUsageClient {
             return .failed(reason: "rate limited", retryAfter: retryAfter(http))
         default:
             return .failed(reason: "HTTP \(http.statusCode)", retryAfter: retryAfter(http))
+        }
+    }
+
+    /// Antigravity (DEC-020): MarkView reads no token. The CLI's own `/usage` command signs in itself and asks
+    /// Google; the answer is the JSON `command.data`. `--log-file /dev/null` keeps every call from leaving a log
+    /// file behind, and a signed-out CLI waits for a pasted code, so the call is cut at 25 s. The sign-in prompt
+    /// (it carries a login link) is classified and dropped: it is never stored or logged.
+    private static func fetchAntigravity() async -> Result {
+        guard let path = CLIToolLocator.resolve(.antigravity) else {
+            return .failed(reason: "the agy command was not found", retryAfter: nil)
+        }
+        let run = await CLIToolLocator.run(path, ["--print-timeout", "20s", "--log-file", "/dev/null",
+                                                  "--output-format", "json", "-p", "/usage"], timeout: 25)
+        switch OfficialUsageParser.antigravityRun(exitCode: run.exitCode, stdout: run.stdout, stderr: run.stderr) {
+        case .windows(let windows): return .success(windows)
+        case .signedOut: return .signedOut
+        case .failed(let reason): return .failed(reason: reason, retryAfter: nil)
         }
     }
 
@@ -496,6 +539,8 @@ enum OfficialUsageClient {
                   let tokens = root["tokens"] as? [String: Any],
                   let token = tokens["access_token"] as? String, !token.isEmpty else { return .missing }
             return .found(Credential(token: token, accountID: tokens["account_id"] as? String))
+        case .antigravity:
+            return .missing  // never asked: Antigravity answers through its own command
         }
     }
 
