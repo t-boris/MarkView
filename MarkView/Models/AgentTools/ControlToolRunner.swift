@@ -121,7 +121,7 @@ enum ControlToolRunner {
             out += "\n\(ControlAgentTools.shortID(entry.id.uuidString)) · \"\(title)\" · \(project)\(marker)\n"
             let described = workspace.terminals.sessions.map { "\($0.title) (\(state(of: $0, in: workspace)))" }
             out += "    agents: \(described.isEmpty ? "none" : described.joined(separator: ", "))\n"
-            let running = runningSteps(workspace.features.assistant)
+            let running = runningSteps(workspace.flow.features.assistant)
             if !running.isEmpty { out += "    running: \(running.joined(separator: ", "))\n" }
         }
         return out
@@ -200,11 +200,11 @@ enum ControlToolRunner {
 
     /// The folder is the window's project and its features are loaded.
     private static func isOpen(_ workspace: WorkspaceManager, _ path: String) -> Bool {
-        workspace.project.projectFolder.map { standardized($0.path) } == path && workspace.features.root != nil
+        workspace.project.projectFolder.map { standardized($0.path) } == path && workspace.flow.features.root != nil
     }
 
     private static func projectLine(_ workspace: WorkspaceManager) -> String {
-        let store = workspace.features
+        let store = workspace.flow.features
         return "Features: \(store.features.count), bugs: \(store.bugs.count)."
     }
 

@@ -90,6 +90,8 @@ final class ProjectContext: ObservableObject, ProjectProviding {
         return path
     }
 
+    func refreshFileTree() { fileTree.refresh() }
+
     func cacheDirectory(for url: URL) -> URL {
         let path = url.standardizedFileURL.path
         let base: URL

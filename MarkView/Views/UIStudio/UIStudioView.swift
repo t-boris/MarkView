@@ -1756,7 +1756,7 @@ struct UIStudioEvidencePanel: View {
                                     .foregroundColor(palette.orange).lineLimit(3)
                             }
                             if !package.featureSlug.isEmpty {
-                                Button("Show feature \(package.featureSlug)") { workspaceManager.showFeatureContext(package.featureSlug) }
+                                Button("Show feature \(package.featureSlug)") { workspaceManager.flow.showFeatureContext(package.featureSlug) }
                                     .buttonStyle(.plain).foregroundColor(palette.blue).uiFont(size: 10)
                             }
                         }

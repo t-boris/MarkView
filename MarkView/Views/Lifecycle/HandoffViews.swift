@@ -26,7 +26,7 @@ struct HandoffStartList: View {
                     Spacer()
                     Button("Files") {
                         if let revision = item.state.revision {
-                            workspaceManager.resumeHandoff(slug: item.feature.slug,
+                            workspaceManager.flow.resumeHandoff(slug: item.feature.slug,
                                 title: item.feature.title, linkedFiles: revision.linkedFiles)
                         }
                     }
@@ -79,7 +79,7 @@ struct HandoffPanelView: View {
     @State private var showingVersions = false
     @State private var expanded = true
 
-    private var project: URL? { workspaceManager.features.root }
+    private var project: URL? { workspaceManager.flow.features.root }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -182,11 +182,11 @@ struct HandoffPanelView: View {
 
     @MainActor private func markReady() async {
         guard let project else { return }
-        guard workspaceManager.saveBeforeHandoff(feature.folder) else { return }
+        guard workspaceManager.tabs.saveBeforeHandoff(under: feature.folder) else { return }
         busy = true
         defer { busy = false }
         do {
-            let store = workspaceManager.features
+            let store = workspaceManager.flow.features
             let slug = feature.slug, person = store.lifecycleActor
             let service = store.lifecycle.service
             // The step is judged under the project's workflow and the item's rule variant, like every other status change.
@@ -202,7 +202,7 @@ struct HandoffPanelView: View {
                                                                  workflow: workflow, variantID: variant))
                     return result.reachedStatus
                 })
-            workspaceManager.features.reloadSync(feature.slug)
+            workspaceManager.flow.features.reloadSync(feature.slug)
             await refresh()
         } catch { self.error = error.localizedDescription }
     }
@@ -239,20 +239,20 @@ struct HandoffPanelView: View {
 
     @MainActor private func saveLinks(_ links: [String]) async {
         guard let project else { return }
-        guard workspaceManager.saveBeforeResearch(feature.overviewURL,
+        guard workspaceManager.tabs.saveBeforeReading(feature.overviewURL,
             action: "updating the handoff links") else { return }
         busy = true
         defer { busy = false }
         do {
             try await SpecificationHandoffStore.shared.setLinkedFiles(links, project: project, slug: feature.slug)
-            workspaceManager.features.reloadSync(feature.slug)
+            workspaceManager.flow.features.reloadSync(feature.slug)
             await refresh()
         } catch { self.error = error.localizedDescription }
     }
 
     private func resume() {
         guard let revision = state?.revision else { return }
-        workspaceManager.resumeHandoff(slug: feature.slug, title: feature.title,
+        workspaceManager.flow.resumeHandoff(slug: feature.slug, title: feature.title,
                                        linkedFiles: revision.linkedFiles)
     }
 }
@@ -270,7 +270,7 @@ struct HandoffResumeBar: View {
                 Spacer()
                 Button("Browse files") { workspaceManager.chrome.toggleNavigation() }
                 Button("Open specification") {
-                    workspaceManager.features.activeSlug = resume.slug
+                    workspaceManager.flow.features.activeSlug = resume.slug
                     workspaceManager.layout.workspaceArea = .work
                     workspaceManager.layout.workSection = .features
                 }

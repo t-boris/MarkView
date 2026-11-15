@@ -26,7 +26,7 @@ struct GitView: View {
     init(git: GitClient, workspaceManager: WorkspaceManager) {
         self.git = git
         self.workspaceManager = workspaceManager
-        self.gitHub = workspaceManager.gitHub
+        self.gitHub = workspaceManager.flow.gitHub
         self.layout = workspaceManager.layout
     }
 
@@ -314,7 +314,7 @@ struct GitView: View {
             }
             if group == .conflicts && !list.isEmpty {
                 HStack(spacing: 6) {
-                    Button(action: { workspaceManager.resolveConflictsWithAI() }) {
+                    Button(action: { workspaceManager.flow.resolveConflictsWithAI() }) {
                         Label("Resolve with AI", systemImage: "sparkles").uiFont(size: 10, weight: .medium)
                     }
                     .buttonStyle(.borderedProminent).tint(palette.blue).controlSize(.small)
@@ -827,7 +827,7 @@ struct GitBranchMenu: View {
         .sheet(isPresented: $creating) {
             GitNewBranchForm(git: git) { name, base in
                 creating = false
-                run { await workspaceManager.createBranch(name, from: base) }
+                run { await workspaceManager.flow.createBranch(name, from: base) }
             }
         }
         .alert("Branch", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
@@ -844,7 +844,7 @@ struct GitBranchMenu: View {
                 Button {
                     choosing = false
                     if let elsewhere { workspaceManager.openFolder(URL(fileURLWithPath: elsewhere.path)) }
-                    else { run { await workspaceManager.switchBranch(name) } }
+                    else { run { await workspaceManager.flow.switchBranch(name) } }
                 } label: {
                     HStack {
                         Image(systemName: name == git.branch ? "checkmark" : "arrow.triangle.branch")

@@ -33,7 +33,7 @@ struct BuildStageView: View {
             HStack {
                 Text("Hand the specification to the AI terminal to implement.").uiFont(size: 10).foregroundColor(palette.textDim)
                 Spacer()
-                SmallButton(title: "Implement with AI", icon: "hammer") { workspaceManager.implementWithAI(feature.folder) }
+                SmallButton(title: "Implement with AI", icon: "hammer") { workspaceManager.flow.implementWithAI(feature.folder) }
             }
             let unapproved = feature.activeRequirements.filter { ["draft", "review"].contains($0.status) }
             if !unapproved.isEmpty {

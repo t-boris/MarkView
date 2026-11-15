@@ -14,7 +14,7 @@ struct TOCView: View {
     var body: some View {
         Group {
             if showTabs {
-                TOCTabs(store: workspaceManager.features, selectedTab: $layout.navigatorTab) {
+                TOCTabs(store: workspaceManager.flow.features, selectedTab: $layout.navigatorTab) {
                     tabContent
                 }
             } else {
@@ -25,7 +25,7 @@ struct TOCView: View {
 
     @ViewBuilder
     private var tabContent: some View {
-            switch layout.navigatorTab == .feature && !workspaceManager.features.hasIssues ? .contents : layout.navigatorTab {
+            switch layout.navigatorTab == .feature && !workspaceManager.flow.features.hasIssues ? .contents : layout.navigatorTab {
             case .contents: contentsList
             case .search: WorkspaceSearchView().environmentObject(workspaceManager)
             case .git: GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
@@ -33,10 +33,10 @@ struct TOCView: View {
             case .feature:
                 VStack(spacing: 0) {
                     if let tab = tabs.activeTab,
-                       let feature = workspaceManager.features.locate(tab.url)?.feature {
+                       let feature = workspaceManager.flow.features.locate(tab.url)?.feature {
                         HandoffPanelView(feature: feature).environmentObject(workspaceManager)
                     }
-                    FeaturePanelView(store: workspaceManager.features, layout: layout)
+                    FeaturePanelView(store: workspaceManager.flow.features, layout: layout)
                 }
             }
     }

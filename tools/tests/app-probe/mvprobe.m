@@ -234,11 +234,23 @@ static void Later(NSTimeInterval s) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(s * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ RunNext(); });
 }
 
+/// How many arguments each step reads after its name. A step with fewer is a script error: it is reported and the probe exits, because an
+/// exception in the probed app is a crash with a system dialog on the screen of whoever runs the probe.
+static NSDictionary<NSString *, NSNumber *> *StepArguments(void) {
+    return @{ @"wait": @1, @"pick": @1, @"picktitle": @1, @"size": @2, @"snap": @1, @"frame": @1, @"motion": @1, @"menuchoose": @1,
+             @"move": @2, @"click": @2, @"hit": @2, @"clicklabel": @1, @"cmdkey": @1, @"drag": @4, @"openurl": @1 };
+}
+
 static void RunNext(void) {
     if (Step >= Script.count) { L(@"script finished"); return; }
     NSString *line = Script[Step++];
     NSArray<NSString *> *p = [line componentsSeparatedByString:@" "];
     NSString *cmd = p.firstObject;
+    NSNumber *needed = StepArguments()[cmd];
+    if (needed && (NSInteger)p.count - 1 < needed.integerValue) {
+        L(@"script error at step %lu: '%@' needs %@ argument(s), the line is '%@'; the probe stops", (unsigned long)Step, cmd, needed, line);
+        _exit(2);
+    }
     NSTimeInterval delay = 0.05;
     for (NSWindow *w in NSApp.windows) hideWindow(w);
     NSWindow *w = MainWindow();
