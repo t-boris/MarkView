@@ -266,6 +266,35 @@ try:
           "a script built by interpolation fails js-interpolation: directly, through a variable, through a helper function, as a multi-line literal, and in callAsyncJavaScript")
     check("GoodPage.swift" not in out, "the good page is not reported")
 
+    # --- webview-configuration
+    root = fresh()
+    write(root, "MarkView/Views/Workspace/GoodHost.swift", (
+        "func make() -> WKWebView {\n"
+        "    // WKWebViewConfiguration() is only named in a comment, as is WKWebView(frame: .zero)\n"
+        "    let configuration = WebHost.makeConfiguration(handlers: [.message(\"bridge\", handler)])\n"
+        "    let view = WebHost.makeWebView(configuration: configuration)\n"
+        "    var views: [WKWebView] = []\n"
+        "    let none = [WKWebView]()\n"
+        "    let browser = BrowserWebView(frame: .zero, configuration: configuration) // WKWebView(frame: .zero) in a trailing comment\n"
+        "    WebHost.markInspectable(browser)\n"
+        "    return view\n"
+        "}\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0 and "webview-configuration" in out, "WebHost calls, a subclass, a type annotation and comments pass webview-configuration")
+    write(root, "MarkView/Views/Workspace/BadHost.swift", (
+        "func make() {\n"
+        "    let configuration = WKWebViewConfiguration()\n"
+        "    let view = WKWebView(frame: .zero, configuration: configuration)\n"
+        "    let other = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())\n"
+        "}\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    reported = {line.split(" ")[3] for line in out.splitlines() if line.startswith("  [webview-configuration]")}
+    check(code == 1 and reported == {f"MarkView/Views/Workspace/BadHost.swift:{n}:" for n in (2, 3, 4)},
+          "a configuration or a web view made directly fails webview-configuration with file and line")
+    check("GoodHost.swift" not in out, "the good host is not reported")
+
     # --- lists
     root = fresh()
     (root / "tools/lint/process-allowlist.txt").unlink()

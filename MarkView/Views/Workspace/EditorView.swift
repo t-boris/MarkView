@@ -14,18 +14,6 @@ struct EditorView: NSViewRepresentable {
     private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
 
     func makeNSView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        let userController = WKUserContentController()
-
-        // Set up script message handler wrapped in WeakScriptMessageHandler (`AR-27`)
-        // to avoid WKUserContentController retaining Coordinator -> WebView cycles.
-        let bridge = context.coordinator.bridge
-        userController.add(WeakScriptMessageHandler(bridge.messages), name: "bridge")
-
-        config.userContentController = userController
-        #if DEBUG
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
-        #endif
         // Data viewers read their file through `markview-data:` (only files open in a data tab).
         let dataFiles = DataFileSchemeHandler()
         dataFiles.isAllowed = { [weak workspaceManager] url in
@@ -36,7 +24,6 @@ struct EditorView: NSViewRepresentable {
                 } ?? false
             }
         }
-        config.setURLSchemeHandler(dataFiles, forURLScheme: DataFileSchemeHandler.scheme)
         // The pictures a document refers to by a relative path (BUG-061): the project folder and the folder of each open document.
         let documentFiles = context.coordinator.documentFiles
         documentFiles.allowedRoots = { [weak workspaceManager] in
@@ -46,9 +33,11 @@ struct EditorView: NSViewRepresentable {
                                            documents: workspaceManager.openTabs.filter(\.isFileBacked).map(\.url))
             }
         }
-        config.setURLSchemeHandler(documentFiles, forURLScheme: DocumentFileSchemeHandler.scheme)
 
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let config = WebHost.makeConfiguration(
+            handlers: [.message("bridge", context.coordinator.bridge.messages)],
+            urlSchemeHandlers: [(DataFileSchemeHandler.scheme, dataFiles), (DocumentFileSchemeHandler.scheme, documentFiles)])
+        let webView = WebHost.makeWebView(configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView

@@ -18,6 +18,9 @@
 #                        string interpolation `\(...)`, directly or through a variable or a helper function: a script that takes values
 #                        is a `JS.call(function, args:)` (JSON-encoded arguments) or a constant literal with `arguments:`. A raw string
 #                        (`#"..."#`) interpolates with `\#(`; it is not scanned and is for a script made of compile-time constants only
+#   webview-configuration (AR-27) no `WKWebViewConfiguration(...)` and no `WKWebView(...)` in MarkView/: every host makes its configuration
+#                        with WebHost.makeConfiguration and its web view with WebHost.makeWebView (a subclass of WKWebView calls
+#                        WebHost.markInspectable), so handlers are registered weakly and a Debug build is inspectable the same way
 # Ratchets: a count that may fall and never rise. Today's sites are listed per file in an allow-list; a new site or a higher
 # count fails, and so does a lower count that the list does not yet say (run `--tighten`), so that the allowance never has slack.
 #   process              Process() outside Packages/MarkViewCore Subprocess.swift     tools/lint/process-allowlist.txt
@@ -418,8 +421,16 @@ for path in script_files:
                 if literal_interpolates(body):
                     violations.append(("js-interpolation", f"{where}: `{name.group(1)}` comes from `{helper.group(1)}` ({rel(helper_path)}:{helper_line}), which builds the script by string interpolation"))
 
+# --- webview-configuration (AR-27)
+creation = re.compile(r"(?<![A-Za-z0-9_])(WKWebViewConfiguration|WKWebView)\s*\(")
+for path in swift_files("MarkView"):
+    for number, line in code_lines(path):
+        found = creation.search(re.split(r"\s//", line)[0])
+        if found:
+            violations.append(("webview-configuration", f"{rel(path)}:{number}: creates a `{found.group(1)}` itself; use WebHost.makeConfiguration and WebHost.makeWebView"))
+
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "bridge-no-bypass", "no-private-escape", "js-interpolation"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "bridge-no-bypass", "no-private-escape", "js-interpolation", "webview-configuration"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

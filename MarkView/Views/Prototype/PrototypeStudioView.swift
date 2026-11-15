@@ -858,16 +858,13 @@ private struct PrototypePreview: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(session: session) }
 
     func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        let controller = configuration.userContentController
-        controller.add(context.coordinator, name: "mvPick")
-        controller.add(context.coordinator, name: "mvError")
-        controller.add(context.coordinator, name: "mvAudit")
         context.coordinator.theme = Coordinator.ThemeKey(session.manifest.themes)
-        context.coordinator.install(on: controller, pickScript: Self.pickScript)
-        // One origin for all files of the site: errors in app.js and screens/*.js keep their text (BUG-047).
-        configuration.setURLSchemeHandler(context.coordinator.files, forURLScheme: PrototypeSchemeHandler.scheme)
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let configuration = WebHost.makeConfiguration(
+            handlers: ["mvPick", "mvError", "mvAudit"].map { .message($0, context.coordinator) },
+            userScripts: context.coordinator.scripts(pickScript: Self.pickScript),
+            // One origin for all files of the site: errors in app.js and screens/*.js keep their text (BUG-047).
+            urlSchemeHandlers: [(PrototypeSchemeHandler.scheme, context.coordinator.files)])
+        let webView = WebHost.makeWebView(configuration: configuration)
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
         context.coordinator.load(session: session, keepingScreen: false)
@@ -890,10 +887,6 @@ private struct PrototypePreview: NSViewRepresentable {
         }
     }
 
-    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
-        webView.configuration.userContentController.removeAllScriptMessageHandlers()
-    }
-
     @MainActor
     final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var session: PrototypeSession
@@ -909,14 +902,14 @@ private struct PrototypePreview: NSViewRepresentable {
 
         /// The scripts every page of the preview starts with: the pick overlay, the screen audit and the theme attribute. They are
         /// installed again when the theme changes so the next page already paints with it.
-        func install(on controller: WKUserContentController, pickScript: String) {
-            controller.removeAllUserScripts()
-            controller.addUserScript(WKUserScript(source: pickScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-            controller.addUserScript(WKUserScript(source: PrototypeAudit.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        func scripts(pickScript: String) -> [WKUserScript] {
+            var scripts = [WKUserScript(source: pickScript, injectionTime: .atDocumentStart, forMainFrameOnly: true),
+                           WKUserScript(source: PrototypeAudit.script, injectionTime: .atDocumentStart, forMainFrameOnly: true)]
             if let attribute = theme.attribute, let id = theme.id {
-                controller.addUserScript(WKUserScript(source: PrototypeThemes.startScript(attribute: attribute, id: id),
-                                                      injectionTime: .atDocumentStart, forMainFrameOnly: true))
+                scripts.append(WKUserScript(source: PrototypeThemes.startScript(attribute: attribute, id: id),
+                                            injectionTime: .atDocumentStart, forMainFrameOnly: true))
             }
+            return scripts
         }
 
         /// Applies a change of theme to the open page at once, without a reload, and to the pages that follow.
@@ -924,7 +917,9 @@ private struct PrototypePreview: NSViewRepresentable {
             guard new != theme, let webView else { return }
             let old = theme
             theme = new
-            install(on: webView.configuration.userContentController, pickScript: PrototypePreview.pickScript)
+            let controller = webView.configuration.userContentController
+            controller.removeAllUserScripts()
+            scripts(pickScript: PrototypePreview.pickScript).forEach(controller.addUserScript)
             if let previous = old.attribute, previous != new.attribute { setThemeAttribute(previous, to: nil) }
             if let attribute = new.attribute { setThemeAttribute(attribute, to: new.id) }
         }

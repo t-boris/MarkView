@@ -1,5 +1,4 @@
 import Foundation
-import WebKit
 
 var passed = 0
 var failed = 0
@@ -109,20 +108,6 @@ if let extraDefaults = UserDefaults(suiteName: extraSuite) {
     check(resolvedViaExtra == toolScript.path,
           "FU-04: Subprocess resolves executables from settings.cli.extraPATH")
 }
-
-// 5. AR-27: WeakScriptMessageHandler breaks retain cycle
-final class DummyHandler: NSObject, WKScriptMessageHandler {
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {}
-}
-weak var weakHandler: DummyHandler?
-autoreleasepool {
-    let handler = DummyHandler()
-    weakHandler = handler
-    let proxy = WeakScriptMessageHandler(handler)
-    _ = proxy.target
-}
-check(weakHandler == nil,
-      "AR-27: WeakScriptMessageHandler does not retain its target")
 
 print("\nPhase 2 Core checks: \(passed) passed, \(failed) failed")
 if failed > 0 { exit(1) }

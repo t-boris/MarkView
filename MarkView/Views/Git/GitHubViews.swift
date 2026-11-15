@@ -1,6 +1,9 @@
 import SwiftUI
 import AppKit
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // MARK: - Shared pieces
 
@@ -1427,10 +1430,7 @@ struct GitHubHTMLView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        configuration.websiteDataStore = .nonPersistent()
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let view = WebHost.makeWebView(configuration: WebHost.makeConfiguration(dataStore: .nonPersistent, allowsJavaScript: false))
         view.navigationDelegate = context.coordinator
         view.setValue(false, forKey: "drawsBackground")
         return view

@@ -1,5 +1,8 @@
 import AppKit
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// What the address field turns into a URL: a full URL as typed, `localhost:5173` or an
 /// address of this machine over http, a host name over https, anything else a web search.
@@ -147,10 +150,13 @@ final class BrowserSession: NSObject, ObservableObject {
     /// Where the page keeps its cookies and storage; nil is the browser's shared store. A QA player gets a store of its own
     /// (`.nonPersistent()`), so players never share a sign-in.
     private let dataStore: WKWebsiteDataStore?
+    /// Page channels the owner of the session adds to the tab's own (the QA player's fault counter).
+    private let extraHandlers: [WebHost.Handler]
 
-    init(url: URL?, dataStore: WKWebsiteDataStore? = nil) {
+    init(url: URL?, dataStore: WKWebsiteDataStore? = nil, extraHandlers: [WebHost.Handler] = []) {
         self.url = url
         self.dataStore = dataStore
+        self.extraHandlers = extraHandlers
         super.init()
     }
 
@@ -163,30 +169,30 @@ final class BrowserSession: NSObject, ObservableObject {
     }
 
     private func makeWebView() -> BrowserWebView {
-        let configuration = WKWebViewConfiguration()
-        if let dataStore { configuration.websiteDataStore = dataStore }
-        configuration.preferences.isElementFullscreenEnabled = true
-        // Sign-in pages (Google) refuse an embedded browser that does not name itself a Safari.
-        configuration.applicationNameForUserAgent = "Version/17.0 Safari/605.1.15"
-        agentFrames.install(in: configuration.userContentController)
-        // The page's console and uncaught errors, kept for agents (`browser_console`).
-        configuration.userContentController.addUserScript(WKUserScript(
-            source: Self.consoleCaptureScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        if let scriptURL = Self.captureScriptURL, let source = try? String(contentsOf: scriptURL, encoding: .utf8) {
-            configuration.userContentController.addUserScript(WKUserScript(
-                source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
-        }
-        if let pickURL = Self.pickScriptURL, let source = try? String(contentsOf: pickURL, encoding: .utf8) {
-            configuration.userContentController.addUserScript(WKUserScript(
-                source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
-        }
         let passwords = BrowserPasswordHandler()
         passwords.session = self
         passwordHandler = passwords
-        configuration.userContentController.add(passwords, contentWorld: .defaultClient, name: BrowserPasswordScript.handlerName)
-        configuration.userContentController.addUserScript(WKUserScript(
-            source: BrowserPasswordScript.source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+        var scripts = [
+            agentFrames.webHostScript,
+            // The page's console and uncaught errors, kept for agents (`browser_console`).
+            WKUserScript(source: Self.consoleCaptureScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page),
+        ]
+        for url in [Self.captureScriptURL, Self.pickScriptURL] {
+            if let url, let source = try? String(contentsOf: url, encoding: .utf8) {
+                scripts.append(WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+            }
+        }
+        scripts.append(WKUserScript(source: BrowserPasswordScript.source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+        let configuration = WebHost.makeConfiguration(
+            dataStore: dataStore.map(WebHost.DataStore.store) ?? .default,
+            handlers: [agentFrames.webHostHandler, .message(BrowserPasswordScript.handlerName, passwords, in: .defaultClient)] + extraHandlers,
+            userScripts: scripts,
+            allowsPopups: true,
+            allowsElementFullscreen: true,
+            // Sign-in pages (Google) refuse an embedded browser that does not name itself a Safari.
+            applicationName: "Version/17.0 Safari/605.1.15")
         let view = BrowserWebView(frame: .zero, configuration: configuration)
+        WebHost.markInspectable(view)
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true

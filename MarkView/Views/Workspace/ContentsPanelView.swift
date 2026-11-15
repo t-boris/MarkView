@@ -1,5 +1,8 @@
 import SwiftUI
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The Contents tab of the right panel: what the open tab holds, whatever it is. A Markdown file shows
 /// its headings, an HTML file its page, an archive its entries, and every file its facts (kind, size,
@@ -120,9 +123,7 @@ struct HTMLPreviewView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let view = WebHost.makeWebView(configuration: WebHost.makeConfiguration(allowsJavaScript: false))
         view.setValue(false, forKey: "drawsBackground")
         return view
     }

@@ -182,16 +182,18 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     static var pageURL = Bundle.main.url(forResource: "terminal", withExtension: "html", subdirectory: "Editor")
 
     private func makeWebView() -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.userContentController.add(WeakMessageHandler(messages), name: "terminal")
-        // `mvBridge.send` in the page validates every message against the contract (AR-28).
-        configuration.userContentController.addUserScript(messages.contract.userScript)
-        // The first fit already uses the current scale, so the PTY starts with the final grid.
-        // The first paint already has the window's theme (the page is created lazily, after the host applied it).
-        configuration.userContentController.addUserScript(WKUserScript(
-            source: "window.mvFontScale = \(Double(fontScale)); window.mvOperation = \(operationCommand != nil); \(themeFirstPaint)",
-            injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let configuration = WebHost.makeConfiguration(
+            handlers: [.message("terminal", messages)],
+            userScripts: [
+                // `mvBridge.send` in the page validates every message against the contract (AR-28).
+                messages.contract.userScript,
+                // The first fit already uses the current scale, so the PTY starts with the final grid.
+                // The first paint already has the window's theme (the page is created lazily, after the host applied it).
+                WKUserScript(
+                    source: "window.mvFontScale = \(Double(fontScale)); window.mvOperation = \(operationCommand != nil); \(themeFirstPaint)",
+                    injectionTime: .atDocumentStart, forMainFrameOnly: true),
+            ])
+        let view = WebHost.makeWebView(configuration: configuration)
         if let page = Self.pageURL {
             view.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
         }
@@ -703,14 +705,5 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
               let code = exitMarkerPending else { return }
         exitMarkerPending = nil
         callPage("window.mvExited", [Int(code)])
-    }
-}
-
-/// WKUserContentController retains its handlers; this keeps the session releasable.
-private final class WeakMessageHandler: NSObject, WKScriptMessageHandler {
-    weak var target: WKScriptMessageHandler?
-    init(_ target: WKScriptMessageHandler) { self.target = target }
-    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        target?.userContentController(controller, didReceive: message)
     }
 }

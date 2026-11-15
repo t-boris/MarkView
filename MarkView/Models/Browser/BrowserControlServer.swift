@@ -317,10 +317,11 @@ enum BrowserAgentExecutor {
         private var active: Set<Int> = []
         private var next = 0
 
-        func install(in controller: WKUserContentController) {
-            controller.add(self, contentWorld: .defaultClient, name: Self.handler)
-            controller.addUserScript(WKUserScript(source: Self.registration, injectionTime: .atDocumentStart,
-                                                  forMainFrameOnly: false, in: .defaultClient))
+        /// What a browser web view needs so each child frame is registered: the handler that receives its token and the script
+        /// that sends it (`WebHost.makeConfiguration`).
+        var webHostHandler: WebHost.Handler { .message(Self.handler, self, in: .defaultClient) }
+        var webHostScript: WKUserScript {
+            WKUserScript(source: Self.registration, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .defaultClient)
         }
         func reset() { entries = [:]; active = []; next = 0 }
         func beginSnapshot() { active = [] }

@@ -1,6 +1,9 @@
 import AppKit
 import Foundation
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One screen of one saved version of a prototype from code, rendered offscreen and returned as a PNG (feature "Prototype and code stay
 /// in step", REQ-017).
@@ -95,17 +98,15 @@ final class PrototypeScreenshots {
             throw Failure.noScreen(page)
         }
 
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        let handler = PrototypeSchemeHandler(root: target.site)
-        configuration.setURLSchemeHandler(handler, forURLScheme: PrototypeSchemeHandler.scheme)
-        if let theme {
-            configuration.userContentController.addUserScript(WKUserScript(
-                source: PrototypeThemes.startScript(attribute: theme.attribute, id: theme.id),
-                injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        }
+        let themeScripts = theme.map {
+            [WKUserScript(source: PrototypeThemes.startScript(attribute: $0.attribute, id: $0.id),
+                          injectionTime: .atDocumentStart, forMainFrameOnly: true)]
+        } ?? []
+        let configuration = WebHost.makeConfiguration(
+            dataStore: .nonPersistent, userScripts: themeScripts,
+            urlSchemeHandlers: [(PrototypeSchemeHandler.scheme, PrototypeSchemeHandler(root: target.site))])
         let size = Self.viewport
-        let web = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: configuration)
+        let web = WebHost.makeWebView(frame: NSRect(origin: .zero, size: size), configuration: configuration)
         let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: size.width, height: size.height),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

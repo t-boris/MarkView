@@ -1,5 +1,4 @@
 import Foundation
-import WebKit
 import XCTest
 @testable import MarkViewCore
 
@@ -329,19 +328,5 @@ final class MarkViewCoreTests: XCTestCase {
         let a = URL(fileURLWithPath: "/Users/alice/work/app")
         let b = URL(fileURLWithPath: "/Users/bob/work/app")
         XCTAssertNotEqual(ProjectPaths.projectCacheIdentifier(for: a), ProjectPaths.projectCacheIdentifier(for: b))
-    }
-
-    func testWeakScriptMessageHandlerDoesNotRetainTarget() {
-        final class DummyHandler: NSObject, WKScriptMessageHandler {
-            func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {}
-        }
-        weak var weakTarget: DummyHandler?
-        autoreleasepool {
-            let target = DummyHandler()
-            weakTarget = target
-            let proxy = WeakScriptMessageHandler(target)
-            _ = proxy.target
-        }
-        XCTAssertNil(weakTarget)
     }
 }

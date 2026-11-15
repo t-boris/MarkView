@@ -41,7 +41,7 @@ final class QAWebActor: QAActorDriver {
     init(request: QADriverRequest, credentials: QACredentials) {
         self.request = request
         origin = URL(string: request.address)
-        session = BrowserSession(url: nil, dataStore: .nonPersistent())
+        session = BrowserSession(url: nil, dataStore: .nonPersistent(), extraHandlers: [.message(QAFaultHandler.name, faultHandler)])
         self.credentials = credentials
         let size = Self.viewport
         window = QAWebWindow(contentRect: NSRect(x: -30000, y: -30000, width: size.width, height: size.height),
@@ -55,7 +55,6 @@ final class QAWebActor: QAActorDriver {
         window.contentView = web
         window.orderBack(nil)
         faultHandler.owner = self
-        web.configuration.userContentController.add(faultHandler, contentWorld: .page, name: QAFaultHandler.name)
     }
 
     // MARK: QAActorDriver

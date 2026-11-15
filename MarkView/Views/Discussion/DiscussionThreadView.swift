@@ -16,14 +16,15 @@ struct DiscussionThreadView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.userContentController.add(context.coordinator.messages, name: "discussion")
-        // `mvBridge.send` in the page validates every message against the contract (AR-28).
-        configuration.userContentController.addUserScript(context.coordinator.messages.contract.userScript)
-        // The first paint already has this window's theme; later changes arrive through `mvSetTheme`.
-        configuration.userContentController.addUserScript(WKUserScript(
-            source: theme.firstPaintScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let configuration = WebHost.makeConfiguration(
+            handlers: [.message("discussion", context.coordinator.messages)],
+            userScripts: [
+                // `mvBridge.send` in the page validates every message against the contract (AR-28).
+                context.coordinator.messages.contract.userScript,
+                // The first paint already has this window's theme; later changes arrive through `mvSetTheme`.
+                WKUserScript(source: theme.firstPaintScript, injectionTime: .atDocumentStart, forMainFrameOnly: true),
+            ])
+        let view = WebHost.makeWebView(configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.setValue(false, forKey: "drawsBackground")
         context.coordinator.view = view
