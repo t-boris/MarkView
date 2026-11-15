@@ -42,6 +42,10 @@ struct BackdropBuilder {
         case .circuit: return circuit()
         case .garden: return garden()
         case .launch: return launch()
+        case .gitflow: return gitFlow()
+        case .typewriter: return typewriter()
+        case .deepsea: return deepSea()
+        case .warp: return warp()
         case .project, .shuffle, .off: return []
         }
     }

@@ -3,9 +3,9 @@ import QuartzCore
 
 /// Five scenes built from vector layers. Motion stays in the render server and uses no display-link or SwiftUI frame timer.
 extension BackdropBuilder {
-    private var tints: [NSColor] { [colors.cyan, colors.purple, colors.green, colors.blue, colors.orange] }
+    var tints: [NSColor] { [colors.cyan, colors.purple, colors.green, colors.blue, colors.orange] }
 
-    private func shape(_ path: CGPath, stroke: NSColor?, fill: NSColor? = nil, width: CGFloat = 1) -> CAShapeLayer {
+    func shape(_ path: CGPath, stroke: NSColor?, fill: NSColor? = nil, width: CGFloat = 1) -> CAShapeLayer {
         let result = CAShapeLayer()
         result.path = path
         result.strokeColor = stroke?.cgColor
@@ -17,7 +17,7 @@ extension BackdropBuilder {
         return result
     }
 
-    private func glow(at point: CGPoint, radius: CGFloat, tint: NSColor) -> CALayer {
+    func glow(at point: CGPoint, radius: CGFloat, tint: NSColor) -> CALayer {
         let result = CAGradientLayer()
         result.type = .radial
         result.bounds = CGRect(x: 0, y: 0, width: radius * 2, height: radius * 2)
@@ -28,7 +28,7 @@ extension BackdropBuilder {
         return result
     }
 
-    private func follow(_ path: CGPath, seconds: Double, phase: Double, rotate: Bool = false) -> CAKeyframeAnimation {
+    func follow(_ path: CGPath, seconds: Double, phase: Double, rotate: Bool = false) -> CAKeyframeAnimation {
         let result = CAKeyframeAnimation(keyPath: "position")
         result.path = path
         result.calculationMode = .paced

@@ -124,9 +124,14 @@ MainActor.assumeIsolated {
     ta.select(.midnight)
     check(centre(render(Probe().windowThemed(ta))) == 0x151C2B, "the view follows a theme change at once")
     check(centre(render(Probe().windowThemed(tb))) == 0xFFFCF5, "and the other window does not")
+    ta.select(.nord); tb.select(.daylight)
+    check(centre(render(Probe().windowThemed(ta))) == 0x2E3440, "a view in a Nord window draws the Nord background")
+    check(centre(render(Probe().windowThemed(tb))) == 0xF7F9FC, "a view in a Daylight window draws the Daylight background")
+    ta.select(.forest)
+    check(centre(render(Probe().windowThemed(ta))) == 0x1E2A22, "a view in a Forest window draws the Forest background")
 
     // MARK: the picker draws in every theme and lists what it should
-    for theme in [AppTheme.classicDark, .darcula, .midnight, .graphite, .tokyoNight, .carbonRed, .paper] {
+    for theme in [AppTheme.classicDark, .darcula, .midnight, .graphite, .tokyoNight, .carbonRed, .nord, .forest, .paper, .daylight] {
         let t = WindowTheme(store: freshStore())
         t.select(theme)
         let image = render(ThemePickerView().windowThemed(t))

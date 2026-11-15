@@ -267,6 +267,61 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
             }
         }
     }
+    // Git Flow and Typewriter (DevBackdropLayers.swift): a busier project draws more, the busiest picture stays small, the graph loops
+    // without a seam and the page is typed in steps over one cycle.
+    for kind in [WelcomeBackdrop.gitflow, .typewriter] {
+        for size in [CGSize(width: 1142, height: 1068), CGSize(width: 2600, height: 1400)] {
+            func layerCount(_ detail: Int) -> Int {
+                BackdropBuilder(size: size, colors: darkColors, scale: 2, animated: true, seed: 11, detail: detail)
+                    .layers(for: kind).flatMap(allLayers).count
+            }
+            check(layerCount(4) > layerCount(1), "\(kind.rawValue) \(Int(size.width))x\(Int(size.height)): a busier project draws more layers (\(layerCount(1)) at detail 1, \(layerCount(4)) at detail 4)")
+            check(layerCount(4) <= 260, "\(kind.rawValue) \(Int(size.width))x\(Int(size.height)): at most 260 layers at the highest detail (\(layerCount(4)))")
+        }
+    }
+    let flow = BackdropBuilder(size: CGSize(width: 1142, height: 1068), colors: darkColors, scale: 2, animated: true, seed: 11).layers(for: .gitflow)
+    if let container = flow.first, let drift = container.animation(forKey: "drift") as? CABasicAnimation {
+        check(flow.count == 1 && drift.fromValue as? Double == 0 && drift.toValue as? Double == -1142 && !drift.autoreverses,
+              "gitflow: the graph slides left by exactly one window width and starts again")
+        let copies = container.sublayers ?? []
+        func anchor(_ layer: CALayer) -> CGFloat { layer.position.x + ((layer as? CAShapeLayer)?.path?.boundingBox.minX ?? 0) }
+        let half = copies.count / 2
+        check(half > 0 && copies.count % 2 == 0 && (0..<half).allSatisfy { abs(anchor(copies[$0 + half]) - anchor(copies[$0]) - 1142) < 0.01 },
+              "gitflow: the second copy of the graph lies exactly one window width to the right of the first (\(copies.count) layers)")
+    } else {
+        check(false, "gitflow: the graph slides")
+    }
+    let writing = BackdropBuilder(size: CGSize(width: 1142, height: 1068), colors: darkColors, scale: 2, animated: true, seed: 11).layers(for: .typewriter)
+    check(writing.count >= 2 && writing.count % 2 == 0, "typewriter: a page and its caret for every page (\(writing.count / 2) pages)")
+    var oneCycle = true
+    for index in stride(from: 0, to: writing.count - 1, by: 2) {
+        let page = writing[index], caret = writing[index + 1]
+        let cycle = (caret.animation(forKey: "caret") as? CAAnimationGroup)?.duration ?? -1
+        let typed = (page.sublayers ?? []).compactMap { $0.animation(forKey: "type") as? CAAnimationGroup }
+        let fades = [page, caret].compactMap { $0.animation(forKey: "page")?.duration }
+        if !(cycle > 0 && !typed.isEmpty && typed.allSatisfy { $0.duration == cycle } && fades == [cycle, cycle]) { oneCycle = false }
+    }
+    check(oneCycle, "typewriter: the bars, the caret and the fade of a page run one cycle, so the page starts again clean")
+    let presses = writing.flatMap { $0.sublayers ?? [] }.compactMap { ($0.animation(forKey: "type") as? CAAnimationGroup)?.animations?.first as? CAKeyframeAnimation }
+    check(!presses.isEmpty && presses.allSatisfy { $0.calculationMode == .discrete && ($0.values?.count ?? 0) >= 2 }, "typewriter: letters appear in key presses, not as a wipe (\(presses.count) bars)")
+    let stillWriting = BackdropBuilder(size: CGSize(width: 1142, height: 1068), colors: darkColors, scale: 2, animated: false, seed: 11).layers(for: .typewriter)
+    var finished = stillWriting.count >= 2
+    for index in stride(from: 0, to: stillWriting.count - 1, by: 2) {
+        let bars = (stillWriting[index].sublayers ?? []).compactMap { $0 as? CAShapeLayer }
+        guard let last = bars.last, let box = last.path?.boundingBox else { finished = false; continue }
+        let caret = stillWriting[index + 1].position
+        if !(bars.allSatisfy { $0.strokeEnd == 1 } && abs(caret.x - (box.maxX + 3)) < 0.5 && abs(caret.y - box.midY) < 0.5) { finished = false }
+    }
+    check(finished, "typewriter: the still page is fully written and its caret stands at the end of the last bar")
+    // Deep Sea and Warp (AtmosphereBackdropLayers.swift): a busier project draws more, and even the busiest picture stays small.
+    for kind in [WelcomeBackdrop.deepsea, .warp] {
+        func layerCount(_ detail: Int) -> Int {
+            BackdropBuilder(size: CGSize(width: 1142, height: 1068), colors: darkColors, scale: 2, animated: true, seed: 11, detail: detail)
+                .layers(for: kind).flatMap(allLayers).count
+        }
+        check(layerCount(4) > layerCount(1), "\(kind.rawValue): a busier project draws more layers (\(layerCount(1)) at detail 1, \(layerCount(4)) at detail 4)")
+        check(layerCount(4) <= 260, "\(kind.rawValue): at most 260 layers at the highest detail (\(layerCount(4)))")
+    }
     let matrix = BackdropBuilder(size: CGSize(width: 800, height: 600), colors: darkColors, scale: 2, animated: true, seed: 11).layers(for: .matrix)
     check(matrix.allSatisfy { Set($0.animationKeys() ?? []) == ["fall", "flicker"] }, "matrix: every strip falls and flickers")
     let flicker = matrix.compactMap { $0.animation(forKey: "flicker") as? CAKeyframeAnimation }

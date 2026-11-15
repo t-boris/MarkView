@@ -6,7 +6,8 @@ func check(_ condition: Bool, _ message: String) {
 }
 func ratio(_ a: ThemeColor, _ b: ThemeColor) -> String { String(format: "%.2f", ThemeColor.contrast(a, b)) }
 
-let presets: [AppTheme] = [.darcula, .midnight, .graphite, .tokyoNight, .carbonRed, .paper]
+let presets: [AppTheme] = [.darcula, .midnight, .graphite, .tokyoNight, .carbonRed, .nord, .forest, .paper, .daylight]
+let lightPresets: [AppTheme] = [.paper, .daylight]
 
 // MARK: colour basics
 check(ThemeColor(hex: "#12ab34")?.rgb == 0x12AB34, "lower-case hex with # parses")
@@ -18,8 +19,8 @@ check(ThemeColor(0xFFFFFF).readableText.rgb == 0x000000 && ThemeColor(0x000000).
 check(ThemeColor(0x000000).mixed(with: ThemeColor(0xFFFFFF), fraction: 0.5).rgb == 0x808080, "mixing halfway")
 
 // MARK: appearances
-check(AppTheme.paper.isDark(systemIsDark: true) == false, "Paper is light even when macOS is dark")
-for t in presets.filter({ $0 != .paper }) + [.classicDark] { check(t.isDark(systemIsDark: false), "\(t) is dark even when macOS is light") }
+for t in lightPresets { check(t.isDark(systemIsDark: true) == false, "\(t) is light even when macOS is dark") }
+for t in presets.filter({ !lightPresets.contains($0) }) + [.classicDark] { check(t.isDark(systemIsDark: false), "\(t) is dark even when macOS is light") }
 check(AppTheme.system.isDark(systemIsDark: true) && !AppTheme.system.isDark(systemIsDark: false), "System follows macOS")
 check(AppTheme.system.resolved(systemIsDark: true) == .classicDark && AppTheme.system.resolved(systemIsDark: false) == .classicLight,
       "System draws Classic Dark or Classic Light")
@@ -54,7 +55,9 @@ for theme in presets + [.classicDark, .classicLight] {
 // Base colours approved in DEC-003.
 let approved: [(AppTheme, UInt32, UInt32, UInt32, UInt32)] = [
     (.darcula, 0x2B2B2B, 0x323232, 0xE0E0E0, 0xE6A15C), (.midnight, 0x151C2B, 0x1D2738, 0xE5EBF5, 0x79B8FF),
-    (.graphite, 0x202124, 0x2A2C30, 0xE8EAED, 0xB39DDB), (.paper, 0xFFFCF5, 0xF2EDE3, 0x292724, 0x315E9B)]
+    (.graphite, 0x202124, 0x2A2C30, 0xE8EAED, 0xB39DDB), (.paper, 0xFFFCF5, 0xF2EDE3, 0x292724, 0x315E9B),
+    (.nord, 0x2E3440, 0x353C4A, 0xE5E9F0, 0x88C0D0), (.forest, 0x1E2A22, 0x26352B, 0xDDD8C0, 0xA7C080),
+    (.daylight, 0xF7F9FC, 0xE8EDF4, 0x1F2933, 0x0F766E)]
 for (theme, bg, panel, text, accent) in approved {
     let b = ThemePalette.webBase(theme)
     check(b.bg.rgb == bg && b.panel.rgb == panel && b.text.rgb == text && b.accent.rgb == accent, "\(theme) keeps its approved base colours")
@@ -83,6 +86,11 @@ check(ThemeColor.contrast(dark.blue, dark.bg) >= 4.5 && ThemeColor.contrast(dark
 let pale = ThemePalette.make(.paper, accent: ThemeColor(0xFFF2B0))
 check(ThemeColor.contrast(pale.blue, pale.bg) >= 4.5, "a pale accent on Paper is darkened where it is text (\(ratio(pale.blue, pale.bg)))")
 check(ThemeColor.contrast(pale.onAccent, pale.badge) >= 4.5, "text on a pale badge is readable")
+let paleDay = ThemePalette.make(.daylight, accent: ThemeColor(0xFFF2B0))
+check(ThemeColor.contrast(paleDay.blue, paleDay.bg) >= 4.5 && ThemeColor.contrast(paleDay.blue, paleDay.bgSidebar) >= 4.5,
+      "a pale accent on Daylight is darkened where it is text (\(ratio(paleDay.blue, paleDay.bg)))")
+let darkForest = ThemePalette.make(.forest, accent: ThemeColor(0x14301C))
+check(ThemeColor.contrast(darkForest.blue, darkForest.bg) >= 4.5, "a dark accent on Forest is lightened where it is text (\(ratio(darkForest.blue, darkForest.bg)))")
 check(ThemePalette.make(.classicDark, accent: pink).blue != cd.blue, "Classic takes an accent too")
 
 // MARK: per-appearance accent memory (DEC-002)
@@ -106,7 +114,7 @@ full.select(.paper)
 full.setAccent(ThemeColor(0xABCDEF))
 let data = try! JSONEncoder().encode(full)
 check((try? JSONDecoder().decode(WindowThemeSettings.self, from: data)) == full, "settings survive a round trip")
-for theme in [AppTheme.tokyoNight, .carbonRed] {
+for theme in [AppTheme.tokyoNight, .carbonRed, .nord, .forest, .daylight] {
     let settings = WindowThemeSettings(theme: theme, accents: [theme: pink])
     let encoded = try! JSONEncoder().encode(settings)
     check((try? JSONDecoder().decode(WindowThemeSettings.self, from: encoded)) == settings, "\(theme) and its custom accent survive a relaunch")
