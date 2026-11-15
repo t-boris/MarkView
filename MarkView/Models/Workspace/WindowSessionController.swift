@@ -27,7 +27,8 @@ final class WindowSessionController {
     private var pending: [UUID: WorkspaceWindowState] = [:]
     private var order: [UUID] = []
     private var entries: [UUID: Entry] = [:]
-    private var saveTask: Task<Void, Never>?
+    /// The delayed save of the sessions; a new request replaces it (`AR-19`).
+    private let tasks = TaskBag()
     private var revision = 0
     private(set) var terminating = false
 
@@ -161,6 +162,8 @@ final class WindowSessionController {
         entries.removeValue(forKey: id)
         pending.removeValue(forKey: id)
         order.removeAll { $0 == id }
+        // The Finder request poll runs while a window is open; a request waits in its file for the next one.
+        if entries.isEmpty { FinderOpenRequests.shared.stop() }
         scheduleSave()
     }
 
@@ -183,8 +186,7 @@ final class WindowSessionController {
 
     private func scheduleSave() {
         guard !terminating else { return }
-        saveTask?.cancel()
-        saveTask = Task { [weak self] in
+        tasks.store(Task { [weak self] in
             do { try await Task.sleep(nanoseconds: 400_000_000) } catch { return }
             guard let self, !self.terminating else { return }
             self.revision += 1
@@ -195,7 +197,7 @@ final class WindowSessionController {
             } catch {
                 NSLog("[WindowSession] Could not save window sessions: %@", error.localizedDescription)
             }
-        }
+        }, for: "save")
     }
 
     /// The refusal reaches the user once per launch, in the banner every window already has for save errors, on the
@@ -210,7 +212,7 @@ final class WindowSessionController {
     /// Never fails and never holds up the quit: see `WindowSessionStorage.saveAtQuit`.
     func saveBeforeTermination() async {
         terminating = true
-        saveTask?.cancel()
+        tasks.cancel(key: "save")
         // If quit arrives before the first window attached, retain the loaded archive.
         let previous = await loadedArchive.value
         revision += 1
@@ -265,15 +267,15 @@ private final class ProjectOperationWindowCloseDelegate: NSObject, NSWindowDeleg
         alert.addButton(withTitle: "Stop operations and close")
         guard alert.runModal() == .alertSecondButtonReturn else { return false }
         store.cancelForClose()
-        Task { [weak self, weak sender] in
-            while store.runs.values.contains(where: \.isActive) {
+        workspace?.taskBag.store(Task { [weak self, weak sender] in
+            while !Task.isCancelled, store.runs.values.contains(where: \.isActive) {
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
-            guard let self, let sender else { return }
+            guard !Task.isCancelled, let self, let sender else { return }
             self.closeAfterStop = true
             sender.performClose(nil)
             self.closeAfterStop = false
-        }
+        }, for: "close-after-stop")
         return false
     }
 }

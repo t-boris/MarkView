@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 188,
+  "suiteCount": 189,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -786,6 +786,17 @@
         "MarkView/Models/Workspace/FileInfo.swift",
         "tools/tests/FileInfoTests.swift",
         "tools/tests/file-info-tests.sh"
+      ]
+    },
+    {
+      "name": "finder-open-requests-tests",
+      "script": "tools/tests/finder-open-requests-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Workspace/FinderOpenRequests.swift",
+        "MarkView/Models/Workspace/TaskBag.swift",
+        "tools/tests/FinderOpenRequestsTests.swift",
+        "tools/tests/finder-open-requests-tests.sh"
       ]
     },
     {

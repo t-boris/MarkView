@@ -27,6 +27,7 @@
 		07044898F5427AD51A50B427 /* DocumentScrollSideTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */; };
 		07044898F5427AD51A50B430 /* TaskBag.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD10 /* TaskBag.swift */; };
 		98C5629E8EC7EF49B7CC3471 /* TabsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FB7907ACA21EEA149AD8958 /* TabsController.swift */; };
+		4618C98597316124EAB34D9F /* FinderOpenRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */; };
 		C041BCC7EAEF6931AECB3CE1 /* WindowSessionSnapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */; };
 		C8154BE60D692E4B2E5DEA64 /* WindowRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */; };
 		D1B5AF536376371B8D63C2F7 /* WindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 371B8D63C2F7DBE224FF185A /* WindowChrome.swift */; };
@@ -837,6 +838,7 @@
 		A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentScrollSideTable.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD10 /* TaskBag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskBag.swift; sourceTree = "<group>"; };
 		8FB7907ACA21EEA149AD8958 /* TabsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabsController.swift; sourceTree = "<group>"; };
+		6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderOpenRequests.swift; sourceTree = "<group>"; };
 		6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSessionSnapshotter.swift; sourceTree = "<group>"; };
 		2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRequests.swift; sourceTree = "<group>"; };
 		371B8D63C2F7DBE224FF185A /* WindowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChrome.swift; sourceTree = "<group>"; };
@@ -1561,6 +1563,7 @@
 				75282A5DF053FCD311C2528B /* TabClosing.swift */,
 				A6E0167483A13431C669BD10 /* TaskBag.swift */,
 				8FB7907ACA21EEA149AD8958 /* TabsController.swift */,
+				6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */,
 				6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */,
 				2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */,
 				371B8D63C2F7DBE224FF185A /* WindowChrome.swift */,
@@ -2214,6 +2217,7 @@
 				07044898F5427AD51A50B427 /* DocumentScrollSideTable.swift in Sources */,
 				07044898F5427AD51A50B430 /* TaskBag.swift in Sources */,
 				98C5629E8EC7EF49B7CC3471 /* TabsController.swift in Sources */,
+				4618C98597316124EAB34D9F /* FinderOpenRequests.swift in Sources */,
 				C041BCC7EAEF6931AECB3CE1 /* WindowSessionSnapshotter.swift in Sources */,
 				C8154BE60D692E4B2E5DEA64 /* WindowRequests.swift in Sources */,
 				D1B5AF536376371B8D63C2F7 /* WindowChrome.swift in Sources */,
