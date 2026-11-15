@@ -41,13 +41,10 @@ enum UsageAgent: String, CaseIterable, Identifiable, Sendable {
     /// protobuf conversation files, so its only source is its own `/usage` command (DEC-020).
     var hasLocalLogs: Bool { self != .antigravity }
 
-    /// Seconds between automatic refreshes of the official data. `agy` starts a process and makes several
-    /// requests per read, so Antigravity is read less often than the two HTTP endpoints (DEC-020).
-    var pollInterval: TimeInterval { self == .antigravity ? 10 * 60 : 5 * 60 }
-
-    /// Seconds before the next automatic try while signed out. For Antigravity every try starts a sign-in
-    /// prompt that only ends at our timeout, so it waits longer.
-    var signedOutInterval: TimeInterval { self == .antigravity ? 30 * 60 : pollInterval }
+    /// Seconds before the next automatic try while signed out, when it differs from the normal poll interval
+    /// (`AgentUsageTracker.pollInterval`). For Antigravity every try starts a sign-in prompt that only ends at
+    /// our timeout, so it waits longer (DEC-020); nil for the others.
+    var signedOutInterval: TimeInterval? { self == .antigravity ? 30 * 60 : nil }
 
     /// UserDefaults key: the user hid this agent's indicator (Settings → DDE).
     var hiddenKey: String { "settings.usage.\(rawValue).hidden" }

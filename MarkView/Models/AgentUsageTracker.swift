@@ -37,7 +37,7 @@ struct AgentUsageSnapshot {
 final class AgentUsageTracker: ObservableObject {
     static let shared = AgentUsageTracker()
 
-    // DEC-010 constants, fixed in v1. `pollInterval` is the default; `UsageAgent.pollInterval` is per agent.
+    // DEC-010 constants, fixed in v1.
     nonisolated static let pollInterval: TimeInterval = 5 * 60
     nonisolated static let manualCooldown: TimeInterval = 60
     nonisolated static let backoffStart: TimeInterval = 5 * 60
@@ -229,7 +229,7 @@ final class AgentUsageTracker: ObservableObject {
             state.windows = windows
             state.fetchedAt = time
             state.backoff = 0
-            state.nextFetch = time.addingTimeInterval(agent.pollInterval)
+            state.nextFetch = time.addingTimeInterval(Self.pollInterval)
             state.note = nil
             WorkspaceManager.debugLog("agent usage: \(agent.rawValue) official data, \(windows.count) window(s)")
         case .signedOut:
@@ -237,7 +237,7 @@ final class AgentUsageTracker: ObservableObject {
             state.windows = nil
             state.fetchedAt = nil
             state.backoff = 0
-            state.nextFetch = time.addingTimeInterval(agent.signedOutInterval)
+            state.nextFetch = time.addingTimeInterval(agent.signedOutInterval ?? Self.pollInterval)
             state.note = "Official limit data unavailable — open \(name) to refresh sign-in"
             WorkspaceManager.debugLog("agent usage: \(agent.rawValue) official data unavailable (signed out or expired)")
         case .keychainDenied:
