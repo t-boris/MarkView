@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 181,
+  "suiteCount": 182,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -93,6 +93,16 @@
         "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
         "tools/tests/AutoAnalysisSchedulerTests.swift",
         "tools/tests/auto-analysis-scheduler-tests.sh"
+      ]
+    },
+    {
+      "name": "background-file-scans-tests",
+      "script": "tools/tests/background-file-scans-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "tools/tests/BackgroundFileScansTests.swift",
+        "tools/tests/background-file-scans-tests.sh"
       ]
     },
     {
@@ -956,6 +966,7 @@
       "tier": "gui",
       "sources": [
         "MarkView/Models/Appearance/AppTheme.swift",
+        "MarkView/Models/Workspace/BackgroundFileScans.swift",
         "MarkView/Models/Workspace/DocumentState.swift",
         "MarkView/Models/Lifecycle/FeatureIngest.swift",
         "MarkView/Models/Book/PDFReader.swift",

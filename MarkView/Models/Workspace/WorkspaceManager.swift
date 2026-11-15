@@ -28,8 +28,10 @@ final class WorkspaceFileTreeStore: ObservableObject {
     private var fileWatchTimer: Timer?
     private var fileWatchDebounce: DispatchWorkItem?
     private var lastRootModDate: Date?
-    /// Cached markdown presence flag invalidated when the root tree reloads (`AR-42`).
-    var cachedHasMarkdownFiles: Bool?
+    /// Whether the open folder holds a Markdown file (`AR-42`). A background walk answers it after the tree loads or reloads;
+    /// until it has answered the flag is false, and the views that read it update when it changes.
+    @Published private(set) var hasMarkdownFiles = false
+    private var markdownProbe: Task<Void, Never>?
 
     init() {
         let ud = UserDefaults.standard
@@ -47,13 +49,33 @@ final class WorkspaceFileTreeStore: ObservableObject {
         rootNode = nil
         excludedFolders = []
         lastRootModDate = nil
-        cachedHasMarkdownFiles = nil
+        probeMarkdownFiles()
     }
 
     func setRootNode(_ node: FileNode?) {
         rootNode = node
         lastRootModDate = node.map { rootModificationDate(for: $0.url) } ?? nil
-        cachedHasMarkdownFiles = nil
+        probeMarkdownFiles()
+    }
+
+    /// Look for a Markdown file in the open folder off the main thread; a newer probe (another tree load) replaces this one.
+    private func probeMarkdownFiles() {
+        markdownProbe?.cancel()
+        guard let folder = rootNode?.url else {
+            markdownProbe = nil
+            hasMarkdownFiles = false
+            return
+        }
+        markdownProbe = Task.detached(priority: .utility) { [weak self] in
+            let found = BackgroundFileScans.containsMarkdown(in: folder)
+            guard !Task.isCancelled else { return }
+            await self?.finishMarkdownProbe(folder: folder, found: found)
+        }
+    }
+
+    private func finishMarkdownProbe(folder: URL, found: Bool) {
+        guard rootNode?.url == folder else { return }
+        hasMarkdownFiles = found
     }
 
     func loadExcludedFolders() {
@@ -190,7 +212,7 @@ final class WorkspaceFileTreeStore: ObservableObject {
             await MainActor.run {
                 self.rootNode = rebuilt
                 self.lastRootModDate = self.rootModificationDate(for: rootURL)
-                self.cachedHasMarkdownFiles = nil
+                self.probeMarkdownFiles()
                 Self.log("reloadFileTree: rootNode updated on MainActor")
             }
         }
@@ -570,7 +592,7 @@ class WorkspaceManager: ObservableObject {
     private var terminalTabs: [UUID: TerminalSession] = [:]
     /// Dev server terminals started by Preview Web App, by app folder path.
     private var previewTerminals: [String: UUID] = [:]
-    private var openFilesWatcher: Timer?
+    private var openFilesWatcher: Task<Void, Never>?
     /// Last seen modification dates of open files (to reload what the assistant changed).
     private var openFileDates: [URL: Date] = [:]
     /// Project architecture (Architecture tab).
@@ -994,38 +1016,9 @@ class WorkspaceManager: ObservableObject {
         return results
     }
 
-    /// Cached check for menu disabled-state (`AR-42`): returns `true` as soon as one
-    /// markdown file is found inside `rootNode` and caches the result until the file tree changes.
-    var hasMarkdownFiles: Bool {
-        if let cached = fileTreeStore.cachedHasMarkdownFiles {
-            return cached
-        }
-        guard let folderURL = rootNode?.url else { return false }
-        let resolvedFolderPath = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
-        // Same separator-aware containment as `scanMarkdownFiles(in:)` — keep in sync.
-        let resolvedFolderPrefix = resolvedFolderPath.hasSuffix("/")
-            ? resolvedFolderPath
-            : resolvedFolderPath + "/"
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: folderURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else {
-            fileTreeStore.cachedHasMarkdownFiles = false
-            return false
-        }
-        while let url = enumerator.nextObject() as? URL {
-            guard url.pathExtension.lowercased() == "md" else { continue }
-            guard !url.path.contains(".dde") else { continue }
-            let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
-            guard resolvedFile == resolvedFolderPath || resolvedFile.hasPrefix(resolvedFolderPrefix) else { continue }
-            fileTreeStore.cachedHasMarkdownFiles = true
-            return true
-        }
-        fileTreeStore.cachedHasMarkdownFiles = false
-        return false
-    }
+    /// Whether the open folder holds a Markdown file, for the menu's disabled state (`AR-42`): the store's flag, found by a
+    /// background walk, so reading it never touches the disk.
+    var hasMarkdownFiles: Bool { fileTreeStore.hasMarkdownFiles }
 
     // MARK: - Folder Exclusion
 
@@ -1151,7 +1144,7 @@ class WorkspaceManager: ObservableObject {
             var tab = OpenTab(url: url, content: "", originalContent: "")
             tab.kind = .data
             tabsStore.appendTab(tab)
-            openFileDates[url] = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            openFileDates[url] = BackgroundFileScans.modificationDate(of: url)
             addRecentFile(url)
             startWatchingOpenFiles()
             return
@@ -4719,7 +4712,7 @@ class WorkspaceManager: ObservableObject {
     /// The working copy now holds another branch's files: show them in the tree and open tabs.
     private func branchChanged() {
         refreshFileTree()
-        reloadChangedOpenFiles(all: true)
+        Task { await reloadChangedOpenFiles(all: true) }
     }
 
     /// The branch a pull request comes from, when it is the one checked out.
@@ -5356,50 +5349,61 @@ class WorkspaceManager: ObservableObject {
         activeAITerminalID = nil
         terminalTabs.values.forEach { $0.terminate() }
         terminalTabs = [:]
-        openFilesWatcher?.invalidate()
+        openFilesWatcher?.cancel()
         openFilesWatcher = nil
     }
 
     /// While terminals run, reload open files an assistant (or a command) changed on disk —
-    /// only tabs without unsaved edits, so nothing typed here is lost.
+    /// only tabs without unsaved edits, so nothing typed here is lost. The loop checks every two seconds; the disk is read
+    /// off the main thread and one check ends before the next begins (`AR-42`).
     private func startWatchingOpenFiles() {
         guard openFilesWatcher == nil else { return }
-        openFilesWatcher = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reloadChangedOpenFiles() }
+        openFilesWatcher = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                await self.reloadChangedOpenFiles()
+            }
         }
     }
 
     /// `all` reloads every unmodified tab whose file differs, not only files newer than last seen
     /// (a branch switch can restore older modification dates).
-    private func reloadChangedOpenFiles(all: Bool = false) {
-        var changed = false
-        // Data tabs: the viewer reads the file again (a followed log scrolls to the new end).
-        for index in openTabs.indices {
-            guard case .data = openTabs[index].kind else { continue }
-            let url = openTabs[index].url
-            guard let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { continue }
-            defer { openFileDates[url] = date }
-            guard let seen = openFileDates[url], date > seen else { continue }
-            tabsStore.updateTab(at: index) { $0.dataRevision += 1 }
-            if openTabs[index].notesView {
-                refreshDataNotes(url, revision: openTabs[index].dataRevision)
+    private func reloadChangedOpenFiles(all: Bool = false) async {
+        var files: [BackgroundFileScans.OpenFile] = []
+        for tab in openTabs {
+            if case .data = tab.kind {
+                // Data tabs: the viewer reads the file again (a followed log scrolls to the new end).
+                files.append(.init(url: tab.url, kind: .data, seen: openFileDates[tab.url], loaded: ""))
+            } else if tab.isFileBacked && !tab.isModified {
+                files.append(.init(url: tab.url, kind: .text, seen: openFileDates[tab.url], loaded: tab.originalContent))
             }
         }
-        for index in openTabs.indices where openTabs[index].isFileBacked && !openTabs[index].isModified {
-            let url = openTabs[index].url
-            guard let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { continue }
-            defer { openFileDates[url] = date }
-            if !all {
-                guard let seen = openFileDates[url], date > seen else { continue }
+        guard !files.isEmpty else { return }
+        let readings = await Task.detached(priority: .utility) { BackgroundFileScans.read(files, all: all) }.value
+
+        var changed = false
+        for reading in readings {
+            let url = reading.file.url
+            openFileDates[url] = reading.date
+            guard let index = tabsStore.firstIndex(of: url) else { continue }
+            if reading.file.kind == .data {
+                guard reading.isNewer, case .data = openTabs[index].kind else { continue }
+                tabsStore.updateTab(at: index) { $0.dataRevision += 1 }
+                if openTabs[index].notesView {
+                    refreshDataNotes(url, revision: openTabs[index].dataRevision)
+                }
+            } else if let text = reading.changedText {
+                // The tab was edited, or reloaded by a faster check, while the file was being read: leave it.
+                guard openTabs[index].isFileBacked, !openTabs[index].isModified,
+                      openTabs[index].originalContent == reading.file.loaded else { continue }
+                tabsStore.updateTab(at: index) { tab in
+                    tab.content = text
+                    tab.originalContent = text
+                    tab.isModified = false
+                }
+                changed = true
             }
-            guard let content = try? String(contentsOf: url, encoding: .utf8),
-                  content != openTabs[index].originalContent else { continue }
-            tabsStore.updateTab(at: index) { tab in
-                tab.content = content
-                tab.originalContent = content
-                tab.isModified = false
-            }
-            changed = true
         }
         if changed { refreshFileTree() }
     }

@@ -9,6 +9,7 @@ struct GraphCreatorSheet: View {
 
     @State private var selectedFiles: Set<String> = []
     @State private var cachedFiles: [String] = []
+    @State private var loadingFiles = true
     @State private var diagramType = "architecture"
     @State private var customPrompt = ""
     @FocusState private var promptFocused: Bool
@@ -39,6 +40,7 @@ struct GraphCreatorSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text("\(selectedFiles.count) selected").uiFont(.caption).foregroundColor(palette.textDim)
+                        if loadingFiles { ProgressView().controlSize(.mini) }
                         Spacer()
                         Button("Current") { selectCurrentFile() }.uiFont(.caption)
                         Button("All") { selectAll() }.uiFont(.caption)
@@ -109,10 +111,12 @@ struct GraphCreatorSheet: View {
         }
         .padding(20)
         .frame(width: 500, height: 550)
-        .onAppear {
-            diagramType = preselectedType
-            let loaded = availableFiles()
+        .onAppear { diagramType = preselectedType }
+        // The document list is a walk of the project tree: it runs off the main thread and the list fills in when it is done.
+        .task {
+            let loaded = await availableFiles()
             cachedFiles = loaded
+            loadingFiles = false
             // Pre-select current file if one is open
             let wm = workspaceManager
             if wm.activeTabIndex >= 0, wm.activeTabIndex < wm.openTabs.count {
@@ -125,18 +129,9 @@ struct GraphCreatorSheet: View {
 
     // MARK: - Helpers
 
-    private func availableFiles() -> [String] {
+    private func availableFiles() async -> [String] {
         guard let root = workspaceManager.rootNode?.url else { return [] }
-        let fm = FileManager.default
-        var files: [String] = []
-        guard let enumerator = fm.enumerator(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
-        while let url = enumerator.nextObject() as? URL {
-            if url.pathExtension.lowercased() == "md" {
-                let relative = url.path.replacingOccurrences(of: root.path + "/", with: "")
-                files.append(relative)
-            }
-        }
-        return files.sorted()
+        return await Task.detached(priority: .userInitiated) { BackgroundFileScans.markdownPaths(in: root) }.value
     }
 
     private func selectAll() {
