@@ -27,6 +27,7 @@
 		07044898F5427AD51A50B424 /* SettingsRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD00 /* SettingsRegistry.swift */; };
 		07044898F5427AD51A50B425 /* WebHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD01 /* WebHost.swift */; };
 		07044898F5427AD51A50B426 /* ExtensionRegistries.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD03 /* ExtensionRegistries.swift */; };
+		07044898F5427AD51A50B427 /* WorkspaceControllers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD04 /* WorkspaceControllers.swift */; };
 		0785042AA6A1CE426EA201AD /* UIStudioAgents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C130B3890F584C0D4CCD2D4 /* UIStudioAgents.swift */; };
 		07AA9E8BD7921C0FE49408F8 /* PrototypeShellStructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC27A7ECE02BDB6EE3D62893 /* PrototypeShellStructure.swift */; };
 		082A811D6B13DF6C68B7F418 /* XRaySearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E10D6ADB4ADB8D0AE4BC89E /* XRaySearch.swift */; };
@@ -808,6 +809,7 @@
 		A6E0167483A13431C669BD00 /* SettingsRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRegistry.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD01 /* WebHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebHost.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD03 /* ExtensionRegistries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionRegistries.swift; sourceTree = "<group>"; };
+		A6E0167483A13431C669BD04 /* WorkspaceControllers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceControllers.swift; sourceTree = "<group>"; };
 		A8AEF205A13BAE60E2DC57A7 /* ImportanceRater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportanceRater.swift; sourceTree = "<group>"; };
 		AA0B17502A10EDBEA695CFD4 /* BrowserControlServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserControlServer.swift; sourceTree = "<group>"; };
 		AA2CA37BE6C93E0C73995455 /* markview-research-map-layout.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map-layout.js"; sourceTree = "<group>"; };
@@ -1071,7 +1073,7 @@
 				F4B5A603D8B6885145771D0A /* AppFontScale.swift */,
 				8092DC6E5F714F3D3FCECDA6 /* AppTheme.swift */,
 				A6E0167483A13431C669BD03 /* ExtensionRegistries.swift */,
-				A6E0167483A13431C669BD03 /* ExtensionRegistries.swift */,
+				A6E0167483A13431C669BD04 /* WorkspaceControllers.swift */,
 				B6B0748CACE05B758D369F89 /* ArchitectureModel.swift */,
 				9BD5813E43B8EA8DD4CE8C0F /* ArchitectureScanner.swift */,
 				9A4D926B6E77144DA360543F /* ArchitectureStore.swift */,
@@ -1797,6 +1799,7 @@
 				07044898F5427AD51A50B424 /* SettingsRegistry.swift in Sources */,
 				07044898F5427AD51A50B425 /* WebHost.swift in Sources */,
 				07044898F5427AD51A50B426 /* ExtensionRegistries.swift in Sources */,
+				07044898F5427AD51A50B427 /* WorkspaceControllers.swift in Sources */,
 				4D698ACA5087AA8BD07F2A04 /* AgentActivity.swift in Sources */,
 				2C960A38A358C2B2CCAA2E23 /* AgentActivityChip.swift in Sources */,
 				6ADDB1842B093A3BB70A4DB4 /* AgentActivityMonitor.swift in Sources */,

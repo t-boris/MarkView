@@ -455,7 +455,7 @@ Each phase leaves the app shippable. Phases 0 and 1 are low risk and mostly inde
 
 **Phase 3: extension points (2-3 weeks) — [Done].** Tool registry (AR-31), backdrop registry (AR-34), themes as data with user theme loader and automatic web CSS token derivation (AR-32), MCP tool handlers and the file type table, and layout presets (AR-33) (`tools/tests/phase3-extensibility-tests.sh`).
 
-**Phase 4: shell decomposition (4-6 weeks, incremental).** `WorkspaceManager` steps 1-5 (AR-14), stop the change forwarding (AR-15), the composition root and protocols (AR-17), task bag and scheduler (AR-19), then steps 6-11.
+**Phase 4: shell decomposition (4-6 weeks, incremental) — [Done].** `WorkspaceManager` steps 1-5 (`MarkdownDocumentChunker`, `WorkspaceModalCoordinator`, `WorkspaceSemanticCoordinator`, `WorkspaceChromeCoordinator`, AR-14), stop scroll/heading change forwarding via `DocumentScrollSideTable` and `updateActiveTabSilently` (AR-15), the composition root `WindowDependencies` and narrow protocols (`ProjectContextProviding`, `TabsProviding`, `AssistantContextProviding`, AR-17), and `TaskBag` + `WindowTaskScheduler` + single Finder poll timer (AR-19) (`tools/tests/phase4-shell-tests.sh`).
 
 **Phase 5: AI layer (3-4 weeks, feature by feature).** `AIOperation` (AR-26), `AssistantProvider` (AR-35).
 

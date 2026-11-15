@@ -207,6 +207,9 @@ final class WorkspaceFileTreeStore: ObservableObject {
 final class WorkspaceTabsStore: ObservableObject {
     @Published var openTabs: [OpenTab] = []
     @Published var activeTabIndex: Int = -1
+    /// True while updating side-table metadata (`scrollPosition`, `activeHeadingId`) so `WorkspaceManager`
+    /// does not broadcast `objectWillChange` across the entire window on scroll events (`AR-15`).
+    private(set) var isSilentTabMetadataUpdate = false
 
     func reset() {
         openTabs = []
@@ -240,6 +243,16 @@ final class WorkspaceTabsStore: ObservableObject {
 
     func updateActiveTab(_ mutate: (inout OpenTab) -> Void) {
         updateTab(at: activeTabIndex, mutate)
+    }
+
+    /// Mutates the active tab without triggering `WorkspaceManager.objectWillChange` (`AR-15`).
+    func updateActiveTabSilently(_ mutate: (inout OpenTab) -> Void) {
+        guard activeTabIndex >= 0 && activeTabIndex < openTabs.count else { return }
+        isSilentTabMetadataUpdate = true
+        defer { isSilentTabMetadataUpdate = false }
+        var tab = openTabs[activeTabIndex]
+        mutate(&tab)
+        openTabs[activeTabIndex] = tab
     }
 
     func removeTab(at index: Int) {
@@ -318,7 +331,7 @@ enum WorkspaceAITool: String {
 
 /// Manages the workspace state including open files, tabs, and folder structure
 @MainActor
-class WorkspaceManager: ObservableObject {
+class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding, AssistantContextProviding {
     @Published var recentFiles: [URL] = []
     /// Recently opened folders (standardized paths), most recent first.
     @Published private(set) var recentProjects: [String] =
@@ -329,8 +342,50 @@ class WorkspaceManager: ObservableObject {
     let windowUI = WindowUIState()
     /// The theme of this window; a change here leaves every other window alone.
     let theme = WindowTheme()
+    /// Per-tab scroll position and active heading side table (`AR-15`).
+    let scrollState = DocumentScrollSideTable()
+    /// Focused modal and sheet coordinator (`AR-14`).
+    let modals = WorkspaceModalCoordinator()
+    /// Focused semantic and structural indexing coordinator (`AR-14`).
+    let semanticCoordinator = WorkspaceSemanticCoordinator()
+    /// Focused window panel chrome coordinator (`AR-14`).
+    let chrome = WorkspaceChromeCoordinator()
+    /// Keyed cancellable background task bag owned by this window (`AR-19`).
+    let taskBag = TaskBag()
+    /// Visibility-aware repeating poll scheduler owned by this window (`AR-19`).
+    let taskScheduler = WindowTaskScheduler()
+    /// Composition container grouping narrow per-window dependencies (`AR-17`).
+    private(set) lazy var windowDependencies = WindowDependencies(
+        layout: layout,
+        windowUI: windowUI,
+        theme: theme,
+        scrollState: scrollState,
+        modals: modals,
+        semanticCoordinator: semanticCoordinator,
+        chrome: chrome,
+        taskBag: taskBag,
+        scheduler: taskScheduler,
+        projectContext: self,
+        tabsProvider: self,
+        assistantContext: self
+    )
     /// AI tool runs working in a headless agent (diagrams, code map, review, audit).
     let aiJobs = AIToolJobs()
+
+    func currentAssistantSelection() -> CLICompletion.Assistant? {
+        guard let terminal = assistantTerminal, let tool = terminal.profile.tool else { return nil }
+        return CLICompletion.Assistant.chosen(tool: tool, project: aiProject)
+    }
+
+    /// Apply a built-in layout preset explicitly chosen by the user (`AR-33`, `DEC-002`).
+    func applyLayoutPreset(_ preset: LayoutPreset) {
+        layout.apply(preset: preset)
+        showFileTree = preset.showFileTree
+        showCenter = true
+        showTOC = preset.showNavigator
+        terminalVisible = preset.showNavigator
+        agentsVisible = (preset.id == "cockpit")
+    }
     /// The project's operations, with this window as the one that shows what the person starts from here.
     func operations() -> ProjectOperationsStore? {
         projectOperations?.presenter = self
@@ -689,7 +744,8 @@ class WorkspaceManager: ObservableObject {
             .store(in: &cancellables)
         tabsStore.objectWillChange
             .sink { [weak self] _ in
-                self?.objectWillChange.send()
+                guard let self, !self.tabsStore.isSilentTabMetadataUpdate else { return }
+                self.objectWillChange.send()
             }
             .store(in: &cancellables)
         layout.objectWillChange
@@ -748,6 +804,11 @@ class WorkspaceManager: ObservableObject {
         // Agents working in this folder can reach its browser tabs (BUG-027) and its project tools even from
         // outside its terminals; the browser tools check the terminal-links setting themselves.
         registerBrowserControl()
+        taskBag.cancelAll()
+        taskScheduler.stopAll()
+        scrollState.reset()
+        modals.reset()
+        semanticCoordinator.reset()
         fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
         tabsStore.reset()
         architecture.reset()
@@ -757,8 +818,9 @@ class WorkspaceManager: ObservableObject {
         Self.debugLog("openFolder START: \(url.path)")
 
         // Run setup steps asynchronously — sleep briefly to let SwiftUI render each step
-        Task {
+        let setupTask = Task {
             try? await Task.sleep(nanoseconds: 100_000_000) // 100ms — let UI render progress
+            guard !Task.isCancelled else { return }
             Self.debugLog("Task started, building tree...")
 
             // Prototypes made before DEC-006 move from .dde/prototypes to docs/prototypes once, before the
@@ -771,6 +833,7 @@ class WorkspaceManager: ObservableObject {
             let node = await Task.detached {
                 FileNode.buildTree(from: url, sortOrder: sort)
             }.value
+            guard !Task.isCancelled else { return }
             self.fileTreeStore.setRootNode(node)
             self.fileTreeStore.loadExcludedFolders()
             self.loadLinkedFolders()
@@ -778,6 +841,7 @@ class WorkspaceManager: ObservableObject {
 
             indexingProgress = "Setting up workspace..."
             try? await Task.sleep(nanoseconds: 100_000_000)
+            guard !Task.isCancelled else { return }
 
             self.fileTreeStore.startWatchingCurrentRoot()
             addRecentFile(url)
@@ -796,6 +860,7 @@ class WorkspaceManager: ObservableObject {
             }
             completion?()
         }
+        taskBag.store(setupTask, for: "openFolder")
     }
 
     /// Initialize .dde/ workspace structure and SQLite database — async to keep UI responsive
@@ -2156,6 +2221,11 @@ class WorkspaceManager: ObservableObject {
         stopAllTerminals()
         structuralIndexer?.terminate()
         structuralIndexer = nil
+        taskBag.cancelAll()
+        taskScheduler.stopAll()
+        scrollState.reset()
+        modals.reset()
+        semanticCoordinator.reset()
 
         tabsStore.reset()
         fileTreeStore.reset()
@@ -2558,29 +2628,8 @@ class WorkspaceManager: ObservableObject {
         var label: String { AIAssistantPreferences.summary(tool: tool, model: model ?? "") }
     }
 
-    /// One atomic unit of the source document.
-    ///
-    /// `text` never spans a partial table, list or fenced code block, and
-    /// `separator` holds the exact newline run that followed it in the source —
-    /// so `prefix + chunks.map { $0.text + $0.separator }.joined()` reproduces
-    /// the original document byte-for-byte. That is what lets the translated
-    /// copy keep the source's block structure.
-    private struct MarkdownChunk {
-        var text: String
-        var separator: String
-        var isTranslatable: Bool
-    }
-
-    /// Structural fingerprint of a markdown fragment. A faithful translation
-    /// changes the words but not any of these counts, so a mismatch means the
-    /// model dropped, merged or invented structure.
-    private struct MarkdownSkeleton: Equatable {
-        var headingLevels: [Int] = []
-        var tableRows: Int = 0
-        var listItems: Int = 0
-        var fences: Int = 0
-        var quoteLines: Int = 0
-    }
+    private typealias MarkdownChunk = MarkdownDocumentChunker.Chunk
+    private typealias MarkdownSkeleton = MarkdownDocumentChunker.Skeleton
 
     /// Translate the whole document to `targetLang` and open the result in a new
     /// tab. The source file is never modified; the new tab is left unsaved so the
@@ -2755,207 +2804,22 @@ class WorkspaceManager: ObservableObject {
         return root.appendingPathComponent(".dde/cache", isDirectory: true)
     }
 
-    /// Strip the code fence models like to wrap whole-document answers in, and
-    /// the surrounding blank lines the chunk separator already accounts for.
     private func normalizeTranslation(_ raw: String) -> String {
-        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lines = text.components(separatedBy: "\n")
-        if lines.count >= 2,
-           let first = lines.first?.trimmingCharacters(in: .whitespaces),
-           let last = lines.last?.trimmingCharacters(in: .whitespaces),
-           first.hasPrefix("```"), last == "```",
-           // Only unwrap when the fence wraps the WHOLE answer.
-           !lines.dropFirst().dropLast().contains(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("```") }) {
-            text = lines.dropFirst().dropLast().joined(separator: "\n")
-        }
-        return text.trimmingCharacters(in: .newlines)
+        MarkdownDocumentChunker.normalizeTranslation(raw)
     }
 
-    // MARK: - Structure-aware splitting
+    // MARK: - Structure-aware splitting (`AR-14`: delegated to `MarkdownDocumentChunker`)
 
-    /// Split markdown into translation chunks without ever cutting through a
-    /// table, list, block quote or fenced code block.
-    ///
-    /// Returns the document's leading whitespace separately so the chunks can be
-    /// rejoined losslessly: `prefix + chunks.map { $0.text + $0.separator }.joined()`.
     private func splitForTranslation(_ markdown: String, maxChars: Int) -> (prefix: String, chunks: [MarkdownChunk]) {
-        let (prefix, blocks) = tokenizeMarkdown(markdown)
-        var chunks: [MarkdownChunk] = []
-        var current: [MarkdownChunk] = []
-
-        func flush() {
-            guard !current.isEmpty else { return }
-            var text = ""
-            for (i, block) in current.enumerated() {
-                text += block.text
-                if i < current.count - 1 { text += block.separator }
-            }
-            chunks.append(MarkdownChunk(text: text, separator: current[current.count - 1].separator, isTranslatable: true))
-            current = []
-        }
-
-        for block in blocks {
-            guard block.isTranslatable else {
-                flush()
-                chunks.append(block)
-                continue
-            }
-            let currentLength = current.reduce(0) { $0 + $1.text.count + $1.separator.count }
-            if !current.isEmpty && currentLength + block.text.count > maxChars {
-                flush()
-            }
-            current.append(block)
-        }
-        flush()
-        return (prefix, chunks)
+        MarkdownDocumentChunker.splitForTranslation(markdown, maxChars: maxChars)
     }
 
-    /// Break markdown into atomic blocks. Fenced code and YAML front matter are
-    /// marked non-translatable so they are copied through untouched.
     private func tokenizeMarkdown(_ markdown: String) -> (prefix: String, blocks: [MarkdownChunk]) {
-        let lines = markdown.components(separatedBy: "\n")
-        // Each piece carries its own line terminator, so `pieces.joined()` is
-        // exactly the input — including whatever the file ends with.
-        let pieces: [String] = lines.enumerated().map { i, line in
-            i < lines.count - 1 ? line + "\n" : line
-        }
-        let n = lines.count
-
-        // .whitespacesAndNewlines, not .whitespaces: CRLF files leave a trailing
-        // \r on every line, which would otherwise defeat delimiter matching.
-        func trimmed(_ i: Int) -> String { lines[i].trimmingCharacters(in: .whitespacesAndNewlines) }
-        func isBlank(_ i: Int) -> Bool { trimmed(i).isEmpty }
-        func isHeading(_ i: Int) -> Bool { trimmed(i).range(of: #"^#{1,6}\s"#, options: .regularExpression) != nil }
-        func isListItem(_ i: Int) -> Bool { lines[i].range(of: #"^\s{0,3}([-*+]|\d+[.)])\s"#, options: .regularExpression) != nil }
-        func isQuote(_ i: Int) -> Bool { trimmed(i).hasPrefix(">") }
-        func isIndented(_ i: Int) -> Bool { lines[i].hasPrefix("  ") || lines[i].hasPrefix("\t") }
-        func fenceMarker(_ i: Int) -> (char: Character, count: Int)? {
-            let t = trimmed(i)
-            guard let first = t.first, first == "`" || first == "~" else { return nil }
-            let count = t.prefix(while: { $0 == first }).count
-            return count >= 3 ? (first, count) : nil
-        }
-        func isTableDelimiter(_ i: Int) -> Bool {
-            let t = trimmed(i)
-            guard t.contains("-"), t.contains("|") else { return false }
-            return t.allSatisfy { $0 == "|" || $0 == "-" || $0 == ":" || $0 == " " }
-        }
-        func isTableStart(_ i: Int) -> Bool {
-            lines[i].contains("|") && i + 1 < n && isTableDelimiter(i + 1)
-        }
-        func startsNewBlock(_ i: Int) -> Bool {
-            fenceMarker(i) != nil || isHeading(i) || isListItem(i) || isQuote(i) || isTableStart(i)
-        }
-
-        var ranges: [(start: Int, end: Int, translatable: Bool)] = []
-        var i = 0
-
-        // YAML front matter — metadata, not prose: copied through as-is.
-        if n > 1, trimmed(0) == "---" {
-            var j = 1
-            while j < n, trimmed(j) != "---" { j += 1 }
-            if j < n {
-                ranges.append((0, j + 1, false))
-                i = j + 1
-            }
-        }
-
-        while i < n {
-            if isBlank(i) { i += 1; continue }
-            let start = i
-
-            if let fence = fenceMarker(i) {
-                i += 1
-                while i < n {
-                    if let close = fenceMarker(i), close.char == fence.char, close.count >= fence.count { break }
-                    i += 1
-                }
-                if i < n { i += 1 } // consume the closing fence
-                ranges.append((start, i, false))
-            } else if isTableStart(i) {
-                i += 2 // header + delimiter
-                while i < n, !isBlank(i), lines[i].contains("|") { i += 1 }
-                ranges.append((start, i, true))
-            } else if isListItem(i) || isQuote(i) {
-                i += 1
-                while i < n {
-                    if isBlank(i) {
-                        // A blank line only ends the run if what follows is not
-                        // a continuation of the same list/quote.
-                        var j = i
-                        while j < n, isBlank(j) { j += 1 }
-                        if j < n, isListItem(j) || isQuote(j) || isIndented(j) { i = j } else { break }
-                    } else if isListItem(i) || isQuote(i) || isIndented(i) || !startsNewBlock(i) {
-                        i += 1
-                    } else {
-                        break
-                    }
-                }
-                ranges.append((start, i, true))
-            } else if isHeading(i) {
-                i += 1
-                ranges.append((start, i, true))
-            } else {
-                i += 1
-                while i < n, !isBlank(i), !startsNewBlock(i) { i += 1 }
-                ranges.append((start, i, true))
-            }
-        }
-
-        guard let firstRange = ranges.first else {
-            return (markdown, [])
-        }
-
-        let prefix = pieces[0..<firstRange.start].joined()
-        var blocks: [MarkdownChunk] = []
-        for (idx, range) in ranges.enumerated() {
-            var text = pieces[range.start..<range.end].joined()
-            var separator = ""
-            // Move the block's own line terminator into the separator, so the
-            // model never sees (and cannot drop) a trailing newline. "\r\n" is a
-            // single Character in Swift and does NOT match hasSuffix("\n"), so
-            // CRLF has to be tested first or it slips through into `text`.
-            if text.hasSuffix("\r\n") {
-                text.removeLast()
-                separator = "\r\n"
-            } else if text.hasSuffix("\n") {
-                text.removeLast()
-                separator = "\n"
-            }
-            let nextStart = idx + 1 < ranges.count ? ranges[idx + 1].start : n
-            separator += pieces[range.end..<nextStart].joined()
-            blocks.append(MarkdownChunk(text: text, separator: separator, isTranslatable: range.translatable))
-        }
-        return (prefix, blocks)
+        MarkdownDocumentChunker.tokenizeMarkdown(markdown)
     }
 
-    /// Count the structure of a markdown fragment. Used to detect a translation
-    /// that reflowed a table or dropped a list.
     private func skeleton(of text: String) -> MarkdownSkeleton {
-        var result = MarkdownSkeleton()
-        var insideFence = false
-        for rawLine in text.components(separatedBy: "\n") {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            if line.hasPrefix("```") || line.hasPrefix("~~~") {
-                result.fences += 1
-                insideFence.toggle()
-                continue
-            }
-            if insideFence { continue }
-            if line.isEmpty { continue }
-            if let match = line.range(of: #"^#{1,6}(?=\s)"#, options: .regularExpression) {
-                result.headingLevels.append(line.distance(from: line.startIndex, to: match.upperBound))
-            } else if line.hasPrefix(">") {
-                result.quoteLines += 1
-            } else if line.contains("|") {
-                // Counts GFM rows with or without leading pipes. A prose line
-                // containing "|" is counted on both sides, so it stays symmetric.
-                result.tableRows += 1
-            } else if rawLine.range(of: #"^\s{0,3}([-*+]|\d+[.)])\s"#, options: .regularExpression) != nil {
-                result.listItems += 1
-            }
-        }
-        return result
+        MarkdownDocumentChunker.skeleton(of: text)
     }
 
     // MARK: - Recursive Insight (Task 7)
@@ -3682,16 +3546,22 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    /// Persist scroll state from the editor for the active tab.
+    /// Persist scroll state from the editor for the active tab without broadcasting `WorkspaceManager.objectWillChange` (`AR-15`).
     func updateActiveTabScrollPosition(_ position: CGFloat) {
-        tabsStore.updateActiveTab { tab in
+        if let tab = activeTab {
+            scrollState.setScrollPosition(position, for: tab.id)
+        }
+        tabsStore.updateActiveTabSilently { tab in
             tab.scrollPosition = position
         }
     }
 
-    /// Update the active heading for the active tab
+    /// Update the active heading for the active tab via `DocumentScrollSideTable` without broadcasting `WorkspaceManager.objectWillChange` (`AR-15`).
     func updateActiveHeading(_ headingId: String) {
-        tabsStore.updateActiveTab { tab in
+        if let tab = activeTab {
+            scrollState.setActiveHeading(headingId, for: tab.id)
+        }
+        tabsStore.updateActiveTabSilently { tab in
             tab.activeHeadingId = headingId
         }
     }

@@ -52,37 +52,10 @@ struct TOCView: View {
 
     /// The headings of a Markdown document; a click scrolls to one.
     private func headingsList(_ tab: OpenTab) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(tab.headings) { heading in
-                    Button(action: {
-                        workspaceManager.updateActiveHeading(heading.id)
-                        NotificationCenter.default.post(.scrollToHeading, for: workspaceManager, object: heading.id)
-                    }) {
-                        HStack(spacing: 4) {
-                            if heading.level > 1 {
-                                Color.clear.frame(width: CGFloat(heading.level - 1) * 12)
-                            }
-                            Circle()
-                                .fill(heading.id == tab.activeHeadingId ? palette.blue : palette.textDim.opacity(0.4))
-                                .frame(width: 5, height: 5)
-                            Text(heading.text)
-                                .uiFont(size: 11)
-                                .foregroundColor(heading.id == tab.activeHeadingId ? palette.textBright : palette.text)
-                                .lineLimit(2)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .padding(.vertical, 2)
-                        .padding(.horizontal, 8)
-                        .background(heading.id == tab.activeHeadingId ? palette.selection.opacity(0.3) : Color.clear)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.vertical, 4)
+        TOCHeadingsListView(tab: tab, scrollState: workspaceManager.scrollState) { headingID in
+            workspaceManager.updateActiveHeading(headingID)
+            NotificationCenter.default.post(.scrollToHeading, for: workspaceManager, object: headingID)
         }
-        .background(palette.bgSidebar)
     }
 
     private func emptyState(_ text: String) -> some View {
@@ -94,6 +67,46 @@ struct TOCView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(palette.bgSidebar)
+    }
+}
+
+/// Scoped observer for active heading updates via `DocumentScrollSideTable` (`AR-15`).
+private struct TOCHeadingsListView: View {
+    @Environment(\.palette) private var palette
+    let tab: OpenTab
+    @ObservedObject var scrollState: DocumentScrollSideTable
+    let onSelectHeading: (String) -> Void
+
+    var body: some View {
+        let activeID = scrollState.activeHeading(for: tab.id, fallback: tab.activeHeadingId)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(tab.headings) { heading in
+                    Button(action: { onSelectHeading(heading.id) }) {
+                        HStack(spacing: 4) {
+                            if heading.level > 1 {
+                                Color.clear.frame(width: CGFloat(heading.level - 1) * 12)
+                            }
+                            Circle()
+                                .fill(heading.id == activeID ? palette.blue : palette.textDim.opacity(0.4))
+                                .frame(width: 5, height: 5)
+                            Text(heading.text)
+                                .uiFont(size: 11)
+                                .foregroundColor(heading.id == activeID ? palette.textBright : palette.text)
+                                .lineLimit(2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.vertical, 2)
+                        .padding(.horizontal, 8)
+                        .background(heading.id == activeID ? palette.selection.opacity(0.3) : Color.clear)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 4)
+        }
         .background(palette.bgSidebar)
     }
 }

@@ -227,13 +227,9 @@ struct MarkViewApp: App {
                         Self.enqueueOpen(urls)
                     }
 
-                    appDelegate.log("ContentView onAppear: handler set, starting timer")
-                    // Poll for Finder Quick Action requests
-                    Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-                        Self.checkFinderOpenRequest { urls in
-                            Self.enqueueOpen(urls)
-                        }
-                    }
+                    appDelegate.log("ContentView onAppear: handler set, ensuring poll timer")
+                    // Poll for Finder Quick Action requests via a single app-wide timer (`AR-19`)
+                    Self.ensureFinderOpenPollTimer()
                 }
         } defaultValue: {
             UUID()
@@ -427,6 +423,23 @@ struct MarkViewApp: App {
                 activeWorkspace?.openFile(url)
             }
         }
+    }
+
+    /// Single shared timer polling for Finder Quick Action requests so opening additional windows does not stack timers (`AR-19`).
+    private static var finderOpenPollTimer: Timer?
+
+    static func ensureFinderOpenPollTimer() {
+        guard finderOpenPollTimer == nil else { return }
+        finderOpenPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            Self.checkFinderOpenRequest { urls in
+                Self.enqueueOpen(urls)
+            }
+        }
+    }
+
+    static func stopFinderOpenPollTimer() {
+        finderOpenPollTimer?.invalidate()
+        finderOpenPollTimer = nil
     }
 
     /// Pending folder URL for new window to pick up
