@@ -19,6 +19,10 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: publish-release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 

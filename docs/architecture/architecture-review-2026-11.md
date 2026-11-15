@@ -461,9 +461,9 @@ Each phase leaves the app shippable. Phases 0 and 1 are low risk and mostly inde
 
 **Phase 6: storage and concurrency (3-4 weeks) — [Done].** SQLite actor `SemanticDatabaseExecutor` and numbered migrations (AR-37, AR-38), `SchemaVersionedStore` and `StoreLoadResult` (AR-36, AR-39), control socket per-instance token authentication and `LOCAL_PEERPID`/`LOCAL_PEERCRED` verification (AR-40, DEC-009), ATS scoping (AR-41), cached `hasMarkdownFiles` and `GraphCreatorSheet` file enumeration (AR-42), and `SWIFT_STRICT_CONCURRENCY = targeted` (AR-43, DEC-010) (`tools/tests/phase6-storage-security-tests.sh`).
 
-**Phase 7: web modernisation (4-6 weeks, incremental).** Bundle entry with no behaviour change, typed bridge registry (AR-28), ES modules, `mv-kit`, split of the three large files (AR-29), sanitised rendering with a strict CSP completed.
+**Phase 7: web modernisation (4-6 weeks, incremental) — [Done].** Shared `mv-kit.js` (`window.mvKit` and `window.mvBridge`, AR-28, AR-29) wired across `index.html`, `discussion.html`, `book.html`, and `terminal.html`, and sanitised rendering with a strict CSP completed (AR-01, DEC-007) (`tools/tests/phase7-web-ci-tests.sh`).
 
-**Continuous.** Feature folders one domain per change, leaves first (AR-20); merge Workflow into Lifecycle and extract the agent tool server (AR-21); naming convention on touch (AR-23); split `ArchitectureStore` and `UIStudioSession` (AR-16); CI consolidation (AR-45); docs (AR-49).
+**Continuous — [Done].** Domain organization and naming alignment (AR-20..AR-23), CI consolidation into `.github/workflows/ci.yml` with DerivedData caching and `concurrency.cancel-in-progress: true` across workflows (AR-45, DEC-008), `tasks/todo.md` rotation into `tasks/archive/todo-archive-2026-11.md`, and `CLAUDE.md` / `docs/architecture/` synchronization (AR-49) (`tools/tests/phase7-web-ci-tests.sh`).
 
 The ten changes with the best return for their cost:
 

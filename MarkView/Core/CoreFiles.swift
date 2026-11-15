@@ -94,7 +94,7 @@ public enum CoreDigest {
 }
 
 /// Append-only JSON Lines file with size-bounded rotation (`AR-24`).
-public struct JSONLinesFile: Sendable {
+public struct RotatingJSONLinesFile: Sendable {
     public let url: URL
     public let maxBytes: Int
 

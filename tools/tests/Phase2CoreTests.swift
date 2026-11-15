@@ -72,8 +72,8 @@ let idB = ProjectPaths.projectCacheIdentifier(for: URL(fileURLWithPath: "/Users/
 check(idA != idB && idA.hasPrefix("app-"),
       "AR-24/AR-38: ProjectPaths.projectCacheIdentifier disambiguates identically named folders")
 
-// 4. AR-24: JSONLinesFile rotation
-let jsonl = JSONLinesFile(url: temp.appendingPathComponent("log.jsonl"), maxBytes: 1024)
+// 4. AR-24: RotatingJSONLinesFile rotation
+let jsonl = RotatingJSONLinesFile(url: temp.appendingPathComponent("log.jsonl"), maxBytes: 1024)
 for i in 0..<50 {
     try? jsonl.appendLine("{\"i\":\(i),\"pad\":\"\(String(repeating: "a", count: 32))\"}")
 }

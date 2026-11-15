@@ -3086,7 +3086,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// Writes an undo conflict into its files with conflict markers, so it can be resolved in the editor (AR-13).
     func resolveUndoConflictInEditor(_ id: String) {
         guard let conflicts = undoConflicts[id] else { return }
-        var failed: [StudioUndoConflict] = []
+        var failed: [(path: String, merged: String)] = []
         var firstError: String?
         for conflict in conflicts where conflict.merged.contains("<<<<<<<") {
             guard let url = StudioChanges.validatedURL(conflict.path, root: root) else {

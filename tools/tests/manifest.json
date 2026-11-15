@@ -969,6 +969,65 @@
       ]
     },
     {
+      "name": "phase2-core-tests",
+      "script": "tools/tests/phase2-core-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Core/CoreInfrastructure.swift",
+        "MarkView/Core/CoreFiles.swift",
+        "MarkView/Bridge/TypedWebBridge.swift"
+      ]
+    },
+    {
+      "name": "phase3-extensibility-tests",
+      "script": "tools/tests/phase3-extensibility-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ExtensionRegistries.swift",
+        "MarkView/Models/AppTheme.swift",
+        "MarkView/Models/WelcomeBackdrop.swift"
+      ]
+    },
+    {
+      "name": "phase4-shell-tests",
+      "script": "tools/tests/phase4-shell-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/WorkspaceControllers.swift",
+        "MarkView/Models/WorkspaceManager.swift",
+        "MarkView/Views/TOCView.swift"
+      ]
+    },
+    {
+      "name": "phase5-ai-tests",
+      "script": "tools/tests/phase5-ai-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AILayer.swift",
+        "MarkView/Models/AIAssistants.swift"
+      ]
+    },
+    {
+      "name": "phase6-storage-security-tests",
+      "script": "tools/tests/phase6-storage-security-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/StorageAndSecurity.swift",
+        "MarkView/Models/BrowserControlServer.swift",
+        "MarkView/Models/BrowserAgentTools.swift"
+      ]
+    },
+    {
+      "name": "phase7-web-ci-tests",
+      "script": "tools/tests/phase7-web-ci-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Resources/Editor/vendor/js/mv-kit.js",
+        ".github/workflows/ci.yml",
+        "CLAUDE.md"
+      ]
+    },
+    {
       "name": "project-agent-tools-tests",
       "script": "tools/tests/project-agent-tools-tests.sh",
       "tier": "pure",

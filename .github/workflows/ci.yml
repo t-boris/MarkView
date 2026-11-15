@@ -1,0 +1,97 @@
+# Unified CI workflow (AR-45, DEC-008):
+# - Cancels superseded runs on the same ref (`concurrency.cancel-in-progress: true`)
+# - Runs `swift test` on `Packages/MarkViewCore` (AR-44)
+# - Runs the architecture review verification suites and manifest-selected suites (`tools/tests/run.sh`)
+# - Compiles the macOS app once with a shared DerivedData cache (`tools/ci/build-cache-mtimes.py`)
+name: CI
+
+on:
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - 'tasks/**'
+      - '*.md'
+      - 'MarkView-Presentation.*'
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'tasks/**'
+      - '*.md'
+      - 'MarkView-Presentation.*'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Show Xcode
+        id: xcode
+        run: |
+          xcodebuild -version
+          echo "version=$(xcodebuild -version | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Run MarkViewCore Swift Package tests
+        run: swift test --package-path Packages/MarkViewCore
+
+      - name: Run Architecture Review verification suites (Phases 0-7)
+        run: |
+          bash tools/tests/phase0-safety-tests.sh
+          bash tools/tests/phase1-cleanup-tests.sh
+          bash tools/tests/phase2-core-tests.sh
+          bash tools/tests/phase3-extensibility-tests.sh
+          bash tools/tests/phase4-shell-tests.sh
+          bash tools/tests/phase5-ai-tests.sh
+          bash tools/tests/phase6-storage-security-tests.sh
+          bash tools/tests/phase7-web-ci-tests.sh
+
+      - name: Run core regression suites
+        run: |
+          bash tools/tests/theme-model-tests.sh
+          bash tools/tests/window-session-tests.sh
+          bash tools/tests/project-ai-choice-tests.sh
+          bash tools/tests/project-agent-tools-tests.sh
+          bash tools/tests/remote-browser-tests.sh
+
+      - name: Restore build cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/MarkViewDerivedData
+          key: markview-debug-${{ runner.os }}-arm64-${{ steps.xcode.outputs.version }}-${{ hashFiles('MarkView/**', 'Packages/MarkViewCore/**', 'MarkView.xcodeproj/**') }}
+          restore-keys: |
+            markview-debug-${{ runner.os }}-arm64-${{ steps.xcode.outputs.version }}-
+
+      - name: Restore unchanged build input timestamps
+        run: python3 tools/ci/build-cache-mtimes.py restore "$RUNNER_TEMP/MarkViewDerivedData/source-mtimes.json"
+
+      - name: Build MarkView (Debug)
+        run: |
+          xcodebuild -project MarkView.xcodeproj \
+            -scheme MarkView \
+            -configuration Debug \
+            -derivedDataPath "$RUNNER_TEMP/MarkViewDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Record build input timestamps
+        run: python3 tools/ci/build-cache-mtimes.py save "$RUNNER_TEMP/MarkViewDerivedData/source-mtimes.json"
+
+      - name: Save build cache
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/MarkViewDerivedData
+          key: ${{ steps.cache.outputs.cache-primary-key }}
