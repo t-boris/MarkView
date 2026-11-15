@@ -1,5 +1,8 @@
 import CryptoKit
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// A child process run off the main thread with both pipes drained while it runs (CLAUDE.md: a full pipe must not
 /// deadlock it, and `waitUntilExit` never runs on the main thread).
@@ -294,7 +297,7 @@ enum StudioChanges {
     private static func put(_ text: String?, at url: URL) throws {
         if let text {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            try AtomicFile.write(text, to: url)
         } else if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }

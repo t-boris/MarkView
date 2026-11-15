@@ -1,5 +1,8 @@
 import Foundation
 import Combine
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One thing a discussion has settled or still owes: a decision, an open question, or an option that was rejected.
 struct DiscussionItem: Codable, Identifiable, Equatable {
@@ -198,7 +201,7 @@ final class DiscussionStore: ObservableObject {
         save(discussion)
         if let url = noteURL(slug, turn: turn.id) {
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? discussion.note(for: turn).write(to: url, atomically: true, encoding: .utf8)
+            try? AtomicFile.write(discussion.note(for: turn), to: url)
         }
         return turn
     }

@@ -1,6 +1,9 @@
 import AppKit
 import Foundation
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The page-to-native handler of a session. A separate object, so the web view's content controller does not keep the
 /// session alive.
@@ -3095,7 +3098,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                 continue
             }
             do {
-                try conflict.merged.write(to: url, atomically: true, encoding: .utf8)
+                try AtomicFile.write(conflict.merged, to: url)
                 openFile(url)
             } catch {
                 failed.append(conflict)

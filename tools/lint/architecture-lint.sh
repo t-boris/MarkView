@@ -12,6 +12,7 @@
 #   process              Process() outside Packages/MarkViewCore Subprocess.swift     tools/lint/process-allowlist.txt
 #   clicompletion        CLICompletion.run outside Models/AI/AIOperation.swift          tools/lint/clicompletion-allowlist.txt
 #   workspace-manager    `@EnvironmentObject ... WorkspaceManager` declarations         tools/lint/workspace-manager-views.txt
+#   atomic-write         `.write(to:` / `.write(toFile:` outside AtomicFile (CoreFiles.swift)  tools/lint/atomic-write-allowlist.txt
 # A migration that reaches zero ends with an empty list (no lines), which means none allowed.
 #
 # Usage: tools/lint/architecture-lint.sh [--root <repo>] [--tighten]
@@ -206,8 +207,16 @@ ratchet("workspace-manager", "workspace-manager-views.txt", "@EnvironmentObject 
         "# `@EnvironmentObject ... WorkspaceManager` declarations: views that take the whole manager (AR-14). `<count> <path>`; a ratchet\n"
         "# that only falls. Run tools/lint/architecture-lint.sh --tighten after narrowing a view's dependency.")
 
+ratchet("atomic-write", "atomic-write-allowlist.txt", "direct file write(s)",
+        count_sites(app_swift + package_swift, re.compile(r"\.write\((?:to|toFile):"),
+                    exclude=lambda p: "/Tests/" in rel(p) or "/.build/" in rel(p) or rel(p) == "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"),
+        "# `.write(to:` / `.write(toFile:` outside AtomicFile (AR-24). `<count> <path>`; a ratchet that only falls. What may stay: a user's own\n"
+        "# export or download (PDF, picture, HTML export), a scratch file in the temporary folder or a staging folder that is published by one\n"
+        "# move, a file that must never replace an existing one (`.withoutOverwriting`), and an append-only log. Everything else, every file\n"
+        "# of app or project state, goes through AtomicFile.write. Run tools/lint/architecture-lint.sh --tighten after converting a site.")
+
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "process", "clicompletion", "workspace-manager"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "process", "clicompletion", "workspace-manager", "atomic-write"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

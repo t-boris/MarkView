@@ -14,7 +14,7 @@ swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/markview-remote-tes
     MarkView/Models/AgentTools/BrowserAgentTools.swift \
     MarkView/Models/Remote/RemoteWorkspaceTools.swift \
     MarkView/Models/Remote/RemoteToolBridge.swift \
-    MarkView/Models/Remote/RemoteProviderConfiguration.swift \
+    MarkView/Models/Remote/RemoteProviderConfiguration.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift \
     tools/tests/RemoteWorkspaceTests.swift
 "$out/remote-workspace-tests" "$@"
 swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/markview-remote-test-modules" -o "$out/remote-channel-tests" \

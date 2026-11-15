@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import MarkViewCore
 
 /// Settings of New Research: the job timeout (global) and the per-repository web search
 /// opt-out (DEC-011, DEC-012).
@@ -102,7 +103,7 @@ final class ResearchJobs: ObservableObject {
             guard let updated = ResearchDocument.appending(section, to: latest, webQueries: run.webQueries) else {
                 return "\(file.lastPathComponent) has front matter the app cannot rewrite safely (comments?); the follow-up was not saved."
             }
-            do { try Data(updated.utf8).write(to: file, options: .atomic) } catch {
+            do { try AtomicFile.write(Data(updated.utf8), to: file) } catch {
                 return "Could not save the follow-up: \(error.localizedDescription)"
             }
             self.workspace?.researchDocumentChanged(file, content: updated) { tabText in
@@ -147,7 +148,7 @@ final class ResearchJobs: ObservableObject {
             guard let updated = ResearchDocument.replacing(now, in: latest, with: checked, webQueries: outcome.queries) else {
                 return "\(file.lastPathComponent) has front matter the app cannot rewrite safely (comments?); the comment was not applied."
             }
-            do { try Data(updated.utf8).write(to: file, options: .atomic) } catch {
+            do { try AtomicFile.write(Data(updated.utf8), to: file) } catch {
                 return "Could not save the revision: \(error.localizedDescription)"
             }
             self.workspace?.researchDocumentChanged(file, content: updated) { tabText in

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Where UI Studio keeps its files (§10.3). Reusable configuration that may be committed — the environment, scenarios and
 /// feature packages — lives in `.markview/studio/` next to the team-owned `.markview/operations.json`. Session data — the
@@ -54,7 +57,7 @@ enum StudioStore {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let ignore = folder.appendingPathComponent(".gitignore")
         if !FileManager.default.fileExists(atPath: ignore.path) {
-            try? "# UI Studio session data: history, captures and selection pictures stay out of Git.\n*\n".write(to: ignore, atomically: true, encoding: .utf8)
+            try? AtomicFile.write("# UI Studio session data: history, captures and selection pictures stay out of Git.\n*\n", to: ignore)
         }
     }
 
@@ -65,7 +68,7 @@ enum StudioStore {
 
     static func save<T: Encodable>(_ value: T, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try encoder.encode(value).write(to: url, options: .atomic)
+        try AtomicFile.write(encoder.encode(value), to: url)
     }
 
     /// The scenario a session ended on, so that the next one opens on it and the data asked for is still there (BUG-087). It is the

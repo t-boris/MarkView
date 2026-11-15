@@ -33,7 +33,7 @@ swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/markview-remote-tes
     Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift \
     MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/Remote/RemoteWorkspaceTools.swift \
     MarkView/Models/Remote/RemoteToolBridge.swift MarkView/Models/Remote/RemoteToolRequests.swift \
-    MarkView/Models/Remote/RemoteProviderConfiguration.swift MarkView/Models/Remote/RemoteCodexContext.swift tools/tests/RemoteProviderLiveChecks.swift
+    MarkView/Models/Remote/RemoteProviderConfiguration.swift MarkView/Models/Remote/RemoteCodexContext.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift tools/tests/RemoteProviderLiveChecks.swift
 for provider in "${providers[@]}"; do
     executable=$(command -v "$provider")
     arguments=("$provider" "$executable" "$app" "$relay" "$key_file")

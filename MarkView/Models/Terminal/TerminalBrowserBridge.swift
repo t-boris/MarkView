@@ -1,5 +1,8 @@
 import AppKit
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Web addresses that programs in MarkView's terminals open (Claude Code, Codex, `vite --open`,
 /// `gh browse`, Python's webbrowser, …) go to the browser tab of the terminal's window instead
@@ -99,8 +102,9 @@ enum TerminalBrowserBridge {
 
     private static func write(_ text: String, to url: URL, executable: Bool) throws {
         if (try? String(contentsOf: url, encoding: .utf8)) != text {
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            try AtomicFile.write(text, to: url, permissions: executable ? 0o700 : 0o600)
         }
+        // The content may be unchanged while the mode is not.
         try FileManager.default.setAttributes([.posixPermissions: executable ? 0o700 : 0o600], ofItemAtPath: url.path)
     }
 

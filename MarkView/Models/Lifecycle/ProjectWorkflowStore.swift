@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // Where the project workflow lives and how it gets there (feature-3, DEC-026, DEC-022). Foundation only, so
 // tools/tests/project-workflow-tests.sh compiles it on its own.
@@ -204,7 +207,7 @@ final class ProjectWorkflowStore: @unchecked Sendable {
         do {
             // The marker first: a file without its marker would leave the items that existed without their variant for good.
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data().write(to: assignmentMarker, options: .atomic)
+            try AtomicFile.write(Data(), to: assignmentMarker)
             try write(workflow)
             return .loaded(workflow)
         } catch {
@@ -286,6 +289,6 @@ final class ProjectWorkflowStore: @unchecked Sendable {
     private func write(_ workflow: ProjectWorkflow) throws {
         let data = try Self.encode(workflow)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: url, options: .atomic)
+        try AtomicFile.write(data, to: url)
     }
 }

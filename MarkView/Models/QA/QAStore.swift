@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // End-to-End QA (feature end-to-end-qa, DEC-006 and DEC-014): where scenarios and runs live. Reusable assets (scenarios) are in
 // `.markview/qa/`, which may be committed; runs, with their frames and video, are in `.dde/qa/`, which carries its own
@@ -94,7 +97,7 @@ enum QAStore {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let ignore = folder.appendingPathComponent(".gitignore")
         if !FileManager.default.fileExists(atPath: ignore.path) {
-            try? "# End-to-End QA runs: recordings, frames and evidence stay out of Git.\n*\n".write(to: ignore, atomically: true, encoding: .utf8)
+            try? AtomicFile.write("# End-to-End QA runs: recordings, frames and evidence stay out of Git.\n*\n", to: ignore)
         }
     }
 
@@ -105,7 +108,7 @@ enum QAStore {
 
     static func save<T: Encodable>(_ value: T, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try encoder.encode(value).write(to: url, options: .atomic)
+        try AtomicFile.write(encoder.encode(value), to: url)
     }
 
     // MARK: Scenarios

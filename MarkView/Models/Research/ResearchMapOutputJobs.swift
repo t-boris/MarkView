@@ -1,4 +1,5 @@
 import Foundation
+import MarkViewCore
 
 /// The two jobs that turn a research map into another document (feature mind-map): the narrative report (REQ-013, DEC-014)
 /// and the translation of the map into another language (REQ-014, DEC-015). Both are cancellable jobs of the jobs bar, run
@@ -48,7 +49,7 @@ extension ResearchJobs {
                     return nil
                 }
                 let reportFile = ResearchMap.reportURL(forMap: file, languageCode: code)
-                try Data(assembled.markdown.utf8).write(to: reportFile, options: .atomic)
+                try AtomicFile.write(Data(assembled.markdown.utf8), to: reportFile)
                 workspace.refreshFileTree()
                 workspace.openFile(reportFile)
                 let shown = reportFile.path.hasPrefix(root.path + "/") ? String(reportFile.path.dropFirst(root.path.count + 1)) : reportFile.lastPathComponent

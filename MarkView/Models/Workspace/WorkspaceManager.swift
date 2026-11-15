@@ -5514,7 +5514,7 @@ extension WorkspaceManager {
             return .done(text)
         }
         do {
-            try Data(updated.utf8).write(to: file, options: .atomic)
+            try AtomicFile.write(Data(updated.utf8), to: file)
         } catch {
             return .rejected("The map could not be saved: \(error.localizedDescription)")
         }

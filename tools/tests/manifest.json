@@ -136,6 +136,7 @@
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/Workspace/WikiLinkResolver.swift",
         "MarkView/Models/Architecture/XRayContent.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/BookXRayTests.swift",
         "tools/tests/book-xray-tests.sh"
       ]
@@ -547,6 +548,7 @@
       "sources": [
         "MarkView/Models/AI/CommandPolicy.swift",
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
         "tools/tests/DeploymentExecutorTests.swift",
         "tools/tests/deployment-executor-tests.sh"
@@ -582,6 +584,7 @@
       "sources": [
         "MarkView/Models/AI/CommandPolicy.swift",
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
         "MarkView/Models/AI/SystemProbe.swift",
         "tools/tests/DeploymentSSHTests.swift",
@@ -827,6 +830,7 @@
       "tier": "gui",
       "sources": [
         "MarkView/Models/Workspace/ImageAttachments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/ImageAttachmentsTests.swift",
         "tools/tests/image-attachments-tests.sh"
       ]
@@ -1016,6 +1020,7 @@
         "MarkView/Models/Remote/RemoteHostController.swift",
         "MarkView/Models/Remote/RemoteProtocol.swift",
         "MarkView/Models/Remote/RemoteProviderConfiguration.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Remote/RemoteTerminalConnection.swift",
         "MarkView/Models/Remote/RemoteToolBridge.swift",
         "MarkView/Models/Remote/RemoteToolRequests.swift",
@@ -1035,6 +1040,7 @@
         "MarkView/Bridge/WebViewBridge.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Lifecycle/FeatureIntake.swift",
         "MarkView/Models/Insight/InsightArchiveExporter.swift",
         "MarkView/Models/UIStudio/UIStudioSession.swift",
@@ -1255,6 +1261,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/ProjectOps/ProjectOperation.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/ProjectOperationAnyCodableStub.swift",
         "tools/tests/ProjectOperationMergeTests.swift",
         "tools/tests/project-operation-merge-tests.sh"
@@ -1266,6 +1273,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/ProjectOps/ProjectOperation.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/ProjectOperationAnyCodableStub.swift",
         "tools/tests/ProjectOperationPrimaryTests.swift",
         "tools/tests/project-operation-primary-tests.sh"
@@ -1296,6 +1304,7 @@
       "tier": "gui",
       "sources": [
         "MarkView/Models/Prototype/PrototypeBaseline.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeFiles.swift",
         "MarkView/Models/Prototype/PrototypeHandoff.swift",
         "MarkView/Models/Prototype/PrototypeHandoffDraft.swift",
@@ -1314,6 +1323,7 @@
         "MarkView/Models/Prototype/PrototypeAI.swift",
         "MarkView/Models/Prototype/PrototypeAudit.swift",
         "MarkView/Models/Prototype/PrototypeBaseline.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeEmbedded.swift",
         "MarkView/Models/Prototype/PrototypeFiles.swift",
         "MarkView/Models/Prototype/PrototypeHandoff.swift",
@@ -1335,6 +1345,7 @@
         "MarkView/Models/Prototype/PrototypeAI.swift",
         "MarkView/Models/Prototype/PrototypeAudit.swift",
         "MarkView/Models/Prototype/PrototypeBaseline.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeEmbedded.swift",
         "MarkView/Models/Prototype/PrototypeFiles.swift",
         "MarkView/Models/Prototype/PrototypeHandoff.swift",
@@ -1375,6 +1386,7 @@
       "tier": "gui",
       "sources": [
         "MarkView/Models/Prototype/PrototypeBaseline.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeFiles.swift",
         "MarkView/Models/Prototype/PrototypeHandoff.swift",
         "MarkView/Models/Prototype/PrototypeHandoffDraft.swift",
@@ -1397,6 +1409,7 @@
         "MarkView/Models/Prototype/PrototypeAI.swift",
         "MarkView/Models/Prototype/PrototypeAudit.swift",
         "MarkView/Models/Prototype/PrototypeBaseline.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeEmbedded.swift",
         "MarkView/Models/Prototype/PrototypeFiles.swift",
         "MarkView/Models/Prototype/PrototypeHandoff.swift",
@@ -1418,6 +1431,7 @@
       "tier": "gui",
       "sources": [
         "MarkView/Models/Workspace/ImageAttachments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeImages.swift",
         "tools/tests/PrototypeImagesTests.swift",
         "tools/tests/prototype-images-tests.sh"
@@ -1431,6 +1445,7 @@
         "MarkView/Models/Prototype/PrototypeAI.swift",
         "MarkView/Models/Prototype/PrototypeAudit.swift",
         "MarkView/Models/Prototype/PrototypeBaseline.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeEmbedded.swift",
         "MarkView/Models/Prototype/PrototypeFiles.swift",
         "MarkView/Models/Prototype/PrototypeHandoff.swift",
@@ -1451,6 +1466,7 @@
       "tier": "gui",
       "sources": [
         "MarkView/Models/Prototype/PrototypeFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeReference.swift",
         "tools/tests/PrototypeReferenceTests.swift",
         "tools/tests/prototype-reference-tests.sh"
@@ -1465,6 +1481,7 @@
         "MarkView/Models/Prototype/PrototypeAI.swift",
         "MarkView/Models/Prototype/PrototypeAudit.swift",
         "MarkView/Models/Prototype/PrototypeBaseline.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeEmbedded.swift",
         "MarkView/Models/Prototype/PrototypeFiles.swift",
         "MarkView/Models/Prototype/PrototypeHandoff.swift",
@@ -1499,6 +1516,7 @@
         "MarkView/Models/Prototype/PrototypeAI.swift",
         "MarkView/Models/Prototype/PrototypeAudit.swift",
         "MarkView/Models/Prototype/PrototypeBaseline.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeEmbedded.swift",
         "MarkView/Models/Prototype/PrototypeFiles.swift",
         "MarkView/Models/Prototype/PrototypeHandoff.swift",
@@ -1521,6 +1539,7 @@
         "MarkView/Models/Prototype/PrototypeAI.swift",
         "MarkView/Models/Prototype/PrototypeAudit.swift",
         "MarkView/Models/Prototype/PrototypeBaseline.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeEmbedded.swift",
         "MarkView/Models/Prototype/PrototypeFiles.swift",
         "MarkView/Models/Prototype/PrototypeHandoff.swift",
@@ -1542,6 +1561,7 @@
       "sources": [
         "MarkView/Bridge/PrototypeSchemeHandler.swift",
         "MarkView/Models/Prototype/PrototypeFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeStyles.swift",
         "MarkView/Models/Prototype/PrototypeTailwind.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
@@ -1557,6 +1577,7 @@
         "MarkView/Models/Prototype/PrototypeAI.swift",
         "MarkView/Models/Prototype/PrototypeAudit.swift",
         "MarkView/Models/Prototype/PrototypeBaseline.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeEmbedded.swift",
         "MarkView/Models/Prototype/PrototypeFiles.swift",
         "MarkView/Models/Prototype/PrototypeHandoff.swift",
@@ -1579,6 +1600,7 @@
         "MarkView/Models/Prototype/PrototypeAI.swift",
         "MarkView/Models/Prototype/PrototypeAudit.swift",
         "MarkView/Models/Prototype/PrototypeBaseline.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeEmbedded.swift",
         "MarkView/Models/Prototype/PrototypeFiles.swift",
         "MarkView/Models/Prototype/PrototypeHandoff.swift",
@@ -1599,6 +1621,7 @@
       "tier": "gui",
       "sources": [
         "MarkView/Models/Prototype/PrototypeFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "tools/tests/PrototypeThemesTests.swift"
       ]
@@ -1879,6 +1902,7 @@
         "MarkView/Models/Remote/RemoteCommand.swift",
         "MarkView/Models/Remote/RemoteProtocol.swift",
         "MarkView/Models/Remote/RemoteWorkspace.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/RemoteBrowserTests.swift"
@@ -1893,6 +1917,7 @@
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
         "MarkView/Models/Terminal/PTYWriter.swift",
         "MarkView/Models/Remote/RemoteCodexContext.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Remote/RemoteCommand.swift",
         "MarkView/Models/Remote/RemoteProtocol.swift",
         "MarkView/Models/Remote/RemoteProviderConfiguration.swift",
@@ -1921,6 +1946,7 @@
         "MarkView/Models/Terminal/PTYWriter.swift",
         "MarkView/Models/Remote/RemoteChannel.swift",
         "MarkView/Models/Remote/RemoteCodexContext.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Remote/RemoteCommand.swift",
         "MarkView/Models/Remote/RemoteFraming.swift",
         "MarkView/Models/Remote/RemoteProtocol.swift",
@@ -1946,6 +1972,7 @@
         "MarkView/Models/Remote/RemoteFraming.swift",
         "MarkView/Models/Remote/RemoteProtocol.swift",
         "MarkView/Models/Remote/RemoteProviderConfiguration.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Remote/RemoteToolBridge.swift",
         "MarkView/Models/Remote/RemoteToolRequests.swift",
         "MarkView/Models/Remote/RemoteWorkspace.swift",
@@ -2146,6 +2173,7 @@
         "MarkView/Models/Terminal/PTYWriter.swift",
         "MarkView/Models/Remote/RemoteConnectionState.swift",
         "MarkView/Models/Terminal/TerminalBrowserBridge.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Terminal/TerminalChildProcess.swift",
         "MarkView/Models/Terminal/TerminalLink.swift",
         "MarkView/Models/Terminal/TerminalSession.swift",
@@ -2166,6 +2194,7 @@
         "MarkView/Models/Terminal/PTYWriter.swift",
         "MarkView/Models/Remote/RemoteConnectionState.swift",
         "MarkView/Models/Terminal/TerminalBrowserBridge.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Terminal/TerminalChildProcess.swift",
         "MarkView/Models/Terminal/TerminalLink.swift",
         "MarkView/Models/Terminal/TerminalSession.swift",
@@ -2413,6 +2442,7 @@
         "MarkView/Models/UIStudio/UIStudioAuthMock.swift",
         "MarkView/Models/UIStudio/UIStudioBridge.swift",
         "MarkView/Models/UIStudio/UIStudioChanges.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/UIStudio/UIStudioChannels.swift",
         "MarkView/Models/UIStudio/UIStudioConnections.swift",
         "MarkView/Models/UIStudio/UIStudioEnvironmentMap.swift",
@@ -2455,6 +2485,7 @@
         "MarkView/Models/Workspace/FrontMatter.swift",
         "MarkView/Models/Research/ResearchDocument.swift",
         "MarkView/Models/Terminal/TerminalBrowserBridge.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Workspace/WebAppPreview.swift",
         "MarkView/Models/Workspace/WebClip.swift",
         "MarkView/Views/Browser/BrowserPopup.swift",
@@ -2692,6 +2723,7 @@
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Models/Workspace/ProjectSearch.swift",
         "MarkView/Models/Lifecycle/SpecificationHandoff.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/WorkspaceRedesignTests.swift"
       ]
     },
@@ -2710,6 +2742,7 @@
       "tier": "gui",
       "sources": [
         "MarkView/Models/Architecture/XRayContent.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/XRayContentTests.swift"
       ]
     },

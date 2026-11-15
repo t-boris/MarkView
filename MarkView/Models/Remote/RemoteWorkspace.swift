@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Owns the selected work-computer folder and its command sessions. No provider or network code
 /// belongs here. File tools reject traversal and symlink escapes; shell commands deliberately have
@@ -134,7 +137,7 @@ actor RemoteWorkspace {
             let url = try resolve(args.requiredString("path", limit: 8192))
             let content = try args.requiredString("content", limit: 2 * 1024 * 1024)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data(content.utf8).write(to: url, options: .atomic)
+            try AtomicFile.write(Data(content.utf8), to: url)
             return .textResult("Wrote \(url.path).")
         case "edit_file":
             let url = try resolve(args.requiredString("path", limit: 8192))
@@ -145,7 +148,7 @@ actor RemoteWorkspace {
             let parts = text.components(separatedBy: old)
             guard parts.count > 1 else { throw RemoteFailure.invalid("old_text does not match the current file. Read it again.") }
             guard args["replace_all"].bool == true || parts.count == 2 else { throw RemoteFailure.invalid("old_text has several matches. Include more context or set replace_all.") }
-            try Data(parts.joined(separator: new).utf8).write(to: url, options: .atomic)
+            try AtomicFile.write(Data(parts.joined(separator: new).utf8), to: url)
             return .textResult("Updated \(url.path).")
         case "exec_command":
             guard commands.count < 64 else { throw RemoteFailure.invalid("Too many command sessions. Finish an existing command first.") }

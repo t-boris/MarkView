@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Generates per-run CLI configuration without changing either provider's global settings.
 /// The home login remains owned by the provider CLI. Home native tools are blocked, not merely
@@ -76,7 +79,6 @@ enum RemoteProviderConfiguration {
         return String(data: try! encoder.encode(text), encoding: .utf8)!
     }
     private static func write(_ value: RemoteJSON, to url: URL) throws {
-        try JSONEncoder().encode(value).write(to: url, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        try AtomicFile.write(JSONEncoder().encode(value), to: url, permissions: 0o600)
     }
 }

@@ -35,7 +35,7 @@ run_suite() {
         github)     run github IssueGitHubSyncChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueSync.swift" "$M/Lifecycle/IssueGitHubSync.swift" ;;
         context)    run context IssueContextChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueLifecycleContext.swift" ;;
         display)    run display IssueDisplayChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueLifecycleDisplay.swift" ;;
-        store)      run store IssueStoreChecks.swift "$M/Workspace/FrontMatter.swift" "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueReconciler.swift" "$M/Lifecycle/MarkdownIssueStatusStore.swift" ;;
+        store)      run store IssueStoreChecks.swift "$M/Workspace/FrontMatter.swift" "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueReconciler.swift" "$M/Lifecycle/MarkdownIssueStatusStore.swift" Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift ;;
         *) echo "unknown suite $suite"; exit 2 ;;
     esac
 }

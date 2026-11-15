@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import MarkViewCore
 
 /// State behind the Architecture tab: the persisted snapshot (Modules, Deployment,
 /// Docs views and documentation coverage), progress of scans and AI passes, and the
@@ -511,7 +512,7 @@ final class ArchitectureStore: ObservableObject {
         guard let data = try? Self.snapshotEncoder.encode(stored) else { return }
         Task.detached(priority: .utility) {
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: file, options: .atomic)
+            try? AtomicFile.write(data, to: file)
         }
     }
 
@@ -829,7 +830,7 @@ final class ArchitectureStore: ObservableObject {
             let object = decoded.dictionary
             if let data = try? JSONSerialization.data(withJSONObject: object) {
                 try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
-                try? data.write(to: file, options: .atomic)
+                try? AtomicFile.write(data, to: file)
             }
             return object
         } catch is AIOperationError {
@@ -864,7 +865,7 @@ final class ArchitectureStore: ObservableObject {
         guard let data = try? JSONEncoder().encode(value) else { return }
         Task.detached(priority: .utility) {
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: file, options: .atomic)
+            try? AtomicFile.write(data, to: file)
         }
     }
 
@@ -2935,7 +2936,7 @@ final class ArchitectureStore: ObservableObject {
         }.value
         guard let text = fetched else { return nil }
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil else { return nil }
+        guard (try? AtomicFile.write(text, to: file)) != nil else { return nil }
         return file
     }
 

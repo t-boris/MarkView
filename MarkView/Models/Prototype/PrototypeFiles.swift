@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// File-level rules of Prototype Studio: where a prototype lives, which paths an agent answer may
 /// touch, how edits apply, and the version snapshots. Pure Foundation, so `tools/tests/prototype-tests.sh`
@@ -275,7 +278,7 @@ enum PrototypeFiles {
     static func saveConversation(_ messages: [StoredMessage], in folder: URL) {
         guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil,
               let data = try? JSONEncoder().encode(messages) else { return }
-        try? data.write(to: conversationURL(of: folder), options: .atomic)
+        try? AtomicFile.write(data, to: conversationURL(of: folder))
     }
 
     // MARK: - Manifest
@@ -292,7 +295,7 @@ enum PrototypeFiles {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(manifest).write(to: manifestURL(of: folder), options: .atomic)
+        try AtomicFile.write(encoder.encode(manifest), to: manifestURL(of: folder))
     }
 
     // MARK: - Scope (code mode)
@@ -522,7 +525,7 @@ enum PrototypeFiles {
             guard let text = state[path] else { continue }
             let url = site.appendingPathComponent(path)
             try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            try AtomicFile.write(text, to: url)
         }
         for path in removed { try? fm.removeItem(at: site.appendingPathComponent(path)) }
         return applied.touched.sorted()

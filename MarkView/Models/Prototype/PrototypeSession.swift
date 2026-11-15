@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import SwiftUI
+import MarkViewCore
 
 /// One open prototype in Prototype Studio: the files on disk, the review conversation, and the
 /// run that is changing them. The preview (`PrototypeStudioView`) shows `siteIndex` and reloads when
@@ -660,7 +661,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 let zip = try await Task.detached(priority: .userInitiated) {
                     try PrototypeAI.packageArchive(root: root, folder: folder, manifest: manifest, spec: spec)
                 }.value
-                try spec.write(to: folder.appendingPathComponent("SPEC.md"), atomically: true, encoding: .utf8)
+                try AtomicFile.write(spec, to: folder.appendingPathComponent("SPEC.md"))
                 self.manifest.approved = true
                 try PrototypeFiles.saveManifest(self.manifest, in: folder)
                 archive = zip

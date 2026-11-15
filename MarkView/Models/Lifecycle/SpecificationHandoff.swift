@@ -1,5 +1,8 @@
 import CryptoKit
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 struct HandoffRevision: Codable, Identifiable {
     let number: Int
@@ -145,7 +148,7 @@ actor SpecificationHandoffStore {
         guard front.isLossless else { throw HandoffError.uneditableOverview }
         let normalized = try Array(Set(links.map(validRelativePath))).sorted()
         front["handoff_files"] = .list(normalized.map { .string($0) })
-        try front.join(body: body).write(to: overview, atomically: true, encoding: .utf8)
+        try AtomicFile.write(front.join(body: body), to: overview)
     }
 
     func snapshotText(project: URL, slug: String, revision: Int, path: String) throws -> String? {

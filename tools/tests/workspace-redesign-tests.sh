@@ -19,7 +19,7 @@ enum SemanticDatabase {
 SWIFT
 swiftc -parse-as-library -o "$out/workspace-redesign-tests" \
     MarkView/Models/Workspace/FrontMatter.swift \
-    MarkView/Models/Lifecycle/SpecificationHandoff.swift \
+    MarkView/Models/Lifecycle/SpecificationHandoff.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift \
     MarkView/Models/Workspace/ProjectSearch.swift \
     MarkView/Models/Workspace/ArchiveSupport.swift \
     MarkView/Models/Workspace/LinkedFolders.swift \

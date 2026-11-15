@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 extension String {
     /// Lines as the code viewer counts them: CRLF, CR and LF each end a line. (Swift
@@ -376,7 +379,7 @@ final class CodeExplainStore: ObservableObject {
             encoder.dateEncodingStrategy = .iso8601
             var stored = explanation
             stored.ratings = stored.ratings.filter { !ImportanceRater.isTemporary($0.key) }   // one-off filters are never stored
-            try encoder.encode(stored).write(to: fileURL(explanation.path, directory), options: .atomic)
+            try AtomicFile.write(encoder.encode(stored), to: fileURL(explanation.path, directory))
         } catch {
             errors[explanation.path] = "Explanation could not be cached: \(error.localizedDescription)"
         }

@@ -11,7 +11,7 @@ swiftc -parse-as-library -o "$out/persistent-remote-session-tests" \
     MarkView/Models/Remote/RemoteFraming.swift MarkView/Models/Remote/RemoteWorkspace.swift \
     MarkView/Models/Remote/RemoteCommand.swift MarkView/Models/Terminal/PTYWriter.swift MarkView/Models/AI/AgentProcesses.swift \
     MarkView/Models/Remote/RemoteWorkspaceTools.swift MarkView/Models/Remote/RemoteToolBridge.swift \
-    MarkView/Models/Remote/RemoteToolRequests.swift MarkView/Models/Remote/RemoteProviderConfiguration.swift \
+    MarkView/Models/Remote/RemoteToolRequests.swift MarkView/Models/Remote/RemoteProviderConfiguration.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift \
     MarkView/Models/Remote/RemoteHostController.swift MarkView/Models/Remote/RemoteTerminalConnection.swift \
     tools/tests/PersistentRemoteSessionTests.swift
 node tools/tests/persistent-remote-relay.mjs > "$out/relay.log" 2>&1 &

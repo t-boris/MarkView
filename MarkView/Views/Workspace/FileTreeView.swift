@@ -1,4 +1,5 @@
 import SwiftUI
+import MarkViewCore
 
 /// Files: the project folder and its linked folders in three views (Icons, List, Tree), with filters and an
 /// explicit sort. The rules are in `FileBrowserModel.swift`; this view draws them and keeps the actions
@@ -1250,7 +1251,7 @@ struct FileTreeView: View {
             }
             let template = name.hasSuffix(".md") ? "# \(name.replacingOccurrences(of: ".md", with: ""))\n\n" : ""
             do {
-                try template.write(to: fileURL, atomically: true, encoding: .utf8)
+                try AtomicFile.write(template, to: fileURL)
             } catch {
                 return showError("Couldn't create “\(name)”: \(error.localizedDescription)")
             }
