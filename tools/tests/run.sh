@@ -3,7 +3,7 @@
 #
 # Usage:
 #   tools/tests/run.sh --list [--tier pure|gui|live|all] [--all] [--changed [<ref>]]
-#   tools/tests/run.sh [--tier pure|gui|live|all] [--all] [--changed [<ref>]] [--suite <name>]... [--dry-run]
+#   tools/tests/run.sh [--tier pure|gui|live|all] [--all] [--changed [<ref>]] [--suite <name>]... [--jobs <N>] [--dry-run] [<name>...]
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -13,6 +13,7 @@ CHANGED_MODE=0
 CHANGED_REF=""
 LIST_ONLY=0
 DRY_RUN=0
+JOBS="${MARKVIEW_TEST_JOBS:-}"
 SUITES=()
 
 while [ $# -gt 0 ]; do
@@ -31,7 +32,10 @@ while [ $# -gt 0 ]; do
             fi
             ;;
         --suite) SUITES+=("${2:?--suite requires a suite name}"); shift 2 ;;
-        *) echo "usage: $0 [--list] [--dry-run] [--all] [--tier pure|gui|live|all] [--changed [<ref>]] [--suite <name>]" >&2; exit 1 ;;
+        --jobs|-j) JOBS="${2:?--jobs requires a positive integer}"; shift 2 ;;
+        --jobs=*) JOBS="${1#--jobs=}"; shift ;;
+        -*) echo "usage: $0 [--list] [--dry-run] [--all] [--tier pure|gui|live|all] [--changed [<ref>]] [--suite <name>] [--jobs <N>] [<name>...]" >&2; exit 1 ;;
+        *) SUITES+=("$1"); shift ;;
     esac
 done
 
@@ -81,13 +85,14 @@ if changed_mode:
         suites = []
 
 for s in suites:
-    print(f"{s['name']}\t{s['tier']}\t{s['script']}")
+    weight = len(s.get("sources", []))
+    print(f"{s['name']}\t{s['tier']}\t{s['script']}\t{weight}")
 PY
 )
 
 if [ "$LIST_ONLY" = 1 ] || [ "$DRY_RUN" = 1 ]; then
     if [ -n "$selected" ]; then
-        echo "$selected"
+        cut -f1-3 <<< "$selected"
     fi
     exit 0
 fi
@@ -97,38 +102,112 @@ if [ -z "$selected" ]; then
     exit 0
 fi
 
-run_script() {
-    local s="$1"
-    if [ -x "$s" ]; then
-        "./$s"
-        return $?
+shim_dir=""
+cleanup() {
+    if [ -n "$shim_dir" ] && [ -d "$shim_dir" ]; then
+        rm -rf "$shim_dir"
     fi
-    local first_line=""
-    IFS= read -r first_line < "$s" || true
-    case "$first_line" in
-        "#!"*zsh*) zsh "$s" ;;
-        "#!"*python3*) python3 "$s" ;;
-        *) bash "$s" ;;
-    esac
 }
+trap cleanup EXIT
 
-passed=0
-failed=0
-failed_names=()
-while IFS=$'\t' read -r name suite_tier script; do
-    [ -n "$script" ] || continue
-    echo "▸ [$suite_tier] $name ($script)"
-    if run_script "$script"; then
-        passed=$((passed + 1))
-    else
-        failed=$((failed + 1))
-        failed_names+=("$name")
-    fi
-done <<< "$selected"
-
-echo ""
-echo "Suites summary: $passed passed, $failed failed"
-if [ "$failed" -gt 0 ]; then
-    echo "Failed suites: ${failed_names[*]}" >&2
-    exit 1
+# Compiling one-shot test binaries with -O dominates suite wall time; default to -Onone + shared module cache
+# unless MARKVIEW_TEST_SWIFTC_OPT=1 requests optimized test builds.
+if [ "${MARKVIEW_TEST_SWIFTC_OPT:-0}" != "1" ]; then
+    real_swiftc=$(command -v swiftc || true)
+    if [ -n "$real_swiftc" ]; then
+        shim_dir=$(mktemp -d "${TMPDIR:-/tmp}/markview-swiftc-shim.XXXXXX")
+        mod_cache="${MARKVIEW_TEST_MODULE_CACHE:-${TMPDIR:-/tmp}/markview-test-module-cache}"
+        mkdir -p "$mod_cache"
+        cat > "$shim_dir/swiftc" <<EOF
+#!/bin/bash
+args=()
+has_mod_cache=0
+for a in "\$@"; do
+    case "\$a" in
+        -O) continue ;;
+        -module-cache-path) has_mod_cache=1 ;;
+    esac
+    args+=("\$a")
+done
+if [ "\$has_mod_cache" = 0 ]; then
+    args=("-module-cache-path" "$mod_cache" "\${args[@]}")
 fi
+exec "$real_swiftc" "\${args[@]}"
+EOF
+        chmod +x "$shim_dir/swiftc"
+        export PATH="$shim_dir:$PATH"
+    fi
+fi
+
+python3 - "$selected" "$JOBS" <<'PY'
+import os
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
+raw_selected, raw_jobs = sys.argv[1], sys.argv[2]
+items = []
+for line in raw_selected.splitlines():
+    if not line.strip():
+        continue
+    name, suite_tier, script, weight = line.split("\t")
+    items.append((int(weight), name, suite_tier, script))
+
+# Start multi-file heavy suites first so the parallel schedule does not end on a long tail.
+items.sort(key=lambda item: (-item[0], item[1]))
+
+if raw_jobs:
+    try:
+        workers = max(1, int(raw_jobs))
+    except ValueError:
+        print(f"Invalid --jobs value: {raw_jobs}", file=sys.stderr)
+        sys.exit(2)
+else:
+    cpus = os.cpu_count() or 4
+    cap = 4 if os.environ.get("CI") == "true" else 8
+    workers = max(1, min(cpus, cap, len(items)))
+
+def run_suite(item):
+    _, name, suite_tier, script = item
+    if os.access(script, os.X_OK):
+        cmd = [f"./{script}"]
+    else:
+        first_line = ""
+        try:
+            with open(script, "r", encoding="utf-8", errors="ignore") as f:
+                first_line = f.readline()
+        except OSError:
+            pass
+        if "zsh" in first_line:
+            cmd = ["zsh", script]
+        elif "python3" in first_line:
+            cmd = ["python3", script]
+        else:
+            cmd = ["bash", script]
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    return name, suite_tier, script, proc.returncode, proc.stdout
+
+passed = 0
+failed = 0
+failed_names = []
+
+with ThreadPoolExecutor(max_workers=workers) as executor:
+    futures = [executor.submit(run_suite, item) for item in items]
+    for fut in as_completed(futures):
+        name, suite_tier, script, rc, output = fut.result()
+        print(f"▸ [{suite_tier}] {name} ({script})", flush=True)
+        if output:
+            sys.stdout.write(output if output.endswith("\n") else output + "\n")
+            sys.stdout.flush()
+        if rc == 0:
+            passed += 1
+        else:
+            failed += 1
+            failed_names.append(name)
+
+print(f"\nSuites summary: {passed} passed, {failed} failed", flush=True)
+if failed > 0:
+    print(f"Failed suites: {' '.join(sorted(failed_names))}", file=sys.stderr, flush=True)
+    sys.exit(1)
+PY
