@@ -1,6 +1,6 @@
 import Foundation
 
-enum WorkspaceArea: String, CaseIterable, Identifiable {
+enum WorkspaceArea: String, CaseIterable, Identifiable, Codable {
     case files = "Files"
     case projectMap = "Project Map"
     case work = "Work"
@@ -15,7 +15,7 @@ enum WorkspaceArea: String, CaseIterable, Identifiable {
     }
 }
 
-enum WorkSection: String, CaseIterable, Identifiable {
+enum WorkSection: String, CaseIterable, Identifiable, Codable {
     case features = "Tasks"
     case git = "Git"
     case terminal = "Terminal"
@@ -31,7 +31,7 @@ enum WorkSection: String, CaseIterable, Identifiable {
 }
 
 /// Legacy right-panel navigator tab selection kept in Models (`AR-22`).
-enum NavigatorTab: String, CaseIterable {
+enum NavigatorTab: String, CaseIterable, Codable {
     case contents = "Contents"
     case search = "Search"
     case git = "Git"
@@ -48,6 +48,25 @@ enum NavigatorTab: String, CaseIterable {
         default: return rawValue
         }
     }
+}
+
+/// The stages of a feature (spec §5), kept in Models (`AR-22`).
+enum FeatureStage: String, CaseIterable, Codable {
+    case explore = "Explore", review = "Review", build = "Build"
+    static let storageKey = "feature.stage"
+
+    /// A stored stage; the former Resolve stage opens Review.
+    static func stored(_ raw: String?) -> FeatureStage {
+        raw == "Resolve" ? .review : raw.flatMap(FeatureStage.init) ?? .explore
+    }
+}
+
+/// Git tab sections kept in Models (`AR-22`).
+enum GitSection: String, CaseIterable, Codable {
+    case changes = "Changes"
+    case pullRequests = "PRs"
+    case issues = "Issues"
+    case actions = "Actions"
 }
 
 /// The tab or section each panel of one window shows. Every window owns one through its
@@ -88,11 +107,26 @@ final class PanelLayout: ObservableObject {
         didSet { remember(welcomeBackdrop.rawValue, WelcomeBackdrop.storageKey) }
     }
 
+    /// Last layout preset explicitly selected by the user in this window (`AR-33`, `DEC-002`).
+    /// Never triggered automatically on tab or git changes.
+    @Published private(set) var activePresetID: String?
+
+    /// Explicitly applies `preset` to this window's panel layout (`AR-33`, `DEC-002`).
+    func apply(preset: LayoutPreset) {
+        workspaceArea = preset.workspaceArea
+        workSection = preset.workSection
+        navigatorTab = preset.navigatorTab
+        leftPanel = preset.leftPanel
+        activePresetID = preset.id
+        remember(preset.id, Self.layoutPresetKey)
+    }
+
     static let leftPanelKey = "layout.leftPanel"
     static let workspaceAreaKey = "layout.workspaceArea"
     static let workSectionKey = "layout.workSection"
     static let issuesFeatureKey = "layout.issuesFeature"
     static let gitSectionKey = "layout.gitSection"
+    static let layoutPresetKey = "layout.preset"
 
     private let defaults: UserDefaults
 

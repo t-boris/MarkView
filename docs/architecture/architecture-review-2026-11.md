@@ -453,7 +453,7 @@ Each phase leaves the app shippable. Phases 0 and 1 are low risk and mostly inde
 
 **Phase 2: shared infrastructure, `Core` (2-3 weeks) — [Done].** `Subprocess` (AR-25), `Files` and `Logging` (AR-24), the settings key registry (AR-18), the JS call helper and `WebHost` (AR-04, AR-27), and the `Packages/MarkViewCore` local Swift package with `swift test` (AR-44 step 2) (`tools/tests/phase2-core-tests.sh`).
 
-**Phase 3: extension points (2-3 weeks).** Tool registry (AR-31), backdrop registry (AR-34), themes as data (AR-32), MCP tool handlers and the file type table, then layout presets (AR-33).
+**Phase 3: extension points (2-3 weeks) — [Done].** Tool registry (AR-31), backdrop registry (AR-34), themes as data with user theme loader and automatic web CSS token derivation (AR-32), MCP tool handlers and the file type table, and layout presets (AR-33) (`tools/tests/phase3-extensibility-tests.sh`).
 
 **Phase 4: shell decomposition (4-6 weeks, incremental).** `WorkspaceManager` steps 1-5 (AR-14), stop the change forwarding (AR-15), the composition root and protocols (AR-17), task bag and scheduler (AR-19), then steps 6-11.
 

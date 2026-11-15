@@ -43,9 +43,26 @@ enum ActionOutputLanguage {
     }
 }
 
-/// SHA-256 of text as lowercase hex: cache keys and "did the content change" checks.
+/// SHA-256 and FNV-1a of text/data as lowercase hex: cache keys and "did the content change" checks (`AR-24`).
 enum ContentHash {
     static func of(_ text: String) -> String {
-        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+        sha256Hex(text)
+    }
+
+    static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func sha256Hex(_ string: String) -> String {
+        sha256Hex(Data(string.utf8))
+    }
+
+    static func fnv1a64Hex(_ string: String) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in string.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
+        }
+        return String(format: "%016llx", hash)
     }
 }

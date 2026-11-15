@@ -2,18 +2,6 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-/// The stages of a feature (spec §5). Resolve was a stage of its own until 4.0.0 (BUG-023); what
-/// only it showed is Review's "Before Build" section now.
-enum FeatureStage: String, CaseIterable {
-    case explore = "Explore", review = "Review", build = "Build"
-    static let storageKey = "feature.stage"
-
-    /// A stored stage; the former Resolve stage opens Review.
-    static func stored(_ raw: String?) -> FeatureStage {
-        raw == "Resolve" ? .review : raw.flatMap(FeatureStage.init) ?? .explore
-    }
-}
-
 /// Right panel "Feature" tab: stages, readiness, the AI around the open document.
 struct FeaturePanelView: View {
     @Environment(\.palette) private var palette

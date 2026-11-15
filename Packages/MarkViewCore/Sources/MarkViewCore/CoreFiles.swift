@@ -68,13 +68,17 @@ public enum ProjectPaths {
         let canonicalPath = canonical(root).path
         let leaf = URL(fileURLWithPath: canonicalPath).lastPathComponent
             .replacingOccurrences(of: "[^A-Za-z0-9._-]", with: "_", options: .regularExpression)
-        let hash = ContentHash.sha256Hex(canonicalPath).prefix(12)
+        let hash = CoreDigest.sha256Hex(canonicalPath).prefix(12)
         return "\(leaf)-\(hash)"
     }
 }
 
 /// Shared content hashing helpers (`AR-24`).
-public enum ContentHash {
+public enum CoreDigest {
+    public static func of(_ text: String) -> String {
+        sha256Hex(text)
+    }
+
     public static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
