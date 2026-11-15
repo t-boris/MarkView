@@ -279,6 +279,26 @@ enum TabKind {
     /// End-to-End QA: scenarios written from a goal, edited as a graph and checked branch by branch (`QATabView`).
     case qa
 
+    /// The tool this tab is the tab of (`ToolRegistry`); nil for a document or any other tab.
+    var toolID: ToolID? {
+        switch self {
+        case .git: return .git
+        case .deployments: return .deployments
+        case .workflow: return .workflow
+        case .qa: return .qa
+        case .uiStudio: return .uiStudio
+        case .cockpit: return .cockpit
+        case .discussions: return .discussions
+        case .changeReview: return .changeReview
+        default: return nil
+        }
+    }
+
+    /// What the registry knows of the tool this tab belongs to: its title, icon and shortcut.
+    var toolDescriptor: ToolDescriptor? {
+        toolID.flatMap { ToolRegistry.shared.descriptor(for: $0) }
+    }
+
     /// Scope of the PR X-Ray tab: the project's X-Ray seen through one change.
     static let pullRequestScope = "#pr"
 
@@ -344,18 +364,11 @@ struct OpenTab: Identifiable {
     /// The display name for the tab (file name)
     var displayName: String {
         if case .terminal = kind { return "Terminal: " + url.deletingLastPathComponent().lastPathComponent }
-        if case .deployments = kind { return "Build & Deployment" }
-        if case .discussions = kind { return "Discussions" }
-        if case .workflow = kind { return "Workflow" }
-        if case .git = kind { return "Git" }
-        if case .changeReview = kind { return "File changes" }
+        if let tool = kind.toolDescriptor { return tool.title }
         if case .github(let item) = kind { return item.title }
         // The page title lives on the main actor; the tab bar shows it with `BrowserTabTitle`.
         if case .browser = kind { return "Browser" }
         if case .prototype(let session) = kind { return "Prototype: " + session.slug }
-        if case .uiStudio = kind { return "UI Studio" }
-        if case .cockpit = kind { return "Copilot Cockpit" }
-        if case .qa = kind { return "End-to-End QA" }
         if case .architecture(let scope) = kind {
             if scope == TabKind.pullRequestScope { return "PR X-Ray" }
             return scope.isEmpty ? "X-Ray" : "X-Ray: " + (scope as NSString).lastPathComponent

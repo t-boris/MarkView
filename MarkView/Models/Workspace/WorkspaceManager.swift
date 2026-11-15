@@ -1227,12 +1227,6 @@ class WorkspaceManager: ObservableObject {
             case .image: saved = .image(tab.url)
             case .pdf: saved = .pdf(tab.url)
             case .archive: saved = .archive(tab.url)
-            case .deployments: saved = .deployments
-            case .discussions: saved = .discussions
-            case .workflow: saved = .workflow
-            case .git: saved = .git
-            case .qa: saved = .qa
-            case .changeReview: saved = .changeReview
             case .data: saved = .data(tab.url)
             case .github(let item): saved = .github(item)
             case .architecture(let scope): saved = .architecture(scope)
@@ -1244,8 +1238,11 @@ class WorkspaceManager: ObservableObject {
                 saved = .browser(url)
             case .insight: continue // in-memory jobs have their own export workflow
             case .prototype: continue // reopened from AI Tools → Prototype
-            case .uiStudio: continue // a live session with a development server: opened again from View → UI Studio
-            case .cockpit: continue // reopened from the toolbar
+            default:
+                // A tool tab is saved when its descriptor says so; UI Studio (a live session with a development server) and the
+                // Cockpit are opened again from the View menu or the toolbar.
+                guard let tool = tab.kind.toolID, ToolRegistry.shared.isRestorable(tool) else { continue }
+                saved = .tool(tool)
             }
             if index == activeTabIndex { state.activeTabIndex = state.tabs.count }
             state.tabs.append(saved)
@@ -1296,12 +1293,8 @@ class WorkspaceManager: ObservableObject {
                     tab.scrollPosition = restoredScroll
                 }
                 scrollState.setScrollPosition(restoredScroll, for: openTabs[before].id)
-            case .deployments: openDeployments()
-            case .discussions: openDiscussions()
-            case .workflow: openWorkflow()
-            case .git: openGit()
-            case .qa: openQA()
-            case .changeReview: openChangeReview()
+            case .tool(let tool):
+                if ToolRegistry.shared.isRestorable(tool) { openTool(tool) }
             case .image(let url), .pdf(let url), .data(let url), .archive(let url):
                 if url.isFileURL, fm.fileExists(atPath: url.path) { openFile(url) }
             case .github(let item): openGitHubTab(item)
