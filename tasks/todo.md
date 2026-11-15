@@ -1,3 +1,16 @@
+# Antigravity usage next to Claude and Codex in the top bar (2026-11-14, 6.24.0)
+
+Boris: show how much Antigravity quota is left in the top bar, in parallel with Claude and Codex. Research (memory `antigravity-usage-source-agy-usage`): `agy --output-format json -p "/usage"` is a free, structured source (about 2 s, no model tokens, no conversation). Boris approved the proposal as written ("Да, делай так, как предложил"); the headline window is the most used one, like Claude and Codex.
+
+- [ ] Records: DEC-020 in ai-agent-usage-quota-tracker-codex-claude-code (Antigravity source, supersedes DEC-010 of flexible-files-views-and-visible-agent-usage for Antigravity), a requirement with criteria ticked only for what is proven.
+- [ ] 1. Model: `UsageAgent.antigravity` (display name, short name, `hasLocalLogs` false, detection by `agy` or `~/.gemini/antigravity-cli`), `OfficialUsageParser.antigravity` (groups of buckets to windows, group in `modelScope`, a bucket nobody used yet has no reset time because `agy` reports now + window).
+- [ ] 2. Source: `agy --print-timeout 20s --log-file /dev/null --output-format json -p "/usage"` run off the main thread with our own 25 s timeout; signed out ("Authentication required") is `signedOut` and the login URL is never kept or logged; unrecognised output is `failed`.
+- [ ] 3. Tracker: no local-log scan for an agent without logs (no reader, no watched folders, no fallback limit); state is official, or unavailable with the note.
+- [ ] 4. Views: the third chip, a hide switch in Settings, the group name in the popover and tooltip, no "Set a limit" / "Today (local logs)" rows for Antigravity.
+- [ ] Checks: pure parser tests on the real output, mutation check, `agent-usage-tests.sh`, every script the diff triggers, Debug build, a live read of the real `agy`.
+- [ ] 6.24.0: PR, merge, signed release, DMG copy in `build/`; install only on Boris's "reinstall".
+- Not included: the Antigravity IDE's own quota if it is a different Google account than the CLI (not verified), notifications (DEC-004).
+
 # UI Studio: the simulator answers in the application's own response envelope (2026-11-14, 6.23.0)
 
 Boris installed 6.22.0 and wrote "Не работает" with two screenshots (product-promotion-desk, screen "Products – list and detail"): the Products page shows `undefined is not an object (evaluating 'envelope.error.code')`, every screen is covered by the dialog "The AI is waiting for you", the screen request ends `failed` ("Override 1 names POST .../passport.get, which no rule serves"), Fix problems is greyed. Plan `/Users/boris/.claude/plans/calm-whistling-eich.md` APPROVED. This is finding (a) of the 6.22.0 report that I had left as "needs approval"; it blocks his two requests for any Electron/IPC app.
