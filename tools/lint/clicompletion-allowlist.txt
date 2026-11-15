@@ -3,9 +3,6 @@
 2 MarkView/Models/Cockpit/CockpitSession.swift
 1 MarkView/Models/Deployments/DeploymentAdvisor.swift
 1 MarkView/Models/Git/GitHubStore.swift
-2 MarkView/Models/Insight/GraphRAG.swift
-2 MarkView/Models/Insight/InsightSession.swift
-1 MarkView/Models/Lifecycle/FeatureAI.swift
 2 MarkView/Models/ProjectOps/ProjectOperationDiscoveryService.swift
 3 MarkView/Models/QA/QAModel.swift
 1 MarkView/Models/QA/QARunAssistant.swift

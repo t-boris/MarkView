@@ -180,8 +180,8 @@ The iframe will call mermaid.run() with securityLevel="loose" + htmlLabels=true 
         """
 
         do {
-            let result = try await CLICompletion.run(
-                CLICompletion.Request(project: folderURL, prompt: userMessage, systemPrompt: systemPrompt))
+            let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(
+                CLICompletion.Request(project: folderURL, prompt: userMessage, systemPrompt: systemPrompt), name: "insight-classify")
             result.record(in: db)
             let token = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
@@ -431,7 +431,7 @@ The iframe will call mermaid.run() with securityLevel="loose" + htmlLabels=true 
             jsonSchema: inputSchema,
             readableFolder: useCatalog ? folderURL : nil)
         request.timeout = useCatalog ? 1800 : 600
-        let result = try await CLICompletion.run(request)
+        let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "insight-skeleton")
         result.record(in: db)
         let dict = result.structured as? [String: Any] ?? [:]
 
@@ -455,7 +455,7 @@ The iframe will call mermaid.run() with securityLevel="loose" + htmlLabels=true 
     }
 
     /// Phase 2 — pure prompt builder for ONE section. Returns the system + user messages that
-    /// `InsightSession.phase2StreamSections` will pass to `CLICompletion.run`.
+    /// `InsightSession.phase2StreamSections` will ask the assistant with.
     /// This method is intentionally synchronous and side-effect-free: it does NOT call the LLM,
     /// does NOT spawn tasks, does NOT touch the network. The cap=5 parallelism gate lives in
     /// `InsightSession` (T6) because it depends on session lifecycle (cancellation, status

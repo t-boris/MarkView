@@ -442,9 +442,10 @@ final class InsightSession: ObservableObject, Identifiable {
         let prompts = rag.buildSectionPrompt(section: section, allFiles: scopedFiles, folderURL: folderURL, contentType: contentType)
         let nodeIdLocal = curId
         do {
-            let result = try await CLICompletion.run(
+            let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(
                 CLICompletion.Request(project: project, prompt: prompts.userMessage, systemPrompt: prompts.systemPrompt,
                                       readableFolder: prompts.needsFolderAccess ? folderURL : nil),
+                name: "insight-section-retry",
                 onDelta: { [weak self] chunk in
                     Task { @MainActor [weak self] in
                         guard let self else { return }
@@ -1277,9 +1278,10 @@ final class InsightSession: ObservableObject, Identifiable {
                     do {
                         try Task.checkCancellation()
                         // Stream. onDelta hops back to MainActor for state mutation.
-                        let result = try await CLICompletion.run(
+                        let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(
                             CLICompletion.Request(project: self.project, prompt: userMessage, systemPrompt: systemPrompt,
                                                   readableFolder: readableFolder),
+                            name: "insight-section",
                             onDelta: { [weak self] chunk in
                                 Task { @MainActor [weak self] in
                                     guard let self else { return }
