@@ -22,6 +22,9 @@ Sibling modules: [app-shell-and-workspace](app-shell-and-workspace.md) ·
   `MarkView/Models/AIAssistants.swift:13-518`.
 - The user's assistant/model choice, including a separate X-Ray model
   (`AIAssistantPreferences`) — `AIAssistants.swift:87-213`.
+- An operation tied to an open window (End-to-End QA) takes the shown agent's tool but the model
+  chosen for that tool in the project (`CLICompletion.Assistant.chosen`), never the model a running
+  agent tab reports after a `/model` switch.
 - One-shot, read-only completions for every in-app AI feature (`CLICompletion`), with
   streaming, structured (JSON Schema) output, token/cost accounting, timeout and
   cancellation — `MarkView/Models/CLICompletion.swift`.

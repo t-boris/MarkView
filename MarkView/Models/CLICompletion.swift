@@ -17,8 +17,14 @@ enum CLICompletion {
         let model: String?
 
         static func project(_ project: URL?) -> Assistant {
-            let tool = AIAssistantPreferences.backend(project: project)
-            return Assistant(tool: tool, model: AIAssistantPreferences.model(for: tool, project: project))
+            chosen(tool: AIAssistantPreferences.backend(project: project), project: project)
+        }
+
+        /// `tool` with the model chosen for it in `project` (the toolbar's assistant menu or Settings). It never reads the model a running
+        /// agent tab reports: a tab shows what its session was started with or switched to with /model, and an operation such as
+        /// End-to-End QA must not follow that.
+        static func chosen(tool: CLITool, project: URL?) -> Assistant {
+            Assistant(tool: tool, model: AIAssistantPreferences.model(for: tool, project: project))
         }
     }
 

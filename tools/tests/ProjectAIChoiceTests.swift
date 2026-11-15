@@ -60,6 +60,21 @@ AssistantChoice(project: b).setXRayModel("", for: .claude)
 check("empty X-Ray model: assistant's model", AIAssistantPreferences.xrayModel(for: .claude, project: b), "fable")
 check("alpha still its own", AIAssistantPreferences.backend(project: a).rawValue, "codex")
 
+// An operation tied to a window (End-to-End QA) uses the shown agent's tool, but the model chosen for that tool in the project:
+// never the model a running tab reports. Alpha chose gpt-6-sol for Codex above; beta chose fable for Claude, and the default model (opus) must not leak into it.
+check("window operation: the shown tool keeps the project's chosen model",
+      CLICompletion.Assistant.chosen(tool: .codex, project: a).model, "gpt-6-sol")
+check("window operation: another tool of the project uses its own choice, not Codex's",
+      CLICompletion.Assistant.chosen(tool: .claude, project: a).model, "opus")
+check("window operation: a project's own choice wins over the default model",
+      CLICompletion.Assistant.chosen(tool: .claude, project: b).model, "fable")
+check("window operation: without a shown agent the project's assistant and model answer",
+      "\(CLICompletion.Assistant.project(a).tool.rawValue):\(CLICompletion.Assistant.project(a).model ?? "nil")", "codex:gpt-6-sol")
+AssistantChoice(project: a).setModel("", for: .codex)
+check("window operation: a project left on the CLI default stays on it",
+      CLICompletion.Assistant.chosen(tool: .codex, project: a).model, nil)
+AssistantChoice(project: a).setModel("gpt-6-sol", for: .codex)
+
 // A window without a project edits the defaults.
 AssistantChoice(project: nil).setTool("codex")
 check("no project writes defaults", UserDefaults.standard.string(forKey: AIAssistantPreferences.backendKey), "codex")
