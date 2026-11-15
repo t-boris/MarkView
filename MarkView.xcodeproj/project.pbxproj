@@ -460,6 +460,9 @@
 		09A17E5C789C8522CA39B941 /* TypedWebBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51C33F7988006A528DE872B7 /* TypedWebBridge.swift */; };
 		FF7B7975E6E5BB57226F4446 /* QAPageEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10AB314CA9B3FD3A9A58668 /* QAPageEvidence.swift */; };
 		FF99949FBDA0BB735F226A9B /* QARun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C0F0778AC373BF137EF446E /* QARun.swift */; };
+		47E7720348AC420D7AD2F5E1 /* LayoutPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 545B82933E80F637B3D031FC /* LayoutPreset.swift */; };
+		098275A906077BE8F377085F /* LayoutCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FCD870E4FEBBB1E8EFD7A70 /* LayoutCatalog.swift */; };
+		33B12FE12086C36050EA5EC5 /* Layouts in Resources */ = {isa = PBXBuildFile; fileRef = 6BD15252A9E2CE1BFDC082B1 /* Layouts */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1034,6 +1037,9 @@
 		8481AD7D0786783E89B0C11E /* markview-book-md.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-book-md.js"; sourceTree = "<group>"; };
 		AF4999B5DE274BA1571F8ADA /* markview-terminal.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-terminal.js"; sourceTree = "<group>"; };
 		5D42EFED00836F5D45A63E3C /* mv-kit.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "mv-kit.js"; sourceTree = "<group>"; };
+		545B82933E80F637B3D031FC /* LayoutPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutPreset.swift; sourceTree = "<group>"; };
+		2FCD870E4FEBBB1E8EFD7A70 /* LayoutCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutCatalog.swift; sourceTree = "<group>"; };
+		6BD15252A9E2CE1BFDC082B1 /* Layouts */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Layouts; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1539,6 +1545,8 @@
 				DEE77C117377664F496CB39A /* FrontMatter.swift */,
 				17A43E6F411BFA9317576340 /* ImageAttachments.swift */,
 				45125D00F1E8300687141768 /* ImageSiblings.swift */,
+				2FCD870E4FEBBB1E8EFD7A70 /* LayoutCatalog.swift */,
+				545B82933E80F637B3D031FC /* LayoutPreset.swift */,
 				AAA5D1BB0D677AB3259D0471 /* LinkedFolders.swift */,
 				C18592F11080A421A6A1EC86 /* ListSelection.swift */,
 				A6E0167483A13431C669BD11 /* MarkdownDocumentChunker.swift */,
@@ -1873,6 +1881,7 @@
 			isa = PBXGroup;
 			children = (
 				E8077A542DBDB29608BB9BC4 /* Editor */,
+				6BD15252A9E2CE1BFDC082B1 /* Layouts */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -2115,6 +2124,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D7042AC7B61742EF5FAF04C6 /* Assets.xcassets in Resources */,
+				33B12FE12086C36050EA5EC5 /* Layouts in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2374,6 +2384,8 @@
 				FF31A6655922E26D0D222D9B /* ImageAttachmentViews.swift in Sources */,
 				50C9811EB6493D805B5FA933 /* ImageAttachments.swift in Sources */,
 				4BC2DB65987F55B55E83314C /* ImageSiblings.swift in Sources */,
+				098275A906077BE8F377085F /* LayoutCatalog.swift in Sources */,
+				47E7720348AC420D7AD2F5E1 /* LayoutPreset.swift in Sources */,
 				B237AD4A0A5D93A4F161E5CB /* ImageViewerView.swift in Sources */,
 				24CA3B7AAECDBF270D956080 /* ImportanceRater.swift in Sources */,
 				655AEBF582AECF54E3EECC62 /* InsightArchiveExporter.swift in Sources */,

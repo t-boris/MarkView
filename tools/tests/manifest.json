@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 185,
+  "suiteCount": 186,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -942,6 +942,23 @@
         "MarkView/Models/Lifecycle/IssueSync.swift",
         "tools/tests/IssueSyncTests.swift",
         "tools/tests/issue-sync-tests.sh"
+      ]
+    },
+    {
+      "name": "layout-preset-tests",
+      "script": "tools/tests/layout-preset-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Workspace/LayoutPreset.swift",
+        "MarkView/Models/Workspace/LayoutCatalog.swift",
+        "MarkView/Models/Workspace/PanelLayout.swift",
+        "MarkView/Models/Workspace/ToolRegistry.swift",
+        "MarkView/Resources/Layouts/10-writing.json",
+        "MarkView/Resources/Layouts/20-review.json",
+        "MarkView/Resources/Layouts/30-qa.json",
+        "MarkView/Resources/Layouts/40-cockpit.json",
+        "tools/tests/LayoutPresetTests.swift",
+        "tools/tests/layout-preset-tests.sh"
       ]
     },
     {
