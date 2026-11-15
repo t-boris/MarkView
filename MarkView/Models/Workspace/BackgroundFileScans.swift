@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// File-system work a window needs but must never do on the main thread (`AR-42`): walking a project tree, and reading the
 /// open files to see what an assistant changed. Every function is a plain function over values: the caller runs it in a
@@ -14,7 +17,7 @@ enum BackgroundFileScans {
             at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return false }
         while let url = enumerator.nextObject() as? URL {
             if Task.isCancelled { return false }
-            guard url.pathExtension.lowercased() == "md", !url.path.contains(".dde") else { continue }
+            guard url.pathExtension.lowercased() == "md", !url.path.contains(ProjectPaths.localFolderName) else { continue }
             let file = url.resolvingSymlinksInPath().standardizedFileURL.path
             if file == resolved || file.hasPrefix(prefix) { return true }
         }

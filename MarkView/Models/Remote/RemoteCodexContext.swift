@@ -1,5 +1,8 @@
 import Foundation
 import CryptoKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Resuming a CLI thread does not replace its saved developer messages. Refresh the remote
 /// boundary through Codex's app-server API before handing that same thread to the terminal.
@@ -38,8 +41,7 @@ enum RemoteCodexContext {
                         "type": .string("message"), "role": .string("developer"),
                         "content": .array([.object(["type": .string("input_text"), "text": .string(instructions)])])])])]))
                 let data = try JSONEncoder().encode(RemoteJSON.object(["thread": .string(id), "signature": .string(signature)]))
-                try data.write(to: stamp, options: [.atomic])
-                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stamp.path)
+                try AtomicFile.write(data, to: stamp, permissions: 0o600)
             }
             await client.close()
             return id

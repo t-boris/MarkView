@@ -440,7 +440,7 @@ func cockpitChecks() async throws {
     check("cockpit: manual deletion identifies the link for the warning", deletion.cockpitChecked && deletion.namedByCockpit == [runName(1)])
     let deleted = await QARunCleanup.delete(deletion, root: root)
     let savedURL = root.appendingPathComponent(".dde/cockpit/results/\(result.id.uuidString).json")
-    let retained = try JSONDecoder().decode(CockpitResult.self, from: Data(contentsOf: savedURL))
+    let retained = try JSONDecoder().decode(VersionedEnvelope<CockpitResult>.self, from: Data(contentsOf: savedURL)).data
     check("cockpit: manual deletion keeps the plan, build and outcome while details are gone", deleted.deleted == 1 && retained == result && !exists(QAStore.runURL(root, runID: runName(1))))
     let shown = try CockpitResults.loadAll(root: root).first
     check("cockpit: listed evidence indicates deletion and retains plan, build and outcome", shown?.detailsDeleted == true && shown?.result.plan == plan && shown?.result.build == "build-1" && shown?.result.outcome == "passed")
@@ -453,6 +453,40 @@ func cockpitChecks() async throws {
     let before = ids(root)
     await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: filer)
     check("cockpit: unreadable result references prevent automatic deletion", ids(root) == before)
+
+    // The result file is a schema-versioned store (AR-36). A file written before the envelope is the bare result, encoded with a
+    // plain `JSONEncoder`; it must still count as a link, list intact, and be wrapped on its next save.
+    let legacyRoot = tempProject()
+    defer { try? FileManager.default.removeItem(at: legacyRoot) }
+    for n in 1...3 { try makeRun(legacyRoot, n) }
+    let legacy = CockpitResult(plan: plan, build: "build-0", outcome: "passed", qaRunID: runName(2))
+    let legacyURL = legacyRoot.appendingPathComponent(".dde/cockpit/results/\(legacy.id.uuidString).json")
+    try FileManager.default.createDirectory(at: legacyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try JSONEncoder().encode(legacy).write(to: legacyURL)
+    check("cockpit legacy: a result written before the envelope loads intact", try CockpitResults.loadAll(root: legacyRoot).first?.result == legacy)
+    await QARunCleanup.prune(root: legacyRoot, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: filer)
+    check("cockpit legacy: its link still protects the run from cleanup", exists(QAStore.runURL(legacyRoot, runID: runName(2))))
+    check("cockpit legacy: loading left the file as written", StoreFixture.envelope(legacyURL) == nil && StoreFixture.backups(of: legacyURL).isEmpty)
+    try CockpitResults.save(legacy, root: legacyRoot)
+    let reloaded = try CockpitResults.loadAll(root: legacyRoot).first?.result
+    check("cockpit legacy: the next save writes the envelope and it reloads", StoreFixture.envelope(legacyURL)?.schema == 1
+          && reloaded == legacy && StoreFixture.backups(of: legacyURL).isEmpty)
+    let permissions = (try FileManager.default.attributesOfItem(atPath: legacyURL.path)[.posixPermissions] as? NSNumber)?.intValue
+    check("cockpit legacy: a result file stays private to the user", permissions == 0o600)
+
+    let junk = Data("{ \"plan\": ".utf8)
+    try junk.write(to: legacyURL)
+    var unreadable = false
+    do { _ = try CockpitResults.loadAll(root: legacyRoot) } catch { unreadable = true }
+    check("cockpit damaged: listing fails closed and the file is untouched", unreadable && StoreFixture.bytes(legacyURL) == junk)
+    try CockpitResults.save(legacy, root: legacyRoot)
+    check("cockpit damaged: a save keeps the old bytes in a dated backup",
+          StoreFixture.backups(of: legacyURL).count == 1 && StoreFixture.bytes(StoreFixture.backups(of: legacyURL)[0]) == junk)
+    let future = Data(StoreFixture.newerFile().utf8)
+    try future.write(to: legacyURL)
+    var refusedNewer = false
+    do { try CockpitResults.save(legacy, root: legacyRoot) } catch SchemaStoreError.newerSchemaVersion { refusedNewer = true }
+    check("cockpit newer: a save is refused and the file is untouched", refusedNewer && StoreFixture.bytes(legacyURL) == future)
 }
 
 ruleChecks()

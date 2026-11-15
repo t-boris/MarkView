@@ -1,5 +1,8 @@
 import Combine
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // The themes the app can draw (architecture review AR-32, DEC-003): the ones that ship in `Resources/Themes/` and the ones a person put in
 // `~/Library/Application Support/MarkView/themes/`. `ThemeLibrary` is the pure part (read two folders, validate, look up); `ThemeCatalog`
@@ -171,7 +174,7 @@ final class ThemeCatalog: ObservableObject {
         self.builtInFolder = builtInFolder
         self.customFolder = userFolder
         library = ThemeLibrary.load(builtInFolder: builtInFolder, userFolder: userFolder)
-        for problem in library.ignored { NSLog("[themes] ignored %@: %@", problem.file, problem.reason) }
+        for problem in library.ignored { AppLog.app.error("Ignored theme file \(problem.file): \(problem.reason)") }
     }
 
     /// The definition to draw for `theme`. A stored id nobody has is shown as Classic Dark and reported once (log and picker).
@@ -180,7 +183,7 @@ final class ThemeCatalog: ObservableObject {
         let resolution = library.resolve(theme, systemIsDark: systemIsDark)
         if let id = resolution.missing, !missing.contains(id) {
             missing.append(id)
-            if logged.insert(id).inserted { NSLog("[themes] theme \"%@\" was not found; Classic Dark is shown instead", id) }
+            if logged.insert(id).inserted { AppLog.app.error("Theme \"\(id)\" was not found; Classic Dark is shown instead") }
         }
         return resolution.definition
     }
@@ -190,7 +193,7 @@ final class ThemeCatalog: ObservableObject {
         let built = builtInFolder, custom = customFolder
         let fresh = await Task.detached(priority: .utility) { ThemeLibrary.load(builtInFolder: built, userFolder: custom) }.value
         guard fresh != library else { return }
-        for problem in fresh.ignored where !library.ignored.contains(problem) { NSLog("[themes] ignored %@: %@", problem.file, problem.reason) }
+        for problem in fresh.ignored where !library.ignored.contains(problem) { AppLog.app.error("Ignored theme file \(problem.file): \(problem.reason)") }
         library = fresh
         missing = missing.filter { fresh.definition($0) == nil }
     }

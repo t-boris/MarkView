@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 swiftc -parse-as-library -module-cache-path /private/tmp/markview-swift-cache \
-  MarkView/Models/Book/BookPDFSource.swift MarkView/Bridge/BookPDFRenderer.swift MarkView/Bridge/PDFExporter.swift \
+  MarkView/Models/Book/BookPDFSource.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Bridge/BookPDFRenderer.swift MarkView/Bridge/PDFExporter.swift \
   MarkView/Models/Workspace/DocumentFiles.swift MarkView/Bridge/DocumentFileSchemeHandler.swift \
   tools/tests/PDFExportTests.swift -o "$out/pdf-export-tests"
 "$out/pdf-export-tests" "$PWD/MarkView/Resources/Editor/book.html" "${1:-/private/tmp/markview-pdf-export-checks}" "$PWD/Tests/Fixtures/pdf-export"

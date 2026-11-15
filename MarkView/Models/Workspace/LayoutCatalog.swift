@@ -1,5 +1,8 @@
 import Combine
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // The layout presets the app offers (architecture review AR-33, DEC-002): the ones that ship in `Resources/Layouts/` and the ones a
 // person put in `~/Library/Application Support/MarkView/layouts/`. `LayoutLibrary` is the pure part (read two folders, validate, look up);
@@ -127,6 +130,6 @@ final class LayoutCatalog: ObservableObject {
     }
 
     private func log(_ problems: [LayoutLibrary.Ignored], known: [LayoutLibrary.Ignored]) {
-        for problem in problems where !known.contains(problem) { NSLog("[layouts] ignored %@: %@", problem.file, problem.reason) }
+        for problem in problems where !known.contains(problem) { AppLog.workspace.error("Ignored layout file \(problem.file): \(problem.reason)") }
     }
 }

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// A web application of the project that can be previewed: where it is, the command that
 /// starts its development server, and the ports it is expected to answer on.
@@ -219,7 +222,7 @@ enum WebAppPreview {
         if manifest.range(of: #"(?m)^\s*name\s*=\s*["']titanium-color-engraving-platform["']\s*$"#, options: .regularExpression) != nil,
            fileManager.isExecutableFile(atPath: titanium.path) {
             return WebAppTarget(folder: folder, label: label,
-                                command: "./.venv/bin/titanium-platform --data-dir .dde/studio/titanium-data --port 0",
+                                command: "./.venv/bin/titanium-platform --data-dir \(ProjectPaths.studioTitaniumDataRelativePath) --port 0",
                                 ports: [], reuseRunningServer: false, usesIsolatedBackend: true)
         }
         for module in ["app", "main", "server", "wsgi"] {

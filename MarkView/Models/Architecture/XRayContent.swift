@@ -1,5 +1,8 @@
 import CryptoKit
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// What a file is made of, shown under its box in the Logical X-Ray: the collections of
 /// like things it holds (issues, requirements, decisions, endpoints; types and functions
@@ -57,7 +60,7 @@ enum XRayContent {
     }
 
     static func cacheDirectory(root: URL) -> URL {
-        root.appendingPathComponent(".dde/cache/xray-content", isDirectory: true)
+        ProjectPaths.xrayContentFolder(root)
     }
 
     private static func cacheFile(root: URL, path: String) -> URL {
@@ -83,7 +86,7 @@ enum XRayContent {
         guard let data = try? JSONEncoder().encode(outline) else { return }
         let file = cacheFile(root: root, path: path)
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: file, options: .atomic)
+        try? AtomicFile.write(data, to: file)
     }
 
     // MARK: - Code: declarations

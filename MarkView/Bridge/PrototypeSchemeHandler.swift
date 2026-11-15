@@ -1,6 +1,9 @@
 import Foundation
 import UniformTypeIdentifiers
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// `mvproto://site/<path>`: the files of a prototype's `site/` folder for the Prototype Studio preview.
 ///
@@ -49,12 +52,12 @@ final class PrototypeSchemeHandler: NSObject, WKURLSchemeHandler {
         if parts.contains("..") { return .forbidden }
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         var target = parts.reduce(base) { $0.appendingPathComponent($1) }.resolvingSymlinksInPath()
-        guard target.path == base.path || target.path.hasPrefix(base.path + "/") else { return .forbidden }
+        guard ProjectPaths.contains(target, root: base) else { return .forbidden }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: target.path, isDirectory: &isDirectory) else { return .missing }
         if isDirectory.boolValue {
             target = target.appendingPathComponent("index.html").resolvingSymlinksInPath()
-            guard target.path.hasPrefix(base.path + "/") else { return .forbidden }
+            guard ProjectPaths.containsStrictly(target, root: base) else { return .forbidden }
             var isIndexDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: target.path, isDirectory: &isIndexDirectory), !isIndexDirectory.boolValue
             else { return .missing }

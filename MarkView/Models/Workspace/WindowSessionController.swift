@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import MarkViewCore
 
 /// App-owned restoration works even when macOS is set to close windows on quit.
 @MainActor
@@ -199,7 +200,7 @@ final class WindowSessionController {
                     self.announceRefusedSave()
                 }
             } catch {
-                NSLog("[WindowSession] Could not save window sessions: %@", error.localizedDescription)
+                AppLog.windowSession.error("Could not save window sessions: \(error.localizedDescription)")
             }
         }, for: "save")
     }
@@ -207,7 +208,7 @@ final class WindowSessionController {
     /// The refusal reaches the user once per launch, in the banner every window already has for save errors, on the
     /// front window (`WindowSessionStorage` decides when it is the first one).
     private func announceRefusedSave() {
-        NSLog("[WindowSession] Autosave refused: windowSessions.json was written by a newer MarkView and is left untouched.")
+        AppLog.windowSession.error("Autosave refused: windowSessions.json was written by a newer MarkView and is left untouched.")
         let workspace = NSApp.orderedWindows.lazy.compactMap { window in self.entries.values.first { $0.window === window }?.workspace }.first
             ?? entries.values.lazy.compactMap(\.workspace).first
         workspace?.tabs.lastSaveError = "The saved windows were written by a newer MarkView and are left untouched. Windows you open now will not be remembered."

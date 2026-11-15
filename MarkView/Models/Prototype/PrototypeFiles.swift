@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// File-level rules of Prototype Studio: where a prototype lives, which paths an agent answer may
 /// touch, how edits apply, and the version snapshots. Pure Foundation, so `tools/tests/prototype-tests.sh`
@@ -137,7 +140,7 @@ enum PrototypeFiles {
     /// single source of truth for every path producer and consumer, `PrototypeReference` included.
     static let storageFolder = "docs/prototypes"
     /// Where prototypes lived before DEC-006; `migrateLegacy` moves them once, `PrototypeReference` still reads the path.
-    static let legacyStorageFolder = ".dde/prototypes"
+    static let legacyStorageFolder = ProjectPaths.legacyPrototypesRelativePath
 
     static func storage(root: URL) -> URL {
         root.appendingPathComponent(storageFolder, isDirectory: true)
@@ -154,7 +157,7 @@ enum PrototypeFiles {
 
     /// Where the implementation ZIP of an approved prototype goes, relative to the project root: a derived,
     /// binary artifact that is not review material, so it stays outside the committed `docs/` tree (DEC-006).
-    static let exportsFolder = ".dde/exports/prototypes"
+    static let exportsFolder = ProjectPaths.prototypeExportsRelativePath
 
     /// `<root>/.dde/exports/prototypes/<slug>-v<version>.zip`.
     static func exportArchive(root: URL, slug: String, version: Int) -> URL {
@@ -275,7 +278,7 @@ enum PrototypeFiles {
     static func saveConversation(_ messages: [StoredMessage], in folder: URL) {
         guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil,
               let data = try? JSONEncoder().encode(messages) else { return }
-        try? data.write(to: conversationURL(of: folder), options: .atomic)
+        try? AtomicFile.write(data, to: conversationURL(of: folder))
     }
 
     // MARK: - Manifest
@@ -292,7 +295,7 @@ enum PrototypeFiles {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(manifest).write(to: manifestURL(of: folder), options: .atomic)
+        try AtomicFile.write(encoder.encode(manifest), to: manifestURL(of: folder))
     }
 
     // MARK: - Scope (code mode)
@@ -381,7 +384,7 @@ enum PrototypeFiles {
     static let inventoryJSONNames: Set<String> = ["package.json", "manifest.json", "app.json", "angular.json",
                                                   "tsconfig.json", "electron-builder.json"]
     private static let inventorySkippedFolders: Set<String> = ["node_modules", "dist", "build", "out", "target", "vendor",
-                                                               "coverage", "Pods", "DerivedData", ".git", ".dde"]
+                                                               "coverage", "Pods", "DerivedData", ".git", ProjectPaths.localFolderName]
 
     /// Folder names that hold tests, fixtures or mocks rather than the interface.
     private static let inventoryTestFolders: Set<String> = ["__tests__", "__mocks__", "__snapshots__", "__fixtures__", "tests", "test",
@@ -447,7 +450,7 @@ enum PrototypeFiles {
         for source in roots {
             let trimmed = source.trimmingCharacters(in: .whitespaces)
             let url = trimmed.isEmpty ? base : base.appendingPathComponent(trimmed).standardizedFileURL
-            guard url.path == base.path || url.path.hasPrefix(basePath) else { continue }
+            guard ProjectPaths.contains(url, root: base) else { continue }
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else { continue }
             if isDirectory.boolValue { walk(url) } else { add(url) }
@@ -522,7 +525,7 @@ enum PrototypeFiles {
             guard let text = state[path] else { continue }
             let url = site.appendingPathComponent(path)
             try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            try AtomicFile.write(text, to: url)
         }
         for path in removed { try? fm.removeItem(at: site.appendingPathComponent(path)) }
         return applied.touched.sorted()
@@ -630,7 +633,7 @@ enum PrototypeFiles {
         guard let path = componentPath(path) else { return false }
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let url = base.appendingPathComponent(path).standardizedFileURL.resolvingSymlinksInPath()
-        guard url.path.hasPrefix(base.path + "/") else { return false }
+        guard ProjectPaths.containsStrictly(url, root: base) else { return false }
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && !isDirectory.boolValue
     }

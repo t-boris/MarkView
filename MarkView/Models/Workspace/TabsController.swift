@@ -1,7 +1,6 @@
 import AppKit
 import Combine
 import Foundation
-import os
 #if canImport(MarkViewCore)
 import MarkViewCore
 #endif
@@ -101,7 +100,6 @@ final class TabsController: ObservableObject {
     /// Bumped whenever the tabs are emptied, so a document that was still loading for the old folder is dropped when it arrives.
     private var generation = 0
 
-    private static let logger = Logger(subsystem: "com.markview.app", category: "tabs")
 
     init(dialogs: TabDialogs = .alerts) {
         self.dialogs = dialogs
@@ -250,9 +248,9 @@ final class TabsController: ObservableObject {
         if let index = openTabs.firstIndex(where: isThisTab) {
             activeTabIndex = index
         } else {
-            let marker = scope.isEmpty ? ".markview-architecture"
-                : scope == TabKind.pullRequestScope ? ".markview-pr-xray"
-                : ".markview-architecture-" + String(ContentHash.of(scope).prefix(12))
+            let marker = ProjectPaths.placeholderName(scope.isEmpty ? "architecture"
+                : scope == TabKind.pullRequestScope ? "pr-xray"
+                : "architecture-" + String(ContentHash.of(scope).prefix(12)))
             var tab = OpenTab(url: root.appendingPathComponent(marker), content: "", originalContent: "")
             tab.kind = .architecture(scope: scope)
             appendTab(tab)
@@ -339,12 +337,12 @@ final class TabsController: ObservableObject {
     func editorTabIndex(documentID: UUID?, event: String) -> Int? {
         guard let index = EditorDocumentRouting.targetIndex(documentID: documentID, tabIDs: openTabs.map(\.id),
                                                             activeIndex: activeTabIndex) else {
-            if documentID != nil { Self.logger.debug("[Editor] \(event, privacy: .public) dropped: the tab it belongs to is closed") }
+            if documentID != nil { AppLog.workspace.debug("[Editor] \(event) dropped: the tab it belongs to is closed") }
             return nil
         }
         if documentID != nil, index != activeTabIndex {
             let active = activeTab?.displayName ?? "none"
-            Self.logger.debug("[Editor] \(event, privacy: .public) for \(self.openTabs[index].displayName, privacy: .private) while \(active, privacy: .private) is selected")
+            AppLog.workspace.debug("[Editor] \(event) for \(self.openTabs[index].displayName) while \(active) is selected")
         }
         return index
     }
@@ -433,7 +431,7 @@ final class TabsController: ObservableObject {
             eventSubject.send(.saved(tab.url))
         } catch {
             lastSaveError = "Could not save “\(tab.displayName)”: \(error.localizedDescription)"
-            NSLog("Error saving file: \(error)")
+            AppLog.workspace.error("Error saving file: \(error)")
         }
     }
 

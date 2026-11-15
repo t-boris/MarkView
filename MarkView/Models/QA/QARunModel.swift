@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import MarkViewCore
 
 // End-to-End QA (feature end-to-end-qa, REQ-003, REQ-008, REQ-009): the state of a run on screen. It starts the runner, shows what each
 // player's page looks like, keeps the feed of what is happening and what the review finds, asks the person for the yes that production
@@ -517,7 +518,7 @@ final class QARunModel: ObservableObject {
         let written = await Task.detached(priority: .utility) { () -> Bool in
             do {
                 try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try png.write(to: file, options: .atomic)
+                try AtomicFile.write(png, to: file)
                 return true
             } catch { return false }
         }.value

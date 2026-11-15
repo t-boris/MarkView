@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import MarkViewCore
 
 /// What the coordinator needs of the window it works in: the tabs it reads and opens, the files, the assistant terminal and the
 /// pull-request and insight features that start from an X-Ray. `WorkspaceManager` is the one implementation; the coordinator holds no
@@ -193,7 +194,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
     private func explainDirectory(for url: URL) -> URL {
         // A pull request's copy of a project file keeps its notes with the project's.
         if architecture.prRelativePath(for: url) != nil, let root = project.root {
-            return root.appendingPathComponent(".dde/cache/explain", isDirectory: true)
+            return ProjectPaths.explainCacheFolder(root)
         }
         return project.cacheDirectory(for: url).appendingPathComponent("explain", isDirectory: true)
     }
@@ -374,9 +375,9 @@ final class CodeAndXRayCoordinator: ObservableObject {
         if let root = project.root {
             // Kept in the project's .dde, never inside the folder itself.
             let key = String(ContentHash.of(scope).prefix(24))
-            let base = root.appendingPathComponent(".dde/xray-folders", isDirectory: true)
+            let base = ProjectPaths.xrayFoldersFolder(root)
             store.persistenceFile = base.appendingPathComponent(key + ".json")
-            store.cacheDirectory = root.appendingPathComponent(".dde/cache/xray", isDirectory: true)
+            store.cacheDirectory = ProjectPaths.xrayCacheFolder(root)
         }
         store.temporaryFilter = temporaryFilter
         folderXRays[scope] = store
@@ -727,8 +728,8 @@ final class CodeAndXRayCoordinator: ObservableObject {
                     let file = FileManager.default.temporaryDirectory.appendingPathComponent("MarkView-commit-\(hash).md")
                     // Indent rather than fence: commit content may itself contain fences.
                     let text = "# Commit \(hash)\n\n" + result.stdout.components(separatedBy: "\n").map { "    " + $0 }.joined(separator: "\n")
-                    do { try Data(text.utf8).write(to: file); self?.host?.openFile(file, line: nil, endLine: nil) }
-                    catch { NSLog("Could not open the commit document") }
+                    do { try AtomicFile.write(text, to: file); self?.host?.openFile(file, line: nil, endLine: nil) }
+                    catch { AppLog.workspace.error("Could not open the commit document") }
                 }, for: "commitDocument")
             }
         }

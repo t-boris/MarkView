@@ -210,8 +210,7 @@ enum HostKeys {
         if !existing.isEmpty && !existing.hasSuffix("\n") { existing += "\n" }
         let new = lines.filter { !existing.contains($0) }
         guard !new.isEmpty else { return true }
-        do { try (existing + new.joined(separator: "\n") + "\n").write(toFile: path, atomically: true, encoding: .utf8) } catch { return false }
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+        do { try AtomicFile.write(existing + new.joined(separator: "\n") + "\n", to: URL(fileURLWithPath: path), permissions: 0o600) } catch { return false }
         return true
     }
 }

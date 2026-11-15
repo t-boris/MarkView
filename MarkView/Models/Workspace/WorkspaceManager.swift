@@ -288,11 +288,9 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         Self.debugLog("WorkspaceManager init DONE")
     }
 
-    private nonisolated static let workspaceLogger = Logger(subsystem: "com.markview.app", category: "workspace")
-
     /// Write workspace diagnostic message to the unified system log (`AR-24`, `AR-42`).
     nonisolated static func debugLog(_ msg: String) {
-        workspaceLogger.debug("\(msg, privacy: .public)")
+        AppLog.workspace.debug("\(msg)")
     }
 
     func openFolder(_ url: URL, completion: (() -> Void)? = nil) {
@@ -403,7 +401,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     func restoreArchitectureTab(scope: String) {
         // Reopen cached views without triggering new scans/reviews during launch.
         guard let root = rootNode?.url else { return }
-        var tab = OpenTab(url: root.appendingPathComponent(".markview-restored-xray-" + String(ContentHash.of(scope).prefix(12))),
+        var tab = OpenTab(url: root.appendingPathComponent(ProjectPaths.placeholderName("restored-xray-" + String(ContentHash.of(scope).prefix(12)))),
                           content: "", originalContent: "")
         tab.kind = .architecture(scope: scope)
         tabs.appendTab(tab)
@@ -574,7 +572,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
                                                                 options: [.skipsPackageDescendants])
                 while let url = enumerator?.nextObject() as? URL {
                     let name = url.lastPathComponent
-                    if name == ".git" || name == ".dde" || name == "node_modules" { enumerator?.skipDescendants(); continue }
+                    if name == ".git" || name == ProjectPaths.localFolderName || name == "node_modules" { enumerator?.skipDescendants(); continue }
                     if name.lowercased() == wanted { matches.append(url.standardizedFileURL) }
                 }
                 return WikiLinkResolver.choose(candidates: matches.map(\.path), from: currentFolder)
@@ -611,7 +609,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         }
 
         guard let target = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
-            NSLog("Canvas file reference not found: \(path)")
+            AppLog.workspace.error("Canvas file reference not found: \(path)")
             return
         }
 
@@ -750,7 +748,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         let tool = AIAssistantPreferences.backend(project: aiProject)
         let engine = TranslationEngine(tool: tool, model: AIAssistantPreferences.model(for: tool, project: aiProject))
         guard CLIToolLocator.resolve(tool) != nil else {
-            NSLog("[DDE] Translation aborted: \(tool.binaryName) not found")
+            AppLog.workspace.error("Translation aborted: \(tool.binaryName) not found")
             return "\(tool.displayName) was not found. Set its path in DDE Settings → AI CLI Tools."
         }
 
@@ -813,7 +811,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             // Structural check, then one stricter retry. This is what keeps
             // tables intact when a small local model reflows them.
             if let candidate = translated, skeleton(of: candidate) != expected {
-                NSLog("[DDE] Translation chunk \(i + 1): structure mismatch, retrying strictly")
+                AppLog.workspace.notice("Translation chunk \(i + 1): structure mismatch, retrying strictly")
                 translated = await translateChunk(chunk.text, targetLang: targetLang, engine: engine,
                                                   strict: true, error: &lastError)
             }
@@ -838,11 +836,11 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
                 ?? "(the model's output did not preserve their structure)"
             result = "> ⚠️ Translation incomplete — section(s) \(list) kept in the original language "
                 + "\(reason).\n\n" + result
-            NSLog("[DDE] Translation: \(failedChunks.count) chunk(s) left untranslated")
+            AppLog.workspace.error("Translation: \(failedChunks.count) chunk(s) left untranslated")
         }
         writeToTab(result)
         project.indexingProgress = nil
-        NSLog("[DDE] Translation complete: \(chunks.count) chunks, engine \(engine.label)")
+        AppLog.workspace.notice("Translation complete: \(chunks.count) chunks, engine \(engine.label)")
         return nil
     }
 
@@ -886,7 +884,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             return normalizeTranslation(result.text)
         } catch {
             lastError = error.localizedDescription
-            NSLog("[DDE] Translation chunk error: \(error.localizedDescription)")
+            AppLog.workspace.error("Translation chunk error: \(error.localizedDescription)")
             return nil
         }
     }
@@ -1041,12 +1039,10 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// not by this Swift-side path.
     func didReceiveInsightIframeReady(sessionId: String, nodeId: String) {
         guard findInsightSession(sessionId: sessionId) != nil else {
-            NSLog("[Insight] didReceiveInsightIframeReady: no session for id %@ (tab closed?)",
-                  Self.sanitizeForLog(sessionId))
+            AppLog.insight.notice("didReceiveInsightIframeReady: no session for id \(Self.sanitizeForLog(sessionId)) (tab closed?)")
             return
         }
-        NSLog("[Insight] iframe ready for session %@ node %@",
-              Self.sanitizeForLog(sessionId), Self.sanitizeForLog(nodeId))
+        AppLog.insight.notice("iframe ready for session \(Self.sanitizeForLog(sessionId)) node \(Self.sanitizeForLog(nodeId))")
     }
 
     /// Bridge forwarder: user clicked a 🤿 deep-dive control inside an iframe section.
@@ -1055,30 +1051,24 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// untrusted JS, even after WebViewBridge schema validation).
     func didRequestInsightDeepDive(sessionId: String, sectionId: String, topicIndex: Int) {
         guard let session = findInsightSession(sessionId: sessionId) else {
-            NSLog("[Insight] didRequestInsightDeepDive: no session for id %@ (tab closed?)",
-                  Self.sanitizeForLog(sessionId))
+            AppLog.insight.notice("didRequestInsightDeepDive: no session for id \(Self.sanitizeForLog(sessionId)) (tab closed?)")
             return
         }
         // Validate sectionId is in the current node's skeleton + topicIndex is
         // within the section's deepDiveTopics bounds. Out-of-range rejected with
         // a sanitized log entry; session.expand re-validates as a second layer.
         guard let skeleton = session.currentNode()?.skeleton else {
-            NSLog("[Insight] didRequestInsightDeepDive: no skeleton on current node for session %@",
-                  Self.sanitizeForLog(sessionId))
+            AppLog.insight.notice("didRequestInsightDeepDive: no skeleton on current node for session \(Self.sanitizeForLog(sessionId))")
             return
         }
         guard let section = skeleton.sections.first(where: { $0.id == sectionId }) else {
-            NSLog("[Insight] didRequestInsightDeepDive: unknown sectionId %@ for session %@",
-                  Self.sanitizeForLog(sectionId), Self.sanitizeForLog(sessionId))
+            AppLog.insight.error("didRequestInsightDeepDive: unknown sectionId \(Self.sanitizeForLog(sectionId)) for session \(Self.sanitizeForLog(sessionId))")
             return
         }
         guard let topics = section.deepDiveTopics,
               topicIndex >= 0,
               topicIndex < topics.count else {
-            NSLog("[Insight] didRequestInsightDeepDive: topicIndex %d out of bounds for section %@ (topics: %d)",
-                  topicIndex,
-                  Self.sanitizeForLog(sectionId),
-                  section.deepDiveTopics?.count ?? 0)
+            AppLog.insight.notice("didRequestInsightDeepDive: topicIndex \(topicIndex) out of bounds for section \(Self.sanitizeForLog(sectionId)) (topics: \(section.deepDiveTopics?.count ?? 0))")
             return
         }
         Task { await session.expand(sectionId: sectionId, topicIndex: topicIndex) }
@@ -1091,20 +1081,17 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// a compromised JS context per Decision 3).
     func didRequestInsightBreadcrumb(sessionId: String, nodeId: String) {
         guard let session = findInsightSession(sessionId: sessionId) else {
-            NSLog("[Insight] didRequestInsightBreadcrumb: no session for id %@ (tab closed?)",
-                  Self.sanitizeForLog(sessionId))
+            AppLog.insight.notice("didRequestInsightBreadcrumb: no session for id \(Self.sanitizeForLog(sessionId)) (tab closed?)")
             return
         }
         guard let uuid = UUID(uuidString: nodeId) else {
-            NSLog("[Insight] didRequestInsightBreadcrumb: invalid nodeId %@",
-                  Self.sanitizeForLog(nodeId))
+            AppLog.insight.error("didRequestInsightBreadcrumb: invalid nodeId \(Self.sanitizeForLog(nodeId))")
             return
         }
         // Manifest membership check (Decision 3 §3 — defense-in-depth against a
         // compromised iframe forging breadcrumb clicks for arbitrary UUIDs).
         guard session.nodes[uuid] != nil else {
-            NSLog("[Insight] didRequestInsightBreadcrumb: nodeId %@ not in session manifest",
-                  Self.sanitizeForLog(nodeId))
+            AppLog.insight.notice("didRequestInsightBreadcrumb: nodeId \(Self.sanitizeForLog(nodeId)) not in session manifest")
             return
         }
         Task { await session.navigateTo(nodeId: uuid) }
@@ -1115,7 +1102,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// archive export pipeline (NSSavePanel → cache staging → /usr/bin/zip).
     func didRequestInsightSave() {
         guard let session = activeInsightSession() else {
-            NSLog("[Insight] didRequestInsightSave: no active insight session")
+            AppLog.insight.notice("didRequestInsightSave: no active insight session")
             return
         }
         exportInsightArchive(sessionId: session.id.uuidString)
@@ -1126,12 +1113,11 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// no-ops at root.
     func didRequestInsightUp() {
         guard let session = activeInsightSession() else {
-            NSLog("[Insight] didRequestInsightUp: no active insight session")
+            AppLog.insight.notice("didRequestInsightUp: no active insight session")
             return
         }
         guard let parentId = session.currentNode()?.parentId else {
-            NSLog("[Insight] didRequestInsightUp: already at root for session %@",
-                  Self.sanitizeForLog(session.id.uuidString))
+            AppLog.insight.notice("didRequestInsightUp: already at root for session \(Self.sanitizeForLog(session.id.uuidString))")
             return
         }
         Task { await session.navigateTo(nodeId: parentId) }
@@ -1142,7 +1128,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// output is unsatisfying or the source `.md` files have changed.
     func didRequestInsightRegenerate() {
         guard let session = activeInsightSession() else {
-            NSLog("[Insight] didRequestInsightRegenerate: no active insight session")
+            AppLog.insight.notice("didRequestInsightRegenerate: no active insight session")
             return
         }
         Task { await session.regenerateRoot() }
@@ -1154,7 +1140,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// all source files since user wants a broader exploration).
     func didRequestInsightCustomDeepDive(topic: String) {
         guard let session = activeInsightSession() else {
-            NSLog("[Insight] didRequestInsightCustomDeepDive: no active insight session")
+            AppLog.insight.notice("didRequestInsightCustomDeepDive: no active insight session")
             return
         }
         Task { await session.expandCustom(topic: topic) }
@@ -1164,7 +1150,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// deepDiveTopic on the current node's skeleton.
     func didRequestInsightExploreAll(depth: Int) {
         guard let session = activeInsightSession() else {
-            NSLog("[Insight] didRequestInsightExploreAll: no active insight session")
+            AppLog.insight.notice("didRequestInsightExploreAll: no active insight session")
             return
         }
         Task { await session.expandAllTopicsOnCurrentNode(depth: depth) }
@@ -1174,7 +1160,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// Re-runs Phase 2 stream for ONE section on the current node.
     func didRequestInsightRetrySection(sectionId: String) {
         guard let session = activeInsightSession() else {
-            NSLog("[Insight] didRequestInsightRetrySection: no active insight session")
+            AppLog.insight.notice("didRequestInsightRetrySection: no active insight session")
             return
         }
         Task { await session.retrySection(sectionId: sectionId) }
@@ -1216,8 +1202,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// write in `pickedURL.startAccessingSecurityScopedResource()` / stop.
     func exportInsightArchive(sessionId: String) {
         guard let session = findInsightSession(sessionId: sessionId) else {
-            NSLog("[Insight] exportInsightArchive: no session for id %@",
-                  Self.sanitizeForLog(sessionId))
+            AppLog.insight.notice("exportInsightArchive: no session for id \(Self.sanitizeForLog(sessionId))")
             return
         }
 
@@ -1303,9 +1288,9 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
                 let exporter = InsightArchiveExporter()
                 try await exporter.bundle(stagingURL: exportRoot, to: destinationURL)
             } catch is CancellationError {
-                NSLog("[Insight] exportInsightArchive: cancelled")
+                AppLog.insight.notice("exportInsightArchive: cancelled")
             } catch InsightArchiveExporterError.cancelled {
-                NSLog("[Insight] exportInsightArchive: cancelled mid-zip")
+                AppLog.insight.notice("exportInsightArchive: cancelled mid-zip")
             } catch {
                 let alert = NSAlert()
                 alert.messageText = "ZIP export failed"
@@ -2536,7 +2521,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
         session.browserWindowID = browserControlID
         registerBrowserControl()
-        var tab = OpenTab(url: folder.appendingPathComponent(".markview-terminal-" + session.id.uuidString),
+        var tab = OpenTab(url: folder.appendingPathComponent(ProjectPaths.placeholderName("terminal-" + session.id.uuidString)),
                           content: "", originalContent: "")
         tab.kind = .terminal(session.id)
         terminalTabs[session.id] = session
@@ -2575,7 +2560,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             self?.sendPickedElement(element, screenshot: screenshot, from: session)
         }
         let base = rootNode?.url ?? FileManager.default.temporaryDirectory
-        var tab = OpenTab(url: base.appendingPathComponent(".markview-browser-" + session.id.uuidString),
+        var tab = OpenTab(url: base.appendingPathComponent(ProjectPaths.placeholderName("browser-" + session.id.uuidString)),
                           content: "", originalContent: "")
         tab.kind = .browser(session)
         if activate {
@@ -2814,7 +2799,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         session.record = { [weak self] result in result.record(in: self?.semanticDatabase) }
         session.languageNote = ActionOutputLanguage.current == ActionOutputLanguage.documentLanguage
             ? "" : "\n\nWrite every label, text and message in the prototype in \(ActionOutputLanguage.current)."
-        var tab = OpenTab(url: session.folder.appendingPathComponent(".markview-prototype-" + session.id.uuidString),
+        var tab = OpenTab(url: session.folder.appendingPathComponent(ProjectPaths.placeholderName("prototype-" + session.id.uuidString)),
                           content: "", originalContent: "")
         tab.kind = .prototype(session)
         layout.workspaceArea = .files
@@ -3069,7 +3054,7 @@ extension WorkspaceManager {
             return .done(text)
         }
         do {
-            try Data(updated.utf8).write(to: file, options: .atomic)
+            try AtomicFile.write(Data(updated.utf8), to: file)
         } catch {
             return .rejected("The map could not be saved: \(error.localizedDescription)")
         }

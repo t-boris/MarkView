@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import MarkViewCore
 
 /// "Connect Agents to MarkView's Browser…" (Task 82): registers `MarkView --mcp-browser` — without
 /// arguments, so it finds the window through its parent processes — in each installed agent's own
@@ -63,7 +64,7 @@ enum AgentBrowserRegistration {
                 for server in servers where !(text.contains(server.name) && text.contains(executable)) {
                     _ = await CLIToolLocator.run(path, commands.remove(server), timeout: 30)
                     let result = await CLIToolLocator.run(path, commands.add(server, executable), timeout: 30)
-                    NSLog("[MarkView] \(tool.displayName) \(server.label) tools: \(result.exitCode == 0 ? "registered" : "not registered")")
+                    AppLog.browser.notice("\(tool.displayName) \(server.label) tools: \(result.exitCode == 0 ? "registered" : "not registered")")
                 }
             }
         case .jsonFile(let file)? where file.checkedAtStart:
@@ -74,7 +75,7 @@ enum AgentBrowserRegistration {
                         continue
                     }
                     let outcome = addServer(file.entry(executable, server), to: file.file, agent: tool.displayName, name: server.name)
-                    NSLog("[MarkView] \(tool.displayName) \(server.label) tools: \(outcome.ok ? "registered" : "not registered: " + outcome.detail)")
+                    AppLog.browser.notice("\(tool.displayName) \(server.label) tools: \(outcome.ok ? "registered" : "not registered: " + outcome.detail)")
                 }
             }
         default:
@@ -95,7 +96,7 @@ enum AgentBrowserRegistration {
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-            try data.write(to: file, options: .atomic)
+            try AtomicFile.write(data, to: file)
             return Outcome(agent: agent, ok: true, detail: file.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
         } catch {
             return Outcome(agent: agent, ok: false, detail: error.localizedDescription)
@@ -114,7 +115,7 @@ enum AgentBrowserRegistration {
             let file = home.appendingPathComponent(path)
             do {
                 try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try Data(text.utf8).write(to: file, options: .atomic)
+                try AtomicFile.write(Data(text.utf8), to: file)
                 return Outcome(agent: agent + " (skill)", ok: true, detail: "~/" + path)
             } catch {
                 return Outcome(agent: agent + " (skill)", ok: false, detail: error.localizedDescription)

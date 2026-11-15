@@ -98,6 +98,53 @@ check(DiscussionPrompt.status(read: "/a/b/Models/File.swift") == "Reading File.s
 }
 MainActor.assumeIsolated { scopeChecks() }
 
+// The file of each discussion is a schema-versioned store (AR-36): a discussion saved before it still loads, one that cannot be read
+// stays on disk and its folder name stays taken, a newer one is never replaced.
+@MainActor func storeChecks() {
+    let root = StoreFixture.folder("discussion-store")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let base = DiscussionStore.base(root: root)
+    let legacy = base.appendingPathComponent("offline/discussion.json")
+    StoreFixture.write("""
+    {
+      "createdAt" : "2026-11-01T10:00:00Z",
+      "items" : [ { "id" : "A1", "kind" : "decision", "text" : "Documents only", "turn" : 1 } ],
+      "scope" : "Sources/Sync",
+      "slug" : "offline",
+      "title" : "Offline mode",
+      "turns" : [ { "answer" : "Documents and the index.", "createdAt" : "2026-11-01T10:05:00Z", "followUps" : ["How do conflicts resolve?"], "id" : 1, "question" : "Which data?" } ],
+      "updatedAt" : "2026-11-01T10:05:00Z"
+    }
+    """, to: legacy)
+    let damaged = base.appendingPathComponent("broken/discussion.json")
+    StoreFixture.write("{ \"slug\": \"broken\", \"turns\": [", to: damaged)
+    let newer = base.appendingPathComponent("future/discussion.json")
+    let newerText = StoreFixture.newerFile(payload: #"{"slug":"future"}"#)
+    StoreFixture.write(newerText, to: newer)
+
+    let store = DiscussionStore()
+    store.setRoot(root)
+    let loaded = store.discussions.first { $0.slug == "offline" }
+    check(store.discussions.count == 1 && loaded?.title == "Offline mode" && loaded?.turns.first?.answer == "Documents and the index."
+          && loaded?.items.first?.text == "Documents only" && loaded?.scope == "Sources/Sync", "legacy file: the discussion loads intact")
+    check(StoreFixture.envelope(legacy) == nil, "legacy file: it is left as written until a change is saved")
+    check(store.lastError?.contains("\"broken\"") == true && store.lastError?.contains("\"future\"") == true && store.lastError?.contains("newer") == true,
+          "unreadable files: the problems are shown, one per file")
+    check(StoreFixture.bytes(damaged) == Data("{ \"slug\": \"broken\", \"turns\": [".utf8) && StoreFixture.bytes(newer) == Data(newerText.utf8),
+          "unreadable files: loading leaves them as they are")
+
+    store.rename("offline", to: "Offline mode, renamed")
+    check(StoreFixture.envelope(legacy)?.schema == 1 && StoreFixture.backups(of: legacy).isEmpty, "legacy file: the next change writes the envelope, with no backup")
+    let again = DiscussionStore()
+    again.setRoot(root)
+    check(again.discussions.first?.title == "Offline mode, renamed" && again.discussions.first?.turns.count == 1, "legacy file: the envelope reloads")
+
+    check(store.create(title: "Broken") == "broken-2" && store.create(title: "Future") == "future-2",
+          "unreadable files: a new discussion never takes the folder of one that cannot be read")
+    check(StoreFixture.bytes(damaged) == Data("{ \"slug\": \"broken\", \"turns\": [".utf8) && StoreFixture.backups(of: damaged).isEmpty, "unreadable files: still untouched")
+}
+MainActor.assumeIsolated { storeChecks() }
+
 MainActor.assumeIsolated { run() }
 print(failures == 0 ? "All discussion checks passed." : "\(failures) discussion check(s) failed.")
 exit(failures == 0 ? 0 : 1)

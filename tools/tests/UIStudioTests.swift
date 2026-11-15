@@ -79,6 +79,47 @@ check("BUG-087 the active scenario is remembered with the session data, kept out
 try? "not json".write(to: StudioStore.activeScenarioURL(activeRoot), atomically: true, encoding: .utf8)
 check("BUG-087 an unreadable record is no scenario", StudioStore.loadActiveScenarioID(activeRoot) == nil)
 try? FileManager.default.removeItem(at: activeRoot)
+
+// The session's own files in `.dde/studio/` are schema-versioned stores (AR-36). The legacy fixtures are the bare documents the
+// previous version wrote; the history is written with the raw writer that version used (`StudioStore.save`).
+do {
+    let root = StoreFixture.folder("studio-stores")
+    defer { try? FileManager.default.removeItem(at: root) }
+    StoreFixture.write(#"{ "id" : "33-strikes" }"#, to: StudioStore.activeScenarioURL(root))
+    check("legacy active scenario: it is read", StudioStore.loadActiveScenarioID(root) == "33-strikes")
+    check("legacy active scenario: reading leaves it as written", StoreFixture.envelope(StudioStore.activeScenarioURL(root)) == nil)
+    StudioStore.saveActiveScenarioID("other", root: root)
+    check("legacy active scenario: the next save writes the envelope",
+          StoreFixture.envelope(StudioStore.activeScenarioURL(root))?.schema == 1 && StudioStore.loadActiveScenarioID(root) == "other"
+          && StoreFixture.backups(of: StudioStore.activeScenarioURL(root)).isEmpty)
+
+    var earlier = StudioOperation(id: "op-earlier", kind: .edit, request: "Make the consent banner smaller", status: .applied)
+    earlier.selection = "div.consent-banner"
+    earlier.created = Date(timeIntervalSince1970: 1_790_000_000)   // whole seconds: the file keeps ISO 8601 dates
+    try StudioStore.save([earlier], to: StudioStore.historyURL(root))
+    check("legacy history: it loads intact", StudioStore.loadHistory(root) == [earlier])
+    check("legacy history: reading leaves it as written", StoreFixture.envelope(StudioStore.historyURL(root)) == nil)
+    var later = earlier; later.id = "op-later"
+    try StudioStore.saveHistory([earlier, later], root: root)
+    check("legacy history: the next save writes the envelope and it reloads",
+          StoreFixture.envelope(StudioStore.historyURL(root))?.schema == 1 && StudioStore.loadHistory(root) == [earlier, later]
+          && StoreFixture.backups(of: StudioStore.historyURL(root)).isEmpty)
+
+    let junk = Data("[ { \"id\": ".utf8)
+    try junk.write(to: StudioStore.historyURL(root))
+    check("damaged history: it reads as empty and is left as it is", StudioStore.loadHistory(root).isEmpty && StoreFixture.bytes(StudioStore.historyURL(root)) == junk)
+    try StudioStore.saveHistory([earlier], root: root)
+    check("damaged history: a save keeps the old bytes in a dated backup",
+          StoreFixture.backups(of: StudioStore.historyURL(root)).count == 1
+          && StoreFixture.bytes(StoreFixture.backups(of: StudioStore.historyURL(root))[0]) == junk && StudioStore.loadHistory(root) == [earlier])
+
+    let future = Data(StoreFixture.newerFile(payload: "[]").utf8)
+    try future.write(to: StudioStore.capturesURL(root))
+    var refused = false
+    do { try StudioStore.saveCaptures([], root: root) } catch SchemaStoreError.newerSchemaVersion { refused = true }
+    check("newer captures: a save is refused, the file is untouched, and reading shows none",
+          refused && StoreFixture.bytes(StudioStore.capturesURL(root)) == future && StudioStore.loadCaptures(root).isEmpty)
+}
 check("AC-01 list answers prepared data without a backend", list.0 == 200 && list.1?.arrayValue?.count == 3)
 let detail = answer(sim.handle(request("GET", "/api/projects/1")))
 check("AC-02 detail matches the list", detail.1?["name"] == list.1?.arrayValue?.first?["name"])

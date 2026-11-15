@@ -18,18 +18,15 @@
 //   reference types — therefore no retain cycles.
 //
 // Atomicity:
-//   `writeNode` and `updateManifest` stage to a UUID-suffixed temp file in the
-//   same parent directory, then atomically swap into place via
-//   `FileManager.replaceItemAt(_:withItemAt:)`. The UUID suffix guarantees
-//   per-call temp uniqueness (concurrent writers cannot collide on a shared
-//   `manifest.json.tmp`). `replaceItemAt` performs the swap in-place — there
-//   is no window in which the destination is absent, so a concurrent
-//   `readNode` / `loadManifest` always observes either the previous or the
-//   new content. `Data.write(to:options:.atomic)` provides an additional
-//   internal-temp guarantee for the temp file write itself.
+//   `writeNode`, `updateManifest` and `writeSnapshotData` write through
+//   `AtomicFile.write`: the data goes to a private temporary file that is
+//   renamed over the destination in one step, so a concurrent `readNode` /
+//   `loadManifest` always observes either the previous or the new content and
+//   two racing writers each leave a complete file (the last rename wins).
 
 import Foundation
 import CryptoKit
+import MarkViewCore
 
 /// Typed errors emitted by `InsightCache`. All file-system or decoding
 /// failures inside the cache surface as one of these cases so callers can
@@ -93,8 +90,7 @@ struct InsightCache {
     /// the path.
     init(workspaceURL: URL, sessionId: UUID) throws {
         _ = sessionId
-        let root = workspaceURL
-            .appendingPathComponent(".markview-insight", isDirectory: true)
+        let root = ProjectPaths.insightFolder(workspaceURL)
         self.rootDirectory = root
         self.assetsDirectory = root.appendingPathComponent("_assets", isDirectory: true)
         self.nodesDirectory = root.appendingPathComponent("nodes", isDirectory: true)
@@ -115,27 +111,12 @@ struct InsightCache {
 
     // MARK: - Node CRUD
 
-    /// Atomic write: stage to a UUID-suffixed temp sibling, then in-place
-    /// swap via `FileManager.replaceItemAt`. The UUID suffix prevents
-    /// concurrent writers from colliding on the same temp filename even
-    /// though the documented contract is "one writer per node". On any
-    /// error the orphan `.tmp` is best-effort removed before rethrowing.
+    /// Atomic write through `AtomicFile`, so a concurrent reader sees the previous or the new node and never a partial one.
     func writeNode(nodeId: UUID, html: String) throws {
         let finalURL = nodesDirectory
             .appendingPathComponent("\(nodeId.uuidString).html", isDirectory: false)
-        let tmpURL = nodesDirectory
-            .appendingPathComponent("\(nodeId.uuidString).\(UUID().uuidString).html.tmp", isDirectory: false)
         try Self.assertContained(finalURL, in: nodesDirectory)
-        try Self.assertContained(tmpURL, in: nodesDirectory)
-
-        let data = Data(html.utf8)
-        do {
-            try data.write(to: tmpURL, options: .atomic)
-            try Self.atomicReplace(source: tmpURL, destination: finalURL)
-        } catch {
-            try? FileManager.default.removeItem(at: tmpURL)
-            throw error
-        }
+        try AtomicFile.write(Data(html.utf8), to: finalURL)
     }
 
     /// Reads a previously-written node HTML. Throws if the file is absent
@@ -149,31 +130,16 @@ struct InsightCache {
 
     // MARK: - Manifest CRUD
 
-    /// Atomic manifest write: stage to a UUID-suffixed temp sibling, then
-    /// in-place swap via `FileManager.replaceItemAt`. The UUID suffix is
-    /// load-bearing — if two callers race `updateManifest`, the prior
-    /// shared `manifest.json.tmp` filename would collide and either the
-    /// `.atomic` write or the swap would clobber the other writer's
-    /// in-flight data. Encoded with sorted keys + pretty-printed for stable
-    /// diffs and `.iso8601` for human-readable dates inside the on-disk JSON.
+    /// Atomic manifest write through `AtomicFile`. Encoded with sorted keys + pretty-printed for stable diffs and `.iso8601` for
+    /// human-readable dates inside the on-disk JSON.
     func updateManifest(_ manifest: InsightManifest) throws {
-        let tmpURL = rootDirectory
-            .appendingPathComponent("manifest.\(UUID().uuidString).tmp", isDirectory: false)
         try Self.assertContained(manifestURL, in: rootDirectory)
-        try Self.assertContained(tmpURL, in: rootDirectory)
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
 
-        do {
-            let data = try encoder.encode(manifest)
-            try data.write(to: tmpURL, options: .atomic)
-            try Self.atomicReplace(source: tmpURL, destination: manifestURL)
-        } catch {
-            try? FileManager.default.removeItem(at: tmpURL)
-            throw error
-        }
+        try AtomicFile.write(try encoder.encode(manifest), to: manifestURL)
     }
 
     // MARK: - Cross-session snapshot (skeleton + per-section content)
@@ -198,14 +164,7 @@ struct InsightCache {
     /// Atomic write of the JSON-encoded `data` into snapshot.json.
     func writeSnapshotData(_ data: Data) throws {
         try Self.assertContained(snapshotURL, in: rootDirectory)
-        let tmpURL = rootDirectory.appendingPathComponent("snapshot.\(UUID().uuidString).tmp", isDirectory: false)
-        do {
-            try data.write(to: tmpURL, options: .atomic)
-            try Self.atomicReplace(source: tmpURL, destination: snapshotURL)
-        } catch {
-            try? FileManager.default.removeItem(at: tmpURL)
-            throw error
-        }
+        try AtomicFile.write(data, to: snapshotURL)
     }
 
     /// Read raw snapshot bytes; caller decodes (avoids coupling InsightCache to Insight types).
@@ -427,23 +386,6 @@ struct InsightCache {
             }
             return a.lastPathComponent < b.lastPathComponent
         }.first
-    }
-
-    /// In-place atomic swap of `source` over `destination`. Wraps
-    /// `FileManager.replaceItemAt(_:withItemAt:)` so callers do not have
-    /// to special-case the "destination doesn't exist yet" branch — when
-    /// `replaceItemAt` fails because there is nothing to replace, fall
-    /// back to a plain `moveItem`. The replace path keeps the destination
-    /// file present at all times during the swap, eliminating the window
-    /// (previously created by `try? remove` + `moveItem`) where a
-    /// concurrent reader could observe an absent file.
-    private static func atomicReplace(source: URL, destination: URL) throws {
-        let fm = FileManager.default
-        if fm.fileExists(atPath: destination.path) {
-            _ = try fm.replaceItemAt(destination, withItemAt: source)
-        } else {
-            try fm.moveItem(at: source, to: destination)
-        }
     }
 
     /// Path-containment guard. Resolves symlinks and standardises BOTH

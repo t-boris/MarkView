@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // End-to-End QA (feature end-to-end-qa, DEC-010): the bug reports a run asks for. A failed, blocked or interrupted check gets one bug
 // each, whatever the cause; a finding of the step-by-step review gets one only when it is a defect, and a suggestion stays in the run
@@ -115,7 +118,7 @@ enum QABugDrafts {
         let parts = frame.split(separator: "/", omittingEmptySubsequences: false)
         guard !parts.contains(".."), !parts.contains("") else { return nil }
         let url = folder.appendingPathComponent(frame).standardizedFileURL
-        return url.path.hasPrefix(folder.standardizedFileURL.path + "/") ? url : nil
+        return ProjectPaths.containsStrictly(url, root: folder) ? url : nil
     }
 
     // MARK: Text

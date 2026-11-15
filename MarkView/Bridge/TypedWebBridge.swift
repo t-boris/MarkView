@@ -1,5 +1,8 @@
 import Foundation
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // MARK: - The contract
 
@@ -71,11 +74,11 @@ struct BridgeContract {
     /// The app's own copy of the contract. A copy that cannot be read is an empty contract: every page message is refused and logged.
     static let bundled: BridgeContract = {
         guard let url = bundledURL else {
-            NSLog("[Bridge] bridge-contract.json is not in the app bundle; every page message will be refused")
+            AppLog.bridge.error("bridge-contract.json is not in the app bundle; every page message will be refused")
             return .empty
         }
         do { return try BridgeContract(contentsOf: url) } catch {
-            NSLog("[Bridge] %@; every page message will be refused", String(describing: error))
+            AppLog.bridge.error("\(String(describing: error)); every page message will be refused")
             return .empty
         }
     }()
@@ -261,7 +264,7 @@ final class TypedWebBridge: NSObject, WKScriptMessageHandler {
     let channel: String
     let contract: BridgeContract
     /// Where a refusal is reported (one line, no payload content).
-    var reject: (String) -> Void = { NSLog("[Bridge] %@", $0) }
+    var reject: (String) -> Void = { AppLog.bridge.error("\($0)") }
 
     private var handlers: [String: @MainActor (_ payload: Any, _ doc: String) -> Bool] = [:]
 

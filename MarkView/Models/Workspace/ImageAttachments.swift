@@ -1,6 +1,9 @@
 import AppKit
 import Foundation
 import UniformTypeIdentifiers
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// An image waiting to be sent with the next request of a request box (Prototype Studio, UI Studio): its PNG data, as it
 /// is written to disk, and the picture shown as a thumbnail.
@@ -153,7 +156,7 @@ enum ImageAttachments {
         repeat {
             url = folder.appendingPathComponent(UUID().uuidString.prefix(8).lowercased() + ".png")
         } while FileManager.default.fileExists(atPath: url.path)
-        try data.write(to: url, options: .atomic)
+        try AtomicFile.write(data, to: url)
         return url
     }
 

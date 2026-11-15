@@ -31,6 +31,9 @@ SWIFT = {
     # The providers are the one place that names an assistant; strings, paths and trailing comments never count.
     "MarkView/Models/AI/Providers/ClaudeProvider.swift": "struct P {\n    func f(_ t: CLITool) -> Int {\n        switch t {\n        case .claude, .codex: return 1\n        default: return 0\n        }\n    }\n}\n",
     "MarkView/Models/AI/Paths.swift": "let a = \"~/.claude/settings.json\"\nlet b = home.appendingPathComponent(\".codex\")\nlet c = other.claude\nlet d = 1 // .copilot in a comment\n",
+    "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift": "// the one writer and the one place that names the folders\nlet n = Darwin.write(fd, base, count)\nlet t = try data.write(to: tmp)\nlet f = \".dde\"\nlet p = \".markview-\" + kind\n",
+    "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift": "// the one place that makes a Logger\nlet l = Logger(subsystem: \"com.markview.app\", category: \"x\")\n",
+    "MarkView/Models/Workspace/Export.swift": "// A comment about .write(to: is not a site\nfunc export() throws { try png.write(to: url) }\n",
 }
 
 def write(root, relative, text):
@@ -83,6 +86,9 @@ def fixture():
     write(root, "tools/lint/clicompletion-allowlist.txt", "# none outside AIOperation\n")
     write(root, "tools/lint/workspace-manager-views.txt", "1 MarkView/Views/Workspace/Tab.swift\n")
     write(root, "tools/lint/assistant-switch-allowlist.txt", "# no assistant is named outside its provider\n")
+    write(root, "tools/lint/atomic-write-allowlist.txt", "1 MarkView/Models/Workspace/Export.swift\n")
+    write(root, "tools/lint/project-paths-allowlist.txt", "# none outside ProjectPaths\n")
+    write(root, "tools/lint/app-log-allowlist.txt", "# none outside AppLog\n")
     return root
 
 def run(root, *args):
@@ -102,7 +108,8 @@ try:
     # --- A clean tree passes, and says what it counted.
     root = fresh()
     code, out = run(root)
-    check(code == 0 and "hold" in out and "process: 1 in 1 file(s), 1 allowed" in out and "workspace-manager: 1 in 1 file(s), 1 allowed" in out,
+    check(code == 0 and "hold" in out and "process: 1 in 1 file(s), 1 allowed" in out and "workspace-manager: 1 in 1 file(s), 1 allowed" in out
+          and "atomic-write: 1 in 1 file(s), 1 allowed" in out,
           "a clean tree passes and reports the ratchet numbers")
     check("Subprocess.swift" not in out and "AIOperation.swift" not in out, "Subprocess.swift and AIOperation.swift are the allowed homes, not counted")
     check("assistant-switch: 0 in 0 file(s), 0 allowed" in out,
@@ -223,6 +230,50 @@ try:
           "a new view that takes the whole WorkspaceManager fails")
     check("Tab.swift" not in out, "@ObservedObject and other environment objects are not counted")
 
+    # --- atomic-write ratchet
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Store.swift", "func save() throws { try text.write(to: url, atomically: true, encoding: .utf8) }\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[atomic-write] MarkView/Models/Workspace/Store.swift: 1 direct file write(s), 0 allowed (new sites)" in out, "a new direct file write fails and is named")
+    check("CoreFiles.swift" not in out and "Export.swift" not in out, "AtomicFile's own file and a listed export are not reported")
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Store.swift", "func save() throws { try data.write(toFile: path, atomically: true) }\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[atomic-write] MarkView/Models/Workspace/Store.swift: 1 direct file write(s), 0 allowed (new sites)" in out, "write(toFile:) counts too")
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Export.swift", "struct Export {}\n")
+    code, out = run(root)
+    check(code == 1 and "[atomic-write] MarkView/Models/Workspace/Export.swift: 0 direct file write(s), 1 allowed; the count fell" in out,
+          "a converted write fails until the allowance is lowered")
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Export.swift", "func a() throws { try x.write(to: u); try y.write(to: v) }\nfunc b() throws { try z.write(to: w) }\n")
+    code, out = run(root)
+    check(code == 1 and "[atomic-write] MarkView/Models/Workspace/Export.swift: 2 direct file write(s), 1 allowed (more sites)" in out, "a second write line in a listed file fails")
+
+    # --- project-paths ratchet
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Store.swift", "func f(root: URL) -> URL { root.appendingPathComponent(\".dde/cache\") }\n// \".dde in a comment does not count\nlet tab = \".markview-terminal-\" + id\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[project-paths] MarkView/Models/Workspace/Store.swift: 2 path literal(s), 0 allowed (new sites)" in out,
+          "a literal that starts with .dde or .markview- fails and is named, comments are not counted")
+    check("CoreFiles.swift" not in out, "ProjectPaths' own file is the allowed home, not counted")
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Store.swift", "let help = \"Kept in .dde/workflow/workflow.json\"\nlet name = \"dde\"\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0, "prose that mentions .dde/ inside a longer sentence is not a path literal")
+
+    # --- app-log ratchet
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Noisy.swift", "func f() { NSLog(\"Could not save: %@\", name) }\nlet l = Logger(subsystem: \"com.markview.app\", category: \"y\")\n// NSLog( in a comment does not count\nlet ok = AppLog.workspace\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[app-log] MarkView/Models/Workspace/Noisy.swift: 2 NSLog or Logger site(s), 0 allowed (new sites)" in out,
+          "a new NSLog or Logger(subsystem:) fails and is named, comments are not counted")
+    check("AppLog.swift" not in out, "AppLog's own file is the allowed home, not counted")
     # --- bridge-no-bypass
     root = fresh()
     write(root, "MarkView/Resources/Editor/js/mv-kit.js", "webkit.messageHandlers[name].postMessage(message);\n")

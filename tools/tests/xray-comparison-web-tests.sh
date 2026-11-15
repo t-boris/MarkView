@@ -9,6 +9,6 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/XRayComparisonWebTests.swift "$out/main.swift"
 swiftc -O -module-cache-path /private/tmp/markview-swift-cache -o "$out/web" \
-  MarkView/Bridge/TypedWebBridge.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift "$out/main.swift"
+  MarkView/Bridge/TypedWebBridge.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift "$out/main.swift"
 cp -R MarkView/Resources/Themes "$out/Themes"
 "$out/web" "$PWD/MarkView/Resources/Editor"

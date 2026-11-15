@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-{ echo 'import Foundation'; awk '/^struct TranscriptionFailure/,0' MarkView/Models/Dictation/WhisperClient.swift; } > "$out/Failure.swift"
+{ echo 'import Foundation'; awk '/^struct TranscriptionFailure/,0' MarkView/Models/Dictation/WhisperClient.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift; } > "$out/Failure.swift"
 cp tools/tests/TranscriptionFailureTests.swift "$out/main.swift"
 swiftc -O -o "$out/transcription-failure-tests" "$out/Failure.swift" "$out/main.swift"
 "$out/transcription-failure-tests"

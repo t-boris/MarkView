@@ -1,4 +1,5 @@
 import Foundation
+import MarkViewCore
 
 /// OpenAI Embeddings API client — text-embedding-3-small (1536 dimensions)
 class EmbeddingClient {
@@ -109,7 +110,7 @@ class EmbeddingClient {
     /// Save embedding vector to file
     static func saveEmbedding(_ vector: [Float], to url: URL) {
         let data = vector.withUnsafeBufferPointer { Data(buffer: $0) }
-        try? data.write(to: url)
+        try? AtomicFile.write(data, to: url)
     }
 
     /// Load embedding vector from file
