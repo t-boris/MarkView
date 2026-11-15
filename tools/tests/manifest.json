@@ -353,6 +353,7 @@
       "sources": [
         "MarkView/Models/Cockpit/CockpitPlan.swift",
         "MarkView/Models/Cockpit/CockpitQAAttempt.swift",
+        "MarkView/Models/Workspace/ToolRegistry.swift",
         "tools/tests/CockpitQAAttemptChecks.swift"
       ]
     },
@@ -958,7 +959,6 @@
         "MarkView/Models/Appearance/AppTheme.swift",
         "MarkView/Models/Workspace/DocumentState.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
-        "MarkView/Models/Workspace/WelcomeActions.swift",
         "MarkView/Models/Lifecycle/FeatureIngest.swift",
         "MarkView/Models/Book/PDFReader.swift",
         "MarkView/Models/Workspace/TabClosing.swift",
@@ -1066,7 +1066,6 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Workspace/ToolRegistry.swift",
-        "MarkView/Models/Workspace/WelcomeActions.swift",
         "MarkView/Models/Workspace/PanelLayout.swift",
         "tools/tests/Phase3ExtensibilityTests.swift"
       ]
@@ -1186,6 +1185,7 @@
         "MarkView/Models/Appearance/WindowTheme.swift",
         "MarkView/Views/Appearance/AppPalette.swift",
         "MarkView/Views/Architecture/ProjectChangeReviewView.swift",
+        "MarkView/Models/Workspace/ToolRegistry.swift",
         "tools/tests/ProjectChangeReviewLayoutTests.swift",
         "tools/tests/project-change-review-layout-tests.sh"
       ]
@@ -2461,7 +2461,6 @@
         "MarkView/Models/Workspace/DocumentState.swift",
         "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
-        "MarkView/Models/Workspace/WelcomeActions.swift",
         "MarkView/Models/Workspace/WindowSession.swift",
         "MarkView/Models/Workspace/WindowUIState.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",

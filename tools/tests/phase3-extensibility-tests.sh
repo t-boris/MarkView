@@ -12,7 +12,6 @@ swiftc -o "$out/phase3-extensibility-tests" \
     MarkView/Models/Appearance/ProjectBackdrop.swift \
     MarkView/Models/Workspace/PanelLayout.swift \
     MarkView/Models/Workspace/ToolRegistry.swift \
-    MarkView/Models/Workspace/WelcomeActions.swift \
     "$out/main.swift"
 
 "$out/phase3-extensibility-tests"

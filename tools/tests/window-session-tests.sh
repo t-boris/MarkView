@@ -13,5 +13,5 @@ PY
 swiftc -parse-as-library -o "$out/window-session-tests" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Models/Workspace/SchemaVersionedStore.swift \
-    MarkView/Models/Workspace/WindowSession.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Workspace/WelcomeActions.swift MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Appearance/AppTheme.swift "$out/GitHubItem.swift" tools/tests/WindowSessionTests.swift
+    MarkView/Models/Workspace/WindowSession.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Appearance/AppTheme.swift "$out/GitHubItem.swift" tools/tests/WindowSessionTests.swift
 "$out/window-session-tests" "$@"

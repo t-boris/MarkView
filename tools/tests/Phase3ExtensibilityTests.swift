@@ -60,9 +60,9 @@ let oldSentinels: [(ToolID, String)] = [
     (.qa, ".dde/.markview-qa"), (.uiStudio, ".dde/.markview-ui-studio-"), (.cockpit, ".dde/.markview-cockpit"),
     (.discussions, ".dde/.markview-discussions"), (.changeReview, ".dde/.markview-file-changes")
 ]
-check(oldSentinels.allSatisfy { registry.sentinelURL(for: $0.0, in: sampleRoot).path == "/tmp/markview-tool-registry-test/" + $0.1 },
+check(oldSentinels.allSatisfy { registry.descriptor(for: $0.0)?.sentinelURL(in: sampleRoot).path == "/tmp/markview-tool-registry-test/" + $0.1 },
       "AR-31/FU-02: every sentinel URL is the one older sessions used")
-check(registry.sentinelURL(for: .uiStudio, in: sampleRoot, suffix: "abc").path == "/tmp/markview-tool-registry-test/.dde/.markview-ui-studio-abc",
+check(registry.descriptor(for: .uiStudio)?.sentinelURL(in: sampleRoot, suffix: "abc").path == "/tmp/markview-tool-registry-test/.dde/.markview-ui-studio-abc",
       "AR-31/FU-02: UI Studio's sentinel takes its session id")
 check(registry.tools.map(\.id.rawValue) == ["git", "deployments", "workflow", "qa", "uiStudio", "cockpit", "discussions", "changeReview"],
       "AR-31: the saved keys of the tools are unchanged")
@@ -79,7 +79,7 @@ check(extended.welcomeTools.last?.id == fake.id, "AR-31: a new descriptor appear
 check(extended.descriptor(for: fake.id)?.icon == "star" && extended.descriptor(for: fake.id)?.title == "Fake Tool",
       "AR-31: a new descriptor gives its tab an icon and a title")
 check(extended.isRestorable(fake.id) && !registry.isRestorable(fake.id), "AR-31: a new descriptor is in the restore set; the real registry does not know it")
-check(extended.sentinelURL(for: fake.id, in: sampleRoot).path == "/tmp/markview-tool-registry-test/.dde/.markview-fake", "AR-31: a new descriptor gives its sentinel")
+check(extended.descriptor(for: fake.id)?.sentinelURL(in: sampleRoot).path == "/tmp/markview-tool-registry-test/.dde/.markview-fake", "AR-31: a new descriptor gives its sentinel")
 check(extended.toolbarTools(.primary).dropLast().map(\.id) == registry.toolbarTools(.primary).map(\.id)
       && extended.menuTools(.afterAgents).dropLast().map(\.id) == registry.menuTools(.afterAgents).map(\.id),
       "AR-31: the other tools keep their places")

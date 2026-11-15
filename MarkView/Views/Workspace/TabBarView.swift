@@ -139,7 +139,7 @@ struct TabBarView: View {
             if case .pullRequest = item { return "arrow.triangle.pull" }
             return "smallcircle.filled.circle"
         case .file: return tab.isMarkdown ? "doc.text" : "chevron.left.forwardslash.chevron.right"
-        default: return tab.kind.toolDescriptor?.icon ?? "wrench.and.screwdriver"
+        case .tool, .uiStudio, .cockpit: return tab.kind.toolDescriptor?.icon ?? "wrench.and.screwdriver"
         }
     }
 

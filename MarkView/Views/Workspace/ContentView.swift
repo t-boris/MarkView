@@ -284,7 +284,7 @@ struct ContentView: View {
             guard workspaceManager.openTabs.indices.contains(index) else { return }
             let tab = workspaceManager.openTabs[index]
             switch tab.kind {
-            case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .git, .changeReview, .terminal, .browser, .data, .prototype, .uiStudio, .cockpit, .qa:
+            case .file, .image, .pdf, .archive, .tool, .terminal, .browser, .data, .prototype, .uiStudio, .cockpit:
                 lastFilesTab = tab.id
                 workspaceManager.layout.workspaceArea = .files
                 if case .file = tab.kind,
@@ -562,7 +562,7 @@ struct ContentView: View {
     /// The buttons of the tools registered for `slot` of the toolbar (`ToolRegistry`).
     private func toolButtons(_ slot: ToolbarSlot) -> some View {
         ForEach(ToolRegistry.shared.toolbarTools(slot)) { tool in
-            tabButton(tool.icon, help: tool.help, width: toolbarIconWidth, matches: { WorkspaceManager.toolMatches(tool.id, kind: $0) }) {
+            tabButton(tool.icon, help: tool.help, width: toolbarIconWidth, matches: { $0.toolID == tool.id }) {
                 workspaceManager.openTool(tool.id)
             }.disabled(workspaceManager.rootNode == nil)
         }
@@ -695,26 +695,8 @@ struct ContentView: View {
                     } else if case .pdf(let reader) = activeTab.kind {
                         PDFReaderView(url: activeTab.url, reader: reader)
                             .id(activeTab.id)
-                    } else if case .discussions = activeTab.kind {
-                        DiscussionsView(store: workspaceManager.discussions)
-                            .environmentObject(workspaceManager)
-                            .id(activeTab.id)
-                    } else if case .git = activeTab.kind {
-                        GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
-                            .id(activeTab.id)
-                    } else if case .workflow = activeTab.kind {
-                        WorkflowTabView(store: workspaceManager.features, editor: workspaceManager.workflowEditor)
-                            .id(activeTab.id)
-                    } else if case .qa = activeTab.kind {
-                        QATabView(model: workspaceManager.qa)
-                            .id(activeTab.id)
-                    } else if case .changeReview = activeTab.kind {
-                        ProjectChangeReviewTab(review: changeReview)
-                            .environmentObject(workspaceManager)
-                            .id(activeTab.id)
-                    } else if case .deployments = activeTab.kind {
-                        DeploymentsView(store: workspaceManager.deployments)
-                            .environmentObject(workspaceManager)
+                    } else if let tool = activeTab.kind.toolID {
+                        ToolTabViews.view(for: tool, context: .init(workspace: workspaceManager, tab: activeTab, changeReview: changeReview))
                             .id(activeTab.id)
                     } else if case .archive = activeTab.kind {
                         ArchiveTabView(url: activeTab.url)
@@ -728,12 +710,6 @@ struct ContentView: View {
                         PrototypeStudioView(session: session)
                             .environmentObject(workspaceManager)
                             .id(activeTab.id)
-                    } else if case .uiStudio(let session) = activeTab.kind {
-                        UIStudioView(session: session)
-                            .environmentObject(workspaceManager)
-                            .id(activeTab.id)
-                    } else if case .cockpit(let session) = activeTab.kind {
-                        CockpitView(session: session).id(activeTab.id)
                     } else if case .github(let item) = activeTab.kind {
                         GitHubTabView(item: item)
                             .environmentObject(workspaceManager)
@@ -761,7 +737,7 @@ struct ContentView: View {
                 workspaceManager.activeTabIndex = index
             } else if let index = workspaceManager.openTabs.firstIndex(where: { tab in
                 switch tab.kind {
-                case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .git, .changeReview, .terminal, .browser, .prototype, .uiStudio, .cockpit, .qa: return true
+                case .file, .image, .pdf, .archive, .tool, .terminal, .browser, .prototype, .uiStudio, .cockpit: return true
                 default: return false
                 }
             }) {
@@ -908,17 +884,17 @@ struct ContentView: View {
             workspaceManager.layout.workspaceArea = .work
         case .understand: workspaceManager.intake = IntakeRequest(kind: .understand)
         case .research: workspaceManager.newResearch()
-        case .discussions: workspaceManager.openDiscussions()
+        case .discussions: workspaceManager.openTool(.discussions)
         case .tasks: activate(.work)
         case .xray: workspaceManager.openArchitecture()
         case .search: workspaceManager.showGlobalSearch = true
         case .files: activate(.files)
         case .openFile: openFile()
-        case .git: workspaceManager.openGit()
-        case .deployments: workspaceManager.openDeployments()
-        case .workflow: workspaceManager.openWorkflow()
-        case .qa: workspaceManager.openQA()
-        case .uiStudio: workspaceManager.openUIStudio()
+        case .git: workspaceManager.openTool(.git)
+        case .deployments: workspaceManager.openTool(.deployments)
+        case .workflow: workspaceManager.openTool(.workflow)
+        case .qa: workspaceManager.openTool(.qa)
+        case .uiStudio: workspaceManager.openTool(.uiStudio)
         case .browser: _ = workspaceManager.openBrowser(nil)
         case .openFolder: openFolder()
         case .newProject: workspaceManager.newProject = NewProjectRequest()
@@ -1172,7 +1148,7 @@ private struct AIToolsMenuItems: View {
             Button("New Prototype…") { workspaceManager.openPrototypeCreator(mode: .requirements) }
                 .disabled(workspaceManager.rootNode == nil)
             // Existing code opens as the real application in UI Studio, not as a reconstruction (DEC-002, DEC-005).
-            Button("UI Studio (Existing Code)") { workspaceManager.openUIStudio() }
+            Button("UI Studio (Existing Code)") { workspaceManager.openTool(.uiStudio) }
                 .disabled(workspaceManager.rootNode == nil)
             let saved = workspaceManager.savedPrototypes()
             Menu("Open Prototype (\(saved.count))") {

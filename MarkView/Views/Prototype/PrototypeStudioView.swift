@@ -138,7 +138,7 @@ struct PrototypeStudioView: View {
             .help("Click an element in the preview to say what should change about it")
             if session.manifest.mode == .code {
                 // Existing code is no longer reconstructed again: the current interface opens in UI Studio (DEC-005).
-                Button { workspaceManager.openUIStudio() } label: {
+                Button { workspaceManager.openTool(.uiStudio) } label: {
                     Label("Sync from code", systemImage: "macwindow.and.cursorarrow")
                 }
                 .controlSize(.small).fixedSize()

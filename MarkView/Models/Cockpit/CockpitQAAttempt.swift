@@ -56,7 +56,7 @@ final class CockpitQAAttempt {
             qa.startRun(cockpitToken: reservation)
             guard qa.run.isRunning else { return failure("QA could not start; check the scenario and application permissions.") }
             activeQAID = qa.run.activeRunID
-            workspace.openQA()
+            workspace.openTool(.qa)
             return try await withTaskCancellationHandler {
                 var previousActivity = "", previousCoverage: [String] = [], previousBlockers: [String] = []
                 var finalProgress = previous.result.progress ?? CockpitProgress(passNumber: 1, activity: "", scenarioCoverage: [], bugs: [], fixes: [], latestChange: "", blockers: [], buildLogPath: nil)

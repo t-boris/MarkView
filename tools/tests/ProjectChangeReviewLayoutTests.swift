@@ -37,7 +37,7 @@ final class FileNode { let url = URL(fileURLWithPath: "/tmp/project") }
 @MainActor final class WorkspaceManager: ObservableObject {
     @Published var rootNode: FileNode? = FileNode()
     func openFile(_ url: URL) {}
-    func openChangeReview() {}
+    func openTool(_ id: ToolID) {}
 }
 
 var failures = 0

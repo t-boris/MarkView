@@ -65,6 +65,15 @@ struct ToolMenuEntry: Hashable, Sendable {
     let requiresFolder: Bool
 }
 
+/// The sections of the welcome screen of a window with a project; a tool's tile names the one it sits in.
+enum WelcomeSection: String, CaseIterable, Identifiable, Sendable {
+    case start = "Start"
+    case explore = "Explore"
+    case run = "Build & Run"
+
+    var id: String { rawValue }
+}
+
 /// A tool's tile on the welcome screen of a window with a project.
 struct ToolWelcomeTile: Hashable, Sendable {
     let section: WelcomeSection
@@ -201,10 +210,5 @@ struct ToolRegistry: Sendable {
     /// Whether the tool's tab is saved in the window session and opened again on launch.
     func isRestorable(_ id: ToolID) -> Bool {
         descriptor(for: id)?.restorable == true
-    }
-
-    func sentinelURL(for id: ToolID, in root: URL, suffix: String = "") -> URL {
-        let base = descriptor(for: id)?.sentinelPath ?? ".dde/.markview-\(id.rawValue)"
-        return root.appendingPathComponent(base + suffix)
     }
 }

@@ -74,7 +74,7 @@ final class CockpitSession: ObservableObject {
     /// A notification was clicked: bring this window forward and open the run it was about.
     private func showRun(_ id: UUID?) {
         workspace?.hostWindow?.makeKeyAndOrderFront(nil)
-        workspace?.openCockpit()
+        workspace?.openTool(.cockpit)
         if let id { screen = execution?.runID == id ? .live : .saved(id) }
     }
 
@@ -381,7 +381,7 @@ final class CockpitSession: ObservableObject {
 
     func openQAResult(scenarioID: String, runID: String) {
         guard let workspace else { return }
-        workspace.openQA()
+        workspace.openTool(.qa)
         let qa = workspace.qa
         qa.reload()
         Task { [weak self, weak qa] in

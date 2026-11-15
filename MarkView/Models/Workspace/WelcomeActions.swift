@@ -11,14 +11,6 @@ enum WelcomeActionID: String, CaseIterable {
     case openFolder, newProject
 }
 
-enum WelcomeSection: String, CaseIterable, Identifiable {
-    case start = "Start"
-    case explore = "Explore"
-    case run = "Build & Run"
-
-    var id: String { rawValue }
-}
-
 struct WelcomeAction: Identifiable, Equatable {
     let id: WelcomeActionID
     let title: String

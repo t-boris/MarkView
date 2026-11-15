@@ -374,35 +374,61 @@ class WorkspaceManager: ObservableObject {
         return CLICompletion.Assistant.chosen(tool: tool, project: aiProject)
     }
 
-    func openTool(_ id: ToolID) {
-        switch id {
-        case .git: openGit()
-        case .deployments: openDeployments()
-        case .workflow: openWorkflow()
-        case .qa: openQA()
-        case .uiStudio: openUIStudio()
-        case .cockpit: openCockpit()
-        case .discussions: openDiscussions()
-        case .changeReview: openChangeReview()
-        default: assertionFailure("No opener for the tool \(id.rawValue)")
-        }
+    // MARK: - Tool tabs
+
+    /// What opening a tool does beyond showing its tab: wiring the tool's own store to the project, or building the tab of a tool that
+    /// carries a session. A tool that needs neither has no entry here; `ToolRegistry` describes the rest of it.
+    private struct ToolOpener {
+        /// Runs on every open, also when the tool's tab exists already.
+        var prepare: (WorkspaceManager, URL) -> Void = { _, _ in }
+        /// The tab of a tool that carries a session; every other tool gets a plain `.tool` tab.
+        var makeTab: ((WorkspaceManager, URL, ToolDescriptor) -> OpenTab)?
+        /// Runs once, after a tab built by `makeTab` was added.
+        var opened: (WorkspaceManager, OpenTab) -> Void = { _, _ in }
     }
 
-    nonisolated static func toolMatches(_ id: ToolID, kind: TabKind) -> Bool {
-        switch (id, kind) {
-        case (.git, .git),
-             (.deployments, .deployments),
-             (.workflow, .workflow),
-             (.qa, .qa),
-             (.uiStudio, .uiStudio),
-             (.cockpit, .cockpit),
-             (.discussions, .discussions),
-             (.changeReview, .changeReview):
-            return true
-        default:
-            return false
+    private static let toolOpeners: [ToolID: ToolOpener] = [
+        .deployments: ToolOpener(prepare: { workspace, root in
+            workspace.deployments.setRoot(root)
+            workspace.deployments.onNeedsAttention = { [weak workspace] in workspace?.openTool(.deployments) }
+        }),
+        .discussions: ToolOpener(prepare: { workspace, root in workspace.discussions.setRoot(root) }),
+        .workflow: ToolOpener(prepare: { workspace, _ in workspace.hostWindow?.makeKeyAndOrderFront(nil) }),
+        .qa: ToolOpener(prepare: { workspace, root in
+            workspace.hostWindow?.makeKeyAndOrderFront(nil)
+            workspace.qa.attach(root: root)
+            if workspace.qa.run.bugFiler == nil { workspace.qa.run.bugFiler = QABugFiler(sink: QAFeatureStoreBugSink(store: workspace.features)) }
+            workspace.qa.archive.bugFiler = workspace.qa.run.bugFiler
+        }),
+        .uiStudio: ToolOpener(
+            makeTab: { workspace, root, tool in workspace.makeUIStudioTab(root: root, tool: tool) },
+            opened: { _, tab in if case .uiStudio(let session) = tab.kind { session.start() } }),
+        .cockpit: ToolOpener(makeTab: { workspace, root, tool in workspace.makeCockpitTab(root: root, tool: tool) })
+    ]
+
+    /// Opens the tab of a tool, or returns to it: a tool has one tab per window.
+    func openTool(_ id: ToolID) {
+        guard let root = rootNode?.url, let tool = ToolRegistry.shared.descriptor(for: id) else { return }
+        let opener = Self.toolOpeners[id] ?? ToolOpener()
+        opener.prepare(self, root)
+        layout.workspaceArea = .files
+        showCenter = true
+        if let index = openTabs.firstIndex(where: { $0.kind.toolID == id }) {
+            activeTabIndex = index
+            return
         }
+        let tab: OpenTab
+        if let makeTab = opener.makeTab {
+            tab = makeTab(self, root, tool)
+        } else {
+            var plain = OpenTab(url: tool.sentinelURL(in: root), content: "", originalContent: "")
+            plain.kind = .tool(id)
+            tab = plain
+        }
+        tabsStore.appendTab(tab, activate: true)
+        opener.opened(self, tab)
     }
+
     /// The project's operations, with this window as the one that shows what the person starts from here.
     func operations() -> ProjectOperationsStore? {
         projectOperations?.presenter = self
@@ -1238,7 +1264,7 @@ class WorkspaceManager: ObservableObject {
                 saved = .browser(url)
             case .insight: continue // in-memory jobs have their own export workflow
             case .prototype: continue // reopened from AI Tools → Prototype
-            default:
+            case .tool, .uiStudio, .cockpit:
                 // A tool tab is saved when its descriptor says so; UI Studio (a live session with a development server) and the
                 // Cockpit are opened again from the View menu or the toolbar.
                 guard let tool = tab.kind.toolID, ToolRegistry.shared.isRestorable(tool) else { continue }
@@ -4817,15 +4843,8 @@ class WorkspaceManager: ObservableObject {
 
     // MARK: - UI Studio
 
-    /// Opens UI Studio on the project's real web interface (REQ-001); the session already open is shown instead.
-    func openUIStudio() {
-        guard let root = rootNode?.url else { return }
-        layout.workspaceArea = .files
-        showCenter = true
-        if let index = openTabs.firstIndex(where: { if case .uiStudio = $0.kind { return true }; return false }) {
-            activeTabIndex = index
-            return
-        }
+    /// The tab of a new UI Studio session on the project's real web interface (REQ-001); `openTool` shows the session already open instead.
+    private func makeUIStudioTab(root: URL, tool: ToolDescriptor) -> OpenTab {
         let session = StudioSession(root: root)
         let base = root.standardizedFileURL.path + "/"
         session.editorBuffers = { [weak self] in
@@ -4842,11 +4861,9 @@ class WorkspaceManager: ObservableObject {
         session.openFile = { [weak self] url in self?.openFile(url) }
         session.featureStore = { [weak self] in self?.features }
         session.onFeatureExported = { [weak self] slug in self?.showFeatureContext(slug) }
-        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .uiStudio, in: root, suffix: session.id.uuidString),
-                          content: "", originalContent: "")
+        var tab = OpenTab(url: tool.sentinelURL(in: root, suffix: session.id.uuidString), content: "", originalContent: "")
         tab.kind = .uiStudio(session)
-        tabsStore.appendTab(tab, activate: true)
-        session.start()
+        return tab
     }
 
     /// Ends every UI Studio session of this window (closing the window or the folder): development servers a session
@@ -4868,7 +4885,7 @@ class WorkspaceManager: ObservableObject {
     /// Opens the creator sheet of Prototype Studio for requirements; `.code` ("New Prototype from Code…") opens UI Studio
     /// on the real application instead of generating a reconstruction (REQ-001).
     func openPrototypeCreator(mode: PrototypeFiles.Mode) {
-        guard mode == .requirements else { return openUIStudio() }
+        guard mode == .requirements else { return openTool(.uiStudio) }
         prototypeCreatorMode = mode
         showPrototypeCreator = true
     }
@@ -4907,67 +4924,17 @@ class WorkspaceManager: ObservableObject {
     func newPrototype(title: String, brief: String, sources: [String], mode: PrototypeFiles.Mode = .requirements,
                       codeScope: PrototypeAI.CodeScope = PrototypeAI.CodeScope()) {
         // Existing code is not reconstructed any more: it opens in UI Studio (DEC-002, DEC-005).
-        guard mode == .requirements else { return openUIStudio() }
+        guard mode == .requirements else { return openTool(.uiStudio) }
         guard let root = rootNode?.url else { return }
         let session = PrototypeSession(root: root, title: title, brief: brief, sources: sources, mode: mode)
         session.codeScope = codeScope
         openPrototype(session)
     }
 
-    /// The Deployments tab: where the project runs, with CPU, memory, disks, services and logs of each place.
-    func openDeployments() {
-        guard let root = rootNode?.url else { return }
-        deployments.setRoot(root)
-        deployments.onNeedsAttention = { [weak self] in self?.openDeployments() }
-        for index in openTabs.indices {
-            if case .deployments = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .deployments, in: root), content: "", originalContent: "")
-        tab.kind = .deployments
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// Open the project Git workspace once per window.
-    func openGit() {
-        guard let root = rootNode?.url else { return }
-        layout.workspaceArea = .files
-        showCenter = true
-        for index in openTabs.indices {
-            if case .git = openTabs[index].kind { activeTabIndex = index; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .git, in: root), content: "", originalContent: "")
-        tab.kind = .git
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// The Workflow tab: the statuses, transitions and processes of features and bugs in this project, edited graphically or as the
-    /// JSON of `.dde/workflow/workflow.json` (BUG-108). It is the project's own configuration, so it lives in the project window;
-    /// Settings only holds the templates.
-    func openWorkflow() {
-        guard let root = rootNode?.url else { return }
-        hostWindow?.makeKeyAndOrderFront(nil)
-        for index in openTabs.indices {
-            if case .workflow = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .workflow, in: root), content: "", originalContent: "")
-        tab.kind = .workflow
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// One cockpit belongs to this window; the toolbar returns to the existing tab.
-    func openCockpit() {
-        guard let root = rootNode?.url else { return }
-        layout.workspaceArea = .files
-        showCenter = true
-        if let index = openTabs.firstIndex(where: { if case .cockpit = $0.kind { return true }; return false }) {
-            activeTabIndex = index
-            return
-        }
-        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .cockpit, in: root), content: "", originalContent: "")
+    /// The tab of the Cockpit of this window: the window keeps one session for its project, so a tab closed and opened again
+    /// shows the same plans and runs (`openTool` shows the tab already open instead).
+    private func makeCockpitTab(root: URL, tool: ToolDescriptor) -> OpenTab {
+        var tab = OpenTab(url: tool.sentinelURL(in: root), content: "", originalContent: "")
         let session: CockpitSession
         if let existing = cockpitSession, existing.root.standardizedFileURL == root.standardizedFileURL {
             session = existing
@@ -4977,52 +4944,7 @@ class WorkspaceManager: ObservableObject {
             cockpitSession = session
         }
         tab.kind = .cockpit(session)
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// The End-to-End QA tab: scenarios of this project, written from a goal and edited as a graph. The scenarios live in
-    /// `.markview/qa/scenarios` (project assets), so the tab only shows them.
-    func openQA() {
-        guard let root = rootNode?.url else { return }
-        hostWindow?.makeKeyAndOrderFront(nil)
-        qa.attach(root: root)
-        if qa.run.bugFiler == nil { qa.run.bugFiler = QABugFiler(sink: QAFeatureStoreBugSink(store: features)) }
-        qa.archive.bugFiler = qa.run.bugFiler
-        for index in openTabs.indices {
-            if case .qa = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .qa, in: root), content: "", originalContent: "")
-        tab.kind = .qa
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// The review of observed file changes, as a tab (BUG-109): a sheet could not be enlarged, a tab has the whole centre area.
-    func openChangeReview() {
-        guard let root = rootNode?.url else { return }
-        for index in openTabs.indices {
-            if case .changeReview = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .changeReview, in: root), content: "", originalContent: "")
-        tab.kind = .changeReview
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// The Discussions tab: questions asked before there is a feature, each answered as a page.
-    func openDiscussions() {
-        guard let root = rootNode?.url else { return }
-        discussions.setRoot(root)
-        for index in openTabs.indices {
-            if case .discussions = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .discussions, in: root), content: "", originalContent: "")
-        tab.kind = .discussions
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
+        return tab
     }
 
     /// Discussions → ask: the project's assistant reads the project (read-only) and answers inside the conversation,
@@ -5117,7 +5039,7 @@ class WorkspaceManager: ObservableObject {
     /// File tree → "Discuss…": a discussion about this file or folder.
     func openDiscussion(about url: URL) {
         guard let root = rootNode?.url else { return }
-        openDiscussions()
+        openTool(.discussions)
         let rel = workspaceRelativePath(url)
         let path = url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/") ? rel : url.path
         if let existing = discussions.discussions.first(where: { $0.scope == path && $0.turns.isEmpty }) {

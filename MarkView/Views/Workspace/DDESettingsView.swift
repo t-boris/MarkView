@@ -258,7 +258,7 @@ struct DDESettingsView: View {
                         Text(VariantTemplate.allCases.map(\.title).joined(separator: "; ") + ". They keep the transitions of the type.")
                             .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     }
-                    Button("Open the project's Workflow tab") { workspaceManager.openWorkflow() }
+                    Button("Open the project's Workflow tab") { workspaceManager.openTool(.workflow) }
                         .disabled(workspaceManager.projectFolder == nil)
                         .help(workspaceManager.projectFolder == nil ? "Open a project folder first" : "Configure this project's statuses, transitions and processes")
                 }
