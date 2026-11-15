@@ -20,6 +20,16 @@ struct WelcomeBackdropView: NSViewRepresentable {
     }
 }
 
+extension BackdropColors {
+    /// The colours a backdrop draws with, taken from the window's theme (REQ-003: a backdrop follows the theme, dark or light).
+    init(_ palette: AppPalette) {
+        let model = palette.model
+        self.init(background: NSColor(model.bg), bright: NSColor(model.textBright), dim: NSColor(model.textDim),
+                  green: NSColor(model.green), cyan: NSColor(model.cyan), purple: NSColor(model.purple), blue: NSColor(model.blue),
+                  orange: NSColor(model.orange), red: NSColor(model.red), yellow: NSColor(model.yellow), isDark: model.isDark)
+    }
+}
+
 /// A layer-hosting view that never takes a mouse event, so the tiles and lists above it work as if it were not there.
 final class BackdropHostView: NSView {
     private var kind = WelcomeBackdrop.off

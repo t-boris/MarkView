@@ -338,6 +338,7 @@
 		C30849D1EB88CFBA5B4D748C /* FeatureVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89E15210EC0B4B920554FD0D /* FeatureVocabulary.swift */; };
 		C437CB6464A6748152C17D72 /* BookBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1024FF456031B1D1BC834778 /* BookBuilder.swift */; };
 		C49808DDF55EA4CFAE1DF0D3 /* WelcomeBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0BA904D56E2EC5A116AF06 /* WelcomeBackdrop.swift */; };
+		94B0CE18854EE1CAA250F6F0 /* BackdropRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62F8B96DC7472F6EF102D485 /* BackdropRegistry.swift */; };
 		C5A3AF560E0A3F1732079F2A /* ProjectOperationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8342199E7F182C48ECA2B9C3 /* ProjectOperationsStore.swift */; };
 		C5D230483D49D5FBD8D6A0AE /* ProjectBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEFEA342845F3A1FEE82AFF9 /* ProjectBackdrop.swift */; };
 		C736E5E1FFFB0156CDA82E01 /* AgentUsageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB9D81DA338A806D3B356A8 /* AgentUsageViews.swift */; };
@@ -665,6 +666,7 @@
 		5C41B9BB6F1B879525F97C0A /* RemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCommand.swift; sourceTree = "<group>"; };
 		5C68AEF16B013848A18B3396 /* CockpitPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitPlan.swift; sourceTree = "<group>"; };
 		5D0BA904D56E2EC5A116AF06 /* WelcomeBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeBackdrop.swift; sourceTree = "<group>"; };
+		62F8B96DC7472F6EF102D485 /* BackdropRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackdropRegistry.swift; sourceTree = "<group>"; };
 		5E240F8B955EB833FBFEF31A /* markview-insight-srcdoc.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-insight-srcdoc.js"; sourceTree = "<group>"; };
 		5F082514F679706487E2C4F0 /* CockpitComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitComponents.swift; sourceTree = "<group>"; };
 		5FA9A072A34C2A6381C48622 /* TerminalBrowserBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBrowserBridge.swift; sourceTree = "<group>"; };
@@ -1137,6 +1139,7 @@
 				FEFEA342845F3A1FEE82AFF9 /* ProjectBackdrop.swift */,
 				BA8F968A66CC85F478E65280 /* ProjectColor.swift */,
 				5D0BA904D56E2EC5A116AF06 /* WelcomeBackdrop.swift */,
+				62F8B96DC7472F6EF102D485 /* BackdropRegistry.swift */,
 				9373C4D827475F2C25EDED31 /* WindowTheme.swift */,
 			);
 			path = Appearance;
@@ -2573,6 +2576,7 @@
 				FF677307133FE1CCD7D71308 /* WebViewBridge.swift in Sources */,
 				7A3232D368417A275B24DB31 /* WelcomeActions.swift in Sources */,
 				C49808DDF55EA4CFAE1DF0D3 /* WelcomeBackdrop.swift in Sources */,
+				94B0CE18854EE1CAA250F6F0 /* BackdropRegistry.swift in Sources */,
 				C833761DF72AB6FA2DC6AFF8 /* WelcomeBackdropView.swift in Sources */,
 				D27B170992C1798ACAFC3080 /* WelcomeView.swift in Sources */,
 				680E68CB74543FD075CEDBB8 /* WhisperClient.swift in Sources */,

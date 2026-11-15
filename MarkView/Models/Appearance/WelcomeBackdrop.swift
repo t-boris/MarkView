@@ -1,75 +1,79 @@
 import Foundation
 import CoreGraphics
 
-/// The animated picture behind the welcome screen (feature welcome-screen-with-action-tiles-and-a-falling, REQ-002).
-/// Only the choice and the scenes live here, as plain values: `WelcomeBackdropView` turns a scene into Core Animation layers.
+/// The animated picture behind the welcome screen (feature welcome-screen-with-action-tiles-and-a-falling, REQ-002), as a choice: the
+/// stored name of a registered backdrop (`BackdropRegistry`, AR-34). What a backdrop is called, how it is listed and when By Project
+/// picks it are in its descriptor, in the file that draws it; this value only names one.
+/// The scenes below are plain values: `WelcomeBackdropView` turns a scene into Core Animation layers.
 /// All scene coordinates follow the layer tree: the origin is the bottom left corner and y grows upwards.
-enum WelcomeBackdrop: String, CaseIterable, Identifiable {
-    case matrix, aurora, bugs, network, orbit, blueprint, circuit, garden, launch, gitflow, typewriter, deepsea, warp, project, shuffle, off
+struct WelcomeBackdrop: Hashable, Identifiable, RawRepresentable {
+    let rawValue: String
 
     var id: String { rawValue }
 
+    /// The backdrop a stored name stands for; nil when no backdrop has that name.
+    init?(rawValue: String) {
+        guard BackdropRegistry.entry(rawValue) != nil else { return nil }
+        self.rawValue = rawValue
+    }
+
+    /// The backdrop a registry entry describes.
+    init(_ entry: BackdropRegistry.Entry) { rawValue = entry.descriptor.id }
+
+    private init(mode id: String) { rawValue = id }
+
+    // The modes are not drawn by a scene file, so they are registered here (below) and named here.
+    static let project = WelcomeBackdrop(mode: ByProjectBackdrop.descriptor.id)
+    static let shuffle = WelcomeBackdrop(mode: ShuffleBackdrop.descriptor.id)
+    static let off = WelcomeBackdrop(mode: OffBackdrop.descriptor.id)
+
     /// Starting choice for new windows; each window keeps its own actual choice (DEC-002, BUG-120).
     static let storageKey = "welcomeBackdrop"
-    static let defaultChoice = WelcomeBackdrop.matrix
+    /// Matrix Rain; Off when no build of it is registered (a check that compiles only part of the scenes).
+    static let defaultChoice = WelcomeBackdrop(rawValue: "matrix") ?? .off
+
+    /// Every backdrop in picker order.
+    static var all: [WelcomeBackdrop] { BackdropRegistry.entries.map(WelcomeBackdrop.init) }
     /// What Shuffle picks from.
-    static let animated: [WelcomeBackdrop] = [.matrix, .aurora, .bugs, .network, .orbit, .blueprint, .circuit, .garden, .launch, .gitflow, .typewriter, .deepsea, .warp]
+    static var animated: [WelcomeBackdrop] { BackdropRegistry.shufflePool.map(WelcomeBackdrop.init) }
 
-    var title: String {
-        switch self {
-        case .matrix: return "Matrix Rain"
-        case .aurora: return "Aurora"
-        case .bugs: return "Bug Swarm"
-        case .network: return "Network"
-        case .orbit: return "Orbit"
-        case .blueprint: return "Device Lab"
-        case .circuit: return "Circuit Flow"
-        case .garden: return "Code Garden"
-        case .launch: return "Launch"
-        case .gitflow: return "Git Flow"
-        case .typewriter: return "Typewriter"
-        case .deepsea: return "Deep Sea"
-        case .warp: return "Warp"
-        case .project: return "By Project"
-        case .shuffle: return "Shuffle"
-        case .off: return "Off"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .matrix: return "chevron.left.forwardslash.chevron.right"
-        case .aurora: return "sparkles"
-        case .bugs: return "ladybug"
-        case .network: return "point.3.connected.trianglepath.dotted"
-        case .orbit: return "atom"
-        case .blueprint: return "iphone"
-        case .circuit: return "cpu"
-        case .garden: return "leaf"
-        case .launch: return "paperplane"
-        case .gitflow: return "arrow.triangle.branch"
-        case .typewriter: return "text.cursor"
-        case .deepsea: return "water.waves"
-        case .warp: return "moon.stars"
-        case .project: return "folder.badge.gearshape"
-        case .shuffle: return "shuffle"
-        case .off: return "circle.slash"
-        }
-    }
+    var title: String { BackdropRegistry.entry(rawValue)?.descriptor.title ?? rawValue }
+    var symbol: String { BackdropRegistry.entry(rawValue)?.descriptor.symbol ?? "questionmark" }
 
     /// A stored value is used only when it names a backdrop; anything else (missing, renamed) is the default.
     static func stored(_ raw: String?) -> WelcomeBackdrop {
         raw.flatMap(WelcomeBackdrop.init(rawValue:)) ?? defaultChoice
     }
 
+    /// The number Shuffle is asked to pick with, drawn once each time the screen appears.
+    static func randomPick() -> Int { Int.random(in: 0..<max(1, animated.count)) }
+
     /// The scene to draw. Shuffle becomes one of the animated ones, chosen by `pick`: the screen draws that number once each time it
     /// appears, so the scene does not change while it is shown.
     func scene(pick: Int, project: ProjectBackdropContext? = nil) -> WelcomeBackdrop {
-        if self == .project { return project?.scene ?? .garden }
+        if self == .project { return project?.scene ?? ProjectBackdropContext.defaultScene }
         guard self == .shuffle else { return self }
-        let count = Self.animated.count
-        return Self.animated[((pick % count) + count) % count]
+        let pool = Self.animated
+        guard !pool.isEmpty else { return .off }
+        return pool[((pick % pool.count) + pool.count) % pool.count]
     }
+}
+
+// MARK: - The modes
+
+/// By Project: the scene that suits the open project (`ProjectBackdropContext.scene`).
+final class ByProjectBackdrop: BackdropRegistration {
+    static let descriptor = BackdropDescriptor.mode("project", title: "By Project", symbol: "folder.badge.gearshape", order: 10)
+}
+
+/// Shuffle: one of the animated scenes, chosen each time the screen appears.
+final class ShuffleBackdrop: BackdropRegistration {
+    static let descriptor = BackdropDescriptor.mode("shuffle", title: "Shuffle", symbol: "shuffle", order: 20)
+}
+
+/// Off: nothing is drawn.
+final class OffBackdrop: BackdropRegistration {
+    static let descriptor = BackdropDescriptor.mode("off", title: "Off", symbol: "circle.slash", order: 30)
 }
 
 /// A small seeded generator (SplitMix64): one seed gives one scene, so a rebuild at another window size keeps the look and the checks

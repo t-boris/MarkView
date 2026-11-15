@@ -1,5 +1,11 @@
 import Foundation
 
+/// Shorthand for the scenes By Project chooses between: the app's code names none of them (AR-34), they are registered with their rules.
+extension WelcomeBackdrop {
+    static let bugs = WelcomeBackdrop(rawValue: "bugs")!, blueprint = WelcomeBackdrop(rawValue: "blueprint")!, orbit = WelcomeBackdrop(rawValue: "orbit")!
+    static let circuit = WelcomeBackdrop(rawValue: "circuit")!, launch = WelcomeBackdrop(rawValue: "launch")!, garden = WelcomeBackdrop(rawValue: "garden")!
+}
+
 @main
 struct ProjectBackdropChecks {
     static var failures = 0

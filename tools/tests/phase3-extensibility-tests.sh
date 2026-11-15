@@ -9,6 +9,7 @@ cp tools/tests/Phase3ExtensibilityTests.swift "$out/main.swift"
 swiftc -o "$out/phase3-extensibility-tests" \
     MarkView/Models/Appearance/AppTheme.swift \
     MarkView/Models/Appearance/ThemeDefinition.swift \
+    MarkView/Models/Appearance/BackdropRegistry.swift \
     MarkView/Models/Appearance/WelcomeBackdrop.swift \
     MarkView/Models/Appearance/ProjectBackdrop.swift \
     MarkView/Models/Workspace/PanelLayout.swift \

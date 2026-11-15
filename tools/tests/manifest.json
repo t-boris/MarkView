@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 181,
+  "suiteCount": 182,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -101,6 +101,22 @@
         "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
         "tools/tests/AutoAnalysisSchedulerTests.swift",
         "tools/tests/auto-analysis-scheduler-tests.sh"
+      ]
+    },
+    {
+      "name": "backdrop-registry-tests",
+      "script": "tools/tests/backdrop-registry-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/Appearance/BackdropRegistry.swift",
+        "MarkView/Models/Appearance/ProjectBackdrop.swift",
+        "MarkView/Models/Appearance/WelcomeBackdrop.swift",
+        "MarkView/Views/Appearance/AtmosphereBackdropLayers.swift",
+        "MarkView/Views/Appearance/BackdropLayerBuilders.swift",
+        "MarkView/Views/Appearance/DevBackdropLayers.swift",
+        "MarkView/Views/Appearance/ProjectBackdropLayers.swift",
+        "tools/tests/BackdropRegistryTests.swift",
+        "tools/tests/backdrop-registry-tests.sh"
       ]
     },
     {
@@ -1125,7 +1141,10 @@
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "MarkView/Models/Workspace/PanelLayout.swift",
         "tools/tests/Phase3ExtensibilityTests.swift",
-        "MarkView/Models/Appearance/ThemeDefinition.swift"
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
+        "MarkView/Models/Appearance/BackdropRegistry.swift",
+        "MarkView/Models/Appearance/WelcomeBackdrop.swift",
+        "MarkView/Models/Appearance/ProjectBackdrop.swift"
       ]
     },
     {
@@ -1236,6 +1255,11 @@
       "sources": [
         "MarkView/Models/Appearance/ProjectBackdrop.swift",
         "MarkView/Models/Appearance/WelcomeBackdrop.swift",
+        "MarkView/Models/Appearance/BackdropRegistry.swift",
+        "MarkView/Views/Appearance/AtmosphereBackdropLayers.swift",
+        "MarkView/Views/Appearance/BackdropLayerBuilders.swift",
+        "MarkView/Views/Appearance/DevBackdropLayers.swift",
+        "MarkView/Views/Appearance/ProjectBackdropLayers.swift",
         "tools/tests/ProjectBackdropChecks.swift"
       ]
     },
@@ -2554,6 +2578,7 @@
         "MarkView/Models/Appearance/ProjectBackdrop.swift",
         "MarkView/Models/Workspace/WelcomeActions.swift",
         "MarkView/Models/Appearance/WelcomeBackdrop.swift",
+        "MarkView/Models/Appearance/BackdropRegistry.swift",
         "MarkView/Models/Appearance/WindowTheme.swift",
         "MarkView/Views/Appearance/AppFontScaleView.swift",
         "MarkView/Views/Appearance/AppPalette.swift",
