@@ -79,7 +79,7 @@ final class WindowSessionController {
             loaded = true
             var windows = archive?.windows ?? []
             // One-time migration from versions that only remembered one folder.
-            if archive == nil, let path = UserDefaults.standard.string(forKey: WorkspaceManager.lastFolderKey) {
+            if archive == nil, let path = UserDefaults.standard.string(forKey: ProjectContext.lastFolderKey) {
                 windows = [WorkspaceWindowState(id: UUID(), folder: URL(fileURLWithPath: path))]
             }
             order = windows.map(\.id)
@@ -129,6 +129,8 @@ final class WindowSessionController {
             .sink { [weak self, weak workspace] _ in
                 // UI Studio sessions stop the development servers they started (REQ-006).
                 workspace?.closeUIStudioSessions()
+                // The project's index process, file watcher and background jobs end with its window (AR-19).
+                workspace?.project.close()
                 self?.remove(id)
             }
             .store(in: &entry.subscriptions)

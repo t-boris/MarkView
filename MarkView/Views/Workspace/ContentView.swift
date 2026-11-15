@@ -391,7 +391,7 @@ struct ContentView: View {
                 await changeReview.refresh()
             }
         }
-        .onChange(of: workspaceManager.rootOpenedAsFolder) { _ in updateWindowIdentity() }
+        .onChange(of: workspaceManager.project.rootOpenedAsFolder) { _ in updateWindowIdentity() }
         // Finder "Open With" / Quick Action: requests wait in
         // MarkViewApp.pendingOpenURLs until the active window takes them.
         // Drain on every moment this window may have become eligible — a new
@@ -851,14 +851,14 @@ struct ContentView: View {
                 ProjectDraftList(drafts: ProjectDraftStore.shared) { id in
                     workspaceManager.newProject = NewProjectRequest(resume: id)
                 }
-                if !workspaceManager.recentProjects.isEmpty {
+                if !workspaceManager.project.recentProjects.isEmpty {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Recent projects").uiFont(size: 13, weight: .semibold)
-                        ForEach(workspaceManager.recentProjects, id: \.self) { path in
+                        ForEach(workspaceManager.project.recentProjects, id: \.self) { path in
                             RecentProjectRow(path: path) {
                                 workspaceManager.openFolder(URL(fileURLWithPath: path, isDirectory: true))
                             } onRemove: {
-                                workspaceManager.removeRecentProject(path)
+                                workspaceManager.project.removeRecentProject(path)
                             }
                         }
                     }
@@ -1164,7 +1164,7 @@ private struct AIToolsMenuItems: View {
             Button("Codebase Audit") { workspaceManager.runAITool(named: "audit") }
             Button("Code Structure Map") { workspaceManager.runAITool(named: "codemap") }
             Button("Recursive Insight") { workspaceManager.startRecursiveInsight() }
-                .disabled(workspaceManager.rootNode == nil || !workspaceManager.hasMarkdownFiles)
+                .disabled(workspaceManager.rootNode == nil || !workspaceManager.project.hasMarkdownFiles)
         }
     }
 }

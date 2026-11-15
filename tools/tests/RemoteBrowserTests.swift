@@ -6,6 +6,8 @@ enum CLITool: String { case claude, codex }
 @MainActor final class WorkspaceManager {
     var hostWindow: NSWindow?
     var aiWorkspaceRoot: URL?
+    final class Project { var root: URL? }
+    let project = Project()
     var rootNode: Node?
     struct Node { let url: URL }
 }

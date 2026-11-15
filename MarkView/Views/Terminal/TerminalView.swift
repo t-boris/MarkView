@@ -434,7 +434,7 @@ private struct TerminalPromptBar: View {
 
     private var activeFile: String? {
         guard let tab = workspaceManager.activeTab, tab.isFileBacked else { return nil }
-        return workspaceManager.workspaceRelativePath(tab.url)
+        return workspaceManager.project.relativePath(of: tab.url)
     }
 
     @ViewBuilder

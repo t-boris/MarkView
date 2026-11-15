@@ -11,9 +11,9 @@ import Foundation
 enum RemoteProviderConfiguration { enum Provider: String { case claude, codex } }
 @MainActor final class WorkspaceManager {
     var aiWorkspaceRoot: URL?
-    var rootNode: Node?
+    final class Project { var root: URL? }
+    let project = Project()
     var opens = 0
-    struct Node { var url: URL }
     func openRemoteAITerminal(code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool,
                               savedConnectionID: UUID? = nil) async throws -> TerminalSession { opens += 1; return TerminalSession() }
 }

@@ -58,7 +58,7 @@ final class SharedSearchModel: ObservableObject {
             }
         }
         guard let url = ProjectSearchRoot.url(for: path, in: roots) else { return false }
-        let linked = workspaceManager.linkedFolders
+        let linked = workspaceManager.project.linkedFolders
         // The result must still be under a root of the search (the project or a linked folder).
         let valid = await Task.detached { () -> Bool in
             let resolved = url.resolvingSymlinksInPath().standardizedFileURL
@@ -139,7 +139,7 @@ struct SharedSearchView: View {
                     .focused($searchFocused)
                     .onChange(of: model.query) { _ in model.scheduleSearch(documentDatabasePath: workspaceManager.semanticDatabase?.dbPath) }
                 if model.indexing { ProgressView().controlSize(.small) }
-                Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders) } } label: {
+                Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders) } } label: {
                     Image(systemName: "arrow.clockwise")
                 }
                 .help("Refresh project search index")
@@ -213,11 +213,11 @@ struct SharedSearchView: View {
             .background(palette.bg)
         }
         .frame(minWidth: 620, minHeight: 420)
-        .task(id: workspaceManager.searchRootsKey) {
-            await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders)
+        .task(id: workspaceManager.project.searchRootsKey) {
+            await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders)
         }
         .onAppear { searchFocused = true }
-        .onReceive(workspaceManager.$semanticDatabase) { database in
+        .onReceive(workspaceManager.project.$database) { database in
             if !model.query.isEmpty { model.scheduleSearch(documentDatabasePath: database?.dbPath) }
         }
     }

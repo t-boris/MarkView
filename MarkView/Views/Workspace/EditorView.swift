@@ -42,7 +42,7 @@ struct EditorView: NSViewRepresentable {
         documentFiles.allowedRoots = { [weak workspaceManager] in
             MainActor.assumeIsolated {
                 guard let workspaceManager else { return [] }
-                return DocumentFiles.roots(project: workspaceManager.rootNode?.url,
+                return DocumentFiles.roots(project: workspaceManager.project.root,
                                            documents: workspaceManager.openTabs.filter(\.isFileBacked).map(\.url))
             }
         }

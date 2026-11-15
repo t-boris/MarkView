@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 185,
+  "suiteCount": 186,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2949,6 +2949,36 @@
         "tools/tests/BridgeContractSupport.swift",
         "tools/tests/BridgeContractWebTests.swift",
         "tools/tests/bridge-contract-web-tests.sh"
+      ]
+    },
+    {
+      "name": "project-context-tests",
+      "script": "tools/tests/project-context-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AI/AIOperation.swift",
+        "MarkView/Models/AI/DiagramAI.swift",
+        "MarkView/Models/Appearance/ProjectColor.swift",
+        "MarkView/Models/Architecture/ArchitectureModel.swift",
+        "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
+        "MarkView/Models/Architecture/CodeArchitecture.swift",
+        "MarkView/Models/Architecture/CodePathTags.swift",
+        "MarkView/Models/Insight/SemanticDatabase.swift",
+        "MarkView/Models/Insight/SemanticModels.swift",
+        "MarkView/Models/Insight/SemanticSchema.swift",
+        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "MarkView/Models/Workspace/ExcludedFolders.swift",
+        "MarkView/Models/Workspace/FileNode.swift",
+        "MarkView/Models/Workspace/LinkedFolders.swift",
+        "MarkView/Models/Workspace/ProjectContext.swift",
+        "MarkView/Models/Workspace/TaskBag.swift",
+        "MarkView/Models/Workspace/WorkspaceFileTreeStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "tools/tests/DiagramCLIStub.swift",
+        "tools/tests/ProjectContextTests.swift",
+        "tools/tests/SemanticDatabaseTestSupport.swift",
+        "tools/tests/project-context-tests.sh"
       ]
     }
   ]

@@ -265,7 +265,7 @@ struct MarkViewApp: App {
                 Divider()
 
                 Button("Link Folder…") {
-                    activeWorkspace?.chooseFoldersToLink()
+                    activeWorkspace?.project.chooseFoldersToLink()
                 }
                 .disabled(activeWorkspaceHasFolder != true)
 

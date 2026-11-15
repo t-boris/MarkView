@@ -7,231 +7,6 @@ import os
 import MarkViewCore
 #endif
 
-/// Owns file-tree state, exclusion rules, and file-system watching for the active workspace.
-@MainActor
-final class WorkspaceFileTreeStore: ObservableObject {
-    @Published var rootNode: FileNode?
-    @Published private(set) var excludedFolders: Set<String> = []
-    @Published var sortOrder = FileTreeSortOrder() {
-        didSet {
-            UserDefaults.standard.set(sortOrder.field.rawValue, forKey: "fileTree.sortField")
-            UserDefaults.standard.set(sortOrder.ascending, forKey: "fileTree.sortAscending")
-            refresh()
-        }
-    }
-
-    var shouldAutoRefresh: () -> Bool = { true }
-    /// Called on every beat of the watcher's timer (the Git status changes without the top folder changing).
-    var onTimer: () -> Void = {}
-
-    private var fileWatcher: DispatchSourceFileSystemObject?
-    private var fileWatchTimer: Timer?
-    private var fileWatchDebounce: DispatchWorkItem?
-    private var lastRootModDate: Date?
-    /// Whether the open folder holds a Markdown file (`AR-42`). A background walk answers it after the tree loads or reloads;
-    /// until it has answered the flag is false, and the views that read it update when it changes.
-    @Published private(set) var hasMarkdownFiles = false
-    private var markdownProbe: Task<Void, Never>?
-
-    init() {
-        let ud = UserDefaults.standard
-        if let savedField = ud.string(forKey: "fileTree.sortField"),
-           let field = FileTreeSortField(rawValue: savedField) {
-            sortOrder.field = field
-        }
-        if ud.object(forKey: "fileTree.sortAscending") != nil {
-            sortOrder.ascending = ud.bool(forKey: "fileTree.sortAscending")
-        }
-    }
-
-    func reset() {
-        stopWatching()
-        rootNode = nil
-        excludedFolders = []
-        lastRootModDate = nil
-        probeMarkdownFiles()
-    }
-
-    func setRootNode(_ node: FileNode?) {
-        rootNode = node
-        lastRootModDate = node.map { rootModificationDate(for: $0.url) } ?? nil
-        probeMarkdownFiles()
-    }
-
-    /// Look for a Markdown file in the open folder off the main thread; a newer probe (another tree load) replaces this one.
-    private func probeMarkdownFiles() {
-        markdownProbe?.cancel()
-        guard let folder = rootNode?.url else {
-            markdownProbe = nil
-            hasMarkdownFiles = false
-            return
-        }
-        markdownProbe = Task.detached(priority: .utility) { [weak self] in
-            let found = BackgroundFileScans.containsMarkdown(in: folder)
-            guard !Task.isCancelled else { return }
-            await self?.finishMarkdownProbe(folder: folder, found: found)
-        }
-    }
-
-    private func finishMarkdownProbe(folder: URL, found: Bool) {
-        guard rootNode?.url == folder else { return }
-        hasMarkdownFiles = found
-    }
-
-    func loadExcludedFolders() {
-        excludedFolders = rootNode.map { ExcludedFolders.load(for: $0.url) } ?? []
-    }
-
-    @discardableResult
-    func excludeFolder(_ folderURL: URL) -> String? {
-        guard let relativePath = relativePath(for: folderURL) else { return nil }
-        excludedFolders.insert(relativePath)
-        saveExcludedFolders()
-        return relativePath
-    }
-
-    @discardableResult
-    func includeFolder(_ relativePath: String) -> Bool {
-        let removed = excludedFolders.remove(relativePath) != nil
-        if removed {
-            saveExcludedFolders()
-        }
-        return removed
-    }
-
-    func isExcluded(_ url: URL) -> Bool {
-        guard let relativePath = relativePath(for: url) else { return false }
-        return excludedFolders.contains { relativePath.hasPrefix($0) }
-    }
-
-    func refresh() {
-        Self.log("refresh() called, rootNode=\(rootNode?.url.path ?? "nil")")
-        // Clear all cached resource values for the root URL tree
-        if let rootURL = rootNode?.url {
-            (rootURL as NSURL).removeAllCachedResourceValues()
-        }
-        reloadFileTree()
-    }
-
-    func startWatchingCurrentRoot() {
-        guard let rootURL = rootNode?.url else { return }
-        startFileWatcher(for: rootURL)
-    }
-
-    func stopWatching() {
-        fileWatchDebounce?.cancel()
-        fileWatchDebounce = nil
-        fileWatchTimer?.invalidate()
-        fileWatchTimer = nil
-        fileWatcher?.cancel()
-        fileWatcher = nil
-    }
-
-    private func saveExcludedFolders() {
-        guard let root = rootNode?.url else { return }
-        ExcludedFolders.save(excludedFolders, for: root)
-    }
-
-    private func relativePath(for url: URL) -> String? {
-        guard let root = rootNode?.url else { return nil }
-        let rootPath = root.standardizedFileURL.path
-        let targetPath = url.standardizedFileURL.path
-
-        if targetPath == rootPath { return "" }
-        guard targetPath.hasPrefix(rootPath + "/") else { return nil }
-        return String(targetPath.dropFirst(rootPath.count + 1))
-    }
-
-    private func startFileWatcher(for url: URL) {
-        stopWatching()
-        lastRootModDate = rootModificationDate(for: url)
-
-        let fd = open(url.path, O_EVTONLY)
-        guard fd != -1 else { return }
-
-        let queue = DispatchQueue.main
-        fileWatcher = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: .write,
-            queue: queue
-        )
-
-        fileWatcher?.setEventHandler { [weak self] in
-            guard let self else { return }
-            self.fileWatchDebounce?.cancel()
-
-            let work = DispatchWorkItem { [weak self] in
-                guard let self, self.shouldAutoRefresh() else { return }
-                self.reloadFileTree()
-            }
-
-            self.fileWatchDebounce = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
-        }
-
-        fileWatcher?.setCancelHandler { close(fd) }
-        fileWatcher?.resume()
-
-        fileWatchTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.checkForFileTreeChanges() }
-        }
-    }
-
-    private func checkForFileTreeChanges() {
-        onTimer()
-        guard let rootURL = rootNode?.url else { return }
-        guard shouldAutoRefresh() else { return }
-        // Clear cached resource values so we see fresh modification dates
-        (rootURL as NSURL).removeCachedResourceValue(forKey: .contentModificationDateKey)
-        guard let modDate = rootModificationDate(for: rootURL) else { return }
-
-        if modDate != lastRootModDate {
-            lastRootModDate = modDate
-            reloadFileTree()
-        }
-    }
-
-    private func reloadFileTree() {
-        guard let currentRoot = rootNode else {
-            Self.log("reloadFileTree: rootNode is nil, skipping")
-            return
-        }
-        let rootURL = currentRoot.url
-        Self.log("reloadFileTree: rebuilding from \(rootURL.path)")
-        let expandedPaths = currentRoot.expandedDirectoryPaths()
-        let sort = sortOrder
-
-        // Clear URL resource cache so FileManager sees new files
-        (rootURL as NSURL).removeCachedResourceValue(forKey: .contentModificationDateKey)
-
-        Task.detached {
-            let rebuilt = FileNode.buildTree(from: rootURL, sortOrder: sort)
-            rebuilt.restoreExpansionState(from: expandedPaths, sortOrder: sort)
-            let childCount = rebuilt.children?.count ?? 0
-            Self.log("reloadFileTree: rebuilt with \(childCount) children")
-            await MainActor.run {
-                self.rootNode = rebuilt
-                self.lastRootModDate = self.rootModificationDate(for: rootURL)
-                self.probeMarkdownFiles()
-                Self.log("reloadFileTree: rootNode updated on MainActor")
-            }
-        }
-    }
-
-    private nonisolated static let fileTreeLogger = Logger(subsystem: "com.markview.app", category: "file-tree")
-
-    private nonisolated static func log(_ msg: String) {
-        fileTreeLogger.debug("[FileTree] \(msg, privacy: .public)")
-    }
-
-    private func rootModificationDate(for url: URL) -> Date? {
-        // Must clear cache — URL resource values are aggressively cached by Foundation
-        (url as NSURL).removeCachedResourceValue(forKey: .contentModificationDateKey)
-        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-        return values?.contentModificationDate
-    }
-}
-
 /// Owns the open-tab session state for a workspace.
 @MainActor
 final class WorkspaceTabsStore: ObservableObject {
@@ -374,10 +149,8 @@ enum WorkspaceAITool: String {
 /// Manages the workspace state including open files, tabs, and folder structure
 @MainActor
 class WorkspaceManager: ObservableObject {
-    @Published var recentFiles: [URL] = []
-    /// Recently opened folders (standardized paths), most recent first.
-    @Published private(set) var recentProjects: [String] =
-        UserDefaults.standard.stringArray(forKey: WorkspaceManager.recentProjectsKey) ?? []
+    /// The open project: its folder and tree, linked and excluded folders, search database, index and recents (`AR-14` step 8).
+    let project = ProjectContext()
     /// Which tab each panel of this window shows; never shared with other windows (BUG-004).
     let layout = PanelLayout()
     /// Everything else this window shows of itself (expanded sections, widths, panel modes); never shared with other windows.
@@ -551,7 +324,6 @@ class WorkspaceManager: ObservableObject {
         terminalVisible = true
     }
 
-    @Published var semanticDatabase: SemanticDatabase?
     /// The id of the node an AI job just added to a map (by map path); the next snapshot of that map carries it to the page.
     var researchMapJobCreated: [String: String] = [:]
     /// What an AI job tells the person when it ends (by map path); the next snapshot of that map carries it to the page as a notice.
@@ -634,25 +406,9 @@ class WorkspaceManager: ObservableObject {
     let codeExplain = CodeExplainStore()
     /// Go to definition / find usages, jump history and AI answers about selected code.
     let codeNav = CodeNavigationStore()
-    /// The open folder looks like a software project (manifest or source files).
-    @Published var isCodeProject = false
-    @Published var graphRAG: GraphRAG?
-    @Published var indexingProgress: String?
-    /// Progress of the out-of-process structural index, shown ONLY in the footer.
-    /// Separate from `indexingProgress` (which drives the file-tree spinner, the
-    /// auto-refresh gate and the module panel) so background indexing never blocks
-    /// the tree, the module explorer, or opening another folder.
-    @Published var structuralIndexProgress: String?
-    @Published var analysisStage: String?
-    @Published var analysisDetail: String?
-    @Published var totalFilesInWorkspace: Int = 0
-    @Published var analyzedFiles: Int = 0
-    @Published var semanticRefreshVersion: Int = 0
     @Published var pendingGraphCreatorType: String?
-    private let fileTreeStore = WorkspaceFileTreeStore()
     private let tabsStore = WorkspaceTabsStore()
     private var cancellables: Set<AnyCancellable> = []
-    private var recentFilesURL: URL
 
     /// Closure wired by `EditorView.Coordinator` on insight tab routing. Called by
     /// `closeTab` STEP 1 of the ordered insight cleanup (Decision 11 §4) — invokes
@@ -663,98 +419,12 @@ class WorkspaceManager: ObservableObject {
     /// — WebView teardown on tab close GCs the blobs as a fallback.
     var releaseInsightBlobsHook: (() -> Void)?
 
-    var rootNode: FileNode? {
-        get { fileTreeStore.rootNode }
-        set { fileTreeStore.setRootNode(newValue) }
-    }
-
-    /// False while the root is only a single file's folder (feature-2, DEC-012).
-    @Published private(set) var rootOpenedAsFolder = false
-
-    /// The open project folder, the one that gets a project color; nil for a single file's folder.
-    var projectFolder: URL? { rootOpenedAsFolder ? rootNode?.url : nil }
-    /// The project whose assistant, model and X-Ray model this window uses (BUG-021);
-    /// nil for a single file, which uses the defaults.
-    var aiProject: URL? { projectFolder }
-
-    // MARK: - Linked folders (Task 59)
-
-    /// Folders attached to the open project as aliases: browsed, searched, indexed and readable by
-    /// the AI together with it; the project's own elements stay in the project folder.
-    @Published private(set) var linkedFolders: [LinkedFolder] = []
-
-    /// Changes whenever the searchable roots change (the project or its linked folders).
-    var searchRootsKey: String { ([rootNode?.url.path ?? ""] + linkedFolders.map(\.path)).joined(separator: "\n") }
-
-    func loadLinkedFolders() {
-        linkedFolders = LinkedFolders.load(project: projectFolder).filter { FileManager.default.fileExists(atPath: $0.path) }
-    }
-
-    /// Link `urls` to the open project. Returns the reasons for the ones that could not be linked.
-    @discardableResult
-    func linkFolders(_ urls: [URL]) -> [String] {
-        guard let project = projectFolder else { return ["Open a project folder first."] }
-        var errors: [String] = []
-        var added = false
-        for url in urls {
-            switch LinkedFolders.link(url, to: project, existing: linkedFolders) {
-            case .success(let folder):
-                linkedFolders.append(folder)
-                added = true
-            case .failure(let error):
-                errors.append(error.message)
-            }
-        }
-        if added { linkedFoldersChanged(project) }
-        return errors
-    }
-
-    func unlinkFolder(_ id: String) {
-        guard let project = projectFolder, linkedFolders.contains(where: { $0.id == id }) else { return }
-        linkedFolders.removeAll { $0.id == id }
-        linkedFoldersChanged(project)
-    }
-
-    /// The folder panel of "Link Folder…" (File menu, file tree).
-    func chooseFoldersToLink() {
-        guard projectFolder != nil else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = true
-        panel.message = "Choose folders to link to this project. They are browsed and searched with it; the project's own files stay where they are."
-        panel.prompt = "Link"
-        guard panel.runModal() == .OK else { return }
-        let errors = linkFolders(panel.urls)
-        if !errors.isEmpty {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = errors.count == 1 ? "The folder was not linked." : "Some folders were not linked."
-            alert.informativeText = errors.joined(separator: "\n")
-            alert.runModal()
-        }
-    }
-
-    /// The linked folder that contains `url`, if any.
-    func linkedFolder(containing url: URL) -> LinkedFolder? {
-        LinkedFolders.folder(containing: url, in: linkedFolders)
-    }
-
-    /// The root `url` belongs to: the project folder, or the linked folder containing it.
-    func containerRoot(for url: URL) -> URL? {
-        if let root = rootNode?.url {
-            let path = url.standardizedFileURL.path
-            let rootPath = root.standardizedFileURL.path
-            if path == rootPath || path.hasPrefix(rootPath + "/") { return root }
-        }
-        return linkedFolder(containing: url)?.url
-    }
-
-    /// Persist the list, then index the linked folders (the search index follows `searchRootsKey`).
-    private func linkedFoldersChanged(_ project: URL) {
-        LinkedFolders.save(linkedFolders, project: project)
-        if let root = rootNode?.url, semanticDatabase != nil { runStructuralIndex(at: root) }
-    }
+    // The project is read through `project` (`ProjectProviding`). These four read-only aliases stay for the code of the regions
+    // that the other decompositions of this file (`AR-14` steps 2-7) are still moving out, and go with them.
+    var rootNode: FileNode? { project.rootNode }
+    var projectFolder: URL? { project.projectFolder }
+    var aiProject: URL? { project.aiProject }
+    var semanticDatabase: SemanticDatabase? { project.database }
 
     var openTabs: [OpenTab] {
         get { tabsStore.openTabs }
@@ -773,10 +443,6 @@ class WorkspaceManager: ObservableObject {
 
     init() {
         Self.debugLog("WorkspaceManager init START")
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let appDir = appSupport.appendingPathComponent("MarkView", isDirectory: true)
-        try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
-        recentFilesURL = appDir.appendingPathComponent("recentFiles.json")
         research.workspace = self
         qa.assistantSelection = { [weak self] in
             guard let self, let terminal = self.assistantTerminal, let tool = terminal.profile.tool else { return nil }
@@ -798,15 +464,11 @@ class WorkspaceManager: ObservableObject {
             showTOC = ud.bool(forKey: "layout.showTOC.v3")
         }
 
-        loadRecentFiles()
-        fileTreeStore.shouldAutoRefresh = { [weak self] in
-            self?.indexingProgress == nil
-        }
-        fileTreeStore.onTimer = { [weak self] in
+        project.fileTree.onTimer = { [weak self] in
             guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating, NSApp.isActive else { return }
             Task { await self.gitClient.refreshStatus() }
         }
-        fileTreeStore.objectWillChange
+        project.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
@@ -846,41 +508,18 @@ class WorkspaceManager: ObservableObject {
         workspaceLogger.debug("\(msg, privacy: .public)")
     }
 
-    /// Folder reopened on the next launch; cleared by Close Folder.
-    static let lastFolderKey = "workspace.lastFolder"
-    /// How many recently opened folders are remembered and listed on the welcome screen.
-    static let maxRecentProjects = 30
-    static let recentProjectsKey = "workspace.recentProjects"
-
-    /// Removes a folder from the recent projects list; the folder itself is untouched.
-    func removeRecentProject(_ path: String) {
-        setRecentProjects(recentProjects.filter { $0 != path })
-    }
-
-    private func setRecentProjects(_ paths: [String]) {
-        recentProjects = paths
-        UserDefaults.standard.set(paths, forKey: Self.recentProjectsKey)
-    }
-
     func openFolder(_ url: URL, completion: (() -> Void)? = nil) {
         projectOperations = ProjectOperationsStore.forRoot(url)
-        UserDefaults.standard.set(url.standardizedFileURL.path, forKey: Self.lastFolderKey)
-        var recent = recentProjects
-        recent.removeAll { $0 == url.standardizedFileURL.path }
-        recent.insert(url.standardizedFileURL.path, at: 0)
-        setRecentProjects(Array(recent.prefix(Self.maxRecentProjects)))
-        rootOpenedAsFolder = true
+        project.beginOpening(url)
         // Agents working in this folder can reach its browser tabs (BUG-027) and its project tools even from
         // outside its terminals; the browser tools check the terminal-links setting themselves.
         registerBrowserControl()
         taskBag.cancelAll()
         scrollState.reset()
-        fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
         tabsStore.reset()
         architecture.reset()
         folderXRays = [:]
         codeNav.reset()
-        indexingProgress = "Loading folder structure..."
         Self.debugLog("openFolder START: \(url.path)")
 
         // Run setup steps asynchronously — sleep briefly to let SwiftUI render each step
@@ -894,77 +533,37 @@ class WorkspaceManager: ObservableObject {
             let migration = await Task.detached { PrototypeFiles.migrateLegacy(root: url) }.value
             if !migration.isEmpty { Self.debugLog("Prototype storage migration: \(migration.summary)") }
 
-            // Build tree on background thread to avoid blocking UI
-            let sort = self.fileTreeStore.sortOrder
-            let node = await Task.detached {
-                FileNode.buildTree(from: url, sortOrder: sort)
-            }.value
-            guard !Task.isCancelled else { return }
-            self.fileTreeStore.setRootNode(node)
-            self.fileTreeStore.loadExcludedFolders()
-            self.loadLinkedFolders()
-            Self.debugLog("Tree loaded: \(node.children?.count ?? 0) children")
+            guard await project.loadTree(of: url) else { return }
 
-            indexingProgress = "Setting up workspace..."
+            project.indexingProgress = "Setting up workspace..."
             try? await Task.sleep(nanoseconds: 100_000_000)
             guard !Task.isCancelled else { return }
 
-            self.fileTreeStore.startWatchingCurrentRoot()
-            addRecentFile(url)
+            project.startWatching(url)
             Self.debugLog("File watcher started, calling initDDEWorkspaceAsync...")
 
             await initDDEWorkspaceAsync(at: url)
             Self.debugLog("openFolder COMPLETE")
 
-            // Code projects get a prominent "Open Architecture" on the welcome screen.
-            let isCode = await Task.detached { ArchitectureScanner.looksLikeCodeProject(url) }.value
-            if rootNode?.url == url { isCodeProject = isCode }
             // Code projects are analyzed in the background without the X-Ray tab; the store
             // honours the switch (`.off`, DEC-001) and applies the size cap from its own scan (DEC-003).
-            if rootNode?.url == url, isCode {
-                architecture.startAutomaticCodeAnalysis(root: url, db: semanticDatabase)
+            let isCode = await Task.detached { ArchitectureScanner.looksLikeCodeProject(url) }.value
+            if project.root == url, isCode {
+                architecture.startAutomaticCodeAnalysis(root: url, db: project.database)
             }
             completion?()
         }
         taskBag.store(setupTask, for: "openFolder")
     }
 
-    /// Initialize .dde/ workspace structure and SQLite database — async to keep UI responsive
+    /// Opens the folder's database and connects the services that work on it — async to keep UI responsive.
     private func initDDEWorkspaceAsync(at url: URL) async {
-        let fm = FileManager.default
-        let ddeRoot = url.appendingPathComponent(".dde")
-
-        indexingProgress = "Creating workspace structure..."
-        Self.debugLog("initDDE: creating dirs...")
-        try? await Task.sleep(nanoseconds: 100_000_000)
-
-        for subdir in ["cache/provider_responses", "cache/embeddings", "cache/indexes", "overlays"] {
-            let dir = ddeRoot.appendingPathComponent(subdir)
-            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
-
-        indexingProgress = "Opening database..."
-        Self.debugLog("initDDE: opening database...")
-        try? await Task.sleep(nanoseconds: 100_000_000)
-
         do {
-            let db = try await SemanticDatabase.open(workspacePath: url)
+            guard try await project.openDatabase(at: url) else { return }
             Self.debugLog("initDDE: database opened")
-            let projectId = url.lastPathComponent
-            try await db.ensureProject(id: projectId, name: url.lastPathComponent, rootPath: url.path)
-            // Another folder was opened while the file was being opened: this database is not for this window any more.
-            guard !Task.isCancelled else { return }
-            self.semanticDatabase = db
+            aiWorkspaceRoot = url
 
-            indexingProgress = "Initializing engines..."
-            Self.debugLog("initDDE: creating engines...")
-            try? await Task.sleep(nanoseconds: 100_000_000)
-
-            self.graphRAG = GraphRAG(db: db)
-            self.aiWorkspaceRoot = url
-            Self.debugLog("initDDE: engines created")
-
-            indexingProgress = "Connecting services..."
+            project.indexingProgress = "Connecting services..."
             try? await Task.sleep(nanoseconds: 100_000_000)
 
             gitClient.setup(at: url)
@@ -974,114 +573,15 @@ class WorkspaceManager: ObservableObject {
             discussions.setRoot(url)
             Self.debugLog("initDDE: git setup done")
 
-            // Load cached diagrams and analysis results from database
-            loadCachedResults()
-
             // Structural indexing runs silently in background — no progress indicator
-            indexingProgress = nil
-            runStructuralIndex(at: url)
+            project.indexingProgress = nil
+            project.refreshSemanticViews()
+            project.runStructuralIndex(at: url)
             Self.debugLog("initDDE: structural index started")
-
         } catch {
             Self.debugLog("initDDE: ERROR: \(error)")
-            indexingProgress = nil
+            project.indexingProgress = nil
         }
-    }
-
-    // MARK: - Markdown File Scanning (Recursive Insight)
-
-    /// Enumerate `.md` files in `folderURL` for Recursive Insight.
-    ///
-    /// Filters applied (per tech-spec Decision 10 §7):
-    /// - `.skipsHiddenFiles` and `.skipsPackageDescendants` enumerator options
-    ///   (the latter prevents descending into `.app` / `.bundle` / `.docset`).
-    /// - Path extension must be `.md` (case-insensitive).
-    /// - Paths containing `.dde` are excluded (matches existing convention).
-    /// - Symlinks resolving outside `folderURL` are skipped (containment check
-    ///   via `resolvingSymlinksInPath().standardizedFileURL` — order matters:
-    ///   resolve symlinks BEFORE standardizing).
-    ///
-    /// There is no file-count limit: folders too large to inline are handed to
-    /// the AI CLI as a catalog plus read-only folder access (see GraphRAG).
-    ///
-    /// Per-file size truncation is the caller's responsibility — this helper
-    /// only enumerates URLs.
-    func scanMarkdownFiles(in folderURL: URL) -> [URL] {
-        let resolvedFolderPath = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
-        // Append the platform path separator so prefix checks cannot be bypassed
-        // by sibling folders sharing a name prefix (e.g. `/x/foo` vs `/x/foobar`).
-        // `URL.standardizedFileURL.path` strips trailing slashes, so guard against
-        // an existing trailing `/` to avoid `//` artifacts on edge cases.
-        let resolvedFolderPrefix = resolvedFolderPath.hasSuffix("/")
-            ? resolvedFolderPath
-            : resolvedFolderPath + "/"
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: folderURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else {
-            return []
-        }
-
-        var results: [URL] = []
-        while let url = enumerator.nextObject() as? URL {
-            guard url.pathExtension.lowercased() == "md" else { continue }
-            guard !url.path.contains(".dde") else { continue }
-
-            let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
-            // The `==` clause covers the (unlikely) case of the folder URL itself
-            // surfacing here; the prefix clause requires a path-separator boundary
-            // so a sibling like `/x/foobar/secret.md` cannot pass for `/x/foo`.
-            guard resolvedFile == resolvedFolderPath || resolvedFile.hasPrefix(resolvedFolderPrefix) else {
-                NSLog("[Insight] Skipped symlink escape: \(url.path)")
-                continue
-            }
-
-            results.append(url)
-        }
-        return results
-    }
-
-    /// Whether the open folder holds a Markdown file, for the menu's disabled state (`AR-42`): the store's flag, found by a
-    /// background walk, so reading it never touches the disk.
-    var hasMarkdownFiles: Bool { fileTreeStore.hasMarkdownFiles }
-
-    // MARK: - Folder Exclusion
-
-    /// Exclude a folder — removes all its entities from the DB
-    func excludeFolder(_ folderURL: URL) {
-        guard let relativePath = fileTreeStore.excludeFolder(folderURL) else { return }
-
-        // Remove all DB entities for files in this folder: the folder walk and the writes run off the main thread.
-        guard let db = semanticDatabase else { return }
-        let root = rootNode?.url
-        let linked = linkedFolders
-        Task.detached {
-            var ids: [String] = []
-            if let enumerator = FileManager.default.enumerator(at: folderURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-                while let url = enumerator.nextObject() as? URL {
-                    guard url.pathExtension.lowercased() == "md" else { continue }
-                    ids.append(LinkedFolders.documentId(for: url, root: root ?? url.deletingLastPathComponent(), linked: linked))
-                }
-            }
-            await db.forgetDocuments(ids)
-        }
-        objectWillChange.send()
-        NSLog("[DDE] Excluded folder: \(relativePath)")
-    }
-
-    /// Re-include a previously excluded folder
-    func includeFolder(_ relativePath: String) {
-        guard fileTreeStore.includeFolder(relativePath) else { return }
-        // Re-index would happen on next Refresh
-        objectWillChange.send()
-        NSLog("[DDE] Re-included folder: \(relativePath)")
-    }
-
-    /// Check if a path is excluded
-    func isExcluded(_ url: URL) -> Bool {
-        fileTreeStore.isExcluded(url)
     }
 
     /// Handle files created/modified by Claude Code — auto-open and refresh tree
@@ -1109,26 +609,6 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    /// Canonical document id for `url` in the current workspace — path relative to
-    /// the workspace root (folder root, or the parent dir for a single-file
-    /// workspace). Must be used by EVERY docId producer so same-named files in
-    /// different folders never collide. See `SemanticDatabase.documentId(for:root:)`.
-    func docId(for url: URL) -> String {
-        let root = rootNode?.url ?? url.deletingLastPathComponent()
-        return LinkedFolders.documentId(for: url, root: root, linked: linkedFolders)
-    }
-
-    /// The file a document id of this workspace names: a path inside the project, or
-    /// `@linked/<name>/…` inside a linked folder (Task 59); nil when it is neither on disk.
-    func fileURL(forDocumentId id: String) -> URL? {
-        if let linked = LinkedFolders.resolve(documentId: id, in: linkedFolders) {
-            return FileManager.default.fileExists(atPath: linked.path) ? linked : nil
-        }
-        guard let root = rootNode?.url else { return nil }
-        let direct = root.appendingPathComponent(id)
-        return FileManager.default.fileExists(atPath: direct.path) ? direct : nil
-    }
-
     /// Open a file in a new tab or switch to existing tab
     func openFile(_ url: URL) {
         layout.workspaceArea = .files
@@ -1137,7 +617,7 @@ class WorkspaceManager: ObservableObject {
         // /tmp, a terminal link) opens as a tab and must not replace the project's search
         // database, git client and AI root.
         let isMD = url.pathExtension.lowercased() == "md"
-        if isMD && !rootOpenedAsFolder && !isFileInCurrentWorkspace(url) {
+        if isMD && !project.rootOpenedAsFolder && !isFileInCurrentWorkspace(url) {
             initSingleFileWorkspace(fileURL: url)
         }
         if let feature = features.locate(url)?.feature {
@@ -1153,7 +633,7 @@ class WorkspaceManager: ObservableObject {
             var tab = OpenTab(url: url, content: "", originalContent: "")
             tab.kind = .pdf(PDFReaderController())
             tabsStore.appendTab(tab)
-            addRecentFile(url)
+            project.addRecentFile(url)
             return
         }
 
@@ -1162,7 +642,7 @@ class WorkspaceManager: ObservableObject {
             var tab = OpenTab(url: url, content: "", originalContent: "")
             tab.kind = .archive
             tabsStore.appendTab(tab)
-            addRecentFile(url)
+            project.addRecentFile(url)
             return
         }
 
@@ -1172,7 +652,7 @@ class WorkspaceManager: ObservableObject {
             tab.kind = .data
             tabsStore.appendTab(tab)
             openFileDates[url] = BackgroundFileScans.modificationDate(of: url)
-            addRecentFile(url)
+            project.addRecentFile(url)
             startWatchingOpenFiles()
             return
         }
@@ -1182,7 +662,7 @@ class WorkspaceManager: ObservableObject {
             var tab = OpenTab(url: url, content: "", originalContent: "")
             tab.kind = .image
             tabsStore.appendTab(tab)
-            addRecentFile(url)
+            project.addRecentFile(url)
             return
         }
 
@@ -1217,7 +697,7 @@ class WorkspaceManager: ObservableObject {
             }
 
             tabsStore.appendTab(tab)
-            addRecentFile(url)
+            project.addRecentFile(url)
         } catch {
             showTextReadError(error, url: url)
         }
@@ -1364,27 +844,12 @@ class WorkspaceManager: ObservableObject {
 
     // MARK: - Workspace metadata
 
-    /// Everything MarkView has written into the open folder: the index database and
-    /// caches (`.dde/`), Recursive Insight pages and a CLAUDE.md it generated.
-    func metadataItems() -> [URL] {
-        guard let root = rootNode?.url else { return [] }
-        let fm = FileManager.default
-        var items = [root.appendingPathComponent(".dde"), root.appendingPathComponent(".markview-insight")]
-            .filter { fm.fileExists(atPath: $0.path) }
-        let claude = root.appendingPathComponent(".claude/CLAUDE.md")
-        if let text = try? String(contentsOf: claude, encoding: .utf8),
-           text.hasPrefix("# Project Context — Auto-generated by MarkView DDE") {
-            items.append(claude)
-        }
-        return items
-    }
-
     /// Delete this folder's metadata after confirmation. With `recreate`, rebuild the
     /// index right away; otherwise nothing is written again until the folder is
     /// reopened or Recreate is chosen.
     func removeMetadata(recreate: Bool) {
         guard let root = rootNode?.url else { return }
-        let items = metadataItems()
+        let items = project.metadataItems()
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = recreate
@@ -1403,8 +868,7 @@ class WorkspaceManager: ObservableObject {
 
         // Stop everything that could still write into the folder.
         stopAllTerminals()
-        structuralIndexer?.terminate()
-        structuralIndexer = nil
+        project.stopIndexing()
         for tab in openTabs {
             if case .insight(let session) = tab.kind { Task { await session.cancel() } }
         }
@@ -1414,17 +878,8 @@ class WorkspaceManager: ObservableObject {
         architecture.reset()
         folderXRays = [:]
         codeExplain.reset()
-        indexingProgress = nil
-        structuralIndexProgress = nil
 
-        var failures: [String] = []
-        for item in items {
-            do { try FileManager.default.removeItem(at: item) } catch { failures.append(item.lastPathComponent) }
-        }
-        let claudeDir = root.appendingPathComponent(".claude")
-        if (try? FileManager.default.contentsOfDirectory(atPath: claudeDir.path))?.isEmpty == true {
-            try? FileManager.default.removeItem(at: claudeDir)
-        }
+        let failures = project.deleteMetadata(items)
         if !failures.isEmpty {
             let error = NSAlert()
             error.messageText = "Some items could not be deleted"
@@ -1433,30 +888,18 @@ class WorkspaceManager: ObservableObject {
         }
         Self.debugLog("removeMetadata: \(items.count) items removed from \(root.path), recreate=\(recreate)")
         if recreate {
-            Task { await initDDEWorkspaceAsync(at: root) }
+            taskBag.store(Task { await initDDEWorkspaceAsync(at: root) }, for: "recreateWorkspace")
         }
     }
 
     // MARK: - Code explanations
-
-    /// Workspace-relative path used as the cache key for a file's notes.
-    func workspaceRelativePath(_ url: URL) -> String {
-        let path = url.standardizedFileURL.path
-        if let root = rootNode?.url.standardizedFileURL.path, path.hasPrefix(root + "/") {
-            return String(path.dropFirst(root.count + 1))
-        }
-        if linkedFolder(containing: url) != nil, let root = rootNode?.url {
-            return LinkedFolders.documentId(for: url, root: root, linked: linkedFolders)
-        }
-        return path
-    }
 
     private func explainDirectory(for url: URL) -> URL {
         // A pull request's copy of a project file keeps its notes with the project's.
         if architecture.prRelativePath(for: url) != nil, let root = rootNode?.url {
             return root.appendingPathComponent(".dde/cache/explain", isDirectory: true)
         }
-        return cacheDirectory(for: url).appendingPathComponent("explain", isDirectory: true)
+        return project.cacheDirectory(for: url).appendingPathComponent("explain", isDirectory: true)
     }
 
     /// AI filters available to the code viewer: Importance and the user's own.
@@ -1498,7 +941,7 @@ class WorkspaceManager: ObservableObject {
     /// (MarkView's cache) counts as that project path, so its notes, explanations and PR
     /// lens are all about the same file.
     private func codePath(for url: URL) -> String {
-        architecture.prRelativePath(for: url) ?? workspaceRelativePath(url)
+        architecture.prRelativePath(for: url) ?? project.relativePath(of: url)
     }
 
     /// Load cached notes for a code file that just opened.
@@ -1790,7 +1233,7 @@ class WorkspaceManager: ObservableObject {
             explainFile(target)
             return
         }
-        openXRayTab(scope: target.path == root.path ? "" : workspaceRelativePath(target))
+        openXRayTab(scope: target.path == root.path ? "" : project.relativePath(of: target))
     }
 
     /// Open a file with its Explain notes, starting an explanation if there is none yet.
@@ -2200,29 +1643,24 @@ class WorkspaceManager: ObservableObject {
 
     /// Check if a file belongs to the currently open workspace
     private func isFileInCurrentWorkspace(_ url: URL) -> Bool {
-        guard semanticDatabase != nil || singleFileSetup != nil else { return false }
-        guard let root = rootNode else { return false }
+        guard project.hasWorkspace else { return false }
         // A pull request's copy of a project file (MarkView's cache, opened from the PR
         // X-Ray) belongs to the open project: it must not turn it into a single-file workspace.
         if architecture.prRelativePath(for: url) != nil { return true }
-        let filePath = url.standardizedFileURL.path
-        let rootPath = root.url.standardizedFileURL.path
-        if filePath.hasPrefix(rootPath + "/") { return true }
-        // A file in a linked folder belongs to the project (Task 59).
-        return linkedFolder(containing: url) != nil
+        return project.contains(url)
     }
 
     /// Drop the database and every engine bound to the current workspace.
     private func releaseWorkspaceEngines() {
         cockpitSession?.closeProject()
         cockpitSession = nil
-        singleFileSetup?.cancel()
-        singleFileSetup = nil
-        semanticDatabase = nil
-        graphRAG = nil
+        project.releaseDatabase()
         stopAllTerminals()
         aiWorkspaceRoot = nil
     }
+
+    /// The Recursive Insight engine over the project's database; nil until the database is open.
+    var graphRAG: GraphRAG? { project.database.map(GraphRAG.init(db:)) }
 
     /// Close the open folder and every tab, returning the window to the welcome
     /// screen so another folder can be chosen. Returns false if the user cancelled
@@ -2252,7 +1690,7 @@ class WorkspaceManager: ObservableObject {
         guard resolveUnsavedChanges(at: Array(openTabs.indices), before: "closing the folder") else { return false }
 
         Self.debugLog("closeFolder: \(rootNode?.url.path ?? "(no folder)")")
-        UserDefaults.standard.removeObject(forKey: Self.lastFolderKey)
+        UserDefaults.standard.removeObject(forKey: ProjectContext.lastFolderKey)
 
         // Stop work that would otherwise keep writing into the old workspace.
         for tab in openTabs {
@@ -2261,127 +1699,36 @@ class WorkspaceManager: ObservableObject {
             }
         }
         stopAllTerminals()
-        structuralIndexer?.terminate()
-        structuralIndexer = nil
         taskBag.cancelAll()
         scrollState.reset()
 
         tabsStore.reset()
-        fileTreeStore.reset()
-        linkedFolders = []
+        project.closeFolder()
         releaseWorkspaceEngines()
         architecture.reset()
         folderXRays = [:]
         projectOperations = nil
         codeNav.reset()
-        isCodeProject = false
         gitClient.reset()
         gitHubRoot = nil
         gitHub.reset()
         features.reset()
         deployments.setRoot(nil)
         discussions.setRoot(nil)
-        indexingProgress = nil
-        structuralIndexProgress = nil
-        analysisStage = nil
-        analysisDetail = nil
-        totalFilesInWorkspace = 0
-        analyzedFiles = 0
         pendingGraphCreatorType = nil
         return true
     }
 
-    /// The single-file workspace being opened: while its database is still being created, another Markdown file
-    /// from the same folder joins it instead of starting a second one.
-    private var singleFileSetup: Task<Void, Never>?
-
     /// Initialize workspace for a single .md file — DB named after the file, indexes only this file
     private func initSingleFileWorkspace(fileURL: URL) {
         let parentDir = fileURL.deletingLastPathComponent()
-        let fileName = fileURL.deletingPathExtension().lastPathComponent
-        let dbName = "file_\(fileName).db"
-
-        NSLog("[DDE] initSingleFileWorkspace: file=\(fileURL.path) dir=\(parentDir.path) dbName=\(dbName)")
+        Self.debugLog("initSingleFileWorkspace: dir=\(parentDir.path)")
 
         releaseWorkspaceEngines()
 
         aiWorkspaceRoot = parentDir
         gitClient.setup(at: parentDir)
-
-        // Build file tree showing just the parent dir
-        if rootNode == nil {
-            rootOpenedAsFolder = false
-            fileTreeStore.setRootNode(FileNode.buildTree(from: parentDir, sortOrder: fileTreeStore.sortOrder))
-            fileTreeStore.loadExcludedFolders()
-        }
-
-        // The database is opened and filled off the main thread; the workspace gets it when it is ready.
-        singleFileSetup = Task {
-            do {
-                let db = try await SemanticDatabase.open(workspacePath: parentDir, dbName: dbName)
-                try await db.ensureProject(id: fileName, name: fileName, rootPath: parentDir.path)
-                // Closed, or another file's workspace took over, while the database was being opened.
-                guard !Task.isCancelled else { return }
-                self.semanticDatabase = db
-                self.graphRAG = GraphRAG(db: db)
-                singleFileSetup = nil
-
-                // Index this single file: create root module, parse document, index FTS
-                await indexSingleFile(fileURL: fileURL, db: db)
-
-                NSLog("[DDE] Single-file workspace initialized: \(fileName) → \(dbName)")
-            } catch {
-                singleFileSetup = nil
-                NSLog("[DDE] Failed to init single-file workspace: \(error)")
-            }
-        }
-    }
-
-    /// Index a single markdown file — structural parse + FTS + Haiku extraction.
-    /// Works fully in sandbox: no directory scan, content passed directly.
-    private func indexSingleFile(fileURL: URL, db: SemanticDatabase) async {
-        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
-            NSLog("[DDE] indexSingleFile: cannot read \(fileURL.path)")
-            return
-        }
-
-        let docId = fileURL.lastPathComponent
-        let fileName = fileURL.deletingPathExtension().lastPathComponent
-        let modId = "mod_single_file"
-
-        // Root module
-        await db.upsertModule(id: modId, name: fileName, path: fileURL.deletingLastPathComponent().path,
-                              parentId: nil, level: 0, fileCount: 1)
-
-        // FTS index
-        await db.indexDocumentFTS(documentId: docId, title: fileName, content: content)
-
-        // Content hash
-        var h: UInt32 = 0x811c9dc5
-        for byte in content.utf8 { h ^= UInt32(byte); h = h &* 0x01000193 }
-        try? await db.upsertDocument(id: docId, projectId: fileName, filePath: fileURL.path,
-                                     fileName: docId, fileExt: "md", contentHash: String(h, radix: 16))
-
-        // Parse symbols inline (headings) — no directory scan
-        let lines = content.components(separatedBy: "\n")
-        for (i, line) in lines.enumerated() {
-            let lineNum = i + 1
-            if line.range(of: #"^#{1,6}\s+.+"#, options: .regularExpression) != nil {
-                let level = line.prefix(while: { $0 == "#" }).count
-                let text = String(line.dropFirst(level)).trimmingCharacters(in: .whitespaces)
-                let symId = "sym_h_\(singleFileFnv1a("\(docId):\(lineNum):\(text)"))"
-                await db.insertSymbol(id: symId, moduleId: modId, documentId: docId,
-                                      name: text, kind: "heading", lineStart: lineNum, lineEnd: lineNum, context: nil)
-            }
-        }
-
-        NSLog("[DDE] indexSingleFile: parsed \(docId), \(content.count) chars")
-    }
-
-    private func singleFileFnv1a(_ str: String) -> String {
-        var hash: UInt32 = 0x811c9dc5
-        for byte in str.utf8 { hash ^= UInt32(byte); hash = hash &* 0x01000193 }
-        return String(hash, radix: 16)
+        project.openSingleFile(fileURL)
     }
 
     /// Close a tab at the given index
@@ -2604,7 +1951,7 @@ class WorkspaceManager: ObservableObject {
         var request = CLICompletion.Request(project: aiProject, prompt: text, systemPrompt: systemPrompt)
         request.timeout = 120
         let id = UUID()
-        let scope = activeTab.map { workspaceRelativePath($0.url) } ?? "Selected text"
+        let scope = activeTab.map { project.relativePath(of: $0.url) } ?? "Selected text"
         let assistant = AIAssistantPreferences.summary(tool: request.tool,
             model: request.model ?? AIAssistantPreferences.model(for: request.tool, project: request.project) ?? "")
         selectionActions[id] = SelectionActionState(id: id, title: title,
@@ -2754,7 +2101,7 @@ class WorkspaceManager: ObservableObject {
             }
 
             done += 1
-            indexingProgress = "Translating \(done)/\(translatableCount) (\(engine.label))..."
+            project.indexingProgress = "Translating \(done)/\(translatableCount) (\(engine.label))..."
 
             let expected = skeleton(of: chunk.text)
             var translated = await translateChunk(chunk.text, targetLang: targetLang, engine: engine,
@@ -2791,7 +2138,7 @@ class WorkspaceManager: ObservableObject {
             NSLog("[DDE] Translation: \(failedChunks.count) chunk(s) left untranslated")
         }
         writeToTab(result)
-        indexingProgress = nil
+        project.indexingProgress = nil
         NSLog("[DDE] Translation complete: \(chunks.count) chunks, engine \(engine.label)")
         return nil
     }
@@ -2839,19 +2186,6 @@ class WorkspaceManager: ObservableObject {
             NSLog("[DDE] Translation chunk error: \(error.localizedDescription)")
             return nil
         }
-    }
-
-    /// `<workspace>/.dde/cache` — the open folder when the document is in it, otherwise
-    /// the document's own folder (same place single-file mode keeps `.dde`).
-    func cacheDirectory(for url: URL) -> URL {
-        let path = url.standardizedFileURL.path
-        let root: URL
-        if let folder = rootNode?.url, path.hasPrefix(folder.standardizedFileURL.path + "/") {
-            root = folder
-        } else {
-            root = url.deletingLastPathComponent()
-        }
-        return root.appendingPathComponent(".dde/cache", isDirectory: true)
     }
 
     private func normalizeTranslation(_ raw: String) -> String {
@@ -2914,7 +2248,7 @@ class WorkspaceManager: ObservableObject {
         }
 
         // 3. Enumerate .md files (any number), or the one document.
-        let mdFiles = targetIsFile ? [target] : scanMarkdownFiles(in: folderURL)
+        let mdFiles = targetIsFile ? [target] : ProjectContext.markdownFiles(in: folderURL)
 
         // 4. Empty folder check.
         guard !mdFiles.isEmpty else {
@@ -3633,15 +2967,8 @@ class WorkspaceManager: ObservableObject {
         return content
     }
 
-    func refreshFileTree() {
-        Self.debugLog("refreshFileTree() called")
-        fileTreeStore.refresh()
-    }
-
-    var fileTreeSortOrder: FileTreeSortOrder {
-        get { fileTreeStore.sortOrder }
-        set { fileTreeStore.sortOrder = newValue }
-    }
+    /// Reload the file tree from disk. Kept for the regions of this file that other decompositions still move out (`AR-14` steps 2-7).
+    func refreshFileTree() { project.fileTree.refresh() }
 
     /// Folder a new diagram goes into (the file tree's "New Graph Diagram"); nil = project root.
     private(set) var graphCreatorFolder: URL?
@@ -3673,34 +3000,6 @@ class WorkspaceManager: ObservableObject {
 
     func runGraphEdit(instruction: String, currentMermaid: String) {
         editDiagram(instruction: instruction, currentMermaid: currentMermaid)
-    }
-
-    // MARK: - Recent Files
-
-    private func loadRecentFiles() {
-        guard let data = try? Data(contentsOf: recentFilesURL) else { return }
-        do {
-            let urls = try JSONDecoder().decode([String].self, from: data)
-            recentFiles = urls.compactMap { URL(fileURLWithPath: $0) }
-        } catch {
-            NSLog("Error loading recent files: \(error)")
-        }
-    }
-
-    private func addRecentFile(_ url: URL) {
-        recentFiles.removeAll { $0 == url }
-        recentFiles.insert(url, at: 0)
-        if recentFiles.count > 20 {
-            recentFiles = Array(recentFiles.prefix(20))
-        }
-        saveRecentFiles()
-    }
-
-    private func saveRecentFiles() {
-        let paths = recentFiles.map { $0.path }
-        if let data = try? JSONEncoder().encode(paths) {
-            try? data.write(to: recentFilesURL)
-        }
     }
 
     // MARK: - Markdown Parsing
@@ -3757,7 +3056,7 @@ class WorkspaceManager: ObservableObject {
 
         // Persist to SQLite
         if let db = semanticDatabase {
-            let docId = self.docId(for: tab.url)
+            let docId = project.documentId(for: tab.url)
             let upserts = delta.added + delta.changed, removed = delta.removed
             // Deltas reach the database in the order the editor sent them.
             let previous = blockDeltaSave
@@ -3771,68 +3070,11 @@ class WorkspaceManager: ObservableObject {
     /// The block delta write in flight (`AR-37`): each delta waits for the one before it.
     private var blockDeltaSave: Task<Void, Never>?
 
-    // MARK: - Background Folder Analysis
-
-    /// V1: Deterministic structural indexing — instant, no LLM
-    /// Then V1.5: Haiku-based content module extraction (cheap, fast)
-    /// This workspace's indexer, so a newer one (folder closed and reopened) can tell its own exit from an older one's.
-    /// Weak: a started `SubprocessChild` keeps itself alive until it has exited, so its exit handler always runs,
-    /// whichever `WorkspaceManager` instance (windows create several) started it.
-    private weak var structuralIndexer: SubprocessChild?
-
-    /// Run structural indexing in a SEPARATE PROCESS (re-exec of this binary with
-    /// `--dde-index <folder>`) so the directory scan never competes with the UI.
-    /// The child writes modules/documents/symbols/FTS straight to the shared SQLite
-    /// DB (WAL + busy_timeout); on exit the app reloads cached results from disk.
-    private func runStructuralIndex(at url: URL) {
-        guard let exePath = Bundle.main.executablePath else {
-            Self.debugLog("runStructuralIndex: no executablePath")
-            return
-        }
-
-        structuralIndexProgress = "Indexing…"  // footer only; updated from child stderr
-        // Stream the child's stderr live so its progress shows in the footer (the runner drains the pipe, so the
-        // child never blocks on a full buffer).
-        let spec = SubprocessSpec(executable: exePath, arguments: ["--dde-index", url.path], timeout: 0, stdoutRouting: .discard)
-        do {
-            let child = try Subprocess.start(spec, onStderr: { [weak self] data in
-                guard let chunk = String(data: data, encoding: .utf8) else { return }
-                for raw in chunk.split(separator: "\n") {
-                    let line = String(raw)
-                    guard let r = line.range(of: "[mvindexer] ") else { continue }
-                    let msg = String(line[r.upperBound...])
-                    // The child emits bare "N/M" progress ticks; show them as a count.
-                    guard msg.range(of: #"^\d+/\d+$"#, options: .regularExpression) != nil else { continue }
-                    Task { @MainActor in self?.structuralIndexProgress = "Indexing \(msg) files" }
-                }
-            }, onExit: { [weak self] finished, exit in
-                WorkspaceManager.workspaceLogger.debug("structural index process exited code=\(exit.status, privacy: .public)")
-                Task { @MainActor in
-                    guard let self = self else { return }
-                    // A newer indexer (folder closed and reopened) owns the footer now.
-                    if let current = self.structuralIndexer, current !== finished { return }
-                    self.structuralIndexProgress = nil  // hide footer progress
-                    self.loadCachedResults()
-                    self.refreshSemanticViews()
-                }
-            })
-            structuralIndexer = child
-            Self.debugLog("structural index process launched pid=\(child.pid)")
-        } catch {
-            structuralIndexProgress = nil
-            Self.debugLog("structural index process FAILED to launch: \(error)")
-        }
-    }
-
-    func refreshSemanticViews() {
-        semanticRefreshVersion &+= 1
-    }
-
     func navigateToText(filePath: String?, fallbackDocumentId: String? = nil, searchText: String) {
         let trimmedText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
 
-        if let url = resolveWorkspaceFileURL(filePath: filePath, fallbackDocumentId: fallbackDocumentId) {
+        if let url = project.fileURL(filePath: filePath, fallbackDocumentId: fallbackDocumentId) {
             openFile(url)
         }
 
@@ -3840,13 +3082,6 @@ class WorkspaceManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 250_000_000)
             NotificationCenter.default.post(.scrollToText, for: self, object: trimmedText)
         }
-    }
-
-    /// Refresh views that read the semantic database on demand.
-    private func loadCachedResults() {
-        // Don't load thousands of records into @Published arrays.
-        NSLog("[DDE] DB ready for lazy loading")
-        refreshSemanticViews()
     }
 
     /// Cursor moved to a different block
@@ -3908,7 +3143,7 @@ class WorkspaceManager: ObservableObject {
         guard let tool = profile.tool else { return nil }
         let path = CLIToolLocator.resolve(tool) ?? tool.binaryName
         let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let linked = tool.additionalFolderArgs(linkedFolders.map(\.url)).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        let linked = tool.additionalFolderArgs(project.linkedFolders.map(\.url)).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         let run = ([quoted] + (continuing ? tool.continueArgs : []) + tool.modelArgs(model ?? chosenModel(for: profile))
                    + tool.fullAccessArgs + linked + browserToolArgs(for: tool)).joined(separator: " ")
         switch tool {
@@ -3999,7 +3234,7 @@ class WorkspaceManager: ObservableObject {
     func registerBrowserControl() {
         BrowserControlServer.register(browserControlID, .init(
             workspace: { [weak self] in self },
-            root: { [weak self] in self?.rootNode?.url },
+            root: { [weak self] in self?.project.root },
             tabs: { [weak self] in self?.browserSessions ?? [] },
             active: { [weak self] in
                 guard let self, self.openTabs.indices.contains(self.activeTabIndex),
@@ -4380,7 +3615,7 @@ class WorkspaceManager: ObservableObject {
 
     /// "New … from this document": the document is the material (attached, so the AI reads it whole).
     func startIntake(_ kind: IntakeKind, fromDocument url: URL) {
-        let path = workspaceRelativePath(url)
+        let path = project.relativePath(of: url)
         let lead: String
         switch kind {
         case .feature, .quickFeature: lead = "Build a feature from the document \(path) (attached)."
@@ -4402,7 +3637,7 @@ class WorkspaceManager: ObservableObject {
     }
 
     func startResearch(fromFolder folder: URL) {
-        intake = IntakeRequest(kind: .research, text: "Review the documents in \(workspaceRelativePath(folder)) and its subfolders: ", targets: [folder])
+        intake = IntakeRequest(kind: .research, text: "Review the documents in \(project.relativePath(of: folder)) and its subfolders: ", targets: [folder])
     }
 
     /// Documents a new research starts with (DEC-009): the open document when it is a file in the folder.
@@ -4476,7 +3711,7 @@ class WorkspaceManager: ObservableObject {
     /// carries the definition of done. The feature is recorded as "implementation started" with the CLI
     /// that got it.
     func startImplementation(_ url: URL, done: DefinitionOfDone, in terminal: TerminalSession? = nil) {
-        let path = workspaceRelativePath(url)
+        let path = project.relativePath(of: url)
         let target = url.standardizedFileURL.path
         let slug = features.features.first(where: { $0.folder.standardizedFileURL.path == target })?.slug
             ?? features.locate(url)?.feature.slug
@@ -4519,7 +3754,7 @@ class WorkspaceManager: ObservableObject {
             return
         }
         let block = key.map { features.lifecycle.handoffBlock(.bug, [$0]) } ?? ""
-        let base = HandoffPrompt.bug(workspaceRelativePath(url), claude: claude)
+        let base = HandoffPrompt.bug(project.relativePath(of: url), claude: claude)
         let prompt = block.isEmpty ? base : base + "\n\n" + block
         // The report is marked fixing only after the prompt went out: a hand-off that failed leaves it open (REQ-003).
         guard let session = sendToAssistant(submit: true, to: terminal, promptFor: { _ in prompt }), let key else { return }
@@ -4614,7 +3849,7 @@ class WorkspaceManager: ObservableObject {
         let newFolder = features.root != root
         features.setup(root: root)
         if newFolder { bugBatch.reset() }
-        features.assistant.database = { [weak self] in self?.semanticDatabase }
+        features.assistant.project = project
         features.assistant.gitHubClient = { [weak self] in self?.gitHub.client }
     }
 
@@ -5031,7 +4266,7 @@ class WorkspaceManager: ObservableObject {
     func openDiscussion(about url: URL) {
         guard let root = rootNode?.url else { return }
         openTool(.discussions)
-        let rel = workspaceRelativePath(url)
+        let rel = project.relativePath(of: url)
         let path = url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/") ? rel : url.path
         if let existing = discussions.discussions.first(where: { $0.scope == path && $0.turns.isEmpty }) {
             discussions.selectedSlug = existing.slug
@@ -5095,7 +4330,7 @@ class WorkspaceManager: ObservableObject {
             }
         }
         let session = openBrowser(nil)
-        session.localReadRoot = containerRoot(for: file)
+        session.localReadRoot = project.containerRoot(for: file)
         session.load(file)
     }
 
@@ -5334,41 +4569,6 @@ class WorkspaceManager: ObservableObject {
         return (fileName, content)
     }
 
-    private func resolveWorkspaceFileURL(filePath: String?, fallbackDocumentId: String?) -> URL? {
-        let fm = FileManager.default
-
-        if let filePath, !filePath.isEmpty {
-            let directURL = URL(fileURLWithPath: filePath)
-            if fm.fileExists(atPath: directURL.path) {
-                return directURL
-            }
-
-            if let rootURL = rootNode?.url {
-                let relativeURL = rootURL.appendingPathComponent(filePath)
-                if fm.fileExists(atPath: relativeURL.path) {
-                    return relativeURL
-                }
-            }
-        }
-
-        guard let rootURL = rootNode?.url,
-              let fallbackDocumentId,
-              !fallbackDocumentId.isEmpty else { return nil }
-
-        if let resolved = fileURL(forDocumentId: fallbackDocumentId) { return resolved }
-
-        guard let enumerator = fm.enumerator(at: rootURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
-            return nil
-        }
-
-        while let url = enumerator.nextObject() as? URL {
-            if url.lastPathComponent == fallbackDocumentId {
-                return url
-            }
-        }
-
-        return nil
-    }
 }
 
 // MARK: - Research maps (feature mind-map, DEC-006, DEC-009)
