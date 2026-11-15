@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 200,
+  "suiteCount": 201,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -254,6 +254,26 @@
         "tools/tests/CLIToolLocatorStub.swift",
         "tools/tests/ChangeSourceTests.swift",
         "tools/tests/change-source-tests.sh"
+      ]
+    },
+    {
+      "name": "logical-view-tests",
+      "script": "tools/tests/logical-view-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AI/AIOperation.swift",
+        "MarkView/Models/AI/DiagramAI.swift",
+        "MarkView/Models/Architecture/ArchitectureModel.swift",
+        "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
+        "MarkView/Models/Architecture/CodeArchitecture.swift",
+        "MarkView/Models/Architecture/CodePathTags.swift",
+        "MarkView/Models/Architecture/LogicalView.swift",
+        "MarkView/Models/Architecture/XRayCluster.swift",
+        "MarkView/Models/Architecture/XRayDigest.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/DiagramCLIStub.swift",
+        "tools/tests/LogicalViewTests.swift",
+        "tools/tests/logical-view-tests.sh"
       ]
     },
     {
