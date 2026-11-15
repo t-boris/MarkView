@@ -277,3 +277,111 @@ Follow-up verification (Steps A–D, `DEC-011`):
 5. Control socket confirmation (`FU-03`, `DEC-009`) -> **Accepted (`DEC-011`, updates `DEC-009`)**: keep control socket authentication token-based (`0600` per socket, no `setenv`, fail-closed constant-time verify, `nil` peer UID rejected, unlink on quit) without a separate `by_user` confirmation gate.
 6. Was the deletion of the ten per-feature CI workflows intended (CI cost), given the coverage
    loss in FU-05? -> **Resolved (`FU-05`)**: unified `.github/workflows/ci.yml` retained and updated to execute `./tools/tests/run.sh --tier pure` across all 105 pure suites plus `Packages/MarkViewCore` tests and Debug build.
+
+## 10. Second check: what 6.26.1 (PR #416) really changed
+
+Date: 2026-11-15. Checked commit: `b3c9434` (`main`, version 6.26.1). Method as in section 1:
+two independent read-only passes plus counts, and this time a full run:
+
+- Debug build: **succeeded**. The build log has 221 warning lines, most of them strict-concurrency
+  (`Sendable`); section 8 records 15. The two numbers were not reconciled (lines may repeat per
+  architecture), so "15 warnings" should not be quoted as a fact.
+- `swift test --package-path Packages/MarkViewCore`: **10 passed**.
+- `./tools/tests/run.sh --tier pure`: **105 passed, 0 failed**.
+- Not run: `gui` and `live` tiers; the app was not launched.
+
+### 10.1 Verdict
+
+**This round is real.** Steps A to D were mostly done as written: the package is linked, the
+duplicate `MarkView/Core` and the unused coordinators and registries are deleted, the three kept
+abstractions each replaced real code, the security fixes hold on the paths they touch, CI runs the
+whole pure tier, and the records say `implementing` instead of `verified`. No upgrade data loss was
+found.
+
+**The architecture is where the first review found it.** Step E (the roadmap proper) has not
+started, and the records say so. Each kept abstraction has exactly one caller:
+
+| Measure | Review | 6.26.0 | 6.26.1 | Target |
+|---|---|---|---|---|
+| `WorkspaceManager.swift` lines | 5851 | 5740 | 5749 | under 1000 |
+| `@Published` in `WorkspaceManager` | 49 | 48 | 48 | — |
+| Views taking the whole manager | 62 | 62 | 62 | 0 |
+| Swift files in `Models/` | 338 | 338 | 338 | feature folders |
+| `Process()` outside `Subprocess` | about 12 | 17 | 17 in 15 files | 0 |
+| `Subprocess.run` call sites | — | 0 | 1 | all |
+| `CLICompletion.run` outside `AIOperation` | — | 54 | 58 in 29 files | 0 |
+| `AIOperation` call sites | — | 0 | 1 | all |
+| `SchemaVersionedStore` users | — | 0 | 1 | all `.dde` stores |
+| `sqlite3_*` on the main actor | all | all | all | 0 |
+| JS files calling `mvKit.` | — | 0 | 0 | all |
+| Lists to edit for a new tool tab | 9 | about 11 | about 7 | 1 |
+
+### 10.2 Status of the FU items
+
+| ID | Verdict | Now | Remains |
+|---|---|---|---|
+| FU-01 | partial | Coordinators, theme, layout, backdrop, MCP, file-type registries and the database executor are deleted. | Still without an app caller: `SettingsRegistry`, `WebHost` (only `WeakScriptMessageHandler` is used), `CoreDigest`, `AppLogger`, `RotatingJSONLinesFile`, `Subprocess.runBlocking`, `AIOperationStage`, five `ToolRegistry` accessors, four `TaskBag` methods. This breaks rule 2 of section 6 in the pull request that adopted it. |
+| FU-02 | fixed | `ToolRegistry` values equal the app's; all 8 sentinel paths are unchanged, so saved tabs restore. | — |
+| FU-03 | fixed, limits below | No `setenv`; per-socket 0600 token; fail-closed constant-time check; nil peer rejected; unlinked on quit; a second instance uses its own token. | The `MARKVIEW_CONTROL_TOKEN` fallback is dead code that a test certifies. The Cockpit and Remote sockets have no token or peer check. See 10.4. |
+| FU-04 | mostly fixed | `Subprocess` drains while waiting, caps output, merges the environment, SIGTERM then SIGKILL. `AtomicFile` sets the mode before the rename. The store refuses a newer schema and keeps dated corrupt backups. | A cancel arriving between attach and `run()` is dropped; only the direct child is killed, not its group; `AtomicFile` with no mode resets an existing file to 0644; the schema probe reads a legacy `version` field as the schema. |
+| FU-05 | fixed | `ci.yml` runs `run.sh --tier pure`; `publish-release.yml` reads the project file. | Two gui suites are hard-coded in `ci.yml`. |
+| FU-06 | partial | Stale `project.yml` / `setup.sh` / `EditorWeb` text is gone; statuses are honest for Phases 0-6. | `CLAUDE.md` still names four types that do not exist (`PathSafety`, `SingleFlight`, `MarkViewPaths`, `ContentDigest`) and says "use `MarkViewCore.Subprocess`" where 15 files do not. The review marks Phase 7 "[Done]" while REQ-008 defers AR-28/AR-29. False ticks: REQ-008 lines 24-25, REQ-003 lines 24 and 26, REQ-004 line 23. |
+| FU-07 | partial | Phase 2-6 tests are mostly behaviour tests; Phase 0 loads the real pages in a web view. | `Phase0SafetyTests` still has 34 source-text checks; `Phase1` is file-existence; `Phase7` asserts that the review contains "[Done]" and that `CLAUDE.md` contains given words; `Phase6` tests a sliced copy of the server's check, never `serve()`. |
+| FU-08 | fixed | Preset code deleted. | — |
+| FU-09 | partial | Reader checks both the temp folder and `/tmp`; docs match. | No writer in the repository; needs a check with the real Quick Action. |
+| FU-10 | partial | Preferences are a `WKUserScript`; the Insight frame has a per-load nonce. | Not run live. The nonce is put into the page CSP by exact string replace (a change to the CSP text disables it silently); with no nonce the frame falls back to `'unsafe-inline'`. |
+| FU-11 | fixed | `removeTab` is called on tab close. | — |
+| FU-12 | closed | Theme loader deleted. | Returns with AR-32. |
+| FU-13 | fixed | DOMPurify on every `md.render` path, fail closed to escaped text. | Four copies of the config and hook. |
+
+AR items that moved: AR-07 fixed, AR-10 fixed (one flaw: delete-then-add in the Keychain loses the
+old key if the add fails), AR-01 nearly fixed (10.3), AR-02 partial, AR-46 fixed, AR-31 partial
+(toolbar and sentinel URLs come from the registry; menu, tab icons, tab titles, restore and two new
+switches do not; Workflow and QA still have different icons in toolbar and tab; Cockpit still has
+no tile and no menu item). All other AR verdicts of section 3 stand.
+
+### 10.3 Remaining web sinks (AR-01)
+
+| Where | Problem |
+|---|---|
+| `markview-render.js:351` | Heading `textContent` is put into `innerHTML` unescaped: escaped markup in a heading becomes a live element. No script runs under the CSP; a remote image can load. |
+| `markview-render.js:52`, `markview-book.js:488`, `markview-architecture.js:2091`, `markview-research-map.js:279` | Mermaid SVG inserted without DOMPurify (only the discussion page sanitises it); the main page does not set Mermaid's `securityLevel`. |
+| `markview-d3-mermaid.js:306` | Error message inserted unescaped. |
+| `terminal.html` | No CSP, two inline scripts. |
+| DOMPurify config | `<style>` tags, `style` attributes and `https:` images are allowed on the main page: a document can restyle the app chrome or leak content through CSS. |
+| Insight | Dead blob-URL code; frame CSP still allows `blob:` and `data:` scripts. |
+
+### 10.4 What the control token does and does not protect
+
+Any process running as the user can read the token file and then call every tool, including
+running JavaScript in the signed-in browser tabs and starting agents; `by_user` is a flag the
+caller sets itself (accepted in DEC-011). The token adds nothing over the socket's 0600 mode
+against that attacker. If agents driven by untrusted text are a concern, the real control is a
+native confirmation for the `by_user` steps, which DEC-011 declined.
+
+### 10.5 New problems from PR #416
+
+| ID | Severity | Problem | Fix |
+|---|---|---|---|
+| FU-14 | Medium | **Downgrade loses restored windows.** 6.26.1 writes the session file in an envelope; 6.26.0 and older fail to decode it, start empty and overwrite it. Upgrade is safe. | Note in the release text; never install an older build over 6.26.1 without keeping the file. |
+| FU-15 | Medium | **A session file with a newer schema stops autosave silently** (`try?` in `WindowSessionController.swift:190`). | Show the refusal once. |
+| FU-16 | Low | Insight archive export now fails after 120 s ("zip timed out"); it was unbounded. | Scale the limit with size or let the user retry. |
+| FU-17 | Low | `AIOperation` in `ArchitectureStore` changed behaviour: the retry sends a repair prompt, raw-text salvage is accepted, and an unaccepted answer returns an empty object where the old code returned the last one. | Run that feature once on real data. |
+| FU-18 | Low | `run.sh` exits 0 for an unknown suite name and for a bare `--changed` that selects nothing; no per-suite timeout. | Exit non-zero for an unknown name. |
+| FU-19 | Low | Tests still pin document text (`Phase7`), so an honest status edit fails CI. | Delete those checks (rule 4). |
+
+### 10.6 What to do next
+
+1. **Finish the records (hours):** FU-06 leftovers, FU-19, the dead token fallback, the unused
+   members of FU-01 (delete, per rule 2).
+2. **Close the web sinks of 10.3 (1-2 days).** One shared sanitiser module instead of four copies.
+3. **Start Step E with the cheapest count to zero:** `Subprocess` across the remaining 15 files
+   (AR-25), one file per pull request, after fixing the cancel race and group kill. Then
+   `AIOperation` across the 29 files (AR-26). These two remove the most duplicated code and are
+   mechanical.
+4. **Then the registry to the end (AR-31):** menu, tab icons, tab titles and restore generated from
+   `ToolRegistry`; the count "places to edit" must reach 1.
+5. **Then `WorkspaceManager` steps 2-11 (AR-14),** each step moving state and its views together.
+
+Themes as data, layout presets, the backdrop registry and the typed bridge do not exist in the app
+(their scaffolding was correctly deleted) and remain open as AR-32, AR-33, AR-34, AR-28.
