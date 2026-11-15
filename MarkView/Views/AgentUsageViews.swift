@@ -24,6 +24,7 @@ struct AgentUsageBar: View {
     @ObservedObject private var tracker = AgentUsageTracker.shared
     @AppStorage(UsageAgent.claude.hiddenKey) private var claudeHidden = false
     @AppStorage(UsageAgent.codex.hiddenKey) private var codexHidden = false
+    @AppStorage(UsageAgent.antigravity.hiddenKey) private var antigravityHidden = false
     @State private var showingAll = false
     /// The chip whose details are open; kept here so that switching to another form (a resize, a new countdown
     /// text) does not close it.
@@ -43,7 +44,13 @@ struct AgentUsageBar: View {
     }
 
     private var agents: [UsageAgent] {
-        tracker.detected.filter { $0 == .claude ? !claudeHidden : !codexHidden }
+        tracker.detected.filter { agent in
+            switch agent {
+            case .claude: return !claudeHidden
+            case .codex: return !codexHidden
+            case .antigravity: return !antigravityHidden
+            }
+        }
     }
 
     private func chips(_ detail: AgentUsageChip.Detail) -> some View {
@@ -314,8 +321,10 @@ struct AgentUsagePopover: View {
             }
             .uiFont(size: 10)
         }
-        Divider()
-        limitRow
+        if agent.hasLocalLogs {
+            Divider()
+            limitRow
+        }
     }
 
     private func windowRow(_ window: QuotaWindow, local: UsageAmount?) -> some View {
@@ -333,6 +342,8 @@ struct AgentUsagePopover: View {
             Text(usedText(window)).uiFont(size: 10)
             if let resetsAt = window.resetsAt {
                 Text(resetText(window, resetsAt: resetsAt)).uiFont(size: 10).foregroundColor(palette.textDim)
+            } else if window.source == .official && window.percentUsed == 0 {
+                Text("Not used yet in this window").uiFont(size: 10).foregroundColor(palette.textDim)
             }
             if let local {
                 Text("From local logs: \(amountText(local)) in this window")
