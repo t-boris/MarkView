@@ -69,307 +69,157 @@ enum JS {
     }
 }
 
-/// Central bridge for JS-Swift communication
-class WebViewBridge: NSObject, WKScriptMessageHandler {
+/// Central bridge for JS-Swift communication.
+///
+/// The page's messages are declared in `Editor/js/bridge-contract.json` (channel "bridge"). `messages` checks each one against
+/// the contract, decodes its payload into one of the `EditorMessage` types and calls the handler registered below, which passes
+/// it to the delegate. A message that is not declared, or does not match its declaration, never reaches the delegate.
+class WebViewBridge: NSObject {
     weak var delegate: WebViewBridgeDelegate?
 
-    // MARK: - WKScriptMessageHandler
+    /// The handler of the page's `bridge` message channel (`WKUserContentController.add(_:name:)`).
+    let messages: TypedWebBridge
 
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        // Safety wrapper — any crash in message handling must not kill the app
-        guard let dict = message.body as? [String: Any],
-              let messageType = dict["type"] as? String else {
-            Self.logInsightDiag("userContentController: malformed body (non-dictionary)")
-            return
+    init(contract: BridgeContract = .bundled) {
+        messages = TypedWebBridge(channel: "bridge", contract: contract)
+        super.init()
+        registerHandlers()
+    }
+
+    // MARK: - Message handlers
+
+    private func registerHandlers() {
+        messages.on(EditorMessage.Ready.self) { [weak self] _ in
+            guard let self else { return }
+            self.delegate?.bridgeEditorReady(self)
         }
-
-        let payload = dict["payload"]
-        // Diag every incoming bridge message so we can prove JS→Swift is alive
-        // (filter common high-rate types in the log post-hoc).
-        Self.logInsightDiag("userContentController IN type=\(messageType) hasPayload=\(payload != nil)")
-
-        // headingsUpdated sends payload as array directly
-        if messageType == "headingsUpdated" {
-            if let headingsArray = payload as? [[String: Any]] {
-                let headings = headingsArray.compactMap { HeadingItem(from: $0) }
-                delegate?.bridge(self, didExtractHeadings: headings)
-            }
-            return
+        messages.on(EditorMessage.ContentChanged.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridge(self, didUpdateContent: message.payload.markdown, documentID: EditorDocumentRouting.documentID(from: message.doc))
         }
-
-        // blocksChanged can be large — defer to next run loop to avoid blocking
-        if messageType == "blocksChanged" {
-            guard let data = payload as? [String: Any] else { return }
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                let added = (data["added"] as? [[String: Any]])?.compactMap { SemanticBlock(from: $0) } ?? []
-                let removed = data["removed"] as? [String] ?? []
-                let changed = (data["changed"] as? [[String: Any]])?.compactMap { SemanticBlock(from: $0) } ?? []
-                let unchanged = data["unchanged"] as? [String] ?? []
-                let delta = BlocksDelta(added: added, removed: removed, changed: changed, unchanged: unchanged)
+        messages.on(EditorMessage.HeadingsUpdated.self) { [weak self] message in
+            guard let self else { return }
+            let headings = message.payload.headings.map { HeadingItem(id: $0.id, level: $0.level, text: $0.text) }
+            self.delegate?.bridge(self, didExtractHeadings: headings)
+        }
+        messages.on(EditorMessage.ScrollPosition.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridge(self, didSelectHeading: message.payload.activeHeadingId)
+        }
+        messages.on(EditorMessage.LinkClicked.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridge(self, didClickLink: message.payload.href)
+        }
+        // The editor slider's document text size (mirror only); the range is the app's rule, not the contract's.
+        messages.on(EditorMessage.EditorFontSize.self) { [weak self] message in
+            guard let self, EditorTextSize.range.contains(message.payload.size) else { return }
+            self.delegate?.bridge(self, didChangeEditorFontSize: message.payload.size)
+        }
+        // One of the choices the page keeps for its window (`EditorWindowPrefs`).
+        messages.on(EditorMessage.EditorWindowPref.self) { [weak self] message in
+            guard let self, EditorWindowPrefs.accepts(key: message.payload.key, value: message.payload.value) else { return }
+            self.delegate?.bridge(self, didSetWindowPref: message.payload.key, value: message.payload.value)
+        }
+        // Can be large: the delegate is told on the next run loop so the page's message returns first.
+        messages.on(EditorMessage.BlocksChanged.self) { [weak self] message in
+            let delta = BlocksDelta(added: message.payload.added.map(SemanticBlock.init), removed: message.payload.removed,
+                                    changed: message.payload.changed.map(SemanticBlock.init), unchanged: message.payload.unchanged)
+            DispatchQueue.main.async {
+                guard let self else { return }
                 self.delegate?.bridge(self, didReceiveBlocksDelta: delta)
             }
-            return
         }
-
-        // V2 insight messages — handled inline so each case can carry its own
-        // `frameInfo.isMainFrame` defense-in-depth guard (Decision 3).
-        // Per Decision 2 the iframe is sandboxed without `allow-same-origin`, so it
-        // should never be able to call `webkit.messageHandlers.bridge` directly —
-        // only the parent (main) frame relays iframe postMessage events to Swift.
-        // The guard rejects any future WebKit semantic surprise.
-        switch messageType {
-        case "insightIframeReady":
-            guard message.frameInfo.isMainFrame else { return }
-            handleInsightIframeReady(payload: payload)
-            return
-        case "insightDeepDiveClicked":
-            guard message.frameInfo.isMainFrame else { return }
-            handleInsightDeepDiveClicked(payload: payload)
-            return
-        case "insightBreadcrumbClicked":
-            guard message.frameInfo.isMainFrame else { return }
-            handleInsightBreadcrumbClicked(payload: payload)
-            return
-        case "insightRequestSave":
-            guard message.frameInfo.isMainFrame else { return }
-            delegate?.bridgeRequestInsightSave(self)
-            return
-        case "insightRequestUp":
-            guard message.frameInfo.isMainFrame else { return }
-            delegate?.bridgeRequestInsightUp(self)
-            return
-        case "insightRequestRegenerate":
-            guard message.frameInfo.isMainFrame else { return }
-            delegate?.bridgeRequestInsightRegenerate(self)
-            return
-        case "insightRequestCustomDeepDive":
-            guard message.frameInfo.isMainFrame else { return }
-            if let dict = payload as? [String: Any], let topic = dict["topic"] as? String, !topic.isEmpty {
-                delegate?.bridgeRequestInsightCustomDeepDive(self, topic: topic)
-            }
-            return
-        case "insightRequestExploreAll":
-            guard message.frameInfo.isMainFrame else { return }
-            var depth = 1
-            if let dict = payload as? [String: Any], let d = dict["depth"] as? Int, d >= 1, d <= 3 {
-                depth = d
-            }
-            delegate?.bridgeRequestInsightExploreAll(self, depth: depth)
-            return
-        case "insightRequestRetrySection":
-            guard message.frameInfo.isMainFrame else { return }
-            if let dict = payload as? [String: Any], let secId = dict["sectionId"] as? String, !secId.isEmpty {
-                delegate?.bridgeRequestInsightRetrySection(self, sectionId: secId)
-            }
-            return
-        case "researchMap":
-            // Changes files and starts AI jobs: only the editor page itself may ask. The message is handled below.
-            guard message.frameInfo.isMainFrame else { return }
-        case "jsError":
-            // Diagnostic-only: route any JS-side window.onerror /
-            // unhandledrejection to the diag log file so we can see what's
-            // actually failing in the WebKit process.
-            if let dict = payload as? [String: Any] {
-                let where_ = (dict["where"] as? String) ?? "?"
-                let msg = (dict["message"] as? String) ?? "?"
-                let src = (dict["source"] as? String) ?? "?"
-                let line = (dict["lineno"] as? Int) ?? -1
-                let col = (dict["colno"] as? Int) ?? -1
-                let stack = (dict["stack"] as? String) ?? ""
-                Self.logInsightDiag("JS \(where_): \(msg) at \(src):\(line):\(col)\n  stack: \(stack.prefix(800))")
-            } else {
-                Self.logInsightDiag("JS error (malformed payload)")
-            }
-            return
-        default:
-            break
+        messages.on(EditorMessage.CanvasOpenFile.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridge(self, didRequestCanvasOpenFile: message.payload.path)
         }
-
-        // All other messages. `doc` names the tab whose document the page was showing when it sent this.
-        let data = payload as? [String: Any]
-        handleMessage(type: messageType, data: data, documentID: EditorDocumentRouting.documentID(from: dict["doc"]))
-    }
-
-    // MARK: - v2 insight payload validation
-
-    /// Strip `\r`, `\n`, NUL and truncate to 64 chars. Defends NSLog against log forgery
-    /// (CWE-117): a compromised JS context could otherwise inject fake `[Insight]` lines
-    /// via embedded control chars. Mirrors `WorkspaceManager.sanitizeForLog(_:)` —
-    /// duplicated here intentionally to keep `WebViewBridge.swift` self-contained
-    /// (T8 may extract a shared `LogSanitizer` utility).
-    private static func sanitizeForLog(_ s: String) -> String {
-        let stripped = s.replacingOccurrences(
-            of: "[\\r\\n\\0]",
-            with: "_",
-            options: .regularExpression
-        )
-        return String(stripped.prefix(64))
-    }
-
-    /// `insightIframeReady` payload: `{sessionId: String, nodeId: String}`.
-    /// Both fields validated as non-empty Strings before forwarding.
-    private func handleInsightIframeReady(payload: Any?) {
-        guard let dict = payload as? [String: Any],
-              let sessionId = dict["sessionId"] as? String, !sessionId.isEmpty,
-              let nodeId = dict["nodeId"] as? String, !nodeId.isEmpty else {
-            NSLog("[Insight] Malformed payload for %@", Self.sanitizeForLog("insightIframeReady"))
-            return
+        messages.on(EditorMessage.SaveRequested.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridgeSaveRequested(self, documentID: EditorDocumentRouting.documentID(from: message.doc))
         }
-        delegate?.bridge(self, didReceiveInsightIframeReady: sessionId, nodeId: nodeId)
-    }
-
-    /// `insightDeepDiveClicked` payload: `{sessionId: String, sectionId: String, topicIndex: Int}`.
-    /// Bounds validation against the live skeleton happens in WorkspaceManager (the
-    /// bridge holds no skeleton reference) — bridge enforces only payload schema.
-    private func handleInsightDeepDiveClicked(payload: Any?) {
-        guard let dict = payload as? [String: Any],
-              let sessionId = dict["sessionId"] as? String, !sessionId.isEmpty,
-              let sectionId = dict["sectionId"] as? String, !sectionId.isEmpty,
-              let topicIndex = dict["topicIndex"] as? Int, topicIndex >= 0 else {
-            NSLog("[Insight] Malformed payload for %@", Self.sanitizeForLog("insightDeepDiveClicked"))
-            return
+        messages.on(EditorMessage.TranslateRequested.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridge(self, didRequestTranslation: message.payload.markdown, targetLang: message.payload.targetLang)
         }
-        delegate?.bridge(self, didRequestInsightDeepDive: sessionId, sectionId: sectionId, topicIndex: topicIndex)
-    }
-
-    /// `insightBreadcrumbClicked` payload: `{sessionId: String, nodeId: String}`.
-    /// Bridge does a quick UUID-shape check (defense-in-depth); manifest membership
-    /// is validated in WorkspaceManager.
-    private func handleInsightBreadcrumbClicked(payload: Any?) {
-        guard let dict = payload as? [String: Any],
-              let sessionId = dict["sessionId"] as? String, !sessionId.isEmpty,
-              let nodeId = dict["nodeId"] as? String, !nodeId.isEmpty,
-              UUID(uuidString: nodeId) != nil else {
-            NSLog("[Insight] Malformed payload for %@", Self.sanitizeForLog("insightBreadcrumbClicked"))
-            return
+        messages.on(EditorMessage.SelectionAction.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridge(self, didRequestSelectionAction: message.payload.action, text: message.payload.text)
         }
-        delegate?.bridge(self, didRequestInsightBreadcrumb: sessionId, nodeId: nodeId)
-    }
-
-    // MARK: - Message Handling
-
-    private func handleMessage(type: String, data: [String: Any]?, documentID: UUID?) {
-        switch type {
-
-        // JS sends: { markdown: "...", html: "..." }
-        case "contentChanged":
-            if let markdown = data?["markdown"] as? String {
-                delegate?.bridge(self, didUpdateContent: markdown, documentID: documentID)
-            }
-
-        // JS sends: payload is the array directly (not nested in "headings" key)
-        // We handle this in userContentController by also passing rawPayload
-        case "headingsUpdated":
-            // Headings come through rawPayload (see userContentController)
-            break
-
-        // JS sends: { activeHeadingId: "..." }
-        case "scrollPosition":
-            if let headingId = data?["activeHeadingId"] as? String {
-                delegate?.bridge(self, didSelectHeading: headingId)
-            }
-
-        case "ready":
-            delegate?.bridgeEditorReady(self)
-
-        // JS sends: { size: 13 } — the editor slider's document text size (mirror only)
-        case "editorFontSize":
-            if let size = data?["size"] as? Double, EditorTextSize.range.contains(size) {
-                delegate?.bridge(self, didChangeEditorFontSize: size)
-            }
-
-        // JS sends: { key, value } — one of the choices the page keeps for its window (`EditorWindowPrefs`)
-        case "editorWindowPref":
-            if let key = data?["key"] as? String, let value = data?["value"] as? String,
-               EditorWindowPrefs.accepts(key: key, value: value) {
-                delegate?.bridge(self, didSetWindowPref: key, value: value)
-            }
-
-        case "linkClicked":
-            if let href = data?["href"] as? String {
-                delegate?.bridge(self, didClickLink: href)
-            }
-
-        // JS sends: { path: "relative/path/from/canvas.canvas" } — a JSON Canvas
-        // file-node click. Path resolution (workspace root, then canvas dir)
-        // happens in WorkspaceManager.
-        // Architecture tab: { action: "openFile" | "rescan" | "analyze" | "showPR" |
-        //                     "reviewPR" | "refreshPRSources", …action fields }
-        // File margin notes: { action: "explain" | "rate" | "notesView", filter?, show?, explain? }
-        case "code":
-            if let payload = data, let action = payload["action"] as? String {
-                delegate?.bridge(self, didReceiveCodeAction: action, payload: payload)
-            }
-
-        case "arch":
-            if let payload = data, let action = payload["action"] as? String {
-                delegate?.bridge(self, didReceiveArchitectureAction: action, payload: payload)
-            }
-
-        // Research map view: { action: "snapshot" | "addChild" | "update" | "delete" | "moveVisual" |
-        //                     "link" | "unlink" | "layout" | "develop" | "describe" | "correct" | "investigate" |
-        //                     "export" | "continue" | "cancel" | "open", …action fields }
-        // Swift owns the map file and answers with window.mvResearchMapSet (DEC-009).
-        case "researchMap":
-            if let payload = data, let action = payload["action"] as? String {
-                delegate?.bridge(self, didReceiveResearchMapAction: action, payload: payload, documentID: documentID)
-            }
-
-        case "canvasOpenFile":
-            if let path = data?["path"] as? String, !path.isEmpty {
-                delegate?.bridge(self, didRequestCanvasOpenFile: path)
-            }
-
-        // blocksChanged handled in userContentController directly (deferred)
-
-        case "textChanged":
-            if let payload = data, let blockId = payload["cursorBlock"] as? String {
-                delegate?.bridge(self, didChangeCursorBlock: blockId)
-            }
-
-        case "saveRequested":
-            delegate?.bridgeSaveRequested(self, documentID: documentID)
-
-        case "translateRequested":
-            if let markdown = data?["markdown"] as? String,
-               let targetLang = data?["targetLang"] as? String {
-                delegate?.bridge(self, didRequestTranslation: markdown, targetLang: targetLang)
-            }
-
-        case "selectionAction":
-            if let action = data?["action"] as? String,
-               let text = data?["text"] as? String {
-                delegate?.bridge(self, didRequestSelectionAction: action, text: text)
-            }
-
-        case "featureAction":
-            // Contextual feature actions on the selection; the action name is checked in Swift.
-            if let action = data?["action"] as? String, let text = data?["text"] as? String, !text.isEmpty {
-                delegate?.bridge(self, didRequestFeatureAction: action, text: text, question: data?["question"] as? String ?? "")
-            }
-
-        case "refreshRequested":
-            delegate?.bridgeRefreshRequested(self)
-
-        case "generateGraph":
-            let type = data?["type"] as? String ?? "architecture"
+        // Contextual feature actions on the selection; the action name is checked in Swift.
+        messages.on(EditorMessage.FeatureAction.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridge(self, didRequestFeatureAction: message.payload.action, text: message.payload.text, question: message.payload.question ?? "")
+        }
+        messages.on(EditorMessage.RefreshRequested.self) { [weak self] _ in
+            guard let self else { return }
+            self.delegate?.bridgeRefreshRequested(self)
+        }
+        messages.on(EditorMessage.GenerateGraph.self) { [weak self] message in
+            guard let self else { return }
+            let type = message.payload.type ?? "architecture"
             if type == "edit" {
-                let instruction = data?["editInstruction"] as? String ?? ""
-                let currentMermaid = data?["currentMermaid"] as? String ?? ""
-                delegate?.bridge(self, didRequestGraph: "edit", prompt: instruction, content: currentMermaid)
+                self.delegate?.bridge(self, didRequestGraph: "edit", prompt: message.payload.editInstruction ?? "", content: message.payload.currentMermaid ?? "")
             } else {
-                delegate?.bridge(self, didRequestGraph: type, prompt: "", content: "")
+                self.delegate?.bridge(self, didRequestGraph: type, prompt: "", content: "")
             }
+        }
+        // The sub-protocols: the contract fixes the action, the delegate's owner reads the rest of the fields by action.
+        messages.on(EditorMessage.CodeAction.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridge(self, didReceiveCodeAction: message.payload.action, payload: message.rawDictionary)
+        }
+        messages.on(EditorMessage.ArchitectureAction.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridge(self, didReceiveArchitectureAction: message.payload.action, payload: message.rawDictionary)
+        }
+        messages.on(EditorMessage.ResearchMapAction.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridge(self, didReceiveResearchMapAction: message.payload.action, payload: message.rawDictionary,
+                                  documentID: EditorDocumentRouting.documentID(from: message.doc))
+        }
+        // Diagnostic-only: a JS-side window.onerror / unhandledrejection, routed to the diag log.
+        messages.on(EditorMessage.JSError.self) { message in
+            let error = message.payload
+            Self.logInsightDiag("JS \(error.where ?? "?"): \(error.message ?? "?") at \(error.source ?? "?"):\(error.lineno.map { Int($0) } ?? -1):\(error.colno.map { Int($0) } ?? -1)\n  stack: \((error.stack ?? "").prefix(800))")
+        }
 
-        // V2 insight messages (insightIframeReady, insightDeepDiveClicked,
-        // insightBreadcrumbClicked, insightRequestSave, insightRequestUp) are
-        // handled inline in `userContentController(_:didReceive:)` so each case
-        // can carry its own `frameInfo.isMainFrame` guard (Decision 3) and never
-        // reach this fallthrough.
-
-        default:
-            NSLog("Unknown bridge message type: \(type)")
+        // The Recursive Insight messages. Their schema is checked by the contract (non-empty ids, the UUID shape, the depth bounds);
+        // higher-level validation (skeleton membership, manifest membership, retry rate limit) lives in WorkspaceManager.
+        messages.on(EditorMessage.InsightIframeReady.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridge(self, didReceiveInsightIframeReady: message.payload.sessionId, nodeId: message.payload.nodeId)
+        }
+        messages.on(EditorMessage.InsightDeepDiveClicked.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridge(self, didRequestInsightDeepDive: message.payload.sessionId, sectionId: message.payload.sectionId, topicIndex: message.payload.topicIndex)
+        }
+        messages.on(EditorMessage.InsightBreadcrumbClicked.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridge(self, didRequestInsightBreadcrumb: message.payload.sessionId, nodeId: message.payload.nodeId)
+        }
+        messages.on(EditorMessage.InsightRequestSave.self) { [weak self] _ in
+            guard let self else { return }
+            self.delegate?.bridgeRequestInsightSave(self)
+        }
+        messages.on(EditorMessage.InsightRequestUp.self) { [weak self] _ in
+            guard let self else { return }
+            self.delegate?.bridgeRequestInsightUp(self)
+        }
+        messages.on(EditorMessage.InsightRequestRegenerate.self) { [weak self] _ in
+            guard let self else { return }
+            self.delegate?.bridgeRequestInsightRegenerate(self)
+        }
+        messages.on(EditorMessage.InsightRequestCustomDeepDive.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridgeRequestInsightCustomDeepDive(self, topic: message.payload.topic)
+        }
+        messages.on(EditorMessage.InsightRequestExploreAll.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridgeRequestInsightExploreAll(self, depth: message.payload.depth ?? 1)
+        }
+        messages.on(EditorMessage.InsightRequestRetrySection.self) { [weak self] message in
+            guard let self else { return }
+            self.delegate?.bridgeRequestInsightRetrySection(self, sectionId: message.payload.sectionId)
         }
     }
 
@@ -691,19 +541,24 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     }
 }
 
-// MARK: - HeadingItem Extension
-
-extension HeadingItem {
-    init?(from dict: [String: Any]) {
-        guard
-            let id = dict["id"] as? String,
-            let level = dict["level"] as? Int,
-            let text = dict["text"] as? String
-        else {
-            return nil
-        }
-
-        self.init(id: id, level: level, text: text)
+extension SemanticBlock {
+    /// A block of a `blocksChanged` message. An unknown block type is a paragraph.
+    init(_ block: EditorMessage.BlocksChanged.Block) {
+        id = block.id
+        documentId = block.documentId ?? ""
+        type = BlockType(rawValue: block.type) ?? .paragraph
+        level = block.level
+        content = block.content
+        plainText = block.plainText ?? block.content
+        contentHash = block.contentHash
+        semanticHash = block.semanticHash
+        headingPath = block.headingPath ?? []
+        parentBlockId = block.parentBlockId
+        lineStart = block.lineStart
+        lineEnd = block.lineEnd
+        position = block.position
+        language = block.language
+        anchor = block.anchor
     }
 }
 
@@ -714,9 +569,7 @@ protocol WebViewBridgeDelegate: AnyObject {
     func bridge(_ bridge: WebViewBridge, didExtractHeadings headings: [HeadingItem])
     func bridge(_ bridge: WebViewBridge, didSelectHeading headingId: String)
     func bridge(_ bridge: WebViewBridge, didClickLink href: String)
-    func bridge(_ bridge: WebViewBridge, didChangeScrollPosition position: CGFloat)
     func bridge(_ bridge: WebViewBridge, didReceiveBlocksDelta delta: BlocksDelta)
-    func bridge(_ bridge: WebViewBridge, didChangeCursorBlock blockId: String)
     func bridgeEditorReady(_ bridge: WebViewBridge)
     /// The document text size the page's slider shows, for the document text this window hosts natively.
     func bridge(_ bridge: WebViewBridge, didChangeEditorFontSize size: Double)
@@ -735,10 +588,10 @@ protocol WebViewBridgeDelegate: AnyObject {
 
     // MARK: Insight messages (Recursive Insight v2, Task 7)
     //
-    // V2 protocol: 5 JS→Swift handlers, all with `frameInfo.isMainFrame` guard.
-    // Bridge does payload schema validation (presence + non-empty strings + Int
-    // bounds + UUID shape); higher-level validation (skeleton membership,
-    // manifest membership, retry rate limit) lives in WorkspaceManager (T8).
+    // V2 protocol: JS→Swift messages only the top frame may send (`mainFrameOnly` in the contract).
+    // The contract validates the payload schema (presence, non-empty strings, Int bounds, UUID
+    // shape); higher-level validation (skeleton membership, manifest membership, retry rate
+    // limit) lives in WorkspaceManager (T8).
     func bridge(_ bridge: WebViewBridge, didReceiveInsightIframeReady sessionId: String, nodeId: String)
     func bridge(_ bridge: WebViewBridge, didRequestInsightDeepDive sessionId: String, sectionId: String, topicIndex: Int)
     func bridge(_ bridge: WebViewBridge, didRequestInsightBreadcrumb sessionId: String, nodeId: String)

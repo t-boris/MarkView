@@ -481,16 +481,11 @@
         // <script> block. If init-checkpoint appears in diag but this end-checkpoint
         // does not, the script aborted somewhere in between.
         try {
-            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.bridge) {
-                window.webkit.messageHandlers.bridge.postMessage({
-                    type: 'jsError',
-                    payload: {
-                        where: 'end-checkpoint',
-                        message: 'reached end of <script> block — typeof loadInsightSkeleton=' + (typeof window.loadInsightSkeleton)
-                            + ' updateInsightSection=' + (typeof window.updateInsightSection)
-                            + ' setInsightStatus=' + (typeof window.setInsightStatus),
-                        source: '', lineno: 0, colno: 0, stack: ''
-                    }
-                });
-            }
+            sendToSwift('jsError', {
+                where: 'end-checkpoint',
+                message: 'reached end of <script> block — typeof loadInsightSkeleton=' + (typeof window.loadInsightSkeleton)
+                    + ' updateInsightSection=' + (typeof window.updateInsightSection)
+                    + ' setInsightStatus=' + (typeof window.setInsightStatus),
+                source: '', lineno: 0, colno: 0, stack: ''
+            });
         } catch (_) {}

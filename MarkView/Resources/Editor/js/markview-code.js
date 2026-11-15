@@ -303,8 +303,7 @@
             // ------------------------------------------------------------ margin notes
 
             function postCode(action, fields) {
-                try { window.webkit.messageHandlers.bridge.postMessage({ type: 'code', payload: Object.assign({ action: action }, fields || {}) }); }
-                catch (e) { console.log('[code] post failed', e); }
+                sendToSwift('code', Object.assign({ action: action }, fields || {}));
             }
 
             const levelColors = {

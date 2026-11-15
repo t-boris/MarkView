@@ -26,13 +26,16 @@ final class WhisperClient {}
         guard let body = m.body as? [String: Any] else { return }
         messages.append(body)
         // Observe input without typing synthetic mouse reports into the real shell.
-        if body["type"] as? String != "input" { session.userContentController(c, didReceive: m) }
+        if body["type"] as? String != "input" { session.messages.userContentController(c, didReceive: m) }
         if body["type"] as? String == "ready", !launched {
             launched = true
             Task { await run() }
         }
     }
     func pureChecks() {
+        // The session's handlers and the contract's terminal messages are the same set (AR-28).
+        let declared = session.messages.contract.messageTypes(in: "terminal")
+        check(!declared.isEmpty && session.messages.registeredTypes == declared, "the session handles exactly the messages the contract declares for the terminal (\(session.messages.registeredTypes.sorted()) vs \(declared.sorted()))")
         let file = root.appendingPathComponent("sample.swift")
         let resolve: (String) -> TerminalLink? = { TerminalLink.resolve($0, directory: self.root) }
         for text in ["sample.swift", "./sample.swift", file.path, file.absoluteString] {
@@ -190,6 +193,7 @@ final class WhisperClient {}
     }
     func start() {
         TerminalSession.pageURL = URL(fileURLWithPath: CommandLine.arguments[1])
+        BridgeContract.bundledURL = TerminalSession.pageURL!.deletingLastPathComponent().appendingPathComponent("js/bridge-contract.json")
         session = TerminalSession(directory: root)
         session.openFile = { [weak self] url, line in self?.opened.append((url, line)) }
         session.openExternalURL = { [weak self] url in self?.external.append(url) }

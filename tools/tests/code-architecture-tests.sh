@@ -10,5 +10,5 @@ swiftc -O -o "$out/check" MarkView/Models/Architecture/ArchitectureModel.swift M
 "$out/check" "$PWD/tools/tests/fixtures/code-architecture" "$out"
 if [[ "${1:-}" == "--model-only" ]]; then exit 0; fi
 cp tools/tests/CodeArchitectureWebTests.swift "$out/main.swift"
-swiftc -O -o "$out/web" "$out/main.swift"
+swiftc -O -o "$out/web" MarkView/Bridge/TypedWebBridge.swift "$out/main.swift"
 "$out/web" "$PWD/MarkView/Resources/Editor" "$out/payload.json"

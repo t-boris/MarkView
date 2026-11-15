@@ -4,9 +4,8 @@
     let turns = [], live = null, pending = null;
     const T = window.MarkViewThemes;
 
-    function post(message) {
-        try { window.webkit.messageHandlers.discussion.postMessage(message); } catch (e) { console.log('[discussion]', e); }
-    }
+    // Every message goes through mvBridge.send (mv-kit.js), which checks it against bridge-contract.json (AR-28).
+    function post(type, payload) { window.mvBridge.send(type, payload, 'discussion'); }
     const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const VISUAL = ['mermaid', 'svg', 'chart', 'html'];
 
@@ -183,7 +182,7 @@
             const source = copy.dataset.copy === 'live' ? live && live.text : turns[Number(copy.dataset.copy)]?.answer;
             const text = visibleText(source || '', copy.dataset.copy === 'live').text;
             if (text) {
-                post({ type: 'copy', text });
+                post('copy', { text });
                 copy.textContent = 'Copied';
                 setTimeout(() => { copy.textContent = 'Copy Markdown'; }, 1500);
             }
@@ -200,10 +199,10 @@
         const fig = button.closest('figure');
         const kind = fig.dataset.kind;
         if (kind === 'chart') {
-            post({ type: 'save', name: 'chart.png', base64: true, data: fig.querySelector('canvas').toDataURL('image/png').split(',')[1] });
+            post('save', { name: 'chart.png', base64: true, data: fig.querySelector('canvas').toDataURL('image/png').split(',')[1] });
         } else {
             const svg = fig.querySelector('svg');
-            if (svg) post({ type: 'save', name: (kind === 'mermaid' ? 'diagram' : 'figure') + '.svg', base64: false, data: new XMLSerializer().serializeToString(svg) });
+            if (svg) post('save', { name: (kind === 'mermaid' ? 'diagram' : 'figure') + '.svg', base64: false, data: new XMLSerializer().serializeToString(svg) });
         }
     });
 
@@ -245,5 +244,5 @@
     window.mvScrollToEnd = function () { window.scrollTo(0, document.body.scrollHeight); };
 
     themeMermaid();
-    post({ type: 'ready' });
+    post('ready', {});
 })();

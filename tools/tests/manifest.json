@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 177,
+  "suiteCount": 182,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -138,6 +138,54 @@
         "MarkView/Models/Architecture/XRayContent.swift",
         "tools/tests/BookXRayTests.swift",
         "tools/tests/book-xray-tests.sh"
+      ]
+    },
+    {
+      "name": "bridge-contract-tests",
+      "script": "tools/tests/bridge-contract-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Bridge/DataFileSchemeHandler.swift",
+        "MarkView/Bridge/PageMessages.swift",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Bridge/WebViewBridge.swift",
+        "MarkView/Models/Appearance/AppFontScale.swift",
+        "MarkView/Models/Insight/InsightModels.swift",
+        "MarkView/Models/Insight/SemanticModels.swift",
+        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
+        "MarkView/Models/Workspace/EditorWindowPrefs.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json",
+        "MarkView/Resources/Editor/js/mv-kit.js",
+        "MarkView/Views/Discussion/DiscussionThreadView.swift",
+        "tools/tests/BridgeContractSupport.swift",
+        "tools/tests/BridgeContractTests.swift",
+        "tools/tests/bridge-contract-tests.sh"
+      ]
+    },
+    {
+      "name": "bridge-contract-web-tests",
+      "script": "tools/tests/bridge-contract-web-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Bridge/DataFileSchemeHandler.swift",
+        "MarkView/Bridge/PageMessages.swift",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Bridge/WebViewBridge.swift",
+        "MarkView/Models/Appearance/AppFontScale.swift",
+        "MarkView/Models/Insight/InsightModels.swift",
+        "MarkView/Models/Insight/SemanticModels.swift",
+        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
+        "MarkView/Models/Workspace/EditorWindowPrefs.swift",
+        "MarkView/Resources/Editor/discussion.html",
+        "MarkView/Resources/Editor/index.html",
+        "MarkView/Resources/Editor/js/bridge-contract.json",
+        "MarkView/Resources/Editor/js/markview-bridge.js",
+        "MarkView/Resources/Editor/js/markview-discussion.js",
+        "MarkView/Resources/Editor/js/mv-kit.js",
+        "MarkView/Views/Discussion/DiscussionThreadView.swift",
+        "tools/tests/BridgeContractSupport.swift",
+        "tools/tests/BridgeContractWebTests.swift",
+        "tools/tests/bridge-contract-web-tests.sh"
       ]
     },
     {
@@ -403,7 +451,9 @@
         "tools/tests/CodeArchitectureTestSupport.swift",
         "tools/tests/CodeArchitectureTests.swift",
         "tools/tests/CodeArchitectureWebTests.swift",
-        "tools/tests/DiagramCLIStub.swift"
+        "tools/tests/DiagramCLIStub.swift",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json"
       ]
     },
     {
@@ -478,7 +528,9 @@
       "tier": "gui",
       "sources": [
         "tools/tests/DataViewersTests.swift",
-        "tools/tests/data-viewers-tests.sh"
+        "tools/tests/data-viewers-tests.sh",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json"
       ]
     },
     {
@@ -656,7 +708,9 @@
       "tier": "gui",
       "sources": [
         "tools/tests/EditorDiagramsWebTests.swift",
-        "tools/tests/editor-diagrams-tests.sh"
+        "tools/tests/editor-diagrams-tests.sh",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json"
       ]
     },
     {
@@ -667,7 +721,9 @@
         "MarkView/Models/Workspace/EditorDocumentRouting.swift",
         "tools/tests/EditorDocumentIdWebTests.swift",
         "tools/tests/EditorDocumentRoutingTests.swift",
-        "tools/tests/editor-document-routing-tests.sh"
+        "tools/tests/editor-document-routing-tests.sh",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json"
       ]
     },
     {
@@ -681,7 +737,9 @@
         "MarkView/Resources/Editor/js/markview-insight-srcdoc.js",
         "MarkView/Views/Workspace/EditorView.swift",
         "tools/tests/EditorPageCSPTests.swift",
-        "tools/tests/editor-page-csp-tests.sh"
+        "tools/tests/editor-page-csp-tests.sh",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json"
       ]
     },
     {
@@ -918,7 +976,9 @@
         "MarkView/Resources/Editor/js/markview-render.js",
         "MarkView/Resources/Editor/js/mv-kit.js",
         "tools/tests/MermaidSvgWebTests.swift",
-        "tools/tests/mermaid-svg-tests.sh"
+        "tools/tests/mermaid-svg-tests.sh",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json"
       ]
     },
     {
@@ -1112,7 +1172,8 @@
       "sources": [
         "MarkView/Resources/Editor/js/markview-bridge.js",
         "MarkView/Resources/Editor/js/mv-kit.js",
-        "tools/tests/Phase7WebCITests.swift"
+        "tools/tests/Phase7WebCITests.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json"
       ]
     },
     {
@@ -2016,7 +2077,9 @@
       "tier": "gui",
       "sources": [
         "tools/tests/ResearchMapWebTests.swift",
-        "tools/tests/research-map-web-tests.sh"
+        "tools/tests/research-map-web-tests.sh",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json"
       ]
     },
     {
@@ -2108,7 +2171,10 @@
         "MarkView/Resources/Editor/terminal.html",
         "MarkView/Resources/Editor/js/markview-terminal.js",
         "MarkView/Views/Appearance/AppFontScaleView.swift",
-        "tools/tests/TerminalLayoutTests.swift"
+        "tools/tests/TerminalLayoutTests.swift",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json",
+        "MarkView/Bridge/PageMessages.swift"
       ]
     },
     {
@@ -2130,7 +2196,10 @@
         "MarkView/Resources/Editor/js/markview-terminal.js",
         "MarkView/Views/Appearance/AppFontScaleView.swift",
         "tools/tests/EditorLineLinkTests.swift",
-        "tools/tests/TerminalLinkTests.swift"
+        "tools/tests/TerminalLinkTests.swift",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json",
+        "MarkView/Bridge/PageMessages.swift"
       ]
     },
     {
@@ -2422,7 +2491,9 @@
         "MarkView/Resources/Editor/js/markview-render.js",
         "MarkView/Resources/Editor/js/mv-kit.js",
         "tools/tests/WebSinkTests.swift",
-        "tools/tests/web-sinks-tests.sh"
+        "tools/tests/web-sinks-tests.sh",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json"
       ]
     },
     {
@@ -2497,7 +2568,10 @@
         "MarkView/Models/Workspace/WindowUIState.swift",
         "MarkView/Views/Workspace/WindowStorage.swift",
         "tools/tests/WindowUIStateTests.swift",
-        "tools/tests/window-ui-state-tests.sh"
+        "tools/tests/window-ui-state-tests.sh",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json",
+        "MarkView/Resources/Editor/js/mv-kit.js"
       ]
     },
     {
@@ -2642,7 +2716,9 @@
       "tier": "pure",
       "sources": [
         "tools/tests/XRayComparisonWebTests.swift",
-        "tools/tests/xray-comparison-web-tests.sh"
+        "tools/tests/xray-comparison-web-tests.sh",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json"
       ]
     },
     {
@@ -2660,7 +2736,9 @@
       "tier": "pure",
       "sources": [
         "tools/tests/XRayLayoutWebTests.swift",
-        "tools/tests/xray-layout-web-tests.sh"
+        "tools/tests/xray-layout-web-tests.sh",
+        "MarkView/Bridge/TypedWebBridge.swift",
+        "MarkView/Resources/Editor/js/bridge-contract.json"
       ]
     }
   ]

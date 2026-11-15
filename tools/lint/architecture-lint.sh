@@ -7,6 +7,9 @@
 #   no-vendor-markview   no reference to `vendor/js/markview-` in the app's Swift code and HTML (the scripts live in Editor/js)
 #   target-membership    every MarkView/**/*.swift on disk is a file reference and a Sources build file of the Xcode target in
 #                        MarkView.xcodeproj/project.pbxproj, and every Swift file the project references exists on disk
+#   bridge-no-bypass     (AR-28) the editor page's scripts send through mvBridge.send only: no `messageHandlers` in
+#                        Editor/js/*.js (except mv-kit.js, the one sender, and markview-ui-studio.js, a different host) or in
+#                        EditorWindowPrefs.swift, and no string `case "..."` in Bridge/WebViewBridge.swift (handlers are registered)
 # Ratchets: a count that may fall and never rise. Today's sites are listed per file in an allow-list; a new site or a higher
 # count fails, and so does a lower count that the list does not yet say (run `--tighten`), so that the allowance never has slack.
 #   process              Process() outside Packages/MarkViewCore Subprocess.swift     tools/lint/process-allowlist.txt
@@ -206,8 +209,26 @@ ratchet("workspace-manager", "workspace-manager-views.txt", "@EnvironmentObject 
         "# `@EnvironmentObject ... WorkspaceManager` declarations: views that take the whole manager (AR-14). `<count> <path>`; a ratchet\n"
         "# that only falls. Run tools/lint/architecture-lint.sh --tighten after narrowing a view's dependency.")
 
+# --- bridge-no-bypass
+bridge_senders = {"mv-kit.js", "markview-ui-studio.js"}
+page_files = []
+js_dir = root / "MarkView" / "Resources" / "Editor" / "js"
+if js_dir.is_dir():
+    page_files += sorted(p for p in js_dir.glob("*.js") if p.is_file() and p.name not in bridge_senders)
+page_files += [p for p in [root / "MarkView" / "Models" / "Workspace" / "EditorWindowPrefs.swift"] if p.is_file()]
+for path in page_files:
+    for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+        if "messageHandlers" in line and not line.lstrip().startswith(("//", "*", "/*")):
+            violations.append(("bridge-no-bypass", f"{rel(path)}:{number}: talks to `messageHandlers` directly; send through mvBridge.send so the contract is checked"))
+for relative in ("MarkView/Bridge/WebViewBridge.swift",):
+    path = root / relative
+    if path.is_file():
+        for number, line in code_lines(path):
+            if re.match(r'\s*case\s+"', line):
+                violations.append(("bridge-no-bypass", f"{relative}:{number}: a string `case` on a message type; register a typed handler (TypedWebBridge.on) instead"))
+
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "process", "clicompletion", "workspace-manager"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "process", "clicompletion", "workspace-manager", "bridge-no-bypass"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

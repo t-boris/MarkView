@@ -453,6 +453,8 @@
 		FE92D8886919B6864DC4A936 /* PrototypeAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E8965BA2170772C6393FB45 /* PrototypeAI.swift */; };
 		FF31A6655922E26D0D222D9B /* ImageAttachmentViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1352CCA937A85BB9BD45E31 /* ImageAttachmentViews.swift */; };
 		FF677307133FE1CCD7D71308 /* WebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB0155B5E7A0A09A6D2FD67 /* WebViewBridge.swift */; };
+		4C8DC8563E21AD0A4691B829 /* PageMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FEC8F875A454EC8F0C7DC58 /* PageMessages.swift */; };
+		09A17E5C789C8522CA39B941 /* TypedWebBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51C33F7988006A528DE872B7 /* TypedWebBridge.swift */; };
 		FF7B7975E6E5BB57226F4446 /* QAPageEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10AB314CA9B3FD3A9A58668 /* QAPageEvidence.swift */; };
 		FF99949FBDA0BB735F226A9B /* QARun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C0F0778AC373BF137EF446E /* QARun.swift */; };
 /* End PBXBuildFile section */
@@ -932,6 +934,8 @@
 		DE614C3743EA3DA97AA56469 /* WindowSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSession.swift; sourceTree = "<group>"; };
 		DEE77C117377664F496CB39A /* FrontMatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontMatter.swift; sourceTree = "<group>"; };
 		DFB0155B5E7A0A09A6D2FD67 /* WebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewBridge.swift; sourceTree = "<group>"; };
+		4FEC8F875A454EC8F0C7DC58 /* PageMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageMessages.swift; sourceTree = "<group>"; };
+		51C33F7988006A528DE872B7 /* TypedWebBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypedWebBridge.swift; sourceTree = "<group>"; };
 		E07A192D1CE2A501179DD937 /* KaTeX_Size1-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Size1-Regular.woff2"; sourceTree = "<group>"; };
 		E0C29C80578FBF1EA58507A1 /* CockpitPlanScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitPlanScreen.swift; sourceTree = "<group>"; };
 		E10AB314CA9B3FD3A9A58668 /* QAPageEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAPageEvidence.swift; sourceTree = "<group>"; };
@@ -2001,6 +2005,8 @@
 				C1816FF9F2B5D0B46742FD13 /* PrototypeSchemeHandler.swift */,
 				509E5F08CB6B710DC2F0A4B1 /* PrototypeScreenshots.swift */,
 				DFB0155B5E7A0A09A6D2FD67 /* WebViewBridge.swift */,
+				4FEC8F875A454EC8F0C7DC58 /* PageMessages.swift */,
+				51C33F7988006A528DE872B7 /* TypedWebBridge.swift */,
 			);
 			path = Bridge;
 			sourceTree = "<group>";
@@ -2559,6 +2565,8 @@
 				CDB77CC294117E346070B67E /* WebAppPreview.swift in Sources */,
 				192B191E54B857E4E62CB970 /* WebClip.swift in Sources */,
 				FF677307133FE1CCD7D71308 /* WebViewBridge.swift in Sources */,
+				4C8DC8563E21AD0A4691B829 /* PageMessages.swift in Sources */,
+				09A17E5C789C8522CA39B941 /* TypedWebBridge.swift in Sources */,
 				7A3232D368417A275B24DB31 /* WelcomeActions.swift in Sources */,
 				C49808DDF55EA4CFAE1DF0D3 /* WelcomeBackdrop.swift in Sources */,
 				C833761DF72AB6FA2DC6AFF8 /* WelcomeBackdropView.swift in Sources */,

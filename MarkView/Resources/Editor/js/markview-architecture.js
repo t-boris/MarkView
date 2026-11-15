@@ -85,9 +85,7 @@
                 if (action === 'openFile' && ui.payload && ui.payload.pr && (ui.view === 'pr' || ui.prTab || ui.overlay === 'pr')) {
                     fields = Object.assign({ fromPR: true }, fields || {});
                 }
-                try {
-                    window.webkit.messageHandlers.bridge.postMessage({ type: 'arch', payload: Object.assign({ action: action }, fields || {}) });
-                } catch (e) { console.log('[arch] post failed', action, e); }
+                sendToSwift('arch', Object.assign({ action: action }, fields || {}));
             }
 
             function loadScript(src) {
