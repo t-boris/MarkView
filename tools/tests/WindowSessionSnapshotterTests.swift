@@ -35,9 +35,10 @@ enum WindowSessionSnapshotterChecks {
         var folderChosenMeanwhile: URL?
 
         func terminalDirectory(for id: UUID) -> URL? { terminals[id] }
-        func restoreFolder(_ folder: URL) async {
-            calls.append("folder:" + folder.lastPathComponent)
-            windowFolder = folderChosenMeanwhile ?? folder
+        func openFolder(_ url: URL, completion: (() -> Void)?) {
+            calls.append("folder:" + url.lastPathComponent)
+            windowFolder = folderChosenMeanwhile ?? url
+            completion?()
         }
         func openTool(_ tool: ToolID) {
             calls.append("tool:" + tool.rawValue)

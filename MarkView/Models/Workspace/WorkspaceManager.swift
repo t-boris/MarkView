@@ -295,12 +295,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost, Tool
 
     func terminalDirectory(for id: UUID) -> URL? { terminals.tabTerminal(id)?.directory }
 
-    func restoreFolder(_ folder: URL) async {
-        await withCheckedContinuation { continuation in
-            openFolder(folder) { continuation.resume() }
-        }
-    }
-
     func restoreArchitectureTab(scope: String) {
         // Reopen cached views without triggering new scans/reviews during launch.
         guard let root = rootNode?.url else { return }
