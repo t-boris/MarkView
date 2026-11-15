@@ -41,6 +41,9 @@ One step per line, run on the main queue (`#` starts a comment). Output goes to 
 | `windows` | every window: class, title, visibility, sheets, modal window |
 | `quit` | exit |
 
+A step with too few arguments (a bare `wait`, `snap`, `click 5`) is a script error: the probe logs `script error at step N` and exits with status 2.
+It never throws inside the app, because a crashed probe shows the system crash dialog on the screen of whoever runs it.
+
 ## Safety
 
 Every `NSWindow` is created with alpha 0 and `ignoresMouseEvents`, the activation policy is accessory, `HOME` is empty,

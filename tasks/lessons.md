@@ -2022,3 +2022,15 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
 - The default prompt gave the assistant a field (`envelope`) without saying what it meant,
   so it improvised templates in it. A schema field the assistant fills needs its meaning in
   the prompt and a validator that rejects misuse.
+
+## 2026-11-15: a probed test copy crashed on Boris's screen
+
+- Boris: "Note that test Markview crashed!!!!". The crash reports in `~/Library/Logs/DiagnosticReports` showed hidden
+  `MarkViewProbe.app` copies (app-probe runs by the agents) that died: four times in the probe's own step runner
+  (`RunNext` read `p[1]` of a step written without its argument: `-[NSArray objectAtIndex:]`), once in
+  `TypedWebBridge.on` (a Debug `assertionFailure`: a handler type not in the bridge contract, from a half-resolved merge).
+- Rule: a probe must never crash. A hidden window does not hide a crash: macOS shows the crash dialog on the screen.
+  The step runner now checks the arguments of every step and exits with a message (`StepArguments`).
+- Rule: before any app-probe run, the suites that guard what the probe loads must pass (`bridge-contract-tests`,
+  `bridge-contract-web-tests`); after each run, look at `ls -t ~/Library/Logs/DiagnosticReports | head -3` for a new
+  `MarkView*.ips` and fix its cause before running again.
