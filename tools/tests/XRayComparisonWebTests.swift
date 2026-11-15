@@ -57,6 +57,11 @@ func js(_ body: String, timeout: TimeInterval = 30) -> String {
 spin(20) { loaded.done }
 check(loaded.done, "shipping editor loaded")
 
+// The page holds no colours of its own: the app sends it the definition of the window's theme, so this host does the same (Classic Dark,
+// from the bundled Themes folder next to the program). The map is drawn with those tokens (AR-32).
+let classicDark = ThemeLibrary.load(builtInFolder: ThemeCatalog.bundledFolder, userFolder: nil).resolve(.classicDark, systemIsDark: true).definition
+_ = js("window.setTheme('classic-dark', null, \(classicDark.webPayload)); return 'ok';")
+
 // A small project (Logical and Structure views), and a comparison with an earlier commit: two changed files, one new file,
 // and two removed ones - one in a folder that still exists (src/ui) and one in a folder that is gone (src/legacy).
 let prelude = """

@@ -11,7 +11,7 @@ trap 'rm -rf "$out"' EXIT
 # The editor bridge.
 cp tools/tests/JSCallEditorWebTests.swift "$out/main.swift"
 swiftc -O -module-cache-path /private/tmp/markview-swift-cache -o "$out/js-call-editor-web-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Bridge/TypedWebBridge.swift MarkView/Bridge/PageMessages.swift MarkView/Bridge/WebViewBridge.swift \
+    MarkView/Bridge/TypedWebBridge.swift MarkView/Bridge/PageMessages.swift MarkView/Bridge/WebViewBridge.swift MarkView/Models/Appearance/WebThemeArguments.swift \
     MarkView/Bridge/DataFileSchemeHandler.swift MarkView/Models/Workspace/EditorDocumentRouting.swift \
     MarkView/Models/Workspace/EditorWindowPrefs.swift MarkView/Models/Insight/SemanticModels.swift \
     MarkView/Models/Insight/InsightModels.swift MarkView/Models/Appearance/AppFontScale.swift \
@@ -31,7 +31,7 @@ PY
 swiftc -O -module-cache-path /private/tmp/markview-swift-cache -o "$out/js-call-terminal-web-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Bridge/TypedWebBridge.swift MarkView/Bridge/PageMessages.swift MarkView/Models/Appearance/AppFontScale.swift \
     MarkView/Views/Appearance/AppFontScaleView.swift MarkView/Models/Terminal/TerminalLink.swift MarkView/Models/Remote/RemoteConnectionState.swift \
-    MarkView/Models/Terminal/TerminalSession.swift MarkView/Models/Terminal/TerminalChildProcess.swift \
+    MarkView/Models/Terminal/TerminalSession.swift MarkView/Models/Appearance/WebThemeArguments.swift MarkView/Models/Terminal/TerminalProfile.swift MarkView/Models/AI/Providers/*.swift MarkView/Models/Terminal/TerminalChildProcess.swift \
     MarkView/Models/Terminal/TerminalBrowserBridge.swift MarkView/Models/Terminal/PTYWriter.swift "$out/FileType.swift" \
     MarkView/Models/Workspace/ArchiveSupport.swift "$out/main.swift"
 "$out/js-call-terminal-web-tests" "$PWD/MarkView/Resources/Editor/terminal.html" "$out/fixtures"

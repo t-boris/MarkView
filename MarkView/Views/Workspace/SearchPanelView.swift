@@ -51,7 +51,7 @@ struct ProjectSearchPanel: View {
                         Image(systemName: "xmark.circle.fill").uiFont(size: 10).foregroundColor(palette.textDim)
                     }.buttonStyle(.plain)
                 }
-                Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders) } } label: {
+                Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders) } } label: {
                     Image(systemName: "arrow.clockwise").uiFont(size: 10).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain).help("Refresh the search index")
             }
@@ -62,8 +62,8 @@ struct ProjectSearchPanel: View {
             }
             results
         }
-        .task(id: workspaceManager.searchRootsKey) {
-            await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders)
+        .task(id: workspaceManager.project.searchRootsKey) {
+            await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders)
         }
     }
 

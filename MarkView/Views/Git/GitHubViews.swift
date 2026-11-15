@@ -339,7 +339,7 @@ struct GitHubPullRequestsView: View {
                     .uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1)
             }
             HStack(spacing: 10) {
-                Button(action: { workspaceManager.reviewPullRequest(pr.number) }) {
+                Button(action: { workspaceManager.codeXRay.reviewPullRequest(pr.number) }) {
                     Label("Review", systemImage: "sparkles").uiFont(size: 10)
                 }
                 .buttonStyle(.plain).foregroundColor(palette.blue)
@@ -1731,7 +1731,7 @@ struct GitHubPullRequestView: View {
             }
             if !pr.checks.isEmpty { checks(pr) }
             HStack(spacing: 12) {
-                Button { workspaceManager.reviewPullRequest(pr.number) } label: { Label("Review with AI", systemImage: "sparkles") }
+                Button { workspaceManager.codeXRay.reviewPullRequest(pr.number) } label: { Label("Review with AI", systemImage: "sparkles") }
                     .help("Open this pull request in the PR X-Ray and start the AI review")
                 if state == "OPEN" {
                     Button {

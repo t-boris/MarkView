@@ -101,8 +101,9 @@ final class FeatureAssistant: ObservableObject {
     /// Voice notes for sources; owned here so a recording survives switching panels.
     let voice = WhisperClient()
 
+    /// The project whose search database the assistant records its runs in and reads related documents from. Wired by WorkspaceManager.
+    weak var project: (any ProjectProviding)?
     /// Wired by WorkspaceManager.
-    var database: () -> SemanticDatabase? = { nil }
     var gitHubClient: () -> GitHubClient? = { nil }
     /// The store is a new-project draft (Start a Project from Scratch): the "feature" is the whole
     /// project, specified before its folder exists.
@@ -225,7 +226,7 @@ final class FeatureAssistant: ObservableObject {
                 return nil
             }
             guard store.root == folder else { return nil }
-            result.record(in: database())
+            result.record(in: project?.database)
             error = nil
             // Successful work is available in its document or result. Keep only failed and
             // stopped cards so their error or partial output remains readable in Tasks.
@@ -371,7 +372,7 @@ final class FeatureAssistant: ObservableObject {
     }
 
     private func relatedDocuments(_ query: String, limit: Int = 5) async -> String {
-        guard let db = database() else { return "" }
+        guard let db = project?.database else { return "" }
         let terms = query.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).filter { $0.count > 3 }.prefix(6).map(String.init)
         guard !terms.isEmpty else { return "" }
         let results = await db.search(query: terms.joined(separator: " OR "))

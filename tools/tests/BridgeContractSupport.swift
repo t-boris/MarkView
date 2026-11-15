@@ -7,7 +7,7 @@ import SwiftUI
 struct HeadingItem { let id: String; let level: Int; let text: String }
 struct DiscussionTurn: Equatable { var question: String; var answer: String }
 enum DiscussionStore { struct Live: Equatable { var question: String; var text: String; var status: String } }
-final class WindowTheme: ObservableObject { var firstPaintScript = ""; var webArguments: [String] = [] }
+final class WindowTheme: ObservableObject { var firstPaintScript = ""; var webArguments = WebThemeArguments(id: "", accent: nil, payload: "{}") }
 
 /// What the delegate was told, in order.
 final class RecordingDelegate: WebViewBridgeDelegate {

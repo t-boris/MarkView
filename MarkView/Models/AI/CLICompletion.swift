@@ -4,7 +4,7 @@ import Darwin
 import MarkViewCore
 #endif
 
-/// One-shot, non-interactive completion through the Claude Code or Codex CLI.
+/// One-shot, non-interactive completion through an assistant's CLI (`AssistantProvider.completion`) or over ACP.
 ///
 /// App features (selection actions, translation, diagrams, Recursive Insight) use
 /// this instead of calling a provider's HTTP API, so they run on whichever CLI and
@@ -116,24 +116,7 @@ enum CLICompletion {
     }
 
     /// What the assistant is doing during a run, for progress displays.
-    enum Activity: Sendable {
-        /// Reading a file (absolute or working-directory-relative path).
-        case read(String)
-        /// Searching files for a pattern.
-        case search(String)
-        /// Running a shell command (Codex reads files this way).
-        case run(String)
-        /// A web search query sent (Claude WebSearch, Codex --search).
-        case webSearch(String)
-        /// A web page fetched (Claude WebFetch).
-        case webFetch(String)
-        /// Reasoning before the next action.
-        case thinking
-        /// Characters of the answer produced so far.
-        case writing(Int)
-        /// The next piece of the answer as it is written (structured answers included).
-        case answerDelta(String)
-    }
+    typealias Activity = CompletionActivity
 
     /// Run one completion. `onDelta` receives text as it arrives — token by token
     /// for Claude, the whole answer at once for Codex (it does not stream).
@@ -179,69 +162,20 @@ enum CLICompletion {
                                               onDelta: onDelta, onActivity: onActivity)
         }
 
-        var arguments: [String]
-        var input = request.prompt
-        var schemaFile: URL?
-        switch tool {
-        case .antigravity:
-            // Print mode with NDJSON on stdin. The default permission mode cannot ask anyone, so writes are
-            // denied; `--sandbox` restricts its terminal. A schema answer arrives as `structured_output`.
-            arguments = ["--input-format", "stream-json", "--output-format", "stream-json", "--sandbox", "-p="]
-            arguments += tool.modelArgs(model)
-            if let effort = request.effort { arguments += ["--effort", effort] }
-            if let schema = request.jsonSchema { arguments += ["--json-schema", try jsonString(schema)] }
-            if request.readableFolder != nil {
-                arguments += request.extraReadableFolders.flatMap { ["--add-dir", $0.path] }
-            }
-            // No system-prompt flag: the instructions lead the prompt.
-            let text = request.systemPrompt.map { "<instructions>\n\($0)\n</instructions>\n\n\(request.prompt)" } ?? request.prompt
-            input = try jsonString(["event": "user", "message": ["content": text]]) + "\n"
-        case .cline, .copilot:
-            preconditionFailure("\(tool.displayName) runs through ACPAssistant")
-        case .claude:
-            arguments = ["-p", "--safe-mode", "--no-session-persistence",
-                         "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-                         "--tools", ((request.readableFolder == nil ? [] : ["Read", "Grep", "Glob"])
-                                        + (request.allowWeb ? ["WebSearch", "WebFetch"] : [])).joined(separator: ",")]
-            // Headless runs cannot ask for permission: web tools must be pre-approved, or the
-            // CLI refuses every search (and fetches outside its built-in allowlist).
-            if request.allowWeb { arguments += ["--allowedTools", "WebSearch,WebFetch"] }
-            // The project's linked folders (Task 59) and any further folders are readable too.
-            if let folder = request.readableFolder {
-                arguments += tool.additionalFolderArgs((LinkedFolders.load(project: folder).map(\.url) + request.extraReadableFolders)
-                    .filter { FileManager.default.fileExists(atPath: $0.path) })
-            }
-            arguments += tool.modelArgs(model)
-            if let effort = request.effort { arguments += ["--effort", effort] }
-            if let system = request.systemPrompt {
-                arguments += ["--system-prompt", system]
-            }
-            if let schema = request.jsonSchema {
-                arguments += ["--json-schema", try jsonString(schema)]
-            }
-        case .codex:
-            arguments = (request.allowWeb ? ["--search"] : []) + ["exec"]
-                + request.images.flatMap { ["-i", $0.path] } + ["--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
-                         "--json", "--color", "never", "-C", workDir.path]
-            arguments += tool.modelArgs(model)
-            if let effort = request.effort { arguments += ["-c", "model_reasoning_effort=\(effort)"] }
-            if let schema = request.jsonSchema {
-                let url = scratchDirectory().appendingPathComponent("schema-\(UUID().uuidString).json")
-                try Data(jsonString(strictSchema(schema)).utf8).write(to: url)
-                schemaFile = url
-                arguments += ["--output-schema", url.path]
-            }
-            arguments.append("-")  // read the prompt from stdin
-            // Codex has no system-prompt flag; the instructions lead the prompt.
-            if let system = request.systemPrompt {
-                input = "<instructions>\n\(system)\n</instructions>\n\n\(request.prompt)"
-            }
+        guard let completion = tool.provider.completion else {
+            throw Failure.failed(tool, "has no one-shot mode")
         }
-        defer { schemaFile.map { try? FileManager.default.removeItem(at: $0) } }
+        let launch = try completion.launch(CompletionLaunchRequest(
+            prompt: request.prompt, systemPrompt: request.systemPrompt, jsonSchema: request.jsonSchema,
+            readableFolder: request.readableFolder, extraReadableFolders: request.extraReadableFolders,
+            linkedFolders: { request.readableFolder.map { LinkedFolders.load(project: $0).map(\.url) } ?? [] },
+            allowWeb: request.allowWeb, images: request.images, effort: request.effort, model: model,
+            workDir: workDir, scratchDirectory: scratchDirectory))
+        defer { launch.schemaFile.map { try? FileManager.default.removeItem(at: $0) } }
 
-        let invocation = Invocation(tool: tool, executable: toolPath, arguments: arguments,
-                                    workDir: workDir, input: input, timeout: request.timeout,
-                                    onDelta: onDelta, onActivity: onActivity)
+        let invocation = Invocation(tool: tool, executable: toolPath, arguments: launch.arguments,
+                                    workDir: workDir, input: launch.input, timeout: request.timeout,
+                                    parser: completion.makeParser(), sink: CompletionSink(onDelta: onDelta, onActivity: onActivity))
         let raw = try await withTaskCancellationHandler {
             try await invocation.start()
         } onCancel: {
@@ -250,7 +184,7 @@ enum CLICompletion {
 
         var structured = raw.structured
         if request.jsonSchema != nil && structured == nil {
-            // Codex returns the schema-shaped answer as the message text.
+            // An assistant that cannot return a structured answer separately gives the schema-shaped answer as the message text.
             guard let data = raw.text.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) else {
                 throw Failure.invalidOutput(tool, "expected JSON, got \(raw.text.prefix(200))")
@@ -271,77 +205,34 @@ enum CLICompletion {
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
-
-    private static func jsonString(_ object: Any) throws -> String {
-        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-        return String(decoding: data, as: UTF8.self)
-    }
-
-    /// Codex (OpenAI structured outputs) accepts only strict schemas: every object
-    /// closes `additionalProperties` and lists all of its properties as required.
-    /// An open object with no declared properties cannot be expressed and becomes an
-    /// empty object — declare the keys you need in the schema itself.
-    static func strictSchema(_ schema: Any) -> Any {
-        if let array = schema as? [Any] { return array.map(strictSchema) }
-        guard var object = schema as? [String: Any] else { return schema }
-        for (key, value) in object where value is [String: Any] || value is [Any] {
-            object[key] = strictSchema(value)
-        }
-        if object["type"] as? String == "object" || object["properties"] != nil {
-            let properties = object["properties"] as? [String: Any] ?? [:]
-            object["properties"] = properties
-            object["additionalProperties"] = false
-            object["required"] = Array(properties.keys).sorted()
-        }
-        return object
-    }
 }
 
 // MARK: - Process plumbing
 
-/// One CLI process: feeds stdin, parses the event stream, enforces the timeout.
+/// One CLI process: feeds stdin, hands each JSON line of its output to the provider's parser, enforces the timeout.
 /// All mutable state is touched only on `queue`.
 private final class Invocation: @unchecked Sendable {
-    struct Output {
-        var text = ""
-        var structured: Any?
-        var inputTokens = 0
-        var outputTokens = 0
-        var costUSD: Double?
-        var errorMessage: String?
-        var refused: [(tool: String, input: String)] = []
-    }
-
     private let tool: CLITool
     private let spec: SubprocessSpec
     private let timeout: TimeInterval?
-    private let onDelta: (@Sendable (String) -> Void)?
-    private let onActivity: (@Sendable (CLICompletion.Activity) -> Void)?
-    /// Tool of the content block being streamed (Claude), so tool input is not counted as answer.
-    private var blockTool: String?
-    private var answerChars = 0
-    private var thinkingChars = 0
-    private var thinkingTicked = 0
-    /// Last Codex "error" event; fatal only if no answer arrives.
-    private var codexWarning: String?
+    private let parser: any CompletionStreamParser
+    private let sink: CompletionSink
     private let queue = DispatchQueue(label: "markview.cli-completion")
 
-    private var output = Output()
+    private var output = CompletionOutput()
     private var lineBuffer = ""
     private var stderrTail = ""
-    private var streamedText = ""
     private var cancelled = false
     private var child: SubprocessChild?
     private var ended: SubprocessExit?
-    private var continuation: CheckedContinuation<Output, Error>?
+    private var continuation: CheckedContinuation<CompletionOutput, Error>?
 
     init(tool: CLITool, executable: String, arguments: [String], workDir: URL,
-         input: String, timeout: TimeInterval?, onDelta: (@Sendable (String) -> Void)?,
-         onActivity: (@Sendable (CLICompletion.Activity) -> Void)?) {
+         input: String, timeout: TimeInterval?, parser: any CompletionStreamParser, sink: CompletionSink) {
         self.tool = tool
         self.timeout = timeout
-        self.onDelta = onDelta
-        self.onActivity = onActivity
+        self.parser = parser
+        self.sink = sink
         // The prompt goes to the child's standard input, which is then closed. The timeout ends the child's whole group
         // (a CLI's own helpers included), with two seconds between the request and the kill.
         self.spec = SubprocessSpec(
@@ -350,7 +241,7 @@ private final class Invocation: @unchecked Sendable {
             stdin: Data(input.utf8), timeout: timeout ?? 0, terminationGrace: 2)
     }
 
-    func start() async throws -> Output {
+    func start() async throws -> CompletionOutput {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { self.launch(continuation) }
         }
@@ -364,7 +255,7 @@ private final class Invocation: @unchecked Sendable {
     }
 
     /// Runs on `queue`, which is also where the child's output and its exit are delivered, in that order.
-    private func launch(_ continuation: CheckedContinuation<Output, Error>) {
+    private func launch(_ continuation: CheckedContinuation<CompletionOutput, Error>) {
         if cancelled { continuation.resume(throwing: CancellationError()); return }
         self.continuation = continuation
         do {
@@ -394,185 +285,8 @@ private final class Invocation: @unchecked Sendable {
             let line = String(lineBuffer[..<newline])
             lineBuffer = String(lineBuffer[lineBuffer.index(after: newline)...])
             guard let json = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any] else { continue }
-            if tool == .antigravity { handleAntigravity(json); continue }
-            guard let type = json["type"] as? String else { continue }
-            switch tool {
-            case .claude: handleClaude(type, json)
-            case .codex: handleCodex(type, json)
-            case .antigravity, .cline, .copilot: break   // ACPAssistant has its own connection
-            }
+            parser.handle(json, output: &output, sink: sink)
         }
-    }
-
-    /// `agy --output-format stream-json`: `step_update` events (answer text, tool steps) and one final `result`.
-    private func handleAntigravity(_ json: [String: Any]) {
-        switch json["event"] as? String {
-        case "step_update":
-            guard let step = json["step_update"] as? [String: Any] else { return }
-            switch step["step_type"] as? String {
-            case "agent_response":
-                guard let text = step["text_delta"] as? String, !text.isEmpty else { return }
-                streamedText += text
-                answerChars += text.count
-                onActivity?(.writing(answerChars))
-                onDelta?(text)
-            case "tool":
-                guard step["state"] as? String == "ACTIVE", let info = step["tool_info"] as? [String: Any] else { return }
-                let parameters = info["parameters"] as? [String: Any] ?? [:]
-                let value = { (keys: [String]) -> String in
-                    keys.lazy.compactMap { parameters[$0] as? String }.first
-                        ?? parameters.values.compactMap { $0 as? String }.first ?? ""
-                }
-                switch step["tool_name"] as? String {
-                case "view_file", "list_dir": onActivity?(.read(value(["AbsolutePath", "DirectoryPath", "Path"])))
-                case "grep_search", "find_by_name": onActivity?(.search(value(["Query", "Pattern"])))
-                case "run_command": onActivity?(.run(value(["CommandLine"])))
-                case "search_web": onActivity?(.webSearch(value(["query", "Query"])))
-                case "read_url_content": onActivity?(.webFetch(value(["Url", "URL"])))
-                default: break
-                }
-            default:
-                break
-            }
-        case "result":
-            guard let result = json["result"] as? [String: Any] else { return }
-            output.text = result["response"] as? String ?? streamedText
-            output.structured = result["structured_output"]
-            if let usage = result["usage"] as? [String: Any] {
-                output.inputTokens = (usage["input_tokens"] as? Int ?? 0) + (usage["cache_read_tokens"] as? Int ?? 0)
-                output.outputTokens = usage["output_tokens"] as? Int ?? 0
-            }
-            for denial in result["denied_actions"] as? [[String: Any]] ?? [] {
-                output.refused.append((denial["display_name"] as? String ?? "tool", denial["action"] as? String ?? ""))
-            }
-            if result["status"] as? String != "SUCCESS" {
-                output.errorMessage = result["error"] as? String ?? "the run ended with status \(result["status"] as? String ?? "unknown")"
-            }
-        default:
-            break
-        }
-    }
-
-    private func handleClaude(_ type: String, _ json: [String: Any]) {
-        switch type {
-        case "stream_event":
-            guard let event = json["event"] as? [String: Any] else { return }
-            if event["type"] as? String == "content_block_start" {
-                let block = event["content_block"] as? [String: Any]
-                blockTool = block?["type"] as? String == "tool_use" ? block?["name"] as? String : nil
-                if block?["type"] as? String == "thinking" { onActivity?(.thinking) }
-                return
-            }
-            guard event["type"] as? String == "content_block_delta",
-                  let delta = event["delta"] as? [String: Any] else { return }
-            if delta["type"] as? String == "thinking_delta", let text = delta["thinking"] as? String {
-                // A long reasoning phase would look like a hang: report it every few thousand characters.
-                thinkingChars += text.count
-                if thinkingChars - thinkingTicked >= 1500 {
-                    thinkingTicked = thinkingChars
-                    onActivity?(.thinking)
-                }
-            }
-            if delta["type"] as? String == "input_json_delta", let part = delta["partial_json"] as? String,
-               !["Read", "Grep", "Glob", "WebSearch", "WebFetch"].contains(blockTool ?? "") {
-                // Structured output arrives as the input of a final tool call.
-                answerChars += part.count
-                onActivity?(.writing(answerChars))
-                onActivity?(.answerDelta(part))
-            }
-            guard delta["type"] as? String == "text_delta", let text = delta["text"] as? String else { return }
-            streamedText += text
-            answerChars += text.count
-            onActivity?(.writing(answerChars))
-            onActivity?(.answerDelta(text))
-            onDelta?(text)
-        case "assistant":
-            let content = (json["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
-            for block in content where block["type"] as? String == "tool_use" {
-                let input = block["input"] as? [String: Any] ?? [:]
-                switch block["name"] as? String {
-                case "Read": if let path = input["file_path"] as? String { onActivity?(.read(path)) }
-                case "Grep", "Glob": onActivity?(.search(input["pattern"] as? String ?? ""))
-                case "WebSearch": if let query = input["query"] as? String { onActivity?(.webSearch(query)) }
-                case "WebFetch": if let url = input["url"] as? String { onActivity?(.webFetch(url)) }
-                default: break
-                }
-            }
-        case "result":
-            output.text = json["result"] as? String ?? streamedText
-            output.structured = json["structured_output"]
-            for denial in json["permission_denials"] as? [[String: Any]] ?? [] {
-                let input = denial["tool_input"] as? [String: Any] ?? [:]
-                output.refused.append((denial["tool_name"] as? String ?? "tool",
-                                       input["query"] as? String ?? input["url"] as? String ?? input["file_path"] as? String ?? ""))
-            }
-            output.costUSD = json["total_cost_usd"] as? Double
-            if let usage = json["usage"] as? [String: Any] {
-                output.inputTokens = (usage["input_tokens"] as? Int ?? 0)
-                    + (usage["cache_read_input_tokens"] as? Int ?? 0)
-                    + (usage["cache_creation_input_tokens"] as? Int ?? 0)
-                output.outputTokens = usage["output_tokens"] as? Int ?? 0
-            }
-            if json["is_error"] as? Bool == true {
-                output.errorMessage = output.text.isEmpty ? "the run reported an error" : output.text
-            }
-        default:
-            break
-        }
-    }
-
-    private func handleCodex(_ type: String, _ json: [String: Any]) {
-        switch type {
-        case "item.started":
-            guard let item = json["item"] as? [String: Any] else { return }
-            if item["type"] as? String == "command_execution", let command = item["command"] as? String {
-                onActivity?(.run(command))
-            } else if item["type"] as? String == "reasoning" {
-                onActivity?(.thinking)
-            } else if item["type"] as? String == "web_search", let query = item["query"] as? String, !query.isEmpty {
-                onActivity?(.webSearch(query))
-            }
-        case "item.completed":
-            if let item = json["item"] as? [String: Any], item["type"] as? String == "web_search",
-               let query = item["query"] as? String, !query.isEmpty {
-                onActivity?(.webSearch(query))   // listeners de-duplicate the started/completed pair
-                return
-            }
-            guard let item = json["item"] as? [String: Any],
-                  item["type"] as? String == "agent_message",
-                  let text = item["text"] as? String else { return }
-            output.text = text
-            onDelta?(text)
-        case "turn.completed":
-            if let usage = json["usage"] as? [String: Any] {
-                output.inputTokens = usage["input_tokens"] as? Int ?? 0
-                output.outputTokens = usage["output_tokens"] as? Int ?? 0
-            }
-        case "turn.failed":
-            let error = json["error"] as? [String: Any]
-            output.errorMessage = Self.readableCodexError(error?["message"] as? String ?? "the turn failed")
-        case "error":
-            // Also used for non-fatal warnings (e.g. missing model metadata); only
-            // `turn.failed` ends the run. Kept to explain an empty answer.
-            codexWarning = Self.readableCodexError(json["message"] as? String ?? "unknown error")
-        default:
-            break
-        }
-    }
-
-    /// Codex passes API errors on as raw JSON (`{"type":"error","status":400,"error":{"message":…}}`).
-    /// Keep the message, and point model problems at the place to choose another model.
-    private static func readableCodexError(_ raw: String) -> String {
-        var message = raw
-        if let data = raw.data(using: .utf8),
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let inner = (object["error"] as? [String: Any])?["message"] as? String {
-            message = inner
-        }
-        if message.localizedCaseInsensitiveContains("model") {
-            message += " Choose another Codex model in the toolbar's assistant menu (or DDE Settings)."
-        }
-        return message
     }
 
     private func finish() {
@@ -589,7 +303,7 @@ private final class Invocation: @unchecked Sendable {
             continuation.resume(throwing: CLICompletion.Failure.failed(
                 tool, "exit code \(status)" + (detail.isEmpty ? "" : " — \(detail.suffix(600))")))
         } else if output.text.isEmpty && output.structured == nil {
-            continuation.resume(throwing: codexWarning.map { CLICompletion.Failure.failed(tool, $0) }
+            continuation.resume(throwing: parser.warning.map { CLICompletion.Failure.failed(tool, $0) }
                                 ?? CLICompletion.Failure.invalidOutput(tool, "empty answer"))
         } else {
             continuation.resume(returning: output)

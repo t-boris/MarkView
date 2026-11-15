@@ -1168,7 +1168,7 @@ enum PrototypeAI {
         init(structured: Any?, mode: PrototypeFiles.Mode = .requirements, sourceExists: (String) -> Bool = { _ in true }) throws {
             guard let object = structured as? [String: Any],
                   let raw = object["screens"] as? [[String: Any]], !raw.isEmpty else {
-                throw CLICompletion.Failure.invalidOutput(.claude, "the plan has no screens")
+                throw CLICompletion.Failure.invalidOutput(AssistantProviderRegistry.defaultTool, "the plan has no screens")
             }
             var seen = Set<String>()
             var screens: [PlannedScreen] = []
@@ -2071,7 +2071,7 @@ enum PrototypeAI {
                                     prompt: specPrompt(manifest: manifest, siteRelative: relative, language: language),
                                     schema: nil, label: "prototype:spec", record: record, stage: stage)
         let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { throw CLICompletion.Failure.invalidOutput(.claude, "the specification is empty") }
+        guard !text.isEmpty else { throw CLICompletion.Failure.invalidOutput(AssistantProviderRegistry.defaultTool, "the specification is empty") }
         return text
     }
 

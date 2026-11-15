@@ -99,3 +99,10 @@ if CLIToolLocator.resolve(.antigravity) != nil {
 
 print(failures == 0 ? "All project AI choice checks passed" : "\(failures) check(s) failed")
 exit(failures == 0 ? 0 : 1)
+
+// The suite names the assistants by their stored identity; the app names none outside its providers.
+extension CLITool {
+    static var claude: CLITool { CLITool(rawValue: "claude")! }
+    static var codex: CLITool { CLITool(rawValue: "codex")! }
+    static var antigravity: CLITool { CLITool(rawValue: "antigravity")! }
+}

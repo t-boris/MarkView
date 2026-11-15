@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "id": "cockpit",
+  "name": "Cockpit",
+  "symbol": "airplane",
+  "summary": "The Copilot Cockpit and the agents, nothing else",
+  "panels": { "files": false, "center": true, "right": false, "agents": true },
+  "tool": "cockpit"
+}

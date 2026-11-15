@@ -7,8 +7,7 @@ import WebKit
 // receive each unchanged and run nothing. Recorders replace the page's own functions; `window.__evil` counts code that ran.
 // Run through tools/tests/js-call-web-tests.sh (argument 1: terminal.html, argument 2: a folder for the fixture files).
 
-// The terminal's unrelated assistant/dictation dependencies are not exercised here.
-enum CLITool { case claude, codex, cline, copilot, antigravity }
+// The terminal's unrelated dictation dependency is not exercised here.
 final class WhisperClient {}
 
 setvbuf(stdout, nil, _IONBF, 0)
@@ -77,13 +76,13 @@ DispatchQueue.global().asyncAfter(deadline: .now() + 120) {
         return 'ok';
         """)
 
-        // The window theme: appearance id and accent.
+        // The window theme: appearance id, accent and the theme's data (a JSON text the page receives parsed).
         for (name, value) in hostile {
-            session.applyTheme(arguments: [value, value], firstPaint: "")
+            session.applyTheme(arguments: WebThemeArguments(id: value, accent: value, payload: #"{"id":"x","note":"\#(value.count)"}"#), firstPaint: "")
             await pause(0.3)
             let result = await page("""
             const got = window.__spy; window.__spy = [];
-            return got.length === 1 && got[0].name === 'mvSetTheme' && got[0].args.length === 2 && got[0].args[0] === value && got[0].args[1] === value
+            return got.length === 1 && got[0].name === 'mvSetTheme' && got[0].args.length === 3 && got[0].args[0] === value && got[0].args[1] === value && got[0].args[2].id === 'x'
               ? 'ok' : 'got ' + JSON.stringify(got).slice(0, 200);
             """, ["value": value])
             check(result == "ok", "applyTheme sends \(name) unchanged", result)

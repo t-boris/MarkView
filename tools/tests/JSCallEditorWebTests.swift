@@ -137,7 +137,7 @@ for item in hostile {
     bridge.loadStructuredContent(text, fileType: text, documentID: documentID, into: web) {}
     bridge.setDocumentBase(url, in: web)
     bridge.scrollToHeading(text, in: web)
-    bridge.setTheme([text, text], in: web)
+    bridge.setTheme(WebThemeArguments(id: text, accent: text, payload: objectJSON), in: web)
     bridge.updateInsightSection(sessionId: text, sectionId: text, htmlChunk: text, into: web)
     bridge.setInsightStatus(sessionId: text, message: text, phase: text, into: web)
     bridge.setInsightError(sessionId: text, message: text, retryable: true, into: web)
@@ -161,7 +161,7 @@ for item in hostile {
         docArgs, ["name": "setStructuredContent", "args": [text, text]],
         ["name": "setDocumentBase", "args": [base]],
         ["name": "scrollToHeading", "args": [text]],
-        ["name": "setTheme", "args": [text, text]],
+        ["name": "setTheme", "args": [text, text, parsed]],
         ["name": "updateInsightSection", "args": [text, text, text]],
         ["name": "setInsightStatus", "args": [text, text, text]],
         ["name": "setInsightError", "args": [text, text, true]],

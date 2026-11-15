@@ -43,17 +43,17 @@ struct DiscussionThreadView: NSViewRepresentable {
         private var ready = false
         private var sentTurns: [DiscussionTurn]?
         private var sentLive: DiscussionStore.Live??
-        private var sentTheme: [String]?
-        private var wanted: (turns: [DiscussionTurn], live: DiscussionStore.Live?, theme: [String])?
+        private var sentTheme: WebThemeArguments?
+        private var wanted: (turns: [DiscussionTurn], live: DiscussionStore.Live?, theme: WebThemeArguments)?
 
-        func update(turns: [DiscussionTurn], live: DiscussionStore.Live?, theme: [String]) {
+        func update(turns: [DiscussionTurn], live: DiscussionStore.Live?, theme: WebThemeArguments) {
             wanted = (turns, live, theme)
             flush()
         }
 
         private func flush() {
             guard ready, let view, let wanted else { return }
-            if sentTheme != wanted.theme { sentTheme = wanted.theme; call("window.mvSetTheme", wanted.theme, on: view) }
+            if sentTheme != wanted.theme { sentTheme = wanted.theme; call("window.mvSetTheme", wanted.theme.list, on: view) }
             if sentTurns != wanted.turns {
                 sentTurns = wanted.turns
                 // The page takes the turns as one JSON text and parses it itself.

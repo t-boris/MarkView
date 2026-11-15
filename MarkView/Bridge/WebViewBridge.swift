@@ -436,9 +436,9 @@ class WebViewBridge: NSObject {
     }
 
     /// Set the theme for the editor
-    /// `arguments` come from `WindowTheme.webArguments`: the appearance id and the accent (empty: the appearance's own).
-    func setTheme(_ arguments: [String], in webView: WKWebView) {
-        run(JS.call("window.setTheme", args: arguments), what: "setting the theme", in: webView)
+    /// `arguments` come from `WindowTheme.webArguments`: the theme id, the accent or null, and the theme's data.
+    func setTheme(_ arguments: WebThemeArguments, in webView: WKWebView) {
+        run(JS.call("window.setTheme", args: arguments.list), what: "setting the theme", in: webView)
     }
 
     /// Scroll to a specific heading.

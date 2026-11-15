@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// The theme picker of a window: System and the presets (Classic while it is active), and the accent of the
-/// chosen appearance. Opened from the header button and from View > Theme (Shift-Cmd-T). Everything it changes
-/// belongs to the window that opened it.
+/// The theme picker of a window: System and the themes of the catalog (Classic while it is active), the accent of the
+/// chosen appearance, and what is wrong with the themes (files ignored, a chosen theme that is gone). Opened from the header
+/// button and from View > Theme (Shift-Cmd-T). Everything it changes belongs to the window that opened it.
 struct ThemePickerView: View {
     @EnvironmentObject var theme: WindowTheme
     @Environment(\.palette) private var palette
@@ -21,10 +21,11 @@ struct ThemePickerView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Theme").uiFont(size: 11, weight: .semibold).foregroundColor(palette.textDim).textCase(.uppercase)
             VStack(spacing: 2) {
-                ForEach(AppTheme.pickerChoices(current: theme.settings.theme), id: \.self) { choice in
+                ForEach(theme.catalog.library.choices(current: theme.settings.theme)) { choice in
                     row(choice)
                 }
             }
+            ThemeNotices(catalog: theme.catalog)
             Divider().overlay(palette.border)
             accentSection
             Divider().overlay(palette.border)
@@ -41,16 +42,18 @@ struct ThemePickerView: View {
         .padding(14)
         .frame(width: 320)
         .background(palette.bgSidebar)
+        // A theme file added while the app runs shows up the next time the picker opens.
+        .task { await theme.catalog.reload() }
     }
 
-    private func row(_ choice: AppTheme) -> some View {
-        let selected = theme.settings.theme == choice
-        let preview = theme.previewPalette(for: choice)
-        return Button { theme.select(choice) } label: {
+    private func row(_ choice: ThemeLibrary.Choice) -> some View {
+        let selected = theme.settings.theme == choice.theme
+        let preview = theme.previewPalette(for: choice.theme)
+        return Button { theme.select(choice.theme) } label: {
             HStack(spacing: 10) {
                 ThemePreview(palette: preview)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(choice.displayName).uiFont(size: 12, weight: .medium).foregroundColor(palette.textBright)
+                    Text(choice.name).uiFont(size: 12, weight: .medium).foregroundColor(palette.textBright)
                     Text(choice.summary).uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1)
                 }
                 Spacer(minLength: 4)
@@ -62,9 +65,11 @@ struct ThemePickerView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(choice.displayName) theme")
+        .accessibilityLabel("\(choice.name) theme")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
+
+    private var themeName: String { theme.catalog.library.name(of: theme.settings.theme) }
 
     private var accentSection: some View {
         let override = theme.settings.activeOverride
@@ -76,10 +81,10 @@ struct ThemePickerView: View {
                     .buttonStyle(.plain).uiFont(size: 11)
                     .foregroundColor(override == nil ? palette.textDim : palette.blue)
                     .disabled(override == nil)
-                    .help("Use the accent of \(theme.settings.theme.displayName)")
+                    .help("Use the accent of \(themeName)")
             }
             HStack(spacing: 7) {
-                swatch(name: "\(theme.settings.theme.displayName) default",
+                swatch(name: "\(themeName) default",
                        color: theme.defaultAccent, selected: override == nil) { theme.setAccent(nil) }
                 ForEach(Self.swatches, id: \.name) { item in
                     swatch(name: item.name, color: item.color, selected: override == item.color) { theme.setAccent(item.color) }
@@ -105,6 +110,43 @@ struct ThemePickerView: View {
         .help(name)
         .accessibilityLabel("\(name) accent")
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// What is wrong with the themes, said where a person picks one: theme files that could not be used and why, a theme that is
+/// chosen in some window but gone, and the way to the folder for their own themes.
+private struct ThemeNotices: View {
+    @ObservedObject var catalog: ThemeCatalog
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(catalog.missing, id: \.self) { id in
+                Text("Theme “\(id)” was not found; Classic Dark is shown instead.")
+                    .uiFont(size: 10).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            let ignored = catalog.library.ignored
+            if !ignored.isEmpty {
+                Text(ignored.count == 1 ? "1 custom theme ignored" : "\(ignored.count) custom themes ignored")
+                    .uiFont(size: 10, weight: .semibold).foregroundColor(palette.orange)
+                ForEach(ignored) { item in
+                    Text("\(item.file): \(item.reason)")
+                        .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+            }
+            Button("Open themes folder") { Self.revealFolder() }
+                .buttonStyle(.plain).uiFont(size: 10).foregroundColor(palette.blue)
+                .help("Put your own theme files (JSON) here")
+        }
+        .padding(.top, 2)
+    }
+
+    /// The folder for a person's own themes, made when it is first asked for; nothing else is ever written there.
+    private static func revealFolder() {
+        let folder = ThemeCatalog.userFolder
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(folder)
     }
 }
 

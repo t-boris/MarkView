@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "id": "writing",
+  "name": "Writing",
+  "symbol": "doc.text",
+  "summary": "The files, the open document and its contents",
+  "panels": { "files": true, "center": true, "right": true, "agents": false },
+  "left": "files",
+  "right": "contents"
+}

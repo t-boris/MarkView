@@ -53,21 +53,11 @@ check(tools.first { $0.name == "markview_propose_workflow" }!.description.contai
 check(ProjectAgentTools.guideTopics.contains("workflow-format") && ProjectAgentTools.guide("workflow-format") == WorkflowFormatGuide.text, "the workflow format has a guide topic")
 check(ProjectAgentTools.guide("workflow").contains("workflow-format") && ProjectAgentTools.guide("workflow").contains("markview_get_workflow"), "the feature workflow guide points to the workflow file")
 
-// Every assistant that MarkView can start gets the project tools registered (Connect Agents): the registration names it.
-let assistantsSource = (try? String(contentsOfFile: "MarkView/Models/AI/AIAssistants.swift", encoding: .utf8)) ?? ""
-let registrationSource = (try? String(contentsOfFile: "MarkView/Models/Browser/AgentBrowserRegistration.swift", encoding: .utf8)) ?? ""
-let assistantNames: [String] = {
-    guard let start = assistantsSource.range(of: "enum CLITool: String, CaseIterable {"), let end = assistantsSource.range(of: "var displayName", range: start.upperBound..<assistantsSource.endIndex) else { return [] }
-    return assistantsSource[start.upperBound..<end.lowerBound].split(separator: "\n").compactMap { line in
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        return trimmed.hasPrefix("case ") ? String(trimmed.dropFirst(5)) : nil
-    }
-}()
-check(assistantNames.count >= 5 && Set(assistantNames).isSuperset(of: ["claude", "codex", "cline", "copilot", "antigravity"]), "the assistants that MarkView knows are read from the code", "\(assistantNames)")
-for name in assistantNames {
-    check(registrationSource.contains("resolve(.\(name))"), "Connect Agents registers the MarkView tools for \(name)")
+// Every assistant that MarkView can start gets the project tools registered (Connect Agents): its provider says how.
+check(CLITool.allCases.count >= 5, "the assistants that MarkView knows come from the provider list")
+for tool in CLITool.allCases {
+    check(tool.provider.mcp != nil, "Connect Agents registers the MarkView tools for \(tool.rawValue)")
 }
-check(registrationSource.contains("Server(name: ProjectAgentTools.serverName") && registrationSource.contains("for server in servers"), "the project server is registered like the browser server, for every assistant in turn")
 check(tools.first { $0.name == "markview_create_bug" }!.properties["regression_of"] != nil && tools.first { $0.name == "markview_update_bug" }!.properties["regression_of"] != nil,
       "a bug report can name the work it is a regression of")
 check(tools.first { $0.name == "markview_create_bug" }!.properties["related"] != nil && tools.first { $0.name == "markview_create_feature" }!.properties["related"] != nil,

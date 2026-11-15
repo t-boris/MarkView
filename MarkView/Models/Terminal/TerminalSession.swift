@@ -17,57 +17,6 @@ protocol TerminalConnection: AnyObject {
     func stop()
 }
 
-/// What a terminal in the AI panel runs: an assistant inside the user's shell, or the
-/// shell alone.
-enum TerminalProfile: String, CaseIterable, Identifiable {
-    case claude, codex, cline, copilot, antigravity, shell
-
-    var id: String { rawValue }
-
-    init(_ tool: CLITool) {
-        switch tool {
-        case .claude: self = .claude
-        case .codex: self = .codex
-        case .cline: self = .cline
-        case .copilot: self = .copilot
-        case .antigravity: self = .antigravity
-        }
-    }
-
-    var tool: CLITool? {
-        switch self {
-        case .claude: return .claude
-        case .codex: return .codex
-        case .cline: return .cline
-        case .copilot: return .copilot
-        case .antigravity: return .antigravity
-        case .shell: return nil
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .claude: return "Claude Code"
-        case .codex: return "Codex"
-        case .cline: return "Cline"
-        case .copilot: return "Copilot"
-        case .antigravity: return "Antigravity"
-        case .shell: return "Shell"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .claude: return "sparkle"
-        case .codex: return "chevron.left.forwardslash.chevron.right"
-        case .cline: return "circle.hexagongrid"
-        case .copilot: return "airplane"
-        case .antigravity: return "wand.and.stars"
-        case .shell: return "terminal"
-        }
-    }
-}
-
 /// One embedded terminal: a login shell on a pseudo-terminal (PTY) that Swift owns,
 /// drawn by xterm.js in its own web view (`Resources/Editor/terminal.html`).
 ///
@@ -205,7 +154,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             guard let self else { return }
             pageReady = true
             resize(cols: message.payload.cols, rows: message.payload.rows)
-            callPage("window.mvSetTheme", themeArguments)
+            if let themeArguments { callPage("window.mvSetTheme", themeArguments.list) }
             applyFontScale()
             if masterFD < 0 && (operationCommand == nil || !operationStartedOnce) { start() }
             else { flush() }
@@ -270,17 +219,17 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     }
 
     /// The theme of the window this terminal is shown in, as the arguments of the page's `mvSetTheme`
-    /// (`WindowTheme.webArguments`); kept so the page gets it again when it reloads.
-    private var themeArguments = ["classic-dark", ""]
+    /// (`WindowTheme.webArguments`); kept so the page gets it again when it reloads. Nil until the view has given it.
+    private var themeArguments: WebThemeArguments?
     /// The same theme as <html> attributes, set at document start so a reload paints it from the first frame.
     private var themeFirstPaint = ""
 
     /// `arguments` and `firstPaint` are `WindowTheme.webArguments` and `WindowTheme.firstPaintScript`.
-    func applyTheme(arguments: [String], firstPaint: String) {
+    func applyTheme(arguments: WebThemeArguments, firstPaint: String) {
         themeArguments = arguments
         themeFirstPaint = firstPaint
         guard pageReady else { return }
-        callPage("window.mvSetTheme", themeArguments)
+        callPage("window.mvSetTheme", arguments.list)
     }
 
     /// Calls a function of the terminal page when it has defined it (`JS.call`: the arguments are JSON, never script text).

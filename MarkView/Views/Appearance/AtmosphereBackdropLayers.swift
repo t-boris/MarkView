@@ -366,3 +366,15 @@ extension BackdropBuilder {
         return field
     }
 }
+
+// MARK: - Registrations (AR-34)
+
+final class DeepSeaBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("deepsea", title: "Deep Sea", symbol: "water.waves", order: 120)
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { builder.deepSea() }
+}
+
+final class WarpBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("warp", title: "Warp", symbol: "moon.stars", order: 130)
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { builder.warp() }
+}
