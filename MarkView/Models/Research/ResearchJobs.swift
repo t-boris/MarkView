@@ -299,7 +299,7 @@ final class JobHandle {
         let started = Date()
         update("Thinking")
         do {
-            let result = try await CLICompletion.run(request, onDelta: { log.append(text: $0); onText?($0) }, onActivity: { [weak self] activity in
+            let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "research", onDelta: { log.append(text: $0); onText?($0) }, onActivity: { [weak self] activity in
                 switch activity {
                 case .writing, .answerDelta: break
                 // A tool call or a pause ends the text block the agent was writing, and the CLI hands over the next block

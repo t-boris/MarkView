@@ -2110,6 +2110,8 @@
         "MarkView/Models/Research/ResearchDocument.swift",
         "MarkView/Models/Research/ResearchMapDocument.swift",
         "MarkView/Models/Research/ResearchMapTranslation.swift",
+        "MarkView/Models/AI/AIOperation.swift",
+        "tools/tests/AIOperationStub.swift",
         "tools/tests/ResearchMapTranslationTests.swift",
         "tools/tests/research-map-translation-tests.sh"
       ]

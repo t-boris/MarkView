@@ -12,6 +12,4 @@
 3 MarkView/Models/QA/QAModel.swift
 1 MarkView/Models/QA/QARunAssistant.swift
 1 MarkView/Models/QA/QARunModel.swift
-1 MarkView/Models/Research/ResearchJobs.swift
-1 MarkView/Models/Research/ResearchMapOutputJobs.swift
 3 MarkView/Models/Workspace/WorkspaceManager.swift
