@@ -887,7 +887,7 @@ struct FileTreeView: View {
                 }
                 Button { workspaceManager.codeXRay.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
                 Button { workspaceManager.insight.start(at: url) } label: { Label("Recursive Insight", systemImage: "sparkles") }
-                Button { workspaceManager.openDiscussion(about: url) } label: { Label("Discuss…", systemImage: "bubble.left.and.text.bubble.right") }
+                Button { workspaceManager.toolTabs.discussions.discuss(about: url) } label: { Label("Discuss…", systemImage: "bubble.left.and.text.bubble.right") }
                 Button { workspaceManager.startResearch(fromFolder: url) } label: { Label("New Research from This Folder…", systemImage: "books.vertical") }
                 Divider()
             }
@@ -941,7 +941,7 @@ struct FileTreeView: View {
                 if FileType.isHTML(url) {
                     Button { workspaceManager.openHTMLInBrowser(url) } label: { Label("Open in Browser", systemImage: "safari") }
                 }
-                Button { workspaceManager.openDiscussion(about: url) } label: { Label("Discuss This File…", systemImage: "bubble.left.and.text.bubble.right") }
+                Button { workspaceManager.toolTabs.discussions.discuss(about: url) } label: { Label("Discuss This File…", systemImage: "bubble.left.and.text.bubble.right") }
                 if FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {
                     Button { workspaceManager.insight.start(at: url) } label: { Label("Recursive Insight on This File", systemImage: "sparkles") }
                 }

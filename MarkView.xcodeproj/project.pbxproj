@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		6B3BFF95DB1F6DF858DD70A3 /* ToolOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39AAA206B981629959A05EF /* ToolOpener.swift */; };
+		06D9791421FE64C166AF8B4B /* PrototypeStudioHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 862321C68A3C85F6ACC3EF95 /* PrototypeStudioHost.swift */; };
+		B3B98FCD9E746AE775C917BC /* CockpitHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ED50FEDD6B6073D0783735F /* CockpitHost.swift */; };
+		3A274DE1D2EF82281A81250F /* UIStudioHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F0435619DBCD33AE9B3CB0 /* UIStudioHost.swift */; };
+		D0771C0E6BF242F87D4D6CBA /* DeploymentsHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67A74C82B85BED9820E113A2 /* DeploymentsHost.swift */; };
+		1A8F98D2E9858AE75B9782D7 /* DiscussionsHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA69395ECC55956C2E0E81E2 /* DiscussionsHost.swift */; };
 		8E839803A7A84BA7729AD710 /* ToolTabsRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0093EAE451E71D060AF63504 /* ToolTabsRouter.swift */; };
 		E10000000000000000000001 /* MarkViewCore in Frameworks */ = {isa = PBXBuildFile; productRef = E10000000000000000000002 /* MarkViewCore */; };
 		00CA6729A7DBFA482D057D61 /* RemoteRelaySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D8F327CF62CE717D060C3A /* RemoteRelaySettings.swift */; };
@@ -507,6 +513,12 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		D39AAA206B981629959A05EF /* ToolOpener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolOpener.swift; sourceTree = "<group>"; };
+		862321C68A3C85F6ACC3EF95 /* PrototypeStudioHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeStudioHost.swift; sourceTree = "<group>"; };
+		5ED50FEDD6B6073D0783735F /* CockpitHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitHost.swift; sourceTree = "<group>"; };
+		A2F0435619DBCD33AE9B3CB0 /* UIStudioHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioHost.swift; sourceTree = "<group>"; };
+		67A74C82B85BED9820E113A2 /* DeploymentsHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentsHost.swift; sourceTree = "<group>"; };
+		DA69395ECC55956C2E0E81E2 /* DiscussionsHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscussionsHost.swift; sourceTree = "<group>"; };
 		0093EAE451E71D060AF63504 /* ToolTabsRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolTabsRouter.swift; sourceTree = "<group>"; };
 		0014EBC9E004A6161D90A834 /* HandoffPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandoffPrompt.swift; sourceTree = "<group>"; };
 		0052CFE2D3165B88302550CA /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
@@ -1311,6 +1323,7 @@
 				2F86B1A719A8853CEF5BFE1F /* CockpitAgentRegistry.swift */,
 				EAC55BB9645FF3D3E1035CF4 /* CockpitChild.swift */,
 				7E4B94CC4460A1C2CAFC5FBC /* CockpitExecution.swift */,
+				5ED50FEDD6B6073D0783735F /* CockpitHost.swift */,
 				BC4F236A394AFAFFCD86CAED /* CockpitHostBridge.swift */,
 				051ADBF5216DE057EBA60936 /* CockpitInstruments.swift */,
 				3E97081DC24AFCF5A608D8C2 /* CockpitNotifier.swift */,
@@ -1343,6 +1356,7 @@
 				C1D927D442B92D66E708016C /* DeploymentLogs.swift */,
 				03C366A9013B412C265A07FA /* DeploymentModels.swift */,
 				556AB9035BEE3C05957DCF70 /* DeploymentPrompt.swift */,
+				67A74C82B85BED9820E113A2 /* DeploymentsHost.swift */,
 				11A52E34064E19CA3B2691E2 /* DeploymentStore+Databases.swift */,
 				847DBF92043DDF1F0644B95D /* DeploymentStore.swift */,
 			);
@@ -1364,6 +1378,7 @@
 			children = (
 				2AC5CF1253DBEECE6E44967D /* Discussion.swift */,
 				41D2D4F1EA4F7347A199FD69 /* DiscussionPrompt.swift */,
+				DA69395ECC55956C2E0E81E2 /* DiscussionsHost.swift */,
 			);
 			path = Discussion;
 			sourceTree = "<group>";
@@ -1484,6 +1499,7 @@
 				B4339820041C1C91ED2D72E2 /* PrototypeRuntime.swift */,
 				CBCBDE4DDD0932A3FC8963D1 /* PrototypeSession.swift */,
 				EC27A7ECE02BDB6EE3D62893 /* PrototypeShellStructure.swift */,
+				862321C68A3C85F6ACC3EF95 /* PrototypeStudioHost.swift */,
 				3CC5F8104938A95CFB4F2BC7 /* PrototypeStyles.swift */,
 				6B6BEBAADD6CD8BA0A85088E /* PrototypeTailwind.swift */,
 				7B32B9655FF8C1B4211E6028 /* PrototypeThemes.swift */,
@@ -1590,6 +1606,7 @@
 				D3441FC520D23442EBB84DD6 /* UIStudioGateway.swift */,
 				EC9349C52AD7BD9E3B5DDA14 /* UIStudioGatewayStreams.swift */,
 				8713CD727E78F36BD7A6CBBF /* UIStudioGraphQL.swift */,
+				A2F0435619DBCD33AE9B3CB0 /* UIStudioHost.swift */,
 				48C8A2BC6E7E6F820F6B3C5C /* UIStudioJSON.swift */,
 				1128F0C9820E78B348DCCB79 /* UIStudioLog.swift */,
 				5AA953CE3F790CC504854A3A /* UIStudioModels.swift */,
@@ -1626,6 +1643,7 @@
 				B7A94AF6F62E56BA9F174E2E /* EditorWindowPrefs.swift */,
 				7931D7DB40181B2F5E656CF1 /* EditorPage.swift */,
 				22188BA397123474A73BE844 /* ExcludedFolders.swift */,
+				D39AAA206B981629959A05EF /* ToolOpener.swift */,
 				A6E0167483A13431C669BD03 /* ToolRegistry.swift */,
 				F073514C1DB09270B01D4EBE /* FileBrowserModel.swift */,
 				A5375DCBA15D7800DBB3F459 /* FileInfo.swift */,
@@ -2820,6 +2838,12 @@
 				F61A761791EEA18B91A7CADC /* WorkflowTemplatesSettings.swift in Sources */,
 				328FC4CBEA1A2B0DAC2E2EF9 /* WorkflowTransitionStory.swift in Sources */,
 				8E839803A7A84BA7729AD710 /* ToolTabsRouter.swift in Sources */,
+				1A8F98D2E9858AE75B9782D7 /* DiscussionsHost.swift in Sources */,
+				D0771C0E6BF242F87D4D6CBA /* DeploymentsHost.swift in Sources */,
+				3A274DE1D2EF82281A81250F /* UIStudioHost.swift in Sources */,
+				B3B98FCD9E746AE775C917BC /* CockpitHost.swift in Sources */,
+				06D9791421FE64C166AF8B4B /* PrototypeStudioHost.swift in Sources */,
+				6B3BFF95DB1F6DF858DD70A3 /* ToolOpener.swift in Sources */,
 				EFD0357B1249A5D014B893E4 /* WorkspaceManager.swift in Sources */,
 				8509AB727B59B4DD5CD83A56 /* XRayCluster.swift in Sources */,
 				4095BC8ADAD6AE04D6A7D406 /* XRayContent.swift in Sources */,

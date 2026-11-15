@@ -53,11 +53,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost, Tool
     // MARK: - Tool tabs
 
     /// The tools of this window: the tab of each tool of `ToolRegistry`, and the stores that need wiring to the project (`AR-14` step 10).
-    private(set) lazy var toolTabs: ToolTabsRouter = {
-        let router = ToolTabsRouter(project: project, tabs: tabs, layout: layout, chrome: chrome, features: features, assistants: terminals)
-        router.window = self
-        return router
-    }()
+    private(set) lazy var toolTabs = ToolTabsRouter(window: self, project: project, tabs: tabs, layout: layout, chrome: chrome,
+                                                    requests: requests, features: features, assistants: terminals)
 
     /// Opens the tab of a tool of `ToolRegistry`, or returns to it.
     func openTool(_ id: ToolID) { toolTabs.open(id) }
@@ -110,7 +107,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost, Tool
     }
     /// The Git state of this window. Views that show it observe this object, not the manager (`AR-15`).
     let gitClient = GitClient()
-    private var discussionTask: Task<Void, Never>?
     /// Pull requests, issues and Actions of the folder's GitHub repository.
     let gitHub = GitHubStore()
     /// Feature workspaces of the folder (docs/features/<slug>/…).
@@ -972,8 +968,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost, Tool
                 return session
             },
             features: { [weak self] in self?.features },
-            deployments: { [weak self] in self?.toolTabs.deployments },
-            discussions: { [weak self] in self?.toolTabs.discussions }))
+            deployments: { [weak self] in self?.toolTabs.deployments.store },
+            discussions: { [weak self] in self?.toolTabs.discussions.store }))
     }
 
     /// The window's browser tabs, in tab order.
@@ -1495,200 +1491,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost, Tool
         }
         tabs.appendTab(tab, activate: activate)
         return session
-    }
-
-    // MARK: - Prototype Studio
-
-
-    /// Opens the creator sheet of Prototype Studio for requirements; `.code` ("New Prototype from Code…") opens UI Studio
-    /// on the real application instead of generating a reconstruction (REQ-001).
-    func openPrototypeCreator(mode: PrototypeFiles.Mode) {
-        guard mode == .requirements else { return openTool(.uiStudio) }
-        requests.prototypeCreatorMode = mode
-        requests.showPrototypeCreator = true
-    }
-
-    /// A prototype saved in the open project, for the lists in the menu and the creator sheet.
-    struct SavedPrototype: Identifiable {
-        let slug: String
-        let title: String
-        let version: Int
-        let approved: Bool
-        /// A reconstruction of existing code, saved before UI Studio replaced them: history, not the live interface.
-        var historical = false
-        var id: String { slug }
-        /// "Support Desk · v3 · approved", "Admin · v2 · historical reconstruction"
-        var label: String {
-            "\(title) · v\(version)" + (approved ? " · approved" : "") + (historical ? " · historical reconstruction" : "")
-        }
-    }
-
-    /// Prototypes saved in the open project, newest first.
-    func savedPrototypes() -> [SavedPrototype] {
-        guard let root = rootNode?.url else { return [] }
-        return PrototypeFiles.existingSlugs(root: root).compactMap { slug -> (SavedPrototype, Date)? in
-            let folder = PrototypeFiles.folder(root: root, slug: slug)
-            guard let manifest = PrototypeFiles.loadManifest(folder) else { return nil }
-            let date = manifest.history.last?.date ?? .distantPast
-            return (SavedPrototype(slug: slug, title: manifest.title, version: manifest.version, approved: manifest.approved,
-                                   historical: manifest.mode == .code), date)
-        }
-        .sorted { $0.1 > $1.1 }.map(\.0)
-    }
-
-    /// A new prototype from `sources` (project-relative files or folders) and the reviewer's brief; it builds at
-    /// once. In `.code` mode the sources are existing code and `codeScope` lists the web apps detected in them,
-    /// as hints for the planner.
-    func newPrototype(title: String, brief: String, sources: [String], mode: PrototypeFiles.Mode = .requirements,
-                      codeScope: PrototypeAI.CodeScope = PrototypeAI.CodeScope()) {
-        // Existing code is not reconstructed any more: it opens in UI Studio (DEC-002, DEC-005).
-        guard mode == .requirements else { return openTool(.uiStudio) }
-        guard let root = rootNode?.url else { return }
-        let session = PrototypeSession(root: root, title: title, brief: brief, sources: sources, mode: mode)
-        session.codeScope = codeScope
-        openPrototype(session)
-    }
-
-    /// Discussions → ask: the project's assistant reads the project (read-only) and answers inside the conversation,
-    /// in the form the question needs. The answer streams into `discussions.live`, then becomes a turn.
-    func askDiscussion(_ slug: String, question: String) {
-        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let root = rootNode?.url, !text.isEmpty, toolTabs.discussions.asking == nil,
-              let discussion = toolTabs.discussions.discussions.first(where: { $0.slug == slug }) else { return }
-        toolTabs.discussions.asking = slug
-        toolTabs.discussions.live = DiscussionStore.Live(question: text)
-        toolTabs.discussions.lastError = nil
-        let scope = discussionScope(discussion, root: root)
-        var request = CLICompletion.Request(
-            project: aiProject ?? root,
-            prompt: DiscussionPrompt.prompt(discussion: discussion, question: text, scope: scope.description,
-                                            language: ActionOutputLanguage.explanationLine()),
-            systemPrompt: DiscussionPrompt.system, readableFolder: scope.readable)
-        if scope.readable.standardizedFileURL != root.standardizedFileURL { request.extraReadableFolders = [root] }
-        request.effort = "medium"
-        request.timeout = 900
-        request.label = "discussion"
-        discussionTask = Task { [weak self] in
-            defer { Task { @MainActor in self?.discussionTask = nil } }
-            do {
-                let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "discussion", onDelta: { [weak self] delta in
-                    Task { @MainActor in
-                        guard let self, self.toolTabs.discussions.asking == slug else { return }
-                        self.toolTabs.discussions.live?.text += delta
-                        self.toolTabs.discussions.live?.status = "Writing the answer"
-                    }
-                }, onActivity: { [weak self] activity in
-                    Task { @MainActor in
-                        guard let self, self.toolTabs.discussions.asking == slug else { return }
-                        switch activity {
-                        case .read(let path): self.toolTabs.discussions.live?.status = DiscussionPrompt.status(read: path); self.toolTabs.discussions.live?.text = ""
-                        case .search(let pattern): self.toolTabs.discussions.live?.status = "Searching for \(pattern.prefix(40))"; self.toolTabs.discussions.live?.text = ""
-                        case .run: self.toolTabs.discussions.live?.status = "Looking at the project"; self.toolTabs.discussions.live?.text = ""
-                        case .webSearch, .webFetch: self.toolTabs.discussions.live?.status = "Reading the web"; self.toolTabs.discussions.live?.text = ""
-                        case .thinking: self.toolTabs.discussions.live?.status = "Thinking"
-                        case .writing, .answerDelta: break
-                        }
-                    }
-                })
-                try Task.checkCancellation()
-                await self?.finishDiscussionTurn(slug, question: text, text: result.text)
-            } catch is CancellationError {
-                await self?.stopDiscussionTurn(slug, keep: nil)
-            } catch {
-                await self?.failDiscussionTurn(error.localizedDescription)
-            }
-        }
-    }
-
-    private func finishDiscussionTurn(_ slug: String, question: String, text: String) {
-        defer { toolTabs.discussions.asking = nil; toolTabs.discussions.live = nil }
-        guard let answer = DiscussionPrompt.parse(text),
-              toolTabs.discussions.addTurn(slug, question: question, answer: answer.answer, followUps: [],
-                                  decisions: answer.decisions, openQuestions: answer.openQuestions) != nil else {
-            toolTabs.discussions.lastError = "The assistant gave no answer."
-            return
-        }
-    }
-
-    private func stopDiscussionTurn(_ slug: String, keep: String?) {
-        toolTabs.discussions.asking = nil
-        toolTabs.discussions.live = nil
-    }
-
-    private func failDiscussionTurn(_ message: String) {
-        toolTabs.discussions.lastError = message
-        toolTabs.discussions.asking = nil
-        toolTabs.discussions.live = nil
-    }
-
-    /// Stops the answer being written; what was written so far is dropped.
-    func stopDiscussion() { discussionTask?.cancel() }
-
-    /// Where the conversation looks: the text the assistant is told, and the folder it may read.
-    private func discussionScope(_ discussion: Discussion, root: URL) -> (description: String, readable: URL) {
-        let raw = discussion.scope ?? ""
-        guard !raw.isEmpty else { return ("The whole project (\(root.lastPathComponent))", root) }
-        let url = raw.hasPrefix("/") ? URL(fileURLWithPath: raw) : root.appendingPathComponent(raw)
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-            return ("The whole project (\(root.lastPathComponent)); the chosen path \(raw) no longer exists", root)
-        }
-        let inside = url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/")
-        let readable = inside ? root : (isDirectory.boolValue ? url : url.deletingLastPathComponent())
-        return ("\(isDirectory.boolValue ? "The folder" : "The file") `\(raw)`. Stay on it; look elsewhere only when it is needed to answer.", readable)
-    }
-
-    /// File tree → "Discuss…": a discussion about this file or folder.
-    func openDiscussion(about url: URL) {
-        guard let root = rootNode?.url else { return }
-        openTool(.discussions)
-        let rel = project.relativePath(of: url)
-        let path = url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/") ? rel : url.path
-        if let existing = toolTabs.discussions.discussions.first(where: { $0.scope == path && $0.turns.isEmpty }) {
-            toolTabs.discussions.selectedSlug = existing.slug
-        } else {
-            toolTabs.discussions.create(title: url.lastPathComponent, scope: path)
-        }
-    }
-
-    /// Deployments → "Ask AI to find where it runs": the assistant reads the project and proposes environments.
-    func analyzeDeploymentsWithAI() {
-        guard let root = rootNode?.url else { return }
-        guard !terminals.assistantIsBusy else { toolTabs.deployments.lastError = "The assistant is still working."; return }
-        let prompt = DeploymentPrompt.analyze(project: root.lastPathComponent, existing: toolTabs.deployments.environments.map(\.name), hasMCP: true)
-        terminals.sendToAssistant(prompt, submit: true)
-    }
-
-    /// Deployments → "Ask the AI": a question about one environment goes to the assistant with what MarkView
-    /// last saw (and the log being read); it looks with the markview_deployments tools.
-    func askAboutDeployment(_ id: String, question: String, logTitle: String? = nil, log: String? = nil) {
-        guard let env = toolTabs.deployments.environment(id) else { return }
-        guard !terminals.assistantIsBusy else { toolTabs.deployments.lastError = "The assistant is still working."; return }
-        let prompt = DeploymentPrompt.ask(environment: env.name, id: env.id, question: question, report: toolTabs.deployments.report(for: id), logTitle: logTitle, log: log)
-        terminals.sendToAssistant(prompt, submit: true)
-    }
-
-    func openSavedPrototype(_ slug: String) {
-        guard let root = rootNode?.url else { return }
-        for index in openTabs.indices {
-            if case .prototype(let session) = openTabs[index].kind, session.manifest.slug == slug {
-                activeTabIndex = index
-                return
-            }
-        }
-        if let session = PrototypeSession(root: root, slug: slug) { openPrototype(session) }
-    }
-
-    private func openPrototype(_ session: PrototypeSession) {
-        session.record = { [weak self] result in result.record(in: self?.semanticDatabase) }
-        session.languageNote = ActionOutputLanguage.current == ActionOutputLanguage.documentLanguage
-            ? "" : "\n\nWrite every label, text and message in the prototype in \(ActionOutputLanguage.current)."
-        var tab = OpenTab(url: session.folder.appendingPathComponent(ProjectPaths.placeholderName("prototype-" + session.id.uuidString)),
-                          content: "", originalContent: "")
-        tab.kind = .prototype(session)
-        layout.workspaceArea = .files
-        chrome.showCenter = true
-        tabs.appendTab(tab, activate: true)
     }
 
     /// Show a local HTML file in a browser tab: the tab already showing it is reloaded, else a new

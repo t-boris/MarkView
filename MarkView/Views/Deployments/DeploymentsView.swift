@@ -4,6 +4,7 @@ import SwiftUI
 struct DeploymentsView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    let host: DeploymentsHost
     @ObservedObject var store: DeploymentStore
     @State private var editing: DeploymentEnvironment?
     @State private var adding = false
@@ -19,7 +20,7 @@ struct DeploymentsView: View {
                 }
                 Group {
                 if let id = store.selected, let env = store.environment(id) {
-                    EnvironmentDetail(store: store, env: env, edit: { editing = env })
+                    EnvironmentDetail(host: host, store: store, env: env, edit: { editing = env })
                         .id(id)
                 } else {
                     emptyState
@@ -69,7 +70,7 @@ struct DeploymentsView: View {
                 Toggle("Refresh every 30 s", isOn: $store.autoRefresh).toggleStyle(.checkbox).uiFont(size: 10)
                 Spacer()
             }.padding(.horizontal, 10).padding(.vertical, 6)
-            Button { workspaceManager.analyzeDeploymentsWithAI() } label: {
+            Button { host.analyzeWithAI() } label: {
                 Label("Ask AI to find where it runs", systemImage: "sparkles").uiFont(size: 10, weight: .medium)
             }
             .buttonStyle(.bordered).controlSize(.small).padding(.horizontal, 10).padding(.bottom, 10)
@@ -145,7 +146,7 @@ struct DeploymentsView: View {
                 .uiFont(size: 11).foregroundColor(palette.textDim).multilineTextAlignment(.center).frame(maxWidth: 420)
             HStack {
                 Button("Add an environment") { adding = true }.buttonStyle(.borderedProminent)
-                Button("Ask AI to find where it runs") { workspaceManager.analyzeDeploymentsWithAI() }
+                Button("Ask AI to find where it runs") { host.analyzeWithAI() }
             }
         }.padding(30)
     }
@@ -253,6 +254,7 @@ private struct BuildDeploymentOperationBar: View {
 private struct EnvironmentDetail: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    let host: DeploymentsHost
     @ObservedObject var store: DeploymentStore
     let env: DeploymentEnvironment
     let edit: () -> Void
@@ -539,7 +541,7 @@ private struct EnvironmentDetail: View {
                 }
                 Spacer(minLength: 0)
             }
-            AdvisorAnswers(advisor: workspaceManager.toolTabs.deploymentAdvisor, envID: env.id) { q in askInAgents(q) }
+            AdvisorAnswers(advisor: host.advisor, envID: env.id) { q in askInAgents(q) }
             Text("MarkView looks at the environment, reads the logs that matter (read-only) and your project's assistant answers from that. To go further, continue in the Agents tab: there it can run more commands, and anything that changes something is shown to you here first.")
                 .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
         }
@@ -556,10 +558,7 @@ private struct EnvironmentDetail: View {
     private func ask(_ text: String, log: String? = nil, logTitle: String? = nil) {
         let q = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
-        let workspace = workspaceManager
-        workspace.toolTabs.deploymentAdvisor.ask(q, env: env, store: store, root: store.root, log: log.map { (logTitle ?? "Log", $0) }) { result in
-            result.record(in: workspace.semanticDatabase)
-        }
+        host.advise(q, env: env, log: log.map { (logTitle ?? "Log", $0) })
         question = ""
     }
 
@@ -567,7 +566,7 @@ private struct EnvironmentDetail: View {
     private func askInAgents(_ text: String, log: String? = nil, logTitle: String? = nil) {
         let q = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
-        workspaceManager.askAboutDeployment(env.id, question: q, logTitle: logTitle, log: log)
+        host.askAssistant(env.id, question: q, logTitle: logTitle, log: log)
         question = ""
     }
 
