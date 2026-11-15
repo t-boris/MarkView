@@ -51,10 +51,11 @@ final class StudioElementPicker: ObservableObject {
 
     func startPicking() {
         pickTask?.cancel()
-        pickTask = Task { [weak self] in
-            while let self, self.mode == .select, !Task.isCancelled {
+        // The loop outlives no session: it ends at the first turn after the session is gone (close() cancels it earlier).
+        pickTask = Task { [weak self, weak session = self.session] in
+            while let self, let session, self.mode == .select, !Task.isCancelled {
                 do {
-                    let result = try await self.session.call("return window.__markviewStudio ? await window.__markviewStudio.pick() : undefined;")
+                    let result = try await session.call("return window.__markviewStudio ? await window.__markviewStudio.pick() : undefined;")
                     guard self.mode == .select, !Task.isCancelled else { return }
                     if let object = result as? [String: Any] {
                         await self.adopt(object)

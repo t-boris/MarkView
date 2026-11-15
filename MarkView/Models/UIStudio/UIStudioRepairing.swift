@@ -247,7 +247,7 @@ final class StudioRepair: ObservableObject {
             session.notice = "Nothing on this page is something Studio can repair: code errors and blocked services are only reported."
             return
         }
-        Task { [weak self] in
+        Task { [weak self, session] in
             guard let self else { return }
             var tried: Set<String> = [first.id]
             await session.awaitWork()
@@ -263,7 +263,7 @@ final class StudioRepair: ObservableObject {
     /// The action of one problem row. The work starts at once (the busy banner is up when this returns).
     func repairProblem(_ item: StudioProblem.Item) {
         guard let box = startRepair(item, automatic: false) else { return }
-        Task { [weak self] in
+        Task { [weak self, session] in
             await self?.session.awaitWork()
             self?.finishRepair(item, box: box, automatic: false)
         }
@@ -276,7 +276,7 @@ final class StudioRepair: ObservableObject {
     func scheduleAutoRepair(delay: TimeInterval = 2) {
         guard session.spec.repairsAutomatically else { return }
         autoRepairTask?.cancel()
-        autoRepairTask = Task { [weak self] in
+        autoRepairTask = Task { [weak self, session] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled, let self else { return }
             await self.runAutomaticRepair()
