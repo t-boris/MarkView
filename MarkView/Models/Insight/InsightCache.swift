@@ -357,7 +357,7 @@ struct InsightCache {
 
     /// Resolve a vendored lib filename in `_assets/` by case-insensitive
     /// prefix match (e.g. `"chart"` → `"chart-4.4.9.min.js"`). Returns nil
-    /// if no file matches. Used by `InsightSession.buildHTMLTemplate` to
+    /// if no file matches. Used by `InsightHTMLTemplate.html` to
     /// emit `<script src="../_assets/<actualFilename>">` without
     /// hard-coding upstream filenames that drift with version bumps
     /// (Wave 6 audit T9 #1 fix).
