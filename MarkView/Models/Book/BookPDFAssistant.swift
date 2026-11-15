@@ -6,7 +6,7 @@ import Foundation
 enum BookPDFAssistant {
     static func rewriteChapter(renderer: BookPDFRenderer, id: String, html: String,
                                language: String, reduction: Int, project: URL?, tool: CLITool? = nil,
-                               usage: (CLICompletion.Result) -> Void = { _ in },
+                               usage: @escaping (CLICompletion.Result) -> Void = { _ in },
                                progress: (String, Double) -> Void = { _, _ in }) async throws {
         if language != "document" {
             let translated = try await rewrite(html, language: language, reduction: 0, project: project, tool: tool, usage: usage) { message, fraction in
@@ -28,7 +28,7 @@ enum BookPDFAssistant {
     }
 
     static func rewrite(_ html: String, language: String, reduction: Int, project: URL?, tool: CLITool? = nil,
-                        usage: (CLICompletion.Result) -> Void = { _ in },
+                        usage: @escaping (CLICompletion.Result) -> Void = { _ in },
                         progress: (String, Double) -> Void = { _, _ in }) async throws -> String {
         var passes: [(String, Int)] = []
         if language != "document" { passes.append((language, 0)) }
@@ -49,11 +49,10 @@ enum BookPDFAssistant {
                 let minimum = max(1, Int(Double(words) * max(0.03, Double(100 - pass.1) / 100 - 0.10)))
                 let maximum = max(target + 4, Int(Double(words) * min(1, Double(100 - pass.1) / 100 + 0.10)))
                 var correction = ""
-                var accepted: String?
                 var currentInput = chunk.text
                 var writingTarget = target
                 let attempts = pass.1 > 0 ? 3 : 2
-                for attempt in 0..<attempts {
+                func request(attempt: Int) -> CLICompletion.Request {
                     let currentWords = BookPDFTransform.wordCount(currentInput)
                     let effectiveReduction = pass.1 > 0 ? max(1, 100 - writingTarget * 100 / max(1, currentWords)) : 0
                     var system = BookPDFTransform.system(language: pass.0, reduction: effectiveReduction)
@@ -64,26 +63,40 @@ enum BookPDFAssistant {
                     var request = CLICompletion.Request(project: project, prompt: currentInput, systemPrompt: system,
                         jsonSchema: BookPDFTransform.schema, timeout: 240, toolOverride: tool)
                     request.effort = pass.1 > 0 ? "medium" : "low"; request.label = "pdf-book:\(phase):\(index):\(attempt)"
-                    let result = try await CLICompletion.run(request); usage(result)
-                    guard let answer = (result.structured as? [String: Any])?["text"] as? String else { throw BookPDFError.invalid("The assistant did not return the requested passage.") }
-                    do {
-                        try BookPDFTransform.validate(answer, for: chunk)
-                        let actual = BookPDFTransform.wordCount(answer)
-                        if pass.1 > 0, words > 25, !(minimum...maximum).contains(actual) {
-                            correction = "\nThe previous attempt produced \(actual) editable words. Continue editing to meet \(minimum)-\(maximum) words, targeting \(target). Preserve ALL tokens in order."
-                            currentInput = actual > maximum ? answer : chunk.text
-                            if actual > maximum { writingTarget = max(minimum, Int(Double(writingTarget) * Double(target) / Double(actual))) }
-                            if attempt == attempts - 1 { throw BookPDFError.invalid("The assistant returned \(actual) words for a target of about \(target) (source: \(words)). Try again or choose a smaller reduction. No PDF was saved.") }
-                            continue
-                        }
-                        accepted = answer; break
-                    } catch {
-                        if attempt == attempts - 1 { throw error }
-                        currentInput = chunk.text
-                        correction = "\nThe previous attempt changed protected structure. Copy every opaque token exactly once in its original order; do not output HTML or Markdown fences."
-                    }
+                    return request
                 }
-                guard let accepted else { throw BookPDFError.invalid("The requested passage could not be completed.") }
+                // A passage that fails its checks is asked for again with what was wrong, up to `attempts` runs in all.
+                let writing = AIOperation<Void, String>(
+                    name: "pdf-book",
+                    maxRepairAttempts: attempts - 1,
+                    buildRequest: { _ in request(attempt: 0) },
+                    parse: { _, result, _ in
+                        guard let answer = (result.structured as? [String: Any])?["text"] as? String else { throw NoPassage() }
+                        return answer
+                    },
+                    validate: { _, answer, _ in
+                        do {
+                            try BookPDFTransform.validate(answer, for: chunk)
+                        } catch {
+                            currentInput = chunk.text
+                            correction = "\nThe previous attempt changed protected structure. Copy every opaque token exactly once in its original order; do not output HTML or Markdown fences."
+                            throw error
+                        }
+                        let actual = BookPDFTransform.wordCount(answer)
+                        guard pass.1 > 0, words > 25, !(minimum...maximum).contains(actual) else { return }
+                        correction = "\nThe previous attempt produced \(actual) editable words. Continue editing to meet \(minimum)-\(maximum) words, targeting \(target). Preserve ALL tokens in order."
+                        currentInput = actual > maximum ? answer : chunk.text
+                        if actual > maximum { writingTarget = max(minimum, Int(Double(writingTarget) * Double(target) / Double(actual))) }
+                        throw BookPDFError.invalid("The assistant returned \(actual) words for a target of about \(target) (source: \(words)). Try again or choose a smaller reduction. No PDF was saved.")
+                    },
+                    repair: { context in request(attempt: context.attempt.number) },
+                    onResult: { result in usage(result) })
+                let accepted: String
+                do {
+                    accepted = try await writing.execute(()).output
+                } catch is NoPassage {
+                    throw BookPDFError.invalid("The assistant did not return the requested passage.")
+                }
                 answers.append(accepted)
             }
             let completed = answers
@@ -93,3 +106,6 @@ enum BookPDFAssistant {
         return html
     }
 }
+
+/// The assistant's answer had no passage in it; asking again does not change that.
+private struct NoPassage: Error, AIUnrepairable {}

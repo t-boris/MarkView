@@ -529,7 +529,7 @@ final class QARunModel: ObservableObject {
         request.images = [file]
         request.effort = "low"
         do {
-            let result = try await CLICompletion.run(request)
+            let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "qa-review")
             reviewCost += result.costUSD ?? 0
             var found = QAReview.parse(result.structured, input: input, firstFindingNumber: findings.count + 1)
             let picture = QAFrameComposer.thumbnail(from: png)

@@ -2610,7 +2610,7 @@ class WorkspaceManager: ObservableObject {
         selectionActions[id] = SelectionActionState(id: id, title: title,
             scope: "\(scope) · selected text", assistant: assistant, started: Date())
         let task = Task { [weak self] in
-            try await CLICompletion.run(request, onDelta: { [weak self] delta in
+            try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "selection-action", onDelta: { [weak self] delta in
                 Task { @MainActor in
                     guard var state = self?.selectionActions[id], state.phase == .running else { return }
                     state.partial += delta
@@ -2831,7 +2831,7 @@ class WorkspaceManager: ObservableObject {
         request.model = engine.model
         request.timeout = 240
         do {
-            let result = try await CLICompletion.run(request)
+            let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "translate-chunk")
             result.record(in: semanticDatabase)
             return normalizeTranslation(result.text)
         } catch {
@@ -4960,7 +4960,7 @@ class WorkspaceManager: ObservableObject {
         discussionTask = Task { [weak self] in
             defer { Task { @MainActor in self?.discussionTask = nil } }
             do {
-                let result = try await CLICompletion.run(request, onDelta: { [weak self] delta in
+                let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "discussion", onDelta: { [weak self] delta in
                     Task { @MainActor in
                         guard let self, self.discussions.asking == slug else { return }
                         self.discussions.live?.text += delta

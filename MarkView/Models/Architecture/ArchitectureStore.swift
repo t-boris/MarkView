@@ -839,15 +839,11 @@ final class ArchitectureStore: ObservableObject {
                     )
                 }
             },
-            runner: { [db] req, _ in
-                let result = try await CLICompletion.run(req, onActivity: progressHandler)
-                result.record(in: db)
-                return result
-            }
+            onResult: { [db] result in await MainActor.run { result.record(in: db) } }
         )
 
         do {
-            let (decoded, _) = try await operation.execute(prepared)
+            let (decoded, _) = try await operation.execute(prepared, onActivity: progressHandler)
             let object = decoded.dictionary
             if let data = try? JSONSerialization.data(withJSONObject: object) {
                 try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
@@ -1290,30 +1286,31 @@ final class ArchitectureStore: ObservableObject {
                (try? await Task.detached { try CodeArchitecture.validateModel(cached, modules: modules, root: root) }.value) != nil {
                 model = cached
             }
-            var attempt = prompt
             // The most recent answer that decoded, kept for the grounding fallback below.
             var lastParsed: CodeArchitectureModel?
-            for round in 0...1 where model == nil {
+            if model == nil {
                 try Task.checkCancellation()
                 fromCache = false
-                let result = try await CLICompletion.run(request(attempt), onActivity: activityHandler(root: root))
-                result.record(in: db)
+                // Asked twice at most: the second time with the problems of the first answer and the answer itself.
+                let operation = AIOperation<String, CodeArchitectureModel>(
+                    name: "code-architecture",
+                    maxRepairAttempts: 1,
+                    buildRequest: request,
+                    parse: { _, result, _ in try CodeArchitecture.decode(result) },
+                    validate: { _, parsed, _ in
+                        lastParsed = parsed
+                        try await Task.detached { try CodeArchitecture.validateModel(parsed, modules: modules, root: root) }.value
+                    },
+                    repair: { [weak self] context in
+                        self?.progress?.current = "Refining component ownership and source evidence"
+                        return request(CodeArchitecture.repairPrompt(base: prompt, answer: context.previousAnswer, error: context.error))
+                    },
+                    onResult: { result in await MainActor.run { result.record(in: db) } })
                 do {
-                    let parsed: CodeArchitectureModel
-                    if let object = result.structured, JSONSerialization.isValidJSONObject(object) {
-                        parsed = try JSONDecoder().decode(CodeArchitectureModel.self, from: JSONSerialization.data(withJSONObject: object))
-                    } else {
-                        let text = result.text
-                        guard let open = text.firstIndex(of: "{"), let last = text.lastIndex(of: "}"), open < last else {
-                            throw DiagramAI.Failure.unusable(["The answer was not an architecture JSON object"])
-                        }
-                        parsed = try JSONDecoder().decode(CodeArchitectureModel.self, from: Data(text[open...last].utf8))
-                    }
-                    lastParsed = parsed
-                    try await Task.detached { try CodeArchitecture.validateModel(parsed, modules: modules, root: root) }.value
+                    let (parsed, _) = try await operation.execute(prompt, onActivity: activityHandler(root: root))
                     Self.cache(parsed, at: answerFile)
                     model = parsed
-                } catch let error as DiagramAI.Failure where round == 1 && lastParsed != nil {
+                } catch let error as DiagramAI.Failure where lastParsed != nil {
                     // Last resort for an answer that is sound apart from its citations: keep the
                     // assistant's structure and read a real definition line out of the code each
                     // component already owns, then validate again. A whole analysis is not thrown
@@ -1326,15 +1323,6 @@ final class ArchitectureStore: ObservableObject {
                     guard let grounded else { throw error }
                     Self.cache(grounded, at: answerFile)
                     model = grounded
-                } catch {
-                    if round == 1 { throw error }
-                    let answer: String
-                    if let object = result.structured, JSONSerialization.isValidJSONObject(object),
-                       let data = try? JSONSerialization.data(withJSONObject: object) {
-                        answer = String(decoding: data, as: UTF8.self)
-                    } else { answer = result.text }
-                    attempt = CodeArchitecture.repairPrompt(base: prompt, answer: answer, error: error)
-                    progress?.current = "Refining component ownership and source evidence"
                 }
             }
             try Task.checkCancellation()
@@ -1912,9 +1900,8 @@ final class ArchitectureStore: ObservableObject {
                                                   context: context, items: items,
                                                   language: Self.reasonLanguage, project: project)
             do {
-                let result = try await CLICompletion.run(request)
+                let (ratings, result) = try await ImportanceRater.operation(keys: Set(items.map(\.key)), filter: filter).execute(request)
                 result.record(in: db)
-                let ratings = ImportanceRater.parse(result.structured, keys: Set(items.map(\.key)), filter: filter)
                 guard var next = snapshot else { return }
                 for (k, var value) in ratings {
                     value.signature = signatures[k]
@@ -1995,14 +1982,14 @@ final class ArchitectureStore: ObservableObject {
                 let request = ImportanceRater.request(subject: .code, filter: filter, context: context, items: items,
                                                       language: Self.reasonLanguage, project: project)
                 let keys = Set(items.map(\.key))
-                let result = try await CLICompletion.run(request, onActivity: { [weak self] activity in
+                let (ratings, result) = try await ImportanceRater.operation(keys: keys, filter: filter).execute(request, onActivity: { [weak self] activity in
                     guard case .answerDelta(let text) = activity else { return }
                     Task { @MainActor in self?.receiveRatings(text, filterId: filterId, filter: filter, keys: keys) }
                 })
                 result.record(in: db)
                 liveRatings[filterId] = nil
                 guard var confirmed = snapshot else { return }
-                for (k, value) in ImportanceRater.parse(result.structured, keys: keys, filter: filter) {
+                for (k, value) in ratings {
                     confirmed.ratings[filterId, default: [:]][k] = value
                 }
                 commit(confirmed, db: db)
@@ -2109,7 +2096,7 @@ final class ArchitectureStore: ObservableObject {
                     var scopeRequest = XRaySearch.understandingScopeRequest(query: filter.criterion, root: root, attachments: attachmentPaths, project: project)
                     scopeRequest.extraReadableFolders = wholeProject
                     if let note = wholeProjectNote { scopeRequest.prompt += note }
-                    let scope = try await CLICompletion.run(scopeRequest)
+                    let scope = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(scopeRequest, name: "understand-scope")
                     guard understandingTokens[id] == token else { return }
                     scope.record(in: db)
                     historyFiles = await Task.detached { XRaySearch.historyFiles(scope.structured, root: root) }.value
@@ -2143,7 +2130,7 @@ final class ArchitectureStore: ObservableObject {
                     project: project)
                 request.extraReadableFolders = wholeProject
                 if let note = wholeProjectNote { request.prompt += note }
-                let result = try await CLICompletion.run(request, onActivity: { activity in
+                let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "understand", onActivity: { activity in
                     Task { @MainActor in
                         guard self.understandingTokens[id] == token, self.understandingAnswers[id]?.state == "loading" else { return }
                         if case .read(let path) = activity {
@@ -2303,7 +2290,7 @@ final class ArchitectureStore: ObservableObject {
                     .map { "\($0.id.dropFirst(2)) — \($0.name): \($0.summary ?? $0.kind)" }
                 let request = XRaySearch.request(query: filter.criterion, symbol: symbol, hints: hints, root: root,
                                                  components: componentLines, deployment: deploymentLines, project: project)
-                let result = try await CLICompletion.run(request, onActivity: { activity in
+                let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "xray-search", onActivity: { activity in
                     Task { @MainActor in self.receiveSearch(activity, filterId: filterId, root: root, sections: sections) }
                 })
                 result.record(in: db)
@@ -2492,7 +2479,7 @@ final class ArchitectureStore: ObservableObject {
             var streamed = ""
             var pendingRefresh = false
             do {
-                let result = try await CLICompletion.run(request, onDelta: { text in
+                let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-link").execute(request, onDelta: { text in
                     Task { @MainActor in
                         streamed += text
                         self.edgeNotes[key]?.text = streamed
@@ -2504,7 +2491,7 @@ final class ArchitectureStore: ObservableObject {
                     }
                 })
                 result.record(in: db)
-                edgeNotes[key]?.text = result.text.isEmpty ? streamed : result.text
+                edgeNotes[key]?.text = answer.isEmpty ? streamed : answer
             } catch is CancellationError {
             } catch {
                 edgeNotes[key]?.text = "Failed: \(error.localizedDescription)"
@@ -2654,9 +2641,9 @@ final class ArchitectureStore: ObservableObject {
                 readableFolder: root)
             request.timeout = 300
             do {
-                let result = try await CLICompletion.run(request)
+                let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-describe").execute(request)
                 result.record(in: db)
-                let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard var next = snapshot, !text.isEmpty else { return }
                 // Store on the Modules node (the source of truth) and re-derive the Logical view.
                 let path = node.path
@@ -3715,7 +3702,7 @@ final class ArchitectureStore: ObservableObject {
             var streamed = ""
             var pendingRefresh = false
             do {
-                let result = try await CLICompletion.run(request, onDelta: { [weak self] text in
+                let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-pr-question").execute(request, onDelta: { [weak self] text in
                     Task { @MainActor in
                         guard let self, self.prOverlay?.source.id == source, index < (self.prOverlay?.chat.count ?? 0) else { return }
                         streamed += text
@@ -3729,7 +3716,7 @@ final class ArchitectureStore: ObservableObject {
                 })
                 result.record(in: db)
                 if prOverlay?.source.id == source, index < (prOverlay?.chat.count ?? 0) {
-                    prOverlay?.chat[index].answer = result.text.isEmpty ? streamed : result.text
+                    prOverlay?.chat[index].answer = answer.isEmpty ? streamed : answer
                 }
             } catch is CancellationError {
             } catch {
@@ -3934,9 +3921,8 @@ final class ArchitectureStore: ObservableObject {
             request.effort = "low"
             request.timeout = 600
             do {
-                let result = try await CLICompletion.run(request)
+                let (object, result) = try await AIOperation<CLICompletion.Request, [String: Any]>.object(name: "xray-pr-review").execute(request)
                 result.record(in: db)
-                let object = result.structured as? [String: Any] ?? [:]
                 var byPath: [String: [String: Any]] = [:]
                 for item in object["files"] as? [[String: Any]] ?? [] {
                     if let path = item["path"] as? String { byPath[path.hasPrefix("b/") ? String(path.dropFirst(2)) : path] = item }
@@ -4117,7 +4103,7 @@ final class ArchitectureStore: ObservableObject {
             var streamed = ""
             var pendingRefresh = false
             do {
-                let result = try await CLICompletion.run(request, onDelta: { text in
+                let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-finding").execute(request, onDelta: { text in
                     Task { @MainActor in
                         streamed += text
                         self.updateFinding(source: source, path: path, index: index) { $0.explanation = streamed }
@@ -4129,7 +4115,7 @@ final class ArchitectureStore: ObservableObject {
                     }
                 })
                 result.record(in: db)
-                let text = result.text.isEmpty ? streamed : result.text
+                let text = answer.isEmpty ? streamed : answer
                 updateFinding(source: source, path: path, index: index) { $0.explanation = text }
             } catch is CancellationError {
             } catch {

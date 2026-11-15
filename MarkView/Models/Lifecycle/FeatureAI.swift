@@ -189,7 +189,7 @@ final class FeatureAssistant: ObservableObject {
                                    output: folder.map { "Work · \($0.lastPathComponent)" } ?? "Work result",
                                    started: Date(), stage: "Starting")
         let task = Task {
-            try await CLICompletion.run(request, onDelta: { [weak self] text in
+            try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: key, onDelta: { [weak self] text in
                 onDelta?(text)
                 Task { @MainActor in
                     guard var state = self?.actions[key], state.phase == .running else { return }

@@ -25,6 +25,6 @@ swiftc -o "$out/ui-studio-live-run" Packages/MarkViewCore/Sources/MarkViewCore/*
   MarkView/Models/UIStudio/UIStudioGraphQL.swift MarkView/Models/UIStudio/UIStudioChannels.swift \
   MarkView/Models/UIStudio/UIStudioGatewayStreams.swift MarkView/Models/UIStudio/UIStudioRealtimePrompts.swift MarkView/Models/UIStudio/UIStudioDataFix.swift MarkView/Models/UIStudio/UIStudioRepair.swift MarkView/Models/UIStudio/UIStudioScreens.swift MarkView/Models/UIStudio/UIStudioReview.swift MarkView/Models/UIStudio/UIStudioSession+Repair.swift MarkView/Models/UIStudio/UIStudioSession+Screens.swift MarkView/Models/UIStudio/UIStudioSession+Review.swift \
   MarkView/Views/UIStudio/UIStudioPreviewHost.swift MarkView/Models/AI/AIAssistants.swift MarkView/Models/Appearance/ProjectColor.swift MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/AI/AICallLog.swift \
-  MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/ACPAssistant.swift MarkView/Models/AI/AgentProcesses.swift \
+  MarkView/Models/AI/AIOperation.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/ACPAssistant.swift MarkView/Models/AI/AgentProcesses.swift \
   tools/tests/UIStudioLiveStubs.swift "$out/main.swift"
 "$out/ui-studio-live-run" "$PWD/MarkView/Resources/Editor/js" "$@"

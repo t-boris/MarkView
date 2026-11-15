@@ -347,7 +347,7 @@ final class CodeNavigationStore {
         answers[id] = Task { [weak self] in
             let buffer = AnswerBuffer()
             do {
-                let result = try await CLICompletion.run(request, onDelta: { delta in
+                let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "code-question").execute(request, onDelta: { delta in
                     Task { @MainActor in
                         guard let self, !Task.isCancelled else { return }
                         if buffer.append(delta) { self.send(url: url, ["type": "answer", "id": id, "text": buffer.text, "done": false]) }
@@ -367,7 +367,7 @@ final class CodeNavigationStore {
                 })
                 result.record(in: db)
                 guard !Task.isCancelled else { return }
-                let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
                 self?.send(url: url, ["type": "answer", "id": id, "text": text.isEmpty ? buffer.text : text, "done": true])
             } catch is CancellationError {
                 self?.send(url: url, ["type": "answer", "id": id, "text": buffer.text, "done": true, "stopped": true])

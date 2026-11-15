@@ -188,6 +188,11 @@ enum ImportanceRater {
         return request
     }
 
+    /// The rating call as an operation: one run whose answer becomes the ratings of `keys` (unknown keys and levels are dropped).
+    static func operation(keys: Set<String>, filter: Filter = importance) -> AIOperation<CLICompletion.Request, [String: Rating]> {
+        AIOperation(name: "importance", parse: { parse($0.structured, keys: keys, filter: filter) })
+    }
+
     /// Ratings for the requested keys; unknown keys and levels are dropped.
     static func parse(_ structured: Any?, keys: Set<String>, filter: Filter = importance) -> [String: Rating] {
         let rows = (structured as? [String: Any])?["ratings"] as? [[String: Any]] ?? []

@@ -366,6 +366,20 @@ check(restored.codeSequences?.map(\.auto) == [false, true] && restored.codeSeque
       "the automatic flag, cited files, scenarios and the trace record survive snapshot encoding")
 check(restored.codeCoverage.map { $0.languages == skipped.languages && $0.reasons == skipped.reasons && $0.skipped == skips && $0.version == skipped.version } == true,
       "the coverage report survives snapshot encoding")
+// AR-26: the answer of the code analysis is read from the structured JSON or from the object in its text; no object at all is "unusable".
+func reading(text: String, structured: Any? = nil) -> (model: CodeArchitectureModel?, unusable: Bool, malformed: Bool) {
+    do { return (try CodeArchitecture.decode(CLICompletion.Result(text: text, structured: structured, inputTokens: 0, outputTokens: 0)), false, false) }
+    catch DiagramAI.Failure.unusable { return (nil, true, false) }
+    catch { return (nil, false, true) }
+}
+var answered = model
+answered.analyzedAt = nil
+let modelJSON = String(decoding: try JSONEncoder().encode(answered), as: UTF8.self)
+check(reading(text: "```json\n\(modelJSON)\n```").model?.components.count == 5, "AR-26: the code analysis reads the model from a fenced block in the text")
+check(reading(text: "Here it is: \(modelJSON) Done.").model?.name == "Order shop", "AR-26: the code analysis reads the model from the braces in the text")
+check(reading(text: "", structured: try JSONSerialization.jsonObject(with: Data(modelJSON.utf8))).model?.components.count == 5, "AR-26: the code analysis reads the model from the structured answer")
+check(reading(text: "I could not analyse this project.").unusable, "AR-26: an answer with no JSON object is unusable, as before")
+check(reading(text: "{\"name\": 1}").malformed, "AR-26: an object that is not a model reports its decoding problem")
 snapshot.views.append(CodeArchitecture.view(withSymbols))
 let payload: [String: Any] = ["root": fixture.path, "snapshot": try JSONSerialization.jsonObject(with: encoder.encode(snapshot)),
                             "codeSequenceDiagrams": [mermaid, mermaid], "busy": false, "filters": [], "prSources": []]

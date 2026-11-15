@@ -1067,10 +1067,13 @@ enum PrototypeAI {
         request.label = label
         stage(.log("Started the assistant"))
         let tracker = ProgressTracker(root: root, reading: reading, onRead: readLog.map { log in { log.add($0) } }, emit: stage)
-        let result = try await CLICompletion.run(request, onActivity: { tracker.handle($0) })
-        stage(.log("The assistant finished"))
-        await record(result)
-        return result
+        let asking = AIOperation<CLICompletion.Request, CLICompletion.Result>(
+            name: label, parse: { $0 },
+            onResult: { result in
+                stage(.log("The assistant finished"))
+                await record(result)
+            })
+        return try await asking.execute(request, onActivity: { tracker.handle($0) }).result
     }
 
     // MARK: - Staged build

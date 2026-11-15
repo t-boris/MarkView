@@ -60,7 +60,7 @@ final class DeploymentAdvisor: ObservableObject {
             request.timeout = 150
             request.label = "deployments:\(env.id)"
             do {
-                let result = try await CLICompletion.run(request, onDelta: { text in
+                let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "deployments-ask", onDelta: { text in
                     Task { @MainActor in update { $0.answer += text; if case .working = $0.state { $0.state = .working("Writing the answer…") } } }
                 })
                 update { if $0.answer.isEmpty { $0.answer = result.text }; $0.state = .done }
