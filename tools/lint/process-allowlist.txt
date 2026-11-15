@@ -1,17 +1,2 @@
 # Process() sites outside Packages/MarkViewCore Subprocess.swift (AR-25). `<count> <path>`; a ratchet that only falls.
 # Run tools/lint/architecture-lint.sh --tighten after removing a site; the goal is an empty list.
-1 MarkView/Models/AI/ACPAssistant.swift
-1 MarkView/Models/AI/AIAssistants.swift
-1 MarkView/Models/AI/CLICompletion.swift
-1 MarkView/Models/AgentTools/BrowserAgentTools.swift
-1 MarkView/Models/Architecture/ArchitectureScanner.swift
-1 MarkView/Models/Cockpit/CockpitChild.swift
-1 MarkView/Models/Deployments/DeploymentExecutor.swift
-3 MarkView/Models/Git/GitClient.swift
-1 MarkView/Models/Git/GitHubClient.swift
-1 MarkView/Models/Lifecycle/BugValidity.swift
-1 MarkView/Models/Prototype/PrototypeAI.swift
-1 MarkView/Models/Remote/RemoteCommand.swift
-1 MarkView/Models/UIStudio/UIStudioChanges.swift
-1 MarkView/Models/Workspace/ArchiveSupport.swift
-1 MarkView/Models/Workspace/WorkspaceManager.swift

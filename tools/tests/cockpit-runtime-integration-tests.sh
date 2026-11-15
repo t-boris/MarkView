@@ -11,7 +11,8 @@ if [ -z "${MARKVIEW_TEST_RUNTIME:-}" ]; then
     for candidate in \
         "$PWD/build/DerivedData/Build/Products/Debug/MarkView.app/Contents/Resources/Cockpit/arm64" \
         "/tmp/MarkViewDerivedData/Build/Products/Debug/MarkView.app/Contents/Resources/Cockpit/arm64"; do
-        if [ -x "$candidate/bin/server" ]; then
+        # A runtime built before the last change to the Go sources is stale: use it only when it is newer than every source.
+        if [ -x "$candidate/bin/server" ] && [ -z "$(find tools/cockpit-temporal -name '*.go' -newer "$candidate/bin/server" -print -quit)" ]; then
             export MARKVIEW_TEST_RUNTIME="$candidate"
             break
         fi
