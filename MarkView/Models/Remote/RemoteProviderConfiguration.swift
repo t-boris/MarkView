@@ -7,7 +7,8 @@ enum RemoteProviderConfiguration {
     enum Provider: String, CaseIterable, Identifiable, Sendable {
         case claude, codex
         var id: String { rawValue }
-        var title: String { self == .claude ? "Claude Code" : "Codex" }
+        var title: String { tool.displayName }
+        var tool: CLITool { CLITool(rawValue: rawValue)! }
     }
 
     static func command(provider: Provider, executable: String, app: String, socket: String,

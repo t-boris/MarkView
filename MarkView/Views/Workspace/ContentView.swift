@@ -204,10 +204,6 @@ struct ContentView: View {
     @State private var restorationComplete = false
     @State private var lastFilesTab: UUID?
     @AppStorage(TerminalBrowserBridge.enabledKey) private var openTerminalLinksInApp = true
-    @AppStorage(BrowserControlServer.agentToolsKey(.claude)) private var browserToolsClaude = true
-    @AppStorage(BrowserControlServer.agentToolsKey(.codex)) private var browserToolsCodex = true
-    @AppStorage(BrowserControlServer.agentToolsKey(.copilot)) private var browserToolsCopilot = true
-    @AppStorage(BrowserControlServer.agentToolsKey(.antigravity)) private var browserToolsAntigravity = true
 
     var body: some View {
         WindowThemeHost(theme: workspaceManager.theme) { windowContent }
@@ -594,10 +590,7 @@ struct ContentView: View {
             Toggle("Open Terminal Links in MarkView", isOn: $openTerminalLinksInApp)
                 .help("Pages that Claude Code, Codex or dev servers open from MarkView's terminals show in the browser tab instead of the default browser (new terminals)")
             Menu("Browser Tools for Agents") {
-                Toggle("Claude Code", isOn: $browserToolsClaude)
-                Toggle("Codex", isOn: $browserToolsCodex)
-                Toggle("Copilot", isOn: $browserToolsCopilot)
-                Toggle("Antigravity", isOn: $browserToolsAntigravity)
+                ForEach(CLITool.allCases.filter { $0.provider.mcp != nil }) { BrowserToolsToggle(tool: $0) }
                 Text("For agents started from the AI panel (restart them after a change). Turn one off when its organisation's policy blocks MCP servers.")
             }
             Button("Connect Agents to MarkView…") { AgentBrowserRegistration.connectInteractively() }
@@ -1302,4 +1295,17 @@ private struct MinimizedAgentStatus: View {
         .padding(.leading, 6)
         .accessibilityElement(children: .combine)
     }
+}
+
+/// One row of "Browser Tools for Agents": whether an assistant started from the AI panel gets MarkView's MCP servers.
+private struct BrowserToolsToggle: View {
+    let tool: CLITool
+    @AppStorage private var enabled: Bool
+
+    init(tool: CLITool) {
+        self.tool = tool
+        _enabled = AppStorage(wrappedValue: true, BrowserControlServer.agentToolsKey(tool))
+    }
+
+    var body: some View { Toggle(tool.displayName, isOn: $enabled) }
 }

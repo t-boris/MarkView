@@ -3,11 +3,9 @@ import CryptoKit
 
 // The provider process is an inert echo terminal; both production endpoint controllers, HTTPS
 // protocol, MCP sockets and workspace executors are real. No provider login or user project is used.
-enum CLITool: String { case claude, codex }
 struct TerminalProfile { init(_ tool: CLITool) {} }
 enum ContentHash { static func of(_ text: String) -> String { SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined() } }
 enum CLIToolLocator { static func resolveThorough(_ tool: CLITool) async -> String? { "/test/inert-agent" } }
-enum AgentModelProbe { static func hasClaudeSession(cwd: URL) -> Bool { true } }
 enum RemoteCodexContext {
     static func prepare(executable: String, directory: URL, context: RemoteJSON) async throws -> String? { nil }
 }

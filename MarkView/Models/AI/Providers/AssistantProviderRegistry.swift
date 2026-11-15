@@ -12,5 +12,8 @@ enum AssistantProviderRegistry {
         return provider
     }
 
+    /// The assistant used when nothing is chosen: the first one in the list.
+    static var defaultTool: CLITool { all[0].tool }
+
     static func provider(id: String) -> (any AssistantProvider)? { byID[id] }
 }

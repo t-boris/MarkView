@@ -20,6 +20,8 @@ protocol AssistantProvider: Sendable {
     /// It never changes for an existing assistant.
     var id: String { get }
     var displayName: String { get }
+    /// The name on a narrow tab; the number and model after the display name are kept.
+    var compactName: String { get }
     /// Executable name as installed on disk.
     var binaryName: String { get }
 
@@ -56,6 +58,50 @@ protocol AssistantProvider: Sendable {
     /// The model the CLI runs when no flag is given, from its own configuration, or nil.
     func configuredModel() -> String?
 
+    // MARK: Interactive terminal
+
+    /// SF Symbol of the assistant's terminal tab.
+    var terminalIcon: String { get }
+    /// Arguments, right after the executable, of a command that updates the CLI; it runs (`&&`) before every start.
+    var updateArgs: [String] { get }
+    /// The CLI has a session of its own in `directory` that `continueArgs` can pick up. Assistants that start a new
+    /// session by themselves when there is none answer true; Claude Code stops with "No conversation found".
+    func hasSession(in directory: URL) -> Bool
+    /// The model the CLI's own session log names for a reply since `since` in `directory`; nil for a CLI without a
+    /// readable log.
+    func answeredModel(in directory: URL, since: Date) -> String?
+    /// What the running CLI is doing, read from its own session store; nil when none can be read.
+    var activity: (any AssistantActivitySupport)? { get }
+    /// The CLI prints a message when an organisation's policy blocks MarkView's MCP servers (BUG-025).
+    var reportsMCPPolicyBlock: Bool { get }
+    /// Switches the model of a running session by a command typed into it; nil when the CLI must start again.
+    var liveModelSwitch: (any AssistantLiveModelSwitch)? { get }
+
+    // MARK: MarkView's MCP servers
+
+    /// Command-line arguments that hand MarkView's MCP servers to one terminal (shell-quoted with `quote`); nil when the
+    /// CLI has no per-session option and the servers must be in its own settings before it starts (`mcp`).
+    func mcpLaunchArguments(for servers: [AgentMCPServer], quote: (String) -> String) -> [String]?
+    /// How the servers are registered in the CLI's own settings (Connect Agents…); nil when it cannot use MCP servers.
+    var mcp: AssistantMCPRegistration? { get }
+    /// The skill file (relative to the home folder) that teaches the CLI MarkView's tools, for CLIs that may not use MCP.
+    var skillPath: String? { get }
+
+    // MARK: Prompts
+
+    /// The CLI can search the web by itself (project operation discovery relies on it).
+    var canSearchWeb: Bool { get }
+    /// Fix with AI states the bug as a goal command (`/goal …`) instead of a plain request.
+    var fixesBugsAsGoal: Bool { get }
+    /// `objective` as a goal for the CLI's own command or task model; `closing` asks it to continue until it is done, for
+    /// CLIs that have no goal command.
+    func goalPrompt(_ objective: String, closing: String) -> String
+
+    // MARK: Usage
+
+    /// Present when the assistant's quota and usage are tracked (the Terminal tab's indicators).
+    var usage: (any AssistantUsageSupport)? { get }
+
     // MARK: Agent Client Protocol
 
     /// Present when the assistant is driven over the Agent Client Protocol rather than a one-shot CLI run.
@@ -66,10 +112,24 @@ extension AssistantProvider {
     /// The identity of this assistant for the rest of the app.
     var tool: CLITool { CLITool(rawValue: id)! }
 
+    var compactName: String { displayName }
     var versionArgs: [String] { ["--version"] }
     var modelFlag: String { "--model" }
     var defaultXRayModel: String { "" }
     var acp: (any AssistantACPSupport)? { nil }
+    var updateArgs: [String] { [] }
+    func hasSession(in directory: URL) -> Bool { true }
+    func answeredModel(in directory: URL, since: Date) -> String? { nil }
+    var activity: (any AssistantActivitySupport)? { nil }
+    var reportsMCPPolicyBlock: Bool { false }
+    var liveModelSwitch: (any AssistantLiveModelSwitch)? { nil }
+    func mcpLaunchArguments(for servers: [AgentMCPServer], quote: (String) -> String) -> [String]? { nil }
+    var mcp: AssistantMCPRegistration? { nil }
+    var skillPath: String? { nil }
+    var canSearchWeb: Bool { false }
+    var fixesBugsAsGoal: Bool { false }
+    func goalPrompt(_ objective: String, closing: String) -> String { objective + " " + closing }
+    var usage: (any AssistantUsageSupport)? { nil }
     func loginState(stdout: String, stderr: String) -> Bool? { nil }
     func additionalFolderArgs(_ folders: [URL]) -> [String] { [] }
     func configuredModel() -> String? { nil }

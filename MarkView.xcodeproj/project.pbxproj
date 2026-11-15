@@ -469,6 +469,11 @@
 		7CF5DA3CE7C5EE1FDF0658C8 /* CopilotProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69FC1C3D0E8793EC31299096 /* CopilotProvider.swift */; };
 		58D34C0375E4198443DE5659 /* AntigravityProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1241E52C30F6483587F0922C /* AntigravityProvider.swift */; };
 		B0458690522BE1E9B6BB5BD4 /* AssistantProviderList.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED74EBF2936E077A4E03BA99 /* AssistantProviderList.swift */; };
+		D60695C56BA2C3B2F9BC1380 /* AssistantActivitySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EEF27F06681E5D75FF2C9AF /* AssistantActivitySupport.swift */; };
+		65D5426B68B4A28976FEB1B1 /* AssistantUsageSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751AC0B4C8063CFA621044B6 /* AssistantUsageSupport.swift */; };
+		431F415D09BA34C8E5383407 /* AssistantMCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46FF1586741486079728E57C /* AssistantMCP.swift */; };
+		9396AB387AE4434F1D182D9E /* AssistantLiveModelSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 981138F6713A19C1BC852E9B /* AssistantLiveModelSwitch.swift */; };
+		F305760817B31D8C26E57969 /* AssistantSessionLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40B65CF2FEDAE28837EA9E34 /* AssistantSessionLog.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1052,6 +1057,11 @@
 		69FC1C3D0E8793EC31299096 /* CopilotProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotProvider.swift; sourceTree = "<group>"; };
 		1241E52C30F6483587F0922C /* AntigravityProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AntigravityProvider.swift; sourceTree = "<group>"; };
 		ED74EBF2936E077A4E03BA99 /* AssistantProviderList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantProviderList.swift; sourceTree = "<group>"; };
+		7EEF27F06681E5D75FF2C9AF /* AssistantActivitySupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantActivitySupport.swift; sourceTree = "<group>"; };
+		751AC0B4C8063CFA621044B6 /* AssistantUsageSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantUsageSupport.swift; sourceTree = "<group>"; };
+		46FF1586741486079728E57C /* AssistantMCP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantMCP.swift; sourceTree = "<group>"; };
+		981138F6713A19C1BC852E9B /* AssistantLiveModelSwitch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantLiveModelSwitch.swift; sourceTree = "<group>"; };
+		40B65CF2FEDAE28837EA9E34 /* AssistantSessionLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantSessionLog.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1120,18 +1130,14 @@
 			isa = PBXGroup;
 			children = (
 				7EC1F9BA32F5B57727E0D268 /* ACPAssistant.swift */,
-				B9352C3EC3E8CCF2B38B41AF /* AgentActivity.swift */,
 				11C21E5BBAD478CDEDD9BEC6 /* AgentActivityMonitor.swift */,
 				14DA99E32A3358E5851D585A /* AgentProcesses.swift */,
-				CA7B7306EDD4435E3DCEBAAC /* AgentUsage.swift */,
-				BF5B52ABAB4C525B14894004 /* AgentUsageLogs.swift */,
 				2844310A95C80FBE1E88187C /* AgentUsageTracker.swift */,
 				43F98342E7F3820A62C4E015 /* AIAssistants.swift */,
 				F4700050C38EAE4C47A81DF3 /* AICallLog.swift */,
 				A6E0167483A13431C669BD05 /* AIOperation.swift */,
 				1A772D24F7564B57E808520A /* AIPrompts.swift */,
 				A6E0167483A13431C669BCFB /* AIToolRuns.swift */,
-				BDD60B865C8AFD298FC5EB04 /* ClaudeSessionModel.swift */,
 				8617D6996AEA0B711F366A7C /* CLICompletion.swift */,
 				4E5C49BB3F8E4AF05F47765E /* CommandPolicy.swift */,
 				CF4BDCBD84C68089E10F1CCC /* DiagramAI.swift */,
@@ -2079,6 +2085,15 @@
 				69FC1C3D0E8793EC31299096 /* CopilotProvider.swift */,
 				1241E52C30F6483587F0922C /* AntigravityProvider.swift */,
 				ED74EBF2936E077A4E03BA99 /* AssistantProviderList.swift */,
+				CA7B7306EDD4435E3DCEBAAC /* AgentUsage.swift */,
+				BF5B52ABAB4C525B14894004 /* AgentUsageLogs.swift */,
+				BDD60B865C8AFD298FC5EB04 /* ClaudeSessionModel.swift */,
+				B9352C3EC3E8CCF2B38B41AF /* AgentActivity.swift */,
+				7EEF27F06681E5D75FF2C9AF /* AssistantActivitySupport.swift */,
+				751AC0B4C8063CFA621044B6 /* AssistantUsageSupport.swift */,
+				46FF1586741486079728E57C /* AssistantMCP.swift */,
+				981138F6713A19C1BC852E9B /* AssistantLiveModelSwitch.swift */,
+				40B65CF2FEDAE28837EA9E34 /* AssistantSessionLog.swift */,
 			);
 			path = Providers;
 			sourceTree = "<group>";
@@ -2228,6 +2243,11 @@
 				47B282BD306263A5DE536089 /* ACPAssistant.swift in Sources */,
 				D4F3C35D9679DCE67FDD55E2 /* AIAssistantPickerView.swift in Sources */,
 				436C087D720363F0E8146706 /* AIAssistants.swift in Sources */,
+				F305760817B31D8C26E57969 /* AssistantSessionLog.swift in Sources */,
+				9396AB387AE4434F1D182D9E /* AssistantLiveModelSwitch.swift in Sources */,
+				431F415D09BA34C8E5383407 /* AssistantMCP.swift in Sources */,
+				65D5426B68B4A28976FEB1B1 /* AssistantUsageSupport.swift in Sources */,
+				D60695C56BA2C3B2F9BC1380 /* AssistantActivitySupport.swift in Sources */,
 				B0458690522BE1E9B6BB5BD4 /* AssistantProviderList.swift in Sources */,
 				58D34C0375E4198443DE5659 /* AntigravityProvider.swift in Sources */,
 				7CF5DA3CE7C5EE1FDF0658C8 /* CopilotProvider.swift in Sources */,

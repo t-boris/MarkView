@@ -104,7 +104,7 @@ enum AIAssistantPreferences {
 
     /// The default assistant, for projects without a choice of their own.
     static var defaultBackend: CLITool {
-        CLITool(rawValue: UserDefaults.standard.string(forKey: backendKey) ?? "") ?? .claude
+        CLITool(rawValue: UserDefaults.standard.string(forKey: backendKey) ?? "") ?? AssistantProviderRegistry.defaultTool
     }
 
     /// The assistant for `project`: its own choice, else the default.

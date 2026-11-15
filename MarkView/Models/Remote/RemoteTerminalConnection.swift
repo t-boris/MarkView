@@ -42,7 +42,7 @@ final class RemoteTerminalConnection: TerminalConnection {
                     let root = root, windowID = browserWindowID, provider = provider
                     let workspace = try await RemoteWorkspace(root: root, browserCall: { name, arguments in
                         await BrowserControlServer.performRemoteBrowser(name, arguments: arguments, window: windowID,
-                                                                       root: root, agent: provider == .claude ? .claude : .codex)
+                                                                       root: root, agent: provider.tool)
                     })
                     self.workspace = workspace
                     try await channel.prepareSession(reset: reset)

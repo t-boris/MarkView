@@ -153,10 +153,10 @@ extension ControlToolRunner {
         }
         var prompt = text
         if args["goal"] as? Bool == true {
-            guard let backend = HandoffPrompt.GoalBackend(rawValue: session.profile.rawValue) else {
+            guard let tool = session.profile.tool else {
                 throw Invalid(message: "A goal needs an agent terminal; this one is a shell.")
             }
-            prompt = HandoffPrompt.goal(text, backend: backend)
+            prompt = HandoffPrompt.goal(text, tool: tool)
         }
         session.pasteWhenReady(prompt, submit: args["submit"] as? Bool ?? true)
         lastSent[session.id] = Date()

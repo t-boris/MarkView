@@ -137,8 +137,8 @@ enum BatchStart {
 /// The one prompt of a batch (REQ-002…REQ-005). The app runs no git itself (DEC-002): the AI
 /// makes the branch, one commit per fixed bug, and writes each outcome into the report (DEC-006).
 enum BatchFixPrompt {
-    /// Claude Code gets it as a one-line `/goal`; the other assistants as a numbered instruction.
-    static func make(_ bugs: [BasketBug], claude: Bool) -> String {
+    /// An assistant that takes bug fixes as a goal command gets a one-line `/goal`; the others a numbered instruction.
+    static func make(_ bugs: [BasketBug], asGoal: Bool) -> String {
         let list = bugs.enumerated().map { index, bug in
             var line = "\(index + 1). \(bug.key) \"\(bug.title)\" — \(bug.path)"
             if !bug.feature.isEmpty { line += " (feature \(bug.feature))" }
@@ -163,7 +163,7 @@ enum BatchFixPrompt {
             "Do not change the status of any bug report that is not in this list, and never edit a status in the Markdown files.",
             "Finish with a short outcome per bug: fixed (with the commit) or not fixed (with the reason).",
         ]
-        if claude {
+        if asGoal {
             let items = bugs.map { bug in "\(bug.key) \"\(bug.title)\" (\(bug.path)\(bug.feature.isEmpty ? "" : ", feature \(bug.feature)"))" }
             return "/goal fix this batch of \(bugs.count) bugs on one new git branch: " + items.joined(separator: "; ") + ". "
                 + steps.joined(separator: " ") + " Ask any question if you are in doubt."

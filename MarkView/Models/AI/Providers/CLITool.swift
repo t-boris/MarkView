@@ -51,3 +51,7 @@ enum CLITool: String, CaseIterable {
     /// Arguments that let the CLI read `folders` besides its working directory (Claude `--add-dir`); empty for the others.
     func additionalFolderArgs(_ folders: [URL]) -> [String] { provider.additionalFolderArgs(folders) }
 }
+
+extension CLITool: Identifiable {
+    var id: String { rawValue }
+}

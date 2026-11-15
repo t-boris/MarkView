@@ -123,7 +123,7 @@ final class RemoteHostController: ObservableObject {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             let bridge = try RemoteToolBridge { id, name, arguments in await requests.call(id: id, name: name, arguments: arguments) }
             do {
-                var resume = payload["resume"].bool == true && (provider == .codex || AgentModelProbe.hasClaudeSession(cwd: root))
+                var resume = payload["resume"].bool == true && tool.provider.hasSession(in: root)
                 let threadID: String?
                 if provider == .codex, resume {
                     threadID = try await RemoteCodexContext.prepare(executable: executable, directory: root, context: context)
