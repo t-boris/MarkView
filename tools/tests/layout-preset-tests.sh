@@ -10,6 +10,6 @@ trap 'rm -rf "$out"' EXIT
 cp tools/tests/LayoutPresetTests.swift "$out/main.swift"
 swiftc -suppress-warnings -target "$(uname -m)-apple-macos13.0" -o "$out/layout-preset-tests" \
     MarkView/Models/Workspace/LayoutPreset.swift MarkView/Models/Workspace/LayoutCatalog.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift MarkView/Models/Workspace/PanelLayout.swift \
-    MarkView/Models/Workspace/ToolRegistry.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Appearance/ProjectBackdrop.swift \
+    MarkView/Models/Workspace/ToolRegistry.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Appearance/BackdropRegistry.swift MarkView/Models/Appearance/ProjectBackdrop.swift \
     "$out/main.swift"
 "$out/layout-preset-tests" "$PWD/MarkView/Resources/Layouts"

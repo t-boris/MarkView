@@ -1225,7 +1225,8 @@
         "MarkView/Resources/Layouts/30-qa.json",
         "MarkView/Resources/Layouts/40-cockpit.json",
         "tools/tests/LayoutPresetTests.swift",
-        "tools/tests/layout-preset-tests.sh"
+        "tools/tests/layout-preset-tests.sh",
+        "MarkView/Models/Appearance/BackdropRegistry.swift"
       ]
     },
     {
