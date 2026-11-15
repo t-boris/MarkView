@@ -11,7 +11,9 @@
         "MarkView/Models/AI/AgentProcesses.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "tools/tests/ACPContinuationTests.swift",
-        "tools/tests/CLICompletionTestSupport.swift"
+        "tools/tests/CLICompletionTestSupport.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -31,7 +33,9 @@
       "sources": [
         "MarkView/Models/AI/AgentProcesses.swift",
         "tools/tests/AgentProcessesTests.swift",
-        "tools/tests/agent-processes-tests.sh"
+        "tools/tests/agent-processes-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -236,7 +240,9 @@
         "MarkView/Models/AI/AgentProcesses.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "tools/tests/CLICompletionTestSupport.swift",
-        "tools/tests/CLICompletionTimeoutTests.swift"
+        "tools/tests/CLICompletionTimeoutTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -280,7 +286,9 @@
       "sources": [
         "MarkView/Models/AI/AgentProcesses.swift",
         "MarkView/Models/Cockpit/CockpitChild.swift",
-        "tools/tests/CockpitChildChecks.swift"
+        "tools/tests/CockpitChildChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {

@@ -1,5 +1,8 @@
 import Foundation
 import Darwin
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One-shot, non-interactive completion through the Claude Code or Codex CLI.
 ///
@@ -308,11 +311,8 @@ private final class Invocation: @unchecked Sendable {
         var refused: [(tool: String, input: String)] = []
     }
 
-    private static let ignoreSIGPIPE: Void = { signal(SIGPIPE, SIG_IGN) }()
-
     private let tool: CLITool
-    private let process = Process()
-    private let input: String
+    private let spec: SubprocessSpec
     private let timeout: TimeInterval?
     private let onDelta: (@Sendable (String) -> Void)?
     private let onActivity: (@Sendable (CLICompletion.Activity) -> Void)?
@@ -330,28 +330,27 @@ private final class Invocation: @unchecked Sendable {
     private var stderrTail = ""
     private var streamedText = ""
     private var cancelled = false
-    private var timedOut = false
+    private var child: SubprocessChild?
+    private var ended: SubprocessExit?
     private var continuation: CheckedContinuation<Output, Error>?
 
     init(tool: CLITool, executable: String, arguments: [String], workDir: URL,
          input: String, timeout: TimeInterval?, onDelta: (@Sendable (String) -> Void)?,
          onActivity: (@Sendable (CLICompletion.Activity) -> Void)?) {
         self.tool = tool
-        self.input = input
         self.timeout = timeout
         self.onDelta = onDelta
         self.onActivity = onActivity
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.currentDirectoryURL = workDir
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = CLIToolLocator.subprocessPath(toolPath: executable)
-        process.environment = env
+        // The prompt goes to the child's standard input, which is then closed. The timeout ends the child's whole group
+        // (a CLI's own helpers included), with two seconds between the request and the kill.
+        self.spec = SubprocessSpec(
+            executable: executable, arguments: arguments, cwd: workDir,
+            environment: ["PATH": CLIToolLocator.subprocessPath(toolPath: executable)],
+            stdin: Data(input.utf8), timeout: timeout ?? 0, terminationGrace: 2)
     }
 
     func start() async throws -> Output {
-        _ = Self.ignoreSIGPIPE  // a CLI that exits early must not kill the app mid-write
-        return try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { continuation in
             queue.async { self.launch(continuation) }
         }
     }
@@ -359,75 +358,32 @@ private final class Invocation: @unchecked Sendable {
     func cancel() {
         queue.async {
             self.cancelled = true
-            if self.process.isRunning {
-                self.process.terminate()
-                self.queue.asyncAfter(deadline: .now() + 2) {
-                    if self.process.isRunning { _ = kill(self.process.processIdentifier, SIGKILL) }
-                }
-            }
+            self.child?.terminate()
         }
     }
 
+    /// Runs on `queue`, which is also where the child's output and its exit are delivered, in that order.
     private func launch(_ continuation: CheckedContinuation<Output, Error>) {
         if cancelled { continuation.resume(throwing: CancellationError()); return }
         self.continuation = continuation
-
-        let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
-        process.standardInput = stdin
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard let self, !data.isEmpty else { return }
-            self.queue.async { self.consume(data) }
-        }
-        stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard let self, !data.isEmpty else { return }
-            self.queue.async {
+        do {
+            let started = try Subprocess.start(spec, queue: queue, onStdout: { [weak self] data in
+                self?.consume(data)
+            }, onStderr: { [weak self] data in
+                guard let self else { return }
                 self.stderrTail = String((self.stderrTail + String(decoding: data, as: UTF8.self)).suffix(4000))
-            }
-        }
-        process.terminationHandler = { [weak self] finished in
-            AgentProcesses.remove(finished)
-            guard let self else { return }
-            stdout.fileHandleForReading.readabilityHandler = nil
-            stderr.fileHandleForReading.readabilityHandler = nil
-            let rest = stdout.fileHandleForReading.readDataToEndOfFile()
-            self.queue.async {
-                if !rest.isEmpty { self.consume(rest) }
+            }, onExit: { [weak self] child, exit in
+                AgentProcesses.remove(child)
+                guard let self else { return }
+                self.ended = exit
                 self.consume(Data("\n".utf8))  // flush a final line without newline
                 self.finish()
-            }
-        }
-
-        do {
-            try process.run()
-            AgentProcesses.add(process)
+            })
+            child = started
+            AgentProcesses.add(started)
         } catch {
             self.continuation = nil
             continuation.resume(throwing: CLICompletion.Failure.failed(tool, error.localizedDescription))
-            return
-        }
-
-        // Write stdin off this queue so a large prompt and the stdout reader
-        // cannot block each other.
-        let data = Data(input.utf8)
-        DispatchQueue.global(qos: .userInitiated).async {
-            try? stdin.fileHandleForWriting.write(contentsOf: data)
-            try? stdin.fileHandleForWriting.close()
-        }
-
-        if let timeout {
-            queue.asyncAfter(deadline: .now() + timeout) { [weak self] in
-                guard let self, self.process.isRunning else { return }
-                self.timedOut = true
-                self.process.terminate()
-                self.queue.asyncAfter(deadline: .now() + 2) {
-                    if self.process.isRunning { _ = kill(self.process.processIdentifier, SIGKILL) }
-                }
-            }
         }
     }
 
@@ -623,14 +579,14 @@ private final class Invocation: @unchecked Sendable {
         self.continuation = nil
         if cancelled {
             continuation.resume(throwing: CancellationError())
-        } else if timedOut, let timeout {
+        } else if ended?.timedOut == true, let timeout {
             continuation.resume(throwing: CLICompletion.Failure.timedOut(tool, timeout))
         } else if let message = output.errorMessage {
             continuation.resume(throwing: CLICompletion.Failure.failed(tool, message))
-        } else if process.terminationStatus != 0 {
+        } else if let status = ended?.status, status != 0 {
             let detail = stderrTail.trimmingCharacters(in: .whitespacesAndNewlines)
             continuation.resume(throwing: CLICompletion.Failure.failed(
-                tool, "exit code \(process.terminationStatus)" + (detail.isEmpty ? "" : " — \(detail.suffix(600))")))
+                tool, "exit code \(status)" + (detail.isEmpty ? "" : " — \(detail.suffix(600))")))
         } else if output.text.isEmpty && output.structured == nil {
             continuation.resume(throwing: codexWarning.map { CLICompletion.Failure.failed(tool, $0) }
                                 ?? CLICompletion.Failure.invalidOutput(tool, "empty answer"))

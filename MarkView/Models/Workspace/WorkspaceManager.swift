@@ -3746,15 +3746,10 @@ class WorkspaceManager: ObservableObject {
 
     /// V1: Deterministic structural indexing — instant, no LLM
     /// Then V1.5: Haiku-based content module extraction (cheap, fast)
-    /// Live structural-index child processes — retained PROCESS-WIDE (static) until
-    /// they exit so their `terminationHandler` always fires, independent of which
-    /// `WorkspaceManager` instance (windows create several) spawned them. A `Process`
-    /// with no strong reference is released when the spawning scope returns and its
-    /// handler then never runs.
-    private static var runningIndexers: [Process] = []
-    /// This workspace's indexer, so closing the folder can stop it. Weak: the
-    /// static list above owns it.
-    private weak var structuralIndexer: Process?
+    /// This workspace's indexer, so a newer one (folder closed and reopened) can tell its own exit from an older one's.
+    /// Weak: a started `SubprocessChild` keeps itself alive until it has exited, so its exit handler always runs,
+    /// whichever `WorkspaceManager` instance (windows create several) started it.
+    private weak var structuralIndexer: SubprocessChild?
 
     /// Run structural indexing in a SEPARATE PROCESS (re-exec of this binary with
     /// `--dde-index <folder>`) so the directory scan never competes with the UI.
@@ -3766,48 +3761,34 @@ class WorkspaceManager: ObservableObject {
             return
         }
 
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: exePath)
-        proc.arguments = ["--dde-index", url.path]
-        proc.standardOutput = FileHandle.nullDevice
-
-        // Stream the child's stderr live so its progress shows in the footer.
-        // Draining the pipe also prevents the child blocking on a full buffer.
-        let pipe = Pipe()
-        proc.standardError = pipe
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] fh in
-            let data = fh.availableData
-            guard !data.isEmpty else { fh.readabilityHandler = nil; return }
-            guard let chunk = String(data: data, encoding: .utf8) else { return }
-            for raw in chunk.split(separator: "\n") {
-                let line = String(raw)
-                guard let r = line.range(of: "[mvindexer] ") else { continue }
-                let msg = String(line[r.upperBound...])
-                // The child emits bare "N/M" progress ticks; show them as a count.
-                guard msg.range(of: #"^\d+/\d+$"#, options: .regularExpression) != nil else { continue }
-                Task { @MainActor in self?.structuralIndexProgress = "Indexing \(msg) files" }
-            }
-        }
-
-        proc.terminationHandler = { [weak self] p in
-            WorkspaceManager.workspaceLogger.debug("structural index process exited code=\(p.terminationStatus, privacy: .public)")
-            Task { @MainActor in
-                WorkspaceManager.runningIndexers.removeAll { $0 === p }
-                guard let self = self else { return }
-                // A newer indexer (folder closed and reopened) owns the footer now.
-                if let current = self.structuralIndexer, current !== p { return }
-                self.structuralIndexProgress = nil  // hide footer progress
-                self.loadCachedResults()
-                self.refreshSemanticViews()
-            }
-        }
-
+        structuralIndexProgress = "Indexing…"  // footer only; updated from child stderr
+        // Stream the child's stderr live so its progress shows in the footer (the runner drains the pipe, so the
+        // child never blocks on a full buffer).
+        let spec = SubprocessSpec(executable: exePath, arguments: ["--dde-index", url.path], timeout: 0, stdoutRouting: .discard)
         do {
-            structuralIndexProgress = "Indexing…"  // footer only; updated from child stderr
-            try proc.run()
-            Self.runningIndexers.append(proc)  // retain until terminationHandler fires
-            structuralIndexer = proc
-            Self.debugLog("structural index process launched pid=\(proc.processIdentifier)")
+            let child = try Subprocess.start(spec, onStderr: { [weak self] data in
+                guard let chunk = String(data: data, encoding: .utf8) else { return }
+                for raw in chunk.split(separator: "\n") {
+                    let line = String(raw)
+                    guard let r = line.range(of: "[mvindexer] ") else { continue }
+                    let msg = String(line[r.upperBound...])
+                    // The child emits bare "N/M" progress ticks; show them as a count.
+                    guard msg.range(of: #"^\d+/\d+$"#, options: .regularExpression) != nil else { continue }
+                    Task { @MainActor in self?.structuralIndexProgress = "Indexing \(msg) files" }
+                }
+            }, onExit: { [weak self] finished, exit in
+                WorkspaceManager.workspaceLogger.debug("structural index process exited code=\(exit.status, privacy: .public)")
+                Task { @MainActor in
+                    guard let self = self else { return }
+                    // A newer indexer (folder closed and reopened) owns the footer now.
+                    if let current = self.structuralIndexer, current !== finished { return }
+                    self.structuralIndexProgress = nil  // hide footer progress
+                    self.loadCachedResults()
+                    self.refreshSemanticViews()
+                }
+            })
+            structuralIndexer = child
+            Self.debugLog("structural index process launched pid=\(child.pid)")
         } catch {
             structuralIndexProgress = nil
             Self.debugLog("structural index process FAILED to launch: \(error)")

@@ -5,20 +5,20 @@ func check(_ ok: Bool, _ name: String) {
     print((ok ? "ok   " : "FAIL ") + name)
     if !ok { failures += 1 }
 }
-func start(_ script: String) throws -> Process {
-    let p = Process()
-    p.executableURL = URL(fileURLWithPath: "/bin/sh")
-    p.arguments = ["-c", script]
-    p.terminationHandler = { AgentProcesses.remove($0) }
-    try p.run()
-    AgentProcesses.add(p)
-    return p
+func start(_ script: String) throws -> SubprocessChild {
+    let child = try Subprocess.start(
+        SubprocessSpec(executable: "/bin/sh", arguments: ["-c", script], timeout: 0),
+        onExit: { child, _ in AgentProcesses.remove(child) })
+    AgentProcesses.add(child)
+    return child
 }
 
 let polite = try start("sleep 60")
 let stubborn = try start("trap '' TERM; while true; do sleep 1; done")
 let finished = try start("exit 0")
-finished.waitUntilExit()
+let finishedExit = DispatchSemaphore(value: 0)
+Task { await finished.waitForExit(); finishedExit.signal() }
+check(finishedExit.wait(timeout: .now() + 5) == .success, "the short process ended")
 Thread.sleep(forTimeInterval: 0.3)
 check(AgentProcesses.count == 2, "finished process is forgotten")
 check(polite.isRunning && stubborn.isRunning, "both running before quit")
