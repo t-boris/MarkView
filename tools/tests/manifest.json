@@ -671,6 +671,20 @@
       ]
     },
     {
+      "name": "editor-page-csp-tests",
+      "script": "tools/tests/editor-page-csp-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/Workspace/EditorPage.swift",
+        "MarkView/Models/Workspace/EditorWindowPrefs.swift",
+        "MarkView/Resources/Editor/index.html",
+        "MarkView/Resources/Editor/js/markview-insight-srcdoc.js",
+        "MarkView/Views/Workspace/EditorView.swift",
+        "tools/tests/EditorPageCSPTests.swift",
+        "tools/tests/editor-page-csp-tests.sh"
+      ]
+    },
+    {
       "name": "feature-discovery-tests",
       "script": "tools/tests/feature-discovery-tests.sh",
       "tier": "pure",
@@ -896,6 +910,18 @@
       ]
     },
     {
+      "name": "mermaid-svg-tests",
+      "script": "tools/tests/mermaid-svg-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Resources/Editor/index.html",
+        "MarkView/Resources/Editor/js/markview-render.js",
+        "MarkView/Resources/Editor/js/mv-kit.js",
+        "tools/tests/MermaidSvgWebTests.swift",
+        "tools/tests/mermaid-svg-tests.sh"
+      ]
+    },
+    {
       "name": "new-project-tests",
       "script": "tools/tests/new-project-tests.sh",
       "tier": "pure",
@@ -996,8 +1022,10 @@
         "MarkView/Resources/Editor/js/markview-render.js",
         "MarkView/Resources/Editor/js/markview-terminal.js",
         "MarkView/Resources/Editor/js/mv-kit.js",
+        "MarkView/Models/Workspace/EditorPage.swift",
         "MarkView/Views/Workspace/EditorView.swift",
-        "tools/tests/Phase0SafetyTests.swift"
+        "tools/tests/Phase0SafetyTests.swift",
+        "tools/tests/phase0-safety-tests.sh"
       ]
     },
     {
@@ -2381,6 +2409,20 @@
         "MarkView/Views/Browser/BrowserPopup.swift",
         "tools/tests/WebPreviewTests.swift",
         "tools/tests/web-preview-tests.sh"
+      ]
+    },
+    {
+      "name": "web-sinks-tests",
+      "script": "tools/tests/web-sinks-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Resources/Editor/index.html",
+        "MarkView/Resources/Editor/js/markview-canvas.js",
+        "MarkView/Resources/Editor/js/markview-code.js",
+        "MarkView/Resources/Editor/js/markview-render.js",
+        "MarkView/Resources/Editor/js/mv-kit.js",
+        "tools/tests/WebSinkTests.swift",
+        "tools/tests/web-sinks-tests.sh"
       ]
     },
     {

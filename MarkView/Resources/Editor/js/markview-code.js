@@ -1042,7 +1042,12 @@
                     const row = document.createElement('div'); row.className = 'code-peek-row ' + r.kind;
                     row.innerHTML = '<span class="ln"></span><span class="tx"></span>';
                     row.querySelector('.ln').textContent = r.line;
-                    row.querySelector('.tx').innerHTML = (r.kind !== 'usage' ? '<i>' + r.kind + '</i> ' : '') + markName(r.text, event.name);
+                    const tx = row.querySelector('.tx');
+                    if (r.kind !== 'usage') {
+                        const kind = document.createElement('i'); kind.textContent = r.kind;
+                        tx.appendChild(kind); tx.appendChild(document.createTextNode(' '));
+                    }
+                    tx.insertAdjacentHTML('beforeend', markName(r.text, event.name));
                     row.title = r.path + ':' + r.line;
                     row.onclick = function() { openResult(r); };
                     list.appendChild(row);

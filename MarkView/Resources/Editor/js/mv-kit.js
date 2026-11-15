@@ -179,8 +179,30 @@
         }
     };
 
-    var DANGEROUS_STYLE_PROPS = /^(?:z-index|content|behavior|-moz-binding)$/i;
-    var DANGEROUS_STYLE_VALUES = /url\s*\(|image\s*\(|-webkit-image-set|image-set|expression\s*\(|@import|-moz-binding|javascript:|vbscript:/i;
+    // What an inline style or an SVG stylesheet may set (FU-24): box, text and SVG paint properties, and custom properties.
+    // Everything not listed is dropped, among it z-index, content, behavior, -moz-binding, zoom and appearance. `position` is
+    // limited to static and relative: `fixed` covers the whole window (it paints over the editor's toolbar), and `absolute`
+    // is only contained where an ancestor is positioned and clips (the editor pane, a book page), not in the discussion
+    // thread, so one shared rule has to refuse it too. A vendor-prefixed name is checked without its `-webkit-`.
+    var STYLE_PROPERTY_ALLOW = new RegExp('^(?:' + [
+        '(?:align|justify|place)-[a-z-]+', 'alignment-baseline', 'animation(?:-[a-z-]+)?', 'aspect-ratio', 'backdrop-filter',
+        'backface-visibility', 'background(?:-[a-z-]+)?', 'baseline-shift', 'border(?:-[a-z-]+)?', 'bottom', 'box-[a-z-]+', 'caption-side', 'clear',
+        'clip-path', 'clip-rule', 'color', 'color-interpolation(?:-filters)?', 'column-[a-z-]+', 'columns', 'counter-[a-z-]+',
+        'cursor', 'cx', 'cy', 'direction', 'display', 'dominant-baseline', 'empty-cells', 'fill(?:-[a-z-]+)?', 'filter', 'flex(?:-[a-z-]+)?',
+        'float', 'flood-[a-z-]+', 'font(?:-[a-z-]+)?', 'gap', 'grid(?:-[a-z-]+)?', 'height', 'hyphens', 'image-rendering',
+        'inset(?:-[a-z-]+)?', 'left', 'letter-spacing', 'lighting-color', 'line-[a-z-]+', 'list-style(?:-[a-z-]+)?',
+        'margin(?:-[a-z-]+)?', 'marker(?:-[a-z-]+)?', 'mask(?:-[a-z-]+)?', 'max-[a-z-]+', 'min-[a-z-]+', 'mix-blend-mode',
+        'object-[a-z-]+', 'opacity', 'order', 'orphans', 'outline(?:-[a-z-]+)?', 'overflow(?:-[a-z-]+)?',
+        'padding(?:-[a-z-]+)?', 'paint-order', 'perspective(?:-[a-z-]+)?', 'pointer-events', 'position', 'quotes', 'r', 'right',
+        'rotate', 'row-gap', 'rx', 'ry', 'scale', 'shape-rendering', 'stop-[a-z-]+', 'stroke(?:-[a-z-]+)?', 'tab-size', 'table-layout',
+        'text-[a-z-]+', 'top', 'transform(?:-[a-z-]+)?', 'transition(?:-[a-z-]+)?', 'translate', 'unicode-bidi', 'user-select',
+        'vector-effect', 'vertical-align', 'visibility', 'white-space', 'widows', 'width', 'word-[a-z-]+', 'writing-mode'
+    ].join('|') + ')$');
+    // CSS functions that fetch what a string or an address names, and the legacy script hooks.
+    var STYLE_VALUE_UNSAFE = /(?:^|[^\w-])(?:-webkit-)?(?:image|image-set|cross-fade|element|paint|canvas|src)\(|expression\s*\(|javascript:|vbscript:|@import|-moz-binding|behavior\s*:/i;
+    var STYLE_URL = /url\(\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|([^)"'\s]*))\s*\)/gi;
+    // One style attribute or rule that expands to more longhands than this is not a style a person wrote (`all: unset` expands to ~300).
+    var MAX_STYLE_DECLARATIONS = 200;
     var URL_ATTRS = ['src', 'href', 'xlink:href', 'action', 'formaction', 'poster'];
     var COMMON_FORBID_TAGS = ['script', 'iframe', 'object', 'embed', 'form', 'base', 'meta', 'link', 'style'];
     var COMMON_FORBID_ATTR = [
@@ -217,20 +239,116 @@
         }
     };
 
-    function sanitizeStyleAttribute(rawStyle) {
-        var kept = [];
-        String(rawStyle || '').split(';').forEach(function(declaration) {
-            var at = declaration.indexOf(':');
-            if (at < 0) return;
-            var property = declaration.slice(0, at).trim().toLowerCase();
-            var value = declaration.slice(at + 1).trim();
-            if (!property || !value) return;
-            if (DANGEROUS_STYLE_PROPS.test(property)) return;
-            if (property === 'position' && /^(?:fixed|sticky)\b/i.test(value)) return;
-            if (DANGEROUS_STYLE_VALUES.test(value)) return;
-            kept.push(property + ':' + value);
+    // A url() may only point inside the document (#fragment, for gradients, filters and markers) or carry a raster picture.
+    function urlsAreInline(text) {
+        var allowed = true;
+        var rest = text.replace(STYLE_URL, function(all, double, single, bare) {
+            var target = String(double || single || bare || '').replace(/[\u0000-\u0020]+/g, '');
+            if (!(target.charAt(0) === '#' || /^data:image\/(?:png|jpe?g|gif|webp|avif)[;,]/i.test(target))) allowed = false;
+            return '';
         });
-        return kept.join(';');
+        return allowed && !/url\(/i.test(rest);
+    }
+
+    // `property` and `value` are what the browser's parser reports for one longhand, so escapes and comments are already gone
+    // (a custom property is kept as written, which is why it may carry neither). A shorthand that holds var() has no value
+    // for its longhands and is dropped with them.
+    function isSafeDeclaration(property, value) {
+        var name = String(property || '').toLowerCase();
+        var text = String(value || '');
+        if (!name || !text || text.indexOf('<') >= 0) return false;
+        if (name.indexOf('--') === 0) {
+            if (/\\|\/\*/.test(text)) return false;
+        } else {
+            if (!STYLE_PROPERTY_ALLOW.test(name.replace(/^-webkit-/, ''))) return false;
+            if (name === 'position' && !/^(?:static|relative)$/i.test(text)) return false;
+        }
+        return !STYLE_VALUE_UNSAFE.test(text) && urlsAreInline(text);
+    }
+
+    function sanitizeStyleAttribute(rawStyle) {
+        var holder = cssParserDocument().createElement('div');
+        holder.style.cssText = String(rawStyle || '');
+        return safeDeclarations(holder.style);
+    }
+
+    // The browser's own CSS parser reads every style attribute and the stylesheet Mermaid writes into its SVG, in a document
+    // that has no browsing context (its sheets are parsed but never applied and never fetch anything), and only the
+    // serialised declarations it reports back are checked and written out. A check on the raw text can be bypassed by CSS
+    // escapes (`f\69xed`, `\75rl(`), comments (`position:/**/fixed`) and splitting tricks; the serialised form carries none.
+    var cssParserDoc = null;
+    var cssCleanStyle = null;
+    function cssParserDocument() {
+        if (!cssParserDoc) {
+            cssParserDoc = global.document.implementation.createHTMLDocument('');
+            cssCleanStyle = cssParserDoc.createElement('div').style;
+        }
+        return cssParserDoc;
+    }
+
+    // The comma-separated selectors of a rule, or null when the text cannot be split safely or uses a sibling combinator
+    // (`#id ~ p`, `#id + p`), which would reach elements outside the diagram.
+    function splitScopedSelectors(text) {
+        var parts = [], depth = 0, quote = '', start = 0;
+        for (var i = 0; i < text.length; i++) {
+            var ch = text.charAt(i);
+            if (quote) {
+                if (ch === '\\') i++;
+                else if (ch === quote) quote = '';
+            } else if (ch === '\\') {
+                i++;
+            } else if (ch === '"' || ch === "'") {
+                quote = ch;
+            } else if (ch === '(' || ch === '[') {
+                depth++;
+            } else if (ch === ')' || ch === ']') {
+                if (--depth < 0) return null;
+            } else if (depth === 0 && ch === ',') {
+                parts.push(text.slice(start, i));
+                start = i + 1;
+            } else if (depth === 0 && (ch === '+' || ch === '~')) {
+                return null;
+            }
+        }
+        if (depth !== 0 || quote) return null;
+        parts.push(text.slice(start));
+        return parts;
+    }
+
+    function safeDeclarations(source) {
+        if (source.length > MAX_STYLE_DECLARATIONS) return '';
+        cssParserDocument();
+        var target = cssCleanStyle;
+        target.cssText = '';
+        for (var i = 0; i < source.length; i++) {
+            var property = source[i];
+            var value = source.getPropertyValue(property);
+            if (isSafeDeclaration(property, value)) target.setProperty(property, value, source.getPropertyPriority(property));
+        }
+        return target.cssText;
+    }
+
+    // Mermaid writes one <style> into every SVG and prefixes each of its rules with the SVG's own id. A stylesheet inside an
+    // inline SVG applies to the whole page, so only plain rules whose every selector starts at that id are kept; @import,
+    // @font-face, @media and the like (Mermaid 10 writes none) and every unsafe declaration are dropped.
+    function sanitizeScopedStylesheet(cssText, scopeId) {
+        var doc = cssParserDocument();
+        var style = doc.createElement('style');
+        style.textContent = String(cssText || '');
+        doc.head.appendChild(style);
+        var scope = new RegExp('^#' + global.CSS.escape(scopeId) + '(?![\\w-])');
+        var rules = [];
+        Array.prototype.forEach.call(style.sheet ? style.sheet.cssRules : [], function(rule) {
+            if (rule.type !== 1) return;
+            var selectors = splitScopedSelectors(rule.selectorText);
+            if (!selectors || !selectors.every(function(selector) { return scope.test(selector.trim()); })) return;
+            var body = safeDeclarations(rule.style);
+            var text = rule.selectorText + '{' + body + '}';
+            // A '<' could end the element's raw text when the markup is parsed again, so such a rule is dropped.
+            if (body && text.indexOf('<') < 0) rules.push(text);
+        });
+        style.remove();
+        return rules.join('\n');
     }
 
     function ensureDOMPurifyURIHook(purify) {
@@ -276,18 +394,32 @@
         return '<pre class="sanitization-error">' + escapeHtml(rawHTML) + '</pre>';
     }
 
+    // Mermaid (securityLevel 'strict') keeps its whole theme in a <style> inside the SVG, so this profile, and only this one,
+    // lets <style> through: its text is rebuilt rule by rule by sanitizeScopedStylesheet and the element is removed when
+    // nothing safe is left or when the SVG has no id to scope the rules to.
     function sanitizeMermaidSvg(rawSVG) {
         var purify = global.DOMPurify;
         if (purify && typeof purify.sanitize === 'function') {
             ensureDOMPurifyURIHook(purify);
-            return purify.sanitize(String(rawSVG || ''), {
+            var body = purify.sanitize(String(rawSVG || ''), {
                 USE_PROFILES: { svg: true, svgFilters: true, html: true },
                 ADD_TAGS: ['foreignObject'],
+                // Mermaid writes its node labels as HTML inside <foreignObject>; DOMPurify 3 keeps only <annotation-xml> as an
+                // HTML integration point by default and would empty every label.
+                HTML_INTEGRATION_POINTS: { 'foreignobject': true, 'annotation-xml': true },
                 ALLOW_DATA_ATTR: false,
                 ALLOW_UNKNOWN_PROTOCOLS: false,
-                FORBID_TAGS: COMMON_FORBID_TAGS,
-                FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseenter', 'onmouseleave', 'onfocus', 'onblur']
+                FORBID_TAGS: COMMON_FORBID_TAGS.filter(function(tag) { return tag !== 'style'; }),
+                FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseenter', 'onmouseleave', 'onfocus', 'onblur'],
+                RETURN_DOM: true
             });
+            var svg = body.querySelector('svg');
+            var scopeId = svg ? svg.getAttribute('id') : '';
+            Array.prototype.forEach.call(body.querySelectorAll('style'), function(style) {
+                var css = scopeId ? sanitizeScopedStylesheet(style.textContent, scopeId) : '';
+                if (css) style.textContent = css; else style.remove();
+            });
+            return body.innerHTML;
         }
         return '<pre class="sanitization-error">Sanitizer unavailable.</pre>';
     }

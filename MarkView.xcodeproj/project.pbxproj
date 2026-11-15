@@ -292,6 +292,7 @@
 		A3B363F9FA77ED89F4B5333E /* EmbeddingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5FE2B5578EB5A351D1AC228 /* EmbeddingClient.swift */; };
 		A5190AB848B0ADF17DF3D784 /* CloudServicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04EA701D2CEB5F5976D2E382 /* CloudServicesView.swift */; };
 		A587132996EFAC0CF96DCC0B /* EditorWindowPrefs.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A94AF6F62E56BA9F174E2E /* EditorWindowPrefs.swift */; };
+		8A496DDBA2A642C9DDF49931 /* EditorPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7931D7DB40181B2F5E656CF1 /* EditorPage.swift */; };
 		A5EF4EAAA485984C364ACDFC /* CodeNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E802C0AB5CDA33CD9676A804 /* CodeNavigation.swift */; };
 		A7C1FE25C40EDF044121316E /* IssueEvidenceCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E6437EF2C2F53F0521881A4 /* IssueEvidenceCollector.swift */; };
 		A7CEF9D3F896F83A07ED97DD /* AppPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = F21484D9CD11D287345F6D43 /* AppPalette.swift */; };
@@ -847,6 +848,7 @@
 		B5FE2B5578EB5A351D1AC228 /* EmbeddingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingClient.swift; sourceTree = "<group>"; };
 		B6B0748CACE05B758D369F89 /* ArchitectureModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureModel.swift; sourceTree = "<group>"; };
 		B7A94AF6F62E56BA9F174E2E /* EditorWindowPrefs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorWindowPrefs.swift; sourceTree = "<group>"; };
+		7931D7DB40181B2F5E656CF1 /* EditorPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPage.swift; sourceTree = "<group>"; };
 		B805455800D605FF49948BEF /* QALanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QALanguage.swift; sourceTree = "<group>"; };
 		B899AF32F819BB9FA6CA770F /* markview-web-only.mjs */ = {isa = PBXFileReference; path = "markview-web-only.mjs"; sourceTree = "<group>"; };
 		B89F1284B57A1B17703A148F /* WorkflowProposal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowProposal.swift; sourceTree = "<group>"; };
@@ -1501,6 +1503,7 @@
 				E7E3D6A8144A620B1B335381 /* DocumentState.swift */,
 				1AF52C251F7D6ADAE2EE8DED /* EditorDocumentRouting.swift */,
 				B7A94AF6F62E56BA9F174E2E /* EditorWindowPrefs.swift */,
+				7931D7DB40181B2F5E656CF1 /* EditorPage.swift */,
 				22188BA397123474A73BE844 /* ExcludedFolders.swift */,
 				A6E0167483A13431C669BD03 /* ToolRegistry.swift */,
 				F073514C1DB09270B01D4EBE /* FileBrowserModel.swift */,
@@ -2289,6 +2292,7 @@
 				3D26245935F584FAE724710E /* EditorDocumentRouting.swift in Sources */,
 				37BFB608EE9C5A7E44349DBD /* EditorView.swift in Sources */,
 				A587132996EFAC0CF96DCC0B /* EditorWindowPrefs.swift in Sources */,
+				8A496DDBA2A642C9DDF49931 /* EditorPage.swift in Sources */,
 				A3B363F9FA77ED89F4B5333E /* EmbeddingClient.swift in Sources */,
 				9993ACD45A01343042A2B4C4 /* EvidenceTimings.swift in Sources */,
 				D104D51315F035CFF2363263 /* ExcludedFolders.swift in Sources */,
