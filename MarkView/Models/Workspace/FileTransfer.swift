@@ -43,7 +43,7 @@ enum FileTransfer {
         let source = source.standardizedFileURL
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         var result = Result()
-        guard !trimmed.isEmpty, !trimmed.contains("/"), !trimmed.contains(":"), trimmed != ".", trimmed != ".." else {
+        guard isValidName(trimmed) else {
             result.errors.append("“\(trimmed)” is not a valid name.")
             return result
         }
@@ -67,6 +67,11 @@ enum FileTransfer {
             result.errors.append("Couldn't rename “\(source.lastPathComponent)”: \(error.localizedDescription)")
         }
         return result
+    }
+
+    /// One path component: not empty, no slashes or colons, not "." or "..".
+    static func isValidName(_ name: String) -> Bool {
+        !name.isEmpty && !name.contains("/") && !name.contains(":") && name != "." && name != ".."
     }
 
     /// `name` in `folder`, or "name 2", "name 3"… when it is taken.

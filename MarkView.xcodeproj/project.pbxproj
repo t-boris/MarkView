@@ -179,6 +179,7 @@
 		5D260F266D5E80ED3B1B2C78 /* PDFReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52C44D6E1296CFE8E4DB1688 /* PDFReader.swift */; };
 		5D816BB3AF275CF0801D77B5 /* DictationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF62FDEADD2FAE576E0E24D /* DictationViews.swift */; };
 		5DBCD266044E10383F40D0E9 /* FileTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A28452C289DFE5AEBFA6D3D /* FileTransfer.swift */; };
+		5764862E15E647DA33C362CD /* FileOperationsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF526550AC4E9DA96CBCC01 /* FileOperationsController.swift */; };
 		5DE70A75F9FD2FF271E22FBB /* IntakeTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA781698B8CEDAAB7EE8028A /* IntakeTextEditor.swift */; };
 		5E108A9945E568EC0607EF13 /* RemoteCodexContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C770376BAF8D7725F4E23661 /* RemoteCodexContext.swift */; };
 		60125D29D78265A98CDC89FB /* ResearchMapExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2788EB7A36DDB6CABADB8642 /* ResearchMapExport.swift */; };
@@ -530,6 +531,7 @@
 		08F1C10751459B0288159692 /* DeploymentToolRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentToolRunner.swift; sourceTree = "<group>"; };
 		09BA6E56886771C6F8CC0A4A /* prism-python.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-python.min.js"; sourceTree = "<group>"; };
 		0A28452C289DFE5AEBFA6D3D /* FileTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTransfer.swift; sourceTree = "<group>"; };
+		4DF526550AC4E9DA96CBCC01 /* FileOperationsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileOperationsController.swift; sourceTree = "<group>"; };
 		0BE4C0AC709F37DFC849F5F9 /* KaTeX_SansSerif-Italic.woff2 */ = {isa = PBXFileReference; path = "KaTeX_SansSerif-Italic.woff2"; sourceTree = "<group>"; };
 		0C4D3C742B40A8271FF18684 /* prism-java.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-java.min.js"; sourceTree = "<group>"; };
 		0CB7FC2BBEC8B6870ED7B974 /* CockpitQAAttempt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitQAAttempt.swift; sourceTree = "<group>"; };
@@ -1631,6 +1633,7 @@
 				A5375DCBA15D7800DBB3F459 /* FileInfo.swift */,
 				76FB90DA3782A6E99BB4881B /* FileNode.swift */,
 				0A28452C289DFE5AEBFA6D3D /* FileTransfer.swift */,
+				4DF526550AC4E9DA96CBCC01 /* FileOperationsController.swift */,
 				4A903B7EB574BDD8969788FE /* FilterSearch.swift */,
 				DEE77C117377664F496CB39A /* FrontMatter.swift */,
 				17A43E6F411BFA9317576340 /* ImageAttachments.swift */,
@@ -2529,6 +2532,7 @@
 				99272321285D4166306C9E67 /* FileInfo.swift in Sources */,
 				48C8A0FB9B44615A5EF7A5E6 /* FileNode.swift in Sources */,
 				5DBCD266044E10383F40D0E9 /* FileTransfer.swift in Sources */,
+				5764862E15E647DA33C362CD /* FileOperationsController.swift in Sources */,
 				6CC857BDBF6BE8DAAF2CECD2 /* FileTreeView.swift in Sources */,
 				AB32AC4AB441646866BB588B /* FilterSearch.swift in Sources */,
 				17DD8F8CD95F47159059B6B0 /* FrontMatter.swift in Sources */,

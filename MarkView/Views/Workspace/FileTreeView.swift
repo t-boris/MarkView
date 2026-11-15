@@ -1099,16 +1099,9 @@ struct FileTreeView: View {
         alert.addButton(withTitle: "Move to Trash")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        var errors: [String] = []
-        for url in urls {
-            tabs.closeTabs(under: url)
-            do { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } catch {
-                errors.append("Couldn't move “\(url.lastPathComponent)” to the Trash: \(error.localizedDescription)")
-            }
-        }
+        let errors = workspaceManager.fileOperations.trash(urls)
         selection.clear()
         listVersion += 1
-        workspaceManager.refreshFileTree()
         if !errors.isEmpty { showError(errors.joined(separator: "\n")) }
     }
 
@@ -1124,7 +1117,7 @@ struct FileTreeView: View {
         panel.prompt = "Move Here"
         panel.message = urls.count == 1 ? "Move “\(urls[0].lastPathComponent)” to:" : "Move \(urls.count) items to:"
         guard panel.runModal() == .OK, let folder = panel.url else { return }
-        let errors = workspaceManager.transfer(urls, into: folder, copy: false)
+        let errors = workspaceManager.fileOperations.transfer(urls, into: folder, copy: false)
         selection.clear()
         listVersion += 1
         if !errors.isEmpty { showError(errors.joined(separator: "\n")) }
@@ -1140,7 +1133,7 @@ struct FileTreeView: View {
         alert.addButton(withTitle: "Cancel")
         alert.window.initialFirstResponder = input
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        if let error = workspaceManager.rename(url, to: input.stringValue) { return showError(error) }
+        if let error = workspaceManager.fileOperations.rename(url, to: input.stringValue) { return showError(error) }
         selection.clear()
         listVersion += 1
     }
@@ -1245,24 +1238,13 @@ struct FileTreeView: View {
         alert.addButton(withTitle: "Create")
         alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn {
-            var name = input.stringValue.trimmingCharacters(in: .whitespaces)
-            if name.isEmpty { name = "untitled.md" }
-            guard isValidName(name) else { return showError("“\(name)” is not a valid file name.") }
-            let fileURL = folderURL.appendingPathComponent(name)
-            // Never replace an existing file.
-            guard !FileManager.default.fileExists(atPath: fileURL.path) else {
-                return showError("“\(name)” already exists in this folder.")
-            }
-            let template = name.hasSuffix(".md") ? "# \(name.replacingOccurrences(of: ".md", with: ""))\n\n" : ""
-            do {
-                try AtomicFile.write(template, to: fileURL)
-            } catch {
-                return showError("Couldn't create “\(name)”: \(error.localizedDescription)")
+            let fileURL: URL
+            do { fileURL = try workspaceManager.fileOperations.createFile(named: input.stringValue, in: folderURL) } catch {
+                return showError((error as? FileOperationError)?.message ?? error.localizedDescription)
             }
             if ignored { addToGitignore(fileURL, isDirectory: false) }
             if mode == .tree { expanded.insert(FileBrowser.key(folderURL)) }
             listVersion += 1
-            workspaceManager.refreshFileTree()
             workspaceManager.openFile(fileURL)
         }
     }
@@ -1285,8 +1267,6 @@ struct FileTreeView: View {
     /// as in Finder), copied when they come from elsewhere (e.g. Finder).
     private func drop(_ providers: [NSItemProvider], into folder: URL) -> Bool {
         let copyRequested = NSEvent.modifierFlags.contains(.option)
-        let roots = ([fileTree.rootNode?.url] + workspaceManager.project.linkedFolders.map(\.url))
-            .compactMap { $0?.standardizedFileURL.path }
         var urls: [URL] = []
         let group = DispatchGroup()
         for provider in providers where provider.canLoadObject(ofClass: URL.self) {
@@ -1300,18 +1280,12 @@ struct FileTreeView: View {
         }
         group.notify(queue: .main) {
             guard !urls.isEmpty else { return }
-            let inside = urls.allSatisfy { url in roots.contains { url.standardizedFileURL.path.hasPrefix($0 + "/") } }
-            let errors = workspaceManager.transfer(urls, into: folder, copy: copyRequested || !inside)
+            let errors = workspaceManager.fileOperations.drop(urls, into: folder, copyRequested: copyRequested)
             listVersion += 1
             dropTarget = nil
             if !errors.isEmpty { showError(errors.joined(separator: "\n")) }
         }
         return true
-    }
-
-    /// One path component: no slashes, not "." or "..".
-    private func isValidName(_ name: String) -> Bool {
-        !name.contains("/") && !name.contains(":") && name != "." && name != ".."
     }
 
     /// What an archive action in progress is doing ("Extracting photos.zip…").
@@ -1381,21 +1355,11 @@ struct FileTreeView: View {
         alert.addButton(withTitle: "Create")
         alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn {
-            let name = input.stringValue.trimmingCharacters(in: .whitespaces)
-            guard !name.isEmpty else { return }
-            guard isValidName(name) else { return showError("“\(name)” is not a valid folder name.") }
-            let folderURL = parentURL.appendingPathComponent(name)
-            guard !FileManager.default.fileExists(atPath: folderURL.path) else {
-                return showError("“\(name)” already exists in this folder.")
-            }
-            do {
-                try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: false)
-            } catch {
-                return showError("Couldn't create “\(name)”: \(error.localizedDescription)")
+            do { guard try workspaceManager.fileOperations.createFolder(named: input.stringValue, in: parentURL) != nil else { return } } catch {
+                return showError((error as? FileOperationError)?.message ?? error.localizedDescription)
             }
             if mode == .tree { expanded.insert(FileBrowser.key(parentURL)) }
             listVersion += 1
-            workspaceManager.refreshFileTree()
         }
     }
 }

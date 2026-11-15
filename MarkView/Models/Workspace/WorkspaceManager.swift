@@ -171,6 +171,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     let features = FeatureStore()
     /// Research of this window: the maps, and the jobs for new research, follow-ups and comments (docs/research/).
     private(set) lazy var research = ResearchMapController(host: self, project: project, tasks: taskBag)
+    /// Creates, renames, moves, copies and trashes the files of the project, with the tabs that follow or close (`AR-14` step 2).
+    private(set) lazy var fileOperations = FileOperationsController(host: self, tabs: tabs, project: project)
     /// Translates documents into another language and opens the result in a new tab (`AR-14` step 1).
     private(set) lazy var translator = DocumentTranslator(tabs: tabs, project: project, tasks: taskBag)
     /// This window's bug basket for batch Fix with AI (issue #31); a new folder empties it.
@@ -450,25 +452,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         }
     }
 
-    // MARK: - Moving and copying files
-
-    /// Move (or copy) files and folders into `folder`, as the file tree's drag and drop
-    /// does (see `FileTransfer`). Tabs of moved files follow them. Returns the errors.
-    @discardableResult
-    func transfer(_ sources: [URL], into folder: URL, copy: Bool) -> [String] {
-        let result = FileTransfer.perform(sources, into: folder, copy: copy)
-        tabs.follow(moved: result.moved)
-        refreshFileTree()
-        return result.errors
-    }
-
-    /// Rename a file or folder in place; its open tabs follow. Returns the error, if any.
-    func rename(_ url: URL, to name: String) -> String? {
-        let result = FileTransfer.rename(url, to: name)
-        tabs.follow(moved: result.moved)
-        refreshFileTree()
-        return result.errors.first
-    }
+    // MARK: - Opening documents
 
     /// Open a file with its Explain notes, starting an explanation if there is none yet.
     func explainFile(_ url: URL) {
@@ -1776,6 +1760,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 }
 
 /// What the terminals read of the window: the browser agents drive, and the editor (`AITerminalsController`).
+extension WorkspaceManager: FileOperationsHost {}
+
 extension WorkspaceManager: AITerminalsHost {
     func terminalStarted() { tabs.startWatchingOpenFiles() }
 }

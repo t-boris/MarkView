@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 198,
+  "suiteCount": 199,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1125,6 +1125,36 @@
         "MarkView/Models/Workspace/FileInfo.swift",
         "tools/tests/FileInfoTests.swift",
         "tools/tests/file-info-tests.sh"
+      ]
+    },
+    {
+      "name": "file-operations-tests",
+      "script": "tools/tests/file-operations-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AI/OutputLanguage.swift",
+        "MarkView/Models/Book/PDFReader.swift",
+        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
+        "MarkView/Models/Workspace/DocumentState.swift",
+        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
+        "MarkView/Models/Workspace/FileOperationsController.swift",
+        "MarkView/Models/Workspace/FileTransfer.swift",
+        "MarkView/Models/Workspace/ProjectProviding.swift",
+        "MarkView/Models/Workspace/TabClosing.swift",
+        "MarkView/Models/Workspace/TabsController.swift",
+        "MarkView/Models/Workspace/TaskBag.swift",
+        "MarkView/Models/Workspace/ToolRegistry.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "tools/tests/FileOperationsTests.swift",
+        "tools/tests/TabsControllerStubs.swift",
+        "tools/tests/file-operations-tests.sh"
       ]
     },
     {
