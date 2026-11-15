@@ -4,12 +4,22 @@ import WebKit
 // The terminal's unrelated assistant/dictation dependencies are not exercised here.
 final class WhisperClient {}
 
+/// What the window does with the files and web addresses a terminal hands it; the test decides what each does.
+@MainActor final class LinkWindow: TerminalLinkTarget {
+    var onFile: (URL, Int?) -> Void = { _, _ in }
+    var onWeb: (URL) -> Void = { _ in }
+    func openFile(_ url: URL, line: Int?, endLine: Int?) { onFile(url, line) }
+    func openInAppBrowser(_ url: URL) { onWeb(url) }
+}
+
 @MainActor final class TerminalLinkTests: NSObject, WKScriptMessageHandler {
     var session: TerminalSession!
     var window: NSWindow!
     var messages: [[String: Any]] = []
     var opened: [(URL, Int?)] = []
     var external: [URL] = []
+    /// The window the session belongs to: files open in its editor, web addresses in its browser (recorded here as `external`).
+    let linkWindow = LinkWindow()
     var checks = 0
     var failures = 0
     var launched = false
@@ -149,13 +159,13 @@ final class WhisperClient {}
             try await display("archive.iso\r\n")
             try await hover(); try await click()
             check(opened.count == 1 && opened.first?.0 == root.appendingPathComponent("archive.iso") && external.isEmpty, "a file of any type opens in the app")
-            // A session without a file opener hands the file to the default app.
-            let fileOpener = session.openFile
-            session.openFile = nil
-            try await display("archive.iso\r\n")
-            try await hover(); try await click()
-            check(external == [root.appendingPathComponent("archive.iso")] && opened.isEmpty, "without a file opener the file goes to the default app")
-            session.openFile = fileOpener
+            // A terminal that belongs to no window (a project operation's) hands the file to the default app.
+            let loose = TerminalSession(directory: root)
+            loose.openExternalURL = { [weak self] url in self?.external.append(url) }
+            external.removeAll(); opened.removeAll()
+            loose.activateLink("archive.iso")
+            await pause(400)
+            check(external == [root.appendingPathComponent("archive.iso")] && opened.isEmpty, "without a window the file goes to the default app")
             try await display("漢字 sample.swift:42\r\n")
             try await hover(col: 7); try await click()
             check(opened.count == 1 && opened.first?.1 == 42, "wide characters before path")
@@ -181,6 +191,7 @@ final class WhisperClient {}
             if CommandLine.arguments.contains("--open-browser") {
                 var dispatched = false
                 session.openExternalURL = { url in dispatched = NSWorkspace.shared.open(url) }
+                linkWindow.onWeb = { url in dispatched = NSWorkspace.shared.open(url) }
                 try await display(osc); try await hover(); try await click()
                 check(dispatched && links.count == 1, "real default browser launch from OSC 8 Cmd click")
                 print("Default browser: \(NSWorkspace.shared.urlForApplication(toOpen: github)?.lastPathComponent ?? "unknown")")
@@ -193,8 +204,9 @@ final class WhisperClient {}
     func start() {
         TerminalSession.pageURL = URL(fileURLWithPath: CommandLine.arguments[1])
         BridgeContract.bundledURL = TerminalSession.pageURL!.deletingLastPathComponent().appendingPathComponent("js/bridge-contract.json")
-        session = TerminalSession(directory: root)
-        session.openFile = { [weak self] url, line in self?.opened.append((url, line)) }
+        linkWindow.onFile = { [weak self] url, line in self?.opened.append((url, line)) }
+        linkWindow.onWeb = { [weak self] url in self?.external.append(url) }
+        session = TerminalSession(directory: root, links: linkWindow)
         session.openExternalURL = { [weak self] url in self?.external.append(url) }
         let web = session.webView
         web.configuration.userContentController.removeScriptMessageHandler(forName: "terminal")

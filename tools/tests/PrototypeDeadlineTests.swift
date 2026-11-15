@@ -408,7 +408,7 @@ import Foundation
         precondition(!plan.contains("fetch('/api/orders')"), "the inventory never inlines file content")
         let screen = prompts["prototype:screen:orders"] ?? ""
         precondition(screen.contains("- src/index.html\n- src/app.js\n- src/styles.css\n") && screen.contains("no network request"))
-        precondition(screen.contains(PrototypeAI.componentRule) && screen.contains("as the plan names them:\n- src/index.html\n")
+        precondition(screen.contains(PrototypePrompts.componentRule) && screen.contains("as the plan names them:\n- src/index.html\n")
                      && !screen.contains("ghost"), "the screen writer is told to mark the components that exist, not the ghost")
         precondition(systems["prototype:plan"]?.contains("`components`") == true, "the planner is asked for the components")
         precondition(prompts["prototype:foundation:shell"]?.contains("reproduce the original design tokens") == true)

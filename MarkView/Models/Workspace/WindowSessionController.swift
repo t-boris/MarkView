@@ -2,6 +2,21 @@ import AppKit
 import Combine
 import MarkViewCore
 
+/// What the window's session (`WindowSessionController`) needs of a window beyond restoring it: its theme, a signal when anything the
+/// session records changed, the shutdown that ends what the window started, and what keeps the window open.
+@MainActor
+protocol WindowSessionWindow: WindowSessionHost {
+    var theme: WindowTheme { get }
+    var taskBag: TaskBag { get }
+    var projectOperations: ProjectOperationsStore? { get }
+    /// Fires when anything the saved session records changes: the tabs, the panels, the theme, the interface state, the project.
+    var sessionChanges: AnyPublisher<Void, Never> { get }
+    /// Files opened from outside the app on their own (Finder, Quick Action): the documents, nothing around them.
+    func openDocumentsOnly(_ urls: [URL])
+    /// The window closes: everything it started stops.
+    func windowWillClose()
+}
+
 /// App-owned restoration works even when macOS is set to close windows on quit.
 @MainActor
 final class WindowSessionController {
@@ -10,11 +25,11 @@ final class WindowSessionController {
 
     private final class Entry {
         weak var window: NSWindow?
-        weak var workspace: WorkspaceManager?
+        weak var workspace: (any WindowSessionWindow)?
         var restoring = true
         var subscriptions = Set<AnyCancellable>()
         var closeDelegate: ProjectOperationWindowCloseDelegate?
-        init(window: NSWindow, workspace: WorkspaceManager) {
+        init(window: NSWindow, workspace: any WindowSessionWindow) {
             self.window = window
             self.workspace = workspace
         }
@@ -69,7 +84,7 @@ final class WindowSessionController {
         return true
     }
 
-    func attach(id: UUID, window: NSWindow, workspace: WorkspaceManager, openWindow: @escaping (UUID) -> Void) async {
+    func attach(id: UUID, window: NSWindow, workspace: any WindowSessionWindow, openWindow: @escaping (UUID) -> Void) async {
         openSceneWindow = openWindow
         var closedBeforeLoad = false
         let closeObserver = NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)
@@ -116,9 +131,8 @@ final class WindowSessionController {
             window.center()
         }
 
-        workspace.objectWillChange.merge(with: workspace.tabs.objectWillChange, workspace.layout.objectWillChange,
-                                         workspace.chrome.objectWillChange, workspace.theme.objectWillChange, workspace.windowUI.objectWillChange)
-            .sink { [weak self] _ in self?.scheduleSave() }
+        workspace.sessionChanges
+            .sink { [weak self] in self?.scheduleSave() }
             .store(in: &entry.subscriptions)
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification,
                      NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification] {
@@ -130,18 +144,7 @@ final class WindowSessionController {
         NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)
             .filter { ($0.object as? NSWindow) === window }
             .sink { [weak self, weak workspace] _ in
-                // UI Studio sessions stop the development servers they started (REQ-006); the tabs' background work ends.
-                workspace?.tabs.shutdown()
-                // The project's index process, file watcher and background jobs end with its window (AR-19).
-                workspace?.project.close()
-                // So do the code analysis, the X-Ray scans and the AI answers about code that it started (AR-14 step 11).
-                workspace?.codeXRay.close()
-                // And the feature flow's: the GitHub setting is no longer watched and its tasks stop (AR-14 step 9).
-                workspace?.flow.close()
-                // And the browser's: the look for a web app and the wait for a dev server stop (AR-14 step 9).
-                workspace?.browser.close()
-                // The answers and records the tools started (Discussions, UI Studio) stop too (AR-14 step 10).
-                workspace?.toolTabs.close()
+                workspace?.windowWillClose()
                 self?.remove(id)
             }
             .store(in: &entry.subscriptions)
@@ -248,10 +251,10 @@ final class WindowSessionController {
 @MainActor
 private final class ProjectOperationWindowCloseDelegate: NSObject, NSWindowDelegate {
     var previous: NSWindowDelegate?
-    weak var workspace: WorkspaceManager?
+    weak var workspace: (any WindowSessionWindow)?
     private var closeAfterStop = false
 
-    init(previous: NSWindowDelegate?, workspace: WorkspaceManager) {
+    init(previous: NSWindowDelegate?, workspace: any WindowSessionWindow) {
         self.previous = previous
         self.workspace = workspace
     }

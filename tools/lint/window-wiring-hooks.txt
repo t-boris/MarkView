@@ -1,0 +1,16 @@
+# Closure-typed `var` properties of classes, actors and protocols in MarkView/Models that other code assigns after construction (AR-17).
+# `<count> <path>`; a ratchet that only falls. A feature takes a narrow protocol or an initializer parameter from WindowComposition
+# (an event is a publisher); run tools/lint/architecture-lint.sh --tighten after removing a site.
+2 MarkView/Models/AI/ACPAssistant.swift
+1 MarkView/Models/Architecture/StructuralIndexer.swift
+2 MarkView/Models/Book/PDFReader.swift
+2 MarkView/Models/Browser/BrowserSession.swift
+6 MarkView/Models/Cockpit/CockpitAgentAttempt.swift
+1 MarkView/Models/Remote/RemoteHostController.swift
+3 MarkView/Models/Remote/RemoteTerminalConnection.swift
+1 MarkView/Models/Research/ResearchMapJobs.swift
+7 MarkView/Models/Terminal/TerminalSession.swift
+1 MarkView/Models/UIStudio/UIStudioEnvironmentMapper.swift
+1 MarkView/Models/UIStudio/UIStudioPreparation.swift
+2 MarkView/Models/UIStudio/UIStudioServer.swift
+5 MarkView/Models/UIStudio/UIStudioSession.swift

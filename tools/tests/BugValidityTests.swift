@@ -426,7 +426,10 @@ check("discussion: a failed reply ends the flow as before", t.events == ["record
 func source(_ path: String) -> String { (try? String(contentsOfFile: path, encoding: .utf8)) ?? "" }
 func count(_ needle: String, in text: String) -> Int { text.components(separatedBy: needle).count - 1 }
 let intake = source("MarkView/Models/Lifecycle/FeatureIntake.swift")
-let panel = source("MarkView/Views/Lifecycle/FeaturePanelView.swift")
+// The Feature panel is split by stage into FeaturePanel*.swift files; the check covers all of them.
+let panel = ((try? FileManager.default.contentsOfDirectory(atPath: "MarkView/Views/Lifecycle")) ?? []).sorted()
+    .filter { $0.hasPrefix("FeaturePanel") && $0.hasSuffix(".swift") }
+    .map { source("MarkView/Views/Lifecycle/" + $0) }.joined(separator: "\n")
 let validity = source("MarkView/Models/Lifecycle/BugValidity.swift") + source("MarkView/Models/Lifecycle/FeatureBugValidity.swift")
 check("the sources are readable", !intake.isEmpty && !panel.isEmpty && !validity.isEmpty)
 check("the three entry points go through the gate", count("validityGate(for: url)", in: intake) == 3

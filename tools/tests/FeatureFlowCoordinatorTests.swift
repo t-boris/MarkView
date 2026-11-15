@@ -547,14 +547,15 @@ func lifecycle() async {
     rig.flow.setUp(at: a)
     check(rig.flow.bugBatch.resets == 1, "the same folder again keeps the basket")
     check(rig.flow.features.assistant.gitHubClient() == nil, "the assistant has no GitHub client while the repository is not known")
-    check(rig.flow.gitHub.onPoll != nil && rig.gitClient.onBranch != nil, "the lifecycle poll and the branch of the Git client are wired to GitHub")
 
     let before = rig.flow.gitHub.resets
     Settings.standard.set(true, for: Setting.gitHubEnabled)
     check(await waitUntil { rig.flow.gitHub.setups == [a] }, "turning the switch on sets GitHub up for the open folder")
     check(rig.flow.features.assistant.gitHubClient()?.repo.slug == "o/r", "and the assistant gets its client")
-    rig.gitClient.onBranch?("topic")
+    rig.gitClient.branchReports.send("topic")
     check(rig.flow.gitHub.branches == ["topic"], "the branch the Git client reports reaches GitHub")
+    if let client = rig.flow.features.assistant.gitHubClient() { rig.flow.gitHub.polls.send(client) }
+    check(rig.flow.features.syncs == 1, "a poll of GitHub reaches the lifecycle of the features")
 
     Settings.standard.set(false, for: Setting.gitHubEnabled)
     check(await waitUntil { rig.flow.gitHub.resets == before + 1 }, "turning it off resets GitHub")

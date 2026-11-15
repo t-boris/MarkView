@@ -68,7 +68,8 @@ final class StubWindow: ResearchHost {
     func openFile(_ url: URL, line: Int?, endLine: Int?) { opened.append((url, line, endLine)) }
     func refreshFileTree() { events.append("refresh") }
     func saveBeforeResearch(_ file: URL, action: String) -> Bool { true }
-    func researchDocumentChanged(_ file: URL, content: String, applyToEdited: (String) -> String?) {}
+    func researchDocumentChanged(_ file: URL, content: String, applyToEdited: (String) -> String?) -> Bool { true }
+    func exportResearchPDF(_ markdown: String, fileName: String, near mapFile: URL) { events.append("pdf:\(fileName)") }
 }
 
 let fm = FileManager.default

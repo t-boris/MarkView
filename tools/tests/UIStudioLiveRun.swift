@@ -78,7 +78,7 @@ func liveRun() async {
         for _ in 0..<(15 * 60 / 5) {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             let count = session.sessionLog.entries.count
-            let working = session.busy != nil || session.autoRepairTask != nil && !(session.autoRepairTask?.isCancelled ?? true) && session.repairItems(automatic: true).first != nil
+            let working = session.busy != nil || session.repair.autoRepairTask != nil && !(session.repair.autoRepairTask?.isCancelled ?? true) && session.repair.repairItems(automatic: true).first != nil
             quiet = (count == lastCount && !working) ? quiet + 1 : 0
             lastCount = count
             if quiet >= 12 { break }
@@ -87,8 +87,8 @@ func liveRun() async {
         repairLines().forEach { print("   · \($0)") }
         print("[\(elapsed())] problems after: \(problems().count)")
         problems().prefix(12).forEach { print("   ! \($0)") }
-        print("Undo offered: \(session.repairUndo.map { "yes (\($0.automatic ? "automatic" : "by click")): \($0.summary)" } ?? "no")")
-        print("Items still repairable: \(session.repairItems(automatic: false).map { $0.kind.rawValue + " " + String($0.key.prefix(80)) })")
+        print("Undo offered: \(session.repair.repairUndo.map { "yes (\($0.automatic ? "automatic" : "by click")): \($0.summary)" } ?? "no")")
+        print("Items still repairable: \(session.repair.repairItems(automatic: false).map { $0.kind.rawValue + " " + String($0.key.prefix(80)) })")
     case "screens":
         for _ in 0..<(25 * 60 / 5) {
             try? await Task.sleep(nanoseconds: 5_000_000_000)

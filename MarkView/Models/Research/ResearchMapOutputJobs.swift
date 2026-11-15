@@ -44,9 +44,7 @@ extension ResearchJobs {
                 let key = file.standardizedFileURL.path
                 if pdf {
                     let name = file.deletingPathExtension().lastPathComponent + (code.isEmpty ? "" : "-" + code) + ".pdf"
-                    guard maps.pdfExporter?(assembled.markdown, name) == true else {
-                        return "The PDF could not be made: the editor page is not available. The Markdown report can still be exported."
-                    }
+                    host.exportResearchPDF(assembled.markdown, fileName: name, near: file)
                     maps.jobNotice[key] = (["Choose where to save the PDF."] + notes).joined(separator: " ")
                     return nil
                 }

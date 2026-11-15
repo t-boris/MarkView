@@ -23,7 +23,9 @@ final class ProjectContext: ObservableObject, ProjectProviding {
     /// Recently opened folders (standardized paths), most recent first.
     @Published private(set) var recentProjects: [String]
     /// What the folder is doing while it opens; drives the file-tree spinner, the auto-refresh gate and the module panel.
-    @Published var indexingProgress: String?
+    @Published var indexingProgress: String? {
+        didSet { fileTree.autoRefreshPaused = indexingProgress != nil }
+    }
     /// Progress of the out-of-process structural index, shown ONLY in the footer. Separate from `indexingProgress` so that
     /// background indexing never blocks the tree, the module explorer or opening another folder.
     @Published private(set) var structuralIndexProgress: String?
@@ -53,7 +55,6 @@ final class ProjectContext: ObservableObject, ProjectProviding {
         let fileTree = WorkspaceFileTreeStore()
         self.fileTree = fileTree
         recentProjects = Settings.standard.value(Setting.recentProjects)
-        fileTree.shouldAutoRefresh = { [weak self] in self?.indexingProgress == nil }
         treeChanges = fileTree.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         loadRecentFiles()
     }

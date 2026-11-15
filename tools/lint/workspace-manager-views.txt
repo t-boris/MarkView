@@ -9,7 +9,14 @@
 1 MarkView/Views/Lifecycle/BugBasketView.swift
 1 MarkView/Views/Lifecycle/CycleTimeViews.swift
 5 MarkView/Views/Lifecycle/FeatureNavigatorView.swift
-10 MarkView/Views/Lifecycle/FeaturePanelView.swift
+1 MarkView/Views/Lifecycle/FeaturePanelBugViews.swift
+1 MarkView/Views/Lifecycle/FeaturePanelBuildViews.swift
+2 MarkView/Views/Lifecycle/FeaturePanelExploreViews.swift
+1 MarkView/Views/Lifecycle/FeaturePanelObjectViews.swift
+1 MarkView/Views/Lifecycle/FeaturePanelReviewViews.swift
+1 MarkView/Views/Lifecycle/FeaturePanelShared.swift
+2 MarkView/Views/Lifecycle/FeaturePanelSourceViews.swift
+1 MarkView/Views/Lifecycle/FeaturePanelView.swift
 4 MarkView/Views/Lifecycle/HandoffViews.swift
 1 MarkView/Views/Lifecycle/IssueSyncViews.swift
 1 MarkView/Views/ProjectOps/ProjectOperationsView.swift

@@ -18,8 +18,8 @@ func screen(_ id: String, route: String? = nil, embedded: Bool = false, hosts: [
 // MARK: - Shell and styles contracts
 
 do {
-    let plain = PrototypeAI.shellSystem(language: "")
-    let widgets = PrototypeAI.shellSystem(language: "", widgets: true)
+    let plain = PrototypePrompts.shellSystem(language: "")
+    let widgets = PrototypePrompts.shellSystem(language: "", widgets: true)
     check(!plain.contains("renderScreen") && !plain.contains("embedded"), "a plan without widgets gets the shell prompt it always had")
     for phrase in ["`App.renderScreen(id, extra)`", "`embedded: true`", "`hosts`", "exactly one such screen exists", "no navigation list",
                    "never throws", "without `App.start()`", "accepts an element or an HTML string as `body`", "Visiting the route of an embedded screen"] {
@@ -27,8 +27,8 @@ do {
     }
     check(widgets.hasPrefix(plain.components(separatedBy: "Keep app.js under 60 KB").first ?? "?"), "the widget paragraph is added, nothing else changes before it")
 
-    let design = PrototypeAI.stylesSystem(language: "")
-    let bridge = PrototypeAI.stylesSystem(language: "", originals: true)
+    let design = PrototypePrompts.stylesSystem(language: "")
+    let bridge = PrototypePrompts.stylesSystem(language: "", originals: true)
     check(design.contains("design tokens as CSS variables") && !design.contains("small bridge"), "without original styles styles.css is still a design system")
     for phrase in ["small bridge", "already copied into the prototype", "Do not write a design system", "`var(--…)`", "under 8 KB", "`app-header`"] {
         check(bridge.contains(phrase), "the bridge prompt says: \(phrase)")
@@ -42,12 +42,12 @@ do {
     let widget = screen("order-list", route: "/widgets/order-list", embedded: true, evidence: ["src/OrderList.tsx"], components: ["src/OrderList.tsx"])
     let modal = screen("settings", route: "/modals/settings", embedded: true, evidence: ["src/Settings.tsx"])
     let page = screen("about", evidence: ["src/About.tsx"])
-    check([host, widget, modal].allSatisfy { PrototypeAI.screenEffort($0) == "medium" } && PrototypeAI.screenEffort(page) == "low",
+    check([host, widget, modal].allSatisfy { PrototypePrompts.screenEffort($0) == "medium" } && PrototypePrompts.screenEffort(page) == "low",
           "hosts, widgets and modals run at medium effort, an ordinary page at low")
-    let large = PrototypeAI.largeSourceBytes
-    check([host, widget, modal].allSatisfy { PrototypeAI.screenEffort($0, sourceBytes: large - 1) == "medium" && PrototypeAI.screenEffort($0, sourceBytes: large) == "high" },
+    let large = PrototypePrompts.largeSourceBytes
+    check([host, widget, modal].allSatisfy { PrototypePrompts.screenEffort($0, sourceBytes: large - 1) == "medium" && PrototypePrompts.screenEffort($0, sourceBytes: large) == "high" },
           "a host, widget or modal whose evidence is \(large) bytes or more runs at high effort (BUG-059)")
-    check(PrototypeAI.screenEffort(page, sourceBytes: 10 * large) == "low", "an ordinary page stays at low effort however large its source is")
+    check(PrototypePrompts.screenEffort(page, sourceBytes: 10 * large) == "low", "an ordinary page stays at low effort however large its source is")
     do {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("effort-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: folder.appendingPathComponent("src"), withIntermediateDirectories: true)
@@ -55,13 +55,13 @@ do {
         try? Data(count: 30_000).write(to: folder.appendingPathComponent("src/OrderList.tsx"))
         try? Data(count: 15_000).write(to: folder.appendingPathComponent("src/Extra.tsx"))
         let sized = screen("order-list", embedded: true, evidence: ["src/OrderList.tsx", "src/Extra.tsx", "src/Gone.tsx"])
-        check(PrototypeAI.evidenceBytes(sized, root: folder) == 45_000, "the evidence size adds up the files that exist and counts a missing one as nothing")
-        check(PrototypeAI.evidenceBytes(screen("about"), root: folder) == 0, "a screen without evidence has no size")
+        check(PrototypePrompts.evidenceBytes(sized, root: folder) == 45_000, "the evidence size adds up the files that exist and counts a missing one as nothing")
+        check(PrototypePrompts.evidenceBytes(screen("about"), root: folder) == 0, "a screen without evidence has no size")
     }
-    check(PrototypeAI.isModal(modal) && !PrototypeAI.isModal(widget) && !PrototypeAI.isModal(host), "a modal is told by its route")
+    check(PrototypePrompts.isModal(modal) && !PrototypePrompts.isModal(widget) && !PrototypePrompts.isModal(host), "a modal is told by its route")
 
     func prompt(_ s: PrototypeAI.PlannedScreen, hosted: [PrototypeAI.PlannedScreen] = [], mode: PrototypeFiles.Mode = .code) -> String {
-        PrototypeAI.screenPrompt(plan: "{}", screen: s, foundation: [], failure: nil, mode: mode, originalStyles: ["a.css"], hosted: hosted)
+        PrototypePrompts.screenPrompt(plan: "{}", screen: s, foundation: [], failure: nil, mode: mode, originalStyles: ["a.css"], hosted: hosted)
     }
     let widgetPrompt = prompt(widget)
     for phrase in ["a widget rendered inside another screen", "`App.renderScreen('order-list')` in the host's panel", "register it with `embedded: true`",
@@ -149,7 +149,7 @@ do {
     check(log.all.count == 100, "the log is safe to share between side-by-side runs")
 
     let seen = PrototypeEmbedded.ReadLog()
-    let tracker = PrototypeAI.ProgressTracker(root: URL(fileURLWithPath: "/proj"), reading: "the code", onRead: { seen.add($0) }, emit: { _ in })
+    let tracker = PrototypeProgressTracker(root: URL(fileURLWithPath: "/proj"), reading: "the code", onRead: { seen.add($0) }, emit: { _ in })
     tracker.handle(.read("/proj/src/Widget.tsx"))
     tracker.handle(.read("/elsewhere/x.ts"))
     tracker.handle(.search("q"))

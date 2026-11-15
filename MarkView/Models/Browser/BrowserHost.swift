@@ -108,9 +108,8 @@ final class BrowserHost: BrowserSessionHost {
     /// Open a browser tab (an empty one for nil), next to the files.
     @discardableResult
     func open(_ url: URL?, activate: Bool = true) -> BrowserSession {
-        let session = BrowserSession(url: url)
+        let session = BrowserSession(url: url, host: self)
         session.agentName = BrowserAgentTools.nextTabName(taken: sessions.map(\.agentName))
-        session.host = self
         let base = project.root ?? FileManager.default.temporaryDirectory
         var tab = OpenTab(url: base.appendingPathComponent(ProjectPaths.placeholderName("browser-" + session.id.uuidString)),
                           content: "", originalContent: "")

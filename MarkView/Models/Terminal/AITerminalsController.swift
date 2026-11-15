@@ -8,12 +8,10 @@ import MarkViewCore
 /// runs while a terminal does. The folder, the project and its linked folders come from the window's `ProjectProviding`.
 /// `WorkspaceManager` conforms.
 @MainActor
-protocol AITerminalsHost: AnyObject {
+protocol AITerminalsHost: TerminalLinkTarget {
     /// This window's id for agents driving its browser tab (`AgentToolServer`).
     var browserControlID: UUID { get }
     func registerBrowserControl()
-    func openFile(_ url: URL, line: Int?, endLine: Int?)
-    func openInAppBrowser(_ url: URL)
     func showAIConsole()
     /// A terminal started: open files an assistant changes on disk are reloaded while terminals run.
     func terminalStarted()
@@ -178,12 +176,6 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
                         model: chosenModel(for: profile))
     }
 
-    /// The terminal reaches the editor and the browser of its window.
-    private func connect(_ session: TerminalSession) {
-        session.openFile = { [weak self] url, line in self?.host?.openFile(url, line: line, endLine: nil) }
-        session.openInAppBrowser = { [weak self] url in self?.host?.openInAppBrowser(url) }
-    }
-
     /// Open another terminal in the AI panel and show it.
     /// `resuming` continues the assistant's last session in the folder (terminals restored after a relaunch).
     /// `model` starts the assistant with that model instead of the one chosen for the project (a Cockpit step's own).
@@ -194,8 +186,7 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
                                       startupCommand: startupCommand(for: profile, model: model),
                                       resumeCommand: resuming ? resumeCommand(for: profile, in: directory) : nil,
                                       title: terminalTitle(for: profile),
-                                      model: model ?? chosenModel(for: profile))
-        connect(session)
+                                      model: model ?? chosenModel(for: profile), links: host)
         session.browserWindowID = host.browserControlID
         host.registerBrowserControl()
         if let tool = profile.tool, tool.provider.reportsMCPPolicyBlock { watchForMCPPolicyBlock(session, tool: tool) }
@@ -214,13 +205,12 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
         let connection = try await RemoteTerminalConnection(invitation: invitation, root: root, browserWindowID: host.browserControlID, provider: provider, model: model, resume: resume, savedConnectionID: savedConnectionID)
         guard self.root?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else { connection.stop(); throw RemoteFailure.invalid("The open folder changed. Connect again for the new folder.") }
         let session = TerminalSession(directory: root, profile: TerminalProfile(provider),
-                                      title: "Home · " + provider.displayName)
+                                      title: "Home · " + provider.displayName, links: host)
         connection.onState = { [weak session] phase, text in
             session?.remoteConnectionState = .init(phase: phase, detail: text, lastSeen: phase == .online ? Date() : nil)
             if let savedConnectionID { RemoteConnectionsStore.shared.update(savedConnectionID, phase, text) }
         }
         session.connection = connection
-        connect(session)
         sessions.append(session)
         shownID = session.id
         host.showAIConsole()
@@ -407,8 +397,7 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
 
     /// A terminal in `folder` for an editor tab; `startupCommand` is typed once the shell is up. The window builds the tab.
     func makeTabTerminal(in folder: URL, startupCommand: String?, title: String?) -> TerminalSession {
-        let session = TerminalSession(directory: folder.standardizedFileURL, startupCommand: startupCommand, title: title)
-        connect(session)
+        let session = TerminalSession(directory: folder.standardizedFileURL, startupCommand: startupCommand, title: title, links: host)
         session.browserWindowID = host?.browserControlID
         host?.registerBrowserControl()
         tabTerminals[session.id] = session

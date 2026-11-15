@@ -12,6 +12,12 @@ cp tools/tests/AITerminalsControllerTests.swift "$out/main.swift"
 cat > "$out/Stub.swift" <<'SWIFT'
 import Foundation
 
+@MainActor
+protocol TerminalLinkTarget: AnyObject {
+    func openFile(_ url: URL, line: Int?, endLine: Int?)
+    func openInAppBrowser(_ url: URL)
+}
+
 /// A terminal that starts no shell: it records what the controller asked of it.
 @MainActor
 final class TerminalSession: NSObject, ObservableObject, Identifiable {
@@ -29,8 +35,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     var isRemote: Bool { connection != nil }
     @Published var remoteConnectionState: RemoteConnectionState?
     var onOutput: ((Data) -> Void)?
-    var openFile: ((URL, Int?) -> Void)?
-    var openInAppBrowser: ((URL) -> Void)?
+    private(set) weak var links: (any TerminalLinkTarget)?
     var browserWindowID: UUID?
     var shellPID: pid_t { 0 }
     var running = false
@@ -43,7 +48,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     var adopted: [(model: String, title: String)] = []
 
     init(directory: URL, profile: TerminalProfile = .shell, startupCommand: String? = nil, resumeCommand: String? = nil,
-         title: String? = nil, model: String? = nil) {
+         title: String? = nil, model: String? = nil, links: (any TerminalLinkTarget)? = nil) {
+        self.links = links
         self.directory = directory
         self.profile = profile
         self.startupCommand = startupCommand

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// The Deployments tool of a window: where the project runs and how each place is doing (`store`), the answers the project's assistant
@@ -9,6 +10,8 @@ final class DeploymentsHost {
     private let project: any ProjectProviding
     private let assistants: any AssistantPrompting
     private weak var tabs: (any ToolOpening)?
+    /// Follows the store's request for the tab; started when the tab is first opened.
+    private var attention: AnyCancellable?
 
     init(project: any ProjectProviding, assistants: any AssistantPrompting, tabs: any ToolOpening) {
         self.project = project
@@ -20,7 +23,7 @@ final class DeploymentsHost {
     var opener: ToolOpener {
         ToolOpener(prepare: { [unowned self] root in
             store.setRoot(root)
-            store.onNeedsAttention = { [weak self] in self?.tabs?.open(.deployments) }
+            attention = store.needsAttention.sink { [weak self] in self?.tabs?.open(.deployments) }
         })
     }
 
