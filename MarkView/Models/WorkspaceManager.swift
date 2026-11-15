@@ -667,7 +667,8 @@ class WorkspaceManager: ObservableObject {
         research.workspace = self
         qa.assistantSelection = { [weak self] in
             guard let self, let terminal = self.assistantTerminal, let tool = terminal.profile.tool else { return nil }
-            return CLICompletion.Assistant(tool: tool, model: terminal.observedModel ?? terminal.model)
+            // The shown agent decides which assistant answers; the model is the project's chosen one, not what that tab happens to run.
+            return CLICompletion.Assistant.chosen(tool: tool, project: self.aiProject)
         }
         agentActivity.terminals = { [weak self] in self?.aiTerminals ?? [] }
         agentActivity.activeTerminalID = { [weak self] in self?.activeAITerminalID }
