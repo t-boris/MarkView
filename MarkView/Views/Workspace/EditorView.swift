@@ -611,16 +611,10 @@ struct EditorView: NSViewRepresentable {
             lastLoadedContent = ""
             currentDocumentBaseURL = nil
 
-            // Wire `WorkspaceManager.releaseInsightBlobsHook` so closeTab Step 1
-            // (Decision 11 §4) can synchronously revoke this session's blob URLs
-            // BEFORE `await session.cancel()` allows new Combine emissions. Hook
-            // captures THIS coordinator's webView + bridge weakly — if the
-            // WebView has been deallocated by tab teardown when the hook fires,
-            // it no-ops safely (closing the WebView itself GCs the blobs).
-            self.parent.workspaceManager.releaseInsightBlobsHook = { [weak self] in
-                guard let self = self, let webView = self.webView else { return }
-                self.bridge.releaseInsightBlobs(into: webView)
-            }
+            // The coordinator's ordered close (Decision 11 §4, step 1) asks this page to revoke the session's blob URLs
+            // BEFORE `await session.cancel()` allows new Combine emissions. The page is held weakly; once its web view
+            // is gone, closing the tab frees the blobs anyway.
+            self.parent.workspaceManager.insight.page = self
 
             // Skeleton paint. compactMap drops the initial `nil` (T6 init) so the
             // iframe srcdoc is built only when a real skeleton is available. Reset
@@ -1040,64 +1034,70 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
     // MARK: - Insight delegate methods (Recursive Insight v2, Task 7)
     //
-    // Forward UI events from the v2 insight iframe player to `WorkspaceManager`,
-    // which resolves the target `InsightSession` by `sessionId` and dispatches
-    // the appropriate session method (expand / navigateTo / up / save).
-    // T8 fully implements the WorkspaceManager forwarders; T7 wires the delegate
-    // stubs to the new v2 method names.
+    // Forward UI events from the v2 insight iframe player to the window's `InsightCoordinator`, which resolves the
+    // target `InsightSession` by `sessionId` (or the selected tab) and dispatches the session method
+    // (expand / navigateTo / up / save).
 
     func bridge(_ bridge: WebViewBridge, didReceiveInsightIframeReady sessionId: String, nodeId: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.didReceiveInsightIframeReady(sessionId: sessionId, nodeId: nodeId)
+            self.parent.workspaceManager.insight.didReceiveInsightIframeReady(sessionId: sessionId, nodeId: nodeId)
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestInsightDeepDive sessionId: String, sectionId: String, topicIndex: Int) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightDeepDive(sessionId: sessionId, sectionId: sectionId, topicIndex: topicIndex)
+            self.parent.workspaceManager.insight.didRequestInsightDeepDive(sessionId: sessionId, sectionId: sectionId, topicIndex: topicIndex)
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestInsightBreadcrumb sessionId: String, nodeId: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightBreadcrumb(sessionId: sessionId, nodeId: nodeId)
+            self.parent.workspaceManager.insight.didRequestInsightBreadcrumb(sessionId: sessionId, nodeId: nodeId)
         }
     }
 
     func bridgeRequestInsightSave(_ bridge: WebViewBridge) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightSave()
+            self.parent.workspaceManager.insight.didRequestInsightSave()
         }
     }
 
     func bridgeRequestInsightUp(_ bridge: WebViewBridge) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightUp()
+            self.parent.workspaceManager.insight.didRequestInsightUp()
         }
     }
 
     func bridgeRequestInsightRegenerate(_ bridge: WebViewBridge) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightRegenerate()
+            self.parent.workspaceManager.insight.didRequestInsightRegenerate()
         }
     }
 
     func bridgeRequestInsightCustomDeepDive(_ bridge: WebViewBridge, topic: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightCustomDeepDive(topic: topic)
+            self.parent.workspaceManager.insight.didRequestInsightCustomDeepDive(topic: topic)
         }
     }
 
     func bridgeRequestInsightExploreAll(_ bridge: WebViewBridge, depth: Int) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightExploreAll(depth: depth)
+            self.parent.workspaceManager.insight.didRequestInsightExploreAll(depth: depth)
         }
     }
 
     func bridgeRequestInsightRetrySection(_ bridge: WebViewBridge, sectionId: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightRetrySection(sectionId: sectionId)
+            self.parent.workspaceManager.insight.didRequestInsightRetrySection(sectionId: sectionId)
         }
+    }
+}
+
+extension EditorView.Coordinator: InsightPage {
+    /// Revokes the blob URLs the insight iframe made for its vendored libraries (the first step of closing an insight tab).
+    func releaseInsightBlobs() {
+        guard let webView else { return }
+        bridge.releaseInsightBlobs(into: webView)
     }
 }
 

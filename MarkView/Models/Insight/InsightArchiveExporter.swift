@@ -20,7 +20,7 @@
 // Cancellation (Decision 11 §4):
 //   - Wires `process.terminate()` (SIGTERM) into `withTaskCancellationHandler`'s
 //     `onCancel:` so closing the insight tab during a long export kills the in-flight
-//     `zip` process. Combined with `WorkspaceManager.closeTab`'s ordered cleanup
+//     `zip` process. Combined with `InsightCoordinator.close`'s ordered cleanup
 //     (`releaseInsightBlobs → session.cancel → cache.cleanup → tabsStore.removeTab`),
 //     the staging directory is removed by `cache.cleanup` after the exporter exits.
 
@@ -47,7 +47,7 @@ enum InsightArchiveExporterError: Error {
 }
 
 /// Stateless ZIP-bundling helper. The single entry point `bundle(stagingURL:to:)`
-/// is `async throws` so callers (`WorkspaceManager.exportInsightArchive(sessionId:)`)
+/// is `async throws` so callers (`InsightCoordinator.exportArchive(sessionId:)`)
 /// can `await` and propagate cancellation through Swift's structured concurrency.
 struct InsightArchiveExporter {
 

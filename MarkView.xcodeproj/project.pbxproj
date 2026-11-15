@@ -182,6 +182,8 @@
 		642DFB3CA2C30513BBD38856 /* BookPDFSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35B1419B5CA931083661B6F3 /* BookPDFSource.swift */; };
 		64B4A8A6A3ABBCCE19B5CC79 /* WindowTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9373C4D827475F2C25EDED31 /* WindowTheme.swift */; };
 		655AEBF582AECF54E3EECC62 /* InsightArchiveExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75FC7940299CE6E834BFE230 /* InsightArchiveExporter.swift */; };
+		33498F066AF0DD78CD8E8E0A /* InsightArchiveExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEFA16A271E1D66691670683 /* InsightArchiveExport.swift */; };
+		808EBA468423AE14939618FC /* InsightCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1351EC4038456CB0218CA3 /* InsightCoordinator.swift */; };
 		6569C3F5C2AFF962E4070489 /* TextDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B3E1F0C54027CD3A8565C4C /* TextDiff.swift */; };
 		6611DAB9EB812B4A045B9F5A /* ProjectToolRunner+Edit.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFEBD3D56EF661E1DF638D80 /* ProjectToolRunner+Edit.swift */; };
 		6620FB3FC9A787B047A9CA9D /* IssueLifecycleSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDDD2DE8F80A834F0FEA6CD3 /* IssueLifecycleSection.swift */; };
@@ -733,6 +735,8 @@
 		75282A5DF053FCD311C2528B /* TabClosing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabClosing.swift; sourceTree = "<group>"; };
 		75EAFF59D525BADEE5D10341 /* prism.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = prism.min.js; sourceTree = "<group>"; };
 		75FC7940299CE6E834BFE230 /* InsightArchiveExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightArchiveExporter.swift; sourceTree = "<group>"; };
+		DEFA16A271E1D66691670683 /* InsightArchiveExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightArchiveExport.swift; sourceTree = "<group>"; };
+		CA1351EC4038456CB0218CA3 /* InsightCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightCoordinator.swift; sourceTree = "<group>"; };
 		761D2F74CBAC26745235692C /* CockpitAgentAttempt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitAgentAttempt.swift; sourceTree = "<group>"; };
 		76FB90DA3782A6E99BB4881B /* FileNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNode.swift; sourceTree = "<group>"; };
 		77905597C531DFE78D2D11EC /* data.bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = data.bundle.js; sourceTree = "<group>"; };
@@ -1298,6 +1302,8 @@
 				B5FE2B5578EB5A351D1AC228 /* EmbeddingClient.swift */,
 				E6ED2450EDB46A540B6CC461 /* GraphRAG.swift */,
 				75FC7940299CE6E834BFE230 /* InsightArchiveExporter.swift */,
+				DEFA16A271E1D66691670683 /* InsightArchiveExport.swift */,
+				CA1351EC4038456CB0218CA3 /* InsightCoordinator.swift */,
 				C4673CD185F2FD3A78E989FE /* InsightCache.swift */,
 				5512D54B1337F5917699C7D0 /* InsightModels.swift */,
 				E51D3861EF03670F636F7EEA /* InsightSession.swift */,
@@ -2377,6 +2383,8 @@
 				B237AD4A0A5D93A4F161E5CB /* ImageViewerView.swift in Sources */,
 				24CA3B7AAECDBF270D956080 /* ImportanceRater.swift in Sources */,
 				655AEBF582AECF54E3EECC62 /* InsightArchiveExporter.swift in Sources */,
+				33498F066AF0DD78CD8E8E0A /* InsightArchiveExport.swift in Sources */,
+				808EBA468423AE14939618FC /* InsightCoordinator.swift in Sources */,
 				8A57F974EAA1485CCD758868 /* InsightCache.swift in Sources */,
 				5BBA465181633BD39D541176 /* InsightModels.swift in Sources */,
 				7D223FBDDCD276E94DF609A8 /* InsightSession.swift in Sources */,

@@ -289,7 +289,7 @@ struct InsightCache {
     /// Per Decision 4 (`_assets/` lives inside the session dir so the export
     /// staging dir is just a manifest tweak + zip — no separate copy step),
     /// this returns `rootDirectory` itself. By the time T8's
-    /// `WorkspaceManager.exportInsightArchive(sessionId:)` invokes us, it
+    /// `InsightCoordinator.exportArchive(sessionId:)` invokes us, it
     /// has already performed any required HTML rewriting in place
     /// (rewriting `<script src="blob:…">` → `<script src="../_assets/<lib>.js">`
     /// per Decision 5). InsightCache itself does NO HTML rewriting.
@@ -450,7 +450,7 @@ struct InsightCache {
     /// candidate and root, then performs a path-separator-aware `hasPrefix`
     /// check so a sibling like `/x/foobar/secret` cannot pass for `/x/foo`.
     ///
-    /// Mirrors the canonical pattern in `WorkspaceManager.scanMarkdownFiles`
+    /// Mirrors the canonical pattern in `InsightCoordinator.markdownFiles(in:)`
     /// (post-bb828a9 sibling-prefix fix). Duplicated locally — InsightCache
     /// has zero coupling to WorkspaceManager.
     private static func assertContained(_ url: URL, in root: URL) throws {

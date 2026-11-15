@@ -184,7 +184,7 @@ final class InsightSession: ObservableObject, Identifiable {
     let mdFiles: [URL]
     private let graphRAG: GraphRAG?
 
-    /// Public-internal so `WorkspaceManager.closeTab` can call `session.cache.cleanup()`
+    /// Public-internal so `InsightCoordinator.close` can call `session.cache.cleanup()`
     /// directly per the tech-spec ordered-close (Decision 11 §4) — kept non-private.
     let cache: InsightCache
 
@@ -304,13 +304,13 @@ final class InsightSession: ObservableObject, Identifiable {
     /// Title of the root page.
     let rootTitle: String
 
-    /// v1-compat init — replaced by Task 7/8 once `WorkspaceManager.startRecursiveInsight`
+    /// v1-compat init — replaced by Task 7/8 once `InsightCoordinator.start`
     /// is updated to construct `InsightCache` and pass it explicitly. Builds a cache
     /// rooted under the system temp dir (NOT inside `folderURL` — avoids polluting the
     /// user's analyzed folder during the v1→v2 transition).
     ///
     /// `throws` is the cleanest signal: T8 will rewrite the call site to pass an
-    /// explicit cache. Until then the v1 call site (`WorkspaceManager.startRecursiveInsight`)
+    /// explicit cache. Until then the v1 call site (`InsightCoordinator.start`)
     /// will need a `try?` wrap — handled by the WorkspaceManager v1 stub block in T6.
     convenience init(
         folderURL: URL,
@@ -511,6 +511,8 @@ final class InsightSession: ObservableObject, Identifiable {
         let total: Int
         if let t = totalCounter { total = t } else { total = pairs.count } // approximate
         for pair in pairs {
+            // The window closed the tab or the folder (the coordinator cancels this task): no further child is started.
+            if Task.isCancelled { break }
             // Navigate to this expansion's PARENT before expanding (expand
             // creates child of currentNode).
             if currentNodeId != rootNodeId {
@@ -594,7 +596,7 @@ final class InsightSession: ObservableObject, Identifiable {
     }
 
     /// Force regeneration: wipe snapshot, reset state, kick off fresh Phase 1+2.
-    /// Called from WorkspaceManager when user clicks the ⟳ Regenerate button.
+    /// Called from InsightCoordinator when user clicks the ⟳ Regenerate button.
     /// Behaviour depends on what the user is currently looking at:
     ///   - At ROOT: regenerate the entire tree (children would no longer match
     ///     the new root skeleton's deep-dive topics anyway, so wipe everything
@@ -1895,7 +1897,7 @@ final class InsightSession: ObservableObject, Identifiable {
     }
 
     /// Strip `\r`, `\n`, and `\0` control bytes and truncate to 64 chars. Mirrors
-    /// `WorkspaceManager.sanitizeForLog` (line 1507) and `WebViewBridge.sanitizeForLog`.
+    /// `WebViewBridge.sanitizeForLog`; `InsightCoordinator` uses this one for the bridge messages it logs.
     /// Applied to every LLM-controlled string interpolated into `NSLog(...)` so a
     /// poisoned scope_hint / section id / topic id cannot forge audit-log lines via
     /// embedded newlines (Wave 6 audit T10 SEC-001 / CWE-117 fix).

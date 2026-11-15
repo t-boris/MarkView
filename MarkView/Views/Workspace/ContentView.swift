@@ -1163,7 +1163,7 @@ private struct AIToolsMenuItems: View {
             Button("Deep Research…") { workspaceManager.newResearch() }
             Button("Codebase Audit") { workspaceManager.runAITool(named: "audit") }
             Button("Code Structure Map") { workspaceManager.runAITool(named: "codemap") }
-            Button("Recursive Insight") { workspaceManager.startRecursiveInsight() }
+            Button("Recursive Insight") { workspaceManager.insight.start() }
                 .disabled(workspaceManager.rootNode == nil || !workspaceManager.hasMarkdownFiles)
         }
     }
