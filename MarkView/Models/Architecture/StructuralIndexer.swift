@@ -2,7 +2,7 @@ import Foundation
 
 /// Deterministic structural indexer — no LLM.
 /// Scans directory tree, parses markdown, records per-folder rows, indexes FTS5.
-/// Heavy file I/O runs off the main thread; DB writes hop back to @MainActor.
+/// File I/O runs off the main thread, and so do the database writes: `SemanticDatabase` is an actor.
 class StructuralIndexer: @unchecked Sendable {
     let db: SemanticDatabase
     let rootURL: URL
@@ -19,13 +19,12 @@ class StructuralIndexer: @unchecked Sendable {
     // MARK: - Full Index
 
     /// Index the entire folder — skips if already indexed and no files changed.
-    /// Runs file I/O on a background thread, DB writes on MainActor.
+    /// Runs file I/O on a background thread and the writes on the database actor.
     func indexAll() async {
-        // Batch-fetch stored state up front — ONE main-thread hop instead of one per file.
-        // (The old-scheme DB reset happens cheaply in SemanticDatabase.init by discarding
-        // the whole file, so by here the DB is always the current scheme.)
-        let existingModules = await MainActor.run { db.allModules() }
-        let storedMeta = await MainActor.run { db.allDocumentMeta() }
+        // Batch-fetch stored state up front — ONE query instead of one per file.
+        // (Schema migrations ran when the database was opened, so by here it is the current scheme.)
+        let existingModules = await db.allModules()
+        let storedMeta = await db.allDocumentMeta()
         let isFirstIndex = existingModules.isEmpty
 
         // SINGLE tree walk: builds the module graph and classifies every markdown file
@@ -275,20 +274,18 @@ class StructuralIndexer: @unchecked Sendable {
         }
     }
 
-    /// Upsert the module graph on the main thread (cheap — one batch).
+    /// Upsert the module graph (cheap — one batch).
     private func writeModules(_ modules: [ModuleRow]) async {
-        await MainActor.run {
-            for mod in modules {
-                db.upsertModule(id: mod.modId, name: mod.name, path: mod.url.path,
-                                parentId: mod.parentId, level: mod.level, fileCount: mod.fileCount)
-            }
+        for mod in modules {
+            await db.upsertModule(id: mod.modId, name: mod.name, path: mod.url.path,
+                                  parentId: mod.parentId, level: mod.level, fileCount: mod.fileCount)
         }
     }
 
     // MARK: - Write changed documents
 
-    /// Write changed/new documents in MainActor chunks, yielding between batches
-    /// so the UI stays responsive. Unchanged documents are never touched.
+    /// Write changed/new documents in chunks, yielding between batches so other users of
+    /// the database are served in between. Unchanged documents are never touched.
     private func writeChangedDocs(_ docs: [ParsedDoc]) async {
         let rootName = rootURL.lastPathComponent
         let chunkSize = 50
@@ -296,25 +293,23 @@ class StructuralIndexer: @unchecked Sendable {
             let chunkEnd = min(chunkStart + chunkSize, docs.count)
             let chunk = docs[chunkStart..<chunkEnd]
 
-            await MainActor.run {
-                for doc in chunk {
-                    try? db.upsertDocument(id: doc.docId, projectId: rootName,
-                                           filePath: doc.filePath, fileName: (doc.filePath as NSString).lastPathComponent, fileExt: "md",
-                                           contentHash: doc.contentHash, fileMtime: doc.mtime)
-                    for sym in doc.symbols {
-                        db.insertSymbol(id: sym.id, moduleId: sym.moduleId, documentId: sym.documentId,
-                                       name: sym.name, kind: sym.kind, lineStart: sym.lineStart, lineEnd: sym.lineEnd,
-                                       context: sym.context)
-                    }
-                    for rel in doc.relations {
-                        db.insertRelation(id: rel.id, sourceId: rel.sourceId, targetId: rel.targetId,
-                                          type: rel.type, sourceDoc: rel.sourceDoc, evidence: rel.evidence)
-                    }
-                    db.indexDocumentFTS(documentId: doc.docId, title: doc.ftsTitle, content: doc.content)
+            for doc in chunk {
+                try? await db.upsertDocument(id: doc.docId, projectId: rootName,
+                                             filePath: doc.filePath, fileName: (doc.filePath as NSString).lastPathComponent, fileExt: "md",
+                                             contentHash: doc.contentHash, fileMtime: doc.mtime)
+                for sym in doc.symbols {
+                    await db.insertSymbol(id: sym.id, moduleId: sym.moduleId, documentId: sym.documentId,
+                                          name: sym.name, kind: sym.kind, lineStart: sym.lineStart, lineEnd: sym.lineEnd,
+                                          context: sym.context)
                 }
+                for rel in doc.relations {
+                    await db.insertRelation(id: rel.id, sourceId: rel.sourceId, targetId: rel.targetId,
+                                            type: rel.type, sourceDoc: rel.sourceDoc, evidence: rel.evidence)
+                }
+                await db.indexDocumentFTS(documentId: doc.docId, title: doc.ftsTitle, content: doc.content)
             }
 
-            // Yield between chunks so UI stays responsive
+            // Yield between chunks
             await Task.yield()
 
             if chunkStart % 200 == 0 {

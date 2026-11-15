@@ -82,11 +82,12 @@ enum CLICompletion {
         /// Tool calls the CLI refused (Claude `permission_denials`): the tool and its query or URL.
         var refused: [(tool: String, input: String)] = []
 
-        /// Add this run to the workspace's usage counter.
-        @MainActor
+        /// Add this run to the workspace's usage counter. The write is queued on the database actor; the totals are sums,
+        /// so the order of two queued runs does not matter.
         func record(in db: SemanticDatabase?) {
-            db?.addUsage(inputTokens: inputTokens, outputTokens: outputTokens,
-                         costCents: (costUSD ?? 0) * 100)
+            guard let db else { return }
+            let input = inputTokens, output = outputTokens, cents = (costUSD ?? 0) * 100
+            Task { await db.addUsage(inputTokens: input, outputTokens: output, costCents: cents) }
         }
     }
 

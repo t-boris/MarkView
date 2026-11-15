@@ -4,16 +4,37 @@ import SQLite3
 import MarkViewCore
 #endif
 
-/// SQLite wrapper for .dde/state.db — stores semantic blocks, documents, and compilation cache
-@MainActor
-class SemanticDatabase {
-    var dbPointer: OpaquePointer? { db }
-    var sqliteTransientValue: sqlite3_destructor_type { Self.sqliteTransient }
-    private var db: OpaquePointer?
+/// SQLite wrapper for .dde/state.db — stores semantic blocks, documents, and compilation cache.
+///
+/// An actor (`AR-37`): the connection belongs to the actor and every statement runs on its executor, never on the main
+/// thread, so a lock held by the indexer child process (`busy_timeout`) or a large transaction cannot freeze the UI.
+/// Callers `await`; each method is one atomic step of the actor, and a caller that needs two writes applied in order
+/// awaits the first before it starts the second.
+actor SemanticDatabase {
     /// The database file, or nil while this session uses an in-memory index because the file had to be left alone.
-    let dbPath: String?
+    nonisolated let dbPath: String?
+    private let db: OpaquePointer
 
-    init(workspacePath: URL, dbName: String = "state.db") throws {
+    private init(handle: OpaquePointer, path: String?) {
+        self.db = handle
+        self.dbPath = path
+    }
+
+    /// The state database of a project folder: `.dde/state.db`, or the same name in the app container when the folder
+    /// is read-only. The file is opened and migrated off the caller's thread.
+    static func open(workspacePath: URL, dbName: String = "state.db") async throws -> SemanticDatabase {
+        let file = try await Task.detached(priority: .userInitiated) {
+            try Self.openFile(workspacePath: workspacePath, dbName: dbName)
+        }.value
+        return SemanticDatabase(handle: file.handle, path: file.path)
+    }
+
+    private struct OpenedFile: @unchecked Sendable {
+        let handle: OpaquePointer
+        let path: String?
+    }
+
+    private static func openFile(workspacePath: URL, dbName: String) throws -> OpenedFile {
         let fm = FileManager.default
 
         // Try .dde/ next to workspace first; fall back to app container if sandboxed
@@ -32,9 +53,8 @@ class SemanticDatabase {
         }
 
         let path = ddeDir.appendingPathComponent(dbName).path
-        let (opened, persistent) = try Self.openMigrated(path: path)
-        self.db = opened.handle
-        self.dbPath = persistent ? path : nil
+        let (opened, persistent) = try openMigrated(path: path)
+        return OpenedFile(handle: opened.handle, path: persistent ? path : nil)
     }
 
     /// Open `path` and bring it to the current schema (`AR-38`). A file that must stay as it is (written by a newer
@@ -93,9 +113,7 @@ class SemanticDatabase {
     }
 
     deinit {
-        if let db = db {
-            sqlite3_close(db)
-        }
+        sqlite3_close(db)
     }
 
     // MARK: - Architecture
@@ -189,25 +207,8 @@ class SemanticDatabase {
     /// The stored architecture, or nil when this workspace was never scanned.
     func loadArchitecture() -> ArchitectureSnapshot? { Self.readArchitecture(db) }
 
-    /// The stored architecture read on a read-only connection of its own, off the main
-    /// actor: the automatic code analysis loads it at project open without blocking the UI.
-    /// WAL mode lets this reader run beside the main connection and the indexer.
-    nonisolated func loadArchitectureDetached() async -> ArchitectureSnapshot? {
-        // An in-memory index has no file for a second connection; its own connection is the only reader.
-        guard let path = dbPath else { return nil }
-        return await Task.detached(priority: .userInitiated) {
-            var handle: OpaquePointer?
-            let opened = sqlite3_open_v2(path, &handle, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil)
-            // A failed open still allocates a handle that must be closed.
-            defer { sqlite3_close(handle) }
-            guard opened == SQLITE_OK else { return nil }
-            sqlite3_busy_timeout(handle, 5000)
-            return Self.readArchitecture(handle)
-        }.value
-    }
-
     /// The architecture tables of `db` as a snapshot; the connection stays the caller's.
-    nonisolated private static func readArchitecture(_ db: OpaquePointer?) -> ArchitectureSnapshot? {
+    private static func readArchitecture(_ db: OpaquePointer?) -> ArchitectureSnapshot? {
         func text(_ stmt: OpaquePointer?, _ column: Int32) -> String? {
             sqlite3_column_text(stmt, column).map { String(cString: $0) }
         }
@@ -344,9 +345,9 @@ class SemanticDatabase {
         return results
     }
 
-    // MARK: - Block CRUD
+    // MARK: - Blocks
 
-    func upsertBlock(_ block: SemanticBlock, documentId: String) throws {
+    private func upsertBlock(_ block: SemanticBlock, documentId: String) throws {
         let now = Int(Date().timeIntervalSince1970)
         let headingPathJSON = (try? JSONEncoder().encode(block.headingPath))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
@@ -368,132 +369,18 @@ class SemanticDatabase {
         ])
     }
 
-    func deleteBlock(id: String) throws {
-        try execute("DELETE FROM blocks WHERE block_id = ?", params: [.text(id)])
-    }
-
-    // MARK: - Entity CRUD
-
-    func upsertEntity(_ entity: SemanticEntity) throws {
-        let now = Int(Date().timeIntervalSince1970)
-        let aliasesJSON = (try? JSONEncoder().encode(entity.safeAliases)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        let attrsJSON = (try? JSONEncoder().encode(entity.attributes ?? [:])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}" as String
-        try execute("""
-            INSERT INTO entities (entity_id, name, type, canonical_name, aliases_json, attributes_json,
-                description, status, source_file, source_block_id, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(entity_id) DO UPDATE SET name=?, canonical_name=?, aliases_json=?, attributes_json=?, updated_at=?
-        """, params: [.text(entity.id), .text(entity.name), .text(entity.type), .text(entity.canonicalName),
-                     .text(aliasesJSON), .text(attrsJSON), .textOrNull(entity.description), .text(entity.safeStatus),
-                     .textOrNull(entity.sourceFile), .textOrNull(entity.sourceBlockId), .int(now), .int(now),
-                     .text(entity.name), .text(entity.canonicalName), .text(aliasesJSON), .text(attrsJSON), .int(now)])
-    }
-
-    // MARK: - Claim CRUD
-
-    func upsertClaim(_ claim: SemanticClaim) throws {
-        let now = Int(Date().timeIntervalSince1970)
-        let evidenceJSON = (try? JSONEncoder().encode(claim.safeEvidenceBlockIds)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        try execute("""
-            INSERT INTO claims (claim_id, type, subject_entity_id, predicate, object, object_entity_id,
-                source_file, source_block_id, raw_text, status, confidence, scope_kind, scope_value,
-                temporal_context_id, evidence_block_ids_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(claim_id) DO UPDATE SET raw_text=?, status=?, confidence=?, updated_at=?
-        """, params: [.text(claim.id), .text(claim.safeType), .text(claim.safeSubjectEntityId),
-                     .text(claim.predicate ?? ""), .text(claim.safeObject), .textOrNull(claim.objectEntityId),
-                     .text(claim.safeSourceFile), .text(claim.safeSourceBlockId), .text(claim.safeRawText),
-                     .text(claim.safeStatus), .real(claim.safeConfidence), .text(claim.safeScopeKind),
-                     .textOrNull(claim.scopeValue), .textOrNull(claim.temporalContextId),
-                     .text(evidenceJSON), .int(now), .int(now),
-                     .text(claim.safeRawText), .text(claim.safeStatus), .real(claim.safeConfidence), .int(now)])
-    }
-
-    func deleteClaimsForBlock(_ blockId: String) throws {
-        try execute("DELETE FROM claims WHERE source_block_id = ?", params: [.text(blockId)])
-    }
-
-    // MARK: - Relation CRUD
-
-    func upsertRelation(_ relation: SemanticRelation) throws {
-        let now = Int(Date().timeIntervalSince1970)
-        try execute("""
-            INSERT INTO entity_relations (relation_id, source_id, target_id, type, source_file, source_block_id, confidence, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(relation_id) DO UPDATE SET type=?
-        """, params: [.text(relation.id), .text(relation.sourceId), .text(relation.targetId),
-                     .text(relation.type), .textOrNull(relation.sourceFile), .textOrNull(relation.sourceBlockId),
-                     .real(relation.confidence ?? 0.5), .int(now), .text(relation.type)])
-    }
-
-    func deleteRelationsForBlock(_ blockId: String) throws {
-        try execute("DELETE FROM entity_relations WHERE source_block_id = ?", params: [.text(blockId)])
-    }
-
-    // MARK: - Temporal Context CRUD
-
-    func upsertTemporalContext(_ tc: TemporalContext) throws {
-        try execute("""
-            INSERT INTO temporal_contexts (temporal_context_id, label, kind, order_index, start_time, end_time, parent_temporal_context_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(temporal_context_id) DO UPDATE SET label=?, order_index=?
-        """, params: [.text(tc.id), .text(tc.label), .text(tc.kind), .int(tc.orderIndex),
-                     .textOrNull(tc.startTime), .textOrNull(tc.endTime), .textOrNull(tc.parentTemporalContextId),
-                     .text(tc.label), .int(tc.orderIndex)])
-    }
-
-    // MARK: - Diagnostic CRUD
-
-    func deleteDiagnosticsForBlock(_ blockId: String) throws {
-        try execute("DELETE FROM diagnostics WHERE block_id = ?", params: [.text(blockId)])
-    }
-
-    // MARK: - AI Job CRUD
-
-    func findCachedJob(inputHash: String) throws -> String? {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT result_ref FROM ai_jobs WHERE input_hash = ? AND status = 'completed' LIMIT 1"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
-        sqlite3_bind_text(stmt, 1, inputHash, -1, SQLITE_TRANSIENT)
-        if sqlite3_step(stmt) == SQLITE_ROW, let ptr = sqlite3_column_text(stmt, 0) {
-            return String(cString: ptr)
+    /// One block delta of an open document: the added and changed blocks are written, the removed ones are deleted with
+    /// their claims, relations and diagnostics. Each statement stands alone and a failed one is skipped, as before.
+    func applyBlockDelta(documentId: String, upserts: [SemanticBlock], removed: [String]) {
+        for block in upserts {
+            try? upsertBlock(block, documentId: documentId)
         }
-        return nil
-    }
-
-    // MARK: - Query Helpers
-
-    /// Clear all semantic data (entities, claims, relations, diagnostics, jobs, cache) — keeps schema
-    func clearAll() throws {
-        let tables = [
-            "compile_artifacts", "compile_jobs", "completeness_evaluations",
-            "recompute_edges", "recompute_nodes",
-            "ai_jobs", "diagnostics", "transitions", "entity_relations",
-            "claims", "entities", "temporal_contexts",
-            "block_compilation_cache", "blocks", "documents"
-        ]
-        for table in tables {
-            try execute("DELETE FROM \(table)")
+        for id in removed {
+            try? execute("DELETE FROM blocks WHERE block_id = ?", params: [.text(id)])
+            try? execute("DELETE FROM claims WHERE source_block_id = ?", params: [.text(id)])
+            try? execute("DELETE FROM entity_relations WHERE source_block_id = ?", params: [.text(id)])
+            try? execute("DELETE FROM diagnostics WHERE block_id = ?", params: [.text(id)])
         }
-
-        // Also clear the file-based response cache
-        if let dbPath {
-            let cacheDir = URL(fileURLWithPath: dbPath)
-                .deletingLastPathComponent() // .dde/
-                .appendingPathComponent("cache")
-                .appendingPathComponent("provider_responses")
-            if let files = try? FileManager.default.contentsOfDirectory(at: cacheDir, includingPropertiesForKeys: nil) {
-                for file in files {
-                    try? FileManager.default.removeItem(at: file)
-                }
-            }
-        }
-
-        // Reset usage stats
-        try execute("UPDATE usage_stats SET total_input_tokens=0, total_output_tokens=0, total_jobs=0, total_cost_cents=0 WHERE id=1")
-
-        NSLog("[DDE] Database + cache fully cleared")
     }
 
     // MARK: - Usage Stats (persisted across sessions)
@@ -533,74 +420,6 @@ class SemanticDatabase {
                 total_cost_cents = total_cost_cents + ?
             WHERE id = 1
         """, params: [.int(inputTokens), .int(outputTokens), .real(costCents)])
-    }
-
-    // MARK: - Bulk Query (load all into memory)
-
-    func entityCount() -> Int {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "SELECT COUNT(DISTINCT canonical_name) FROM entities", -1, &stmt, nil) == SQLITE_OK,
-              sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
-        return Int(sqlite3_column_int(stmt, 0))
-    }
-
-    func claimCount() -> Int {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM claims", -1, &stmt, nil) == SQLITE_OK,
-              sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
-        return Int(sqlite3_column_int(stmt, 0))
-    }
-
-    /// Get deduplicated entities grouped by type (returns max ~300)
-    func uniqueEntities() -> [SemanticEntity] {
-        var results: [SemanticEntity] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT entity_id, name, type, canonical_name, description, status, source_file, source_block_id FROM entities GROUP BY LOWER(canonical_name) ORDER BY type, name"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let id = String(cString: sqlite3_column_text(stmt, 0))
-            let name = String(cString: sqlite3_column_text(stmt, 1))
-            let type = String(cString: sqlite3_column_text(stmt, 2))
-            let canonical = String(cString: sqlite3_column_text(stmt, 3))
-            let desc = sqlite3_column_text(stmt, 4).map { String(cString: $0) }
-            let status = sqlite3_column_text(stmt, 5).map { String(cString: $0) }
-            let srcFile = sqlite3_column_text(stmt, 6).map { String(cString: $0) }
-            let srcBlock = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
-            results.append(SemanticEntity(id: id, name: name, type: type, canonicalName: canonical,
-                                          aliases: nil, attributes: nil, description: desc,
-                                          status: status, sourceFile: srcFile, sourceBlockId: srcBlock))
-        }
-        return results
-    }
-
-    func allClaims() -> [SemanticClaim] {
-        var results: [SemanticClaim] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT claim_id, type, subject_entity_id, predicate, object, source_file, source_block_id, raw_text, status, confidence, scope_kind FROM claims"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let id = String(cString: sqlite3_column_text(stmt, 0))
-            let type = sqlite3_column_text(stmt, 1).map { String(cString: $0) }
-            let subj = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
-            let pred = sqlite3_column_text(stmt, 3).map { String(cString: $0) }
-            let obj = sqlite3_column_text(stmt, 4).map { String(cString: $0) }
-            let srcFile = sqlite3_column_text(stmt, 5).map { String(cString: $0) }
-            let srcBlock = sqlite3_column_text(stmt, 6).map { String(cString: $0) }
-            let rawText = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
-            let status = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
-            let confidence = sqlite3_column_double(stmt, 9)
-            let scopeKind = sqlite3_column_text(stmt, 10).map { String(cString: $0) }
-            results.append(SemanticClaim(id: id, type: type, subjectEntityId: subj, predicate: pred,
-                                         object: obj != nil ? .string(obj!) : nil, objectEntityId: nil,
-                                         sourceFile: srcFile, sourceBlockId: srcBlock, rawText: rawText,
-                                         status: status, confidence: confidence,
-                                         scopeKind: scopeKind))
-        }
-        return results
     }
 
     // MARK: - V1 Structural Index
@@ -692,92 +511,15 @@ class SemanticDatabase {
         return results
     }
 
-    func symbolsForModule(_ moduleId: String) -> [(name: String, kind: String, doc: String?, context: String?)] {
-        var results: [(String, String, String?, String?)] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT name, kind, document_id, context FROM symbols WHERE module_id = ? ORDER BY kind, name"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_text(stmt, 1, moduleId, -1, SQLITE_TRANSIENT)
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            results.append((
-                String(cString: sqlite3_column_text(stmt, 0)),
-                String(cString: sqlite3_column_text(stmt, 1)),
-                sqlite3_column_text(stmt, 2).map { String(cString: $0) },
-                sqlite3_column_text(stmt, 3).map { String(cString: $0) }
-            ))
+    /// Drop what the index holds for documents that left the project (an excluded folder): their heading, link and
+    /// code-block symbols, and their search text (replaced by an empty entry, as the exclusion always did).
+    func forgetDocuments(_ ids: [String]) {
+        for id in ids {
+            for kind in ["heading", "link", "code_block"] {
+                try? execute("DELETE FROM symbols WHERE document_id = ? AND kind = ?", params: [.text(id), .text(kind)])
+            }
+            indexDocumentFTS(documentId: id, title: "", content: "")
         }
-        return results
-    }
-
-    /// Clear symbols of a given kind for a document
-    func clearSymbols(forDocument docId: String, kind: String) {
-        try? execute("DELETE FROM symbols WHERE document_id = ? AND kind = ?", params: [.text(docId), .text(kind)])
-    }
-
-    // MARK: - V2 Chunks + Citations
-
-    func insertChunk(id: String, documentId: String, text: String, charStart: Int, charEnd: Int) {
-        try? execute("INSERT OR IGNORE INTO chunks (chunk_id, document_id, text, char_start, char_end) VALUES (?, ?, ?, ?, ?)",
-                    params: [.text(id), .text(documentId), .text(text), .int(charStart), .int(charEnd)])
-    }
-
-    func chunksForDocument(_ documentId: String) -> [(id: String, text: String, charStart: Int, charEnd: Int)] {
-        var results: [(String, String, Int, Int)] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT chunk_id, text, char_start, char_end FROM chunks WHERE document_id = ? ORDER BY char_start"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_text(stmt, 1, documentId, -1, SQLITE_TRANSIENT)
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            results.append((
-                String(cString: sqlite3_column_text(stmt, 0)),
-                String(cString: sqlite3_column_text(stmt, 1)),
-                Int(sqlite3_column_int(stmt, 2)),
-                Int(sqlite3_column_int(stmt, 3))
-            ))
-        }
-        return results
-    }
-
-    func citationsForArtifact(_ artifactId: String) -> [(documentId: String, lineStart: Int?, quoteText: String?)] {
-        var results: [(String, Int?, String?)] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT document_id, line_start, quote_text FROM citations WHERE artifact_id = ?"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_text(stmt, 1, artifactId, -1, SQLITE_TRANSIENT)
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            results.append((
-                String(cString: sqlite3_column_text(stmt, 0)),
-                sqlite3_column_type(stmt, 1) == SQLITE_NULL ? nil : Int(sqlite3_column_int(stmt, 1)),
-                sqlite3_column_text(stmt, 2).map { String(cString: $0) }
-            ))
-        }
-        return results
-    }
-
-    func insertQualityTag(id: String, moduleId: String, attribute: String, value: String, artifactId: String?) {
-        try? execute("INSERT OR REPLACE INTO quality_tags (tag_id, module_id, attribute, value, source_artifact_id) VALUES (?, ?, ?, ?, ?)",
-                    params: [.text(id), .text(moduleId), .text(attribute), .text(value), .textOrNull(artifactId)])
-    }
-
-    /// Get content hash for a document (for change detection)
-    func getDocumentHash(_ documentId: String) -> String? {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT content_hash FROM documents WHERE document_id = ?"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
-        sqlite3_bind_text(stmt, 1, documentId, -1, SQLITE_TRANSIENT)
-        if sqlite3_step(stmt) == SQLITE_ROW, let ptr = sqlite3_column_text(stmt, 0) {
-            return String(cString: ptr)
-        }
-        return nil
-    }
-
-    /// Execute raw SQL with a single text param (for reconciler)
-    func execute_raw(_ sql: String, text: String) throws {
-        try execute(sql, params: [.text(text)])
     }
 
     // MARK: - Low-level SQL

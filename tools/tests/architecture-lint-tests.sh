@@ -137,6 +137,20 @@ try:
     check(code == 1 and "[target-membership] MarkView/Models/AI/Ask.swift: referenced by MarkView.xcodeproj but not in the target's Sources build phase" in out,
           "a referenced Swift file that is not compiled by the target fails")
 
+    # --- semantic-database-actor
+    root = fresh()
+    write(root, "MarkView/Models/Insight/SemanticDatabase.swift", "// @MainActor in a comment does not count\nactor SemanticDatabase {\n    func search() {}\n}\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0, "a SemanticDatabase declared as an actor passes")
+    root = fresh()
+    write(root, "MarkView/Models/Insight/SemanticDatabase.swift", "@MainActor\nclass SemanticDatabase {\n    func search() {}\n}\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[semantic-database-actor] MarkView/Models/Insight/SemanticDatabase.swift: `SemanticDatabase` must be declared as an `actor`" in out
+          and "[semantic-database-actor] MarkView/Models/Insight/SemanticDatabase.swift:1: `@MainActor` in the database" in out,
+          "a SemanticDatabase that is a @MainActor class fails with both reasons")
+
     # --- process ratchet
     root = fresh()
     write(root, "MarkView/Models/Git/Shell.swift", "func f() { let p = Process() }\n")

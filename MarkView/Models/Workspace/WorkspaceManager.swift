@@ -899,10 +899,12 @@ class WorkspaceManager: ObservableObject {
         try? await Task.sleep(nanoseconds: 100_000_000)
 
         do {
-            let db = try SemanticDatabase(workspacePath: url)
+            let db = try await SemanticDatabase.open(workspacePath: url)
             Self.debugLog("initDDE: database opened")
             let projectId = url.lastPathComponent
-            try db.ensureProject(id: projectId, name: url.lastPathComponent, rootPath: url.path)
+            try await db.ensureProject(id: projectId, name: url.lastPathComponent, rootPath: url.path)
+            // Another folder was opened while the file was being opened: this database is not for this window any more.
+            guard !Task.isCancelled else { return }
             self.semanticDatabase = db
 
             indexingProgress = "Initializing engines..."
@@ -1031,19 +1033,19 @@ class WorkspaceManager: ObservableObject {
     func excludeFolder(_ folderURL: URL) {
         guard let relativePath = fileTreeStore.excludeFolder(folderURL) else { return }
 
-        // Remove all DB entities for files in this folder
+        // Remove all DB entities for files in this folder: the folder walk and the writes run off the main thread.
         guard let db = semanticDatabase else { return }
-        let fm = FileManager.default
-        if let enumerator = fm.enumerator(at: folderURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-            while let url = enumerator.nextObject() as? URL {
-                guard url.pathExtension.lowercased() == "md" else { continue }
-                let docId = self.docId(for: url)
-                db.clearSymbols(forDocument: docId, kind: "heading")
-                db.clearSymbols(forDocument: docId, kind: "link")
-                db.clearSymbols(forDocument: docId, kind: "code_block")
-                // Remove from FTS
-                db.indexDocumentFTS(documentId: docId, title: "", content: "")
+        let root = rootNode?.url
+        let linked = linkedFolders
+        Task.detached {
+            var ids: [String] = []
+            if let enumerator = FileManager.default.enumerator(at: folderURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                while let url = enumerator.nextObject() as? URL {
+                    guard url.pathExtension.lowercased() == "md" else { continue }
+                    ids.append(LinkedFolders.documentId(for: url, root: root ?? url.deletingLastPathComponent(), linked: linked))
+                }
             }
+            await db.forgetDocuments(ids)
         }
         objectWillChange.send()
         NSLog("[DDE] Excluded folder: \(relativePath)")
@@ -2185,7 +2187,7 @@ class WorkspaceManager: ObservableObject {
 
     /// Check if a file belongs to the currently open workspace
     private func isFileInCurrentWorkspace(_ url: URL) -> Bool {
-        guard semanticDatabase != nil else { return false }
+        guard semanticDatabase != nil || singleFileSetup != nil else { return false }
         guard let root = rootNode else { return false }
         // A pull request's copy of a project file (MarkView's cache, opened from the PR
         // X-Ray) belongs to the open project: it must not turn it into a single-file workspace.
@@ -2201,6 +2203,8 @@ class WorkspaceManager: ObservableObject {
     private func releaseWorkspaceEngines() {
         cockpitSession?.closeProject()
         cockpitSession = nil
+        singleFileSetup?.cancel()
+        singleFileSetup = nil
         semanticDatabase = nil
         graphRAG = nil
         stopAllTerminals()
@@ -2274,6 +2278,10 @@ class WorkspaceManager: ObservableObject {
         return true
     }
 
+    /// The single-file workspace being opened: while its database is still being created, another Markdown file
+    /// from the same folder joins it instead of starting a second one.
+    private var singleFileSetup: Task<Void, Never>?
+
     /// Initialize workspace for a single .md file — DB named after the file, indexes only this file
     private func initSingleFileWorkspace(fileURL: URL) {
         let parentDir = fileURL.deletingLastPathComponent()
@@ -2284,34 +2292,41 @@ class WorkspaceManager: ObservableObject {
 
         releaseWorkspaceEngines()
 
-        do {
-            let db = try SemanticDatabase(workspacePath: parentDir, dbName: dbName)
-            let projectId = fileName
-            try db.ensureProject(id: projectId, name: fileName, rootPath: parentDir.path)
-            self.semanticDatabase = db
-            self.graphRAG = GraphRAG(db: db)
-            self.aiWorkspaceRoot = parentDir
-            gitClient.setup(at: parentDir)
+        aiWorkspaceRoot = parentDir
+        gitClient.setup(at: parentDir)
 
-            // Build file tree showing just the parent dir
-            if rootNode == nil {
-                rootOpenedAsFolder = false
-                fileTreeStore.setRootNode(FileNode.buildTree(from: parentDir, sortOrder: fileTreeStore.sortOrder))
-                fileTreeStore.loadExcludedFolders()
+        // Build file tree showing just the parent dir
+        if rootNode == nil {
+            rootOpenedAsFolder = false
+            fileTreeStore.setRootNode(FileNode.buildTree(from: parentDir, sortOrder: fileTreeStore.sortOrder))
+            fileTreeStore.loadExcludedFolders()
+        }
+
+        // The database is opened and filled off the main thread; the workspace gets it when it is ready.
+        singleFileSetup = Task {
+            do {
+                let db = try await SemanticDatabase.open(workspacePath: parentDir, dbName: dbName)
+                try await db.ensureProject(id: fileName, name: fileName, rootPath: parentDir.path)
+                // Closed, or another file's workspace took over, while the database was being opened.
+                guard !Task.isCancelled else { return }
+                self.semanticDatabase = db
+                self.graphRAG = GraphRAG(db: db)
+                singleFileSetup = nil
+
+                // Index this single file: create root module, parse document, index FTS
+                await indexSingleFile(fileURL: fileURL, db: db)
+
+                NSLog("[DDE] Single-file workspace initialized: \(fileName) → \(dbName)")
+            } catch {
+                singleFileSetup = nil
+                NSLog("[DDE] Failed to init single-file workspace: \(error)")
             }
-
-            // Index this single file: create root module, parse document, index FTS
-            indexSingleFile(fileURL: fileURL, db: db)
-
-            NSLog("[DDE] Single-file workspace initialized: \(fileName) → \(dbName)")
-        } catch {
-            NSLog("[DDE] Failed to init single-file workspace: \(error)")
         }
     }
 
     /// Index a single markdown file — structural parse + FTS + Haiku extraction.
     /// Works fully in sandbox: no directory scan, content passed directly.
-    private func indexSingleFile(fileURL: URL, db: SemanticDatabase) {
+    private func indexSingleFile(fileURL: URL, db: SemanticDatabase) async {
         guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
             NSLog("[DDE] indexSingleFile: cannot read \(fileURL.path)")
             return
@@ -2322,17 +2337,17 @@ class WorkspaceManager: ObservableObject {
         let modId = "mod_single_file"
 
         // Root module
-        db.upsertModule(id: modId, name: fileName, path: fileURL.deletingLastPathComponent().path,
-                        parentId: nil, level: 0, fileCount: 1)
+        await db.upsertModule(id: modId, name: fileName, path: fileURL.deletingLastPathComponent().path,
+                              parentId: nil, level: 0, fileCount: 1)
 
         // FTS index
-        db.indexDocumentFTS(documentId: docId, title: fileName, content: content)
+        await db.indexDocumentFTS(documentId: docId, title: fileName, content: content)
 
         // Content hash
         var h: UInt32 = 0x811c9dc5
         for byte in content.utf8 { h ^= UInt32(byte); h = h &* 0x01000193 }
-        try? db.upsertDocument(id: docId, projectId: fileName, filePath: fileURL.path,
-                               fileName: docId, fileExt: "md", contentHash: String(h, radix: 16))
+        try? await db.upsertDocument(id: docId, projectId: fileName, filePath: fileURL.path,
+                                     fileName: docId, fileExt: "md", contentHash: String(h, radix: 16))
 
         // Parse symbols inline (headings) — no directory scan
         let lines = content.components(separatedBy: "\n")
@@ -2342,8 +2357,8 @@ class WorkspaceManager: ObservableObject {
                 let level = line.prefix(while: { $0 == "#" }).count
                 let text = String(line.dropFirst(level)).trimmingCharacters(in: .whitespaces)
                 let symId = "sym_h_\(singleFileFnv1a("\(docId):\(lineNum):\(text)"))"
-                db.insertSymbol(id: symId, moduleId: modId, documentId: docId,
-                               name: text, kind: "heading", lineStart: lineNum, lineEnd: lineNum, context: nil)
+                await db.insertSymbol(id: symId, moduleId: modId, documentId: docId,
+                                      name: text, kind: "heading", lineStart: lineNum, lineEnd: lineNum, context: nil)
             }
         }
 
@@ -3730,17 +3745,18 @@ class WorkspaceManager: ObservableObject {
         // Persist to SQLite
         if let db = semanticDatabase {
             let docId = self.docId(for: tab.url)
-            for block in delta.added + delta.changed {
-                try? db.upsertBlock(block, documentId: docId)
-            }
-            for id in delta.removed {
-                try? db.deleteBlock(id: id)
-                try? db.deleteClaimsForBlock(id)
-                try? db.deleteRelationsForBlock(id)
-                try? db.deleteDiagnosticsForBlock(id)
+            let upserts = delta.added + delta.changed, removed = delta.removed
+            // Deltas reach the database in the order the editor sent them.
+            let previous = blockDeltaSave
+            blockDeltaSave = Task {
+                await previous?.value
+                await db.applyBlockDelta(documentId: docId, upserts: upserts, removed: removed)
             }
         }
     }
+
+    /// The block delta write in flight (`AR-37`): each delta waits for the one before it.
+    private var blockDeltaSave: Task<Void, Never>?
 
     // MARK: - Background Folder Analysis
 
@@ -4843,7 +4859,8 @@ class WorkspaceManager: ObservableObject {
             return buffers
         }
         session.recordUsage = { [weak self] input, output, cost in
-            self?.semanticDatabase?.addUsage(inputTokens: input, outputTokens: output, costCents: cost * 100)
+            guard let db = self?.semanticDatabase else { return }
+            Task { await db.addUsage(inputTokens: input, outputTokens: output, costCents: cost * 100) }
         }
         session.openFile = { [weak self] url in self?.openFile(url) }
         session.featureStore = { [weak self] in self?.features }

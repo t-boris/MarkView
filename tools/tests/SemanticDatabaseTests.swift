@@ -87,7 +87,7 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
 
     do {
         let root = sandbox.appendingPathComponent("fresh", isDirectory: true)
-        let db = try SemanticDatabase(workspacePath: root)
+        let db = try await SemanticDatabase.open(workspacePath: root)
         let path = root.appendingPathComponent(".dde/state.db").path
         check(db.dbPath == path, "a new project gets .dde/state.db")
         check(scalar(path, "PRAGMA user_version") == 2, "a new file is stamped with the latest schema version")
@@ -100,15 +100,16 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
         check(scalar(path, "SELECT count(*) FROM usage_stats WHERE id = 1") == 1, "the single usage row is seeded")
         check(names(path, "PRAGMA journal_mode") == ["wal"], "the journal mode is WAL")
 
-        try db.ensureProject(id: "fresh", name: "fresh", rootPath: root.path)
-        db.upsertModule(id: "mod_a", name: "a", path: root.path, parentId: nil, level: 0, fileCount: 1)
-        db.indexDocumentFTS(documentId: "a.md", title: "a", content: "zebra crossing")
-        check(db.search(query: "zebra").map(\.documentId) == ["a.md"], "a project created by the migrations indexes and finds text")
+        try await db.ensureProject(id: "fresh", name: "fresh", rootPath: root.path)
+        await db.upsertModule(id: "mod_a", name: "a", path: root.path, parentId: nil, level: 0, fileCount: 1)
+        await db.indexDocumentFTS(documentId: "a.md", title: "a", content: "zebra crossing")
+        let found = await db.search(query: "zebra").map(\.documentId)
+        check(found == ["a.md"], "a project created by the migrations indexes and finds text")
         var snapshot = ArchitectureSnapshot(views: [ArchView(id: "modules", nodes: [ArchNode(id: "m:", kind: "root", name: "Fresh", line: 3, endLine: 8, anchor: "fresh")],
                                                            edges: [])], coverage: [:], deploymentHints: [], scannedAt: Date())
         snapshot.systemName = "Fresh"
-        try db.saveArchitecture(snapshot)
-        let stored = db.loadArchitecture()
+        try await db.saveArchitecture(snapshot)
+        let stored = await db.loadArchitecture()
         check(stored?.systemName == "Fresh" && stored?.view("modules")?.nodes.first?.anchor == "fresh" && stored?.view("modules")?.nodes.first?.endLine == 8,
               "an X-Ray snapshot round-trips through the new schema")
     }
@@ -120,7 +121,7 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
         let before = inode(path)
         check(scalar(path, "PRAGMA user_version") == 1 && names(path, "SELECT name FROM sqlite_master").contains("applied_migrations"),
               "the fixture is what release 6.26 left: version 1, applied_migrations present")
-        let db = try SemanticDatabase(workspacePath: root)
+        let db = try await SemanticDatabase.open(workspacePath: root)
         check(db.dbPath == path, "the file is opened in place")
         check(inode(path) == before, "the database file is not replaced")
         check(listing(root.appendingPathComponent(".dde")).filter { $0.contains("corrupt") }.isEmpty, "no backup was needed")
@@ -128,11 +129,14 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
         check(scalar(path, "SELECT count(*) FROM documents") == 1 && scalar(path, "SELECT count(*) FROM blocks") == 1
               && scalar(path, "SELECT count(*) FROM symbols") == 1 && scalar(path, "SELECT count(*) FROM modules") == 1,
               "documents, blocks, modules and symbols are kept")
-        check(db.search(query: "zebra").map(\.documentId) == ["docs/alpha.md"], "the full-text index is kept")
-        let snapshot = db.loadArchitecture()
+        let found = await db.search(query: "zebra").map(\.documentId)
+        check(found == ["docs/alpha.md"], "the full-text index is kept")
+        let snapshot = await db.loadArchitecture()
         check(snapshot?.systemName == "Shop" && snapshot?.view("modules")?.nodes.first?.anchor == "shop", "the stored X-Ray is kept")
-        check(db.loadArchitectureReview(key: "abc") == "{\"review\":true}", "the cached review is kept")
-        check(db.getUsageStats().totalInputTokens == 77 && db.getUsageStats().totalJobs == 2, "the usage totals are kept")
+        let review = await db.loadArchitectureReview(key: "abc")
+        check(review == "{\"review\":true}", "the cached review is kept")
+        let usage = await db.getUsageStats()
+        check(usage.totalInputTokens == 77 && usage.totalJobs == 2, "the usage totals are kept")
         check(!names(path, "SELECT name FROM sqlite_master").contains("applied_migrations"), "the never-written applied_migrations table is dropped")
     }
 
@@ -153,14 +157,16 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
                                   with: "INSERT INTO arch_nodes (view, id, kind, name, path, loc, files) VALUES ('modules', 'm:', 'root', 'Shop', '', 12, 3);")
         let (root, path) = project("older-vintage", sql: release626 + rows + older + "PRAGMA journal_mode = WAL; PRAGMA user_version = 1;")
         check(!names(path, "SELECT name FROM pragma_table_info('arch_nodes')").contains("anchor"), "the fixture lacks the later columns")
-        let db = try SemanticDatabase(workspacePath: root)
+        let db = try await SemanticDatabase.open(workspacePath: root)
         check(["line", "end_line", "anchor", "component", "tags_json"].allSatisfy(names(path, "SELECT name FROM pragma_table_info('arch_nodes')").contains),
               "the missing arch_nodes columns are added")
         check(names(path, "SELECT name FROM sqlite_master").contains("arch_reviews"), "a table the older release lacked is created")
-        check(scalar(path, "SELECT count(*) FROM documents") == 1 && db.search(query: "zebra").count == 1 && db.loadArchitecture()?.systemName == "Shop",
-              "the older file's rows are kept")
-        db.saveArchitectureReview(key: "k", json: "{}")
-        check(db.loadArchitectureReview(key: "k") == "{}", "the topped-up table is usable")
+        let hits = await db.search(query: "zebra").count
+        let systemName = await db.loadArchitecture()?.systemName
+        check(scalar(path, "SELECT count(*) FROM documents") == 1 && hits == 1 && systemName == "Shop", "the older file's rows are kept")
+        await db.saveArchitectureReview(key: "k", json: "{}")
+        let review = await db.loadArchitectureReview(key: "k")
+        check(review == "{}", "the topped-up table is usable")
     }
 
     // MARK: - A file that predates the docId scheme (no version stamp)
@@ -168,14 +174,17 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
     do {
         let (root, path) = project("unversioned", sql: release626 + usedRows + "PRAGMA user_version = 0;")
         let before = inode(path)
-        let db = try SemanticDatabase(workspacePath: root)
+        let db = try await SemanticDatabase.open(workspacePath: root)
         check(db.dbPath == path && inode(path) == before, "the file is migrated in place, not deleted")
         check(scalar(path, "PRAGMA user_version") == 2, "it reaches the latest version")
         check(scalar(path, "SELECT count(*) FROM documents") == 0 && scalar(path, "SELECT count(*) FROM blocks") == 0
               && scalar(path, "SELECT count(*) FROM modules") == 0 && scalar(path, "SELECT count(*) FROM fts_documents") == 0,
               "rows keyed by the old document ids are cleared for the next index run")
-        check(db.loadArchitecture()?.systemName == "Shop" && db.loadArchitectureReview(key: "abc") != nil, "X-Ray data survives")
-        check(db.getUsageStats().totalInputTokens == 77, "usage totals survive")
+        let systemName = await db.loadArchitecture()?.systemName
+        let review = await db.loadArchitectureReview(key: "abc")
+        check(systemName == "Shop" && review != nil, "X-Ray data survives")
+        let usage = await db.getUsageStats()
+        check(usage.totalInputTokens == 77, "usage totals survive")
     }
 
     // MARK: - A file from a newer release
@@ -184,14 +193,15 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
         let (root, path) = project("newer", sql: release626 + usedRows + "PRAGMA journal_mode = DELETE; PRAGMA user_version = 7;")
         let hash = digest(path)
         let files = listing(root.appendingPathComponent(".dde"))
-        let db = try SemanticDatabase(workspacePath: root)
+        let db = try await SemanticDatabase.open(workspacePath: root)
         check(db.dbPath == nil, "a newer file is not opened: the session uses an in-memory index")
         check(digest(path) == hash, "not one byte of the newer file changed")
         check(scalar(path, "PRAGMA user_version") == 7 && scalar(path, "SELECT count(*) FROM documents") == 1, "its version and rows are intact")
-        try db.ensureProject(id: "newer", name: "newer", rootPath: root.path)
-        db.indexDocumentFTS(documentId: "n.md", title: "n", content: "quokka")
-        check(db.search(query: "quokka").map(\.documentId) == ["n.md"] && db.search(query: "zebra").isEmpty,
-              "the in-memory index works and starts empty")
+        try await db.ensureProject(id: "newer", name: "newer", rootPath: root.path)
+        await db.indexDocumentFTS(documentId: "n.md", title: "n", content: "quokka")
+        let quokka = await db.search(query: "quokka").map(\.documentId)
+        let zebra = await db.search(query: "zebra")
+        check(quokka == ["n.md"] && zebra.isEmpty, "the in-memory index works and starts empty")
         check(digest(path) == hash && listing(root.appendingPathComponent(".dde")) == files, "writes to the in-memory index never reach the file or its folder")
     }
 
@@ -206,7 +216,7 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
         try garbage.write(to: URL(fileURLWithPath: path))
         try Data("stale log".utf8).write(to: URL(fileURLWithPath: path + "-wal"))
 
-        let db = try SemanticDatabase(workspacePath: root)
+        let db = try await SemanticDatabase.open(workspacePath: root)
         let backups = listing(dde).filter { $0.hasPrefix("state.db.corrupt-") && !$0.hasSuffix("-wal") && !$0.hasSuffix("-shm") }
         check(backups.count == 1, "the unreadable file is kept as a dated backup")
         if let backup = backups.first {
@@ -214,8 +224,48 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
             check(fm.contents(atPath: dde.appendingPathComponent(backup + "-wal").path) == Data("stale log".utf8), "its write-ahead log went with it")
         }
         check(db.dbPath == path && scalar(path, "PRAGMA user_version") == 2, "a new database is created at the old path")
-        db.indexDocumentFTS(documentId: "c.md", title: "c", content: "okapi")
-        check(db.search(query: "okapi").count == 1, "the rebuilt database works")
+        await db.indexDocumentFTS(documentId: "c.md", title: "c", content: "okapi")
+        let okapi = await db.search(query: "okapi").count
+        check(okapi == 1, "the rebuilt database works")
+    }
+
+    // MARK: - Off the main thread (AR-37)
+
+    do {
+        let (root, path) = project("locked", sql: release626 + usedRows + "PRAGMA journal_mode = WAL; PRAGMA user_version = 2;")
+        let db = try await SemanticDatabase.open(workspacePath: root)
+
+        // Another process (the indexer child) holds the write lock for about a second and a half.
+        var holder: OpaquePointer?
+        check(sqlite3_open(path, &holder) == SQLITE_OK && sqlite3_exec(holder, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK,
+              "a second connection holds the write lock")
+        nonisolated(unsafe) let lockHolder = holder
+        let release = Task.detached {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            sqlite3_exec(lockHolder, "COMMIT", nil, nil, nil)
+            sqlite3_close(lockHolder)
+        }
+
+        // A write that has to wait for that lock is started from the main actor ...
+        let started = Date()
+        let write = Task { () -> Double in
+            await db.addUsage(inputTokens: 1, outputTokens: 1, costCents: 1)
+            return Date().timeIntervalSince(started)
+        }
+        // ... and the main actor keeps running meanwhile: its longest pause is far below the lock time.
+        var longestPause = 0.0
+        var last = Date()
+        for _ in 0..<12 {
+            try await Task.sleep(nanoseconds: 100_000_000)
+            longestPause = max(longestPause, Date().timeIntervalSince(last) - 0.1)
+            last = Date()
+        }
+        let waited = await write.value
+        _ = await release.value
+        check(longestPause < 0.3, "the main actor is not held while the database waits for a lock (longest extra pause \(String(format: "%.2f", longestPause)) s)")
+        check(waited > 1.0, "the write itself waited for the lock (\(String(format: "%.2f", waited)) s) and then completed")
+        let usage = await db.getUsageStats()
+        check(usage.totalInputTokens == 78, "the waiting write was applied once the lock was released")
     }
 }
 

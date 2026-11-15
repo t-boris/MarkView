@@ -165,8 +165,7 @@ enum DDEAppEntry {
 
 /// Headless structural-index runner for the `--dde-index` child process.
 /// Opens the workspace database, runs `StructuralIndexer.indexAll()`, and exits.
-/// `dispatchMain()` services the main queue so the indexer's `MainActor.run`
-/// DB-write hops execute (blocking the main thread with a semaphore would deadlock).
+/// `dispatchMain()` keeps the process alive while the indexing task runs.
 enum DDEIndexerRunner {
     private static func err(_ msg: String) {
         FileHandle.standardError.write(Data("[mvindexer] \(msg)\n".utf8))
@@ -175,14 +174,12 @@ enum DDEIndexerRunner {
     static func run(folderPath: String) -> Never {
         let url = URL(fileURLWithPath: folderPath)
         err("start \(folderPath)")
-        // SemanticDatabase is @MainActor-isolated; run the whole job on the main
-        // actor. dispatchMain() below services the main queue so this executes.
-        Task { @MainActor in
+        Task {
             do {
-                let db = try SemanticDatabase(workspacePath: url)
+                let db = try await SemanticDatabase.open(workspacePath: url)
                 // A file the app must leave alone (newer schema, failed migration) gives an in-memory index: nothing to write.
                 guard db.dbPath != nil else { err("the index file is left untouched; nothing to index"); exit(1) }
-                try db.ensureProject(id: url.lastPathComponent, name: url.lastPathComponent, rootPath: url.path)
+                try await db.ensureProject(id: url.lastPathComponent, name: url.lastPathComponent, rootPath: url.path)
                 let linked = LinkedFolders.load(project: url)
                 if !linked.isEmpty { err("linked folders: " + linked.map(\.name).joined(separator: ", ")) }
                 let indexer = StructuralIndexer(db: db, rootURL: url, linkedFolders: linked)
@@ -195,7 +192,7 @@ enum DDEIndexerRunner {
                 exit(1)
             }
         }
-        dispatchMain()  // never returns; main queue keeps servicing MainActor hops
+        dispatchMain()  // never returns; the indexing task above runs while the main queue idles
     }
 }
 

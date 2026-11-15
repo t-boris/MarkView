@@ -181,7 +181,13 @@ struct DocumentSearchView: View {
 
     private func performSearch() {
         guard let db = workspaceManager.semanticDatabase, !searchQuery.isEmpty else { return }
-        searchResults = db.search(query: searchQuery)
+        let query = searchQuery
+        // The query runs on the database actor; an answer to an older query never replaces a newer one.
+        Task {
+            let found = await db.search(query: query)
+            guard query == searchQuery else { return }
+            searchResults = found
+        }
     }
 
     private func openSearchResult(_ result: SemanticDatabase.SearchResult) {

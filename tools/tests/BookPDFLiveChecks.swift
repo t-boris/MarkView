@@ -8,7 +8,7 @@ enum ACPAssistant {
     static func run(_ request: CLICompletion.Request, tool: CLITool, toolPath: String, model: String?, workDir: URL,
                     onDelta: (@Sendable (String) -> Void)?, onActivity: (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result { fatalError("Select Claude or Codex for this check.") }
 }
-final class SemanticDatabase {
+actor SemanticDatabase {
     func addUsage(inputTokens: Int, outputTokens: Int, costCents: Double) {}
     nonisolated static func documentId(for fileURL: URL, root: URL) -> String { fileURL.path.replacingOccurrences(of: root.path + "/", with: "") }
 }
