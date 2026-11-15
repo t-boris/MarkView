@@ -1,6 +1,6 @@
 #!/bin/bash
 # Feature workflow-flows, REQ-001: what "done" means in a process and where it disagrees with the project's Definition of Done
-# (Models/WorkflowDone.swift). Foundation only; compiled on its own with a test main (no XCTest target exists).
+# (Models/Lifecycle/WorkflowDone.swift). Foundation only; compiled on its own with a test main (no XCTest target exists).
 #   tools/tests/workflow-done-tests.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."

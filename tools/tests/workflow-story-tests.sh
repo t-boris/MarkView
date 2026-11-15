@@ -1,5 +1,5 @@
 #!/bin/bash
-# BUG-115: a workflow transition in plain words (Models/WorkflowTransitionStory.swift): the label of an arrow, what each actor may do
+# BUG-115: a workflow transition in plain words (Models/Lifecycle/WorkflowTransitionStory.swift): the label of an arrow, what each actor may do
 # and on which event, and what the processes require. Foundation only; compiled on its own with a test main (no XCTest target exists).
 #   tools/tests/workflow-story-tests.sh
 set -euo pipefail
