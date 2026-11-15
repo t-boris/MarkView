@@ -8,6 +8,8 @@ public struct SubprocessSpec: Sendable {
     public var cwd: URL?
     /// Extra environment variables merged into the inherited process environment (and `settings.cli.extraPATH`).
     public var environment: [String: String]?
+    /// Inherited variables the child must not see (a token of another account, a parent agent's markers); applied after the merge.
+    public var removedEnvironment: Set<String>
     /// Written to the child's standard input, which is then closed. nil leaves the child `/dev/null`.
     public var stdin: Data?
     /// Seconds before the child's group is terminated; `<= 0` means no limit.
@@ -29,6 +31,7 @@ public struct SubprocessSpec: Sendable {
         arguments: [String] = [],
         cwd: URL? = nil,
         environment: [String: String]? = nil,
+        removedEnvironment: Set<String> = [],
         stdin: Data? = nil,
         timeout: TimeInterval = 30,
         maxOutputBytes: Int = 4 * 1024 * 1024,
@@ -42,6 +45,7 @@ public struct SubprocessSpec: Sendable {
         self.arguments = arguments
         self.cwd = cwd
         self.environment = environment
+        self.removedEnvironment = removedEnvironment
         self.stdin = stdin
         self.timeout = timeout
         self.maxOutputBytes = maxOutputBytes
@@ -51,6 +55,9 @@ public struct SubprocessSpec: Sendable {
         self.terminationGrace = terminationGrace
         self.terminateOnOverflow = terminateOnOverflow
     }
+
+    /// For a command whose whole output is the answer (`git diff`, `git log`): nothing is cut.
+    public static let unboundedOutput = Int.max
 }
 
 /// Result of a completed or timed-out child process (`AR-25`).

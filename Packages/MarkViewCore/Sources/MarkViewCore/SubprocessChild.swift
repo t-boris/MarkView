@@ -438,8 +438,9 @@ extension Subprocess {
             }
 
             var argv: [UnsafeMutablePointer<CChar>?] = ([path] + spec.arguments).map { strdup($0) } + [nil]
-            var envp: [UnsafeMutablePointer<CChar>?] = mergedEnvironment(overrides: spec.environment)
-                .map { strdup("\($0.key)=\($0.value)") } + [nil]
+            var environment = mergedEnvironment(overrides: spec.environment)
+            for key in spec.removedEnvironment { environment[key] = nil }
+            var envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
             defer {
                 argv.forEach { free($0) }
                 envp.forEach { free($0) }

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One entry of an archive, as `bsdtar -tv` lists it.
 struct ArchiveEntry: Identifiable, Hashable {
@@ -222,26 +225,15 @@ enum Archive {
         return hash
     }
 
-    /// Runs a tool and collects its output. stderr goes to a file, so neither stream can fill a pipe
-    /// and stall the process while the other is read.
+    /// Runs a tool to its end through `Subprocess.runBlocking` (no time limit: unpacking a large archive takes as long as
+    /// it takes), keeping the standard output (or writing it to `stdout`) and the tail of the error text.
     private static func run(_ executable: String, _ arguments: [String], directory: URL? = nil,
                             stdout: FileHandle? = nil) -> (status: Int32, output: String, error: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.currentDirectoryURL = directory
-        let errorFile = FileManager.default.temporaryDirectory.appendingPathComponent("archive-\(UUID().uuidString).err")
-        FileManager.default.createFile(atPath: errorFile.path, contents: nil)
-        defer { try? FileManager.default.removeItem(at: errorFile) }
-        guard let errorHandle = try? FileHandle(forWritingTo: errorFile) else { return (-1, "", "Could not run \(executable).") }
-        process.standardError = errorHandle
-        let pipe = Pipe()
-        process.standardOutput = stdout ?? pipe
-        do { try process.run() } catch { return (-1, "", error.localizedDescription) }
-        let data = stdout == nil ? pipe.fileHandleForReading.readDataToEndOfFile() : Data()
-        process.waitUntilExit()
-        try? errorHandle.close()
-        let message = ((try? String(contentsOf: errorFile, encoding: .utf8)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return (process.terminationStatus, String(decoding: data, as: UTF8.self), String(message.suffix(600)))
+        let result = Subprocess.runBlocking(SubprocessSpec(
+            executable: executable, arguments: arguments, cwd: directory, timeout: 0,
+            maxOutputBytes: SubprocessSpec.unboundedOutput,
+            stdoutRouting: stdout.map { .descriptor($0.fileDescriptor) } ?? .capture))
+        let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (result.exitCode, result.stdout, String(message.suffix(600)))
     }
 }

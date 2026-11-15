@@ -145,6 +145,19 @@ final class SubprocessProcessGroupTests: XCTestCase {
         XCTAssertEqual(parts.first, ProcessInfo.processInfo.environment["HOME"], "The inherited environment is lost")
     }
 
+    func testRemovedEnvironmentIsNotInherited() async {
+        setenv("MV_GROUP_INHERITED", "secret", 1)
+        defer { unsetenv("MV_GROUP_INHERITED") }
+        let script = "printf '%s|%s' \"${MV_GROUP_INHERITED-unset}\" \"${MV_GROUP_KEPT-unset}\""
+        let kept = await Subprocess.run(SubprocessSpec(
+            executable: "/bin/sh", arguments: ["-c", script], environment: ["MV_GROUP_KEPT": "yes"], timeout: 5))
+        XCTAssertEqual(kept.stdout, "secret|yes")
+        let removed = await Subprocess.run(SubprocessSpec(
+            executable: "/bin/sh", arguments: ["-c", script], environment: ["MV_GROUP_KEPT": "yes"],
+            removedEnvironment: ["MV_GROUP_INHERITED"], timeout: 5))
+        XCTAssertEqual(removed.stdout, "unset|yes")
+    }
+
     func testNoLimitWhenTheTimeoutIsNotPositive() async {
         for timeout in [0.0, -1.0] {
             let result = await Subprocess.run(SubprocessSpec(

@@ -47,10 +47,10 @@ check("repo name fallback", ProjectNaming.suggestedRepoName("ÅÅ") == "new-proj
 // MARK: Confirmation gate (DEC-016)
 
 typealias Q = ProjectConfirmation.OpenQuestion
-let open = [Q(id: "Q-001", title: "Who uses it?", blocking: true), Q(id: "Q-002", title: "Colour scheme?", blocking: false)]
-check("blocking question blocks", !ProjectConfirmation.canConfirm(goal: "Plan recipes", open: open))
-check("blockers listed", ProjectConfirmation.blockers(open).map(\.id) == ["Q-001"])
-check("non-blocking questions stay open", ProjectConfirmation.canConfirm(goal: "Plan recipes", open: [open[1]]))
+let openQuestions = [Q(id: "Q-001", title: "Who uses it?", blocking: true), Q(id: "Q-002", title: "Colour scheme?", blocking: false)]
+check("blocking question blocks", !ProjectConfirmation.canConfirm(goal: "Plan recipes", open: openQuestions))
+check("blockers listed", ProjectConfirmation.blockers(openQuestions).map(\.id) == ["Q-001"])
+check("non-blocking questions stay open", ProjectConfirmation.canConfirm(goal: "Plan recipes", open: [openQuestions[1]]))
 check("goal required", !ProjectConfirmation.canConfirm(goal: " ", open: []))
 
 // MARK: Foundation (DEC-023)

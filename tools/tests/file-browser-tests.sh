@@ -15,6 +15,6 @@ source = Path('MarkView/Models/Workspace/DocumentState.swift').read_text().split
 Path(sys.argv[1]).write_text(source)
 PY
 cp tools/tests/FileBrowserTests.swift "$out/main.swift"
-swiftc -o "$out/file-browser-tests" "$out/filetype.swift" MarkView/Models/Workspace/ArchiveSupport.swift \
+swiftc -o "$out/file-browser-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift "$out/filetype.swift" MarkView/Models/Workspace/ArchiveSupport.swift \
     MarkView/Models/Workspace/FileNode.swift MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Workspace/FileBrowserModel.swift "$out/main.swift"
 "$out/file-browser-tests"

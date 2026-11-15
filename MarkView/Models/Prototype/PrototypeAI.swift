@@ -1,5 +1,8 @@
 import CoreGraphics
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The assistant side of Prototype Studio: builds a clickable HTML prototype from requirements,
 /// revises it on request, and writes the specification that goes with the export. Runs are headless
@@ -2143,18 +2146,11 @@ enum PrototypeAI {
 
         try fm.createDirectory(at: archive.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? fm.removeItem(at: archive)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-c", "-k", "--norsrc", "--noextattr", "--noqtn", "--keepParent", staging.path, archive.path]
-        let errors = Pipe()
-        process.standardError = errors
-        process.standardOutput = FileHandle.nullDevice
-        try process.run()
-        let detail = errors.fileHandleForReading.readDataToEndOfFile()  // drained before waiting
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw ExportFailure.zip(String(decoding: detail, as: UTF8.self))
-        }
+        let zip = Subprocess.runBlocking(SubprocessSpec(
+            executable: "/usr/bin/ditto",
+            arguments: ["-c", "-k", "--norsrc", "--noextattr", "--noqtn", "--keepParent", staging.path, archive.path],
+            timeout: 0, stdoutRouting: .discard))
+        guard zip.succeeded else { throw ExportFailure.zip(zip.stderr) }
         return archive
     }
 }
