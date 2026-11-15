@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 174,
+  "suiteCount": 175,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -931,6 +931,15 @@
         "tools/tests/CLIToolLocatorStub.swift",
         "tools/tests/NewProjectTests.swift",
         "tools/tests/new-project-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+      ]
+    },
+    {
+      "name": "no-process-outside-subprocess-lint",
+      "script": "tools/tests/no-process-outside-subprocess-lint.sh",
+      "tier": "pure",
+      "sources": [
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]

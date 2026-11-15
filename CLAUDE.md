@@ -40,10 +40,15 @@ implementation.
   JavaScript (`mv-kit.js` / `markview-bridge.js`).
 - Keep UI state mutations on `@MainActor`; move file, database, network, and
   child-process work off the main thread (`SWIFT_STRICT_CONCURRENCY = targeted` is enabled).
-- Never call `Process.waitUntilExit()` on the main thread. Use `MarkViewCore.Subprocess` for
-  new and migrated child-process call sites (currently adopted in `InsightArchiveExporter`;
-  remaining `Process()` call sites are tracked under `AR-25`) so pipes are drained concurrently
-  with waiting and bounded by timeouts and output caps.
+- Start every child process through `MarkViewCore.Subprocess`: `run` (async) or `runBlocking` (a
+  thread that owns itself, never the main thread) for one-shot commands, `start` for streaming
+  children. The child leads a process group of its own, a timeout or a cancelled task ends the
+  whole group (SIGTERM, then SIGKILL), pipes are drained concurrently and output is bounded.
+  `Process()` and `waitUntilExit` outside `Subprocess` are 0 in `MarkView/` and the Core package
+  (`tools/tests/no-process-outside-subprocess-lint.sh`). Two starts are outside it: the PTY
+  terminals (`TerminalSession`, `forkpty`) and the UI Studio dev server (`StudioDevServer`, its
+  own `posix_spawn`; it ends the whole group when its shell exits, which `Subprocess` does not
+  do for a command that ended by itself); only the dev server is a candidate for a later step.
 - For a hang or beachball, collect evidence first with
   `/usr/bin/sample <pid> 3` and inspect thread 0.
 - Treat API keys and document contents as sensitive. Do not print credentials,
