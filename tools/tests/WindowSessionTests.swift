@@ -87,6 +87,7 @@ import Foundation
         try Data(before.utf8).write(to: url)
         let old = await WindowSessionStorage(url: url).load()
         check(old?.windows.count == 1 && old?.windows[0].theme == nil, "a session from before themes opens without a theme")
+        try await checkSessionsOfEarlierVersions(at: url, storage: storage)
         try Data("corrupt archive".utf8).write(to: url)
         let corrupt = await storage.load()
         check(corrupt == nil, "corrupt archive does not crash startup")
@@ -99,6 +100,50 @@ import Foundation
         let posixPerms = (try FileManager.default.attributesOfItem(atPath: permsURL.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0
         check(posixPerms == 0o600, "saved window sessions enforce 0600 permissions")
         print("Window session checks: \(checks), failures: 0")
+    }
+
+    /// Windows saved by 6.26.2 and earlier, with every kind of tab they could hold: the tool tabs (Git, Build & Deployment, Workflow, QA,
+    /// Discussions, file changes) were one enum case each and are one `.tool` case now. The text below is what the compiler-generated
+    /// coding of those versions wrote; it must still load, and saving it again must write the same text, so an older MarkView can read it.
+    static func checkSessionsOfEarlierVersions(at url: URL, storage: WindowSessionStorage) async throws {
+        let tabs = [
+            ##"{"file":{"draft":{"content":"x","original":"y"},"notes":true,"scroll":12.5,"url":"file:\/\/\/tmp\/p\/a.md"}}"##,
+            ##"{"file":{"notes":false,"scroll":0,"url":"file:\/\/\/tmp\/p\/b.md"}}"##,
+            ##"{"image":{"_0":"file:\/\/\/tmp\/p\/i.png"}}"##, ##"{"pdf":{"_0":"file:\/\/\/tmp\/p\/p.pdf"}}"##, ##"{"archive":{"_0":"file:\/\/\/tmp\/p\/a.zip"}}"##,
+            ##"{"deployments":{}}"##, ##"{"discussions":{}}"##, ##"{"workflow":{}}"##, ##"{"git":{}}"##, ##"{"qa":{}}"##, ##"{"changeReview":{}}"##,
+            ##"{"github":{"_0":{"issue":{"number":3,"repo":"o\/r","title":"#3"}}}}"##, ##"{"github":{"_0":{"run":{"id":4,"repo":"o\/r","title":"run"}}}}"##,
+            ##"{"github":{"_0":{"pullRequest":{"number":5,"repo":"o\/r","title":"pr"}}}}"##,
+            ##"{"architecture":{"_0":"src"}}"##, ##"{"terminal":{"_0":"file:\/\/\/tmp\/p"}}"##, ##"{"browser":{"_0":"https:\/\/example.com"}}"##,
+            ##"{"data":{"_0":"file:\/\/\/tmp\/p\/d.csv"}}"##
+        ]
+        let archive = ##"{"version":1,"windows":[{"id":"6B8E2A0C-1D3F-4A56-9B7C-0E1F2A3B4C5D","folder":"file:///tmp/p","tabs":[\##(tabs.joined(separator: ","))],"activeTabIndex":8,"minimized":false}]}"##
+        try Data(archive.utf8).write(to: url)
+        let loaded = await WindowSessionStorage(url: url).load()
+        check(loaded?.windows.count == 1 && loaded?.windows[0].tabs.count == tabs.count, "a session saved by an earlier version loads with all its tabs")
+        let restored = loaded?.windows[0].tabs ?? []
+        let toolKeys = ["deployments", "discussions", "workflow", "git", "qa", "changeReview"]
+        let restoredTools = restored.compactMap { tab -> String? in if case .tool(let id) = tab { return id.rawValue }; return nil }
+        check(restoredTools == toolKeys, "every tool tab of an earlier version loads as the tool's tab (\(restoredTools))")
+        check(toolKeys.allSatisfy { ToolRegistry.shared.isRestorable(ToolID(rawValue: $0)) }, "and every one of them is a tool the app restores")
+        if case .file(let fileURL, let draft, let notes, let scroll) = restored[0] {
+            check(fileURL.path == "/tmp/p/a.md" && draft?.content == "x" && draft?.original == "y" && notes && scroll == 12.5, "a file tab of an earlier version loads with its draft")
+        } else { fatalError("the first tab is a file") }
+        if case .github(let item) = restored[12] { check(item == .run(id: 4, repo: "o/r", title: "run"), "a GitHub tab of an earlier version loads") } else { fatalError("the 13th tab is a run") }
+        // Saving writes the text the earlier versions wrote, tab by tab.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        for (written, tab) in zip(tabs, restored) {
+            let wrote = try JSONSerialization.jsonObject(with: Data(written.utf8)) as? NSDictionary
+            let writes = try JSONSerialization.jsonObject(with: encoder.encode(tab)) as? NSDictionary
+            check(wrote != nil && wrote == writes, "a tab is saved as the earlier versions saved it: \(written)")
+        }
+        // A tool this version does not have loads, and is left out when the window is restored.
+        let future = ##"{"version":1,"windows":[{"id":"6B8E2A0C-1D3F-4A56-9B7C-0E1F2A3B4C5E","tabs":[{"timeline":{}},{"git":{}}],"activeTabIndex":1,"minimized":false}]}"##
+        try Data(future.utf8).write(to: url)
+        let unknown = await WindowSessionStorage(url: url).load()
+        let ids = unknown?.windows[0].tabs.compactMap { tab -> ToolID? in if case .tool(let id) = tab { return id }; return nil } ?? []
+        check(ids.map(\.rawValue) == ["timeline", "git"] && !ToolRegistry.shared.isRestorable(ids[0]) && ToolRegistry.shared.isRestorable(ids[1]),
+              "a tab of a tool this version lacks does not stop the session from loading and is not restored")
     }
 
     /// A session file written by a newer MarkView (a future `schema` envelope, or a legacy payload with `version > 1`) is

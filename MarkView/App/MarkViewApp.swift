@@ -328,15 +328,7 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut("3", modifiers: [.command])
 
-                Button("Build & Deployment") {
-                    activeWorkspace?.openDeployments()
-                }
-                .keyboardShortcut("d", modifiers: [.command, .control])
-
-                Button("Discussions") {
-                    activeWorkspace?.openDiscussions()
-                }
-                .keyboardShortcut("i", modifiers: [.command, .control])
+                toolMenuItems(.afterAgents)
 
                 Button("X-Ray") {
                     activeWorkspace?.openArchitecture()
@@ -355,17 +347,7 @@ struct MarkViewApp: App {
                 .keyboardShortcut("6", modifiers: [.command])
                 .disabled(activeWorkspaceHasFolder != true)
 
-                Button("UI Studio") {
-                    activeWorkspace?.openUIStudio()
-                }
-                .keyboardShortcut("7", modifiers: [.command])
-                .disabled(activeWorkspaceHasFolder != true)
-
-                Button("End-to-End QA") {
-                    activeWorkspace?.openQA()
-                }
-                .keyboardShortcut("8", modifiers: [.command])
-                .disabled(activeWorkspaceHasFolder != true)
+                toolMenuItems(.afterWebPreview)
             }
 
             CommandGroup(after: .appSettings) {
@@ -374,6 +356,18 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut(",", modifiers: [.command, .shift])
             }
+        }
+    }
+
+    /// The View menu items of the tools registered for `slot` (`ToolRegistry`), in the registry's order.
+    @ViewBuilder
+    private func toolMenuItems(_ slot: ToolMenuSlot) -> some View {
+        ForEach(ToolRegistry.shared.menuTools(slot)) { tool in
+            Button(tool.title) {
+                activeWorkspace?.openTool(tool.id)
+            }
+            .keyboardShortcut(tool.shortcut?.keyboardShortcut)
+            .disabled(tool.menu?.requiresFolder == true && activeWorkspaceHasFolder != true)
         }
     }
 
@@ -597,6 +591,19 @@ extension Notification {
     /// True when this notification was posted for `workspace`'s window. One posted for no window is for none.
     func isFor(_ workspace: WorkspaceManager) -> Bool {
         (userInfo?[Self.workspaceKey] as? ObjectIdentifier) == ObjectIdentifier(workspace)
+    }
+}
+
+// MARK: - Tool shortcuts
+extension ToolShortcut {
+    /// The SwiftUI shortcut of the registry's plain-data shortcut.
+    var keyboardShortcut: KeyboardShortcut {
+        var flags: EventModifiers = []
+        if modifiers.contains(.command) { flags.insert(.command) }
+        if modifiers.contains(.control) { flags.insert(.control) }
+        if modifiers.contains(.option) { flags.insert(.option) }
+        if modifiers.contains(.shift) { flags.insert(.shift) }
+        return KeyboardShortcut(KeyEquivalent(key), modifiers: flags)
     }
 }
 

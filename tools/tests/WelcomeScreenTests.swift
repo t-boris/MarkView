@@ -173,23 +173,35 @@ func catalogueChecks() {
     let idsWith = withGit.flatMap { $0.actions.map(\.id) }, idsWithout = withoutGit.flatMap { $0.actions.map(\.id) }
     check(withGit.map(\.section) == WelcomeSection.allCases, "catalogue: Start, Explore and Build & Run, in that order")
     check(Set(idsWith).count == idsWith.count, "catalogue: no action twice")
-    check(idsWith.contains(.git) && !idsWithout.contains(.git), "catalogue: Git only for a Git repository")
-    check(Set(idsWith).subtracting(idsWithout) == [.git], "catalogue: Git is the only difference")
+    check(idsWith.contains(.tool(.git)) && !idsWithout.contains(.tool(.git)), "catalogue: Git only for a Git repository")
+    check(Set(idsWith).subtracting(idsWithout) == [.tool(.git)], "catalogue: Git is the only difference")
     check(withGit.allSatisfy { !$0.actions.isEmpty }, "catalogue: no empty section")
-    let expected: Set<WelcomeActionID> = [.terminal, .newFeature, .quickFeature, .newBug, .discussions, .tasks, .xray, .understand, .research, .search, .files, .openFile, .git, .deployments, .workflow, .qa, .uiStudio, .browser]
-    check(Set(idsWith) == expected, "catalogue: the tiles REQ-001 names", "\(Set(idsWith).symmetricDifference(expected))")
+    let expected: Set<WelcomeActionID> = [.terminal, .newFeature, .quickFeature, .newBug, .tool(.discussions), .tasks, .xray, .understand, .research, .search, .files, .openFile,
+                                          .tool(.git), .tool(.deployments), .tool(.workflow), .tool(.qa), .tool(.uiStudio), .tool(.cockpit), .browser]
+    check(Set(idsWith) == expected, "catalogue: the tiles REQ-001 names, and the Cockpit", "\(Set(idsWith).symmetricDifference(expected))")
+    // The order the screen has always had, with the Cockpit after UI Studio.
+    check(withGit[0].actions.map(\.id) == [.terminal, .newFeature, .quickFeature, .newBug, .tool(.discussions), .tasks], "catalogue: Start keeps its order")
+    check(withGit[1].actions.map(\.id) == [.xray, .understand, .research, .search, .files, .openFile], "catalogue: Explore keeps its order")
+    check(withGit[2].actions.map(\.id) == [.tool(.git), .tool(.deployments), .tool(.workflow), .tool(.qa), .tool(.uiStudio), .tool(.cockpit), .browser],
+          "catalogue: Build & Run keeps its order, with the Cockpit after UI Studio")
     check(WelcomeCatalogue.emptyWindow.map(\.id) == [.openFolder, .openFile, .newProject], "catalogue: the window without a folder offers Open Folder, Open File, New Project")
-    check(Set(idsWith).union(WelcomeCatalogue.emptyWindow.map(\.id)) == Set(WelcomeActionID.allCases), "catalogue: every action id is offered somewhere")
-    let all = WelcomeActionID.allCases.map(WelcomeCatalogue.action)
-    check(all.allSatisfy { !$0.title.isEmpty && !$0.hint.isEmpty && !$0.symbol.isEmpty && $0.id == WelcomeCatalogue.action($0.id).id }, "catalogue: every action has a title, a hint and an icon")
+    // A tool's tile is its descriptor: the same title, the same icon as its toolbar button and tab, the same shortcut as its menu item.
+    for tool in ToolRegistry.shared.welcomeTools {
+        let tile = withGit.flatMap(\.actions).first { $0.id == .tool(tool.id) }
+        check(tile?.title == tool.title && tile?.symbol == tool.icon && tile?.shortcut == tool.shortcut?.hint && tile?.hint == tool.welcome?.hint,
+              "catalogue: the tile of \(tool.title) is generated from its descriptor")
+    }
+    let all = withGit.flatMap(\.actions) + WelcomeCatalogue.emptyWindow
+    check(all.allSatisfy { !$0.title.isEmpty && !$0.hint.isEmpty && !$0.symbol.isEmpty }, "catalogue: every action has a title, a hint and an icon")
     check(all.allSatisfy { NSImage(systemSymbolName: $0.symbol, accessibilityDescription: nil) != nil }, "catalogue: every icon is a symbol this macOS has",
           all.filter { NSImage(systemSymbolName: $0.symbol, accessibilityDescription: nil) == nil }.map(\.symbol).joined(separator: ","))
-    check(withGit[0].actions.first?.isProminent == true && all.filter(\.isProminent).count == 2, "catalogue: Open Terminal (and Open Folder, in its own window) stand out")
-    // A shortcut a tile shows must be one the app's menus really have.
+    check(withGit[0].actions.first?.isProminent == true && Set(all.filter(\.isProminent).map(\.id)) == [.terminal, .openFolder], "catalogue: Open Terminal (and Open Folder, in its own window) stand out")
+    // A shortcut a tile shows must be one the app's menus really have: a tool's comes from the registry that generates its menu item.
     let menus = (try? String(contentsOfFile: "MarkView/App/MarkViewApp.swift")) ?? ""
+    let toolShortcuts = Set(ToolRegistry.shared.tools.compactMap { $0.shortcut?.hint })
     for action in all {
         guard let shortcut = action.shortcut, let key = shortcut.last else { continue }
-        check(menus.contains("keyboardShortcut(\"\(key.lowercased())\""), "catalogue: \(action.title) shows \(shortcut), which the menus have")
+        check(toolShortcuts.contains(shortcut) || menus.contains("keyboardShortcut(\"\(key.lowercased())\""), "catalogue: \(action.title) shows \(shortcut), which the menus have")
     }
 }
 
@@ -575,7 +587,7 @@ private struct ProjectContextScreen: View {
             ? Set(WelcomeCatalogue.emptyWindow.map(\.id))
             : Set(WelcomeCatalogue.project(isGitRepo: git).flatMap { $0.actions.map(\.id) })
         let name = project == nil ? "a window without a folder" : (git ? "a Git project" : "a project that is not a Git repository")
-        check(fired == expected, "tiles, \(name): a click reaches exactly the \(expected.count) tiles of the catalogue", "missing \(expected.subtracting(fired).map(\.rawValue).sorted()), extra \(fired.subtracting(expected).map(\.rawValue).sorted())")
+        check(fired == expected, "tiles, \(name): a click reaches exactly the \(expected.count) tiles of the catalogue", "missing \(expected.subtracting(fired).map { "\($0)" }.sorted()), extra \(fired.subtracting(expected).map { "\($0)" }.sorted())")
     }
 }
 

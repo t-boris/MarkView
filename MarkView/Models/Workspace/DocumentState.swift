@@ -254,30 +254,36 @@ enum TabKind {
     case pdf(PDFReaderController)
     /// An archive (zip, tar, 7z…), shown by `ArchiveTabView`; its entries open as temporary copies.
     case archive
-    /// The project's Deployments: where it runs and how each place is doing (`DeploymentsView`).
-    case deployments
-    /// The project's Discussions: questions answered as pages, with the decisions and open questions (`DiscussionsView`).
-    case discussions
-    /// The project's Workflow: statuses, transitions and processes of features and bugs, edited graphically or as JSON
-    /// (`WorkflowTabView`).
-    case workflow
-    /// Git status and GitHub lists in the central workspace.
-    case git
-    /// The review of the file changes MarkView observed on disk since the project opened (BUG-109).
-    case changeReview
     /// A GitHub Actions run or an issue, shown by `GitHubRunView` / `GitHubIssueView`.
     case github(GitHubItem)
     /// A web page (a local development server or any site), shown by `BrowserTabView`.
     case browser(BrowserSession)
     /// A data file (`FileType.isData`): the editor page reads it itself and never writes it.
     case data
+    /// The tab of a tool that keeps its state in the window (`ToolRegistry`); the view it shows is mapped in `ToolTabViews`.
+    case tool(ToolID)
     /// Prototype Studio: a clickable prototype and its review conversation, shown by `PrototypeStudioView`.
     case prototype(PrototypeSession)
-    /// UI Studio: the project's real web interface with simulated dependencies, shown by `UIStudioView`.
+    /// UI Studio, a tool whose tab carries its own session: the project's real web interface with simulated dependencies,
+    /// shown by `UIStudioView`.
     case uiStudio(StudioSession)
+    /// The Copilot Cockpit, a tool whose tab carries its own session: plans and runs of this window, shown by `CockpitView`.
     case cockpit(CockpitSession)
-    /// End-to-End QA: scenarios written from a goal, edited as a graph and checked branch by branch (`QATabView`).
-    case qa
+
+    /// The tool this tab is the tab of (`ToolRegistry`); nil for a document or any other tab.
+    var toolID: ToolID? {
+        switch self {
+        case .tool(let id): return id
+        case .uiStudio: return .uiStudio
+        case .cockpit: return .cockpit
+        default: return nil
+        }
+    }
+
+    /// What the registry knows of the tool this tab belongs to: its title, icon and shortcut.
+    var toolDescriptor: ToolDescriptor? {
+        toolID.flatMap { ToolRegistry.shared.descriptor(for: $0) }
+    }
 
     /// Scope of the PR X-Ray tab: the project's X-Ray seen through one change.
     static let pullRequestScope = "#pr"
@@ -344,18 +350,11 @@ struct OpenTab: Identifiable {
     /// The display name for the tab (file name)
     var displayName: String {
         if case .terminal = kind { return "Terminal: " + url.deletingLastPathComponent().lastPathComponent }
-        if case .deployments = kind { return "Build & Deployment" }
-        if case .discussions = kind { return "Discussions" }
-        if case .workflow = kind { return "Workflow" }
-        if case .git = kind { return "Git" }
-        if case .changeReview = kind { return "File changes" }
+        if let tool = kind.toolDescriptor { return tool.title }
         if case .github(let item) = kind { return item.title }
         // The page title lives on the main actor; the tab bar shows it with `BrowserTabTitle`.
         if case .browser = kind { return "Browser" }
         if case .prototype(let session) = kind { return "Prototype: " + session.slug }
-        if case .uiStudio = kind { return "UI Studio" }
-        if case .cockpit = kind { return "Copilot Cockpit" }
-        if case .qa = kind { return "End-to-End QA" }
         if case .architecture(let scope) = kind {
             if scope == TabKind.pullRequestScope { return "PR X-Ray" }
             return scope.isEmpty ? "X-Ray" : "X-Ray: " + (scope as NSString).lastPathComponent

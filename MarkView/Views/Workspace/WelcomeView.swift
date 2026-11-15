@@ -149,8 +149,8 @@ struct WelcomeScreen<Below: View>: View {
     }
 }
 
-/// There are at most six tiles per section. Keep them eager: macOS 27's Accessibility scroll-to-top/bottom actions on
-/// nested LazyVGrids trap in ForEachState.item when an offscreen section is visited by an E2E client.
+/// A section has a handful of tiles (seven today, the tools among them). Keep them eager: macOS 27's Accessibility scroll-to-top/bottom
+/// actions on nested LazyVGrids trap in ForEachState.item when an offscreen section is visited by an E2E client.
 private struct WelcomeTileLayout: Layout {
     let minimumWidth: CGFloat
     private let spacing: CGFloat = 10

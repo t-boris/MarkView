@@ -175,6 +175,22 @@ static void DumpAX(id el, NSWindow *w, int depth, int *count) {
     }
 }
 
+/// The main menu as the real app built it: one line per item with its path, key equivalent and enabled state.
+static void DumpMenu(NSMenu *menu, NSString *path, int *count) {
+    for (NSMenuItem *item in menu.itemArray) {
+        if (item.isSeparatorItem) continue;
+        NSString *name = [path stringByAppendingFormat:@"%@%@", path.length ? @" > " : @"", item.title];
+        NSString *mods = [NSString stringWithFormat:@"%@%@%@%@",
+                          (item.keyEquivalentModifierMask & NSEventModifierFlagControl) ? @"ctrl+" : @"",
+                          (item.keyEquivalentModifierMask & NSEventModifierFlagOption) ? @"opt+" : @"",
+                          (item.keyEquivalentModifierMask & NSEventModifierFlagShift) ? @"shift+" : @"",
+                          (item.keyEquivalentModifierMask & NSEventModifierFlagCommand) ? @"cmd+" : @""];
+        (*count)++;
+        L(@"menu %@ key=%@%@ enabled=%d", name, item.keyEquivalent.length ? mods : @"", item.keyEquivalent, item.isEnabled);
+        if (item.submenu) DumpMenu(item.submenu, name, count);
+    }
+}
+
 static void RunNext(void);
 
 static void Later(NSTimeInterval s) {
@@ -228,6 +244,10 @@ static void RunNext(void) {
             DumpAX(w.contentView, w, 0, &n);
             L(@"ax total %d", n);
         }
+    } else if ([cmd isEqualToString:@"menu"]) {
+        int n = 0;
+        DumpMenu(NSApp.mainMenu, @"", &n);
+        L(@"menu total %d", n);
     } else if ([cmd isEqualToString:@"move"]) {
         if (w) MoveTo(w, p[1].doubleValue, p[2].doubleValue);
     } else if ([cmd isEqualToString:@"click"]) {

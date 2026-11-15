@@ -40,7 +40,7 @@ Run panel says which one is missing. Old runs are cleaned up by a retention rule
 | Cleanup | `QARunRetention.swift` (pure rule), `QARunCleanup.swift` (applies it to the disk), `QAStore.swift` (`deleteRun`, `deleteRuns`, `sizeOfRuns`) |
 | UI | `QAModel.swift`, `QARunModel.swift` (`@MainActor`), `Views/QA/QAViews.swift` (editor, setup, run panel), `Views/QA/QANativePermissionsView.swift`, `Views/QA/QARunViews.swift` (live run), `Views/QA/QARunReportViews.swift` (earlier runs, delete) |
 
-The QA tab is a tab kind (`.qa`) opened by `WorkspaceManager.openQA()`. The editor is native SwiftUI over
+The QA tab is the tool `.qa` of `ToolRegistry`, opened by `WorkspaceManager.openTool(.qa)` and drawn by `ToolTabViews`. The editor is native SwiftUI over
 the pure layered layout in `QAGraphLayout`, so no bridge message exists and the shipping editor
 (`Resources/Editor/`) is untouched.
 
