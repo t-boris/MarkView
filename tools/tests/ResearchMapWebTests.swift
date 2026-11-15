@@ -444,7 +444,7 @@ deliver()
 check(bool("__t.qa('.rm-ai-btn').every(function (b) { return !b.disabled; })"), "when the job is over the buttons are back")
 
 // ---- icons and numbers on a node (REQ-008, DEC-011) -------------------------------------------------------------------------------
-let swiftSource = (try? String(contentsOfFile: editor + "/../../Models/ResearchMapDocument.swift", encoding: .utf8)) ?? ""
+let swiftSource = (try? String(contentsOfFile: editor + "/../../Models/Research/ResearchMapDocument.swift", encoding: .utf8)) ?? ""
 let swiftIcons: [String] = {
     guard let start = swiftSource.range(of: "static let iconIDs = ["), let end = swiftSource.range(of: "]", range: start.upperBound..<swiftSource.endIndex) else { return [] }
     return swiftSource[start.upperBound..<end.lowerBound].components(separatedBy: CharacterSet(charactersIn: ", \n\"")).filter { !$0.isEmpty }

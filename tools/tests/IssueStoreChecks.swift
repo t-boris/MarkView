@@ -1,4 +1,4 @@
-// Checks the lifecycle on real files (MarkView/Models/MarkdownIssueStatusStore.swift with the transition service and its journal)
+// Checks the lifecycle on real files (MarkView/Models/Lifecycle/MarkdownIssueStatusStore.swift with the transition service and its journal)
 // in a temporary project: a status is written to the `status` line of the overview or the bug report and nothing else, a stale or
 // refused request changes no file, a bug is found by its key and never by a longer key it prefixes, a hand edit of the Markdown is
 // detected and never counts as completion (REQ-001, REQ-002, REQ-005 of docs/features/issue-lifecycle-management).

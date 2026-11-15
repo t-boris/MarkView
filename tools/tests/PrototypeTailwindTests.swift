@@ -1,7 +1,7 @@
 import Foundation
 import JavaScriptCore
 
-// Checks for BUG-063: a prototype made from the code of a Tailwind v4 app carries Tailwind (MarkView/Models/PrototypeTailwind.swift).
+// Checks for BUG-063: a prototype made from the code of a Tailwind v4 app carries Tailwind (MarkView/Models/Prototype/PrototypeTailwind.swift).
 // The source stylesheet is found among the copied originals, handed to the browser build as a style of type text/tailwindcss, linked from
 // every page, kept out of the assistant's reach and out of the sync baseline, and written again only when something is missing.
 

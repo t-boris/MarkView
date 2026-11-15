@@ -1,4 +1,4 @@
-// Checks the Issues list filter and sort (MarkView/Models/IssueListing.swift) against the
+// Checks the Issues list filter and sort (MarkView/Models/Lifecycle/IssueListing.swift) against the
 // acceptance criteria of REQ-001, REQ-002 and REQ-005 and decisions DEC-006…DEC-015.
 import Foundation
 

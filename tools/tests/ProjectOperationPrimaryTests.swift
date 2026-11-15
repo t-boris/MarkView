@@ -1,4 +1,4 @@
-// Checks ProjectOperation.primary (MarkView/Models/ProjectOperation.swift): which operations get a
+// Checks ProjectOperation.primary (MarkView/Models/ProjectOps/ProjectOperation.swift): which operations get a
 // button up front — running first, then recently started, then by kind and label, at most five.
 import Foundation
 

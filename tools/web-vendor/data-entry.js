@@ -1,4 +1,4 @@
-// Data viewers' libraries (MarkView/Resources/Editor/vendor/js/markview-data.js): SQL over any
+// Data viewers' libraries (MarkView/Resources/Editor/js/markview-data.js): SQL over any
 // table (sql.js, SQLite compiled to WebAssembly, with its wasm inlined so nothing is fetched),
 // CSV/TSV parsing (papaparse), Parquet reading with every common codec (hyparquet) and YAML
 // documents that keep their comments when edited (yaml), unzipping Excel and OpenDocument workbooks and

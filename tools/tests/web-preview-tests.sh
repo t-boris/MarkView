@@ -8,9 +8,9 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/WebPreviewTests.swift "$out/main.swift"
-swiftc -O -o "$out/web-preview-tests" MarkView/Models/WebAppPreview.swift MarkView/Models/WebClip.swift \
-  MarkView/Models/BrowserSession.swift MarkView/Models/BrowserPasswords.swift MarkView/Models/BrowserPasswordScript.swift \
-  MarkView/Models/BrowserDownloads.swift MarkView/Models/BrowserPagePDF.swift MarkView/Models/TerminalBrowserBridge.swift MarkView/Models/FrontMatter.swift MarkView/Models/ResearchDocument.swift \
-  MarkView/Models/BrowserElementPick.swift MarkView/Views/BrowserPopup.swift \
+swiftc -O -o "$out/web-preview-tests" MarkView/Models/Workspace/WebAppPreview.swift MarkView/Models/Workspace/WebClip.swift \
+  MarkView/Models/Browser/BrowserSession.swift MarkView/Models/Browser/BrowserPasswords.swift MarkView/Models/Browser/BrowserPasswordScript.swift \
+  MarkView/Models/Browser/BrowserDownloads.swift MarkView/Models/Browser/BrowserPagePDF.swift MarkView/Models/Terminal/TerminalBrowserBridge.swift MarkView/Models/Workspace/FrontMatter.swift MarkView/Models/Research/ResearchDocument.swift \
+  MarkView/Models/Browser/BrowserElementPick.swift MarkView/Views/Browser/BrowserPopup.swift \
   "$out/main.swift"
 "$out/web-preview-tests"

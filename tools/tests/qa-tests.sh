@@ -9,5 +9,5 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 M=MarkView/Models
 cp tools/tests/QAChecks.swift "$out/main.swift"
-swiftc -O -o "$out/qa" "$M/QAAPI.swift" "$M/QAScenario.swift" "$M/QARun.swift" "$M/QAStore.swift" "$M/QAGeneration.swift" "$M/QAGenerator.swift" "$M/QAPlan.swift" "$M/QAGate.swift" "$M/CockpitPlan.swift" "$M/CockpitQAReview.swift" "$M/QAEffort.swift" "$M/QATriage.swift" "$M/QAInputMark.swift" "$M/QAActions.swift" "$M/QARunner.swift" "$M/QALanguage.swift" "$M/QAPageEvidence.swift" "$M/QACredentials.swift" "$M/QAScenarioEdit.swift" "$M/QAAttachments.swift" "$M/QAGraphLayout.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
+swiftc -O -o "$out/qa" "$M/QA/QAAPI.swift" "$M/QA/QAScenario.swift" "$M/QA/QARun.swift" "$M/QA/QAStore.swift" "$M/QA/QAGeneration.swift" "$M/QA/QAGenerator.swift" "$M/QA/QAPlan.swift" "$M/QA/QAGate.swift" "$M/Cockpit/CockpitPlan.swift" "$M/Cockpit/CockpitQAReview.swift" "$M/QA/QAEffort.swift" "$M/QA/QATriage.swift" "$M/QA/QAInputMark.swift" "$M/QA/QAActions.swift" "$M/QA/QARunner.swift" "$M/QA/QALanguage.swift" "$M/QA/QAPageEvidence.swift" "$M/QA/QACredentials.swift" "$M/QA/QAScenarioEdit.swift" "$M/QA/QAAttachments.swift" "$M/QA/QAGraphLayout.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
 "$out/qa"

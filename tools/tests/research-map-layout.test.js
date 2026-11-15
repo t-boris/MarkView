@@ -2,7 +2,7 @@
 // positions and the guarantee that no two node boxes overlap. Run with tools/tests/research-map-layout-tests.sh (node, no packages).
 'use strict';
 const assert = require('node:assert');
-const L = require('../../MarkView/Resources/Editor/vendor/js/markview-research-map-layout.js');
+const L = require('../../MarkView/Resources/Editor/js/markview-research-map-layout.js');
 
 let failures = 0;
 function check(name, ok, detail) {

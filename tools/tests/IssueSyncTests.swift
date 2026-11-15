@@ -1,4 +1,4 @@
-// Checks the link resolution, eligibility and report rules of Sync (MarkView/Models/IssueSync.swift)
+// Checks the link resolution, eligibility and report rules of Sync (MarkView/Models/Lifecycle/IssueSync.swift)
 // against REQ-002…REQ-004 and DEC-001, DEC-005, DEC-006, DEC-008, DEC-010 of
 // docs/features/sync-documented-status-to-github-issues.
 import Foundation

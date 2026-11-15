@@ -1,6 +1,6 @@
 import Foundation
 
-// Checks the project tools agents use to read and extend a MarkView project (MarkView/Models/ProjectAgentTools.swift):
+// Checks the project tools agents use to read and extend a MarkView project (MarkView/Models/AgentTools/ProjectAgentTools.swift):
 // the tool list and guide, argument validation, the file bodies, the MCP answers, and real `--mcp-project` and
 // `--project-call` processes against a stand-in for the app — including "no app, no tools".
 // Compiled by tools/tests/project-agent-tools-tests.sh.
@@ -54,8 +54,8 @@ check(ProjectAgentTools.guideTopics.contains("workflow-format") && ProjectAgentT
 check(ProjectAgentTools.guide("workflow").contains("workflow-format") && ProjectAgentTools.guide("workflow").contains("markview_get_workflow"), "the feature workflow guide points to the workflow file")
 
 // Every assistant that MarkView can start gets the project tools registered (Connect Agents): the registration names it.
-let assistantsSource = (try? String(contentsOfFile: "MarkView/Models/AIAssistants.swift", encoding: .utf8)) ?? ""
-let registrationSource = (try? String(contentsOfFile: "MarkView/Models/AgentBrowserRegistration.swift", encoding: .utf8)) ?? ""
+let assistantsSource = (try? String(contentsOfFile: "MarkView/Models/AI/AIAssistants.swift", encoding: .utf8)) ?? ""
+let registrationSource = (try? String(contentsOfFile: "MarkView/Models/Browser/AgentBrowserRegistration.swift", encoding: .utf8)) ?? ""
 let assistantNames: [String] = {
     guard let start = assistantsSource.range(of: "enum CLITool: String, CaseIterable {"), let end = assistantsSource.range(of: "var displayName", range: start.upperBound..<assistantsSource.endIndex) else { return [] }
     return assistantsSource[start.upperBound..<end.lowerBound].split(separator: "\n").compactMap { line in

@@ -1,4 +1,4 @@
-// Checks the AI side of research maps (MarkView/Models/ResearchMapRun.swift) against REQ-002,
+// Checks the AI side of research maps (MarkView/Models/Research/ResearchMapRun.swift) against REQ-002,
 // REQ-004, DEC-004 and DEC-008: the node-line parser, the guards and the prompts.
 import Foundation
 

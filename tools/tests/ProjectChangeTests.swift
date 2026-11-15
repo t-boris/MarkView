@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-// Checks the Project Changes scanner (MarkView/Models/ProjectChangeReview.swift, BUG-083): tool caches and agent worktrees
+// Checks the Project Changes scanner (MarkView/Models/Architecture/ProjectChangeReview.swift, BUG-083): tool caches and agent worktrees
 // are not walked, binary and large files are compared by size, date and identity instead of being read, text changes keep
 // both texts, and a walk over many files does not hold their bytes until it ends.
 

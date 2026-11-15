@@ -1,7 +1,7 @@
 import Foundation
 
 // Checks for BUG-050: the inventory the planner reads, the verbatim copy of the app's own stylesheets
-// (MarkView/Models/PrototypeStyles.swift), and how the plan carries styles, widgets and hosts.
+// (MarkView/Models/Prototype/PrototypeStyles.swift), and how the plan carries styles, widgets and hosts.
 
 var failures = 0
 func check(_ ok: Bool, _ name: String) {

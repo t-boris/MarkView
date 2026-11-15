@@ -1,6 +1,6 @@
 import Foundation
 
-// Checks the validation and Mermaid output of DiagramAI (MarkView/Models/DiagramAI.swift).
+// Checks the validation and Mermaid output of DiagramAI (MarkView/Models/AI/DiagramAI.swift).
 var failures = 0
 func check(_ ok: Bool, _ what: String) { if !ok { failures += 1; print("FAIL: \(what)") } }
 

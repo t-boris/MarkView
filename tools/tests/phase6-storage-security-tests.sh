@@ -11,7 +11,7 @@ trap 'rm -rf "$out"' EXIT
 python3 - "$ROOT" "$out/BrowserControlServerSlice.swift" << 'PY'
 import pathlib, re, sys
 root, dst = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-src = (root / "MarkView/Models/BrowserControlServer.swift").read_text()
+src = (root / "MarkView/Models/Browser/BrowserControlServer.swift").read_text()
 m = re.search(r'(nonisolated static func verifyToken\b[\s\S]*?\n    \})', src)
 if not m:
     raise SystemExit("Could not slice verifyToken from BrowserControlServer.swift")
@@ -23,8 +23,8 @@ cp "$ROOT/tools/tests/Phase6StorageSecurityTests.swift" "$out/main.swift"
 swiftc -lsqlite3 -o "$out/phase6-tests" \
     "$out/BrowserControlServerSlice.swift" \
     "$ROOT"/Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    "$ROOT/MarkView/Models/BrowserAgentTools.swift" \
-    "$ROOT/MarkView/Models/StorageAndSecurity.swift" \
+    "$ROOT/MarkView/Models/AgentTools/BrowserAgentTools.swift" \
+    "$ROOT/MarkView/Models/Workspace/SchemaVersionedStore.swift" \
     "$out/main.swift"
 
 "$out/phase6-tests"

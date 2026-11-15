@@ -1,4 +1,4 @@
-// Checks the pure part of translating a research map (MarkView/Models/ResearchMapTranslation.swift) against REQ-014 and DEC-015.
+// Checks the pure part of translating a research map (MarkView/Models/Research/ResearchMapTranslation.swift) against REQ-014 and DEC-015.
 import Foundation
 
 var failures = 0

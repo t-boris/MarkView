@@ -1,4 +1,4 @@
-// Checks the sign-in mock-up of UI Studio (REQ-010, MarkView/Models/UIStudioAuthMock.swift): the built-in Supabase Auth
+// Checks the sign-in mock-up of UI Studio (REQ-010, MarkView/Models/UIStudio/UIStudioAuthMock.swift): the built-in Supabase Auth
 // (answer shapes, any input passes, signed test JWTs, refresh, the OAuth redirect), `{{studio.*}}` placeholders in fixed
 // answers, the redirect parameter of an external page and the project detection. Called by UIStudioTests.swift.
 import CryptoKit

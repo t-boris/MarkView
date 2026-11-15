@@ -8,6 +8,6 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 M=MarkView/Models
 cp tools/tests/WorkflowFlowChecks.swift "$out/main.swift"
-swiftc -O -o "$out/flow" "$M/FeatureVocabulary.swift" "$M/IssueListing.swift" "$M/ProjectWorkflow.swift" "$M/IssueLifecycle.swift" \
-    "$M/DefinitionOfDone.swift" "$M/WorkflowDone.swift" "$M/WorkflowDiagramLayout.swift" "$M/WorkflowTransitionStory.swift" "$M/WorkflowFlow.swift" "$out/main.swift"
+swiftc -O -o "$out/flow" "$M/Lifecycle/FeatureVocabulary.swift" "$M/Lifecycle/IssueListing.swift" "$M/Lifecycle/ProjectWorkflow.swift" "$M/Lifecycle/IssueLifecycle.swift" \
+    "$M/Lifecycle/DefinitionOfDone.swift" "$M/Lifecycle/WorkflowDone.swift" "$M/Lifecycle/WorkflowDiagramLayout.swift" "$M/Lifecycle/WorkflowTransitionStory.swift" "$M/Lifecycle/WorkflowFlow.swift" "$out/main.swift"
 "$out/flow"

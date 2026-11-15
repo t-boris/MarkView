@@ -4,7 +4,7 @@ import CoreGraphics
 import CoreText
 import Foundation
 
-// Checks for MarkView/Models/QAVideoWriter.swift (feature end-to-end-qa), run by tools/tests/qa-video-tests.sh.
+// Checks for MarkView/Models/QA/QAVideoWriter.swift (feature end-to-end-qa), run by tools/tests/qa-video-tests.sh.
 // Every video is written to a temp folder and read back with AVAssetReader, so the checks see what a player would see. All drawing
 // is offscreen: no window is opened and no Screen Recording permission is needed.
 

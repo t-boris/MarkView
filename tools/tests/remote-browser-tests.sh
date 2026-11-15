@@ -4,11 +4,11 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 swiftc -parse-as-library -o "$out/remote-browser-tests" \
-    MarkView/Models/BrowserAgentTools.swift MarkView/Models/BrowserControlServer.swift \
+    MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/Browser/BrowserControlServer.swift \
     MarkView/Models/Remote/RemoteProtocol.swift MarkView/Models/Remote/RemoteWorkspaceTools.swift \
     MarkView/Models/Remote/RemoteWorkspace.swift MarkView/Models/Remote/RemoteCommand.swift \
-    MarkView/Models/PTYWriter.swift MarkView/Models/AgentProcesses.swift \
-    MarkView/Models/CockpitPlan.swift MarkView/Models/CockpitHostBridge.swift MarkView/Models/CockpitStepPolicy.swift \
-    MarkView/Models/CockpitSupervisor.swift MarkView/Models/CockpitAgentRegistry.swift tools/tests/RemoteBrowserTests.swift
+    MarkView/Models/Terminal/PTYWriter.swift MarkView/Models/AI/AgentProcesses.swift \
+    MarkView/Models/Cockpit/CockpitPlan.swift MarkView/Models/Cockpit/CockpitHostBridge.swift MarkView/Models/Cockpit/CockpitStepPolicy.swift \
+    MarkView/Models/Cockpit/CockpitSupervisor.swift MarkView/Models/Cockpit/CockpitAgentRegistry.swift tools/tests/RemoteBrowserTests.swift
 # Isolate browser preferences and control sockets from the user's running MarkView.
 MARKVIEW_SOCKET_DIR="$out" "$out/remote-browser-tests" -ApplePersistenceIgnoreState YES

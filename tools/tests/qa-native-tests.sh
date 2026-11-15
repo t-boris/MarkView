@@ -22,10 +22,10 @@ trap cleanup EXIT
 M=MarkView/Models
 cp tools/tests/QANativeChecks.swift "$out/main.swift"
 swiftc -target "$(uname -m)-apple-macos13.0" -o "$out/qa-native" \
-    "$M/QANativeTree.swift" "$M/QANativeAccessibility.swift" "$M/QANativeCapture.swift" "$M/QANativeActor.swift" "$M/QANativeFactory.swift" tools/tests/QANativeKeychainStub.swift \
-    "$M/QAAPI.swift" "$M/QAScenario.swift" "$M/QARun.swift" "$M/QAStore.swift" "$M/QAGeneration.swift" "$M/QAGenerator.swift" "$M/QAPlan.swift" "$M/QAGate.swift" "$M/QAEffort.swift" \
-    "$M/QATriage.swift" "$M/QAInputMark.swift" "$M/QAActions.swift" "$M/QARunner.swift" "$M/QALanguage.swift" "$M/QAPageEvidence.swift" "$M/QACredentials.swift" "$M/QAScenarioEdit.swift" "$M/QAAttachments.swift" \
-    "$M/QAGraphLayout.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
+    "$M/QA/QANativeTree.swift" "$M/QA/QANativeAccessibility.swift" "$M/QA/QANativeCapture.swift" "$M/QA/QANativeActor.swift" "$M/QA/QANativeFactory.swift" tools/tests/QANativeKeychainStub.swift \
+    "$M/QA/QAAPI.swift" "$M/QA/QAScenario.swift" "$M/QA/QARun.swift" "$M/QA/QAStore.swift" "$M/QA/QAGeneration.swift" "$M/QA/QAGenerator.swift" "$M/QA/QAPlan.swift" "$M/QA/QAGate.swift" "$M/QA/QAEffort.swift" \
+    "$M/QA/QATriage.swift" "$M/QA/QAInputMark.swift" "$M/QA/QAActions.swift" "$M/QA/QARunner.swift" "$M/QA/QALanguage.swift" "$M/QA/QAPageEvidence.swift" "$M/QA/QACredentials.swift" "$M/QA/QAScenarioEdit.swift" "$M/QA/QAAttachments.swift" \
+    "$M/QA/QAGraphLayout.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
 app=""
 if [ "${QA_NATIVE_LIVE:-1}" != "0" ]; then
     mkdir -p "$fixtures"

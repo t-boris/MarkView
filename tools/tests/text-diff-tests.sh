@@ -7,5 +7,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/TextDiffChecks.swift "$out/main.swift"
-swiftc -suppress-warnings -O -target "$(uname -m)-apple-macos13.0" MarkView/Models/TextDiff.swift MarkView/Models/ChangeExplanation.swift MarkView/Models/OutputLanguage.swift "$out/main.swift" -o "$out/text-diff-tests"
+swiftc -suppress-warnings -O -target "$(uname -m)-apple-macos13.0" MarkView/Models/Workspace/TextDiff.swift MarkView/Models/Architecture/ChangeExplanation.swift MarkView/Models/AI/OutputLanguage.swift "$out/main.swift" -o "$out/text-diff-tests"
 "$out/text-diff-tests"

@@ -1,4 +1,4 @@
-// Checks the rules of Start a Project from Scratch (MarkView/Models/NewProject.swift) against
+// Checks the rules of Start a Project from Scratch (MarkView/Models/Workspace/NewProject.swift) against
 // DEC-009, DEC-010, DEC-015, DEC-016, DEC-018, DEC-019 and DEC-023.
 import Foundation
 

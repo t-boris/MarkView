@@ -1,0 +1,229 @@
+// Terminal session host script for MarkView/Resources/Editor/terminal.html.
+// Kept external so terminal.html runs under a strict `script-src 'self'` CSP with no inline scripts.
+MarkViewThemes.applyFromDocument();
+
+document.addEventListener('DOMContentLoaded', function() {
+    function post(message) {
+        try { window.webkit.messageHandlers.terminal.postMessage(message); } catch (e) { console.log('[terminal]', e); }
+    }
+    function activateLink(event, uri) {
+        if (event.button !== 0 || (term.modes.mouseTrackingMode !== 'none' && !event.metaKey)) return;
+        event.preventDefault();
+        post({ type: 'link', url: uri });
+    }
+    function hoverLink(event, uri) { screen.title = uri + ' (⌘click to open)'; }
+    function leaveLink() { screen.removeAttribute('title'); }
+    // Glyph size follows the application interface text scale (set by Swift before load).
+    const BASE_FONT_SIZE = 12;
+    const initialScale = Number(window.mvFontScale) > 0 ? Number(window.mvFontScale) : 1;
+    const term = new MVTerm.Terminal({
+        fontFamily: '"SF Mono", ui-monospace, Menlo, Monaco, monospace', fontSize: BASE_FONT_SIZE * initialScale, lineHeight: 1.15,
+        cursorBlink: true, scrollback: 10000, allowTransparency: true, macOptionIsMeta: true,
+        theme: MarkViewThemes.terminalTheme(MarkViewThemes.current().id, MarkViewThemes.current().override),
+        // OSC 8 uses a separate provider from WebLinksAddon. WKWebView has no browser
+        // confirm/window.open UI; every target must cross the native bridge instead.
+        linkHandler: { activate: activateLink, hover: hoverLink, leave: leaveLink, allowNonHttpProtocols: true },
+    });
+    const fit = new MVTerm.FitAddon();
+    term.loadAddon(fit);
+    term.loadAddon(new MVTerm.WebLinksAddon(activateLink, { hover: hoverLink, leave: leaveLink }));
+    term.open(document.getElementById('term'));
+    const screen = term.element.querySelector('.xterm-screen');
+    // xterm's linkifier handles events on the screen; PTY mouse reporting handles
+    // their bubble at the outer terminal/document. Reserve ⌘click for links without
+    // disabling normal TUI clicks, dragging or wheel input. No private xterm APIs.
+    let commandClick = false;
+    screen.addEventListener('mousedown', function(e) {
+        commandClick = e.button === 0 && e.metaKey;
+        if (commandClick) e.stopPropagation();
+    });
+    screen.addEventListener('mouseup', function(e) {
+        if (e.button === 0 && (commandClick || e.metaKey)) e.stopPropagation();
+        commandClick = false;
+    });
+    screen.addEventListener('mousemove', function(e) {
+        if (e.metaKey || commandClick) e.stopPropagation();
+    });
+    document.addEventListener('mouseup', function() { commandClick = false; });
+
+    // Local paths (including ls/grep output). Swift checks existence off-main so
+    // prose is not underlined, and resolves relative paths against the live PTY cwd.
+    let linkRequest = 0;
+    const pendingLinks = new Map();
+    window.mvResolvedLinks = function(request, valid) {
+        const pending = pendingLinks.get(request);
+        if (!pending) return;
+        pendingLinks.delete(request);
+        const accepted = new Set(valid);
+        pending.callback(pending.links.filter(link => accepted.has(link.text)));
+    };
+    term.registerLinkProvider({ provideLinks: function(y, callback) {
+        const buffer = term.buffer.active;
+        let first = y - 1, last = y - 1;
+        // Reassemble soft-wrapped paths, using cell coordinates rather than string
+        // offsets (wide characters and combining marks change the mapping).
+        while (first > 0 && buffer.getLine(first).isWrapped && y - first < 64) first--;
+        while (last + 1 < buffer.length && buffer.getLine(last + 1).isWrapped && last - first < 64) last++;
+        let text = '';
+        const starts = [], ends = [];
+        for (let row = first; row <= last && text.length < 8192; row++) {
+            const line = buffer.getLine(row);
+            if (!line) break;
+            for (let col = 0; col < line.length; col++) {
+                const cell = line.getCell(col), width = cell.getWidth();
+                if (width === 0) continue;
+                const chars = cell.getChars() || ' ';
+                for (let i = 0; i < chars.length; i++) {
+                    starts.push({ x: col + 1, y: row + 1 });
+                    ends.push({ x: col + width, y: row + 1 });
+                }
+                text += chars;
+            }
+        }
+        const links = [];
+        const tokens = /"([^"]+)"|'([^']+)'|`([^`]+)`|[^\s"'`<>{}\[\]()]+/g;
+        let match;
+        while ((match = tokens.exec(text)) && links.length < 512) {
+            const quoted = match[1] || match[2] || match[3];
+            let path = quoted || match[0].replace(/[,;.!?]+$/, '');
+            if (!path || /^https?:/i.test(path)) continue;
+            // grep's file:line[:column]:matched text is not part of the target.
+            const location = path.match(/^(.+?:[1-9]\d*(?::[1-9]\d*)?)(?=:|$)/);
+            if (location) path = location[1];
+            const start = match.index + (quoted ? 1 : 0), end = start + path.length - 1;
+            if (!starts[start] || !ends[end]) continue;
+            links.push({ text: path, range: { start: starts[start], end: ends[end] },
+                         activate: activateLink, hover: hoverLink, leave: leaveLink });
+        }
+        if (!links.length) { callback(undefined); return; }
+        const request = ++linkRequest;
+        pendingLinks.set(request, { links: links, callback: callback });
+        post({ type: 'resolveLinks', request: request, paths: links.map(link => link.text) });
+    }});
+
+    const host = document.getElementById('term');
+    const truncated = document.getElementById('truncated');
+    let outputLines = 0;
+    let size = { cols: 0, rows: 0 };
+    let ready = false;
+    let fitRetryScheduled = false;
+    function retryFit() {
+        if (fitRetryScheduled) return;
+        fitRetryScheduled = true;
+        requestAnimationFrame(function() {
+            fitRetryScheduled = false;
+            refit();
+        });
+    }
+    function refit() {
+        // FitAddon can return before xterm has measured a cell. The element does not
+        // necessarily resize again when those metrics arrive, so retry before starting
+        // the PTY instead of leaving its default 80x24 grid in a clipped viewport.
+        if (!host.clientWidth || !host.clientHeight) return;
+        try {
+            const dimensions = fit.proposeDimensions();
+            if (!dimensions || !Number.isFinite(dimensions.cols) || !Number.isFinite(dimensions.rows)) {
+                retryFit();
+                return;
+            }
+            fit.fit();
+        } catch (e) {
+            retryFit();
+            return;
+        }
+        if (term.cols !== size.cols || term.rows !== size.rows) {
+            size = { cols: term.cols, rows: term.rows };
+            if (ready) post({ type: 'resize', cols: term.cols, rows: term.rows });
+        }
+        if (!ready) {
+            ready = true;
+            post({ type: 'ready', cols: term.cols, rows: term.rows });
+        }
+    }
+    window.mvRefit = refit;
+    new ResizeObserver(refit).observe(host);
+    let readOnly = false;
+    term.onData(function(data) { if (!readOnly) post({ type: 'input', data: data }); });
+    // Shift+Enter: a new line in the prompt, not "send" — a line feed (Ctrl+J), which
+    // Claude Code and Codex take as a newline.
+    term.attachCustomKeyEventHandler(function(e) {
+        if (e.key === 'Enter' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+            if (e.type === 'keydown' && !readOnly) post({ type: 'input', data: '\n' });
+            return false;
+        }
+        return true;
+    });
+    // ⌘V with no text on the clipboard (a screenshot, files copied in Finder): Swift saves
+    // the image or reads the files and types their paths — the assistants attach them.
+    document.addEventListener('paste', function(e) {
+        const text = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+        if (text) return;
+        e.preventDefault();
+        e.stopPropagation();
+        post({ type: 'pasteFiles' });
+    }, true);
+    term.onBinary(function(data) { if (!readOnly) post({ type: 'input', data: data }); });
+
+    /** Output from the process, base64 (raw bytes: may split UTF-8 sequences). */
+    window.mvWrite = function(b64) {
+        const bin = atob(b64);
+        if (window.mvOperation) {
+            for (let i = 0; i < bin.length; i++) if (bin.charCodeAt(i) === 10) outputLines++;
+            if (outputLines > 10000) truncated.hidden = false;
+        }
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        term.write(bytes);
+    };
+    // Swift: mvSetTheme('midnight', '#79B8FF') (accent '' = the appearance's own).
+    window.mvSetTheme = function(id, accent) {
+        const applied = MarkViewThemes.apply(id, accent);
+        term.options.theme = MarkViewThemes.terminalTheme(applied.id, applied.override);
+    };
+    window.mvFocus = function() { term.focus(); };
+    /** New interface text scale: resize glyphs, refit the grid and report cols/rows to the PTY. */
+    window.mvSetFontScale = function(scale) {
+        const next = BASE_FONT_SIZE * (Number(scale) > 0 ? Number(scale) : 1);
+        if (term.options.fontSize === next) return;
+        term.options.fontSize = next;
+        refit();
+    };
+    /** Full reset before a new process: clears the screen and every mode the previous
+        program may have left on (mouse tracking, alternate screen, bracketed paste…). */
+    window.mvReset = function() {
+        outputLines = 0;
+        truncated.hidden = true;
+        pendingLinks.forEach(pending => pending.callback(undefined));
+        pendingLinks.clear();
+        leaveLink();
+        commandClick = false;
+        readOnly = false;
+        term.options.disableStdin = false;
+        term.reset();
+    };
+    window.mvDropped = function() { truncated.hidden = false; };
+    /** Whether the terminal reports the mouse to the program (diagnostics and tests). */
+    window.mvMouseMode = function() { return term.modes.mouseTrackingMode; };
+    /** The visible screen as text (diagnostics and tests). */
+    window.mvText = function() {
+        const buffer = term.buffer.active, lines = [];
+        for (let i = 0; i < buffer.length; i++) lines.push(buffer.getLine(i).translateToString(true));
+        return lines.join('\n').replace(/\n+$/, '');
+    };
+    /** The last n rows of the terminal's text, scrollback included (agents driving the window read it). */
+    window.mvTail = function(n) {
+        const buffer = term.buffer.active, lines = [];
+        for (let i = Math.max(0, buffer.length - n); i < buffer.length; i++) lines.push(buffer.getLine(i).translateToString(true));
+        return lines.join('\n');
+    };
+    window.mvSize = function() { return term.cols + 'x' + term.rows; };
+    window.mvExited = function(code) {
+        readOnly = true;
+        term.options.disableStdin = true;
+        term.write('\r\n\x1b[2m[process exited' + (code ? ' with code ' + code : '')
+            + (window.mvOperation ? ']' : ' — Restart to start again]') + '\x1b[0m\r\n');
+    };
+
+    refit();
+    term.focus();
+});

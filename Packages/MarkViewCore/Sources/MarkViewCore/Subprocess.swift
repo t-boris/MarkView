@@ -156,15 +156,10 @@ public enum Subprocess {
         }
     }
 
-    /// Synchronous helper strictly for non-async callers (`@available(*, noasync)` per `AR-25`).
-    @available(*, noasync, message: "Use await Subprocess.run(_:) in async contexts (AR-25)")
-    public static func runBlocking(_ spec: SubprocessSpec) -> SubprocessResult {
-        executeSynchronously(spec, box: ProcessBox())
-    }
-
     private final class ProcessBox: @unchecked Sendable {
         private let lock = NSLock()
         private var process: Process?
+        private var started = false
         private var cancelled = false
 
         func attach(_ proc: Process) -> Bool {
@@ -175,18 +170,40 @@ public enum Subprocess {
             return true
         }
 
+        func canLaunch() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return !cancelled
+        }
+
+        func markStarted() {
+            lock.lock()
+            started = true
+            let shouldTerminate = cancelled
+            lock.unlock()
+            if shouldTerminate {
+                terminateWithEscalation()
+            }
+        }
+
         func terminateWithEscalation() {
-            let proc: Process? = {
+            let target: (proc: Process, pid: pid_t)? = {
                 lock.lock()
                 defer { lock.unlock() }
                 cancelled = true
-                return process
+                guard started, let proc = process, proc.isRunning else { return nil }
+                return (proc, proc.processIdentifier)
             }()
-            guard let proc, proc.isRunning else { return }
-            let pid = proc.processIdentifier
+            guard let (proc, pid) = target else { return }
             proc.terminate()
+            if pid > 0, getpgid(pid) == pid {
+                _ = kill(-pid, SIGTERM)
+            }
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
                 if proc.isRunning && pid > 0 {
+                    if getpgid(pid) == pid {
+                        _ = kill(-pid, SIGKILL)
+                    }
                     kill(pid, SIGKILL)
                 }
             }
@@ -349,9 +366,16 @@ public enum Subprocess {
             }
         }
 
+        guard box.canLaunch() else {
+            outPipe.fileHandleForReading.readabilityHandler = nil
+            errPipe.fileHandleForReading.readabilityHandler = nil
+            return SubprocessResult(exitCode: -1, stdout: "", stderr: "Cancelled", timedOut: false, truncated: false, durationMs: 0)
+        }
+
         let stdinGroup = DispatchGroup()
         do {
             try process.run()
+            box.markStarted()
         } catch {
             outPipe.fileHandleForReading.readabilityHandler = nil
             errPipe.fileHandleForReading.readabilityHandler = nil

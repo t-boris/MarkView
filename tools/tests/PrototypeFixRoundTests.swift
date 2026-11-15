@@ -1,6 +1,6 @@
 import Foundation
 
-// BUG-062: what the fix round of a prototype can know without an assistant. Compiled with MarkView/Models/PrototypeAudit.swift alone.
+// BUG-062: what the fix round of a prototype can know without an assistant. Compiled with MarkView/Models/Prototype/PrototypeAudit.swift alone.
 //   tools/tests/prototype-fixround-tests.sh
 var failures = 0
 func check(_ condition: Bool, _ message: String) {

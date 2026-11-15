@@ -1,6 +1,6 @@
 import Foundation
 
-// Checks the MCP server agents use to drive MarkView's browser tab (MarkView/Models/BrowserAgentTools.swift):
+// Checks the MCP server agents use to drive MarkView's browser tab (MarkView/Models/AgentTools/BrowserAgentTools.swift):
 // the MCP answers, and a real `--mcp-browser` process relaying a tool call over a Unix socket to a
 // stand-in for the app. Compiled by tools/tests/browser-agent-tools-tests.sh.
 

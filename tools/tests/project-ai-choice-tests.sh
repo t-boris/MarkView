@@ -28,6 +28,6 @@ final class SemanticDatabase {
     }
 }
 SWIFT
-swiftc -o "$out/project-ai-choice-tests" MarkView/Models/AIAssistants.swift MarkView/Models/AILayer.swift MarkView/Models/ProjectColor.swift MarkView/Models/LinkedFolders.swift MarkView/Models/AICallLog.swift \
-    MarkView/Models/CLICompletion.swift MarkView/Models/AgentProcesses.swift "$out/Stub.swift" "$out/main.swift"
+swiftc -o "$out/project-ai-choice-tests" MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/AssistantProviderRegistry.swift MarkView/Models/Appearance/ProjectColor.swift MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/AI/AICallLog.swift \
+    MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/AgentProcesses.swift "$out/Stub.swift" "$out/main.swift"
 "$out/project-ai-choice-tests"

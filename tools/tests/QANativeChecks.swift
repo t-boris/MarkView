@@ -3,7 +3,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 
-// Checks for the native player of the End-to-End QA feature (MarkView/Models/QANativeTree.swift, QANativeAccessibility.swift,
+// Checks for the native player of the End-to-End QA feature (MarkView/Models/QA/QANativeTree.swift, QANativeAccessibility.swift,
 // QANativeCapture.swift, QANativeActor.swift, QANativeFactory.swift), run by tools/tests/qa-native-tests.sh. The first part is pure: the text the
 // assistant is shown for an application's tree, its limits, the secure-field rule, the keys, the evidence and the permission rules. The second
 // part (live) drives the fixture application Tests/Fixtures/qa-native-demo with a real QANativeActor, activating only its own dense fixture for real click checks:

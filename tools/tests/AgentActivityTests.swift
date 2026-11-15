@@ -13,7 +13,7 @@ let t = "2026-10-12T22:20:14.724Z"
 func claude(_ lines: [String]) -> AgentActivity? { AgentActivityParser.claude(lines: lines.map(data), now: now) }
 
 let title = #"{"type":"ai-title","aiTitle":"Sign-in popups in the browser"}"#
-let edit = #"{"type":"assistant","timestamp":"\#(t)","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/p/MarkView/Models/BrowserSession.swift","old_string":"SECRET"}}]}}"#
+let edit = #"{"type":"assistant","timestamp":"\#(t)","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/p/MarkView/Models/Browser/BrowserSession.swift","old_string":"SECRET"}}]}}"#
 var a = claude([title, edit, #"{"type":"attachment"}"#, #"{"type":"mode"}"#])
 check(a?.state == .working && a?.text == "Editing BrowserSession.swift", "edit tool -> Editing <file>")
 check(a?.topic == "Sign-in popups in the browser", "session title is the topic")

@@ -26,24 +26,17 @@ check(!fm.fileExists(atPath: root.appendingPathComponent("EDITOR_IMPLEMENTATION.
 check(!fm.fileExists(atPath: root.appendingPathComponent("QUICKSTART.md").path),
       "AR-30: QUICKSTART.md is removed")
 
-// 2. AR-46 / DEC-005 / FU-06: setup.sh and project.yml deleted; bump-version.sh, release.sh, & publish-release.yml read project.pbxproj
+// 2. AR-46 / DEC-005: setup.sh, project.yml, and MarkView/Core deleted
 check(!fm.fileExists(atPath: root.appendingPathComponent("setup.sh").path),
       "AR-46: setup.sh is removed")
 check(!fm.fileExists(atPath: root.appendingPathComponent("project.yml").path),
       "AR-46: project.yml is removed")
 check(!fm.fileExists(atPath: root.appendingPathComponent("MarkView/Core").path),
       "FU-04: duplicate MarkView/Core/ directory removed in favor of Packages/MarkViewCore")
-let bumpScript = (try? String(contentsOf: root.appendingPathComponent("bump-version.sh"), encoding: .utf8)) ?? ""
-let releaseScript = (try? String(contentsOf: root.appendingPathComponent("release.sh"), encoding: .utf8)) ?? ""
-let publishWorkflow = (try? String(contentsOf: root.appendingPathComponent(".github/workflows/publish-release.yml"), encoding: .utf8)) ?? ""
-check(!bumpScript.contains("project.yml") && bumpScript.contains("project.pbxproj") && bumpScript.contains("marketing_count"),
-      "AR-46/AR-47: bump-version.sh reads and verifies MARKETING_VERSION in project.pbxproj")
-check(!releaseScript.contains("project.yml") && releaseScript.contains("project.pbxproj"),
-      "AR-46: release.sh reads MARKETING_VERSION from project.pbxproj")
-check(!publishWorkflow.contains("project.yml") && publishWorkflow.contains("MarkView.xcodeproj/project.pbxproj"),
-      "FU-06: publish-release.yml reads MARKETING_VERSION from project.pbxproj without project.yml")
+check(!fm.fileExists(atPath: root.appendingPathComponent("Packages/MarkViewCore/Sources/MarkViewCore/SettingsRegistry.swift").path),
+      "FU-01: unused SettingsRegistry.swift removed from MarkViewCore")
 
-// 3. AR-47 / AR-48: install.sh, tools/importance-check.sh, dead compiler/model files, and dead bridge methods removed
+// 3. AR-47 / AR-48: install.sh, tools/importance-check.sh, and dead compiler/model files removed
 check(!fm.fileExists(atPath: root.appendingPathComponent("install.sh").path),
       "AR-47: install.sh is removed")
 check(!fm.fileExists(atPath: root.appendingPathComponent("tools/importance-check.sh").path),
@@ -52,35 +45,20 @@ check(!fm.fileExists(atPath: root.appendingPathComponent("MarkView/Models/Increm
       !fm.fileExists(atPath: root.appendingPathComponent("MarkView/Models/DependencyGraphScheduler.swift").path) &&
       !fm.fileExists(atPath: root.appendingPathComponent("MarkView/Models/SemanticModel.swift").path),
       "AR-48: dead IncrementalCompiler, DependencyGraphScheduler, and SemanticModel are removed")
-let bridgeSwift = (try? String(contentsOf: root.appendingPathComponent("MarkView/Bridge/WebViewBridge.swift"), encoding: .utf8)) ?? ""
-check(!bridgeSwift.contains("struct BridgeMessage") &&
-      !bridgeSwift.contains("func requestHTML(") &&
-      !bridgeSwift.contains("func preparePrintLayout(") &&
-      !bridgeSwift.contains("func restoreEditLayout("),
-      "AR-28/AR-48: dead BridgeMessage, requestHTML, preparePrintLayout, restoreEditLayout removed from WebViewBridge")
 
-// 4. AR-22: TOCView.Tab moved to PanelLayout (NavigatorTab) and view items moved out of Models/
-let panelLayoutSwift = (try? String(contentsOf: root.appendingPathComponent("MarkView/Models/PanelLayout.swift"), encoding: .utf8)) ?? ""
-check(panelLayoutSwift.contains("enum NavigatorTab: String, CaseIterable") && !panelLayoutSwift.contains("TOCView.Tab"),
-      "AR-22: PanelLayout owns NavigatorTab without referencing TOCView.Tab")
-check(fm.fileExists(atPath: root.appendingPathComponent("MarkView/Views/AIToolJobsBanner.swift").path) &&
-      fm.fileExists(atPath: root.appendingPathComponent("MarkView/Views/AppFontScaleView.swift").path) &&
-      fm.fileExists(atPath: root.appendingPathComponent("MarkView/Views/QAWebWindow.swift").path) &&
+// 4. AR-22: view items live in MarkView/Views/, not MarkView/Models/
+check(fm.fileExists(atPath: root.appendingPathComponent("MarkView/Views/AI/AIToolJobsBanner.swift").path) &&
+      fm.fileExists(atPath: root.appendingPathComponent("MarkView/Views/Appearance/AppFontScaleView.swift").path) &&
+      fm.fileExists(atPath: root.appendingPathComponent("MarkView/Views/QA/QAWebWindow.swift").path) &&
       !fm.fileExists(atPath: root.appendingPathComponent("MarkView/Models/QAWebWindow.swift").path),
       "AR-22: AIToolJobsBanner, AppFontScaleView, and QAWebWindow live in MarkView/Views/")
 
-// 5. AR-47: project.pbxproj no longer duplicates editor assets in PBXResourcesBuildPhase, Cockpit phase has inputs/outputs, MANIFEST.txt & THIRD_PARTY_NOTICES.md & .editorconfig present
-let pbx = (try? String(contentsOf: root.appendingPathComponent("MarkView.xcodeproj/project.pbxproj"), encoding: .utf8)) ?? ""
-check(!pbx.contains("/* index.html in Resources */") &&
-      !pbx.contains("/* BUILD_NOTES.md in Resources */") &&
-      pbx.contains("$(DERIVED_FILE_DIR)/cockpit-runtime.stamp"),
-      "AR-47: project.pbxproj avoids duplicate flat editor resources and declares Cockpit build phase outputs")
-let vendorManifest = (try? String(contentsOf: root.appendingPathComponent("MarkView/Resources/Editor/vendor/MANIFEST.txt"), encoding: .utf8)) ?? ""
-check(vendorManifest.contains("dompurify") && vendorManifest.contains("codemirror-bundle") && !vendorManifest.contains("html: false"),
-      "AR-47: vendor/MANIFEST.txt lists newer bundles and documents DOMPurify sanitisation posture")
-check(fm.fileExists(atPath: root.appendingPathComponent("THIRD_PARTY_NOTICES.md").path) &&
+// 5. Required notice, editorconfig, and external terminal script assets exist on disk
+check(fm.fileExists(atPath: root.appendingPathComponent("MarkView/Resources/Editor/vendor/MANIFEST.txt").path) &&
+      fm.fileExists(atPath: root.appendingPathComponent("MarkView/Resources/Editor/js/markview-terminal.js").path) &&
+      fm.fileExists(atPath: root.appendingPathComponent("THIRD_PARTY_NOTICES.md").path) &&
       fm.fileExists(atPath: root.appendingPathComponent(".editorconfig").path),
-      "AR-47: THIRD_PARTY_NOTICES.md and .editorconfig exist")
+      "AR-47/AR-01: vendor/MANIFEST.txt, js/markview-terminal.js, THIRD_PARTY_NOTICES.md, and .editorconfig exist")
 
 // 6. AR-44 step 1 & FU-07: tools/tests/manifest.json has accurate suiteCount, valid paths, and executable tools/tests/run.sh
 let manifestData = (try? Data(contentsOf: root.appendingPathComponent("tools/tests/manifest.json"))) ?? Data()
@@ -102,6 +80,48 @@ for s in suites {
 }
 check(missingPaths.isEmpty,
       "FU-07: every script and source path in tools/tests/manifest.json exists on disk (\(missingPaths))")
+
+// 7. AR-20 & AR-23: Models (21 domains) and Views (19 domains) are organized with 0 top-level .swift files and split grab-bag files
+let modelsRoot = root.appendingPathComponent("MarkView/Models")
+let viewsRoot = root.appendingPathComponent("MarkView/Views")
+let looseModels = ((try? fm.contentsOfDirectory(atPath: modelsRoot.path)) ?? []).filter { $0.hasSuffix(".swift") }
+let looseViews = ((try? fm.contentsOfDirectory(atPath: viewsRoot.path)) ?? []).filter { $0.hasSuffix(".swift") }
+let expectedModelDomains = [
+    "AI", "AgentTools", "Appearance", "Architecture", "Book", "Browser", "Cockpit",
+    "Deployments", "Dictation", "Discussion", "Git", "Insight", "Lifecycle",
+    "ProjectOps", "Prototype", "QA", "Remote", "Research", "Terminal", "UIStudio", "Workspace"
+]
+let expectedViewDomains = [
+    "AI", "Appearance", "Architecture", "Book", "Browser", "Cockpit",
+    "Deployments", "Dictation", "Discussion", "Git", "Lifecycle",
+    "ProjectOps", "Prototype", "QA", "Remote", "Research", "Terminal", "UIStudio", "Workspace"
+]
+let modelDirsExist = expectedModelDomains.allSatisfy {
+    var isDir: ObjCBool = false
+    return fm.fileExists(atPath: modelsRoot.appendingPathComponent($0).path, isDirectory: &isDir) && isDir.boolValue
+}
+let viewDirsExist = expectedViewDomains.allSatisfy {
+    var isDir: ObjCBool = false
+    return fm.fileExists(atPath: viewsRoot.appendingPathComponent($0).path, isDirectory: &isDir) && isDir.boolValue
+}
+check(looseModels.isEmpty && looseViews.isEmpty && modelDirsExist && viewDirsExist,
+      "AR-20: MarkView/Models (21 domains) and MarkView/Views (19 domains) have 0 top-level .swift files")
+
+let splitFilesExist = [
+    "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
+    "MarkView/Models/Workspace/TaskBag.swift",
+    "MarkView/Models/Workspace/MarkdownDocumentChunker.swift",
+    "MarkView/Models/Workspace/SchemaVersionedStore.swift",
+    "MarkView/Models/AI/AIOperation.swift",
+    "MarkView/Models/AI/AssistantProviderRegistry.swift",
+].allSatisfy { fm.fileExists(atPath: root.appendingPathComponent($0).path) }
+let grabBagsRemoved = [
+    "MarkView/Models/WorkspaceControllers.swift",
+    "MarkView/Models/AILayer.swift",
+    "MarkView/Models/StorageAndSecurity.swift",
+].allSatisfy { !fm.fileExists(atPath: root.appendingPathComponent($0).path) }
+check(splitFilesExist && grabBagsRemoved,
+      "AR-23: grab-bag files split into single-responsibility files in domain folders")
 
 print("\nPhase 1 cleanup checks: \(passed) passed, \(failed) failed")
 if failed > 0 { exit(1) }

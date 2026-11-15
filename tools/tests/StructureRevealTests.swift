@@ -8,7 +8,7 @@ func check(_ condition: Bool, _ message: String, line: Int = #line) {
     if condition { print("ok   \(message)") } else { failures += 1; print("FAIL \(message) (line \(line))") }
 }
 
-let source = try String(contentsOfFile: "MarkView/Resources/Editor/vendor/js/markview-structured.js", encoding: .utf8)
+let source = try String(contentsOfFile: "MarkView/Resources/Editor/js/markview-structured.js", encoding: .utf8)
 guard let start = source.range(of: "window.revealStructure = function"), let end = source.range(of: "window.structFoldAll") else {
     print("FAIL revealStructure not found in markview-structured.js"); exit(1)
 }

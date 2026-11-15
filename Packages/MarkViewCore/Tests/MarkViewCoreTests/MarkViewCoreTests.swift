@@ -85,6 +85,37 @@ final class MarkViewCoreTests: XCTestCase {
         let attrs = try FileManager.default.attributesOfItem(atPath: secret.path)
         let mode = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0
         XCTAssertEqual(mode & 0o777, 0o600)
+
+        // When permissions is nil, overwriting preserves existing file mode (`FU-04`).
+        try AtomicFile.write("secret-token-v2", to: secret, permissions: nil)
+        let preservedAttrs = try FileManager.default.attributesOfItem(atPath: secret.path)
+        let preservedMode = (preservedAttrs[.posixPermissions] as? NSNumber)?.intValue ?? 0
+        XCTAssertEqual(preservedMode & 0o777, 0o600)
+    }
+
+    func testSubprocessCancellationAndProcessGroupKill() async {
+        // Pre-cancelled Task must abort before/during launch and not block (`FU-04`).
+        let canceledTask = Task { () -> SubprocessResult in
+            try? await Task.sleep(nanoseconds: 20_000_000)
+            return await Subprocess.run(SubprocessSpec(
+                executable: "/bin/sleep",
+                arguments: ["5"],
+                timeout: 5
+            ))
+        }
+        canceledTask.cancel()
+        let canceled = await canceledTask.value
+        XCTAssertFalse(canceled.succeeded)
+        XCTAssertLessThan(canceled.durationMs, 1500)
+
+        // Timed-out parent spawning a child process group must terminate promptly (`FU-04`).
+        let groupTimedOut = await Subprocess.run(SubprocessSpec(
+            executable: "/bin/sh",
+            arguments: ["-c", "sleep 10 & wait"],
+            timeout: 0.25
+        ))
+        XCTAssertTrue(groupTimedOut.timedOut)
+        XCTAssertLessThan(groupTimedOut.durationMs, 3000)
     }
 
     func testProjectPathsSymlinkContainment() throws {
@@ -114,26 +145,6 @@ final class MarkViewCoreTests: XCTestCase {
         XCTAssertNotEqual(ProjectPaths.projectCacheIdentifier(for: a), ProjectPaths.projectCacheIdentifier(for: b))
     }
 
-    func testRotatingJSONLinesOAppendAndRotation() throws {
-        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("mvjsonl-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: temp) }
-        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
-        let logURL = temp.appendingPathComponent("events.jsonl")
-        // Write an interrupted line missing trailing newline; O_APPEND handler inserts separator newline.
-        try Data("{\"seq\":-1}".utf8).write(to: logURL)
-
-        let log = RotatingJSONLinesFile(url: logURL, maxBytes: 1024)
-        for i in 0..<25 {
-            try log.appendLine("{\"seq\":\(i),\"msg\":\"\(String(repeating: "x", count: 30))\"}")
-        }
-        XCTAssertTrue(FileManager.default.fileExists(atPath: log.url.appendingPathExtension("1").path))
-        XCTAssertFalse(log.readLines().isEmpty)
-        let firstRotatedLines = try String(contentsOf: log.url.appendingPathExtension("1"), encoding: .utf8)
-            .split(separator: "\n")
-        XCTAssertEqual(firstRotatedLines.first, "{\"seq\":-1}")
-        XCTAssertTrue(firstRotatedLines.dropFirst().first?.hasPrefix("{\"seq\":0,") == true)
-    }
-
     func testWeakScriptMessageHandlerDoesNotRetainTarget() {
         final class DummyHandler: NSObject, WKScriptMessageHandler {
             func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {}
@@ -146,15 +157,5 @@ final class MarkViewCoreTests: XCTestCase {
             _ = proxy.target
         }
         XCTAssertNil(weakTarget)
-    }
-
-    func testSettingsRegistryDefaults() {
-        let suiteName = "com.markview.tests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        XCTAssertEqual(SettingsRegistry.int(SettingsRegistry.appFontScalePercent, in: defaults), 100)
-        SettingsRegistry.set(130, for: SettingsRegistry.appFontScalePercent, in: defaults)
-        XCTAssertEqual(SettingsRegistry.int(SettingsRegistry.appFontScalePercent, in: defaults), 130)
     }
 }

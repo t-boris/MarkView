@@ -1,6 +1,6 @@
 import Foundation
 
-// Checks for MarkView/Models/QAReview.swift and QAPageEvidence.swift (feature end-to-end-qa, REQ-008), run by tools/tests/qa-review-tests.sh.
+// Checks for MarkView/Models/QA/QAReview.swift and QAPageEvidence.swift (feature end-to-end-qa, REQ-008), run by tools/tests/qa-review-tests.sh.
 // The script that measures the page is run in WebKit by tools/tests/qa-evidence-web-tests.sh; here only what needs no browser.
 
 let buyerStep = QANode(id: "n2", kind: .action, title: "Approve the request", detail: "Open the request and press Approve", actor: "clerk", changesData: .yes)

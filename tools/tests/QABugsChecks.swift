@@ -1,6 +1,6 @@
 import Foundation
 
-// Checks for MarkView/Models/QABugs.swift and QABugFiler.swift (feature end-to-end-qa, DEC-010), run by tools/tests/qa-bugs-tests.sh.
+// Checks for MarkView/Models/QA/QABugs.swift and QABugFiler.swift (feature end-to-end-qa, DEC-010), run by tools/tests/qa-bugs-tests.sh.
 // The mapping is checked on plain values; the filer on a fake sink; one check files into a real folder through BugReportWriter and
 // reads it back with QABugIndex, as the project's bug folder is. Temp folders only.
 

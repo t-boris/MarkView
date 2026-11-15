@@ -1,4 +1,4 @@
-// Checks MarkView/Models/ResearchMapImages.swift (REQ-017, DEC-018): the kind of a picture is read from its bytes, the
+// Checks MarkView/Models/Research/ResearchMapImages.swift (REQ-017, DEC-018): the kind of a picture is read from its bytes, the
 // size is limited, and a picture is stored under a safe unique name next to the map file.
 import Foundation
 

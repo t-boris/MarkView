@@ -1,4 +1,4 @@
-// Checks the lifecycle context an AI session gets (MarkView/Models/IssueLifecycleContext.swift) against REQ-003 and
+// Checks the lifecycle context an AI session gets (MarkView/Models/Lifecycle/IssueLifecycleContext.swift) against REQ-003 and
 // DEC-007..DEC-011 of docs/features/issue-lifecycle-management: the guidance, the context of one issue, the handoff block, the
 // list, and the session links (Q-005: external sessions count only after an explicit connection).
 import Foundation

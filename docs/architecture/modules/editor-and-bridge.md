@@ -64,26 +64,26 @@ It does **not** own:
 | `MarkView/Bridge/PrototypeSchemeHandler.swift` | `mvproto://site/<path>`: serves a prototype's `site/` folder to the Prototype Studio preview so all files share one origin and a script error keeps its text and line (a `file://` page reports only "Script error."); paths are confined to the folder (`..`, encoded `..` and symlinks out of it → 403); no caching |
 | `MarkView/Resources/Editor/index.html` | Editor page: CSP, ~1270 lines of inline CSS (`index.html:33-1307`), DOM skeleton, ordered `<script>` tags |
 | `MarkView/Resources/Editor/terminal.html` | xterm.js page for embedded terminals; `terminal` message handler protocol |
-| `vendor/js/markview-early.js` | First script: global `error`/`unhandledrejection` capture → `jsError` |
-| `vendor/js/markview-state.js` | Global `state`, `DOM` cache, markdown-it instance `md`, Mermaid init |
-| `vendor/js/markview-mdext.js` | markdown-it rules: wikilinks, `$`/`$$` math (KaTeX), wikilink click → `linkClicked`; `window.scrollToHeadingText` |
-| `vendor/js/markview-render.js` | `renderMarkdown`, frontmatter panel, Mermaid/Prism passes, headings, semantic blocks + diff, heading IntersectionObserver |
-| `vendor/js/markview-edit.js` | Stats, font slider, Turndown, source/WYSIWYG mode switch, format commands, floating format bar, save/translate/refresh senders |
-| `vendor/js/markview-find.js` | Selection actions (translate/explain), feature-action menu, action popup, `window.showSelectionResult`, find bar |
-| `vendor/js/markview-themes.js` | The window theme: tokens of the eleven appearances (classic-dark, classic-light, darcula, midnight, graphite, tokyo-night, carbon-red, nord, forest, paper, daylight) as ~118 CSS custom properties on `<html>`, `data-preset` / `data-theme` / `data-accent`; `MarkViewThemes.apply(id, accent)`; shared by the editor, discussion and terminal pages. Its base colours are compared with `Models/AppTheme.swift` by `tools/tests/theme-model-tests.sh` |
-| `vendor/js/markview-bridge.js` | Theme entry (`applyTheme`), `sendToSwift`, second error capture, base `window.setContent` |
-| `vendor/js/markview-structured.js` | JSON/XML/YAML tree view, format/minify, struct headings; `window.setStructuredContent` |
-| `vendor/js/markview-insight-srcdoc.js` | Insight: escapes, lib map, blob materialisation, iframe `srcdoc` builder incl. the iframe script |
-| `vendor/js/markview-insight-helpers.js` | Insight chrome: enter/leave view, breadcrumbs, status bar, 10 s ready timer |
-| `vendor/js/markview-insight-handlers.js` | Insight: `stripCDNTags`, the five Swift→JS setters, parent `message` listener with allowlist |
-| `vendor/js/markview-globals.js` | `setDocumentBase`, `setTheme`, `scrollToHeading`, `scrollToText`, `documentGotoLine`, `getHTML`, print-layout helpers |
-| `vendor/js/markview-canvas.js` | JSON Canvas viewer (pan/zoom), wraps `setContent`/`scrollToHeading`; `canvasOpenFile` |
-| `vendor/js/markview-panels.js` | `window.MVPanels.resizable` (drag-resizable side panels, width in localStorage) |
-| `vendor/js/markview-code.js` | Code viewer (lazy-loads `codemirror.bundle.js`), margin notes, nav, AI ask; wraps `setContent`/`setStructuredContent`/`setTheme`; `code` messages |
-| `vendor/js/markview-architecture.js` | X-Ray host (lazy-loads Cytoscape + ELK); wraps `setContent`/`setStructuredContent`/`setCodeContent`/`setTheme`; `arch` messages |
-| `vendor/js/markview-diagram-viewer.js` | Full-window pan/zoom viewer for rendered Mermaid SVGs |
-| `vendor/js/markview-d3-mermaid.js` | `%%INTERACTIVE` Mermaid → D3+dagre canvas; `generateGraph`; end-checkpoint sentinel; schedules `init` |
-| `vendor/js/markview-init.js` | Textarea input, link interception, global shortcuts, `init()` (sends `ready`) |
+| `js/markview-early.js` | First script: global `error`/`unhandledrejection` capture → `jsError` |
+| `js/markview-state.js` | Global `state`, `DOM` cache, markdown-it instance `md`, Mermaid init |
+| `js/markview-mdext.js` | markdown-it rules: wikilinks, `$`/`$$` math (KaTeX), wikilink click → `linkClicked`; `window.scrollToHeadingText` |
+| `js/markview-render.js` | `renderMarkdown`, frontmatter panel, Mermaid/Prism passes, headings, semantic blocks + diff, heading IntersectionObserver |
+| `js/markview-edit.js` | Stats, font slider, Turndown, source/WYSIWYG mode switch, format commands, floating format bar, save/translate/refresh senders |
+| `js/markview-find.js` | Selection actions (translate/explain), feature-action menu, action popup, `window.showSelectionResult`, find bar |
+| `js/markview-themes.js` | The window theme: tokens of the eleven appearances (classic-dark, classic-light, darcula, midnight, graphite, tokyo-night, carbon-red, nord, forest, paper, daylight) as ~118 CSS custom properties on `<html>`, `data-preset` / `data-theme` / `data-accent`; `MarkViewThemes.apply(id, accent)`; shared by the editor, discussion and terminal pages. Its base colours are compared with `Models/AppTheme.swift` by `tools/tests/theme-model-tests.sh` |
+| `js/markview-bridge.js` | Theme entry (`applyTheme`), `sendToSwift`, second error capture, base `window.setContent` |
+| `js/markview-structured.js` | JSON/XML/YAML tree view, format/minify, struct headings; `window.setStructuredContent` |
+| `js/markview-insight-srcdoc.js` | Insight: escapes, lib map, blob materialisation, iframe `srcdoc` builder incl. the iframe script |
+| `js/markview-insight-helpers.js` | Insight chrome: enter/leave view, breadcrumbs, status bar, 10 s ready timer |
+| `js/markview-insight-handlers.js` | Insight: `stripCDNTags`, the five Swift→JS setters, parent `message` listener with allowlist |
+| `js/markview-globals.js` | `setDocumentBase`, `setTheme`, `scrollToHeading`, `scrollToText`, `documentGotoLine`, `getHTML`, print-layout helpers |
+| `js/markview-canvas.js` | JSON Canvas viewer (pan/zoom), wraps `setContent`/`scrollToHeading`; `canvasOpenFile` |
+| `js/markview-panels.js` | `window.MVPanels.resizable` (drag-resizable side panels, width in localStorage) |
+| `js/markview-code.js` | Code viewer (lazy-loads `codemirror.bundle.js`), margin notes, nav, AI ask; wraps `setContent`/`setStructuredContent`/`setTheme`; `code` messages |
+| `js/markview-architecture.js` | X-Ray host (lazy-loads Cytoscape + ELK); wraps `setContent`/`setStructuredContent`/`setCodeContent`/`setTheme`; `arch` messages |
+| `js/markview-diagram-viewer.js` | Full-window pan/zoom viewer for rendered Mermaid SVGs |
+| `js/markview-d3-mermaid.js` | `%%INTERACTIVE` Mermaid → D3+dagre canvas; `generateGraph`; end-checkpoint sentinel; schedules `init` |
+| `js/markview-init.js` | Textarea input, link interception, global shortcuts, `init()` (sends `ready`) |
 | `vendor/css/markview-canvas.css` | Canvas viewer styles |
 | `vendor/MANIFEST.txt` | Supply-chain manifest (version, SHA-256, source URL, CVE check) for the CDN-sourced vendored libs |
 | `tools/web-vendor/build.sh`, `package.json`, `package-lock.json`, `codemirror-entry.js`, `xterm-entry.js` | esbuild bundling of CodeMirror (`MVCode`) and xterm (`MVTerm`); copies Cytoscape/ELK/xterm.css |
@@ -705,7 +705,7 @@ load. Reset `lastLoadedContent` when leaving the file pipeline (as `routeArchite
 
 ### Add a script module
 
-Add a `<script src="vendor/js/markview-<name>.js">` in `index.html` at the correct position of the
+Add a `<script src="js/markview-<name>.js">` in `index.html` at the correct position of the
 wrap chain (§3). Each module is a classic script; top-level `const`/`let` share the global lexical
 scope, so names must be unique across modules.
 

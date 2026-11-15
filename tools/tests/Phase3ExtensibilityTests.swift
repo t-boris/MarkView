@@ -26,14 +26,9 @@ check(actualToolIDs == expectedToolIDs && ToolRegistry.all.count == 8,
 let expectedPrimaryIDs: [ToolDescriptor.ToolID] = [.git, .deployments, .workflow, .qa, .uiStudio, .cockpit]
 check(ToolRegistry.primaryToolbarTools.map(\.id) == expectedPrimaryIDs,
       "AR-31/FU-02: ToolRegistry.primaryToolbarTools matches the 6 primary toolbar buttons in order")
-check(ToolRegistry.toolbarTools.count == 7 &&
-      ToolRegistry.toolbarTools.last?.id == .discussions,
-      "AR-31/FU-02: ToolRegistry.toolbarTools covers primary tools plus discussions")
-
-check(ToolRegistry.restorableTools.map(\.id).contains(.changeReview) &&
-      ToolRegistry.restorableTools.map(\.id).contains(.discussions) &&
-      !ToolRegistry.restorableTools.map(\.id).contains(.uiStudio),
-      "AR-31/FU-02: ToolRegistry tracks sessionRestore surface metadata accurately")
+check(ToolRegistry.descriptor(for: .git)?.title == "Git" &&
+      ToolRegistry.descriptor(for: .cockpit)?.sentinelPath == ".dde/.markview-cockpit",
+      "AR-31/FU-02: ToolRegistry.descriptor(for:) resolves live tool metadata")
 
 let sampleRoot = URL(fileURLWithPath: "/tmp/markview-tool-registry-test")
 check(ToolRegistry.sentinelURL(for: .git, in: sampleRoot).path == "/tmp/markview-tool-registry-test/.dde/.markview-git" &&

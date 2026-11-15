@@ -83,9 +83,9 @@ What it does **not** own:
 | `MarkView/Models/InsightModels.swift` | `InsightSkeleton`, `InsightSection`, `SectionType`, `InsightDeepDiveTopic`, `InsightContentType`, `SectionState` |
 | `MarkView/Models/InsightCache.swift` | Disk cache under `<folder>/.markview-insight/`: node HTML, manifest, snapshot, vendored `_assets/` |
 | `MarkView/Models/InsightArchiveExporter.swift` | Runs `/usr/bin/zip -r` to bundle an export staging dir |
-| `MarkView/Resources/Editor/vendor/js/markview-insight-srcdoc.js` | Escape helpers, lib selection, blob materialization, iframe `srcdoc` builder (with the iframe-side script and CSS) |
-| `MarkView/Resources/Editor/vendor/js/markview-insight-helpers.js` | View switching, loading overlay, breadcrumbs, status bar, 10 s iframe load timer |
-| `MarkView/Resources/Editor/vendor/js/markview-insight-handlers.js` | `stripCDNTags`, the five Swift→JS setters, the parent `message` listener with the type allowlist |
+| `MarkView/Resources/Editor/js/markview-insight-srcdoc.js` | Escape helpers, lib selection, blob materialization, iframe `srcdoc` builder (with the iframe-side script and CSS) |
+| `MarkView/Resources/Editor/js/markview-insight-helpers.js` | View switching, loading overlay, breadcrumbs, status bar, 10 s iframe load timer |
+| `MarkView/Resources/Editor/js/markview-insight-handlers.js` | `stripCDNTags`, the five Swift→JS setters, the parent `message` listener with the type allowlist |
 
 All three JS files are plain globals loaded by `index.html:1579-1581`. They rely on
 `state`, `DOM` and `sendToSwift` defined in `index.html`.

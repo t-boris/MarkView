@@ -2,7 +2,7 @@
 // Run with tools/tests/document-files-tests.sh (node, no packages).
 'use strict';
 const assert = require('node:assert');
-const { pictureURL, pictureSrcset } = require('../../MarkView/Resources/Editor/vendor/js/markview-document-files.js');
+const { pictureURL, pictureSrcset } = require('../../MarkView/Resources/Editor/js/markview-document-files.js');
 
 const base = 'file:///Users/boris/my%20project/docs/';
 let failures = 0;

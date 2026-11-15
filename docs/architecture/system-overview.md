@@ -23,7 +23,7 @@ headless indexer, shells).
 | Layer | Technology |
 |---|---|
 | Language / UI | Swift 5.9, SwiftUI with AppKit bridges (`NSViewRepresentable`, `NSOpenPanel`, `NSWorkspace`) |
-| Rendering | `WKWebView` hosting `MarkView/Resources/Editor/index.html` + `vendor/js/markview-*.js` (plain script files, shared globals) |
+| Rendering | `WKWebView` hosting `MarkView/Resources/Editor/index.html` + `js/markview-*.js` (plain script files, shared globals) |
 | Web libraries | markdown-it (+ plugins), DOMPurify, Turndown, Mermaid, KaTeX, Prism, CodeMirror 6, Cytoscape + ELK, Chart.js, js-yaml, xterm.js (all bundled locally under `Resources/Editor/vendor/js`) |
 | Storage | SQLite3 C API (WAL, FTS5) at `<workspace>/.dde/state.db`; JSON caches; Markdown files with YAML front matter; UserDefaults; Keychain (OpenAI key); rotating JSONL logs |
 | AI | CLI subprocesses: `claude -p` stream-json, `codex exec --json`, `agy` (Antigravity), ACP JSON-RPC over stdio for Cline/Copilot; OpenAI HTTP for Whisper |

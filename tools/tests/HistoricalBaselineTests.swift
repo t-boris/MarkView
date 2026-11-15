@@ -1,6 +1,6 @@
 import Foundation
 
-// Standalone checks for MarkView/Models/HistoricalBaseline.swift (feature x-ray-comparison-by-date, REQ-001, REQ-002).
+// Standalone checks for MarkView/Models/Architecture/HistoricalBaseline.swift (feature x-ray-comparison-by-date, REQ-001, REQ-002).
 // Run through tools/tests/historical-baseline-tests.sh. The last group runs real git in a temporary repository.
 
 var failures = 0

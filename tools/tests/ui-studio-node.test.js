@@ -1,4 +1,4 @@
-// Checks UI Studio's Node preload (MarkView/Resources/Editor/vendor/js/markview-ui-studio-node.cjs) the way a
+// Checks UI Studio's Node preload (MarkView/Resources/Editor/js/markview-ui-studio-node.cjs) the way a
 // development server runs it: every scenario is a separate node process started with NODE_OPTIONS=--require and
 // MARKVIEW_STUDIO_CLOCK, while this driver keeps the real clock. The test clock and locale belong to request handlers
 // only, so most scenarios serve requests (often to themselves) and compare what a handler sees with what code outside

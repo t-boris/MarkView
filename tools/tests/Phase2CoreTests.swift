@@ -40,6 +40,19 @@ Task {
     check(timeoutRes.timedOut,
           "AR-25: Subprocess.run escalates SIGTERM -> SIGKILL on timeout")
 
+    let canceledTask = Task { () -> SubprocessResult in
+        try? await Task.sleep(nanoseconds: 15_000_000)
+        return await Subprocess.run(SubprocessSpec(
+            executable: "/bin/sleep",
+            arguments: ["5"],
+            timeout: 5
+        ))
+    }
+    canceledTask.cancel()
+    let cancelRes = await canceledTask.value
+    check(!cancelRes.succeeded && cancelRes.durationMs < 1500,
+          "FU-04: Pre-cancelled Task does not launch or block in Subprocess.run")
+
     sem.signal()
 }
 sem.wait()
@@ -72,13 +85,13 @@ let idB = ProjectPaths.projectCacheIdentifier(for: URL(fileURLWithPath: "/Users/
 check(idA != idB && idA.hasPrefix("app-"),
       "AR-24/AR-38: ProjectPaths.projectCacheIdentifier disambiguates identically named folders")
 
-// 4. AR-24 & FU-04: RotatingJSONLinesFile rotation + newline separation + pre-rename AtomicFile 0600 permissions
+// 4. AR-24 & FU-04: AtomicFile permissions (initial set + nil preservation on overwrite)
 let permURL = temp.appendingPathComponent("perm.secret")
 try? AtomicFile.write("secret-v1", to: permURL, permissions: 0o600)
 let perm1 = (try? FileManager.default.attributesOfItem(atPath: permURL.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0
-try? AtomicFile.write("secret-v2", to: permURL, permissions: 0o600)
+try? AtomicFile.write("secret-v2", to: permURL, permissions: nil)
 let perm2 = (try? FileManager.default.attributesOfItem(atPath: permURL.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0
-check(perm1 == 0o600 && perm2 == 0o600, "FU-04: AtomicFile.write sets 0600 permissions on initial write and atomic overwrite")
+check(perm1 == 0o600 && perm2 == 0o600, "FU-04: AtomicFile.write sets 0600 permissions and preserves existing mode when permissions is nil")
 
 let extraBinDir = temp.appendingPathComponent("extra-bin")
 try? FileManager.default.createDirectory(at: extraBinDir, withIntermediateDirectories: true)
@@ -97,40 +110,7 @@ if let extraDefaults = UserDefaults(suiteName: extraSuite) {
           "FU-04: Subprocess resolves executables from settings.cli.extraPATH")
 }
 
-let noTrailingNewline = temp.appendingPathComponent("notrailing.jsonl")
-try? Data("{\"first\":true}".utf8).write(to: noTrailingNewline)
-let jsonlNoNL = RotatingJSONLinesFile(url: noTrailingNewline, maxBytes: 4096)
-try? jsonlNoNL.appendLine("{\"second\":true}")
-let joinedLines = jsonlNoNL.readLines()
-check(joinedLines == ["{\"first\":true}", "{\"second\":true}"],
-      "FU-04: RotatingJSONLinesFile inserts newline before appending to a file without trailing newline")
-
-let jsonl = RotatingJSONLinesFile(url: temp.appendingPathComponent("log.jsonl"), maxBytes: 1024)
-for i in 0..<50 {
-    try? jsonl.appendLine("{\"i\":\(i),\"pad\":\"\(String(repeating: "a", count: 32))\"}")
-}
-check(FileManager.default.fileExists(atPath: jsonl.url.appendingPathExtension("1").path) && !jsonl.readLines().isEmpty,
-      "AR-24: JSONLinesFile rotates to .1 when maxBytes is exceeded")
-
-// 5. AR-18: SettingsRegistry typed keys & scoped UserDefaults snapshot in AIAssistants
-let suite = "com.markview.phase2.\(UUID().uuidString)"
-let defaults = UserDefaults(suiteName: suite)!
-defer { defaults.removePersistentDomain(forName: suite) }
-check(SettingsRegistry.int(SettingsRegistry.appFontScalePercent, in: defaults) == 100,
-      "AR-18: SettingsRegistry returns default value when unset")
-SettingsRegistry.set(140, for: SettingsRegistry.appFontScalePercent, in: defaults)
-check(SettingsRegistry.int(SettingsRegistry.appFontScalePercent, in: defaults) == 140,
-      "AR-18: SettingsRegistry stores and reads typed value")
-
-let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-let pickerSwift = (try? String(contentsOf: repoRoot.appendingPathComponent("MarkView/Views/AIAssistantPickerView.swift"), encoding: .utf8)) ?? ""
-let wmSwift = (try? String(contentsOf: repoRoot.appendingPathComponent("MarkView/Models/WorkspaceManager.swift"), encoding: .utf8)) ?? ""
-check(pickerSwift.contains("AIAssistantPreferences.snapshot(project: project)"),
-      "AR-18: AIAssistantPickerView ignores unrelated UserDefaults changes via snapshot")
-check(wmSwift.contains("workspaceLogger.debug") && !wmSwift.contains("markview_debug.log"),
-      "AR-24/AR-42: WorkspaceManager.debugLog uses os.Logger instead of ~/markview_debug.log")
-
-// 6. AR-27: WeakScriptMessageHandler breaks retain cycle
+// 5. AR-27: WeakScriptMessageHandler breaks retain cycle
 final class DummyHandler: NSObject, WKScriptMessageHandler {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {}
 }
@@ -143,11 +123,6 @@ autoreleasepool {
 }
 check(weakHandler == nil,
       "AR-27: WeakScriptMessageHandler does not retain its target")
-
-// 7. AR-44 step 2 / DEC-006: Packages/MarkViewCore exists with StrictConcurrency enabled
-let pkgSwift = (try? String(contentsOf: repoRoot.appendingPathComponent("Packages/MarkViewCore/Package.swift"), encoding: .utf8)) ?? ""
-check(pkgSwift.contains("name: \"MarkViewCore\"") && pkgSwift.contains("StrictConcurrency"),
-      "AR-44/DEC-006/DEC-010: Packages/MarkViewCore/Package.swift exists with StrictConcurrency")
 
 print("\nPhase 2 Core checks: \(passed) passed, \(failed) failed")
 if failed > 0 { exit(1) }

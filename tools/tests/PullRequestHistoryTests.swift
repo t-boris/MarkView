@@ -1,6 +1,6 @@
 import Foundation
 
-// Standalone checks for MarkView/Models/PullRequestHistory.swift (BUG-034).
+// Standalone checks for MarkView/Models/Git/PullRequestHistory.swift (BUG-034).
 // Run through tools/tests/pull-request-history-tests.sh.
 
 var failures = 0

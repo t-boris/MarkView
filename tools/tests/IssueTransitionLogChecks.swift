@@ -1,4 +1,4 @@
-// Checks the transition service and its history (MarkView/Models/IssueTransitionLog.swift) against REQ-004 criterion 1,
+// Checks the transition service and its history (MarkView/Models/Lifecycle/IssueTransitionLog.swift) against REQ-004 criterion 1,
 // REQ-005 criteria 2, 3 and 5, REQ-001 criterion 3 and DEC-014 of docs/features/issue-lifecycle-management.
 import Foundation
 

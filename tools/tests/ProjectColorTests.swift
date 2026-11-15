@@ -1,4 +1,4 @@
-// Checks project colors (MarkView/Models/ProjectColor.swift) against feature-2 DEC-008, DEC-009,
+// Checks project colors (MarkView/Models/Appearance/ProjectColor.swift) against feature-2 DEC-008, DEC-009,
 // DEC-010 and DEC-014: palette, project key, name-based automatic color, chosen colors.
 import Foundation
 

@@ -1,6 +1,6 @@
 import Foundation
 
-// Standalone checks for MarkView/Models/EditorDocumentRouting.swift (BUG-031).
+// Standalone checks for MarkView/Models/Workspace/EditorDocumentRouting.swift (BUG-031).
 // Run through tools/tests/editor-document-routing-tests.sh.
 
 var failures = 0

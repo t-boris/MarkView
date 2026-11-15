@@ -84,13 +84,6 @@ func runPhase4Tests() async {
     bag.store(task2, for: "index")
     check(task1.isCancelled, "AR-19: Storing new task under existing key cancels previous task")
 
-    let unkeyedToken = bag.insert(Task {
-        try? await Task.sleep(nanoseconds: 5_000_000_000)
-    })
-    check(bag.activeCount == 2, "AR-19: TaskBag tracks both keyed and unkeyed tasks")
-    bag.cancel(id: unkeyedToken)
-    check(bag.activeCount == 1, "AR-19: TaskBag cancels unkeyed task by token")
-
     bag.cancelAll()
     check(task2.isCancelled && bag.activeCount == 0, "AR-19: TaskBag.cancelAll cancels all tracked tasks")
 

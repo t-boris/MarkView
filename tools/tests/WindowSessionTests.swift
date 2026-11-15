@@ -101,7 +101,20 @@ import Foundation
             if case .newerSchemaVersion = err { refusedOverwrite = true }
         }
         let stillFutureBytes = try Data(contentsOf: url)
-        check(refusedOverwrite && stillFutureBytes == futureBytes, "newer schema archives are never overwritten on save")
+        check(refusedOverwrite && stillFutureBytes == futureBytes, "newer archive payload versions are never overwritten on save")
+        let futureEnvelope = #"{"schema":99,"updatedAt":"2026-11-15T00:00:00Z","data":{"version":1,"windows":[]}}"#
+        try Data(futureEnvelope.utf8).write(to: url)
+        let newerSchemaLoaded = await storage.load()
+        check(newerSchemaLoaded == nil, "newer schema envelopes are rejected")
+        let envelopeBytes = try Data(contentsOf: url)
+        var refusedEnvelopeOverwrite = false
+        do {
+            try await storage.save(WindowSessionArchive(windows: [first]), revision: 8)
+        } catch let err as SchemaStoreError {
+            if case .newerSchemaVersion = err { refusedEnvelopeOverwrite = true }
+        }
+        let stillEnvelopeBytes = try Data(contentsOf: url)
+        check(refusedEnvelopeOverwrite && stillEnvelopeBytes == envelopeBytes, "newer schema envelopes are never overwritten on save")
         let permsURL = url.deletingLastPathComponent().appendingPathComponent("perms-session.json")
         try await WindowSessionStorage(url: permsURL).save(WindowSessionArchive(windows: [first]), revision: 1)
         let posixPerms = (try FileManager.default.attributesOfItem(atPath: permsURL.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0

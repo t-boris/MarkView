@@ -8,17 +8,17 @@ and a local Swift package (`Packages/MarkViewCore`) providing pure domain logic 
 shared infrastructure (`Core/`).
 
 The editor used by the app lives in `MarkView/Resources/Editor/`. In particular,
-`index.html`, `vendor/js/mv-kit.js`, and `vendor/js/markview-*.js` are the shipping
+`index.html`, `js/mv-kit.js`, and `js/markview-*.js` are the shipping
 implementation.
 
 ## Repository Map
 
 - `MarkView/App/`: application entry point, window scenes, Finder open handoff (`MarkViewApp.swift`)
-- `Packages/MarkViewCore/`: local Swift package linked into `MarkView` (`Subprocess`, `PathSafety`, `AtomicFile`, `SingleFlight`, `RotatingJSONLinesFile`, `MarkViewPaths`, `ContentDigest`, `SettingsRegistry`, `WebHost`, `WeakScriptMessageHandler`) with `swift test` target (`MarkViewCoreTests`)
-- `MarkView/Views/`: SwiftUI views and `WKWebView` coordination (`EditorView`, `ContentView`, etc.)
-- `MarkView/Models/`: workspace (`WorkspaceManager`, `DocumentScrollSideTable`, `TaskBag`, `PanelLayout`), AI (`AIOperation`, `AssistantProviderRegistry`, `CLICompletion`), indexing (`SemanticDatabase`), storage (`SchemaVersionedStore`, `WindowSessionStorage`), registries (`ToolRegistry`), search, browser control (`BrowserControlServer`), and Git behavior
+- `Packages/MarkViewCore/`: local Swift package linked into `MarkView` (`Subprocess`, `AtomicFile`, `ProjectPaths`, `WeakScriptMessageHandler`) with `swift test` target (`MarkViewCoreTests`)
+- `MarkView/Views/`: SwiftUI views and `WKWebView` coordination organized into 19 domain subfolders (`Workspace/`, `Lifecycle/`, `Cockpit/`, `QA/`, `UIStudio/`, `Appearance/`, etc.; `EditorView`, `ContentView`, etc.)
+- `MarkView/Models/`: domain-organized across 21 domain subfolders (`AI/`, `AgentTools/`, `Appearance/`, `Architecture/`, `Book/`, `Browser/`, `Cockpit/`, `Deployments/`, `Dictation/`, `Discussion/`, `Git/`, `Insight/`, `Lifecycle/`, `ProjectOps/`, `Prototype/`, `QA/`, `Remote/`, `Research/`, `Terminal/`, `UIStudio/`, `Workspace/`) with single-responsibility files (`DocumentScrollSideTable`, `TaskBag`, `MarkdownDocumentChunker`, `AIOperation`, `AssistantProviderRegistry`, `SchemaVersionedStore`, `WorkspaceManager`, `ToolRegistry`, `SemanticDatabase`, `BrowserControlServer`)
 - `MarkView/Bridge/`: Swift-to-JavaScript bridge (`WebViewBridge`) and PDF export
-- `MarkView/Resources/Editor/`: bundled HTML, JavaScript (`mv-kit.js`, `markview-*.js`), CSS, and vendor assets (including `dompurify.min.js` and `turndown.js`)
+- `MarkView/Resources/Editor/`: bundled HTML (`index.html`, `terminal.html`, `discussion.html`, `book.html`), first-party JavaScript under `js/` (`mv-kit.js`, `markview-*.js`), and third-party vendor bundles under `vendor/` (`dompurify.min.js`, `turndown.js`, etc.)
 - `Tests/Fixtures/` and `TestFiles/`: manual and fixture data, plus `tools/tests/` automated test suites (`tools/tests/run.sh` and `tools/tests/manifest.json`)
 - `MarkView.xcodeproj`: canonical Xcode project (XcodeGen and `project.yml` have been retired)
 - `tools/web-vendor/`: builds the bundled CodeMirror, Cytoscape, ELK, xterm.js, DOMPurify, and Turndown files in
@@ -40,8 +40,10 @@ implementation.
   JavaScript (`mv-kit.js` / `markview-bridge.js`).
 - Keep UI state mutations on `@MainActor`; move file, database, network, and
   child-process work off the main thread (`SWIFT_STRICT_CONCURRENCY = targeted` is enabled).
-- Never call `Process.waitUntilExit()` on the main thread. Use `MarkViewCore.Subprocess` so pipes
-  are drained concurrently with waiting and bounded by timeouts and output caps.
+- Never call `Process.waitUntilExit()` on the main thread. Use `MarkViewCore.Subprocess` for
+  new and migrated child-process call sites (currently adopted in `InsightArchiveExporter`;
+  remaining `Process()` call sites are tracked under `AR-25`) so pipes are drained concurrently
+  with waiting and bounded by timeouts and output caps.
 - For a hang or beachball, collect evidence first with
   `/usr/bin/sample <pid> 3` and inspect thread 0.
 - Treat API keys and document contents as sensitive. Do not print credentials,
