@@ -1281,7 +1281,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Workspace/FinderOpenRequests.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PollingScheduler.swift",
         "tools/tests/FinderOpenRequestsTests.swift",
         "tools/tests/finder-open-requests-tests.sh"
       ]

@@ -1,6 +1,9 @@
 import Foundation
 import AVFoundation
 import Combine
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Dictation into a text field (the intake sheet): click to record, click again to stop, and the
 /// whole transcript goes to the field once it is transcribed (Whisper with an OpenAI key, macOS's
@@ -41,7 +44,8 @@ final class DictationController: ObservableObject {
 
     private let whisper = WhisperClient()
     private var insert: ((String) -> Void)?
-    private var ticker: Timer?
+    /// The recording clock, a job of the app's scheduler that keeps running in the background: the recorder's time cap is enforced by it (`AR-19`).
+    private let tickerKey = "dictation-ticker-" + UUID().uuidString
     /// Bumped on every start and cancel: a transcript from an older recording is dropped.
     private var session = 0
     private var subscriptions = Set<AnyCancellable>()
@@ -146,15 +150,15 @@ final class DictationController: ObservableObject {
     }
 
     private func startTicker() {
-        ticker?.invalidate()
-        ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+        let key = tickerKey
+        PollingScheduler.app.every(0.5, key: key, pausesWhenHidden: false) { [weak self] in
+            guard let self else { PollingScheduler.app.stop(key: key); return }
+            self.tick()
         }
     }
 
     private func stopTicker() {
-        ticker?.invalidate()
-        ticker = nil
+        PollingScheduler.app.stop(key: tickerKey)
     }
 
     private func tick() {

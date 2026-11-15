@@ -47,6 +47,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
     let tabs = TabsController()
     /// Keyed cancellable background task bag owned by this window (`AR-19`).
     let taskBag = TaskBag()
+    /// The polls of this window run while the app is active and this window is on screen (`AR-19`); closing the window ends them.
+    let polling = PollingScheduler()
     /// AI tool runs working in a headless agent (diagrams, code map, review, audit).
     let aiJobs = AIToolJobs()
 
@@ -107,7 +109,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
     private(set) lazy var translator = DocumentTranslator(tabs: tabs, project: project, tasks: taskBag)
     /// The terminals of this window: the AI panel's, the editor tabs', the AI terminals that come back across launches, and what the
     /// assistants are doing.
-    private(set) lazy var terminals = AITerminalsController(host: self, project: project, tasks: taskBag)
+    private(set) lazy var terminals = AITerminalsController(host: self, project: project, tasks: taskBag, polling: polling)
     /// The browser of this window: its tabs, what agents drive of them, Preview Web App and the picked page element (`AR-14` step 9).
     private(set) lazy var browser = BrowserHost(tabs: tabs, layout: layout, chrome: chrome, project: project, terminals: terminals, window: self)
     /// Code explanations, code navigation, the X-Ray tabs and the AI actions on selected text (`AR-14` step 11).
@@ -155,8 +157,10 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
             .sink { [weak self] repo in self?.codeXRay.architecture.review.gitHubRepo = repo }
             .store(in: &cancellables)
 
+        project.fileTree.polling = polling
+        tabs.polling = polling
         project.fileTree.onTimer = { [weak self] in
-            guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating, NSApp.isActive else { return }
+            guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating else { return }
             Task { await self.gitClient.refreshStatus() }
         }
         project.objectWillChange
@@ -635,7 +639,9 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
     // MARK: - Host window
 
     /// The window this workspace is shown in; set by its view. Control tools list, focus and name windows by it.
-    weak var hostWindow: NSWindow?
+    weak var hostWindow: NSWindow? {
+        didSet { if let hostWindow, hostWindow !== oldValue { polling.follow(window: hostWindow) } }
+    }
 
     /// A window with nothing open: no folder, no tab. Agents may open a project in it; they never replace a project.
     var isBlank: Bool { rootNode == nil && openTabs.isEmpty }

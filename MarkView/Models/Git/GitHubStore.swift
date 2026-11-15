@@ -73,7 +73,9 @@ final class GitHubStore: ObservableObject {
     private(set) var branch = ""
     /// Bumped on every reset and repository change; async results of an older one are dropped.
     private var generation = 0
-    private var pollTask: Task<Void, Never>?
+    /// The poll of Actions, a job of the app's scheduler (`AR-19`): paused while the app is in the background.
+    private let pollKey = "github-store-" + UUID().uuidString
+    var polling = PollingScheduler.app
     private var loadingBranchRuns = false
     private var loadingMetadata = false
     /// Runs seen active, to notify when they finish.
@@ -115,8 +117,7 @@ final class GitHubStore: ObservableObject {
 
     func reset() {
         generation += 1
-        pollTask?.cancel()
-        pollTask = nil
+        polling.stop(key: pollKey)
         root = nil
         branch = ""
         repos = []
@@ -334,20 +335,18 @@ final class GitHubStore: ObservableObject {
     // MARK: Polling and notifications
 
     private func startPolling() {
-        pollTask?.cancel()
+        polling.stop(key: pollKey)
         guard selectedRepo != nil else { return }
         if let client { onPoll?(client) }
-        pollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                let active = self?.anyRunActive ?? false
-                let seconds = active ? GitHubSettings.activeInterval : GitHubSettings.idleInterval
-                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                guard !Task.isCancelled, let self else { return }
-                self.refreshRuns()
-                self.refreshBranchRuns()
-                for model in self.runModels.values where model.isLive { model.refresh() }
-                if let client = self.client { self.onPoll?(client) }
-            }
+        let key = pollKey, polling = polling
+        polling.every(key: key, interval: { [weak self] in
+            (self?.anyRunActive ?? false) ? GitHubSettings.activeInterval : GitHubSettings.idleInterval
+        }) { [weak self] in
+            guard let self else { polling.stop(key: key); return }
+            self.refreshRuns()
+            self.refreshBranchRuns()
+            for model in self.runModels.values where model.isLive { model.refresh() }
+            if let client = self.client { self.onPoll?(client) }
         }
     }
 

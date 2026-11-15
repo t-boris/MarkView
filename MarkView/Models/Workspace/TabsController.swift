@@ -102,6 +102,8 @@ final class TabsController: ObservableObject {
     /// Background work of the tabs: loading a document, the check for files that changed on disk, a data file's notes. Cancelled with
     /// the window (`shutdown`), keyed so a second request replaces the first.
     private let tasks = TaskBag()
+    /// The window's scheduler, which runs the watch of open files only while the window is on screen (`AR-19`); the window sets its own.
+    var polling = PollingScheduler.app
     /// Last seen modification dates of open files (to reload what the assistant changed).
     private var openFileDates: [URL: Date] = [:]
     /// Bumped whenever the tabs are emptied, so a document that was still loading for the old folder is dropped when it arrives.
@@ -641,22 +643,22 @@ final class TabsController: ObservableObject {
     // MARK: - Files that change on disk
 
     /// While terminals run, reload open files an assistant (or a command) changed on disk —
-    /// only tabs without unsaved edits, so nothing typed here is lost. The loop checks every two seconds; the disk is read
-    /// off the main thread and one check ends before the next begins (`AR-42`).
+    /// only tabs without unsaved edits, so nothing typed here is lost. The loop checks every two seconds while the window is on screen
+    /// (the window's `PollingScheduler`, `AR-19`); the disk is read off the main thread and one check ends before the next begins (`AR-42`).
     func startWatchingOpenFiles() {
-        guard !tasks.contains(key: "watch") else { return }
-        tasks.store(Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                guard let self, !Task.isCancelled else { return }
-                await self.reloadChangedOpenFiles()
-            }
-        }, for: "watch")
+        guard !polling.keys.contains(Self.watchKey) else { return }
+        let polling = polling
+        polling.every(2, key: Self.watchKey) { [weak self] in
+            guard let self else { polling.stop(key: Self.watchKey); return }
+            await self.reloadChangedOpenFiles()
+        }
     }
 
     func stopWatchingOpenFiles() {
-        tasks.cancel(key: "watch")
+        polling.stop(key: Self.watchKey)
     }
+
+    private static let watchKey = "watch-open-files"
 
     /// `all` reloads every unmodified tab whose file differs, not only files newer than last seen
     /// (a branch switch can restore older modification dates).
@@ -723,6 +725,7 @@ final class TabsController: ObservableObject {
     /// The window is closing: nothing the tabs started keeps running, and the UI Studio sessions end with it.
     func shutdown() {
         closeUIStudioSessions()
+        stopWatchingOpenFiles()
         tasks.cancelAll()
     }
 }

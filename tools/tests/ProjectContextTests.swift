@@ -56,6 +56,7 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         try await singleFileDatabase(base)
         try await blockDeltas(base)
         try await staleTreeReload(base)
+        try await watchPoll(base)
 
         if failures > 0 { print("\(failures) check(s) FAILED"); exit(1) }
         print("Project context checks passed")
@@ -370,5 +371,32 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         context.closeFolder()
         try await Task.sleep(nanoseconds: 1_000_000_000)
         check(context.rootNode == nil && context.root == nil, "a rebuild that finishes after the folder closed does not bring the old tree back")
+    }
+
+    // MARK: - The folder watch is a job of the window's scheduler, and ends with the folder and the window
+
+    static func watchPoll(_ base: URL) async throws {
+        let project = base.appendingPathComponent("watch-proj", isDirectory: true)
+        try write("# One\n", to: project.appendingPathComponent("one.md"))
+        let context = ProjectContext(recentFilesURL: base.appendingPathComponent("recent-watch.json"))
+        let polling = PollingScheduler()
+        context.fileTree.polling = polling
+        context.beginOpening(project)
+        _ = await context.loadTree(of: project)
+        check(polling.keys.isEmpty, "a folder that is not watched polls nothing")
+        context.fileTree.startWatchingCurrentRoot()
+        check(polling.keys.count == 1 && polling.runningCount == 1, "watching the folder starts one poll in the window's scheduler")
+        polling.setAppActive(false)
+        check(polling.runningCount == 0, "an app in the background does not poll the folder")
+        polling.setAppActive(true)
+        check(polling.runningCount == 1, "and does again when it is back")
+        context.fileTree.stopWatching()
+        check(polling.keys.isEmpty, "stopping the watch ends the poll")
+        context.fileTree.startWatchingCurrentRoot()
+        context.closeFolder()
+        check(polling.keys.isEmpty, "closing the folder ends the poll")
+        context.fileTree.startWatchingCurrentRoot()
+        check(polling.keys.isEmpty, "a closed folder has no root to watch")
+        polling.stopAll()
     }
 }

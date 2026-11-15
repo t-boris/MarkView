@@ -96,7 +96,9 @@ final class DeploymentStore: ObservableObject {
     private(set) var hasScanned = false
     /// Asked to bring the Deployments tab forward (an approval is waiting).
     var onNeedsAttention: (() -> Void)?
-    private var autoTask: Task<Void, Never>?
+    /// The 30 s refresh of every environment, a job of the app's scheduler (`AR-19`): paused while the app is in the background.
+    private let autoKey = "deployments-auto-" + UUID().uuidString
+    var polling = PollingScheduler.app
     private var queue: [DeploymentApproval] = []
 
     // MARK: Files
@@ -108,7 +110,7 @@ final class DeploymentStore: ObservableObject {
 
     func setRoot(_ url: URL?) {
         guard url?.standardizedFileURL != root?.standardizedFileURL else { return }
-        autoTask?.cancel()
+        polling.stop(key: autoKey)
         root = url
         environments = []; states = [:]; suggestions = []; log = []; selected = nil; hasScanned = false
         defer { loadLog() }
@@ -305,18 +307,16 @@ final class DeploymentStore: ObservableObject {
     }
 
     private func restartAuto() {
-        autoTask?.cancel()
+        polling.stop(key: autoKey)
         guard autoRefresh else { return }
-        autoTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 30 * 1_000_000_000)
-                guard let self, !Task.isCancelled else { return }
-                self.refreshAll()
-            }
+        let key = autoKey, polling = polling
+        polling.every(30, key: key) { [weak self] in
+            guard let self else { polling.stop(key: key); return }
+            self.refreshAll()
         }
     }
 
-    func stopAuto() { autoTask?.cancel() }
+    func stopAuto() { polling.stop(key: autoKey) }
 
     // MARK: Running commands
 

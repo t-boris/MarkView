@@ -5,5 +5,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library -o "$out/finder-open-requests-tests" \
-    MarkView/Models/Workspace/TaskBag.swift MarkView/Models/Workspace/FinderOpenRequests.swift tools/tests/FinderOpenRequestsTests.swift
+    Packages/MarkViewCore/Sources/MarkViewCore/PollingScheduler.swift MarkView/Models/Workspace/FinderOpenRequests.swift tools/tests/FinderOpenRequestsTests.swift
 "$out/finder-open-requests-tests"

@@ -41,7 +41,9 @@ final class FeatureStore: ObservableObject {
     /// True once the project's features and bugs were read at least once since the folder was opened: only then is an empty list a
     /// project without items rather than a list not read yet.
     private(set) var hasLoaded = false
-    private var pollTask: Task<Void, Never>?
+    /// The 60 s look at the lifecycle and the files, a job of the app's scheduler (`AR-19`).
+    private let pollKey = "feature-store-" + UUID().uuidString
+    var polling = PollingScheduler.app
     private var changeMonitor: ProjectChangeMonitor?
     private var changeDebounce: Task<Void, Never>?
     private var fingerprint = ""
@@ -101,15 +103,13 @@ final class FeatureStore: ObservableObject {
                 }
             }
         }
-        pollTask = Task { [weak self] in
-            var tick = 0
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 60_000_000_000)
-                guard let self, !Task.isCancelled else { return }
-                self.syncLifecycleWithGit()
-                tick += 1
-                if tick % 2 == 0 { self.reloadIfChanged() } // A fallback if the event stream is unavailable.
-            }
+        var tick = 0
+        let key = pollKey, polling = polling
+        polling.every(60, key: key) { [weak self] in
+            guard let self else { polling.stop(key: key); return }
+            self.syncLifecycleWithGit()
+            tick += 1
+            if tick % 2 == 0 { self.reloadIfChanged() } // A fallback if the event stream is unavailable.
         }
     }
 
@@ -117,8 +117,7 @@ final class FeatureStore: ObservableObject {
         generation += 1
         if let project = lifecycleProject { LifecycleLog.shared.release(project, by: self) }
         lastLifecycleSync = nil
-        pollTask?.cancel()
-        pollTask = nil
+        polling.stop(key: pollKey)
         changeDebounce?.cancel()
         changeDebounce = nil
         changeMonitor = nil

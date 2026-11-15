@@ -194,6 +194,41 @@ final class PollingSchedulerTests: XCTestCase {
         scheduler.stopAll()
     }
 
+    func testAnInboxJobKeepsItsCadenceWhileTheAppIsInTheBackground() async {
+        let clock = ManualClock()
+        let scheduler = make(clock: clock)
+        let inbox = Counter()
+        let poll = Counter()
+        scheduler.every(1, key: "inbox", pausesWhenHidden: false) { inbox.runs += 1 }
+        scheduler.every(1, key: "poll") { poll.runs += 1 }
+        await settle { clock.sleepers == 2 }
+        scheduler.setAppActive(false)
+        await settle { clock.sleepers == 1 }
+        XCTAssertEqual(clock.sleepers, 1, "only the job that pauses stops sleeping")
+        clock.advance(1)
+        await ticked(inbox, 1)
+        XCTAssertEqual(inbox.runs, 1, "a job that listens for another process still runs in the background")
+        XCTAssertEqual(poll.runs, 0, "and an ordinary poll does not")
+        scheduler.stopAll()
+    }
+
+    func testAJobCanChangeItsCadenceBetweenRuns() async {
+        let clock = ManualClock()
+        let scheduler = make(clock: clock)
+        let counter = Counter()
+        var busy = false
+        scheduler.every(key: "runs", interval: { busy ? 2 : 10 }) { counter.runs += 1; busy = true }
+        await settle { clock.sleepers == 1 }
+        clock.advance(10)
+        await ticked(counter, 1)
+        XCTAssertEqual(counter.runs, 1, "the first wait is the idle interval")
+        await settle { clock.sleepers == 1 }
+        clock.advance(2)
+        await ticked(counter, 2)
+        XCTAssertEqual(counter.runs, 2, "the next wait follows what the job reports now")
+        scheduler.stopAll()
+    }
+
     func testSchedulingAKeyAgainReplacesAndStopEndsTheJob() async {
         let clock = ManualClock()
         let scheduler = make(clock: clock)

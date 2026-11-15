@@ -87,6 +87,7 @@ final class SharedSearchModel: ObservableObject {
             if result.scope == .content {
                 // An FTS match may contain separated query terms; the first term still locates the passage.
                 let text = result.line == nil ? String(query.split(whereSeparator: { $0.isWhitespace }).first ?? "") : query
+                // task: posts one notification 0.4 s after the file opened; it owns nothing
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     NotificationCenter.default.post(.scrollToText, for: workspaceManager, object: text)
                 }

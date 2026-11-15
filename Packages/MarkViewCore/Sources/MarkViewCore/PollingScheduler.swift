@@ -8,6 +8,7 @@ import Foundation
 /// miniaturized). When either ends, every job stops where it is, including a run in progress, and nothing ticks until both are back;
 /// then a job whose interval has passed runs at once, and the others wait for what is left of theirs. A job is keyed: scheduling a key
 /// again replaces the job, and `stop`/`stopAll` end it, so the owner (a window, a tool tab, the app) cancels everything it started.
+/// A job that listens for another process (an inbox a different app writes to) can opt out of pausing with `pausesWhenHidden: false`.
 ///
 /// The clock and the sleep are parameters so a test drives time by hand; nothing in the app sets them.
 @MainActor
@@ -16,7 +17,8 @@ public final class PollingScheduler {
     public typealias Now = @Sendable () -> Date
 
     private struct Job {
-        var interval: TimeInterval
+        var interval: @MainActor () -> TimeInterval
+        var pauses: Bool
         var body: @MainActor () async -> Void
         var lastRun: Date
         var task: Task<Void, Never>?
@@ -27,7 +29,8 @@ public final class PollingScheduler {
     private let now: Now
     private var appActive: Bool
     private var windowVisible = true
-    private var observers: Set<AnyCancellable> = []
+    private var appObservers: Set<AnyCancellable> = []
+    private var windowObservers: Set<AnyCancellable> = []
 
     /// The scheduler of the app's own, long-lived work (the Finder hand-off, the usage chip, agent logs): it follows whether the app is
     /// active and has no window. A window's polls use the scheduler its window made with `follow(window:)`.
@@ -52,11 +55,19 @@ public final class PollingScheduler {
     /// How many scheduled jobs are waiting for their next run (not paused).
     public var runningCount: Int { jobs.values.filter { $0.task != nil }.count }
 
-    /// Runs `body` every `interval` seconds while visible, replacing the job of that key. With `immediately` the first run is now.
-    public func every(_ interval: TimeInterval, key: String, immediately: Bool = false, _ body: @escaping @MainActor () async -> Void) {
+    /// Runs `body` every `interval` seconds while visible, replacing the job of that key. With `immediately` the first run is now. A job
+    /// with `pausesWhenHidden: false` keeps its cadence while the app is in the background.
+    public func every(_ interval: TimeInterval, key: String, immediately: Bool = false, pausesWhenHidden: Bool = true,
+                      _ body: @escaping @MainActor () async -> Void) {
+        every(key: key, immediately: immediately, pausesWhenHidden: pausesWhenHidden, interval: { interval }, body)
+    }
+
+    /// The same for a job whose cadence changes: `interval` is asked before each wait (GitHub checks more often while a run is active).
+    public func every(key: String, immediately: Bool = false, pausesWhenHidden: Bool = true, interval: @escaping @MainActor () -> TimeInterval,
+                      _ body: @escaping @MainActor () async -> Void) {
         jobs[key]?.task?.cancel()
-        jobs[key] = Job(interval: interval, body: body, lastRun: immediately ? .distantPast : now(), task: nil)
-        start(key, after: immediately ? 0 : interval)
+        jobs[key] = Job(interval: interval, pauses: pausesWhenHidden, body: body, lastRun: immediately ? .distantPast : now(), task: nil)
+        start(key, after: immediately ? 0 : interval())
     }
 
     /// Ends the job of `key`.
@@ -69,7 +80,8 @@ public final class PollingScheduler {
         let all = jobs.values
         jobs.removeAll()
         for job in all { job.task?.cancel() }
-        observers.removeAll()
+        appObservers.removeAll()
+        windowObservers.removeAll()
     }
 
     /// The app became active or resigned.
@@ -89,21 +101,19 @@ public final class PollingScheduler {
     // MARK: Running
 
     private func visibilityChanged() {
-        if isVisible {
-            for key in jobs.keys where jobs[key]?.task == nil {
-                guard let job = jobs[key] else { continue }
-                start(key, after: max(0, job.interval - now().timeIntervalSince(job.lastRun)))
-            }
-        } else {
-            for key in jobs.keys {
-                jobs[key]?.task?.cancel()
+        for key in jobs.keys {
+            guard let job = jobs[key], job.pauses else { continue }
+            if isVisible {
+                if job.task == nil { start(key, after: max(0, job.interval() - now().timeIntervalSince(job.lastRun))) }
+            } else {
+                job.task?.cancel()
                 jobs[key]?.task = nil
             }
         }
     }
 
     private func start(_ key: String, after delay: TimeInterval) {
-        guard isVisible, var job = jobs[key], job.task == nil else { return }
+        guard var job = jobs[key], job.task == nil, isVisible || !job.pauses else { return }
         let sleep = sleep
         job.task = Task { [weak self] in
             var wait = delay
@@ -118,41 +128,44 @@ public final class PollingScheduler {
 
     /// One run of the job of `key`; its interval for the next one, or nil when the job ended or paused meanwhile.
     private func run(_ key: String) async -> TimeInterval? {
-        guard isVisible, let job = jobs[key] else { return nil }
+        guard let job = jobs[key], isVisible || !job.pauses else { return nil }
         jobs[key]?.lastRun = now()
         await job.body()
-        guard jobs[key] != nil, isVisible else {
+        guard jobs[key] != nil, isVisible || !job.pauses else {
             // A run that visibility cut short counts as not run, so that the job runs again as soon as it is back.
             jobs[key]?.lastRun = .distantPast
             return nil
         }
-        return job.interval
+        return jobs[key]?.interval() ?? job.interval()
     }
 
     // MARK: Following the app and a window
 
     /// Follows whether the app is active.
     public func followApp() {
+        guard appObservers.isEmpty else { return }
         appActive = NSApp?.isActive ?? true
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in self?.setAppActive(true) }
-            .store(in: &observers)
+            .store(in: &appObservers)
         NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)
             .sink { [weak self] _ in self?.setAppActive(false) }
-            .store(in: &observers)
+            .store(in: &appObservers)
     }
 
-    /// Follows the app and one window: hidden while the window is occluded (covered, on another Space) or miniaturized.
+    /// Follows the app and one window (the last one given): hidden while the window is occluded (covered, on another Space) or
+    /// miniaturized.
     public func follow(window: NSWindow) {
         followApp()
-        windowVisible = window.occlusionState.contains(.visible) && !window.isMiniaturized
+        windowObservers.removeAll()
+        setWindowVisible(window.occlusionState.contains(.visible) && !window.isMiniaturized)
         for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification] {
             NotificationCenter.default.publisher(for: name, object: window)
                 .sink { [weak self, weak window] _ in
                     guard let window else { return }
                     self?.setWindowVisible(window.occlusionState.contains(.visible) && !window.isMiniaturized)
                 }
-                .store(in: &observers)
+                .store(in: &windowObservers)
         }
     }
 }

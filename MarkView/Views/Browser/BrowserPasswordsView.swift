@@ -103,6 +103,7 @@ struct BrowserPasswordsSheet: View {
         board.clearContents()
         board.setString(password, forType: .string)
         let count = board.changeCount
+        // task: clears the copied password 60 s later and must outlive the view; it touches only the pasteboard
         DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
             if NSPasteboard.general.changeCount == count { NSPasteboard.general.clearContents() }
         }

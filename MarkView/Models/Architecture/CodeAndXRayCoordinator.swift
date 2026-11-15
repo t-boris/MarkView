@@ -666,9 +666,12 @@ final class CodeAndXRayCoordinator: ObservableObject {
         }
         host?.openFile(url, line: line, endLine: endLine)
         if let text = find, !text.isEmpty, FileType.from(url: url) == .markdown {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            // The scroll waits for the page to show the document; a later open replaces it and closing the window cancels it.
+            tasks.store(Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                guard !Task.isCancelled else { return }
                 self?.host?.scrollToText(String(text.prefix(80)))
-            }
+            }, for: "scroll-to-text")
         }
     }
 

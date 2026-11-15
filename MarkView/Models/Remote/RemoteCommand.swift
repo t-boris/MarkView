@@ -83,6 +83,7 @@ final class RemoteCommand: @unchecked Sendable {
         if (inputWriter?.pendingCount ?? 0) == 0 || Date() >= deadline {
             inputWriter?.cancel(); child?.closeInput()
         } else {
+            // task: the input drain loop on the command's own queue, bounded by its deadline
             inputQueue.asyncAfter(deadline: .now() + 0.02) { [weak self] in self?.finishInput(deadline: deadline) }
         }
     }

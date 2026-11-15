@@ -53,7 +53,9 @@ final class CockpitSession: ObservableObject {
     private weak var tabs: TabsProviding?
     private let notifier = CockpitNotifier()
     private var observedRecord: CockpitRun?
-    private var silenceWatch: Task<Void, Never>?
+    /// The once-a-minute look for a step that went silent, a job of the app's scheduler (`AR-19`). It keeps running while the app is in the
+    /// background: that is when the person needs the notice.
+    private let silenceKey = "cockpit-silence-" + UUID().uuidString
     private var noticeClicks: AnyCancellable?
     private var executionChange: AnyCancellable?
     private var executionTask: Task<Void, Never>?
@@ -111,16 +113,13 @@ final class CockpitSession: ObservableObject {
 
     /// A step that shows no sign of life for a long time may be waiting for an answer in its terminal, which nothing else here can see.
     private func watchSilence(_ execution: CockpitExecution) {
-        silenceWatch?.cancel()
-        silenceWatch = Task { [weak self, weak execution] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 60_000_000_000)
-                guard let self, let execution, let record = execution.record else { return }
-                let now = Date()
-                if record.isSilent(now: now, activity: execution.lastSignal), let quiet = record.quietSeconds(now: now, activity: execution.lastSignal),
-                   let notice = CockpitNotice.silence(of: record, minutes: Int(quiet / 60)), !self.watching {
-                    self.notifier.send(notice, root: self.root, runID: record.id)
-                }
+        let key = silenceKey
+        PollingScheduler.app.every(60, key: key, pausesWhenHidden: false) { [weak self, weak execution] in
+            guard let self, let execution, let record = execution.record else { PollingScheduler.app.stop(key: key); return }
+            let now = Date()
+            if record.isSilent(now: now, activity: execution.lastSignal), let quiet = record.quietSeconds(now: now, activity: execution.lastSignal),
+               let notice = CockpitNotice.silence(of: record, minutes: Int(quiet / 60)), !self.watching {
+                self.notifier.send(notice, root: self.root, runID: record.id)
             }
         }
     }
@@ -331,7 +330,7 @@ final class CockpitSession: ObservableObject {
     }
 
     func closeProject() {
-        silenceWatch?.cancel()
+        PollingScheduler.app.stop(key: silenceKey)
         cancel()
         executionTask?.cancel()
         execution?.shutdown()

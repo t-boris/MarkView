@@ -555,6 +555,7 @@ private final class ACPConnection: @unchecked Sendable {
             }
             self.failAll(CancellationError())
         }
+        // task: the kill that follows a polite stop 1 s later; weak self, and terminate() is idempotent
         queue.asyncAfter(deadline: .now() + 1) { [weak self] in self?.terminate() }
     }
 
