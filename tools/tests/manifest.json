@@ -194,7 +194,8 @@
       "script": "tools/tests/architecture-lint-tests.sh",
       "tier": "pure",
       "sources": [
-        "tools/lint/architecture-lint.sh"
+        "tools/lint/architecture-lint.sh",
+        "tools/lint/domain-dependencies.py"
       ]
     },
     {

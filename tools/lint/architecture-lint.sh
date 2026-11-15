@@ -42,6 +42,10 @@
 #   project-paths        a string literal that starts with `.dde` or `.markview-` outside ProjectPaths (CoreFiles.swift)
 #                        tools/lint/project-paths-allowlist.txt
 #   app-log              `NSLog(` and `Logger(subsystem:` outside AppLog (Packages/MarkViewCore AppLog.swift)  tools/lint/app-log-allowlist.txt
+#   domain-cycles        (AR-21) a back-edge between two domain folders of Models (or of Views) that depend on each other: the count is the
+#                        number of types the back-edge names (tools/lint/domain-dependencies.py measures it; `--why A B` lists them).
+#                        `<count> Models/<from> -> Models/<to>  # why it stays` in tools/lint/domain-cycles-allowlist.txt; a pair that
+#                        becomes a cycle is a new entry the lint refuses until a person writes it down with its reason
 # A migration that reaches zero ends with an empty list (no lines), which means none allowed.
 #
 # Usage: tools/lint/architecture-lint.sh [--root <repo>] [--tighten]
@@ -59,14 +63,16 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-exec python3 - "$ROOT" "$TIGHTEN" <<'PY'
+exec python3 - "$ROOT" "$TIGHTEN" "$(cd "$(dirname "$0")" && pwd)" <<'PY'
+import importlib.util
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 
-root, tighten = Path(sys.argv[1]), sys.argv[2] == "1"
+sys.dont_write_bytecode = True   # importing domain-dependencies.py must not leave a __pycache__ in the repository
+root, tighten, lint_dir = Path(sys.argv[1]), sys.argv[2] == "1", Path(sys.argv[3])
 violations = []   # (rule, message)
 notes = []
 
@@ -172,33 +178,44 @@ def count_sites(files, matcher, exclude=lambda path: False):
             counts[rel(path)] = hits
     return counts
 
+allowlist_cache = {}     # list name -> {path: allowed count}, or None when the list does not exist
+allowlist_reasons = {}   # (list name, path) -> the `# reason` after an entry, kept when the list is rewritten
+
 def read_allowlist(name):
-    """The allowance per file, or None when the list does not exist."""
+    """The allowance per file, or None when the list does not exist. An entry may end in `  # why it stays`."""
+    if name in allowlist_cache:
+        return allowlist_cache[name]
     path = root / "tools" / "lint" / name
     if not path.is_file():
+        allowlist_cache[name] = None
         return None
     allowed = {}
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         text = line.strip()
         if not text or text.startswith("#"):
             continue
-        match = re.fullmatch(r"(\d+)\s+(\S.*)", text)
+        match = re.fullmatch(r"(\d+)\s+(\S.*?)(?:\s+#\s*(\S.*))?", text)
         if not match or match.group(2) in allowed:
             violations.append((name, f"tools/lint/{name}:{number}: expected `<count> <path>` once per path"))
             continue
         allowed[match.group(2)] = int(match.group(1))
+        if match.group(3):
+            allowlist_reasons[(name, match.group(2))] = match.group(3)
+    allowlist_cache[name] = allowed
     return allowed
 
 def write_allowlist(name, header, counts):
-    lines = [header.rstrip("\n")] + [f"{count} {path}" for path, count in sorted(counts.items())]
+    lines = [header.rstrip("\n")] + [
+        f"{count} {path}" + (f"  # {allowlist_reasons[(name, path)]}" if (name, path) in allowlist_reasons else "")
+        for path, count in sorted(counts.items())]
     (root / "tools" / "lint" / name).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-def ratchet(rule, name, noun, counts, header):
+def ratchet(rule, name, noun, counts, header, unit="file(s)"):
     allowed = read_allowlist(name)
     if allowed is None:
         if tighten:
             write_allowlist(name, header, counts)
-            notes.append(f"{rule}: created tools/lint/{name} with {sum(counts.values())} in {len(counts)} file(s)")
+            notes.append(f"{rule}: created tools/lint/{name} with {sum(counts.values())} in {len(counts)} {unit}")
         else:
             violations.append((rule, f"tools/lint/{name} is missing (create it with --tighten)"))
         return
@@ -218,7 +235,7 @@ def ratchet(rule, name, noun, counts, header):
         for path, (was, now) in sorted(fell.items()):
             violations.append((rule, f"{path}: {now} {noun}, {was} allowed; the count fell, lower the allowance in tools/lint/{name} (--tighten) so it cannot rise again"))
     total = sum(counts.values())
-    notes.append(f"{rule}: {total} in {len(counts)} file(s), {sum(allowed.values())} allowed")
+    notes.append(f"{rule}: {total} in {len(counts)} {unit}, {sum(allowed.values())} allowed")
 
 app_swift = swift_files("MarkView")
 package_swift = swift_files("Packages")
@@ -291,6 +308,34 @@ ratchet("app-log", "app-log-allowlist.txt", "NSLog or Logger site(s)",
         "# `NSLog(` and `Logger(subsystem:` outside AppLog (AR-24). `<count> <path>`; a ratchet that only falls. Every message goes through a\n"
         "# category of AppLog (Packages/MarkViewCore, AppLog.swift), which keeps interpolated strings private. Add a category there instead of a\n"
         "# new Logger, and never log file contents, tokens, prompts or request headers.")
+
+# --- domain-cycles (AR-21)
+def domain_back_edges():
+    """{`<layer>/<from> -> <layer>/<to>`: types} for the back-edge of every pair of domain folders that depend on each other.
+    The direction an allow-list entry names stays the back-edge; a new pair gets the heuristic of domain-dependencies.py."""
+    spec = importlib.util.spec_from_file_location("domain_dependencies", lint_dir / "domain-dependencies.py")
+    measuring = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(measuring)
+    named = read_allowlist("domain-cycles-allowlist.txt") or {}
+    preferred = {}
+    for key in named:
+        found = re.fullmatch(r"(Models|Views)/(\w+) -> (Models|Views)/(\w+)", key)
+        if found and found.group(1) == found.group(3):
+            preferred.setdefault(found.group(1), set()).add((found.group(2), found.group(4)))
+    counts = {}
+    for layer, measured in measuring.measure(root).items():
+        for pair in measured["pairs"]:
+            source, target, weight, _ = measuring.back_edge(pair, preferred.get(layer, set()))
+            counts[f"{layer}/{source} -> {layer}/{target}"] = weight
+    return counts
+
+ratchet("domain-cycles", "domain-cycles-allowlist.txt", "type(s) named back across a cycle", domain_back_edges(),
+        "# Back-edges between domain folders that depend on each other (AR-21): `<types> <layer>/<from> -> <layer>/<to>  # why it stays`. The\n"
+        "# types are the ones <from> names that <to> declares (tools/lint/domain-dependencies.py --layer <layer> --why <from> <to> lists them).\n"
+        "# A ratchet that only falls: remove the dependency (a protocol in the lower domain, or move the type) and run --tighten; the goal is an\n"
+        "# empty list. The back-edge points away from `Workspace`, which composes the others; a pair that is not listed gets the lighter\n"
+        "# direction. A new cycle is written here by a person, with the reason it stays.",
+        unit="pair(s)")
 
 # --- semantic-database-actor
 database = root / "MarkView" / "Models" / "Insight" / "SemanticDatabase.swift"
@@ -530,7 +575,7 @@ if manager_file.is_file():
             violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
 
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "domain-cycles", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):
