@@ -1,5 +1,12 @@
 # Lessons
 
+## Never run a signed-out test where Boris can see a live login link (Antigravity usage, 2026-11-14)
+
+- I tested `agy -p "/usage"` with an empty HOME to see the signed-out behaviour. The tool output showed a full Google login link and "paste the authorization code here"; Boris then wrote "Code in clipboard", and the clipboard held a one-time Google authorization code, apparently from that link (not confirmed), meant for a process that no longer existed. Reading the clipboard put the code into my own tool output as well.
+- Rules: test a signed-out path with the output redacted from the first run (`sed` the URL away, or read only the first line), never print a login link or a pasted code, and say in one line what the test is before running it. Treat a clipboard that holds a credential as spent and do not repeat it.
+- `agy` keeps its sign-in in the OS Keychain, not in `~/.gemini`: a probe with an empty home (or a home without `Library/Keychains`) is signed out, and then the signed-in path is never tested. Link only what the check needs (the binary, `.gemini`, the Keychain folder) and leave `~/.claude` and `~/.codex` out so no other token is read.
+- Before an automatic poll starts a CLI, find out what that CLI does when it is signed out (here: starts an OAuth flow and waits 60 s). The app cuts the call at its own timeout and waits longer before the next try.
+
 ## A simulation must answer in the application's own shape, and a background step must not hold the busy state (UI Studio 6.23.0, 2026-11-14)
 
 - Boris: "Не работает" after 6.22.0 on product-promotion-desk: the page showed `undefined is not an object (evaluating 'envelope.error.code')`, and a dialog "The AI is waiting for you (1 of 6)" sat over

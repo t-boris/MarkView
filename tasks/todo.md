@@ -2,14 +2,22 @@
 
 Boris: show how much Antigravity quota is left in the top bar, in parallel with Claude and Codex. Research (memory `antigravity-usage-source-agy-usage`): `agy --output-format json -p "/usage"` is a free, structured source (about 2 s, no model tokens, no conversation). Boris approved the proposal as written ("Да, делай так, как предложил"); the headline window is the most used one, like Claude and Codex.
 
-- [ ] Records: DEC-020 in ai-agent-usage-quota-tracker-codex-claude-code (Antigravity source, supersedes DEC-010 of flexible-files-views-and-visible-agent-usage for Antigravity), a requirement with criteria ticked only for what is proven.
-- [ ] 1. Model: `UsageAgent.antigravity` (display name, short name, `hasLocalLogs` false, detection by `agy` or `~/.gemini/antigravity-cli`), `OfficialUsageParser.antigravity` (groups of buckets to windows, group in `modelScope`, a bucket nobody used yet has no reset time because `agy` reports now + window).
-- [ ] 2. Source: `agy --print-timeout 20s --log-file /dev/null --output-format json -p "/usage"` run off the main thread with our own 25 s timeout; signed out ("Authentication required") is `signedOut` and the login URL is never kept or logged; unrecognised output is `failed`.
-- [ ] 3. Tracker: no local-log scan for an agent without logs (no reader, no watched folders, no fallback limit); state is official, or unavailable with the note.
-- [ ] 4. Views: the third chip, a hide switch in Settings, the group name in the popover and tooltip, no "Set a limit" / "Today (local logs)" rows for Antigravity.
-- [ ] Checks: pure parser tests on the real output, mutation check, `agent-usage-tests.sh`, every script the diff triggers, Debug build, a live read of the real `agy`.
-- [ ] 6.24.0: PR, merge, signed release, DMG copy in `build/`; install only on Boris's "reinstall".
+- [x] Records: DEC-020 in ai-agent-usage-quota-tracker-codex-claude-code (Antigravity source, supersedes DEC-010 of flexible-files-views-and-visible-agent-usage for Antigravity), a requirement with criteria ticked only for what is proven.
+- [x] 1. Model: `UsageAgent.antigravity` (display name, short name, `hasLocalLogs` false, detection by `agy` or `~/.gemini/antigravity-cli`), `OfficialUsageParser.antigravity` (groups of buckets to windows, group in `modelScope`, a bucket nobody used yet has no reset time because `agy` reports now + window).
+- [x] 2. Source: `agy --print-timeout 20s --log-file /dev/null --output-format json -p "/usage"` run off the main thread with our own 25 s timeout; signed out ("Authentication required") is `signedOut` and the login URL is never kept or logged; unrecognised output is `failed`.
+- [x] 3. Tracker: no local-log scan for an agent without logs (no reader, no watched folders, no fallback limit); state is official, or unavailable with the note.
+- [x] 4. Views: the third chip, a hide switch in Settings, the group name in the popover and tooltip, no "Set a limit" / "Today (local logs)" rows for Antigravity.
+- [x] Checks: pure parser tests on the real output, mutation check, `agent-usage-tests.sh`, every script the diff triggers, Debug build, a live read of the real `agy`.
+- [x] 6.24.0: PR #410 merged (`777529b`); signed release v6.24.0 (see Review); install only on Boris's "reinstall".
 - Not included: the Antigravity IDE's own quota if it is a different Google account than the CLI (not verified), notifications (DEC-004).
+
+## Review (6.24.0, 2026-11-14)
+
+- Verified: 124 pure checks on the real `/usage` output (10 turn red when the rules are turned off: percent used, unused buckets without a reset time, sign-in classification, headline, pace); every script of every triggered workflow (pdf-book, pdf-reader, themes) and `project-ai-choice-tests.sh`; Debug build.
+- Verified in the real Debug app, invisibly (app-probe with only `agy` linked into the empty home): the chip reads "Antigravity 17% used Gemini 4 Argon wk · 6d 23h", equal to the CLI's 83% remaining read at the same moment; without the Keychain the chip says "usage unavailable" (the call was cut at 25 s).
+- `agy` keeps its sign-in in the OS Keychain, so a probe with an empty home is signed out unless `Library/Keychains` is linked. Signed out, `agy -p` prints a Google login link and waits 60 s ("Print mode: triggering interactive OAuth"); a sandbox run that denied `/usr/bin/open` recorded no attempt to open a browser. Killing it with SIGTERM leaves no orphan process.
+- Not seen: the popover (a separate window the probe does not capture), the Settings switch, the chip beside Claude and Codex, the installed app, the Antigravity IDE's quota when it uses another Google account than the CLI.
+- DEC-020 accepted (Boris approved the proposal), REQ-007 criterion 7 ticked, DEC-010 of flexible-files-views-and-visible-agent-usage carries an update note.
 
 # UI Studio: the simulator answers in the application's own response envelope (2026-11-14, 6.23.0)
 
