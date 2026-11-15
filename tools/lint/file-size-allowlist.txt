@@ -4,5 +4,4 @@
 73 MarkView/Models/Insight/InsightSession.swift
 159 MarkView/Models/Prototype/PrototypeAI.swift
 1804 MarkView/Models/UIStudio/UIStudioSession.swift
-62 MarkView/Models/Workspace/WorkspaceManager.swift
 74 MarkView/Views/Lifecycle/FeaturePanelView.swift

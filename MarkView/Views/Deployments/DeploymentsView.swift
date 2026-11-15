@@ -539,7 +539,7 @@ private struct EnvironmentDetail: View {
                 }
                 Spacer(minLength: 0)
             }
-            AdvisorAnswers(advisor: workspaceManager.deploymentAdvisor, envID: env.id) { q in askInAgents(q) }
+            AdvisorAnswers(advisor: workspaceManager.toolTabs.deploymentAdvisor, envID: env.id) { q in askInAgents(q) }
             Text("MarkView looks at the environment, reads the logs that matter (read-only) and your project's assistant answers from that. To go further, continue in the Agents tab: there it can run more commands, and anything that changes something is shown to you here first.")
                 .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
         }
@@ -557,7 +557,7 @@ private struct EnvironmentDetail: View {
         let q = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
         let workspace = workspaceManager
-        workspace.deploymentAdvisor.ask(q, env: env, store: store, root: store.root, log: log.map { (logTitle ?? "Log", $0) }) { result in
+        workspace.toolTabs.deploymentAdvisor.ask(q, env: env, store: store, root: store.root, log: log.map { (logTitle ?? "Log", $0) }) { result in
             result.record(in: workspace.semanticDatabase)
         }
         question = ""

@@ -30,7 +30,7 @@ enum WorkspaceAITool: String {
 
 /// Manages the workspace state including open files, tabs, and folder structure
 @MainActor
-class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
+class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost, ToolTabsWindow {
     /// The open project: its folder and tree, linked and excluded folders, search database, index and recents (`AR-14` step 8).
     let project = ProjectContext()
     /// Which tab each panel of this window shows; never shared with other windows (BUG-004).
@@ -52,58 +52,15 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
     // MARK: - Tool tabs
 
-    /// What opening a tool does beyond showing its tab: wiring the tool's own store to the project, or building the tab of a tool that
-    /// carries a session. A tool that needs neither has no entry here; `ToolRegistry` describes the rest of it.
-    private struct ToolOpener {
-        /// Runs on every open, also when the tool's tab exists already.
-        var prepare: (WorkspaceManager, URL) -> Void = { _, _ in }
-        /// The tab of a tool that carries a session; every other tool gets a plain `.tool` tab.
-        var makeTab: ((WorkspaceManager, URL, ToolDescriptor) -> OpenTab)?
-        /// Runs once, after a tab built by `makeTab` was added.
-        var opened: (WorkspaceManager, OpenTab) -> Void = { _, _ in }
-    }
+    /// The tools of this window: the tab of each tool of `ToolRegistry`, and the stores that need wiring to the project (`AR-14` step 10).
+    private(set) lazy var toolTabs: ToolTabsRouter = {
+        let router = ToolTabsRouter(project: project, tabs: tabs, layout: layout, chrome: chrome, features: features, assistants: terminals)
+        router.window = self
+        return router
+    }()
 
-    private static let toolOpeners: [ToolID: ToolOpener] = [
-        .deployments: ToolOpener(prepare: { workspace, root in
-            workspace.deployments.setRoot(root)
-            workspace.deployments.onNeedsAttention = { [weak workspace] in workspace?.openTool(.deployments) }
-        }),
-        .discussions: ToolOpener(prepare: { workspace, root in workspace.discussions.setRoot(root) }),
-        .workflow: ToolOpener(prepare: { workspace, _ in workspace.hostWindow?.makeKeyAndOrderFront(nil) }),
-        .qa: ToolOpener(prepare: { workspace, root in
-            workspace.hostWindow?.makeKeyAndOrderFront(nil)
-            workspace.qa.attach(root: root)
-            if workspace.qa.run.bugFiler == nil { workspace.qa.run.bugFiler = QABugFiler(sink: QAFeatureStoreBugSink(store: workspace.features)) }
-            workspace.qa.archive.bugFiler = workspace.qa.run.bugFiler
-        }),
-        .uiStudio: ToolOpener(
-            makeTab: { workspace, root, tool in workspace.makeUIStudioTab(root: root, tool: tool) },
-            opened: { _, tab in if case .uiStudio(let session) = tab.kind { session.start() } }),
-        .cockpit: ToolOpener(makeTab: { workspace, root, tool in workspace.makeCockpitTab(root: root, tool: tool) })
-    ]
-
-    /// Opens the tab of a tool, or returns to it: a tool has one tab per window.
-    func openTool(_ id: ToolID) {
-        guard let root = rootNode?.url, let tool = ToolRegistry.shared.descriptor(for: id) else { return }
-        let opener = Self.toolOpeners[id] ?? ToolOpener()
-        opener.prepare(self, root)
-        layout.workspaceArea = .files
-        chrome.showCenter = true
-        if let index = openTabs.firstIndex(where: { $0.kind.toolID == id }) {
-            activeTabIndex = index
-            return
-        }
-        let tab: OpenTab
-        if let makeTab = opener.makeTab {
-            tab = makeTab(self, root, tool)
-        } else {
-            var plain = OpenTab(url: tool.sentinelURL(in: root), content: "", originalContent: "")
-            plain.kind = .tool(id)
-            tab = plain
-        }
-        tabs.appendTab(tab, activate: true)
-        opener.opened(self, tab)
-    }
+    /// Opens the tab of a tool of `ToolRegistry`, or returns to it.
+    func openTool(_ id: ToolID) { toolTabs.open(id) }
 
     /// The project's operations, with this window as the one that shows what the person starts from here.
     func operations() -> ProjectOperationsStore? {
@@ -153,18 +110,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     }
     /// The Git state of this window. Views that show it observe this object, not the manager (`AR-15`).
     let gitClient = GitClient()
-    /// Where the project runs and how each place is doing (the Deployments tab).
-    let deployments = DeploymentStore()
-    /// The state of the Workflow tab: the draft being edited survives a switch to another tab.
-    let workflowEditor = WorkflowEditorModel()
-    /// End-to-End QA: the scenarios of the project and the one being edited.
-    let qa = QAModel()
-    private var cockpitSession: CockpitSession?
-    /// Questions asked before there is a feature, answered as pages (the Discussions tab).
-    let discussions = DiscussionStore()
     private var discussionTask: Task<Void, Never>?
-    /// Answers to questions about an environment, read from state and logs by the project's own assistant.
-    let deploymentAdvisor = DeploymentAdvisor()
     /// Pull requests, issues and Actions of the folder's GitHub repository.
     let gitHub = GitHubStore()
     /// Feature workspaces of the folder (docs/features/<slug>/…).
@@ -206,8 +152,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         Self.debugLog("WorkspaceManager init START")
         codeXRay = CodeAndXRayCoordinator(project: project)
         codeXRay.host = self
-        qa.assistants = terminals
-
         project.fileTree.onTimer = { [weak self] in
             guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating, NSApp.isActive else { return }
             Task { await self.gitClient.refreshStatus() }
@@ -315,8 +259,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             gitClient.setup(at: url)
             setUpGitHub(at: url)
             setUpFeatures(at: url)
-            deployments.setRoot(url)
-            discussions.setRoot(url)
+            toolTabs.projectOpened(url)
             Self.debugLog("initDDE: git setup done")
 
             // Structural indexing runs silently in background — no progress indicator
@@ -593,8 +536,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
     /// Drop the database and every engine bound to the current workspace.
     private func releaseWorkspaceEngines() {
-        cockpitSession?.closeProject()
-        cockpitSession = nil
+        toolTabs.projectClosed()
         project.releaseDatabase()
         stopAllTerminals()
         terminals.workspaceRoot = nil
@@ -644,8 +586,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         gitHubRoot = nil
         gitHub.reset()
         features.reset()
-        deployments.setRoot(nil)
-        discussions.setRoot(nil)
         requests.pendingGraphCreatorType = nil
         return true
     }
@@ -1032,8 +972,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
                 return session
             },
             features: { [weak self] in self?.features },
-            deployments: { [weak self] in self?.deployments },
-            discussions: { [weak self] in self?.discussions }))
+            deployments: { [weak self] in self?.toolTabs.deployments },
+            discussions: { [weak self] in self?.toolTabs.discussions }))
     }
 
     /// The window's browser tabs, in tab order.
@@ -1557,32 +1497,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         return session
     }
 
-    // MARK: - UI Studio
-
-    /// The tab of a new UI Studio session on the project's real web interface (REQ-001); `openTool` shows the session already open instead.
-    private func makeUIStudioTab(root: URL, tool: ToolDescriptor) -> OpenTab {
-        let session = StudioSession(root: root)
-        let base = root.standardizedFileURL.path + "/"
-        session.editorBuffers = { [weak self] in
-            var buffers: [String: String] = [:]
-            for tab in self?.openTabs ?? [] where tab.isFileBacked && tab.isModified {
-                let path = tab.url.standardizedFileURL.path
-                if path.hasPrefix(base) { buffers[String(path.dropFirst(base.count))] = tab.content }
-            }
-            return buffers
-        }
-        session.recordUsage = { [weak self] input, output, cost in
-            guard let db = self?.semanticDatabase else { return }
-            Task { await db.addUsage(inputTokens: input, outputTokens: output, costCents: cost * 100) }
-        }
-        session.openFile = { [weak self] url in self?.openFile(url) }
-        session.featureStore = { [weak self] in self?.features }
-        session.onFeatureExported = { [weak self] slug in self?.showFeatureContext(slug) }
-        var tab = OpenTab(url: tool.sentinelURL(in: root, suffix: session.id.uuidString), content: "", originalContent: "")
-        tab.kind = .uiStudio(session)
-        return tab
-    }
-
     // MARK: - Prototype Studio
 
 
@@ -1635,31 +1549,15 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         openPrototype(session)
     }
 
-    /// The tab of the Cockpit of this window: the window keeps one session for its project, so a tab closed and opened again
-    /// shows the same plans and runs (`openTool` shows the tab already open instead).
-    private func makeCockpitTab(root: URL, tool: ToolDescriptor) -> OpenTab {
-        var tab = OpenTab(url: tool.sentinelURL(in: root), content: "", originalContent: "")
-        let session: CockpitSession
-        if let existing = cockpitSession, existing.root.standardizedFileURL == root.standardizedFileURL {
-            session = existing
-            if existing.execution?.isActive != true { existing.loadRuns() }
-        } else {
-            session = CockpitSession(root: root, workspace: self)
-            cockpitSession = session
-        }
-        tab.kind = .cockpit(session)
-        return tab
-    }
-
     /// Discussions → ask: the project's assistant reads the project (read-only) and answers inside the conversation,
     /// in the form the question needs. The answer streams into `discussions.live`, then becomes a turn.
     func askDiscussion(_ slug: String, question: String) {
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let root = rootNode?.url, !text.isEmpty, discussions.asking == nil,
-              let discussion = discussions.discussions.first(where: { $0.slug == slug }) else { return }
-        discussions.asking = slug
-        discussions.live = DiscussionStore.Live(question: text)
-        discussions.lastError = nil
+        guard let root = rootNode?.url, !text.isEmpty, toolTabs.discussions.asking == nil,
+              let discussion = toolTabs.discussions.discussions.first(where: { $0.slug == slug }) else { return }
+        toolTabs.discussions.asking = slug
+        toolTabs.discussions.live = DiscussionStore.Live(question: text)
+        toolTabs.discussions.lastError = nil
         let scope = discussionScope(discussion, root: root)
         var request = CLICompletion.Request(
             project: aiProject ?? root,
@@ -1675,19 +1573,19 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             do {
                 let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "discussion", onDelta: { [weak self] delta in
                     Task { @MainActor in
-                        guard let self, self.discussions.asking == slug else { return }
-                        self.discussions.live?.text += delta
-                        self.discussions.live?.status = "Writing the answer"
+                        guard let self, self.toolTabs.discussions.asking == slug else { return }
+                        self.toolTabs.discussions.live?.text += delta
+                        self.toolTabs.discussions.live?.status = "Writing the answer"
                     }
                 }, onActivity: { [weak self] activity in
                     Task { @MainActor in
-                        guard let self, self.discussions.asking == slug else { return }
+                        guard let self, self.toolTabs.discussions.asking == slug else { return }
                         switch activity {
-                        case .read(let path): self.discussions.live?.status = DiscussionPrompt.status(read: path); self.discussions.live?.text = ""
-                        case .search(let pattern): self.discussions.live?.status = "Searching for \(pattern.prefix(40))"; self.discussions.live?.text = ""
-                        case .run: self.discussions.live?.status = "Looking at the project"; self.discussions.live?.text = ""
-                        case .webSearch, .webFetch: self.discussions.live?.status = "Reading the web"; self.discussions.live?.text = ""
-                        case .thinking: self.discussions.live?.status = "Thinking"
+                        case .read(let path): self.toolTabs.discussions.live?.status = DiscussionPrompt.status(read: path); self.toolTabs.discussions.live?.text = ""
+                        case .search(let pattern): self.toolTabs.discussions.live?.status = "Searching for \(pattern.prefix(40))"; self.toolTabs.discussions.live?.text = ""
+                        case .run: self.toolTabs.discussions.live?.status = "Looking at the project"; self.toolTabs.discussions.live?.text = ""
+                        case .webSearch, .webFetch: self.toolTabs.discussions.live?.status = "Reading the web"; self.toolTabs.discussions.live?.text = ""
+                        case .thinking: self.toolTabs.discussions.live?.status = "Thinking"
                         case .writing, .answerDelta: break
                         }
                     }
@@ -1703,24 +1601,24 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     }
 
     private func finishDiscussionTurn(_ slug: String, question: String, text: String) {
-        defer { discussions.asking = nil; discussions.live = nil }
+        defer { toolTabs.discussions.asking = nil; toolTabs.discussions.live = nil }
         guard let answer = DiscussionPrompt.parse(text),
-              discussions.addTurn(slug, question: question, answer: answer.answer, followUps: [],
+              toolTabs.discussions.addTurn(slug, question: question, answer: answer.answer, followUps: [],
                                   decisions: answer.decisions, openQuestions: answer.openQuestions) != nil else {
-            discussions.lastError = "The assistant gave no answer."
+            toolTabs.discussions.lastError = "The assistant gave no answer."
             return
         }
     }
 
     private func stopDiscussionTurn(_ slug: String, keep: String?) {
-        discussions.asking = nil
-        discussions.live = nil
+        toolTabs.discussions.asking = nil
+        toolTabs.discussions.live = nil
     }
 
     private func failDiscussionTurn(_ message: String) {
-        discussions.lastError = message
-        discussions.asking = nil
-        discussions.live = nil
+        toolTabs.discussions.lastError = message
+        toolTabs.discussions.asking = nil
+        toolTabs.discussions.live = nil
     }
 
     /// Stops the answer being written; what was written so far is dropped.
@@ -1746,27 +1644,27 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         openTool(.discussions)
         let rel = project.relativePath(of: url)
         let path = url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/") ? rel : url.path
-        if let existing = discussions.discussions.first(where: { $0.scope == path && $0.turns.isEmpty }) {
-            discussions.selectedSlug = existing.slug
+        if let existing = toolTabs.discussions.discussions.first(where: { $0.scope == path && $0.turns.isEmpty }) {
+            toolTabs.discussions.selectedSlug = existing.slug
         } else {
-            discussions.create(title: url.lastPathComponent, scope: path)
+            toolTabs.discussions.create(title: url.lastPathComponent, scope: path)
         }
     }
 
     /// Deployments → "Ask AI to find where it runs": the assistant reads the project and proposes environments.
     func analyzeDeploymentsWithAI() {
         guard let root = rootNode?.url else { return }
-        guard !terminals.assistantIsBusy else { deployments.lastError = "The assistant is still working."; return }
-        let prompt = DeploymentPrompt.analyze(project: root.lastPathComponent, existing: deployments.environments.map(\.name), hasMCP: true)
+        guard !terminals.assistantIsBusy else { toolTabs.deployments.lastError = "The assistant is still working."; return }
+        let prompt = DeploymentPrompt.analyze(project: root.lastPathComponent, existing: toolTabs.deployments.environments.map(\.name), hasMCP: true)
         terminals.sendToAssistant(prompt, submit: true)
     }
 
     /// Deployments → "Ask the AI": a question about one environment goes to the assistant with what MarkView
     /// last saw (and the log being read); it looks with the markview_deployments tools.
     func askAboutDeployment(_ id: String, question: String, logTitle: String? = nil, log: String? = nil) {
-        guard let env = deployments.environment(id) else { return }
-        guard !terminals.assistantIsBusy else { deployments.lastError = "The assistant is still working."; return }
-        let prompt = DeploymentPrompt.ask(environment: env.name, id: env.id, question: question, report: deployments.report(for: id), logTitle: logTitle, log: log)
+        guard let env = toolTabs.deployments.environment(id) else { return }
+        guard !terminals.assistantIsBusy else { toolTabs.deployments.lastError = "The assistant is still working."; return }
+        let prompt = DeploymentPrompt.ask(environment: env.name, id: env.id, question: question, report: toolTabs.deployments.report(for: id), logTitle: logTitle, log: log)
         terminals.sendToAssistant(prompt, submit: true)
     }
 

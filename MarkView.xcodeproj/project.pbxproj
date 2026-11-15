@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		8E839803A7A84BA7729AD710 /* ToolTabsRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0093EAE451E71D060AF63504 /* ToolTabsRouter.swift */; };
 		E10000000000000000000001 /* MarkViewCore in Frameworks */ = {isa = PBXBuildFile; productRef = E10000000000000000000002 /* MarkViewCore */; };
 		00CA6729A7DBFA482D057D61 /* RemoteRelaySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D8F327CF62CE717D060C3A /* RemoteRelaySettings.swift */; };
 		01824FCE6C8423DDB049E120 /* FeatureReviewGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE3D4429958A004ADFE5D2C /* FeatureReviewGate.swift */; };
@@ -506,6 +507,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0093EAE451E71D060AF63504 /* ToolTabsRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolTabsRouter.swift; sourceTree = "<group>"; };
 		0014EBC9E004A6161D90A834 /* HandoffPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandoffPrompt.swift; sourceTree = "<group>"; };
 		0052CFE2D3165B88302550CA /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		007C5A3FE30FBBE5A71A6FA8 /* BrowserPasswords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPasswords.swift; sourceTree = "<group>"; };
@@ -1633,6 +1635,7 @@
 				DEE77C117377664F496CB39A /* FrontMatter.swift */,
 				17A43E6F411BFA9317576340 /* ImageAttachments.swift */,
 				45125D00F1E8300687141768 /* ImageSiblings.swift */,
+				0093EAE451E71D060AF63504 /* ToolTabsRouter.swift */,
 				174B04661CD9C2082E56D312 /* WorkspaceLayoutPresets.swift */,
 				2FCD870E4FEBBB1E8EFD7A70 /* LayoutCatalog.swift */,
 				545B82933E80F637B3D031FC /* LayoutPreset.swift */,
@@ -2816,6 +2819,7 @@
 				10A4C47515CDDAFD95074582 /* WorkflowTemplateLibrary.swift in Sources */,
 				F61A761791EEA18B91A7CADC /* WorkflowTemplatesSettings.swift in Sources */,
 				328FC4CBEA1A2B0DAC2E2EF9 /* WorkflowTransitionStory.swift in Sources */,
+				8E839803A7A84BA7729AD710 /* ToolTabsRouter.swift in Sources */,
 				EFD0357B1249A5D014B893E4 /* WorkspaceManager.swift in Sources */,
 				8509AB727B59B4DD5CD83A56 /* XRayCluster.swift in Sources */,
 				4095BC8ADAD6AE04D6A7D406 /* XRayContent.swift in Sources */,
