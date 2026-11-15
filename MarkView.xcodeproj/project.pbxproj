@@ -434,6 +434,13 @@
 		EBC18992AE03BE7A9FF77909 /* WorkflowTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 713A7BA330E95450C16AA739 /* WorkflowTemplate.swift */; };
 		ECD969D40C6C1A94488B600D /* HandoffViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E1DE65EEA6FFCA20C1BE20 /* HandoffViews.swift */; };
 		EDB3B2A3C50F91166FEA9DEB /* FeaturePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 779E8848F94EF650F4B206BD /* FeaturePanelView.swift */; };
+		D9DC74A14ACC0C348260C0EF /* FeaturePanelObjectViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 619E201FE6B5131D83DAEE59 /* FeaturePanelObjectViews.swift */; };
+		346028A5272E7B1BF4E649F9 /* FeaturePanelBuildViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AF8B75C0E362F35062B831E /* FeaturePanelBuildViews.swift */; };
+		FFA5101E561D7774EF4A1602 /* FeaturePanelReviewViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 280FA41A7E5BF805913BADCC /* FeaturePanelReviewViews.swift */; };
+		92BC71B5F08E2B80DD077433 /* FeaturePanelSourceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAF06F8254F2239443553EC2 /* FeaturePanelSourceViews.swift */; };
+		C22AB2CD25562FC5F5A0419E /* FeaturePanelBugViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90634D996140207FAD07D0A5 /* FeaturePanelBugViews.swift */; };
+		3402AA128EFCCBC934A34A5C /* FeaturePanelExploreViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861DEB9403F92B3C7FA90E74 /* FeaturePanelExploreViews.swift */; };
+		9293AC26A8046D8DCAF6DC1D /* FeaturePanelShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 246C034D6E7093C0B7C35574 /* FeaturePanelShared.swift */; };
 		EEF940F8CC7452E5B0D011FD /* ProjectOperationDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54B88089F2E7416767D42721 /* ProjectOperationDiscoveryService.swift */; };
 		EF42F54310EC6FE4C1EC5A64 /* CockpitAgentAttempt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761D2F74CBAC26745235692C /* CockpitAgentAttempt.swift */; };
 		EF49456C7DDBE5A38F1CC431 /* ResearchMapRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 115DC67845659B28A4FE3E34 /* ResearchMapRun.swift */; };
@@ -788,6 +795,13 @@
 		76FB90DA3782A6E99BB4881B /* FileNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNode.swift; sourceTree = "<group>"; };
 		77905597C531DFE78D2D11EC /* data.bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = data.bundle.js; sourceTree = "<group>"; };
 		779E8848F94EF650F4B206BD /* FeaturePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelView.swift; sourceTree = "<group>"; };
+		619E201FE6B5131D83DAEE59 /* FeaturePanelObjectViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelObjectViews.swift; sourceTree = "<group>"; };
+		4AF8B75C0E362F35062B831E /* FeaturePanelBuildViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelBuildViews.swift; sourceTree = "<group>"; };
+		280FA41A7E5BF805913BADCC /* FeaturePanelReviewViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelReviewViews.swift; sourceTree = "<group>"; };
+		FAF06F8254F2239443553EC2 /* FeaturePanelSourceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelSourceViews.swift; sourceTree = "<group>"; };
+		90634D996140207FAD07D0A5 /* FeaturePanelBugViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelBugViews.swift; sourceTree = "<group>"; };
+		861DEB9403F92B3C7FA90E74 /* FeaturePanelExploreViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelExploreViews.swift; sourceTree = "<group>"; };
+		246C034D6E7093C0B7C35574 /* FeaturePanelShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelShared.swift; sourceTree = "<group>"; };
 		77B9738A5C165C2A1B58ADDD /* ResearchMapTranslation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchMapTranslation.swift; sourceTree = "<group>"; };
 		78E7E3873B311E1D57458AEB /* RemoteToolBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteToolBridge.swift; sourceTree = "<group>"; };
 		795FD366C1490B12B6E18DD4 /* markdown-it.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markdown-it.min.js"; sourceTree = "<group>"; };
@@ -1835,6 +1849,13 @@
 				56712FFC082BC0126119C1DC /* DefinitionOfDoneView.swift */,
 				FFDFB9B4AC589ED10AEE08BC /* FeatureNavigatorView.swift */,
 				779E8848F94EF650F4B206BD /* FeaturePanelView.swift */,
+				619E201FE6B5131D83DAEE59 /* FeaturePanelObjectViews.swift */,
+				4AF8B75C0E362F35062B831E /* FeaturePanelBuildViews.swift */,
+				280FA41A7E5BF805913BADCC /* FeaturePanelReviewViews.swift */,
+				FAF06F8254F2239443553EC2 /* FeaturePanelSourceViews.swift */,
+				90634D996140207FAD07D0A5 /* FeaturePanelBugViews.swift */,
+				861DEB9403F92B3C7FA90E74 /* FeaturePanelExploreViews.swift */,
+				246C034D6E7093C0B7C35574 /* FeaturePanelShared.swift */,
 				B0E1DE65EEA6FFCA20C1BE20 /* HandoffViews.swift */,
 				AA8E82029CBD23F4C986B612 /* IntakeAttachmentBar.swift */,
 				AA781698B8CEDAAB7EE8028A /* IntakeTextEditor.swift */,
@@ -2531,6 +2552,13 @@
 				3A7797858C429A08562B496E /* FeatureModels.swift in Sources */,
 				FAB93630CB9184D60154A8D0 /* FeatureNavigatorView.swift in Sources */,
 				EDB3B2A3C50F91166FEA9DEB /* FeaturePanelView.swift in Sources */,
+				D9DC74A14ACC0C348260C0EF /* FeaturePanelObjectViews.swift in Sources */,
+				346028A5272E7B1BF4E649F9 /* FeaturePanelBuildViews.swift in Sources */,
+				FFA5101E561D7774EF4A1602 /* FeaturePanelReviewViews.swift in Sources */,
+				92BC71B5F08E2B80DD077433 /* FeaturePanelSourceViews.swift in Sources */,
+				C22AB2CD25562FC5F5A0419E /* FeaturePanelBugViews.swift in Sources */,
+				3402AA128EFCCBC934A34A5C /* FeaturePanelExploreViews.swift in Sources */,
+				9293AC26A8046D8DCAF6DC1D /* FeaturePanelShared.swift in Sources */,
 				01824FCE6C8423DDB049E120 /* FeatureReviewGate.swift in Sources */,
 				3F1214BEB25E69D8AE45FCCF /* FeatureStore+Lifecycle.swift in Sources */,
 				33134280169E08459FF88E35 /* FeatureStore.swift in Sources */,
