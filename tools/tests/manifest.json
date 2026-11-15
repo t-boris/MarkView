@@ -2374,7 +2374,7 @@
     {
       "name": "window-session-tests",
       "script": "tools/tests/window-session-tests.sh",
-      "tier": "gui",
+      "tier": "pure",
       "sources": [
         "MarkView/Models/Appearance/AppTheme.swift",
         "MarkView/Models/Workspace/DocumentState.swift",

@@ -32,7 +32,7 @@ import Foundation
             uiState: ["search.panelMode": .string("Documents"), "uiStudioInspectorWidth": .double(412), "contents.infoExpanded": .bool(false), "n": .int(3)])
         let second = WorkspaceWindowState(id: UUID(), folder: folder)
         let archive = WindowSessionArchive(windows: [first, second])
-        try await storage.save(archive, revision: 1)
+        check(try await storage.save(archive, revision: 1) == .saved, "a normal save writes the archive")
         let loaded = await WindowSessionStorage(url: url).load()!
         check(loaded.windows.count == 2, "same-folder windows must not collapse")
         check(loaded.windows.map(\.id) == [first.id, second.id], "identities and order survive a new process")
@@ -68,18 +68,18 @@ import Foundation
         } else { fatalError("wrong GitHub tab") }
         let permissions = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as! NSNumber
         check(permissions.intValue == 0o600, "draft archive is private")
-        try await storage.save(WindowSessionArchive(windows: [second]), revision: 3)
-        try await storage.save(archive, revision: 2)
+        check(try await storage.save(WindowSessionArchive(windows: [second]), revision: 3) == .saved, "the quit snapshot is written")
+        check(try await storage.save(archive, revision: 2) == .superseded, "an older revision is dropped, not written")
         let afterStale = await storage.load()!
         check(afterStale.windows.count == 1 && afterStale.windows[0].id == second.id, "older autosave cannot overwrite the quit snapshot")
-        try await storage.save(WindowSessionArchive(windows: []), revision: 4)
+        check(try await storage.save(WindowSessionArchive(windows: []), revision: 4) == .saved, "an empty archive is written")
         let allClosed = await storage.load()!
         check(allClosed.windows.isEmpty, "closing all windows stays closed; does not fall back to last folder")
-        try await storage.save(WindowSessionArchive(windows: [first, first, second]), revision: 5)
+        check(try await storage.save(WindowSessionArchive(windows: [first, first, second]), revision: 5) == .saved, "an archive with duplicates is written")
         let deduplicated = await storage.load()!
         check(deduplicated.windows.count == 2, "corrupt duplicate identities cannot open duplicate windows")
         let external = WorkspaceWindowState(id: UUID(), folder: URL(string: "https://example.com")!)
-        try await storage.save(WindowSessionArchive(windows: [external]), revision: 6)
+        check(try await storage.save(WindowSessionArchive(windows: [external]), revision: 6) == .saved, "an archive with an external folder is written")
         let rejected = await storage.load()
         check(rejected == nil, "external folder URLs are rejected")
         // A session saved before themes existed has no "theme" key and still opens.
@@ -93,33 +93,80 @@ import Foundation
         try JSONEncoder().encode(WindowSessionArchive(version: 99, windows: [first])).write(to: url)
         let unknown = await storage.load()
         check(unknown == nil, "unknown archive versions are rejected")
-        let futureBytes = try Data(contentsOf: url)
-        var refusedOverwrite = false
-        do {
-            try await storage.save(WindowSessionArchive(windows: [first]), revision: 7)
-        } catch let err as SchemaStoreError {
-            if case .newerSchemaVersion = err { refusedOverwrite = true }
-        }
-        let stillFutureBytes = try Data(contentsOf: url)
-        check(refusedOverwrite && stillFutureBytes == futureBytes, "newer archive payload versions are never overwritten on save")
-        let futureEnvelope = #"{"schema":99,"updatedAt":"2026-11-15T00:00:00Z","data":{"version":1,"windows":[]}}"#
-        try Data(futureEnvelope.utf8).write(to: url)
-        let newerSchemaLoaded = await storage.load()
-        check(newerSchemaLoaded == nil, "newer schema envelopes are rejected")
-        let envelopeBytes = try Data(contentsOf: url)
-        var refusedEnvelopeOverwrite = false
-        do {
-            try await storage.save(WindowSessionArchive(windows: [first]), revision: 8)
-        } catch let err as SchemaStoreError {
-            if case .newerSchemaVersion = err { refusedEnvelopeOverwrite = true }
-        }
-        let stillEnvelopeBytes = try Data(contentsOf: url)
-        check(refusedEnvelopeOverwrite && stillEnvelopeBytes == envelopeBytes, "newer schema envelopes are never overwritten on save")
+        try await checkNewerFileIsLeftAlone(in: directory)
         let permsURL = url.deletingLastPathComponent().appendingPathComponent("perms-session.json")
-        try await WindowSessionStorage(url: permsURL).save(WindowSessionArchive(windows: [first]), revision: 1)
+        check(try await WindowSessionStorage(url: permsURL).save(WindowSessionArchive(windows: [first]), revision: 1) == .saved, "the permissions archive is written")
         let posixPerms = (try FileManager.default.attributesOfItem(atPath: permsURL.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0
         check(posixPerms == 0o600, "saved window sessions enforce 0600 permissions")
         print("Window session checks: \(checks), failures: 0")
+    }
+
+    /// A session file written by a newer MarkView (a future `schema` envelope, or a legacy payload with `version > 1`) is
+    /// never overwritten, refusing it again costs no read of the file, the user is told once per launch, and quitting is
+    /// never held up by it or by any other write failure (FU-15, FU-21).
+    static func checkNewerFileIsLeftAlone(in directory: URL) async throws {
+        let fm = FileManager.default
+        let url = directory.appendingPathComponent("newer-session.json")
+        let windows = [WorkspaceWindowState(id: UUID(), folder: URL(fileURLWithPath: "/tmp/newer"))]
+        let archive = WindowSessionArchive(windows: windows)
+        let storage = WindowSessionStorage(url: url)
+
+        // Legacy payload from a newer MarkView.
+        try JSONEncoder().encode(WindowSessionArchive(version: 99, windows: windows)).write(to: url)
+        let legacy = try Data(contentsOf: url)
+        check(try await storage.save(archive, revision: 1) == .refused(announce: true),
+              "a legacy payload with a newer version is refused, and the user is told")
+        check(try Data(contentsOf: url) == legacy, "a legacy payload with a newer version is never overwritten")
+        check(try await storage.save(archive, revision: 2) == .refused(announce: false), "the refusal is announced once")
+
+        // The verdict stands while the file keeps its modification date: the file is not read again (here it could not be:
+        // a read of an unreadable file would count as a damaged file and the save would go ahead).
+        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        check(try await storage.save(archive, revision: 3) == .refused(announce: false), "a known refusal is not decided again from the file")
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        check(try Data(contentsOf: url) == legacy, "a refusal from the cached verdict leaves the file alone")
+        // A file that changed is looked at again: this one is fine, so autosave resumes.
+        let healthy = #"{"schema":1,"updatedAt":"2026-11-15T00:00:00Z","data":{"version":1,"windows":[]}}"#
+        try Data(healthy.utf8).write(to: url)
+        check(try await storage.save(archive, revision: 4) == .saved, "autosave resumes once the file is replaced by a readable one")
+        check(await storage.load()?.windows.map(\.id) == windows.map(\.id), "the resumed autosave wrote the archive")
+
+        // Envelope from a newer MarkView.
+        let envelope = #"{"schema":99,"updatedAt":"2026-11-15T00:00:00Z","data":{"version":1,"windows":[]}}"#
+        try Data(envelope.utf8).write(to: url)
+        let newerSchema = await storage.load()
+        check(newerSchema == nil, "newer schema envelopes are rejected")
+        check(try await storage.save(archive, revision: 5) == .refused(announce: false),
+              "a newer envelope is refused, and the user was already told in this launch")
+        check(try Data(contentsOf: url) == Data(envelope.utf8), "a newer envelope is never overwritten")
+
+        // Quitting: neither the refusal nor a failed write throws or touches the file.
+        await storage.saveAtQuit(archive, revision: 6)
+        check(try Data(contentsOf: url) == Data(envelope.utf8), "quitting over a newer envelope leaves it untouched")
+        try legacy.write(to: url)
+        await storage.saveAtQuit(archive, revision: 7)
+        check(try Data(contentsOf: url) == legacy, "quitting over a newer legacy payload leaves it untouched")
+        if geteuid() != 0 {
+            let locked = directory.appendingPathComponent("locked")
+            try fm.createDirectory(at: locked, withIntermediateDirectories: true)
+            try fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: locked.path)
+            defer { try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: locked.path) }
+            let unwritable = WindowSessionStorage(url: locked.appendingPathComponent("session.json"))
+            var failed = false
+            do { _ = try await unwritable.save(archive, revision: 1) } catch { failed = true }
+            check(failed, "an unwritable folder fails an autosave")
+            await unwritable.saveAtQuit(archive, revision: 2)
+            check(!fm.fileExists(atPath: locked.appendingPathComponent("session.json").path), "the failed quit save wrote nothing")
+        }
+        let quitURL = directory.appendingPathComponent("quit-session.json")
+        let quitStorage = WindowSessionStorage(url: quitURL)
+        await quitStorage.saveAtQuit(archive, revision: 1)
+        check(await quitStorage.load()?.windows.map(\.id) == windows.map(\.id), "a normal quit saves the archive")
+
+        // A new launch tells the user again.
+        try Data(envelope.utf8).write(to: url)
+        check(try await WindowSessionStorage(url: url).save(archive, revision: 1) == .refused(announce: true),
+              "a new launch announces the refusal again")
     }
 
     /// Seed only the dedicated test bundle's archive, never the installed app's state.
@@ -148,7 +195,7 @@ import Foundation
             activeTabIndex: 0, panels: panels, frame: CGRect(x: 150, y: 150, width: 1050, height: 750))
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let storage = WindowSessionStorage(url: support.appendingPathComponent("MarkView-com.markview.WindowRestoreTest/windowSessions.json"))
-        try await storage.save(WindowSessionArchive(windows: [first, second, duplicateFolder]), revision: 1)
+        _ = try await storage.save(WindowSessionArchive(windows: [first, second, duplicateFolder]), revision: 1)
         print("Seeded three test windows in two fixture folders.")
     }
 }
