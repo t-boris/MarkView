@@ -667,11 +667,15 @@ extension WorkspaceManager: ResearchHost {
 
     func saveBeforeResearch(_ file: URL, action: String) -> Bool { tabs.saveBeforeReading(file, action: action) }
 
-    func researchDocumentChanged(_ file: URL, content: String, applyToEdited: (String) -> String?) {
+    func researchDocumentChanged(_ file: URL, content: String, applyToEdited: (String) -> String?) -> Bool {
         refreshFileTree()
-        if !tabs.fileRewritten(file, content: content, applyToEdited: applyToEdited) {
-            research.jobs.message = "\(file.lastPathComponent) was updated on disk, but its tab has unsaved edits that conflict; reload it to see the AI's change."
-        }
+        return tabs.fileRewritten(file, content: content, applyToEdited: applyToEdited)
+    }
+
+    func exportResearchPDF(_ markdown: String, fileName: String, near mapFile: URL) {
+        PDFExporter.exportPDF(markdown: markdown, title: (fileName as NSString).deletingPathExtension, fileName: fileName,
+                              baseURL: mapFile.deletingLastPathComponent(),
+                              roots: DocumentFiles.roots(project: project.root, documents: tabs.openTabs.filter(\.isFileBacked).map(\.url)))
     }
 }
 
