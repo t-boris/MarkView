@@ -26,7 +26,7 @@ struct ArchNode {
 SWIFT
 cp tools/tests/ChangeDiffTests.swift "$out/main.swift"
 swiftc -o "$out/change-diff-tests" -target "$(uname -m)-apple-macos13.0" \
-    Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift \
+    Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Models/Architecture/ChangeDiff.swift MarkView/Models/Architecture/ChangeReviewModel.swift MarkView/Models/Architecture/XRayContent.swift MarkView/Models/AI/OutputLanguage.swift "$out/ArchNodeStub.swift" \
     "$out/EditorLines.swift" "$out/main.swift"
 "$out/change-diff-tests"

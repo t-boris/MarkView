@@ -225,14 +225,23 @@
       "script": "tools/tests/change-diff-tests.sh",
       "tier": "pure",
       "sources": [
+        "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/Architecture/ChangeDiff.swift",
         "MarkView/Models/Architecture/ChangeReviewModel.swift",
         "MarkView/Models/Architecture/CodeExplainer.swift",
         "MarkView/Models/Architecture/XRayContent.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "tools/tests/ChangeDiffTests.swift",
-        "tools/tests/change-diff-tests.sh",
-        "MarkView/Models/AI/OutputLanguage.swift"
+        "tools/tests/change-diff-tests.sh"
       ]
     },
     {
@@ -250,8 +259,11 @@
         "MarkView/Models/Lifecycle/LifecycleCapture.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
