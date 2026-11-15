@@ -8,9 +8,21 @@ public struct SubprocessSpec: Sendable {
     public var cwd: URL?
     /// Extra environment variables merged into the inherited process environment (and `settings.cli.extraPATH`).
     public var environment: [String: String]?
+    /// Written to the child's standard input, which is then closed. nil leaves the child `/dev/null`.
     public var stdin: Data?
+    /// Seconds before the child's group is terminated; `<= 0` means no limit.
     public var timeout: TimeInterval
+    /// Cap on what `run` keeps of each captured stream (the rest is read and dropped).
     public var maxOutputBytes: Int
+    /// Where standard output and standard error go (`.capture`: read by the parent).
+    public var stdoutRouting: SubprocessRouting
+    public var stderrRouting: SubprocessRouting
+    /// Gives the child an input pipe that stays open for `SubprocessChild.writeInput` (`Subprocess.start` only).
+    public var keepsInputOpen: Bool
+    /// Seconds between SIGTERM and SIGKILL when the child's group is terminated.
+    public var terminationGrace: TimeInterval
+    /// `run` ends the child as soon as a captured stream passes `maxOutputBytes` (`SubprocessResult.truncated`).
+    public var terminateOnOverflow: Bool
 
     public init(
         executable: String,
@@ -19,7 +31,12 @@ public struct SubprocessSpec: Sendable {
         environment: [String: String]? = nil,
         stdin: Data? = nil,
         timeout: TimeInterval = 30,
-        maxOutputBytes: Int = 4 * 1024 * 1024
+        maxOutputBytes: Int = 4 * 1024 * 1024,
+        stdoutRouting: SubprocessRouting = .capture,
+        stderrRouting: SubprocessRouting = .capture,
+        keepsInputOpen: Bool = false,
+        terminationGrace: TimeInterval = 0.5,
+        terminateOnOverflow: Bool = false
     ) {
         self.executable = executable
         self.arguments = arguments
@@ -28,6 +45,11 @@ public struct SubprocessSpec: Sendable {
         self.stdin = stdin
         self.timeout = timeout
         self.maxOutputBytes = maxOutputBytes
+        self.stdoutRouting = stdoutRouting
+        self.stderrRouting = stderrRouting
+        self.keepsInputOpen = keepsInputOpen
+        self.terminationGrace = terminationGrace
+        self.terminateOnOverflow = terminateOnOverflow
     }
 }
 
@@ -59,8 +81,10 @@ public struct SubprocessResult: Sendable, Equatable {
     }
 }
 
-/// Unified subprocess runner with concurrent stdout/stderr draining, bounded output caps,
-/// merged environment + `settings.cli.extraPATH`, SIGTERM -> SIGKILL escalation, and cancellation (`AR-25`, `FU-04`).
+/// The one way the app runs a child process (`AR-25`): `run` for a command that ends, `runBlocking` for code that owns
+/// a background thread, `start` for a child that lives on. All of them share the spawn: a process group of its own so
+/// that a timeout or cancellation reaches the grandchildren (`FU-22`), concurrent draining of the pipes with bounded
+/// capture (`FU-04`), the merged environment with `settings.cli.extraPATH`, and SIGTERM then SIGKILL.
 public enum Subprocess {
     public static let extraPATHDefaultsKey = "settings.cli.extraPATH"
 
@@ -141,83 +165,126 @@ public enum Subprocess {
         return nil
     }
 
-    /// Runs `spec` off the caller's actor, draining stdout/stderr concurrently with bounded output capture.
+    /// Runs `spec` off the caller's actor and returns when the child has ended: pipes are drained concurrently with
+    /// bounded capture, the child leads a process group of its own, and a timeout or the cancellation of the calling
+    /// task ends the whole group (SIGTERM, then SIGKILL after `spec.terminationGrace`).
     public static func run(_ spec: SubprocessSpec) async -> SubprocessResult {
-        let box = ProcessBox()
+        let control = OneShotControl()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let result = executeSynchronously(spec, box: box)
-                    continuation.resume(returning: result)
-                }
+                launchOneShot(spec, control: control) { continuation.resume(returning: $0) }
             }
         } onCancel: {
-            box.terminateWithEscalation()
+            control.cancel()
         }
     }
 
-    private final class ProcessBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var process: Process?
-        private var started = false
-        private var cancelled = false
+    /// `run` for code that already owns a background thread (a synchronous scanner, a detached task): it blocks the
+    /// calling thread until the child has ended. Never call it from the main thread of the app; use `run` there.
+    public static func runBlocking(_ spec: SubprocessSpec) -> SubprocessResult {
+        let control = OneShotControl()
+        let finished = DispatchSemaphore(value: 0)
+        let box = ResultBox()
+        launchOneShot(spec, control: control) {
+            box.result = $0
+            finished.signal()
+        }
+        finished.wait()
+        return box.result
+    }
 
-        func attach(_ proc: Process) -> Bool {
-            lock.lock()
-            defer { lock.unlock() }
-            if cancelled { return false }
-            process = proc
-            return true
+    private static func launchOneShot(_ spec: SubprocessSpec, control: OneShotControl,
+                                      completion: @escaping @Sendable (SubprocessResult) -> Void) {
+        func failed(_ message: String, exitCode: Int32 = -1) -> SubprocessResult {
+            SubprocessResult(exitCode: exitCode, stdout: "", stderr: message)
+        }
+        guard control.canLaunch() else { return completion(failed("Cancelled")) }
+        guard resolveExecutable(spec.executable) != nil else {
+            return completion(failed("Executable not found: \(spec.executable)", exitCode: 127))
         }
 
+        let output = PipeCollector(maxBytes: spec.maxOutputBytes)
+        let errors = PipeCollector(maxBytes: spec.maxOutputBytes)
+        let terminateOnOverflow = spec.terminateOnOverflow
+        let child: SubprocessChild
+        do {
+            child = try start(spec, onStdout: { data in
+                output.append(data)
+                if terminateOnOverflow, output.truncated { control.terminate() }
+            }, onStderr: { data in
+                errors.append(data)
+                if terminateOnOverflow, errors.truncated { control.terminate() }
+            }, onExit: { _, exit in
+                let (stdout, outTruncated) = output.snapshot()
+                let (stderr, errTruncated) = errors.snapshot()
+                completion(SubprocessResult(
+                    exitCode: exit.timedOut ? -1 : exit.status,
+                    stdout: stdout,
+                    stderr: stderr,
+                    timedOut: exit.timedOut,
+                    truncated: outTruncated || errTruncated,
+                    durationMs: exit.durationMs
+                ))
+            })
+        } catch {
+            return completion(failed(error.localizedDescription))
+        }
+        control.attach(child)
+    }
+
+    private final class ResultBox: @unchecked Sendable {
+        var result = SubprocessResult(exitCode: -1, stdout: "", stderr: "")
+    }
+
+    /// Lets the cancellation of a task and the output cap reach a child that is being started.
+    private final class OneShotControl: @unchecked Sendable {
+        private let lock = NSLock()
+        private var child: SubprocessChild?
+        private var cancelled = false
+
         func canLaunch() -> Bool {
-            lock.lock()
-            defer { lock.unlock() }
+            lock.lock(); defer { lock.unlock() }
             return !cancelled
         }
 
-        func markStarted() {
+        /// Called once the child exists; a cancellation that came first ends it now.
+        func attach(_ child: SubprocessChild) {
             lock.lock()
-            started = true
-            let shouldTerminate = cancelled
+            self.child = child
+            let stop = cancelled
             lock.unlock()
-            if shouldTerminate {
-                terminateWithEscalation()
-            }
+            if stop { child.terminate() }
         }
 
-        func terminateWithEscalation() {
-            let target: (proc: Process, pid: pid_t)? = {
-                lock.lock()
-                defer { lock.unlock() }
-                cancelled = true
-                guard started, let proc = process, proc.isRunning else { return nil }
-                return (proc, proc.processIdentifier)
-            }()
-            guard let (proc, pid) = target else { return }
-            proc.terminate()
-            if pid > 0, getpgid(pid) == pid {
-                _ = kill(-pid, SIGTERM)
-            }
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
-                if proc.isRunning && pid > 0 {
-                    if getpgid(pid) == pid {
-                        _ = kill(-pid, SIGKILL)
-                    }
-                    kill(pid, SIGKILL)
-                }
-            }
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            let target = child
+            lock.unlock()
+            target?.terminate()
+        }
+
+        func terminate() {
+            lock.lock()
+            let target = child
+            lock.unlock()
+            target?.terminate()
         }
     }
 
     private final class PipeCollector: @unchecked Sendable {
         private let lock = NSLock()
         private var data = Data()
-        private(set) var truncated = false
-        let maxBytes: Int
+        private var cut = false
+        private let maxBytes: Int
 
         init(maxBytes: Int) {
             self.maxBytes = max(1024, maxBytes)
+        }
+
+        var truncated: Bool {
+            lock.lock(); defer { lock.unlock() }
+            return cut
         }
 
         func append(_ chunk: Data) {
@@ -226,231 +293,18 @@ public enum Subprocess {
             defer { lock.unlock() }
             let remaining = maxBytes - data.count
             if remaining <= 0 {
-                truncated = true
-                return
-            }
-            if chunk.count > remaining {
+                cut = true
+            } else if chunk.count > remaining {
                 data.append(chunk.prefix(remaining))
-                truncated = true
+                cut = true
             } else {
                 data.append(chunk)
             }
         }
 
-        var remainingCapacity: Int {
-            lock.lock()
-            defer { lock.unlock() }
-            return max(0, maxBytes - data.count)
-        }
-
         func snapshot() -> (String, Bool) {
-            lock.lock()
-            defer { lock.unlock() }
-            return (String(decoding: data, as: UTF8.self), truncated)
+            lock.lock(); defer { lock.unlock() }
+            return (String(decoding: data, as: UTF8.self), cut)
         }
-    }
-
-    /// Reads any already-buffered bytes from a pipe handle without blocking if a descendant
-    /// process inherited and kept the write end open (`FU-04`).
-    private static func drainNonBlocking(handle: FileHandle, into collector: PipeCollector) {
-        let fd = handle.fileDescriptor
-        guard fd >= 0 else { return }
-        let oldFlags = fcntl(fd, F_GETFL, 0)
-        if oldFlags >= 0 {
-            _ = fcntl(fd, F_SETFL, oldFlags | O_NONBLOCK)
-        }
-        defer {
-            if oldFlags >= 0 {
-                _ = fcntl(fd, F_SETFL, oldFlags)
-            }
-            try? handle.close()
-        }
-
-        var buffer = [UInt8](repeating: 0, count: 16_384)
-        var totalExtraRead = 0
-        // Cap extra post-exit non-blocking read to avoid unbounded work if a child is actively flooding.
-        let hardLimit = max(collector.maxBytes, 1024) + 16_384
-        while totalExtraRead < hardLimit {
-            let n = buffer.withUnsafeMutableBytes { raw -> Int in
-                guard let base = raw.baseAddress else { return -1 }
-                return Darwin.read(fd, base, raw.count)
-            }
-            if n > 0 {
-                totalExtraRead += n
-                collector.append(Data(buffer[0..<n]))
-                if collector.remainingCapacity == 0 {
-                    // Drain up to a tiny bounded remainder to detect truncation, or stop if full.
-                    break
-                }
-            } else {
-                break
-            }
-        }
-    }
-
-    private static func executeSynchronously(_ spec: SubprocessSpec, box: ProcessBox) -> SubprocessResult {
-        let start = DispatchTime.now()
-        guard let resolvedPath = resolveExecutable(spec.executable) else {
-            return SubprocessResult(
-                exitCode: 127,
-                stdout: "",
-                stderr: "Executable not found: \(spec.executable)",
-                timedOut: false,
-                truncated: false,
-                durationMs: 0
-            )
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: resolvedPath)
-        process.arguments = spec.arguments
-        if let cwd = spec.cwd {
-            process.currentDirectoryURL = cwd
-        }
-        process.environment = mergedEnvironment(overrides: spec.environment)
-
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-
-        var inPipe: Pipe?
-        if spec.stdin != nil {
-            let pipe = Pipe()
-            process.standardInput = pipe
-            inPipe = pipe
-        } else {
-            process.standardInput = FileHandle.nullDevice
-        }
-
-        guard box.attach(process) else {
-            return SubprocessResult(exitCode: -1, stdout: "", stderr: "Cancelled", timedOut: false, truncated: false, durationMs: 0)
-        }
-
-        let outCollector = PipeCollector(maxBytes: spec.maxOutputBytes)
-        let errCollector = PipeCollector(maxBytes: spec.maxOutputBytes)
-        let eofGroup = DispatchGroup()
-
-        let outFinishLock = NSLock()
-        var outFinished = false
-        let errFinishLock = NSLock()
-        var errFinished = false
-
-        eofGroup.enter()
-        outPipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                handle.readabilityHandler = nil
-                outFinishLock.lock()
-                let shouldLeave = !outFinished
-                outFinished = true
-                outFinishLock.unlock()
-                if shouldLeave { eofGroup.leave() }
-            } else {
-                outCollector.append(chunk)
-            }
-        }
-
-        eofGroup.enter()
-        errPipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                handle.readabilityHandler = nil
-                errFinishLock.lock()
-                let shouldLeave = !errFinished
-                errFinished = true
-                errFinishLock.unlock()
-                if shouldLeave { eofGroup.leave() }
-            } else {
-                errCollector.append(chunk)
-            }
-        }
-
-        guard box.canLaunch() else {
-            outPipe.fileHandleForReading.readabilityHandler = nil
-            errPipe.fileHandleForReading.readabilityHandler = nil
-            return SubprocessResult(exitCode: -1, stdout: "", stderr: "Cancelled", timedOut: false, truncated: false, durationMs: 0)
-        }
-
-        let stdinGroup = DispatchGroup()
-        do {
-            try process.run()
-            box.markStarted()
-        } catch {
-            outPipe.fileHandleForReading.readabilityHandler = nil
-            errPipe.fileHandleForReading.readabilityHandler = nil
-            outFinishLock.lock()
-            if !outFinished { outFinished = true; eofGroup.leave() }
-            outFinishLock.unlock()
-            errFinishLock.lock()
-            if !errFinished { errFinished = true; eofGroup.leave() }
-            errFinishLock.unlock()
-            return SubprocessResult(
-                exitCode: -1,
-                stdout: "",
-                stderr: error.localizedDescription,
-                timedOut: false,
-                truncated: false,
-                durationMs: 0
-            )
-        }
-
-        // Close our copies of the write ends so EOF reflects only the child process.
-        try? outPipe.fileHandleForWriting.close()
-        try? errPipe.fileHandleForWriting.close()
-
-        if let inputData = spec.stdin, let inPipe {
-            stdinGroup.enter()
-            DispatchQueue.global(qos: .utility).async {
-                try? inPipe.fileHandleForWriting.write(contentsOf: inputData)
-                try? inPipe.fileHandleForWriting.close()
-                stdinGroup.leave()
-            }
-        }
-
-        let stateLock = NSLock()
-        var timedOut = false
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        if spec.timeout > 0 {
-            timer.schedule(deadline: .now() + spec.timeout)
-            timer.setEventHandler {
-                stateLock.lock()
-                timedOut = true
-                stateLock.unlock()
-                box.terminateWithEscalation()
-            }
-            timer.resume()
-        }
-
-        process.waitUntilExit()
-        if spec.timeout > 0 {
-            timer.cancel()
-        }
-        _ = stdinGroup.wait(timeout: .now() + 1.0)
-        // Wait briefly for readabilityHandlers to finish flushing buffered output after exit,
-        // without blocking indefinitely if a background grandchild kept stdout/stderr open (`FU-04`).
-        _ = eofGroup.wait(timeout: .now() + 0.15)
-
-        outPipe.fileHandleForReading.readabilityHandler = nil
-        errPipe.fileHandleForReading.readabilityHandler = nil
-        drainNonBlocking(handle: outPipe.fileHandleForReading, into: outCollector)
-        drainNonBlocking(handle: errPipe.fileHandleForReading, into: errCollector)
-
-        let (stdout, outTrunc) = outCollector.snapshot()
-        let (stderr, errTrunc) = errCollector.snapshot()
-        let wasTimedOut: Bool = {
-            stateLock.lock()
-            defer { stateLock.unlock() }
-            return timedOut
-        }()
-        let elapsedNs = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
-        return SubprocessResult(
-            exitCode: wasTimedOut ? -1 : process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
-            timedOut: wasTimedOut,
-            truncated: outTrunc || errTrunc,
-            durationMs: Int(elapsedNs / 1_000_000)
-        )
     }
 }

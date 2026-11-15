@@ -1008,8 +1008,10 @@
         "Packages/MarkViewCore/Package.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "Packages/MarkViewCore/Tests/MarkViewCoreTests/MarkViewCoreTests.swift",
+        "Packages/MarkViewCore/Tests/MarkViewCoreTests/SubprocessProcessGroupTests.swift",
         "tools/tests/Phase2CoreTests.swift"
       ]
     },
@@ -1033,6 +1035,7 @@
         "MarkView/Models/Workspace/MarkdownDocumentChunker.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "tools/tests/Phase4ShellTests.swift"
       ]
     },
@@ -1045,6 +1048,7 @@
         "MarkView/Models/AI/AIOperation.swift",
         "MarkView/Models/AI/AssistantProviderRegistry.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "tools/tests/Phase5AITests.swift"
       ]
     },
