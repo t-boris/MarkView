@@ -1,5 +1,8 @@
 import Foundation
 import CryptoKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Deterministic architecture scan of a project folder — no AI.
 ///
@@ -229,20 +232,13 @@ struct ArchitectureScanner {
         return hasher.finalize().prefix(12).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Run a command and return stdout, or nil on failure. Reads the pipe to EOF
-    /// before waiting so a large output cannot deadlock.
+    /// Run a command and return stdout, or nil when it cannot start or exits non-zero (stderr is dropped, nothing is cut,
+    /// no time limit). Blocks the calling thread: the scanner and its callers run on background threads, never the main thread.
     static func runTool(_ executable: String, _ arguments: [String]) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        let out = Pipe()
-        process.standardOutput = out
-        process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-        return String(decoding: data, as: UTF8.self)
+        let result = Subprocess.runBlocking(SubprocessSpec(
+            executable: executable, arguments: arguments, timeout: 0, maxOutputBytes: SubprocessSpec.unboundedOutput,
+            stderrRouting: .discard))
+        return result.succeeded ? result.stdout : nil
     }
 
     /// A folder that is a software project: a build manifest at its root, or at

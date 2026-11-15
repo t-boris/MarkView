@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 177,
+  "suiteCount": 181,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -11,7 +11,9 @@
         "MarkView/Models/AI/AgentProcesses.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "tools/tests/ACPContinuationTests.swift",
-        "tools/tests/CLICompletionTestSupport.swift"
+        "tools/tests/CLICompletionTestSupport.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -31,7 +33,9 @@
       "sources": [
         "MarkView/Models/AI/AgentProcesses.swift",
         "tools/tests/AgentProcessesTests.swift",
-        "tools/tests/agent-processes-tests.sh"
+        "tools/tests/agent-processes-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -54,7 +58,9 @@
         "MarkView/Models/Architecture/CodeExplainer.swift",
         "MarkView/Models/Workspace/DocumentState.swift",
         "MarkView/Models/Workspace/FileNode.swift",
-        "tools/tests/AllFilesExplainTests.swift"
+        "tools/tests/AllFilesExplainTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -82,7 +88,9 @@
       "sources": [
         "MarkView/Models/Workspace/ArchiveSupport.swift",
         "tools/tests/ArchiveTests.swift",
-        "tools/tests/archive-tests.sh"
+        "tools/tests/archive-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -111,7 +119,9 @@
         "MarkView/Models/Workspace/LinkedFolders.swift",
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Resources/Editor/book.html",
-        "tools/tests/BookPDFLiveChecks.swift"
+        "tools/tests/BookPDFLiveChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -148,7 +158,9 @@
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/BrowserAgentToolsTests.swift",
-        "tools/tests/browser-agent-tools-tests.sh"
+        "tools/tests/browser-agent-tools-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -213,7 +225,9 @@
         "MarkView/Models/Lifecycle/BugValidity.swift",
         "MarkView/Models/Workspace/FrontMatter.swift",
         "tools/tests/BugValidityTests.swift",
-        "tools/tests/bug-validity-tests.sh"
+        "tools/tests/bug-validity-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -235,7 +249,9 @@
         "MarkView/Models/AI/AgentProcesses.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "tools/tests/CLICompletionTestSupport.swift",
-        "tools/tests/CLICompletionTimeoutTests.swift"
+        "tools/tests/CLICompletionTimeoutTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -280,7 +296,9 @@
       "sources": [
         "MarkView/Models/AI/AgentProcesses.swift",
         "MarkView/Models/Cockpit/CockpitChild.swift",
-        "tools/tests/CockpitChildChecks.swift"
+        "tools/tests/CockpitChildChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -387,7 +405,9 @@
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/CockpitRuntimeChecks.swift"
+        "tools/tests/CockpitRuntimeChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -446,7 +466,9 @@
         "MarkView/Models/Lifecycle/WorkflowEvents.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/ControlAgentToolsTests.swift",
-        "tools/tests/control-agent-tools-tests.sh"
+        "tools/tests/control-agent-tools-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -498,7 +520,9 @@
         "MarkView/Models/AI/ProviderHints.swift",
         "MarkView/Models/AI/SystemProbe.swift",
         "tools/tests/DatabaseExplorerTests.swift",
-        "tools/tests/database-explorer-tests.sh"
+        "tools/tests/database-explorer-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -534,7 +558,9 @@
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
         "tools/tests/DeploymentExecutorTests.swift",
-        "tools/tests/deployment-executor-tests.sh"
+        "tools/tests/deployment-executor-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -570,7 +596,9 @@
         "MarkView/Models/Deployments/DeploymentModels.swift",
         "MarkView/Models/AI/SystemProbe.swift",
         "tools/tests/DeploymentSSHTests.swift",
-        "tools/tests/deployment-ssh-tests.sh"
+        "tools/tests/deployment-ssh-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -590,7 +618,9 @@
         "MarkView/Models/AI/ProviderHints.swift",
         "MarkView/Models/AI/SystemProbe.swift",
         "tools/tests/DeploymentStoreTests.swift",
-        "tools/tests/deployment-store-tests.sh"
+        "tools/tests/deployment-store-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -697,7 +727,9 @@
         "MarkView/Models/Lifecycle/IssueListing.swift",
         "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
         "tools/tests/FeatureDiscoveryTests.swift",
-        "tools/tests/feature-discovery-tests.sh"
+        "tools/tests/feature-discovery-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -720,7 +752,9 @@
         "MarkView/Models/Workspace/FileNode.swift",
         "MarkView/Models/Workspace/WindowUIState.swift",
         "tools/tests/FileBrowserTests.swift",
-        "tools/tests/file-browser-tests.sh"
+        "tools/tests/file-browser-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -761,7 +795,9 @@
         "MarkView/Models/Lifecycle/EvidenceTimings.swift",
         "MarkView/Models/Git/GitHubClient.swift",
         "MarkView/Models/Lifecycle/LifecycleCapture.swift",
-        "tools/tests/GitHubCommandTests.swift"
+        "tools/tests/GitHubCommandTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -774,7 +810,9 @@
         "MarkView/Models/Lifecycle/LifecycleCapture.swift",
         "tools/tests/CLIToolLocatorStub.swift",
         "tools/tests/GitHubRemoteProfileTests.swift",
-        "tools/tests/github-remote-profile-tests.sh"
+        "tools/tests/github-remote-profile-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -895,7 +933,9 @@
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Models/Workspace/ProjectSearch.swift",
         "tools/tests/LinkedFoldersTests.swift",
-        "tools/tests/linked-folders-tests.sh"
+        "tools/tests/linked-folders-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -932,7 +972,18 @@
         "MarkView/Models/Workspace/NewProject.swift",
         "tools/tests/CLIToolLocatorStub.swift",
         "tools/tests/NewProjectTests.swift",
-        "tools/tests/new-project-tests.sh"
+        "tools/tests/new-project-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+      ]
+    },
+    {
+      "name": "no-process-outside-subprocess-lint",
+      "script": "tools/tests/no-process-outside-subprocess-lint.sh",
+      "tier": "pure",
+      "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -992,7 +1043,9 @@
         "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/PersistentRemoteSessionTests.swift",
-        "tools/tests/persistent-remote-relay.mjs"
+        "tools/tests/persistent-remote-relay.mjs",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1053,8 +1106,10 @@
         "Packages/MarkViewCore/Package.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "Packages/MarkViewCore/Tests/MarkViewCoreTests/MarkViewCoreTests.swift",
+        "Packages/MarkViewCore/Tests/MarkViewCoreTests/SubprocessProcessGroupTests.swift",
         "tools/tests/Phase2CoreTests.swift"
       ]
     },
@@ -1078,6 +1133,7 @@
         "MarkView/Models/Workspace/MarkdownDocumentChunker.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "tools/tests/Phase4ShellTests.swift"
       ]
     },
@@ -1090,6 +1146,7 @@
         "MarkView/Models/AI/AIOperation.swift",
         "MarkView/Models/AI/AssistantProviderRegistry.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "tools/tests/Phase5AITests.swift"
       ]
     },
@@ -1102,7 +1159,9 @@
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
         "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/Phase6StorageSecurityTests.swift"
+        "tools/tests/Phase6StorageSecurityTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1143,7 +1202,9 @@
         "MarkView/Models/Lifecycle/WorkflowEvents.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/ProjectAgentToolsTests.swift",
-        "tools/tests/project-agent-tools-tests.sh"
+        "tools/tests/project-agent-tools-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1158,7 +1219,9 @@
         "MarkView/Models/Workspace/LinkedFolders.swift",
         "MarkView/Models/Appearance/ProjectColor.swift",
         "tools/tests/ProjectAIChoiceTests.swift",
-        "tools/tests/project-ai-choice-tests.sh"
+        "tools/tests/project-ai-choice-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1196,7 +1259,9 @@
         "MarkView/Models/Architecture/ProjectChangeReview.swift",
         "MarkView/Models/Workspace/ProjectSearch.swift",
         "tools/tests/ProjectChangeTests.swift",
-        "tools/tests/project-change-tests.sh"
+        "tools/tests/project-change-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1247,7 +1312,9 @@
         "MarkView/Models/Workspace/ArchiveSupport.swift",
         "MarkView/Models/Workspace/ProjectSearch.swift",
         "tools/tests/ProjectSearchTests.swift",
-        "tools/tests/project-search-tests.sh"
+        "tools/tests/project-search-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1292,7 +1359,9 @@
         "MarkView/Models/Prototype/PrototypeTailwind.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "tools/tests/PrototypeDeadlineFixture.swift",
-        "tools/tests/PrototypeDeadlineTests.swift"
+        "tools/tests/PrototypeDeadlineTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1314,7 +1383,9 @@
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "tools/tests/PrototypeCLIStub.swift",
         "tools/tests/PrototypeEmbeddedTests.swift",
-        "tools/tests/prototype-embedded-tests.sh"
+        "tools/tests/prototype-embedded-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1377,7 +1448,9 @@
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "tools/tests/PrototypeCLIStub.swift",
         "tools/tests/PrototypeHandoffLiveRun.swift",
-        "tools/tests/prototype-handoff-live-run.sh"
+        "tools/tests/prototype-handoff-live-run.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1410,7 +1483,9 @@
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "tools/tests/PrototypeCLIStub.swift",
         "tools/tests/PrototypeLiveRun.swift",
-        "tools/tests/prototype-live-run.sh"
+        "tools/tests/prototype-live-run.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1445,7 +1520,9 @@
         "MarkView/Views/Prototype/PrototypeStudioView.swift",
         "tools/tests/PrototypeCLIStub.swift",
         "tools/tests/PrototypeRuntimeTests.swift",
-        "tools/tests/prototype-runtime-tests.sh"
+        "tools/tests/prototype-runtime-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1478,7 +1555,9 @@
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "tools/tests/PrototypeCLIStub.swift",
         "tools/tests/PrototypeShellStructureTests.swift",
-        "tools/tests/prototype-shell-structure-tests.sh"
+        "tools/tests/prototype-shell-structure-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1500,7 +1579,9 @@
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "tools/tests/PrototypeCLIStub.swift",
         "tools/tests/PrototypeStylesTests.swift",
-        "tools/tests/prototype-styles-tests.sh"
+        "tools/tests/prototype-styles-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1536,7 +1617,9 @@
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "tools/tests/PrototypeCLIStub.swift",
         "tools/tests/PrototypeTailwindTests.swift",
-        "tools/tests/prototype-tailwind-tests.sh"
+        "tools/tests/prototype-tailwind-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1558,7 +1641,9 @@
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "tools/tests/PrototypeCLIStub.swift",
         "tools/tests/PrototypeTests.swift",
-        "tools/tests/prototype-tests.sh"
+        "tools/tests/prototype-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1837,7 +1922,9 @@
         "MarkView/Models/Remote/RemoteWorkspace.swift",
         "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/RemoteBrowserTests.swift"
+        "tools/tests/RemoteBrowserTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1854,7 +1941,9 @@
         "MarkView/Models/Remote/RemoteProviderConfiguration.swift",
         "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/RemoteCodexContextTests.swift"
+        "tools/tests/RemoteCodexContextTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1886,7 +1975,9 @@
         "MarkView/Models/Remote/RemoteWorkspace.swift",
         "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/RemoteProviderLiveChecks.swift"
+        "tools/tests/RemoteProviderLiveChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1912,7 +2003,9 @@
         "tools/tests/remote-browser-tests.sh",
         "tools/tests/remote-codex-context-tests.sh",
         "tools/tests/remote-relay-settings-tests.sh",
-        "tools/tests/terminal-child-tests.sh"
+        "tools/tests/terminal-child-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -2108,7 +2201,9 @@
         "MarkView/Resources/Editor/terminal.html",
         "MarkView/Resources/Editor/js/markview-terminal.js",
         "MarkView/Views/Appearance/AppFontScaleView.swift",
-        "tools/tests/TerminalLayoutTests.swift"
+        "tools/tests/TerminalLayoutTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -2130,7 +2225,9 @@
         "MarkView/Resources/Editor/js/markview-terminal.js",
         "MarkView/Views/Appearance/AppFontScaleView.swift",
         "tools/tests/EditorLineLinkTests.swift",
-        "tools/tests/TerminalLinkTests.swift"
+        "tools/tests/TerminalLinkTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -2242,7 +2339,9 @@
         "MarkView/Views/UIStudio/UIStudioPreviewHost.swift",
         "tools/tests/UIStudioLiveRun.swift",
         "tools/tests/UIStudioLiveStubs.swift",
-        "tools/tests/ui-studio-live-run.sh"
+        "tools/tests/ui-studio-live-run.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -2306,7 +2405,9 @@
         "tools/tests/UIStudioAuthHarness.swift",
         "tools/tests/UIStudioSessionHarness.swift",
         "tools/tests/UIStudioSessionStubs.swift",
-        "tools/tests/ui-studio-session-tests.sh"
+        "tools/tests/ui-studio-session-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -2351,7 +2452,9 @@
         "tools/tests/UIStudioRepairTests.swift",
         "tools/tests/UIStudioScreensTests.swift",
         "tools/tests/UIStudioTests.swift",
-        "tools/tests/ui-studio-tests.sh"
+        "tools/tests/ui-studio-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -2377,7 +2480,9 @@
         "MarkView/Resources/Editor/js/markview-ui-studio.js",
         "MarkView/Views/UIStudio/UIStudioPreviewHost.swift",
         "tools/tests/UIStudioWebHarness.swift",
-        "tools/tests/ui-studio-web-tests.sh"
+        "tools/tests/ui-studio-web-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -2633,7 +2738,9 @@
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Models/Workspace/ProjectSearch.swift",
         "MarkView/Models/Lifecycle/SpecificationHandoff.swift",
-        "tools/tests/WorkspaceRedesignTests.swift"
+        "tools/tests/WorkspaceRedesignTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {

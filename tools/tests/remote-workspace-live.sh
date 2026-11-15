@@ -25,7 +25,7 @@ case "$selection" in
 esac
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/markview-remote-test-modules" -o "$out/remote-provider-live" \
+swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/markview-remote-test-modules" -o "$out/remote-provider-live" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Models/Remote/RemoteProtocol.swift MarkView/Models/Remote/RemoteFraming.swift \
     MarkView/Models/Remote/RemoteChannel.swift MarkView/Models/Remote/RemoteWorkspace.swift \
     MarkView/Models/Remote/RemoteCommand.swift MarkView/Models/Terminal/PTYWriter.swift \

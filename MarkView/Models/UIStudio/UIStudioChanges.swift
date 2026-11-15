@@ -1,8 +1,10 @@
 import CryptoKit
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
-/// A child process run off the main thread with both pipes drained while it runs (CLAUDE.md: a full pipe must not
-/// deadlock it, and `waitUntilExit` never runs on the main thread).
+/// The UI Studio's view of a finished child: the status and both streams, whole (`Subprocess`, nothing cut).
 enum StudioProcess {
     struct Output: Sendable {
         var status: Int32
@@ -10,45 +12,13 @@ enum StudioProcess {
         var stderr: String
     }
 
-    /// `timeout` ends the process (SIGTERM) when it runs longer; its output so far is returned.
+    /// `timeout` ends the process (and its group) when it runs longer; its output so far is returned.
     static func run(_ executable: String, _ arguments: [String], in directory: URL? = nil, input: Data? = nil,
                     timeout: TimeInterval? = nil) async -> Output {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: executable)
-                process.arguments = arguments
-                if let directory { process.currentDirectoryURL = directory }
-                let out = Pipe(), err = Pipe(), stdin = Pipe()
-                process.standardOutput = out
-                process.standardError = err
-                process.standardInput = input == nil ? FileHandle.nullDevice : stdin
-                do { try process.run() } catch {
-                    continuation.resume(returning: Output(status: -1, stdout: "", stderr: error.localizedDescription))
-                    return
-                }
-                if let timeout {
-                    DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { if process.isRunning { process.terminate() } }
-                }
-                if let input {
-                    DispatchQueue.global().async {
-                        try? stdin.fileHandleForWriting.write(contentsOf: input)
-                        try? stdin.fileHandleForWriting.close()
-                    }
-                }
-                var stdoutData = Data(), stderrData = Data()
-                let group = DispatchGroup()
-                group.enter()
-                DispatchQueue.global().async { stdoutData = out.fileHandleForReading.readDataToEndOfFile(); group.leave() }
-                group.enter()
-                DispatchQueue.global().async { stderrData = err.fileHandleForReading.readDataToEndOfFile(); group.leave() }
-                group.wait()
-                process.waitUntilExit()
-                continuation.resume(returning: Output(status: process.terminationStatus,
-                                                      stdout: String(decoding: stdoutData, as: UTF8.self),
-                                                      stderr: String(decoding: stderrData, as: UTF8.self)))
-            }
-        }
+        let result = await Subprocess.run(SubprocessSpec(
+            executable: executable, arguments: arguments, cwd: directory, stdin: input,
+            timeout: timeout ?? 0, maxOutputBytes: SubprocessSpec.unboundedOutput))
+        return Output(status: result.exitCode, stdout: result.stdout, stderr: result.stderr)
     }
 
     static func git(_ arguments: [String], in directory: URL) async -> Output {

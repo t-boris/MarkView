@@ -12,7 +12,7 @@ export PYTHONDONTWRITEBYTECODE=1
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/UIStudioLiveRun.swift "$out/main.swift"
-swiftc -o "$out/ui-studio-live-run" \
+swiftc -o "$out/ui-studio-live-run" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
   MarkView/Models/UIStudio/UIStudioJSON.swift MarkView/Models/UIStudio/UIStudioModels.swift MarkView/Models/UIStudio/UIStudioSimulation.swift MarkView/Models/UIStudio/UIStudioAuthMock.swift \
   MarkView/Models/UIStudio/UIStudioRedaction.swift MarkView/Models/UIStudio/UIStudioLog.swift MarkView/Models/UIStudio/UIStudioPreparation.swift MarkView/Models/UIStudio/UIStudioBridge.swift \
   MarkView/Models/UIStudio/UIStudioChanges.swift MarkView/Models/UIStudio/UIStudioStore.swift MarkView/Models/UIStudio/UIStudioEvidence.swift \

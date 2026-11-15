@@ -5,7 +5,9 @@ func check(_ condition: Bool, _ message: String, line: Int = #line) {
     if condition { print("ok   \(message)") } else { failures += 1; print("FAIL \(message) (line \(line))") }
 }
 
-func sh(_ command: String) -> CommandResult { ProcessRunner.runBlocking(executable: "/bin/sh", arguments: ["-c", command], stdin: nil, timeout: 30, directory: nil, environment: nil) }
+func sh(_ command: String) -> CommandResult {
+    CommandResult(Subprocess.runBlocking(SubprocessSpec(executable: "/bin/sh", arguments: ["-c", command], timeout: 30, maxOutputBytes: CommandResult.outputCap)))
+}
 
 let dir = FileManager.default.temporaryDirectory.appendingPathComponent("mv-ssh-\(UUID().uuidString.prefix(8))")
 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

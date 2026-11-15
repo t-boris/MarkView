@@ -1,5 +1,8 @@
 import Foundation
 import Darwin
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Assistants driven over the Agent Client Protocol (`<cli> --acp`): JSON-RPC 2.0 over
 /// stdio — Cline and GitHub Copilot.
@@ -516,9 +519,9 @@ private final class ACPConnection: @unchecked Sendable {
     var sessionId: String?
 
     private let tool: CLITool
-    private let process = Process()
+    private let spec: SubprocessSpec
     private let queue = DispatchQueue(label: "markview.acp")
-    private var stdin: FileHandle?
+    private var child: SubprocessChild?
     private var nextId = 1
     private var pending: [Int: CheckedContinuation<[String: Any], Error>] = [:]
     private var lineBuffer = Data()
@@ -527,52 +530,44 @@ private final class ACPConnection: @unchecked Sendable {
 
     init(tool: CLITool, executable: String, arguments: [String], workDir: URL) {
         self.tool = tool
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.currentDirectoryURL = workDir
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = CLIToolLocator.subprocessPath(toolPath: executable)
-        process.environment = env
+        // Standard input stays open for the JSON-RPC requests; a stop ends the child's whole group two seconds after the request.
+        self.spec = SubprocessSpec(
+            executable: executable, arguments: arguments, cwd: workDir,
+            environment: ["PATH": CLIToolLocator.subprocessPath(toolPath: executable)],
+            timeout: 0, keepsInputOpen: true, terminationGrace: 2)
     }
 
     func start() async throws {
-        signal(SIGPIPE, SIG_IGN)   // a CLI that exits early must not kill the app mid-write
-        let input = Pipe(), output = Pipe(), errors = Pipe()
-        process.standardInput = input
-        process.standardOutput = output
-        process.standardError = errors
-        output.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard let self, !data.isEmpty else { return }
-            self.queue.async { self.consume(data) }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async { self.launch(continuation) }
         }
-        errors.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard let self, !data.isEmpty else { return }
-            self.queue.async { self.stderrTail = String((self.stderrTail + String(decoding: data, as: UTF8.self)).suffix(3000)) }
-        }
-        process.terminationHandler = { [weak self] process in
-            AgentProcesses.remove(process)
-            output.fileHandleForReading.readabilityHandler = nil
-            errors.fileHandleForReading.readabilityHandler = nil
-            guard let self else { return }
-            self.queue.async {
+    }
+
+    /// Starts the process on `queue`, where its output and its exit are delivered too (in that order).
+    private func launch(_ continuation: CheckedContinuation<Void, Error>) {
+        do {
+            let started = try Subprocess.start(spec, queue: queue, onStdout: { [weak self] data in
+                self?.consume(data)
+            }, onStderr: { [weak self] data in
+                guard let self else { return }
+                self.stderrTail = String((self.stderrTail + String(decoding: data, as: UTF8.self)).suffix(3000))
+            }, onExit: { [weak self] child, exit in
+                AgentProcesses.remove(child)
+                guard let self else { return }
                 let detail = self.stderrTail.trimmingCharacters(in: .whitespacesAndNewlines)
-                let killed = process.terminationReason == .uncaughtSignal && process.terminationStatus == SIGKILL
+                let killed = exit.signaled && exit.status == SIGKILL
                 let name = self.tool.displayName
                 self.failAll(self.failure ?? CLICompletion.Failure.failed(self.tool, killed && self.tool == .cline
                     ? "macOS stopped Cline (its binary's signature is invalid — a known problem of the npm package). "
                       + "Fix: codesign --force --sign - \"$(dirname $(readlink -f $(which cline)))/.cline\""
-                    : "\(name) exited (\(process.terminationStatus))" + (detail.isEmpty ? "" : ": \(detail.suffix(400))")))
-            }
-        }
-        do {
-            try process.run()
-            AgentProcesses.add(process)
+                    : "\(name) exited (\(exit.status))" + (detail.isEmpty ? "" : ": \(detail.suffix(400))")))
+            })
+            child = started
+            AgentProcesses.add(started)
+            continuation.resume()
         } catch {
-            throw CLICompletion.Failure.failed(tool, error.localizedDescription)
+            continuation.resume(throwing: CLICompletion.Failure.failed(tool, error.localizedDescription))
         }
-        stdin = input.fileHandleForWriting
     }
 
     /// Send a request and wait for its result.
@@ -614,14 +609,8 @@ private final class ACPConnection: @unchecked Sendable {
     // MARK: - Private (on queue)
 
     private func terminate() {
-        try? stdin?.close()
-        stdin = nil
-        if process.isRunning {
-            process.terminate()
-            queue.asyncAfter(deadline: .now() + 2) { [self] in
-                if process.isRunning { _ = kill(process.processIdentifier, SIGKILL) }
-            }
-        }
+        child?.closeInput()
+        child?.terminate()
     }
 
     private func failAll(_ error: Error) {
@@ -632,9 +621,9 @@ private final class ACPConnection: @unchecked Sendable {
     }
 
     private func write(_ message: [String: Any]) {
-        guard let stdin, var data = try? JSONSerialization.data(withJSONObject: message) else { return }
+        guard let child, var data = try? JSONSerialization.data(withJSONObject: message) else { return }
         data.append(0x0A)
-        try? stdin.write(contentsOf: data)
+        try? child.writeInput(data)
     }
 
     private func consume(_ data: Data) {

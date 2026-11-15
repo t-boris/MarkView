@@ -285,16 +285,12 @@ enum BrowserAgentTools {
 
     /// The command line of this process's parent (what started the server).
     static func parentCommand() -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-o", "command=", "-p", String(getppid())]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return nil }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        // This server has no UI and no async context: it blocks its own thread on the shared runner.
+        let result = Subprocess.runBlocking(SubprocessSpec(
+            executable: "/bin/ps", arguments: ["-o", "command=", "-p", String(getppid())],
+            timeout: 5, stderrRouting: .discard))
+        guard result.succeeded else { return nil }
+        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// The MarkView process a control socket belongs to (`mv-browser-<pid>.sock`) still runs.
