@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 202,
+  "suiteCount": 206,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1345,8 +1345,10 @@
         "MarkView/Models/Insight/InsightArchiveExporter.swift",
         "MarkView/Models/Insight/InsightCache.swift",
         "MarkView/Models/Insight/InsightCoordinator.swift",
+        "MarkView/Models/Insight/InsightHTMLTemplate.swift",
         "MarkView/Models/Insight/InsightModels.swift",
         "MarkView/Models/Insight/InsightSession.swift",
+        "MarkView/Models/Insight/InsightTreeSnapshot.swift",
         "MarkView/Models/Insight/SemanticDatabase.swift",
         "MarkView/Models/Insight/SemanticModels.swift",
         "MarkView/Models/Insight/SemanticSchema.swift",
@@ -4265,6 +4267,99 @@
         "MarkView/Models/Architecture/XRayCommand.swift",
         "tools/tests/XRayCommandTests.swift",
         "tools/tests/xray-command-tests.sh"
+      ]
+    },
+    {
+      "name": "change-diff-tests",
+      "script": "tools/tests/change-diff-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AI/OutputLanguage.swift",
+        "MarkView/Models/Architecture/ChangeDiff.swift",
+        "MarkView/Models/Architecture/ChangeReviewModel.swift",
+        "MarkView/Models/Architecture/CodeExplainer.swift",
+        "MarkView/Models/Architecture/XRayContent.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "tools/tests/ChangeDiffTests.swift",
+        "tools/tests/change-diff-tests.sh"
+      ]
+    },
+    {
+      "name": "change-source-tests",
+      "script": "tools/tests/change-source-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AI/OutputLanguage.swift",
+        "MarkView/Models/Architecture/ChangeReviewModel.swift",
+        "MarkView/Models/Architecture/ChangeSource.swift",
+        "MarkView/Models/Architecture/CodeExplainer.swift",
+        "MarkView/Models/Architecture/HistoricalBaseline.swift",
+        "MarkView/Models/Git/GitHubClient.swift",
+        "MarkView/Models/Lifecycle/EvidenceTimings.swift",
+        "MarkView/Models/Lifecycle/LifecycleCapture.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "tools/tests/CLIToolLocatorStub.swift",
+        "tools/tests/ChangeSourceTests.swift",
+        "tools/tests/change-source-tests.sh"
+      ]
+    },
+    {
+      "name": "logical-view-tests",
+      "script": "tools/tests/logical-view-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AI/AIOperation.swift",
+        "MarkView/Models/AI/DiagramAI.swift",
+        "MarkView/Models/Architecture/ArchitectureModel.swift",
+        "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
+        "MarkView/Models/Architecture/CodeArchitecture.swift",
+        "MarkView/Models/Architecture/CodePathTags.swift",
+        "MarkView/Models/Architecture/LogicalView.swift",
+        "MarkView/Models/Architecture/XRayCluster.swift",
+        "MarkView/Models/Architecture/XRayDigest.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/DiagramCLIStub.swift",
+        "tools/tests/LogicalViewTests.swift",
+        "tools/tests/logical-view-tests.sh"
+      ]
+    },
+    {
+      "name": "insight-template-tests",
+      "script": "tools/tests/insight-template-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Insight/InsightCache.swift",
+        "MarkView/Models/Insight/InsightHTMLTemplate.swift",
+        "MarkView/Models/Insight/InsightModels.swift",
+        "MarkView/Models/Insight/InsightTreeSnapshot.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "tools/tests/InsightTemplateTests.swift",
+        "tools/tests/ProjectOperationAnyCodableStub.swift",
+        "tools/tests/insight-template-tests.sh"
       ]
     }
   ]

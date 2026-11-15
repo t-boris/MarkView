@@ -248,6 +248,8 @@
 		7AFDB6B984500B2530F38FA0 /* RemoteToolRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DC151AE2DE4181D9A046CD1 /* RemoteToolRequests.swift */; };
 		7CCA2D80C0C226010DFFE03C /* UIStudioPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A691B8C8A96CED660607A98 /* UIStudioPrompts.swift */; };
 		7D223FBDDCD276E94DF609A8 /* InsightSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E51D3861EF03670F636F7EEA /* InsightSession.swift */; };
+		C9A397360E980FC7DC20DE2A /* InsightTreeSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 857388B61FF71E3AC9F36489 /* InsightTreeSnapshot.swift */; };
+		FF01ACD9A109E65DDDF46487 /* InsightHTMLTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64AE37062DE3FA0E3641EB85 /* InsightHTMLTemplate.swift */; };
 		7D2B4968C8583F5E067B1DBD /* PrototypeThemes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B32B9655FF8C1B4211E6028 /* PrototypeThemes.swift */; };
 		7DC8443EABD01872AD10D855 /* FileBrowserModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F073514C1DB09270B01D4EBE /* FileBrowserModel.swift */; };
 		7F390D6D0BFCB91DD5AF41F1 /* IssueLifecycleEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31031C9C0DD0A49B59264431 /* IssueLifecycleEvidence.swift */; };
@@ -322,6 +324,13 @@
 		AB772A1CF9E16E47D4B8E23B /* GitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5CB38E9CF1EB846033B0A8 /* GitView.swift */; };
 		ABAF5DAC540027464649560A /* ProjectChangeReviewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8930513F5E47FE846434F86D /* ProjectChangeReviewModel.swift */; };
 		ACC4EC4EED2064E5A42D8B93 /* ArchitectureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A4D926B6E77144DA360543F /* ArchitectureStore.swift */; };
+		0E030E2B2F816027F51ACAD3 /* XRayFilterStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00CC5262ACFE91F4EE22174 /* XRayFilterStore.swift */; };
+		DF971DA3F1BA7F80901CA7B1 /* LogicalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BFFF8C26811A3A21DDC827E /* LogicalView.swift */; };
+		2FEF2952039003CFEB04ADD5 /* ChangeReviewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22C630F29D053DD1FAB8A37F /* ChangeReviewStore.swift */; };
+		9D3C3771BA7C422BF95CA090 /* ArchitectureHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA3E81538DEFDC5FA0AC764 /* ArchitectureHost.swift */; };
+		CC040EEDBE1D899D1CE0810B /* ChangeSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D463840F256163AB414C09D0 /* ChangeSource.swift */; };
+		264465EC6A74D4C147CFD5D3 /* ChangeDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADE081C518141989A6900227 /* ChangeDiff.swift */; };
+		3A993557374111460A125A73 /* ChangeReviewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B61AEFBC284DC7A8097B46AD /* ChangeReviewModel.swift */; };
 		3F05808A1EC2557CCFC1A3A0 /* XRayCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3ECF56CDA8B6B63BCF15EA8 /* XRayCommand.swift */; };
 		19D506E600C91FF4D84FFA92 /* CodeAndXRayCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03901FEE36F3EFC9B514BC3C /* CodeAndXRayCoordinator.swift */; };
 		AD14A1DE17208264B020F4DD /* UIStudioDataFix.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD11BE03C1B1516FA7E0C8E9 /* UIStudioDataFix.swift */; };
@@ -858,6 +867,13 @@
 		9948C896E8CDF0E775CA331E /* CockpitLeverPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitLeverPanel.swift; sourceTree = "<group>"; };
 		9A1BAC4896C73C835E150997 /* BrowserElementPick.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserElementPick.swift; sourceTree = "<group>"; };
 		9A4D926B6E77144DA360543F /* ArchitectureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureStore.swift; sourceTree = "<group>"; };
+		C00CC5262ACFE91F4EE22174 /* XRayFilterStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayFilterStore.swift; sourceTree = "<group>"; };
+		3BFFF8C26811A3A21DDC827E /* LogicalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogicalView.swift; sourceTree = "<group>"; };
+		22C630F29D053DD1FAB8A37F /* ChangeReviewStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeReviewStore.swift; sourceTree = "<group>"; };
+		BFA3E81538DEFDC5FA0AC764 /* ArchitectureHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureHost.swift; sourceTree = "<group>"; };
+		D463840F256163AB414C09D0 /* ChangeSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeSource.swift; sourceTree = "<group>"; };
+		ADE081C518141989A6900227 /* ChangeDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeDiff.swift; sourceTree = "<group>"; };
+		B61AEFBC284DC7A8097B46AD /* ChangeReviewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeReviewModel.swift; sourceTree = "<group>"; };
 		B3ECF56CDA8B6B63BCF15EA8 /* XRayCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayCommand.swift; sourceTree = "<group>"; };
 		03901FEE36F3EFC9B514BC3C /* CodeAndXRayCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeAndXRayCoordinator.swift; sourceTree = "<group>"; };
 		9A7D6D41319CC3068C3A8F1A /* RemoteConnectionsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteConnectionsStore.swift; sourceTree = "<group>"; };
@@ -1032,6 +1048,8 @@
 		E3CB217F1317B780D7EE6C48 /* XRayContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayContent.swift; sourceTree = "<group>"; };
 		E41CD9CB6F1AB0F0EE1E1A77 /* DDESettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DDESettingsView.swift; sourceTree = "<group>"; };
 		E51D3861EF03670F636F7EEA /* InsightSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightSession.swift; sourceTree = "<group>"; };
+		857388B61FF71E3AC9F36489 /* InsightTreeSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightTreeSnapshot.swift; sourceTree = "<group>"; };
+		64AE37062DE3FA0E3641EB85 /* InsightHTMLTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightHTMLTemplate.swift; sourceTree = "<group>"; };
 		E5547BF6AD940A3322F4D1A0 /* TerminalSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSession.swift; sourceTree = "<group>"; };
 		04A68BEAB6A7E9B3F0ACAAE4 /* AssistantProviding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantProviding.swift; sourceTree = "<group>"; };
 		1257F7721DD8501CDE88B79D /* AITerminalsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AITerminalsController.swift; sourceTree = "<group>"; };
@@ -1256,6 +1274,13 @@
 				B6B0748CACE05B758D369F89 /* ArchitectureModel.swift */,
 				9BD5813E43B8EA8DD4CE8C0F /* ArchitectureScanner.swift */,
 				9A4D926B6E77144DA360543F /* ArchitectureStore.swift */,
+				C00CC5262ACFE91F4EE22174 /* XRayFilterStore.swift */,
+				3BFFF8C26811A3A21DDC827E /* LogicalView.swift */,
+				22C630F29D053DD1FAB8A37F /* ChangeReviewStore.swift */,
+				BFA3E81538DEFDC5FA0AC764 /* ArchitectureHost.swift */,
+				D463840F256163AB414C09D0 /* ChangeSource.swift */,
+				ADE081C518141989A6900227 /* ChangeDiff.swift */,
+				B61AEFBC284DC7A8097B46AD /* ChangeReviewModel.swift */,
 				B3ECF56CDA8B6B63BCF15EA8 /* XRayCommand.swift */,
 				03901FEE36F3EFC9B514BC3C /* CodeAndXRayCoordinator.swift */,
 				667F1344BF2C7E12038C9AEB /* AutoAnalysisScheduler.swift */,
@@ -1398,6 +1423,8 @@
 				C4673CD185F2FD3A78E989FE /* InsightCache.swift */,
 				5512D54B1337F5917699C7D0 /* InsightModels.swift */,
 				E51D3861EF03670F636F7EEA /* InsightSession.swift */,
+				857388B61FF71E3AC9F36489 /* InsightTreeSnapshot.swift */,
+				64AE37062DE3FA0E3641EB85 /* InsightHTMLTemplate.swift */,
 				6D939016101CACDA109D5AD0 /* SemanticDatabase.swift */,
 				1C295E57029BBB9E5280963B /* SemanticSchema.swift */,
 				234669AA71D7061108B72B97 /* SemanticModels.swift */,
@@ -2398,6 +2425,13 @@
 				66A2E7B7F4FDF6FD2B44C822 /* ArchitectureModel.swift in Sources */,
 				CC06E828F3E074262772D431 /* ArchitectureScanner.swift in Sources */,
 				ACC4EC4EED2064E5A42D8B93 /* ArchitectureStore.swift in Sources */,
+				0E030E2B2F816027F51ACAD3 /* XRayFilterStore.swift in Sources */,
+				DF971DA3F1BA7F80901CA7B1 /* LogicalView.swift in Sources */,
+				2FEF2952039003CFEB04ADD5 /* ChangeReviewStore.swift in Sources */,
+				9D3C3771BA7C422BF95CA090 /* ArchitectureHost.swift in Sources */,
+				CC040EEDBE1D899D1CE0810B /* ChangeSource.swift in Sources */,
+				264465EC6A74D4C147CFD5D3 /* ChangeDiff.swift in Sources */,
+				3A993557374111460A125A73 /* ChangeReviewModel.swift in Sources */,
 				3F05808A1EC2557CCFC1A3A0 /* XRayCommand.swift in Sources */,
 				19D506E600C91FF4D84FFA92 /* CodeAndXRayCoordinator.swift in Sources */,
 				026ACF09E6ABAA2B642614D3 /* ArchiveSupport.swift in Sources */,
@@ -2566,6 +2600,8 @@
 				8A57F974EAA1485CCD758868 /* InsightCache.swift in Sources */,
 				5BBA465181633BD39D541176 /* InsightModels.swift in Sources */,
 				7D223FBDDCD276E94DF609A8 /* InsightSession.swift in Sources */,
+				C9A397360E980FC7DC20DE2A /* InsightTreeSnapshot.swift in Sources */,
+				FF01ACD9A109E65DDDF46487 /* InsightHTMLTemplate.swift in Sources */,
 				FB4C3294DDBD10B97E20E36A /* IntakeAttachmentBar.swift in Sources */,
 				5DE70A75F9FD2FF271E22FBB /* IntakeTextEditor.swift in Sources */,
 				FB62124564D1276197F2D552 /* IssueCompletion.swift in Sources */,

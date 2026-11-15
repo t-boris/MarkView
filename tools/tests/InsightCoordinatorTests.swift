@@ -1,7 +1,7 @@
 import Foundation
 
 // Recursive Insight of a window (AR-14 step 2): the shipping InsightCoordinator, InsightArchiveExport, InsightSession and
-// InsightCache run over real folders and a real cache restored from a snapshot, with a stand-in window (`StubHost`) and page.
+// InsightCache run over real folders and a real cache restored from an `InsightTreeSnapshot`, with a stand-in window (`StubHost`) and page.
 // No assistant is started, no panel or alert is shown.
 
 var passed = 0
@@ -54,27 +54,6 @@ final class StubPage: InsightPage {
     let host: StubHost
     init(host: StubHost) { self.host = host }
     func releaseInsightBlobs() { host.events.append("release") }
-}
-
-/// The cache's snapshot as `InsightSession` writes it (the shape of its private `RootSnapshot`).
-struct SnapshotEntry: Codable {
-    let nodeId: UUID
-    let parentId: UUID?
-    let level: Int
-    let title: String
-    let scope: NodeScope
-    let skeleton: InsightSkeleton
-    let sectionBuffers: [String: String]
-    let childIds: [UUID]
-}
-
-struct Snapshot: Codable {
-    let rootId: UUID
-    let folderPath: String
-    let createdAt: Date
-    let skeleton: InsightSkeleton?
-    let sectionBuffers: [String: String]?
-    let nodes: [SnapshotEntry]?
 }
 
 func skeleton(title: String, topics: [String]) -> InsightSkeleton {
@@ -150,7 +129,7 @@ func run() async {
             crumbs.insert((current.id.uuidString, current.title), at: 0)
             cursor = current.parentId.flatMap { nodes[$0] }
         }
-        let html = InsightSession.buildHTMLTemplate(skeleton: node.skeleton!, sectionStates: [:], breadcrumbs: crumbs,
+        let html = InsightHTMLTemplate.html(skeleton: node.skeleton!, sectionStates: [:], breadcrumbs: crumbs,
                                                     libRefMode: .exportRelative, cache: cache)
         try? cache.writeNode(nodeId: id, html: html)
     }
@@ -187,16 +166,10 @@ func run() async {
 
     // 3. The coordinator over a session restored from that cache.
     print("\n-- coordinator")
-    let snapshot = Snapshot(rootId: rootId, folderPath: analysed.path, createdAt: Date(), skeleton: nil, sectionBuffers: nil, nodes: [
-        SnapshotEntry(nodeId: rootId, parentId: nil, level: 0, title: "Analysed", scope: .folderRoot,
-                      skeleton: rootNode.skeleton!, sectionBuffers: ["s1": "<p>root</p>"], childIds: [childId]),
-        SnapshotEntry(nodeId: childId, parentId: rootId, level: 1, title: "Auth flow",
-                      scope: .topic(label: "Auth flow", hint: "hint Auth flow", files: [first]),
-                      skeleton: childNode.skeleton!, sectionBuffers: ["s1": "<p>auth</p>"], childIds: [])
-    ])
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    try? cache.writeSnapshotData(try! encoder.encode(snapshot))
+    rootNode.sectionStates = ["s1": SectionState(buffer: "<p>root</p>", status: .ready)]
+    childNode.sectionStates = ["s1": SectionState(buffer: "<p>auth</p>", status: .ready)]
+    let snapshot = InsightTreeSnapshot(rootId: rootId, folderPath: analysed.path, nodes: [rootNode, childNode])
+    try? cache.writeSnapshotData(try! snapshot.encoded())
 
     let session = InsightSession(folderURL: analysed, mdFiles: [first, second], graphRAG: nil, cache: cache)
     await session.generateRoot()
