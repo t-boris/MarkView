@@ -107,15 +107,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
     var aiProject: URL? { project.aiProject }
     var semanticDatabase: SemanticDatabase? { project.database }
 
-    /// The tabs of this window for the code that is not a view. A view that shows tabs observes `tabs` itself: reading them
-    /// through the manager would not redraw it (`AR-15`).
-    var openTabs: [OpenTab] { tabs.openTabs }
-
-    var activeTabIndex: Int {
-        get { tabs.activeTabIndex }
-        set { tabs.activeTabIndex = newValue }
-    }
-
+    /// The tab the person is looking at. A view that shows tabs observes `tabs` itself: reading them through the manager would not
+    /// redraw it (`AR-15`).
     var activeTab: OpenTab? { tabs.activeTab }
 
     func showGitHubTab(_ item: GitHubItem, root: URL) { tabs.showGitHubTab(item, root: root) }
@@ -604,19 +597,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
         terminals.stopAll()
         tabs.stopWatchingOpenFiles()
     }
-
-    /// The open document, whole: the terminal writer delivers pastes of any length (BUG-002).
-    private func activeDocumentContext(contentOverride: String? = nil, defaultFileName: String = "project") -> (fileName: String, content: String) {
-        let fileName = activeTab?.url.lastPathComponent ?? defaultFileName
-
-        if let contentOverride {
-            return (fileName, contentOverride)
-        }
-
-        let content = activeTab?.content ?? ""
-        return (fileName, content)
-    }
-
 }
 
 /// What the terminals read of the window: the browser agents drive, and the editor (`AITerminalsController`).

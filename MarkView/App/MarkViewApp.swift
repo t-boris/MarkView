@@ -435,7 +435,7 @@ struct MarkViewApp: App {
 
         let handler: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, let url = panel.url else { return }
-            let currentIsEmpty = ws?.rootNode == nil && ws?.openTabs.isEmpty != false
+            let currentIsEmpty = ws?.rootNode == nil && ws?.tabs.openTabs.isEmpty != false
             if currentIsEmpty, let ws = ws {
                 ws.openFolder(url)
             } else {
