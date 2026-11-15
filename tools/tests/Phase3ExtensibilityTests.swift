@@ -15,7 +15,7 @@ func check(_ condition: Bool, _ name: String) {
 
 print("=== Phase 3: Declarative ToolRegistry & PanelLayout Verification ===")
 
-// 1. AR-31 / DEC-001 / FU-02: ToolRegistry matches the 8 live workspace tools and toolbar/session surfaces
+// 1. AR-31 / DEC-001 / FU-02: ToolRegistry matches the 8 live workspace tools and the toolbar surface
 let expectedToolIDs: Set<ToolDescriptor.ToolID> = [
     .git, .deployments, .workflow, .qa, .uiStudio, .cockpit, .discussions, .changeReview
 ]

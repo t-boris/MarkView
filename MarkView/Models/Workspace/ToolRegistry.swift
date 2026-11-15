@@ -5,9 +5,6 @@ struct ToolSurface: OptionSet, Hashable, Codable, Sendable {
     let rawValue: Int
 
     static let toolbar = ToolSurface(rawValue: 1 << 0)
-    static let viewMenu = ToolSurface(rawValue: 1 << 1)
-    static let welcomeTile = ToolSurface(rawValue: 1 << 2)
-    static let sessionRestore = ToolSurface(rawValue: 1 << 3)
 }
 
 /// Canonical metadata for a singleton workspace tool (`AR-31`, `DEC-001`, `FU-02`).
@@ -35,8 +32,8 @@ struct ToolDescriptor: Identifiable, Equatable, Hashable, Sendable {
     var rawID: String { id.rawValue }
 }
 
-/// Single source of truth for singleton workspace tools, matching the live toolbar,
-/// session-restorable tabs, and sentinel paths (`AR-31`, `DEC-001`, `FU-02`).
+/// Single source of truth for singleton workspace tools, matching the live toolbar
+/// and sentinel paths (`AR-31`, `DEC-001`, `FU-02`).
 enum ToolRegistry {
     static let all: [ToolDescriptor] = [
         ToolDescriptor(
@@ -46,7 +43,7 @@ enum ToolRegistry {
             icon: "arrow.triangle.branch",
             shortcutHint: nil,
             sentinelPath: ".dde/.markview-git",
-            surfaces: [.toolbar, .sessionRestore],
+            surfaces: [.toolbar],
             isPrimaryToolbarItem: true
         ),
         ToolDescriptor(
@@ -56,7 +53,7 @@ enum ToolRegistry {
             icon: "server.rack",
             shortcutHint: "⌃⌘D",
             sentinelPath: ".dde/.markview-deployments",
-            surfaces: [.toolbar, .viewMenu, .welcomeTile, .sessionRestore],
+            surfaces: [.toolbar],
             isPrimaryToolbarItem: true
         ),
         ToolDescriptor(
@@ -66,7 +63,7 @@ enum ToolRegistry {
             icon: "point.3.connected.trianglepath.dotted",
             shortcutHint: nil,
             sentinelPath: ".dde/.markview-workflow",
-            surfaces: [.toolbar, .sessionRestore],
+            surfaces: [.toolbar],
             isPrimaryToolbarItem: true
         ),
         ToolDescriptor(
@@ -76,7 +73,7 @@ enum ToolRegistry {
             icon: "checkmark.shield",
             shortcutHint: "⌘8",
             sentinelPath: ".dde/.markview-qa",
-            surfaces: [.toolbar, .viewMenu, .welcomeTile, .sessionRestore],
+            surfaces: [.toolbar],
             isPrimaryToolbarItem: true
         ),
         ToolDescriptor(
@@ -86,7 +83,7 @@ enum ToolRegistry {
             icon: "macwindow.and.cursorarrow",
             shortcutHint: "⌘7",
             sentinelPath: ".dde/.markview-ui-studio-",
-            surfaces: [.toolbar, .viewMenu, .welcomeTile],
+            surfaces: [.toolbar],
             isPrimaryToolbarItem: true
         ),
         ToolDescriptor(
@@ -96,7 +93,7 @@ enum ToolRegistry {
             icon: "airplane",
             shortcutHint: nil,
             sentinelPath: ".dde/.markview-cockpit",
-            surfaces: [.toolbar, .viewMenu],
+            surfaces: [.toolbar],
             isPrimaryToolbarItem: true
         ),
         ToolDescriptor(
@@ -106,7 +103,7 @@ enum ToolRegistry {
             icon: "bubble.left.and.text.bubble.right",
             shortcutHint: "⌃⌘I",
             sentinelPath: ".dde/.markview-discussions",
-            surfaces: [.toolbar, .viewMenu, .sessionRestore],
+            surfaces: [.toolbar],
             isPrimaryToolbarItem: false
         ),
         ToolDescriptor(
@@ -116,7 +113,7 @@ enum ToolRegistry {
             icon: "doc.text.magnifyingglass",
             shortcutHint: nil,
             sentinelPath: ".dde/.markview-file-changes",
-            surfaces: [.sessionRestore],
+            surfaces: [],
             isPrimaryToolbarItem: false
         )
     ]

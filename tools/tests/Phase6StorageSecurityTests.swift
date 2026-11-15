@@ -13,7 +13,7 @@ func check(_ condition: Bool, _ name: String) {
     }
 }
 
-print("=== Phase 6 Storage, Schema Versioning, Control Socket Auth & Concurrency Tests (AR-36..AR-43, FU-03, FU-04) ===")
+print("=== Phase 6 Storage, Schema Versioning, Concurrency Tests (AR-36..AR-43, FU-04) ===")
 
 struct SamplePreferencesRecord: Codable, Equatable {
     var recentPaths: [String]
@@ -108,34 +108,8 @@ func runPhase6Tests() async {
         check(false, "FU-04/FU-14: SchemaVersionedStore loads legacy payload with version field as schemaVersion 0")
     }
 
-    // 2. AR-40, DEC-009 & FU-03: Control socket fail-closed constant-time token verification & file-only lookup
-    let fakeSock = tempDir.appendingPathComponent("mv-browser-99999.sock").path
-    let generatedToken = BrowserAgentTools.writeSocketToken(forSocket: fakeSock)
-    check(generatedToken != nil && generatedToken?.count == 64, "AR-40: writeSocketToken generates 256-bit hex token")
-    let tokenPath = BrowserAgentTools.tokenPath(forSocket: fakeSock)
-    let tokenPerms = (try? FileManager.default.attributesOfItem(atPath: tokenPath)[.posixPermissions] as? NSNumber)?.intValue ?? 0
-    check(tokenPerms == 0o600, "AR-40: Control socket token file is created with mode 0600")
-    let readBack = BrowserAgentTools.readSocketToken(forSocket: fakeSock)
-    check(readBack == generatedToken, "AR-40: readSocketToken reads back 0600 token file owned by current user")
-
-    setenv("MARKVIEW_CONTROL_TOKEN", "env-fallback-token", 1)
-    defer { unsetenv("MARKVIEW_CONTROL_TOKEN") }
-    try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: tokenPath)
-    check(BrowserAgentTools.readSocketToken(forSocket: fakeSock) == nil,
-          "FU-03: readSocketToken rejects token file with group/world permissions")
-    try? FileManager.default.removeItem(atPath: tokenPath)
-    check(BrowserAgentTools.readSocketToken(forSocket: fakeSock) == nil,
-          "FU-03: readSocketToken fails closed when token file is absent (no env var fallback)")
-
-    check(!BrowserControlServer.verifyToken(nil, expected: nil), "FU-03: verifyToken fails closed when expected token is nil")
-    check(!BrowserControlServer.verifyToken("", expected: ""), "FU-03: verifyToken fails closed when expected token is empty")
-    check(!BrowserControlServer.verifyToken("anything", expected: ""), "FU-03: verifyToken rejects arbitrary token against empty expected")
-    check(!BrowserControlServer.verifyToken(nil, expected: generatedToken), "AR-40: verifyToken rejects missing token when instance token is active")
-    check(!BrowserControlServer.verifyToken("wrong", expected: generatedToken), "AR-40: verifyToken rejects mismatched token")
-    check(BrowserControlServer.verifyToken(generatedToken, expected: generatedToken), "AR-40: verifyToken accepts matching per-instance token")
-    check(BrowserAgentTools.verifyToken(generatedToken, expected: generatedToken) && !BrowserAgentTools.verifyToken(nil, expected: nil),
-          "FU-03: BrowserAgentTools.verifyToken shares fail-closed constant-time semantics")
-
+    // 2. AR-40: the control socket token, its file, the peer check and the shared server protection are checked over real
+    //    sockets by tools/tests/private-socket-tests.sh (and, per server, remote-browser-, remote-workspace- and cockpit-host-bridge-tests).
     let ancestors = BrowserAgentTools.ancestorPIDs(startingAt: getpid())
     check(ancestors.first == getpid(), "AR-40: ancestorPIDs(startingAt:) starts from kernel-verified peer PID")
 

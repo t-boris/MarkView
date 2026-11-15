@@ -1,5 +1,8 @@
 import AppKit
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 import WebKit
 
 /// The app side of `BrowserAgentTools`: a Unix socket in the user's temporary folder that the
@@ -29,14 +32,8 @@ enum BrowserControlServer {
 
     private static var windows: [UUID: Window] = [:]
     private static var listening: String?
-    nonisolated(unsafe) private static var listeningFD: Int32 = -1
-    /// Per-instance control socket token generated on listen (`AR-40`, `DEC-009`).
-    nonisolated(unsafe) private(set) static var instanceToken: String?
-
-    /// Verifies a control socket token against `expectedToken` fail-closed and constant-time (`AR-40`, `FU-03`).
-    nonisolated static func verifyToken(_ provided: String?, expected: String?) -> Bool {
-        BrowserAgentTools.verifyToken(provided, expected: expected)
-    }
+    /// The open control socket and its per-instance token (`AR-40`, `DEC-009`, `PrivateSocket`).
+    private static var listener: PrivateSocket.Listener?
 
     /// The socket path of this app process, listening once started.
     static var socketPath: String? {
@@ -83,34 +80,23 @@ enum BrowserControlServer {
     // MARK: - Socket
 
     private static func listen(at path: String) -> Bool {
-        unlink(path)
         removeStaleSockets(near: path)
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0, var address = BrowserAgentTools.unixAddress(path) else { return false }
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
-        }
-        guard bound == 0, chmod(path, 0o600) == 0, Darwin.listen(fd, 16) == 0 else {
-            close(fd)
-            NSLog("[MarkView] browser control socket unavailable at \(path)")
+        let opened: PrivateSocket.Listener
+        do {
+            opened = try PrivateSocket.open(at: path)
+        } catch {
+            NSLog("[MarkView] browser control socket unavailable at \(path): \(error)")
             return false
         }
-        guard let token = BrowserAgentTools.writeSocketToken(forSocket: path) else {
-            close(fd)
-            unlink(path)
-            NSLog("[MarkView] browser control token unavailable at \(path)")
-            return false
-        }
-        instanceToken = token
-        listeningFD = fd
+        listener = opened
         let thread = Thread {
             while true {
-                let client = accept(fd, nil, nil)
+                let client = accept(opened.fd, nil, nil)
                 if client < 0 {
                     if errno == EINTR { continue }
                     break
                 }
-                DispatchQueue.global(qos: .userInitiated).async { serve(client) }
+                DispatchQueue.global(qos: .userInitiated).async { serve(client, listener: opened) }
             }
         }
         thread.name = "MarkView browser control"
@@ -120,16 +106,9 @@ enum BrowserControlServer {
 
     /// Stops accepting new connections and removes the control socket and token files (`FU-03`).
     static func shutdown() {
-        if listeningFD >= 0 {
-            close(listeningFD)
-            listeningFD = -1
-        }
-        if let path = listening {
-            unlink(path)
-            unlink(BrowserAgentTools.tokenPath(forSocket: path))
-            listening = nil
-        }
-        instanceToken = nil
+        listener?.stop()
+        listener = nil
+        listening = nil
     }
 
     /// Sockets of MarkView processes that are gone (they are not removed on quit).
@@ -140,19 +119,17 @@ enum BrowserControlServer {
                   let pid = Int32(name.dropFirst("mv-browser-".count).dropLast(".sock".count)),
                   pid != ProcessInfo.processInfo.processIdentifier else { continue }
             if kill(pid, 0) != 0 && errno == ESRCH {
-                let sockPath = (folder as NSString).appendingPathComponent(name)
-                unlink(sockPath)
-                unlink(BrowserAgentTools.tokenPath(forSocket: sockPath))
+                PrivateSocket.remove(socketAt: (folder as NSString).appendingPathComponent(name))
             }
         }
     }
 
     /// One connection: a request line in, a reply line out.
-    private nonisolated static func serve(_ client: Int32) {
+    private nonisolated static func serve(_ client: Int32, listener: PrivateSocket.Listener) {
         var noSigPipe: Int32 = 1
         setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
-        let peer = BrowserAgentTools.peerCredentials(for: client)
-        guard let peerUID = peer.uid, peerUID == getuid() else {
+        let peer = PrivateSocket.peer(of: client)
+        guard peer.isCurrentUser else {
             close(client)
             return
         }
@@ -161,7 +138,7 @@ enum BrowserControlServer {
             close(client)
             return
         }
-        if !verifyToken(request["token"] as? String, expected: instanceToken) {
+        if !listener.accepts(token: request["token"] as? String) {
             let errData = (try? JSONSerialization.data(withJSONObject: BrowserAgentTools.Reply.error("Control socket authentication failed: missing or invalid instance token.").json)) ?? Data()
             _ = BrowserAgentTools.writeAll(client, errData + Data("\n".utf8))
             close(client)

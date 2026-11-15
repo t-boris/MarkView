@@ -23,7 +23,7 @@
 		07044898F5427AD51A50B41F /* AIToolRuns.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFB /* AIToolRuns.swift */; };
 		07044898F5427AD51A50B420 /* AIToolJobsBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFC /* AIToolJobsBanner.swift */; };
 		07044898F5427AD51A50B421 /* AppFontScaleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFD /* AppFontScaleView.swift */; };
-		07044898F5427AD51A50B426 /* ExtensionRegistries.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD03 /* ExtensionRegistries.swift */; };
+		07044898F5427AD51A50B426 /* ToolRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD03 /* ToolRegistry.swift */; };
 		07044898F5427AD51A50B427 /* DocumentScrollSideTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */; };
 		07044898F5427AD51A50B430 /* TaskBag.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD10 /* TaskBag.swift */; };
 		07044898F5427AD51A50B431 /* MarkdownDocumentChunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD11 /* MarkdownDocumentChunker.swift */; };
@@ -806,7 +806,7 @@
 		A6E0167483A13431C669BCFB /* AIToolRuns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIToolRuns.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BCFC /* AIToolJobsBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIToolJobsBanner.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BCFD /* AppFontScaleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFontScaleView.swift; sourceTree = "<group>"; };
-		A6E0167483A13431C669BD03 /* ExtensionRegistries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionRegistries.swift; sourceTree = "<group>"; };
+		A6E0167483A13431C669BD03 /* ToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolRegistry.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentScrollSideTable.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD10 /* TaskBag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskBag.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD11 /* MarkdownDocumentChunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocumentChunker.swift; sourceTree = "<group>"; };
@@ -1502,7 +1502,7 @@
 				1AF52C251F7D6ADAE2EE8DED /* EditorDocumentRouting.swift */,
 				B7A94AF6F62E56BA9F174E2E /* EditorWindowPrefs.swift */,
 				22188BA397123474A73BE844 /* ExcludedFolders.swift */,
-				A6E0167483A13431C669BD03 /* ExtensionRegistries.swift */,
+				A6E0167483A13431C669BD03 /* ToolRegistry.swift */,
 				F073514C1DB09270B01D4EBE /* FileBrowserModel.swift */,
 				A5375DCBA15D7800DBB3F459 /* FileInfo.swift */,
 				76FB90DA3782A6E99BB4881B /* FileNode.swift */,
@@ -2152,7 +2152,7 @@
 				07044898F5427AD51A50B41F /* AIToolRuns.swift in Sources */,
 				07044898F5427AD51A50B420 /* AIToolJobsBanner.swift in Sources */,
 				07044898F5427AD51A50B421 /* AppFontScaleView.swift in Sources */,
-				07044898F5427AD51A50B426 /* ExtensionRegistries.swift in Sources */,
+				07044898F5427AD51A50B426 /* ToolRegistry.swift in Sources */,
 				07044898F5427AD51A50B427 /* DocumentScrollSideTable.swift in Sources */,
 				07044898F5427AD51A50B430 /* TaskBag.swift in Sources */,
 				07044898F5427AD51A50B431 /* MarkdownDocumentChunker.swift in Sources */,

@@ -29,5 +29,5 @@ import sys
 source = Path('MarkView/Models/Deployments/DeploymentExecutor.swift').read_text()
 Path(sys.argv[1]).write_text(source.split('protocol DeploymentExecutor')[0])
 PY
-swiftc -parse-as-library -o "$out/checks" "$out/ProcessRunner.swift" MarkView/Models/AI/AgentProcesses.swift MarkView/Models/Cockpit/CockpitPlan.swift MarkView/Models/Cockpit/CockpitRun.swift MarkView/Models/Cockpit/CockpitRunStore.swift MarkView/Models/Cockpit/CockpitSupervisor.swift MarkView/Models/Cockpit/CockpitStepMeter.swift MarkView/Models/Cockpit/CockpitChild.swift MarkView/Models/Cockpit/CockpitHostBridge.swift MarkView/Models/Cockpit/CockpitRuntime.swift MarkView/Models/Cockpit/CockpitExecution.swift tools/tests/CockpitRuntimeChecks.swift
+swiftc -parse-as-library -o "$out/checks" "$out/ProcessRunner.swift" MarkView/Models/AI/AgentProcesses.swift MarkView/Models/Cockpit/CockpitPlan.swift MarkView/Models/Cockpit/CockpitRun.swift MarkView/Models/Cockpit/CockpitRunStore.swift MarkView/Models/Cockpit/CockpitSupervisor.swift MarkView/Models/Cockpit/CockpitStepMeter.swift MarkView/Models/Cockpit/CockpitChild.swift Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift MarkView/Models/Cockpit/CockpitHostBridge.swift MarkView/Models/Cockpit/CockpitRuntime.swift MarkView/Models/Cockpit/CockpitExecution.swift tools/tests/CockpitRuntimeChecks.swift
 "$out/checks"

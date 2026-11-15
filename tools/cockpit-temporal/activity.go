@@ -9,6 +9,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"time"
 
 	"go.temporal.io/sdk/activity"
@@ -17,6 +19,12 @@ import (
 // HostActivity is registered by the worker owned by the MarkView process. The socket is created by the app;
 // one request represents one separately assigned agent session.
 type HostActivity struct{ Socket string }
+
+// hostRequest is the task as the app reads it: the step's own fields with the host socket's token next to them.
+type hostRequest struct {
+	StepTask
+	Token string `json:"token"`
+}
 
 type hostReply struct {
 	Result Result `json:"result"`
@@ -54,6 +62,10 @@ func (host HostActivity) send(ctx context.Context, task StepTask) (Result, error
 	if info.Mode()&os.ModeSocket == 0 || info.Mode().Perm()&0077 != 0 {
 		return Result{}, errors.New("host socket must be private")
 	}
+	token, err := hostToken(host.Socket)
+	if err != nil {
+		return Result{}, err
+	}
 	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", host.Socket)
 	if err != nil {
 		return Result{}, err
@@ -61,7 +73,7 @@ func (host HostActivity) send(ctx context.Context, task StepTask) (Result, error
 	defer conn.Close()
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
-	if err := json.NewEncoder(conn).Encode(task); err != nil {
+	if err := json.NewEncoder(conn).Encode(hostRequest{StepTask: task, Token: token}); err != nil {
 		return Result{}, err
 	}
 	var reply hostReply
@@ -72,4 +84,33 @@ func (host HostActivity) send(ctx context.Context, task StepTask) (Result, error
 		return Result{}, fmt.Errorf("host: %s", reply.Error)
 	}
 	return reply.Result, nil
+}
+
+// hostToken reads the app's per-socket token from the private file next to the socket ("host.sock" -> "host.token"),
+// the same convention as the app's PrivateSocket: the app serves only a caller that presents it. The file must be a
+// regular file of this user that no one else can read; there is no other way to learn the token.
+func hostToken(socket string) (string, error) {
+	path := socket + ".token"
+	if strings.HasSuffix(socket, ".sock") {
+		path = strings.TrimSuffix(socket, ".sock") + ".token"
+	}
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return "", errors.New("host token unavailable")
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return "", errors.New("host token unavailable")
+	}
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || !ok || int(owner.Uid) != os.Getuid() || info.Size() > 8192 {
+		return "", errors.New("host token must be a private file of this user")
+	}
+	data, err := io.ReadAll(file)
+	token := strings.TrimSpace(string(data))
+	if err != nil || token == "" {
+		return "", errors.New("host token unavailable")
+	}
+	return token, nil
 }

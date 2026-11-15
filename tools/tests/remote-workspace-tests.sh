@@ -10,6 +10,7 @@ swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/markview-remote-tes
     MarkView/Models/Remote/RemoteCommand.swift \
     MarkView/Models/Terminal/PTYWriter.swift \
     MarkView/Models/AI/AgentProcesses.swift \
+    Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift \
     MarkView/Models/AgentTools/BrowserAgentTools.swift \
     MarkView/Models/Remote/RemoteWorkspaceTools.swift \
     MarkView/Models/Remote/RemoteToolBridge.swift \

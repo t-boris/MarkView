@@ -1,12 +1,22 @@
 import Foundation
 import Darwin
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
+
+/// One call on the bridge socket: the per-socket token (`PrivateSocket`, `AR-40`) next to the tool call.
+struct RemoteBridgeRequest: Codable, Sendable {
+    var token: String
+    var message: RemoteMessage
+}
 
 /// A private, per-session socket joins the CLI's stdio MCP child to the home MarkView's encrypted
-/// connection. The descriptor is closed on stop; neither pairing secrets nor provider credentials
-/// appear in child arguments or MCP configuration.
+/// connection. Only this user's process that reads the `.token` file next to the socket is served. The
+/// descriptor is closed on stop; neither pairing secrets nor provider credentials appear in child
+/// arguments or MCP configuration.
 final class RemoteToolBridge: @unchecked Sendable {
     let path: String
-    private let listener: Int32
+    private let listener: PrivateSocket.Listener
     private let lock = NSLock()
     private var stopped = false
     private var clients: Set<Int32> = []
@@ -15,15 +25,10 @@ final class RemoteToolBridge: @unchecked Sendable {
     init(handler: @escaping @Sendable (UUID, String, RemoteJSON) async -> RemoteJSON) throws {
         self.handler = handler
         path = FileManager.default.temporaryDirectory.appendingPathComponent("mvr-" + UUID().uuidString.prefix(16) + ".sock").path
-        guard var address = RemoteUnixRPC.address(path) else { throw RemoteFailure.invalid("The workspace bridge address is too long.") }
-        listener = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard listener >= 0 else { throw RemoteFailure.invalid("Could not create the workspace bridge.") }
-        let bound = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
-        guard bound == 0, chmod(path, 0o600) == 0, listen(listener, 16) == 0 else {
-            let reason = String(cString: strerror(errno))
-            close(listener); unlink(path); throw RemoteFailure.invalid("Could not start the workspace bridge: \(reason).")
+        do { listener = try PrivateSocket.open(at: path) } catch {
+            throw RemoteFailure.invalid("Could not start the workspace bridge: \(error)")
         }
-        let fd = listener
+        let fd = listener.fd
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             while true {
                 let client = accept(fd, nil, nil)
@@ -44,8 +49,11 @@ final class RemoteToolBridge: @unchecked Sendable {
 
     private func serve(_ client: Int32) {
         RemoteUnixRPC.configure(client)
-        guard let data = RemoteUnixRPC.readLine(client), let request = try? JSONDecoder().decode(RemoteMessage.self, from: data),
-              let name = request.payload["name"].string, RemoteWorkspaceTools.names.contains(name) else { finish(client); return }
+        guard PrivateSocket.peer(of: client).isCurrentUser,
+              let data = RemoteUnixRPC.readLine(client), let call = try? JSONDecoder().decode(RemoteBridgeRequest.self, from: data),
+              listener.accepts(token: call.token),
+              let name = call.message.payload["name"].string, RemoteWorkspaceTools.names.contains(name) else { finish(client); return }
+        let request = call.message
         Task {
             let result = await handler(request.id, name, request.payload["arguments"])
             if let data = try? JSONEncoder().encode(result) { _ = RemoteUnixRPC.write(client, data + Data([10])) }
@@ -63,7 +71,7 @@ final class RemoteToolBridge: @unchecked Sendable {
         stopped = true
         let clients = self.clients
         lock.unlock()
-        shutdown(listener, SHUT_RDWR); close(listener); unlink(path)
+        listener.stop()
         // A pending handler still owns its descriptor. Shutdown wakes readers without letting a
         // newly allocated descriptor reuse the number before that handler finishes.
         for fd in clients { shutdown(fd, SHUT_RDWR) }
@@ -72,16 +80,6 @@ final class RemoteToolBridge: @unchecked Sendable {
 }
 
 enum RemoteUnixRPC {
-    static func address(_ path: String) -> sockaddr_un? {
-        var address = sockaddr_un(); address.sun_family = sa_family_t(AF_UNIX)
-        let bytes = Array(path.utf8)
-        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { return nil }
-        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
-            for (index, byte) in bytes.enumerated() { buffer[index] = byte }
-            buffer[bytes.count] = 0
-        }
-        return address
-    }
     static func configure(_ fd: Int32) {
         var noSignal: Int32 = 1, timeout = timeval(tv_sec: 120, tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
@@ -112,13 +110,14 @@ enum RemoteUnixRPC {
         }
     }
     static func call(socket path: String, id: UUID, name: String, arguments: RemoteJSON) -> RemoteJSON {
+        guard let token = PrivateSocket.readToken(forSocket: path) else { return .textResult("Workspace bridge unavailable.", error: true) }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return .textResult("Workspace bridge unavailable.", error: true) }
         defer { close(fd) }
         configure(fd)
-        guard var address = address(path) else { return .textResult("Invalid bridge address.", error: true) }
+        guard var address = PrivateSocket.address(path) else { return .textResult("Invalid bridge address.", error: true) }
         let connected = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
-        let request = RemoteMessage("toolCall", .object(["name": .string(name), "arguments": arguments]), id: id)
+        let request = RemoteBridgeRequest(token: token, message: RemoteMessage("toolCall", .object(["name": .string(name), "arguments": arguments]), id: id))
         guard connected == 0, let data = try? JSONEncoder().encode(request), write(fd, data + Data([10])),
               let response = readLine(fd), let result = try? JSONDecoder().decode(RemoteJSON.self, from: response) else {
             return .textResult("The work computer did not answer. Reconnect in MarkView.", error: true)

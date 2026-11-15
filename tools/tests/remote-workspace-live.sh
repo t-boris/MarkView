@@ -29,7 +29,9 @@ swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/markview-remote-tes
     MarkView/Models/Remote/RemoteProtocol.swift MarkView/Models/Remote/RemoteFraming.swift \
     MarkView/Models/Remote/RemoteChannel.swift MarkView/Models/Remote/RemoteWorkspace.swift \
     MarkView/Models/Remote/RemoteCommand.swift MarkView/Models/Terminal/PTYWriter.swift \
-    MarkView/Models/AI/AgentProcesses.swift MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/Remote/RemoteWorkspaceTools.swift \
+    MarkView/Models/AI/AgentProcesses.swift \
+    Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift \
+    MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/Remote/RemoteWorkspaceTools.swift \
     MarkView/Models/Remote/RemoteToolBridge.swift MarkView/Models/Remote/RemoteToolRequests.swift \
     MarkView/Models/Remote/RemoteProviderConfiguration.swift MarkView/Models/Remote/RemoteCodexContext.swift tools/tests/RemoteProviderLiveChecks.swift
 for provider in "${providers[@]}"; do

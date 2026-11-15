@@ -1,7 +1,7 @@
 # Unified CI workflow (AR-45, DEC-008):
 # - Cancels superseded runs on the same ref (`concurrency.cancel-in-progress: true`)
 # - Runs `swift test` on `Packages/MarkViewCore` (AR-44)
-# - Runs the architecture review verification suites and manifest-selected suites (`tools/tests/run.sh`)
+# - Runs the architecture lint (`tools/lint/architecture-lint.sh`) and the manifest-selected suites (`tools/tests/run.sh`)
 # - Compiles the macOS app once with a shared DerivedData cache (`tools/ci/build-cache-mtimes.py`)
 name: CI
 
@@ -36,6 +36,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Architecture lint
+        run: ./tools/lint/architecture-lint.sh
 
       - name: Run pure regression test suite
         run: ./tools/tests/run.sh --tier pure

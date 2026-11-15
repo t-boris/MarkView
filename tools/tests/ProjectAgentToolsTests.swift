@@ -172,7 +172,7 @@ func spawnApp(serving tool: @escaping (String) -> String) -> (path: String, requ
     let path = BrowserAgentTools.socketPath(forApp: getpid())
     unlink(path)
     let listener = socket(AF_UNIX, SOCK_STREAM, 0)
-    var address = BrowserAgentTools.unixAddress(path)!
+    var address = PrivateSocket.address(path)!
     _ = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
     listen(listener, 8)
     let lock = NSLock()

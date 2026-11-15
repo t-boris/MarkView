@@ -68,6 +68,19 @@ enum BrowserAddress { static func url(from text: String) -> URL? { URL(string: t
     func reload() { webView.reload() }
 }
 
+/// One raw control request without the client's automatic token: what the server answers, nil when it closes silently.
+private func rawControlReply(_ path: String, _ request: [String: Any]) -> BrowserAgentTools.Reply? {
+    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    guard fd >= 0, var address = PrivateSocket.address(path), let body = try? JSONSerialization.data(withJSONObject: request) else { return nil }
+    defer { close(fd) }
+    var timeout = timeval(tv_sec: 5, tv_usec: 0)
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+    let connected = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
+    guard connected == 0, BrowserAgentTools.writeAll(fd, body + Data("\n".utf8)),
+          let line = BrowserAgentTools.readLine(fd), let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { return nil }
+    return BrowserAgentTools.Reply(json: object)
+}
+
 @main enum RemoteBrowserTests {
     @MainActor static func main() async throws {
         _ = NSApplication.shared
@@ -127,6 +140,27 @@ enum BrowserAddress { static func url(from text: String) -> URL? { URL(string: t
         check(image["content"].array?.contains { $0["type"].string == "image" && $0["mimeType"].string == "image/png" && !($0["data"].string ?? "").isEmpty } == true, "Real page screenshot returns an MCP PNG image")
         let noArgs = await BrowserControlServer.performRemoteBrowser("browser_tabs", arguments: .null, window: id, root: root, agent: .claude)
         check(text(noArgs).contains("WorkTab"), "MCP calls with omitted optional arguments work for Claude too")
+        // AR-40: the control socket serves only a caller that holds the instance token. The blocking calls run off the
+        // main actor, which the server's tool calls need.
+        guard let controlSocket = BrowserControlServer.socketPath else { fatalError("the control socket is not listening") }
+        let controlToken = PrivateSocket.readToken(forSocket: controlSocket) ?? ""
+        let tokenMode = (try? FileManager.default.attributesOfItem(atPath: PrivateSocket.tokenPath(forSocket: controlSocket))[.posixPermissions] as? NSNumber)?.intValue
+        let socketMode = (try? FileManager.default.attributesOfItem(atPath: controlSocket)[.posixPermissions] as? NSNumber)?.intValue
+        check(controlToken.count == 64 && tokenMode == 0o600 && socketMode == 0o600, "The control socket and its 256-bit token file are private to this user")
+        let tabsRequest: [String: Any] = ["tool": "browser_tabs", "window": id.uuidString, "arguments": [String: Any]()]
+        let controlReplies = await Task.detached { () -> [BrowserAgentTools.Reply?] in
+            [rawControlReply(controlSocket, tabsRequest),
+             rawControlReply(controlSocket, tabsRequest.merging(["token": "wrong"]) { $1 }),
+             rawControlReply(controlSocket, tabsRequest.merging(["token": ""]) { $1 }),
+             rawControlReply(controlSocket, tabsRequest.merging(["token": controlToken]) { $1 })]
+        }.value
+        check(controlReplies[0]?.isError == true && controlReplies[0]?.text.contains("authentication failed") == true
+              && controlReplies[1]?.isError == true && controlReplies[2]?.isError == true
+              && !(controlReplies.prefix(3).contains { $0?.text.contains("WorkTab") == true }),
+              "A control request without the token, with a wrong one or an empty one is refused and runs no tool")
+        check(controlReplies[3]?.isError == false && controlReplies[3]?.text.contains("WorkTab") == true, "A control request with the token is served")
+        let viaClient = await Task.detached { BrowserAgentTools.request(socket: controlSocket, payload: tabsRequest, timeout: 5) }.value
+        check(viaClient.text.contains("WorkTab"), "The MCP client finds the token file by itself and is served")
         session.agentStopped = true
         let stopped = await call("browser_click", ["ref": .string("e1")])
         check(stopped["isError"].bool == true && text(stopped).contains("stopped"), "The user's stopped tab is respected")
