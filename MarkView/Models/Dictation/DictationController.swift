@@ -47,7 +47,8 @@ final class DictationController: ObservableObject {
     /// The recording clock, a job of the app's scheduler that keeps running in the background: the recorder's time cap is enforced by it (`AR-19`).
     private let tickerKey = "dictation-ticker-" + UUID().uuidString
     /// Bumped on every start and cancel: a transcript from an older recording is dropped.
-    private var session = 0
+    /// The transcription of the last recording; cancelling the dictation cancels it, so a late answer is never inserted.
+    private var transcription: Task<Void, Never>?
     private var subscriptions = Set<AnyCancellable>()
 
     init() {
@@ -63,7 +64,6 @@ final class DictationController: ObservableObject {
     func toggle(insert: @escaping (String) -> Void) {
         switch phase {
         case .idle:
-            session += 1
             self.insert = insert
             message = nil
             microphoneDenied = false
@@ -83,7 +83,8 @@ final class DictationController: ObservableObject {
     /// Discards the recording or transcription in progress; nothing is inserted.
     func cancel() {
         guard isActive else { return }
-        session += 1
+        transcription?.cancel()
+        transcription = nil
         stopTicker()
         phase = .idle
         insert = nil
@@ -100,11 +101,10 @@ final class DictationController: ObservableObject {
     private func stop() {
         stopTicker()
         phase = .transcribing
-        let current = session
-        Task { [weak self] in
+        transcription = Task { [weak self] in
             guard let self else { return }
             let text = await whisper.stopRecording()
-            guard current == session, phase == .transcribing else { return }
+            guard !Task.isCancelled, phase == .transcribing else { return }
             phase = .idle
             let deliver = insert
             insert = nil

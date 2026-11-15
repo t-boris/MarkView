@@ -160,6 +160,7 @@ enum BrowserControlServer {
         let trusted = request["cwdTrusted"] as? Bool ?? true
         let tool = request["tool"] as? String ?? ""
         nonisolated(unsafe) let arguments = request["arguments"] as? [String: Any] ?? [:]
+        // task: answers one request of an agent's socket and closes it; the agent's call has no owner here to cancel it
         Task { @MainActor in
             let reply = await perform(tool, arguments, window: window, pids: pids, cwd: cwd, declared: declared, cwdTrusted: trusted)
             let data = (try? JSONSerialization.data(withJSONObject: reply.json)) ?? Data()

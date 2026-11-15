@@ -12,13 +12,8 @@
 3 MarkView/Models/Architecture/CodeExplainer.swift
 2 MarkView/Models/Architecture/CodeNavigation.swift
 7 MarkView/Models/Architecture/XRayFilterStore.swift
-2 MarkView/Models/Browser/AgentBrowserRegistration.swift
-1 MarkView/Models/Browser/BrowserControlServer.swift
-1 MarkView/Models/Browser/BrowserSession.swift
 2 MarkView/Models/Cockpit/CockpitAgentAttempt.swift
 6 MarkView/Models/Cockpit/CockpitExecution.swift
-1 MarkView/Models/Dictation/DictationController.swift
-1 MarkView/Models/Dictation/WhisperClient.swift
 4 MarkView/Models/Git/GitClient.swift
 1 MarkView/Models/Lifecycle/CycleTimeModel.swift
 1 MarkView/Models/Lifecycle/FeatureStore+Lifecycle.swift
@@ -30,12 +25,7 @@
 3 MarkView/Models/Prototype/PrototypeSession.swift
 1 MarkView/Models/QA/QAModel.swift
 1 MarkView/Models/QA/QARunModel.swift
-1 MarkView/Models/Remote/RemoteChannel.swift
-1 MarkView/Models/Remote/RemoteConnectionsStore.swift
 4 MarkView/Models/Remote/RemoteHostController.swift
-2 MarkView/Models/Remote/RemoteTerminalConnection.swift
-1 MarkView/Models/Remote/RemoteToolBridge.swift
-1 MarkView/Models/Remote/RemoteToolRequests.swift
 2 MarkView/Models/Terminal/TerminalSession.swift
 1 MarkView/Models/UIStudio/UIStudioCaptures.swift
 6 MarkView/Models/UIStudio/UIStudioElementPicker.swift

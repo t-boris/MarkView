@@ -95,6 +95,7 @@ final class RemoteConnectionsStore: ObservableObject {
     }
 
     func attach(_ host: any RemoteAssistantHost) {
+        // task: attaches a window to its saved connections; the store is process-wide and ends them itself when it shuts down
         Task { [weak self, weak host] in
             guard let self else { return }; await ready()
             guard let host, !shuttingDown, let root = host.root else { return }
