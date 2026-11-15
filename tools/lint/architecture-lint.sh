@@ -8,7 +8,7 @@
 #   target-membership    every MarkView/**/*.swift on disk is a file reference and a Sources build file of the Xcode target in
 #                        MarkView.xcodeproj/project.pbxproj, and every Swift file the project references exists on disk
 #   bridge-no-bypass     (AR-28) the editor page's scripts send through mvBridge.send only: no `messageHandlers` in
-#                        Editor/js/*.js (except mv-kit.js, the one sender, and markview-ui-studio.js, a different host) or in
+#                        Editor/js/*.js (except mv-kit.js, the one sender, and markview-ui-studio-*.js, a different host) or in
 #                        EditorWindowPrefs.swift, and no string `case "..."` in Bridge/WebViewBridge.swift (handlers are registered)
 #   no-private-escape    (AR-29) no private HTML escaping in Editor/js/*.js: every `&amp;` literal outside mv-kit.js (mvKit.escapeHtml and
 #                        escapeAttr are the one implementation) needs an `mvkit-exempt:` note within three lines above it
@@ -212,11 +212,11 @@ ratchet("workspace-manager", "workspace-manager-views.txt", "@EnvironmentObject 
         "# that only falls. Run tools/lint/architecture-lint.sh --tighten after narrowing a view's dependency.")
 
 # --- bridge-no-bypass
-bridge_senders = {"mv-kit.js", "markview-ui-studio.js"}
+bridge_senders = {"mv-kit.js"}   # and the UI Studio runtime parts below: a different host with its own handler
 page_files = []
 js_dir = root / "MarkView" / "Resources" / "Editor" / "js"
 if js_dir.is_dir():
-    page_files += sorted(p for p in js_dir.glob("*.js") if p.is_file() and p.name not in bridge_senders)
+    page_files += sorted(p for p in js_dir.glob("*.js") if p.is_file() and p.name not in bridge_senders and not p.name.startswith("markview-ui-studio-"))
 page_files += [p for p in [root / "MarkView" / "Models" / "Workspace" / "EditorWindowPrefs.swift"] if p.is_file()]
 for path in page_files:
     for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):

@@ -280,7 +280,7 @@ class WebViewBridge: NSObject {
     }
 
     /// Load structured data (JSON/XML/YAML) content into the editor
-    /// Render the Architecture tab (markview-architecture.js). `json` is a JSON object literal.
+    /// Render the Architecture tab (markview-architecture-*.js). `json` is a JSON object literal.
     func showArchitecture(_ json: String, in webView: WKWebView) {
         webView.evaluateJavaScript("window.showArchitecture && window.showArchitecture(\(json))") { _, error in
             if let error { NSLog("Error rendering architecture: \(error)") }
@@ -297,7 +297,7 @@ class WebViewBridge: NSObject {
         webView.evaluateJavaScript("window.setProjectOperations && window.setProjectOperations(\(json))")
     }
 
-    /// The state of the research map the page shows (markview-research-map.js). `json` is an object literal.
+    /// The state of the research map the page shows (markview-research-map-*.js). `json` is an object literal.
     func setResearchMap(_ json: String, documentID: UUID?, in webView: WKWebView) {
         let id = documentID?.uuidString ?? ""
         webView.evaluateJavaScript("window.mvResearchMapSet && window.mvResearchMapSet(\"\(id)\", \(json))") { _, error in

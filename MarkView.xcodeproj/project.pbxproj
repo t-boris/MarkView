@@ -489,7 +489,6 @@
 		0D546EC06B2191E8ABAC9DD0 /* markview-state.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-state.js"; sourceTree = "<group>"; };
 		0D54B115714DE50CAF6CDA0F /* UIStudioRedaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioRedaction.swift; sourceTree = "<group>"; };
 		0D57F87F4A8D759C0EF2BB08 /* QARunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QARunner.swift; sourceTree = "<group>"; };
-		0E76C72A6A93F68BADFA3EFE /* markview-research-map.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map.js"; sourceTree = "<group>"; };
 		0E78CAD403B18B205EB5232E /* QANativeAccessibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QANativeAccessibility.swift; sourceTree = "<group>"; };
 		0ED15DDB619C352BEA2D90F4 /* IssueSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueSync.swift; sourceTree = "<group>"; };
 		1024FF456031B1D1BC834778 /* BookBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookBuilder.swift; sourceTree = "<group>"; };
@@ -684,7 +683,6 @@
 		659CD2D529EC42B2A426EAAC /* DocumentFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentFiles.swift; sourceTree = "<group>"; };
 		65C20CCECAE81DAC301D96C3 /* ImageViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageViewerView.swift; sourceTree = "<group>"; };
 		65D86A9B539851AC6A595356 /* FileBrowserViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBrowserViews.swift; sourceTree = "<group>"; };
-		6615DF114A909F7BA11E3D2E /* markview-ui-studio.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-ui-studio.js"; sourceTree = "<group>"; };
 		663292B1115EE20A8D51CB93 /* markdown-it-footnote.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markdown-it-footnote.min.js"; sourceTree = "<group>"; };
 		667F1344BF2C7E12038C9AEB /* AutoAnalysisScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoAnalysisScheduler.swift; sourceTree = "<group>"; };
 		66E0D277415C2D86CE21A125 /* xterm.bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = xterm.bundle.js; sourceTree = "<group>"; };
@@ -693,6 +691,23 @@
 		6816210E785FAC871633C655 /* DatabaseCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseCardView.swift; sourceTree = "<group>"; };
 		68569953A6974EBC56C557A5 /* UIStudioComparisonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioComparisonView.swift; sourceTree = "<group>"; };
 		69423CB226D3F71D19E063E5 /* markview-themes.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-themes.js"; sourceTree = "<group>"; };
+		C742100A9FA5261B1814E133 /* markview-architecture-model.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-architecture-model.js"; sourceTree = "<group>"; };
+		A06D477666C94251D314BC95 /* markview-architecture-graph.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-architecture-graph.js"; sourceTree = "<group>"; };
+		DA6E5B543D65571BBFD211A1 /* markview-architecture-panels.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-architecture-panels.js"; sourceTree = "<group>"; };
+		EED24E6D4242906F3228BFCE /* markview-architecture-details.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-architecture-details.js"; sourceTree = "<group>"; };
+		766A2FCCD69AA5A2D6647A6F /* markview-architecture-toolbar.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-architecture-toolbar.js"; sourceTree = "<group>"; };
+		9EA02537269FCB9D2FA0AE0D /* markview-research-map-core.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map-core.js"; sourceTree = "<group>"; };
+		3B5C1606FF09BEEDF5F8E2B9 /* markview-research-map-chrome.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map-chrome.js"; sourceTree = "<group>"; };
+		1B594437ECEFDCAE101AD324 /* markview-research-map-tree.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map-tree.js"; sourceTree = "<group>"; };
+		777B89FD83BBC1BCA1CBD5B0 /* markview-research-map-viewport.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map-viewport.js"; sourceTree = "<group>"; };
+		23D865924B256ECA6176F7F6 /* markview-research-map-panel.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map-panel.js"; sourceTree = "<group>"; };
+		122D8A6D85AEFFC7D73EC9E8 /* markview-research-map-entry.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map-entry.js"; sourceTree = "<group>"; };
+		87DA3F2264C154E55F481B6F /* markview-ui-studio-core.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-ui-studio-core.js"; sourceTree = "<group>"; };
+		CA8307A8BBB4647EE08848CE /* markview-ui-studio-browser.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-ui-studio-browser.js"; sourceTree = "<group>"; };
+		49E14A59B9FCC7489AF493F4 /* markview-ui-studio-sdk.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-ui-studio-sdk.js"; sourceTree = "<group>"; };
+		281D10690BDDBB472AC08442 /* markview-ui-studio-diagnostics.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-ui-studio-diagnostics.js"; sourceTree = "<group>"; };
+		3D029AD0ACE5D8894C24A1BA /* markview-ui-studio-select.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-ui-studio-select.js"; sourceTree = "<group>"; };
+		96FA7DB645ECEDF10C1D1F09 /* markview-ui-studio-api.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-ui-studio-api.js"; sourceTree = "<group>"; };
 		6B6BEBAADD6CD8BA0A85088E /* PrototypeTailwind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeTailwind.swift; sourceTree = "<group>"; };
 		6B9EFCB313A4B742B3C5A1D0 /* prism-cpp.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-cpp.min.js"; sourceTree = "<group>"; };
 		6C1ED1471F59C8FDD227A510 /* RemoteChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteChannel.swift; sourceTree = "<group>"; };
@@ -924,7 +939,6 @@
 		D796EAE86AE700F3A1FB30A4 /* IssueLifecycleDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueLifecycleDisplay.swift; sourceTree = "<group>"; };
 		D849A71C0303F4E3F0F8FFEC /* markview-document-files.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-document-files.js"; sourceTree = "<group>"; };
 		D962EA0DF5F3F58B03A0E157 /* WorkflowDonePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowDonePanel.swift; sourceTree = "<group>"; };
-		DB0A17F3FD3EA83387ABEEC4 /* markview-architecture.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-architecture.js"; sourceTree = "<group>"; };
 		DC5CB38E9CF1EB846033B0A8 /* GitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitView.swift; sourceTree = "<group>"; };
 		DC7A1A132DEAF268C60F70CA /* QAWebActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAWebActor.swift; sourceTree = "<group>"; };
 		DD1237B1D148FA38A98320B0 /* prism-sql.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-sql.min.js"; sourceTree = "<group>"; };
@@ -1936,7 +1950,11 @@
 		ED1700000000000000000001 /* js */ = {
 			isa = PBXGroup;
 			children = (
-				DB0A17F3FD3EA83387ABEEC4 /* markview-architecture.js */,
+				EED24E6D4242906F3228BFCE /* markview-architecture-details.js */,
+				A06D477666C94251D314BC95 /* markview-architecture-graph.js */,
+				C742100A9FA5261B1814E133 /* markview-architecture-model.js */,
+				DA6E5B543D65571BBFD211A1 /* markview-architecture-panels.js */,
+				766A2FCCD69AA5A2D6647A6F /* markview-architecture-toolbar.js */,
 				8481AD7D0786783E89B0C11E /* markview-book-md.js */,
 				00957E10407CD88C7C573C38 /* markview-book.js */,
 				A5753821BD65B28145CD7ED2 /* markview-bridge.js */,
@@ -1960,14 +1978,24 @@
 				4B79AFECAF59E74251EEB369 /* markview-panels.js */,
 				AE2D1E5946002DCAB54BA616 /* markview-pick-element.js */,
 				DD86AAC2720AC601F1FAFA66 /* markview-render.js */,
+				3B5C1606FF09BEEDF5F8E2B9 /* markview-research-map-chrome.js */,
+				9EA02537269FCB9D2FA0AE0D /* markview-research-map-core.js */,
+				122D8A6D85AEFFC7D73EC9E8 /* markview-research-map-entry.js */,
 				AA2CA37BE6C93E0C73995455 /* markview-research-map-layout.js */,
-				0E76C72A6A93F68BADFA3EFE /* markview-research-map.js */,
+				23D865924B256ECA6176F7F6 /* markview-research-map-panel.js */,
+				1B594437ECEFDCAE101AD324 /* markview-research-map-tree.js */,
+				777B89FD83BBC1BCA1CBD5B0 /* markview-research-map-viewport.js */,
 				0D546EC06B2191E8ABAC9DD0 /* markview-state.js */,
 				D2BCF00DE367D3BF705F3135 /* markview-structured.js */,
 				AF4999B5DE274BA1571F8ADA /* markview-terminal.js */,
 				69423CB226D3F71D19E063E5 /* markview-themes.js */,
+				96FA7DB645ECEDF10C1D1F09 /* markview-ui-studio-api.js */,
+				CA8307A8BBB4647EE08848CE /* markview-ui-studio-browser.js */,
+				87DA3F2264C154E55F481B6F /* markview-ui-studio-core.js */,
+				281D10690BDDBB472AC08442 /* markview-ui-studio-diagnostics.js */,
 				D13854E2284DBEC355EE394C /* markview-ui-studio-node.cjs */,
-				6615DF114A909F7BA11E3D2E /* markview-ui-studio.js */,
+				49E14A59B9FCC7489AF493F4 /* markview-ui-studio-sdk.js */,
+				3D029AD0ACE5D8894C24A1BA /* markview-ui-studio-select.js */,
 				B899AF32F819BB9FA6CA770F /* markview-web-only.mjs */,
 				5D42EFED00836F5D45A63E3C /* mv-kit.js */,
 			);

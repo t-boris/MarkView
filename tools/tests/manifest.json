@@ -453,7 +453,12 @@
         "tools/tests/CodeArchitectureWebTests.swift",
         "tools/tests/DiagramCLIStub.swift",
         "MarkView/Bridge/TypedWebBridge.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json"
+        "MarkView/Resources/Editor/js/bridge-contract.json",
+        "MarkView/Resources/Editor/js/markview-architecture-model.js",
+        "MarkView/Resources/Editor/js/markview-architecture-graph.js",
+        "MarkView/Resources/Editor/js/markview-architecture-panels.js",
+        "MarkView/Resources/Editor/js/markview-architecture-details.js",
+        "MarkView/Resources/Editor/js/markview-architecture-toolbar.js"
       ]
     },
     {
@@ -2081,7 +2086,13 @@
         "tools/tests/ResearchMapWebTests.swift",
         "tools/tests/research-map-web-tests.sh",
         "MarkView/Bridge/TypedWebBridge.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json"
+        "MarkView/Resources/Editor/js/bridge-contract.json",
+        "MarkView/Resources/Editor/js/markview-research-map-core.js",
+        "MarkView/Resources/Editor/js/markview-research-map-chrome.js",
+        "MarkView/Resources/Editor/js/markview-research-map-tree.js",
+        "MarkView/Resources/Editor/js/markview-research-map-viewport.js",
+        "MarkView/Resources/Editor/js/markview-research-map-panel.js",
+        "MarkView/Resources/Editor/js/markview-research-map-entry.js"
       ]
     },
     {
@@ -2309,7 +2320,12 @@
         "MarkView/Models/UIStudio/UIStudioStore.swift",
         "MarkView/Models/UIStudio/UIStudioTracking.swift",
         "MarkView/Models/Workspace/WebAppPreview.swift",
-        "MarkView/Resources/Editor/js/markview-ui-studio.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-core.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-browser.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-sdk.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-diagnostics.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-select.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-api.js",
         "MarkView/Views/UIStudio/UIStudioPreviewHost.swift",
         "tools/tests/UIStudioLiveRun.swift",
         "tools/tests/UIStudioLiveStubs.swift",
@@ -2372,7 +2388,12 @@
         "MarkView/Models/UIStudio/UIStudioStore.swift",
         "MarkView/Models/UIStudio/UIStudioTracking.swift",
         "MarkView/Models/Workspace/WebAppPreview.swift",
-        "MarkView/Resources/Editor/js/markview-ui-studio.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-core.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-browser.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-sdk.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-diagnostics.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-select.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-api.js",
         "MarkView/Views/UIStudio/UIStudioPreviewHost.swift",
         "tools/tests/UIStudioAuthHarness.swift",
         "tools/tests/UIStudioSessionHarness.swift",
@@ -2422,7 +2443,13 @@
         "tools/tests/UIStudioRepairTests.swift",
         "tools/tests/UIStudioScreensTests.swift",
         "tools/tests/UIStudioTests.swift",
-        "tools/tests/ui-studio-tests.sh"
+        "tools/tests/ui-studio-tests.sh",
+        "MarkView/Resources/Editor/js/markview-ui-studio-core.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-browser.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-sdk.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-diagnostics.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-select.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-api.js"
       ]
     },
     {
@@ -2445,7 +2472,12 @@
         "MarkView/Models/UIStudio/UIStudioRedaction.swift",
         "MarkView/Models/UIStudio/UIStudioSelection.swift",
         "MarkView/Models/UIStudio/UIStudioSimulation.swift",
-        "MarkView/Resources/Editor/js/markview-ui-studio.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-core.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-browser.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-sdk.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-diagnostics.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-select.js",
+        "MarkView/Resources/Editor/js/markview-ui-studio-api.js",
         "MarkView/Views/UIStudio/UIStudioPreviewHost.swift",
         "tools/tests/UIStudioWebHarness.swift",
         "tools/tests/ui-studio-web-tests.sh"
@@ -2724,7 +2756,12 @@
         "tools/tests/XRayComparisonWebTests.swift",
         "tools/tests/xray-comparison-web-tests.sh",
         "MarkView/Bridge/TypedWebBridge.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json"
+        "MarkView/Resources/Editor/js/bridge-contract.json",
+        "MarkView/Resources/Editor/js/markview-architecture-model.js",
+        "MarkView/Resources/Editor/js/markview-architecture-graph.js",
+        "MarkView/Resources/Editor/js/markview-architecture-panels.js",
+        "MarkView/Resources/Editor/js/markview-architecture-details.js",
+        "MarkView/Resources/Editor/js/markview-architecture-toolbar.js"
       ]
     },
     {
@@ -2744,7 +2781,12 @@
         "tools/tests/XRayLayoutWebTests.swift",
         "tools/tests/xray-layout-web-tests.sh",
         "MarkView/Bridge/TypedWebBridge.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json"
+        "MarkView/Resources/Editor/js/bridge-contract.json",
+        "MarkView/Resources/Editor/js/markview-architecture-model.js",
+        "MarkView/Resources/Editor/js/markview-architecture-graph.js",
+        "MarkView/Resources/Editor/js/markview-architecture-panels.js",
+        "MarkView/Resources/Editor/js/markview-architecture-details.js",
+        "MarkView/Resources/Editor/js/markview-architecture-toolbar.js"
       ]
     }
   ]

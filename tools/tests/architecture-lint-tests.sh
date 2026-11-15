@@ -189,7 +189,7 @@ try:
     # --- bridge-no-bypass
     root = fresh()
     write(root, "MarkView/Resources/Editor/js/mv-kit.js", "webkit.messageHandlers[name].postMessage(message);\n")
-    write(root, "MarkView/Resources/Editor/js/markview-ui-studio.js", "var handlers = window.webkit.messageHandlers;\n")
+    write(root, "MarkView/Resources/Editor/js/markview-ui-studio-core.js", "var handlers = window.webkit.messageHandlers;\n")
     write(root, "MarkView/Resources/Editor/js/markview-note.js", "// talks to webkit.messageHandlers.bridge only in this comment\nmvBridge.send('ready', {}, 'bridge');\n")
     code, out = run(root)
     check(code == 0 and "bridge-no-bypass" in out, "the one sender, the other host and a comment do not count as a bypass")

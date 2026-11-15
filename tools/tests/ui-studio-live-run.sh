@@ -27,4 +27,4 @@ swiftc -o "$out/ui-studio-live-run" \
   MarkView/Views/UIStudio/UIStudioPreviewHost.swift MarkView/Models/AI/AIAssistants.swift MarkView/Models/Appearance/ProjectColor.swift MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/AI/AICallLog.swift \
   MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/ACPAssistant.swift MarkView/Models/AI/AgentProcesses.swift \
   tools/tests/UIStudioLiveStubs.swift "$out/main.swift"
-"$out/ui-studio-live-run" "$PWD/MarkView/Resources/Editor/js/markview-ui-studio.js" "$@"
+"$out/ui-studio-live-run" "$PWD/MarkView/Resources/Editor/js" "$@"
