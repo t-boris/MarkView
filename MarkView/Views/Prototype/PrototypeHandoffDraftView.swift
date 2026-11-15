@@ -18,7 +18,7 @@ struct PrototypeHandoffDraftView: View {
     @State private var tab = Tab.feature
     @State private var brief = ""
     @State private var briefEdited = false
-    @State private var agent = TerminalProfile.claude
+    @State private var agent = TerminalProfile(AssistantProviderRegistry.defaultTool)
     @State private var copied = false
     @State private var showNotes = false
 

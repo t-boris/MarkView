@@ -77,7 +77,7 @@ final class RemoteConnectionsStore: ObservableObject {
         startHost(entry)
     }
 
-    func connect(name: String, code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool,
+    func connect(name: String, code: String, provider: CLITool, model: String?, resume: Bool,
                  host: any RemoteAssistantHost) async throws {
         await ready()
         guard storageError == nil else { throw RemoteFailure.invalid(storageError!) }
@@ -121,7 +121,7 @@ final class RemoteConnectionsStore: ObservableObject {
         guard !starting.contains(entry.id), !entry.revoking else { return }
         starting.insert(entry.id); defer { starting.remove(entry.id) }
         let session = try await host.openRemoteAITerminal(code: entry.code,
-            provider: .init(rawValue: entry.provider ?? "claude") ?? .claude, model: entry.model, resume: entry.resume,
+            provider: RemoteProviderConfiguration.tool(named: entry.provider ?? "") ?? RemoteProviderConfiguration.defaultTool, model: entry.model, resume: entry.resume,
             savedConnectionID: entry.id)
         if let connection = session.connection as? RemoteTerminalConnection { connections[entry.id] = connection }
     }

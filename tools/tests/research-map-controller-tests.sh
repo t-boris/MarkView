@@ -22,11 +22,11 @@ enum ACPAssistant {
 SWIFT
 swiftc -o "$out/research-map-controller-tests" -target "$(uname -m)-apple-macos13.0" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/Research/*.swift \
+    MarkView/Models/Research/*.swift MarkView/Models/Workspace/ProjectProviding.swift \
     MarkView/Models/Insight/SemanticDatabase.swift MarkView/Models/Insight/SemanticSchema.swift MarkView/Models/Insight/SemanticModels.swift \
     MarkView/Models/Workspace/TaskBag.swift MarkView/Models/Workspace/FrontMatter.swift MarkView/Models/Workspace/LinkedFolders.swift \
     MarkView/Models/Appearance/ProjectColor.swift \
-    MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/AssistantProviderRegistry.swift \
+    MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/Providers/*.swift \
     MarkView/Models/AI/AICallLog.swift MarkView/Models/AI/AgentProcesses.swift MarkView/Models/AI/AIOperation.swift \
     MarkView/Models/AI/OutputLanguage.swift MarkView/Models/AI/DiagramAI.swift \
     MarkView/Models/Architecture/ArchitectureModel.swift MarkView/Models/Architecture/CodeArchitecture.swift \

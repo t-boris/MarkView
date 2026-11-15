@@ -1,22 +1,21 @@
 import AppKit
 import QuartzCore
 
-/// The colours a backdrop draws with, taken from the window's theme (REQ-003: a backdrop follows the theme, dark or light).
+/// The colours a backdrop draws with (REQ-003: a backdrop follows the theme, dark or light). `init(_ palette:)` in WelcomeBackdropView.swift
+/// takes them from the window's theme.
 struct BackdropColors: Equatable {
     var background, bright, dim: NSColor
     var green, cyan, purple, blue, orange, red, yellow: NSColor
     var isDark: Bool
 
-    init(_ palette: AppPalette) {
-        let model = palette.model
-        background = NSColor(model.bg); bright = NSColor(model.textBright); dim = NSColor(model.textDim)
-        green = NSColor(model.green); cyan = NSColor(model.cyan); purple = NSColor(model.purple); blue = NSColor(model.blue)
-        orange = NSColor(model.orange); red = NSColor(model.red); yellow = NSColor(model.yellow)
-        isDark = model.isDark
-    }
-
     /// How strongly light is drawn: light on a dark window is vivid, on a light window it has to stay quiet.
     var strength: CGFloat { isDark ? 0.9 : 0.7 }
+}
+
+/// A registered scene that draws (AR-34): the backdrop registers itself (`BackdropRegistration`) in the file that draws it, and says here
+/// how the builder draws it. The picker, Shuffle, By Project and `BackdropBuilder.layers(for:)` find it through the registry.
+protocol BackdropDrawing: BackdropRegistration {
+    static func layers(_ builder: BackdropBuilder) -> [CALayer]
 }
 
 /// Turns a scene into Core Animation layers (DEC-001). Every motion is an animation the render server runs, so the main thread
@@ -30,24 +29,11 @@ struct BackdropBuilder {
     let seed: UInt64
     var detail: Int = 1
 
+    /// The layers of a backdrop: its registration draws them (`BackdropDrawing`). A mode, and a registration that does not draw, has none.
     func layers(for kind: WelcomeBackdrop) -> [CALayer] {
         guard size.width >= 40, size.height >= 40 else { return [] }
-        switch kind {
-        case .matrix: return matrix()
-        case .aurora: return aurora()
-        case .bugs: return bugs()
-        case .network: return network()
-        case .orbit: return orbit()
-        case .blueprint: return blueprint()
-        case .circuit: return circuit()
-        case .garden: return garden()
-        case .launch: return launch()
-        case .gitflow: return gitFlow()
-        case .typewriter: return typewriter()
-        case .deepsea: return deepSea()
-        case .warp: return warp()
-        case .project, .shuffle, .off: return []
-        }
+        guard let drawing = BackdropRegistry.entry(kind.rawValue)?.type as? any BackdropDrawing.Type else { return [] }
+        return drawing.layers(self)
     }
 
     // MARK: - Animation helpers
@@ -79,7 +65,7 @@ struct BackdropBuilder {
 
     private static let matrixCell = CGSize(width: 16, height: 19)
 
-    private func matrix() -> [CALayer] {
+    func matrix() -> [CALayer] {
         let cell = Self.matrixCell
         let scene = MatrixScene.make(size: size, cell: cell, seed: seed)
         let font = NSFont.monospacedSystemFont(ofSize: 15, weight: .medium)
@@ -145,7 +131,7 @@ struct BackdropBuilder {
 
     // MARK: - Aurora
 
-    private func aurora() -> [CALayer] {
+    func aurora() -> [CALayer] {
         let scene = AuroraScene.make(seed: seed)
         let tints = [colors.green, colors.cyan, colors.purple, colors.blue]
         var layers: [CALayer] = []
@@ -235,7 +221,7 @@ struct BackdropBuilder {
         return image.cgImage(forProposedRect: &proposed, context: nil, hints: nil)
     }
 
-    private func bugs() -> [CALayer] {
+    func bugs() -> [CALayer] {
         let scene = BugScene.make(size: size, seed: seed, intensity: detail)
         let tints = [colors.green, colors.cyan, colors.red]
         var layers: [CALayer] = []
@@ -277,7 +263,7 @@ struct BackdropBuilder {
 
     // MARK: - Network
 
-    private func network() -> [CALayer] {
+    func network() -> [CALayer] {
         let scene = NetworkScene.make(size: size, seed: seed)
         guard !scene.nodes.isEmpty else { return [] }
         let tints = [colors.green, colors.cyan, colors.purple]
@@ -366,4 +352,31 @@ struct BackdropBuilder {
         }
         return layers
     }
+}
+
+// MARK: - Registrations (AR-34)
+
+/// Matrix Rain, the default of a new window.
+final class MatrixBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("matrix", title: "Matrix Rain", symbol: "chevron.left.forwardslash.chevron.right", order: 10)
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { builder.matrix() }
+}
+
+final class AuroraBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("aurora", title: "Aurora", symbol: "sparkles", order: 20)
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { builder.aurora() }
+}
+
+/// Bug Swarm: By Project draws it first, for a project with many open or critical bugs.
+final class BugSwarmBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("bugs", title: "Bug Swarm", symbol: "ladybug", order: 30, project: .init(
+        priority: 10,
+        matches: { $0.issuesKnown && ($0.openBugs >= 8 || $0.criticalBugs >= 2) },
+        reason: { "Bug Swarm: \($0.openBugs) open bugs\($0.criticalBugs > 0 ? ", \($0.criticalBugs) critical" : "")" }))
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { builder.bugs() }
+}
+
+final class NetworkBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("network", title: "Network", symbol: "point.3.connected.trianglepath.dotted", order: 40)
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { builder.network() }
 }

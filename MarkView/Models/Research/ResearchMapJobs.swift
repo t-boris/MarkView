@@ -10,7 +10,7 @@ extension ResearchJobs {
     /// Creates the map file at `relativePath` (a free name is chosen if it was taken meanwhile),
     /// opens it in a tab and starts the research.
     func start(question: String, relativePath: String, targets: [URL], attachments: [URL]) {
-        guard let host, let maps, let root = host.researchRoot else { return }
+        guard let host, let maps, let root = project.root else { return }
         let file = Self.freeFile(root.appendingPathComponent(relativePath), root: root)
         let id = ResearchDocument.id(forPath: file.path)
         let map = ResearchMap.new(id: id, question: question, created: FeatureStore.today, targets: [], attachments: [])
@@ -47,7 +47,7 @@ extension ResearchJobs {
     /// Expand topic: the AI develops `node` of the map in `file`, in the direction the person gave (empty: its own
     /// choice). Returns a one-line reason when it cannot start.
     func developMap(file: URL, node: String, direction: String) -> String? {
-        guard let host, let maps, let root = host.researchRoot else { return "No project is open." }
+        guard let host, let maps, let root = project.root else { return "No project is open." }
         if isRunning(on: file) { return "An AI job is already working on this map; develop the branch when it has finished." }
         guard case .success(let map)? = maps.text(of: file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
             return "That node no longer exists."
@@ -96,7 +96,7 @@ extension ResearchJobs {
     /// whose evidence lists the files the diagram rests on. The node itself is unchanged. Returns a one-line reason when it
     /// cannot start.
     func drawMap(file: URL, node: String, kindID: String, instruction: String) -> String? {
-        guard let host, let maps, let root = host.researchRoot else { return "No project is open." }
+        guard let host, let maps, let root = project.root else { return "No project is open." }
         guard let kind = DiagramKind(rawValue: kindID), ResearchMap.drawKinds.contains(where: { $0.id == kindID }) else {
             return "Choose one of the diagram types."
         }
@@ -107,8 +107,8 @@ extension ResearchJobs {
             return "That node no longer exists."
         }
         let name = kind == .custom ? "Diagram" : kind.title
-        launch(kind: .mapDraw, file: file, title: "Draw \(name.lowercased()): " + Self.title(target.title)) { [weak host, weak maps] job in
-            guard let host, let maps else { return nil }
+        launch(kind: .mapDraw, file: file, title: "Draw \(name.lowercased()): " + Self.title(target.title)) { [weak host, weak maps, weak project] job in
+            guard let host, let maps, let project else { return nil }
             // The map as it is now, not as it was when the action was chosen.
             guard case .success(let current)? = maps.text(of: file).map({ ResearchMap.parse($0) }),
                   let from = current.node(node) else { return "That node no longer exists." }
@@ -126,7 +126,7 @@ extension ResearchJobs {
                 let spec = try await DiagramAI.generate(prompt: prompt, root: root, label: "map-draw:\(kind.rawValue)", system: DiagramAI.mapSystem,
                                                         expectedLanguage: language,
                                                         onStage: { stage in Task { @MainActor in job.update(stage) } },
-                                                        record: { result in Task { @MainActor in result.record(in: host.semanticDatabase) } })
+                                                        record: { result in Task { @MainActor in result.record(in: project.database) } })
                 job.update("Adding the diagram to the map")
                 var description = "```mermaid\n\(DiagramAI.plainMermaid(spec, kind: kind))\n```"
                 if !spec.question.isEmpty { description += "\n\n**Question:** \(spec.question)" }
@@ -163,7 +163,7 @@ extension ResearchJobs {
     /// Starts one of the single-node actions. Returns a one-line reason when it cannot start.
     private func runOnNode(file: URL, node: String, kind: Job.Kind, label: String, mode: ResearchMapRun.Mode,
                            prompt: @escaping (ResearchMap, ResearchMap.Node, String) -> String) -> String? {
-        guard let host, let maps, let root = host.researchRoot else { return "No project is open." }
+        guard let host, let maps, let root = project.root else { return "No project is open." }
         if isRunning(on: file) { return "An AI job is already working on this map; run this action when it has finished." }
         guard case .success(let map)? = maps.text(of: file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
             return "That node no longer exists."
@@ -184,7 +184,7 @@ extension ResearchJobs {
 
     /// Continues a map whose research stopped early.
     func continueMap(file: URL) -> String? {
-        guard let host, let maps, let root = host.researchRoot else { return "No project is open." }
+        guard let host, let maps, let root = project.root else { return "No project is open." }
         if isRunning(on: file) { return "An AI job is already working on this map." }
         guard case .success(let map)? = maps.text(of: file).map({ ResearchMap.parse($0) }) else {
             return "This file is not a readable research map."

@@ -25,15 +25,19 @@ final class PDFReaderRoutingHarness {
     var layout = Layout()
     let features = Features()
     let tabsStore = WorkspaceTabsStore()
-    var rootOpenedAsFolder = true
+    /// The open project as the routing sees it: a folder is open, and the files the tabs open are recorded as recent.
+    final class Project {
+        let rootOpenedAsFolder = true
+        var recent: [URL] = []
+        func addRecentFile(_ url: URL) { recent.append(url) }
+    }
+    let project = Project()
     var openFileDates: [URL: Date] = [:]
-    var recent: [URL] = []
     var openTabs: [OpenTab] { tabsStore.openTabs }
     var activeTabIndex: Int { tabsStore.activeTabIndex }
     func isFileInCurrentWorkspace(_ url: URL) -> Bool { true }
     func initSingleFileWorkspace(fileURL: URL) { preconditionFailure("PDF must not initialize a text workspace") }
     func showFeatureContext(_ slug: String) {}
-    func addRecentFile(_ url: URL) { recent.append(url) }
     func startWatchingOpenFiles() { preconditionFailure("PDF must not start a text/data watch") }
     func openTextFile(_ url: URL) async { preconditionFailure("PDF must not be loaded as text") }
     func saveFile(at index: Int) { preconditionFailure("PDF must not enter text saving") }
@@ -54,7 +58,7 @@ enum PDFReaderRoutingTests {
         precondition(harness.openTabs.count == 2 && harness.activeTabIndex == 1)
         harness.openFile(file)
         precondition(harness.openTabs.count == 2 && harness.activeTabIndex == 0)
-        precondition(harness.openTabs[0].id == originalID && harness.recent.count == 2)
+        precondition(harness.openTabs[0].id == originalID && harness.project.recent.count == 2)
         print("PDF workspace routing: dedicated tabs, duplicate reuse, no text/AI/indexing/save path passed")
     }
 }

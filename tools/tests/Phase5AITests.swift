@@ -35,6 +35,48 @@ func runPhase5Tests() async {
     check(CLITool.antigravity.binaryName == "agy", "AR-35: Antigravity binaryName is agy")
     check(CLITool.cline.usesACP && CLITool.copilot.usesACP && !CLITool.claude.usesACP, "AR-35: usesACP matches ACP providers")
 
+    // The facts the old per-assistant switches held, now answered by the providers (behaviour preserved).
+    check(AIAssistantPreferences.defaultXRayModel(for: .claude) == "sonnet" && AIAssistantPreferences.defaultXRayModel(for: .codex) == "gpt-5.6-luna"
+          && CLITool.allCases.filter { $0 != .claude && $0 != .codex }.allSatisfy { AIAssistantPreferences.defaultXRayModel(for: $0).isEmpty },
+          "AR-35: default X-Ray models")
+    check(CLITool.claude.provider.loginState(stdout: #"{"loggedIn":true}"#, stderr: "") == true
+          && CLITool.claude.provider.loginState(stdout: #"{"loggedIn":false}"#, stderr: "") == false
+          && CLITool.claude.provider.loginState(stdout: "Logged in as someone", stderr: "") == true
+          && CLITool.claude.provider.loginState(stdout: "", stderr: "") == nil,
+          "AR-35: Claude login state reads the JSON flag, else the words")
+    check(CLITool.codex.provider.loginState(stdout: "Logged in using ChatGPT", stderr: "") == true
+          && CLITool.codex.provider.loginState(stdout: "", stderr: "Not logged in") == false
+          && CLITool.codex.provider.loginState(stdout: "unknown", stderr: "") == nil
+          && CLITool.cline.provider.loginState(stdout: "Logged in", stderr: "") == nil,
+          "AR-35: Codex login state reads the words; ACP assistants have none")
+    let folders = [URL(fileURLWithPath: "/a"), URL(fileURLWithPath: "/b")]
+    check(CLITool.claude.additionalFolderArgs(folders) == ["--add-dir", "/a", "--add-dir", "/b"]
+          && CLITool.allCases.filter { $0 != .claude }.allSatisfy { $0.additionalFolderArgs(folders).isEmpty },
+          "AR-35: only Claude takes extra folders (--add-dir)")
+    let cline = CLITool.cline.provider.acp, copilot = CLITool.copilot.provider.acp
+    check(cline?.launchProfile(effort: nil).arguments == ["--acp"] && cline?.launchProfile(effort: nil).readOnlyMode == "plan"
+          && cline?.launchProfile(effort: "high").arguments == ["--acp", "--thinking", "high"]
+          && cline?.probe.minimumMajorVersion == 3 && cline?.probe.installCommand == "npm i -g cline@latest"
+          && cline?.probe.silentExitMessage != nil && cline?.killedMessage?.contains("codesign") == true,
+          "AR-35: Cline's ACP profile, probe and signature hint")
+    check(copilot?.launchProfile(effort: "low").arguments == ["--acp", "--no-auto-update", "--no-ask-user", "--disable-builtin-mcps",
+                                                              "--no-custom-instructions", "--reasoning-effort", "low",
+                                                              "--available-tools", "view", "grep", "glob"]
+          && copilot?.launchProfile(effort: nil).readOnlyMode == nil && copilot?.launchProfile(effort: nil).noticePrefix == "Info: Disabled tools:"
+          && copilot?.probe.minimumMajorVersion == 1 && copilot?.probe.modelListImpliesSignedIn == true && copilot?.killedMessage == nil,
+          "AR-35: Copilot's ACP profile and probe")
+    check(CLITool.claude.provider.acp == nil && CLITool.codex.provider.acp == nil && CLITool.antigravity.provider.acp == nil,
+          "AR-35: only Cline and Copilot are ACP assistants")
+    check(CLITool.claude.authStatusArgs == ["auth", "status"] && CLITool.claude.loginCommand == "auth login"
+          && CLITool.codex.authStatusArgs == ["login", "status"] && CLITool.codex.loginCommand == "login"
+          && CLITool.cline.fullAccessArgs == ["--auto-approve", "true"] && CLITool.copilot.fullAccessArgs == ["--allow-all"]
+          && CLITool.codex.continueArgs == ["resume", "--last"] && CLITool.cline.continueArgs.isEmpty
+          && CLITool.claude.overrideKey == "settings.cli.claudePath",
+          "AR-35: sign-in, full-access and continue arguments, and the override key, are unchanged")
+    check(CLITool.allCases.map(\.rawValue) == ["claude", "codex", "cline", "copilot", "antigravity"]
+          && CLITool.allCases.map(\.displayName) == ["Claude Code", "Codex", "Cline", "Copilot", "Antigravity"],
+          "AR-35: the persisted raw values and their order are unchanged")
+
     // 2. AR-26: AIJSONSalvage extracts fenced and brace-wrapped JSON
     let fenced = """
     Here is your diagram:
@@ -298,3 +340,12 @@ while semaphore.wait(timeout: .now()) == .timedOut {
 
 print("\nPhase 5 summary: \(passed) passed, \(failed) failed")
 if failed > 0 { exit(1) }
+
+// The suite names the assistants by their stored identity; the app names none outside its providers.
+extension CLITool {
+    static var claude: CLITool { CLITool(rawValue: "claude")! }
+    static var codex: CLITool { CLITool(rawValue: "codex")! }
+    static var cline: CLITool { CLITool(rawValue: "cline")! }
+    static var copilot: CLITool { CLITool(rawValue: "copilot")! }
+    static var antigravity: CLITool { CLITool(rawValue: "antigravity")! }
+}

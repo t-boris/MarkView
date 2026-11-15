@@ -133,8 +133,8 @@ enums, `Diagnostic`, `DocumentTemplate`, `CompletenessEvaluation`. Only
 | `ModuleExplorerView` (`MarkView/Views/Architecture/ModuleExplorerView.swift:18-24`) | `getUsageStats()` for the `$x.xx` badge |
 | `ArchitectureStore` (`ArchitectureStore.swift:262, 355, 2876, 2902`) | `loadArchitecture`, `saveArchitecture`, `saveArchitectureReview` |
 | `CLICompletion.Result.record(in:)` | `addUsage` |
-| `WorkspaceManager.startRecursiveInsight` (`WorkspaceManager.swift:2102-2184`) | `scanMarkdownFiles(in:)`, `InsightCache(workspaceURL: folderURL, ...)`, `InsightSession(...)`, `generateRoot()` |
-| `WorkspaceManager.didRequestInsight*` forwarders (`:2212-2365`) | `expand`, `navigateTo`, `regenerateRoot`, `expandCustom`, `expandAllTopicsOnCurrentNode`, `retrySection`; `exportInsightArchive` (`:2391-2485`) |
+| `InsightCoordinator.start` (`Models/Insight/InsightCoordinator.swift`) | `ProjectProviding.markdownFiles(in:)`, `InsightCache(workspaceURL: folderURL, ...)`, `InsightSession(...)`, `generateRoot()` |
+| `InsightCoordinator.didRequestInsight*` (the editor bridge's insight messages) | `expand`, `navigateTo`, `regenerateRoot`, `expandCustom`, `expandAllTopicsOnCurrentNode`, `retrySection`; `exportInsightArchive` (`:2391-2485`) |
 | `WorkspaceManager.closeTab` (`:1566-1597`) | `session.cancel()` (the cache is intentionally **not** cleaned up) |
 | `EditorView.Coordinator.routeInsight` (`MarkView/Views/Workspace/EditorView.swift:437-611`) | Subscribes to `$skeleton`, `$currentNodeSections`, `$lastError`, `$statusMessage` and forwards to `WebViewBridge.loadInsightSkeleton / updateInsightSection / setInsightError / setInsightStatus` |
 

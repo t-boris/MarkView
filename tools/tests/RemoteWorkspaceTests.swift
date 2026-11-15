@@ -40,7 +40,7 @@ enum RemoteWorkspaceTests {
             let args = CommandLine.arguments
             let directory = URL(fileURLWithPath: args[index + 4])
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            print(try RemoteProviderConfiguration.command(provider: .init(rawValue: args[index + 1])!, executable: args[index + 2],
+            print(try RemoteProviderConfiguration.command(tool: RemoteProviderConfiguration.tool(named: args[index + 1])!, executable: args[index + 2],
                 app: args[index + 3], socket: directory.appendingPathComponent("test.sock").path,
                 context: .object(["cwd": .string("/test/work"), "hostname": .string("test-work")]), directory: directory, model: nil, resume: false))
             return
@@ -211,13 +211,13 @@ enum RemoteWorkspaceTests {
               "Workspace info must identify the work computer and report its actual writable root.")
         check(context["file_tools"]["write_operations"].array == [.string("write_file"), .string("edit_file")],
               "The work endpoint must advertise its file-edit capabilities independently of the home sandbox.")
-        for provider in RemoteProviderConfiguration.Provider.allCases {
-            let command = try RemoteProviderConfiguration.command(provider: provider, executable: "/test/agent", app: "/test/MarkView's App",
+        for provider in RemoteProviderConfiguration.tools {
+            let command = try RemoteProviderConfiguration.command(tool: provider, executable: "/test/agent", app: "/test/MarkView's App",
                 socket: fixture.appendingPathComponent("bridge.sock").path, context: context, directory: fixture, model: "model; touch /unwanted", resume: false)
-            check(command.contains("--remote-workspace-guard") || provider == .claude, "Codex must configure the native-tool guard.")
+            check(command.contains("--remote-workspace-guard") || provider.rawValue == "claude", "Codex must configure the native-tool guard.")
             check(!command.contains("--dangerously-bypass-approvals-and-sandbox"), "Codex native execution must retain its sandbox.")
             check(command.contains("'model; touch /unwanted'"), "Model values must remain one quoted argument.")
-            if provider == .codex {
+            if provider.rawValue == "codex" {
                 check(command.contains("'--sandbox' 'read-only'") && command.contains("'--cd' " + RemoteProviderConfiguration.quote(fixture.path)),
                       "Codex must retain native read-only access in the transport directory.")
                 let server = "mcp_servers." + RemoteWorkspaceTools.serverName

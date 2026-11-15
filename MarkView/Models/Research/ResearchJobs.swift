@@ -50,13 +50,15 @@ final class ResearchJobs: ObservableObject {
     @Published var message: String?
     @Published var followUp: FollowUpRequest?
 
-    /// The window the jobs read the project and the open documents of, and the map files they write.
+    /// The window the jobs read the open documents of, the open project (its folder and database) and the map files they write.
     private(set) weak var host: ResearchHost?
+    let project: any ProjectProviding
     private(set) weak var maps: ResearchMapController?
     private let tasks: TaskBag
 
-    init(host: ResearchHost?, maps: ResearchMapController, tasks: TaskBag) {
+    init(host: ResearchHost?, project: any ProjectProviding, maps: ResearchMapController, tasks: TaskBag) {
         self.host = host
+        self.project = project
         self.maps = maps
         self.tasks = tasks
     }
@@ -84,7 +86,7 @@ final class ResearchJobs: ObservableObject {
 
     /// Appends a follow-up (or, with `retry`, a retry of that incomplete section) to `file`.
     func followUp(_ file: URL, question: String, retry: ResearchDocument.Section?) {
-        guard let root = host?.researchRoot else { return }
+        guard let root = project.root else { return }
         guard host?.saveBeforeResearch(file, action: "continuing the research") == true else { return }
         let label = retry.map { "Retry: \($0.name)" } ?? "Follow-up: " + Self.title(question)
         launch(kind: .followUp, file: file, title: label) { job in
@@ -126,7 +128,7 @@ final class ResearchJobs: ObservableObject {
 
     /// The AI revises the smallest section containing `passage` according to `comment`.
     func comment(on passage: String, comment: String, in file: URL) {
-        guard let root = host?.researchRoot else { return }
+        guard let root = project.root else { return }
         guard !isRunning(on: file) else {
             message = "Another research job is working on \(file.lastPathComponent); comment when it has finished."
             return
@@ -323,7 +325,7 @@ final class JobHandle {
                 if case .writing = activity { step = writing }
                 Task { @MainActor in self?.update(step) }
             })
-            result.record(in: owner?.host?.semanticDatabase)
+            result.record(in: owner?.project.database)
             let snapshot = log.snapshot()
             let text = result.text.isEmpty ? snapshot.text : result.text
             // Refused web calls were never sent: they leave the lists, and the run lost web access (DEC-004).

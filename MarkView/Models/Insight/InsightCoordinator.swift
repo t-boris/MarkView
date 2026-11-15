@@ -2,14 +2,11 @@ import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
-/// What Recursive Insight needs from the window it runs in: the open folder, the project whose assistant answers, and the tab
-/// strip that shows a session. `WorkspaceManager` conforms; a test supplies a stand-in.
+/// What Recursive Insight needs from the window it runs in: the tab strip that shows a session. The open folder, the project whose
+/// assistant answers and its database come from the window's `ProjectProviding`. `WorkspaceManager` conforms; a test supplies a
+/// stand-in.
 @MainActor
 protocol InsightHost: AnyObject {
-    /// The open folder, or nil when none is open.
-    var insightRoot: URL? { get }
-    /// The project whose assistant and model answer (nil for a single file's workspace).
-    var insightProject: URL? { get }
     /// The sessions that have a tab, in tab order.
     var insightSessions: [InsightSession] { get }
     /// The session of the selected tab, when that tab is an insight.
@@ -32,24 +29,19 @@ protocol InsightPage: AnyObject {
 @MainActor
 final class InsightCoordinator {
     private weak var host: InsightHost?
+    private let project: any ProjectProviding
     private let tasks: TaskBag
     /// The page that shows the sessions; set by the editor view when it routes an insight tab.
     weak var page: InsightPage?
-    /// Searches the open folder's database; nil until the workspace has opened it.
-    private(set) var graphRAG: GraphRAG?
 
-    init(host: InsightHost, tasks: TaskBag) {
+    init(host: InsightHost, project: any ProjectProviding, tasks: TaskBag) {
         self.host = host
+        self.project = project
         self.tasks = tasks
     }
 
-    // MARK: - The folder's database
-
-    /// The workspace opened its database: Insight can run over it.
-    func attachDatabase(_ database: SemanticDatabase) { graphRAG = GraphRAG(db: database) }
-
-    /// The workspace released its database.
-    func detachDatabase() { graphRAG = nil }
+    /// The engine that searches the project's database; nil until the workspace has opened it.
+    private var graphRAG: GraphRAG? { project.database.map(GraphRAG.init(db:)) }
 
     // MARK: - Starting a session
 
@@ -57,7 +49,7 @@ final class InsightCoordinator {
     /// file): checks the folder, the assistant and the engine, lists the Markdown files, builds the session with its cache
     /// (`<root>/.markview-insight/`, whichever sub-folder or file is analysed), shows it in a new tab and starts the root summary.
     func start(at target: URL? = nil, title: String? = nil) {
-        guard let rootURL = host?.insightRoot else {
+        guard let rootURL = project.root else {
             Self.alert("No folder open", "Open a folder before starting Recursive Insight.")
             return
         }
@@ -65,18 +57,18 @@ final class InsightCoordinator {
         let targetIsFile = (try? target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == false
         let folderURL = targetIsFile ? target.deletingLastPathComponent() : target
 
-        let project = host?.insightProject
-        let tool = AIAssistantPreferences.backend(project: project)
+        let aiProject = project.aiProject
+        let tool = AIAssistantPreferences.backend(project: aiProject)
         guard CLIToolLocator.resolve(tool) != nil else {
             Self.alert("\(tool.displayName) not found", "Set its path in DDE Settings → AI CLI Tools, or choose the other assistant.")
             return
         }
-        guard graphRAG != nil else {
+        guard let graphRAG else {
             Self.alert("Workspace not ready", "Wait for the folder to finish opening, then try again.")
             return
         }
 
-        let mdFiles = targetIsFile ? [target] : Self.markdownFiles(in: folderURL)
+        let mdFiles = targetIsFile ? [target] : project.markdownFiles(in: folderURL)
         guard !mdFiles.isEmpty else {
             Self.alert("No markdown files", "This folder contains no .md files for Recursive Insight to summarize.")
             return
@@ -94,36 +86,12 @@ final class InsightCoordinator {
             mdFiles: mdFiles,
             graphRAG: graphRAG,
             cache: cache,
-            project: project,
+            project: aiProject,
             title: title ?? (targetIsFile ? target.deletingPathExtension().lastPathComponent : nil)
         )
         // The placeholder only lets `OpenTab.url`, `displayName` and the other file-only readers work without a special case.
         host?.showInsightTab(session, placeholder: folderURL.appendingPathComponent(".insight-\(session.id.uuidString)"))
         run("generate", session) { await $0.generateRoot() }
-    }
-
-    /// The `.md` files under `folderURL`, for Recursive Insight. Hidden files and package contents are skipped, the path may not
-    /// contain `.dde`, and a symlink that resolves outside the folder is skipped (resolved BEFORE standardizing, compared at a
-    /// path-separator boundary so a sibling such as `/x/foobar` cannot pass for `/x/foo`). There is no file-count limit: a folder
-    /// too large to inline reaches the assistant as a catalog plus read-only folder access (see `GraphRAG`).
-    nonisolated static func markdownFiles(in folderURL: URL) -> [URL] {
-        let folderPath = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
-        let folderPrefix = folderPath.hasSuffix("/") ? folderPath : folderPath + "/"
-        guard let enumerator = FileManager.default.enumerator(
-            at: folderURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else { return [] }
-
-        var results: [URL] = []
-        while let url = enumerator.nextObject() as? URL {
-            guard url.pathExtension.lowercased() == "md", !url.path.contains(".dde") else { continue }
-            let resolved = url.resolvingSymlinksInPath().standardizedFileURL.path
-            guard resolved == folderPath || resolved.hasPrefix(folderPrefix) else {
-                NSLog("[Insight] Skipped symlink escape: \(InsightSession.sanitizeForLog(url.path))")
-                continue
-            }
-            results.append(url)
-        }
-        return results
     }
 
     // MARK: - Ending sessions

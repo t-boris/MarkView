@@ -450,7 +450,7 @@ struct InsightCache {
     /// candidate and root, then performs a path-separator-aware `hasPrefix`
     /// check so a sibling like `/x/foobar/secret` cannot pass for `/x/foo`.
     ///
-    /// Mirrors the canonical pattern in `InsightCoordinator.markdownFiles(in:)`
+    /// Mirrors the canonical pattern in `ProjectContext.markdownFiles(in:)`
     /// (post-bb828a9 sibling-prefix fix). Duplicated locally — InsightCache
     /// has zero coupling to WorkspaceManager.
     private static func assertContained(_ url: URL, in root: URL) throws {

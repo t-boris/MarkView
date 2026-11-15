@@ -71,7 +71,7 @@ final class AIToolJobs: ObservableObject {
 
 extension WorkspaceManager {
     private var jobRecorder: @Sendable (CLICompletion.Result) -> Void {
-        { [weak self] result in Task { @MainActor in result.record(in: self?.semanticDatabase) } }
+        { [weak self] result in Task { @MainActor in result.record(in: self?.project.database) } }
     }
 
     private func languageNote() -> String {
@@ -81,7 +81,7 @@ extension WorkspaceManager {
 
     /// Graph Creator: a diagram of `kind` from the chosen documents, written next to them and opened.
     func generateDiagram(kind: DiagramKind, instruction: String, sourcePaths: [String], folder: URL?) {
-        guard let root = rootNode?.url else { return }
+        guard let root = project.root else { return }
         let title = "\(kind.title) diagram"
         guard !aiJobs.isRunning(title: title) else { return }
         let target = folder ?? root
@@ -105,7 +105,7 @@ extension WorkspaceManager {
     /// Change an existing diagram on instruction. The file is rewritten by the app; a file this tool
     /// wrote is regenerated whole (its legend stays true), any other file only has the block replaced.
     func editDiagram(instruction: String, currentMermaid: String) {
-        guard let root = rootNode?.url, let tab = activeTab else { return }
+        guard let root = project.root, let tab = activeTab else { return }
         let url = tab.url
         let title = "Edit diagram"
         guard !aiJobs.isRunning(title: title) else { return }
@@ -166,7 +166,7 @@ extension WorkspaceManager {
 
     /// Code structure map: a diagram of the layers (checked against the code) plus the written sections.
     func runCodemap() {
-        guard let root = rootNode?.url else { return }
+        guard let root = project.root else { return }
         let title = "Code structure map"
         guard !aiJobs.isRunning(title: title) else { return }
         let diagramPrompt = DiagramAI.prompt(kind: .codemap, instruction: "", sources: [], root: root) + languageNote()
@@ -200,7 +200,7 @@ extension WorkspaceManager {
 
     /// Constructive review of the open document (or of the project's documentation) with a task list.
     func runCritic(contentOverride: String?) {
-        guard let root = rootNode?.url else { return }
+        guard let root = project.root else { return }
         let tab = activeTab
         let name = tab?.url.lastPathComponent ?? "project"
         let stem = (name as NSString).deletingPathExtension
@@ -243,7 +243,7 @@ extension WorkspaceManager {
     /// writes each document, with diagrams drawn (and checked) by `DiagramAI`. The result goes to
     /// docs/generated-architecture/.
     func runAudit() {
-        guard let root = rootNode?.url else { return }
+        guard let root = project.root else { return }
         let title = "Codebase audit"
         guard !aiJobs.isRunning(title: title) else { return }
         let outDir = root.appendingPathComponent("docs/generated-architecture", isDirectory: true)

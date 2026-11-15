@@ -16,6 +16,19 @@ func check(_ condition: Bool, _ label: String) {
     }
 }
 
+/// The open project as a feature reads it (`ProjectProviding`): a folder and no database.
+@MainActor
+final class StubProjectContext: ProjectProviding {
+    var root: URL?
+    var aiProject: URL? { root }
+    var linkedFolderURLs: [URL] { [] }
+    var searchRoots: [URL] { root.map { [$0] } ?? [] }
+    var database: SemanticDatabase? { nil }
+    func relativePath(of url: URL) -> String { url.path }
+    func markdownFiles(in folder: URL) -> [URL] { [] }
+    func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
+}
+
 @MainActor
 final class StubWindow: ResearchHost {
     struct Tab {
@@ -25,13 +38,10 @@ final class StubWindow: ResearchHost {
         var modified: Bool
     }
 
-    var root: URL?
     var tabs: [Tab] = []
     var selected = 0
     var events: [String] = []
     var opened: [(url: URL, line: Int?, endLine: Int?)] = []
-    var researchRoot: URL? { root }
-    var semanticDatabase: SemanticDatabase? { nil }
 
     func tab(_ file: URL) -> Tab? { tabs.first { $0.url.standardizedFileURL == file.standardizedFileURL } }
 
@@ -99,9 +109,10 @@ func makeProject(_ name: String, complete: Bool = true) -> (project: URL, map: U
     write(model.markdown(), to: map)
     write("line 1\nline 2\nline 3\nline 4\nline 5\n", to: project.appendingPathComponent("docs/notes.md"))
     let window = StubWindow()
-    window.root = project
+    let context = StubProjectContext()
+    context.root = project
     let tasks = TaskBag()
-    return (project, map, window, ResearchMapController(host: window, tasks: tasks), tasks)
+    return (project, map, window, ResearchMapController(host: window, project: context, tasks: tasks), tasks)
 }
 
 @MainActor

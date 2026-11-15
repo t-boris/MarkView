@@ -2,12 +2,12 @@ import SwiftUI
 
 struct SelectionActionBar: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @ObservedObject var coordinator: CodeAndXRayCoordinator
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(workspaceManager.selectionActions.values.sorted { $0.started > $1.started }) { action in
+                ForEach(coordinator.selectionActions.values.sorted { $0.started > $1.started }) { action in
                     VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Image(systemName: action.phase == .running ? "sparkle" :
@@ -26,9 +26,9 @@ struct SelectionActionBar: View {
                                 Text("\(Int(context.date.timeIntervalSince(action.started)))s")
                                     .uiFont(size: 9, design: .monospaced)
                             }
-                            Button("Stop") { workspaceManager.stopSelectionAction(action.id) }
+                            Button("Stop") { coordinator.stopSelectionAction(action.id) }
                         } else {
-                            Button { workspaceManager.dismissSelectionAction(action.id) } label: {
+                            Button { coordinator.dismissSelectionAction(action.id) } label: {
                                 Image(systemName: "xmark")
                             }
                             .help("Dismiss action status")

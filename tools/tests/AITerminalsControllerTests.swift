@@ -18,11 +18,29 @@ func check(_ condition: Bool, _ label: String) {
     }
 }
 
+/// The assistants the checks start: the providers' ids (`CLITool` is a string-backed struct, with no case per assistant).
+let claudeTool = CLITool(rawValue: "claude")!
+let codexTool = CLITool(rawValue: "codex")!
+extension TerminalProfile {
+    static let claude = TerminalProfile(claudeTool)
+    static let codex = TerminalProfile(codexTool)
+}
+
+/// The open project as the terminals read it (`ProjectProviding`): the folder, the project whose assistant choice applies, the links.
 @MainActor
-final class StubHost: AITerminalsHost {
-    var openFolderURL: URL?
+final class StubProject: ProjectProviding {
+    var root: URL?
     var aiProject: URL?
     var linkedFolderURLs: [URL] = []
+    var searchRoots: [URL] { (root.map { [$0] } ?? []) + linkedFolderURLs }
+    var database: SemanticDatabase? { nil }
+    func relativePath(of url: URL) -> String { url.path }
+    func markdownFiles(in folder: URL) -> [URL] { [] }
+    func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
+}
+
+@MainActor
+final class StubHost: AITerminalsHost {
     let browserControlID = UUID()
     var registered = 0
     var opened: [(url: URL, line: Int?)] = []
@@ -62,16 +80,17 @@ func run() async {
     defaults.removeObject(forKey: savedKey(folder))
 
     let host = StubHost()
-    host.aiProject = folder
+    let project = StubProject()
+    project.aiProject = folder
     let tasks = TaskBag()
-    let terminals = AITerminalsController(host: host, tasks: tasks)
+    let terminals = AITerminalsController(host: host, project: project, tasks: tasks)
     check(terminals.activity.provider === terminals, "the activity monitor reads the terminals through AssistantProviding, with no closure wired by the window")
     check(terminals.sessions.isEmpty && terminals.shown == nil && terminals.root == nil, "a window with no folder has no terminal and no root")
     check(terminals.openAITerminal(.claude) == nil, "no terminal opens without a folder")
     check(terminals.ensureAITerminal() == nil, "ensureAITerminal opens nothing without a folder")
 
     // The root falls back to the folder open in the window until the terminals' own root is set.
-    host.openFolderURL = folder
+    project.root = folder
     check(terminals.root == folder, "the root is the open folder before the terminals have their own")
     check(terminals.workspaceRoot == nil, "the terminals' own root is still unset")
 
@@ -99,6 +118,17 @@ func run() async {
     check(shell?.startupCommand == nil && shell?.title == "Shell", "a plain shell has no startup command")
     check(terminals.shownID == shell?.id, "the newest terminal is shown")
 
+    // The folders linked to the project reach the assistant, and only an assistant that reports MCP policy blocks is watched for one.
+    project.linkedFolderURLs = [sandbox.appendingPathComponent("linked-docs")]
+    let withLinks = terminals.openAITerminal(.claude)
+    check(withLinks?.startupCommand?.contains("linked-docs") == true, "the folders linked to the project are given to the assistant")
+    project.linkedFolderURLs = []
+    check(withLinks?.onOutput == nil, "an assistant whose organisation policy cannot block the MCP servers is not watched for it")
+    let copilot = terminals.openAITerminal(TerminalProfile(CLITool(rawValue: "copilot")!))
+    check(copilot?.onOutput != nil, "Copilot's output is watched for the policy block of the browser tools (BUG-025)")
+    terminals.closeAITerminal(withLinks!.id)
+    terminals.closeAITerminal(copilot!.id)
+
     let withModel = terminals.openAITerminal(.codex, model: "gpt-test")
     check(withModel?.startupCommand?.contains("gpt-test") == true && withModel?.model == "gpt-test", "a Cockpit step's own model replaces the project's choice in the command")
     let resumed = terminals.openAITerminal(.codex, resuming: true)
@@ -117,7 +147,7 @@ func run() async {
     // A home assistant is never saved as a local profile.
     let invitation = try? RemoteInvitation(relay: URL(string: "http://127.0.0.1:16394")!, persistent: true)
     RemoteTerminalConnection.rootChange = nil
-    let remote = try? await terminals.openRemoteAITerminal(code: invitation?.code ?? "", provider: .codex, model: nil, resume: true)
+    let remote = try? await terminals.openRemoteAITerminal(code: invitation?.code ?? "", provider: codexTool, model: nil, resume: true)
     check(remote != nil && remote?.isRemote == true && terminals.shown === remote, "a home assistant opens as a terminal and is shown")
     check(remote?.title == "Home · Codex", "its tab says it is the home assistant (\(remote?.title ?? "nil"))")
     check(host.consoleShown >= 1, "the panel is brought to the front for it")
@@ -129,7 +159,7 @@ func run() async {
     let count = terminals.sessions.count
     RemoteTerminalConnection.rootChange = { terminals.workspaceRoot = sandbox }
     do {
-        _ = try await terminals.openRemoteAITerminal(code: invitation?.code ?? "", provider: .claude, model: nil, resume: false)
+        _ = try await terminals.openRemoteAITerminal(code: invitation?.code ?? "", provider: claudeTool, model: nil, resume: false)
         check(false, "a connection that finished after the folder changed must be refused")
     } catch {
         check(terminals.sessions.count == count, "a connection that finished after the folder changed is refused and opens no terminal (\(error))")
@@ -147,7 +177,7 @@ func run() async {
     check(claude?.terminated == true && second?.terminated == true && shell?.terminated == true, "each terminal's shell is ended")
     check(defaults.dictionary(forKey: savedKey(folder))?["profiles"] as? [String] == before, "closing the folder keeps the saved set, so the next launch brings the terminals back")
 
-    let relaunched = AITerminalsController(host: host, tasks: tasks)
+    let relaunched = AITerminalsController(host: host, project: project, tasks: tasks)
     relaunched.workspaceRoot = folder
     check(relaunched.sessions.map(\.profile.rawValue) == ["claude", "claude", "shell"], "a new window on the folder reopens the terminals it had (\(relaunched.sessions.map(\.profile.rawValue)))")
     check(relaunched.shown === relaunched.sessions[1], "with the same terminal shown")
@@ -180,7 +210,7 @@ func run() async {
     let nothing = relaunched.sendToAssistant(submit: true, to: target) { _ in nil }
     check(nothing == nil && target.pasted.count == 1, "a prompt that cannot be built for the terminal is not sent")
 
-    check(relaunched.currentAssistant?.tool == .claude, "the assistant a prompt would go to is the open Claude Code")
+    check(relaunched.currentAssistant?.tool == claudeTool, "the assistant a prompt would go to is the open Claude Code")
     relaunched.closeAITerminal(relaunched.sessions[0].id)
     check(relaunched.assistantTerminal == nil && relaunched.currentAssistant == nil, "with only a shell open there is no assistant")
     let fresh = relaunched.sendToAssistant("new one")
@@ -211,16 +241,16 @@ func run() async {
     let claudeSession = relaunched.sessions.first { $0.profile == .claude } ?? relaunched.openAITerminal(.claude)!
     claudeSession.running = true
     claudeSession.model = nil
-    relaunched.claudeModelReported("opus", terminalID: claudeSession.id)
+    relaunched.liveModelReported("opus", terminalID: claudeSession.id)
     check(claudeSession.observedModel == "opus" && claudeSession.adopted.isEmpty, "the first reading of a terminal started with the CLI's default is that default, not a choice")
-    relaunched.claudeModelReported("sonnet", terminalID: claudeSession.id)
+    relaunched.liveModelReported("sonnet", terminalID: claudeSession.id)
     check(claudeSession.adopted.last?.model == "sonnet", "a model the user switched to inside the session is adopted by the tab (\(claudeSession.adopted.last?.model ?? "nil"))")
     check(claudeSession.title.contains("sonnet") || claudeSession.adopted.last?.title.contains("sonnet") == true, "and shown in its title")
     claudeSession.running = false
     let adopted = claudeSession.adopted.count
-    relaunched.claudeModelReported("haiku", terminalID: claudeSession.id)
+    relaunched.liveModelReported("haiku", terminalID: claudeSession.id)
     check(claudeSession.adopted.count == adopted, "a terminal that is not running adopts nothing")
-    relaunched.claudeModelReported("opus", terminalID: UUID())
+    relaunched.liveModelReported("opus", terminalID: UUID())
     check(claudeSession.adopted.count == adopted, "a report for a terminal that is gone is ignored")
 
     claudeSession.running = true

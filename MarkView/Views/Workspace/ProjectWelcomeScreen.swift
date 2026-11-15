@@ -52,7 +52,7 @@ struct WorkspaceBackdrop: View {
     @Environment(\.palette) private var palette
     @State private var signals = ProjectBackdropSignals()
     @State private var scannedRoot: URL?
-    @State private var pick = Int.random(in: 0..<WelcomeBackdrop.animated.count)
+    @State private var pick = WelcomeBackdrop.randomPick()
     @State private var seed = UInt64.random(in: 1...UInt64.max)
 
     var body: some View {

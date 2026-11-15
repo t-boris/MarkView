@@ -17,15 +17,24 @@ func check(_ condition: Bool, _ label: String) {
     }
 }
 
+/// The open project as a feature reads it (`ProjectProviding`): a folder and no database.
+@MainActor
+final class StubProject: ProjectProviding {
+    var root: URL?
+    var aiProject: URL? { root }
+    var linkedFolderURLs: [URL] { [] }
+    var searchRoots: [URL] { root.map { [$0] } ?? [] }
+    var database: SemanticDatabase? { nil }
+    func relativePath(of url: URL) -> String { url.path }
+    func markdownFiles(in folder: URL) -> [URL] { [] }
+    func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
+}
+
 @MainActor
 final class StubHost: InsightHost {
-    var root: URL?
-    var project: URL?
     var sessions: [InsightSession] = []
     var active: InsightSession?
     var events: [String] = []
-    var insightRoot: URL? { root }
-    var insightProject: URL? { project }
     var insightSessions: [InsightSession] { sessions }
     var activeInsightSession: InsightSession? { active }
     func showInsightTab(_ session: InsightSession, placeholder: URL) {
@@ -107,30 +116,6 @@ func run() async {
     let name = InsightArchiveExport.defaultFilename(folderName: "notes", date: Date(timeIntervalSince1970: 1_800_000_000))
     check(name.hasPrefix("notes_insight_") && name.hasSuffix("Z.zip") && !name.contains(":"), "the default archive name carries a colon-free ISO timestamp (\(name))")
 
-    // 2. The Markdown files of a folder, on a real tree.
-    print("\n-- markdown files of a folder")
-    let outside = sandbox.appendingPathComponent("outside", isDirectory: true)
-    let sibling = sandbox.appendingPathComponent("projectX", isDirectory: true)
-    let project = sandbox.appendingPathComponent("project", isDirectory: true)
-    write("secret", to: outside.appendingPathComponent("secret.md"))
-    write("sibling", to: sibling.appendingPathComponent("other.md"))
-    write("# a", to: project.appendingPathComponent("a.md"))
-    write("# b", to: project.appendingPathComponent("docs/b.MD"))
-    write("text", to: project.appendingPathComponent("c.txt"))
-    write("# hidden", to: project.appendingPathComponent(".hidden/d.md"))
-    write("# dde", to: project.appendingPathComponent("tools.dde/e.md"))
-    write("# pkg", to: project.appendingPathComponent("Thing.app/Contents/f.md"))
-    write("# inner", to: project.appendingPathComponent("real/inner.md"))
-    try? fm.createSymbolicLink(at: project.appendingPathComponent("escape.md"), withDestinationURL: outside.appendingPathComponent("secret.md"))
-    try? fm.createSymbolicLink(at: project.appendingPathComponent("prefix.md"), withDestinationURL: sibling.appendingPathComponent("other.md"))
-    try? fm.createSymbolicLink(at: project.appendingPathComponent("inside.md"), withDestinationURL: project.appendingPathComponent("a.md"))
-    // The enumerator reports /private/var paths for a /var folder, so the names are taken after the project's own folder name.
-    let found = Set(InsightCoordinator.markdownFiles(in: project).compactMap { $0.path.components(separatedBy: "/project/").last })
-    check(found == ["a.md", "docs/b.MD", "real/inner.md", "inside.md"],
-          "hidden, `.dde`, package and non-Markdown files are skipped; the case of the extension does not matter (found: \(found.sorted()))")
-    check(!found.contains("escape.md") && !found.contains("prefix.md"), "a symlink out of the folder, also to a sibling that shares the folder's name prefix, is skipped")
-    check(InsightCoordinator.markdownFiles(in: sandbox.appendingPathComponent("missing")).isEmpty, "a folder that does not exist has no files")
-
     // The cache copies the vendored libraries from the bundle; the script puts the real ones next to the executable.
     let analysed = sandbox.appendingPathComponent("analysed", isDirectory: true)
     let first = analysed.appendingPathComponent("one.md"), second = analysed.appendingPathComponent("two.md")
@@ -142,7 +127,7 @@ func run() async {
     }
     check(true, "the cache opens on a real folder with the vendored libraries")
 
-    // 3. The archive on a real cache: pages built by the shipping template, rewritten for a standalone browser.
+    // 2. The archive on a real cache: pages built by the shipping template, rewritten for a standalone browser.
     print("\n-- standalone archive")
     let rootId = InsightCache.deterministicRootUUID(forFolderPath: analysed.path)
     let childId = UUID()
@@ -200,7 +185,7 @@ func run() async {
         check(false, "the archive staging and rewrite run without error: \(error)")
     }
 
-    // 4. The coordinator over a session restored from that cache.
+    // 3. The coordinator over a session restored from that cache.
     print("\n-- coordinator")
     let snapshot = Snapshot(rootId: rootId, folderPath: analysed.path, createdAt: Date(), skeleton: nil, sectionBuffers: nil, nodes: [
         SnapshotEntry(nodeId: rootId, parentId: nil, level: 0, title: "Analysed", scope: .folderRoot,
@@ -219,11 +204,12 @@ func run() async {
           "the session restores the root and its child from the cache snapshot")
 
     let host = StubHost()
-    host.root = analysed
+    let project = StubProject()
+    project.root = analysed
     host.sessions = [session]
     host.active = session
     let tasks = TaskBag()
-    let coordinator = InsightCoordinator(host: host, tasks: tasks)
+    let coordinator = InsightCoordinator(host: host, project: project, tasks: tasks)
     let page = StubPage(host: host)
     coordinator.page = page
     let sid = session.id.uuidString

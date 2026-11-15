@@ -10,8 +10,8 @@ protocol AssistantProviding: AnyObject {
     /// The AI panel's terminals, in tab order, and the shown one.
     var sessions: [TerminalSession] { get }
     var shownID: UUID? { get }
-    /// A Claude Code terminal's own log names the model it runs now (BUG-048).
-    func claudeModelReported(_ model: String, terminalID: UUID)
+    /// An assistant terminal's own log names the model it runs now (BUG-048, Claude Code).
+    func liveModelReported(_ model: String, terminalID: UUID)
     /// Open another terminal running `profile` in the AI panel and show it; nil without a folder.
     /// `model` starts the assistant with that model instead of the one chosen for the project.
     @discardableResult

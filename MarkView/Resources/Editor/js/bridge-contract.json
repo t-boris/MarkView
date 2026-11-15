@@ -54,7 +54,7 @@
         "refreshRequested": { "fields": {} },
         "generateGraph": { "fields": {"type": "string?", "editInstruction": "string?", "currentMermaid": "string?"} },
         "code": {
-          "description": "Code viewer and file margin notes; the fields of each action are read by WorkspaceManager.handleCodeAction.",
+          "description": "Code viewer and file margin notes; the fields of each action are read by CodeAndXRayCoordinator.handleCodeAction.",
           "fields": {
             "action": {
               "type": "string",
@@ -66,7 +66,7 @@
           }
         },
         "arch": {
-          "description": "The X-Ray (architecture) tab; the fields of each action are read by WorkspaceManager.handleArchitectureAction.",
+          "description": "The X-Ray (architecture) tab; the fields of each action are parsed by XRayCommand.parse and performed by CodeAndXRayCoordinator.perform.",
           "fields": {
             "action": {
               "type": "string",

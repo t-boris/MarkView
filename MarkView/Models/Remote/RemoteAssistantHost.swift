@@ -6,6 +6,6 @@ import Foundation
 protocol RemoteAssistantHost: AnyObject {
     /// The folder the window's assistants work in; nil with no folder open.
     var root: URL? { get }
-    func openRemoteAITerminal(code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool,
+    func openRemoteAITerminal(code: String, provider: CLITool, model: String?, resume: Bool,
                               savedConnectionID: UUID?) async throws -> TerminalSession
 }

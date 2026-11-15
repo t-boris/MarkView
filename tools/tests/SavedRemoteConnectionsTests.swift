@@ -8,12 +8,15 @@ import Foundation
 }
 @MainActor final class RemoteTerminalConnection { func stop() {} }
 @MainActor final class TerminalSession { var connection: AnyObject? = RemoteTerminalConnection() }
-enum RemoteProviderConfiguration { enum Provider: String { case claude, codex } }
+enum RemoteProviderConfiguration {
+    static var defaultTool: CLITool { CLITool.allCases[0] }
+    static func tool(named name: String) -> CLITool? { CLITool(rawValue: name) }
+}
 /// A window's terminals as the store sees them: a root folder, and a home assistant to open.
 @MainActor final class StubHost: RemoteAssistantHost {
     var root: URL?
     var opens = 0
-    func openRemoteAITerminal(code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool,
+    func openRemoteAITerminal(code: String, provider: CLITool, model: String?, resume: Bool,
                               savedConnectionID: UUID? = nil) async throws -> TerminalSession { opens += 1; return TerminalSession() }
 }
 
@@ -39,7 +42,7 @@ enum RemoteProviderConfiguration { enum Provider: String { case claude, codex } 
         defer { try? FileManager.default.removeItem(at: root) }
         let workspace = StubHost(); workspace.root = root
         let invitation = try RemoteInvitation(relay: URL(string: "http://127.0.0.1:16394")!, persistent: true)
-        try await store.connect(name: "Home Mac", code: invitation.code, provider: .codex, model: "test-model", resume: true, host: workspace)
+        try await store.connect(name: "Home Mac", code: invitation.code, provider: CLITool(rawValue: "codex")!, model: "test-model", resume: true, host: workspace)
         precondition(store.entries.count == 3 && workspace.opens == 1)
         let firstRoom = try RemoteInvitation(code: store.entries[0].code).room
         let secondRoom = try RemoteInvitation(code: store.entries[1].code).room

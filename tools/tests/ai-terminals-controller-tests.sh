@@ -1,6 +1,6 @@
 #!/bin/bash
-# The terminals of a window (AR-14 step 4): the shipping AITerminalsController, AssistantProviding, AgentActivityMonitor, the assistants'
-# provider registry and the saved-terminals defaults of BUG-005, with a stand-in window and stand-in terminals. The stand-in
+# The terminals of a window (AR-14 step 4): the shipping AITerminalsController, AssistantProviding, AgentActivityMonitor, TerminalProfile, the assistants'
+# providers and the saved-terminals defaults of BUG-005, with a stand-in window and stand-in terminals. The stand-in
 # TerminalSession starts no shell and records what the controller asks of it; the browser server, the saved remote connections and the
 # home connection are compile-time stand-ins too. Nothing is started, shown or typed; the test process has its own UserDefaults domain.
 #   tools/tests/ai-terminals-controller-tests.sh
@@ -11,40 +11,6 @@ trap 'rm -rf "$out"' EXIT
 cp tools/tests/AITerminalsControllerTests.swift "$out/main.swift"
 cat > "$out/Stub.swift" <<'SWIFT'
 import Foundation
-
-enum TerminalProfile: String, CaseIterable, Identifiable {
-    case claude, codex, cline, copilot, antigravity, shell
-    var id: String { rawValue }
-    init(_ tool: CLITool) {
-        switch tool {
-        case .claude: self = .claude
-        case .codex: self = .codex
-        case .cline: self = .cline
-        case .copilot: self = .copilot
-        case .antigravity: self = .antigravity
-        }
-    }
-    var tool: CLITool? {
-        switch self {
-        case .claude: return .claude
-        case .codex: return .codex
-        case .cline: return .cline
-        case .copilot: return .copilot
-        case .antigravity: return .antigravity
-        case .shell: return nil
-        }
-    }
-    var title: String {
-        switch self {
-        case .claude: return "Claude Code"
-        case .codex: return "Codex"
-        case .cline: return "Cline"
-        case .copilot: return "Copilot"
-        case .antigravity: return "Antigravity"
-        case .shell: return "Shell"
-        }
-    }
-}
 
 /// A terminal that starts no shell: it records what the controller asked of it.
 @MainActor
@@ -108,7 +74,7 @@ final class RemoteTerminalConnection {
     static var stopped = 0
     var onState: ((RemoteConnectionState.Phase, String) -> Void)?
     init() {}
-    init(invitation: RemoteInvitation, root: URL, browserWindowID: UUID, provider: RemoteProviderConfiguration.Provider,
+    init(invitation: RemoteInvitation, root: URL, browserWindowID: UUID, provider: CLITool,
          model: String?, resume: Bool, savedConnectionID: UUID?) async throws {
         Self.rootChange?()
     }
@@ -136,8 +102,7 @@ enum BrowserAgentTools {
 }
 enum ProjectAgentTools { static let serverName = "markview" }
 enum AgentBrowserRegistration {
-    static func ensureCline(executable: String) {}
-    static func ensureAntigravity(executable: String) {}
+    static func ensureRegistered(_ tool: CLITool, executable: String) {}
 }
 enum TerminalBrowserBridge { static var isEnabled: Bool { true } }
 actor SemanticDatabase {
@@ -151,18 +116,16 @@ enum ACPAssistant {
                     onDelta: (@Sendable (String) -> Void)?, onActivity: (@Sendable (CLICompletion.Activity) -> Void)?)
         async throws -> CLICompletion.Result { fatalError("not used by the checks") }
 }
-enum RemoteProviderConfiguration {
-    enum Provider: String { case claude, codex; var title: String { self == .claude ? "Claude Code" : "Codex" } }
-}
 enum AgentModelProbe { static func hasClaudeSession(cwd: URL) -> Bool { false } }
 SWIFT
 swiftc -o "$out/ai-terminals-controller-tests" -target "$(uname -m)-apple-macos13.0" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/Terminal/AITerminalsController.swift MarkView/Models/Terminal/AssistantProviding.swift \
+    MarkView/Models/Terminal/AITerminalsController.swift MarkView/Models/Terminal/AssistantProviding.swift MarkView/Models/Terminal/TerminalProfile.swift \
+    MarkView/Models/Workspace/ProjectProviding.swift \
     MarkView/Models/Remote/RemoteAssistantHost.swift MarkView/Models/Remote/RemoteProtocol.swift \
     MarkView/Models/Remote/RemoteConnectionState.swift \
-    MarkView/Models/AI/AgentActivityMonitor.swift MarkView/Models/AI/AgentActivity.swift MarkView/Models/AI/ClaudeSessionModel.swift \
-    MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/AssistantProviderRegistry.swift \
+    MarkView/Models/AI/AgentActivityMonitor.swift \
+    MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/Providers/*.swift \
     MarkView/Models/AI/AICallLog.swift MarkView/Models/AI/AgentProcesses.swift MarkView/Models/AI/AIOperation.swift \
     MarkView/Models/AI/OutputLanguage.swift MarkView/Models/Workspace/TaskBag.swift MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/Appearance/ProjectColor.swift \
     "$out/Stub.swift" "$out/main.swift"

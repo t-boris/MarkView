@@ -22,10 +22,6 @@ struct ResearchTabText {
 /// never see the window itself.
 @MainActor
 protocol ResearchHost: AnyObject, Sendable {
-    /// The open folder.
-    var researchRoot: URL? { get }
-    /// The folder's database, where the assistant's runs are recorded.
-    var semanticDatabase: SemanticDatabase? { get }
     /// The tab that holds `file`: its text (unsaved edits included) and whether it has unsaved edits; nil when no tab holds it.
     func researchTab(for file: URL) -> ResearchTabText?
     /// The tab that holds `file` takes `text` as what is saved on disk.
@@ -47,7 +43,8 @@ protocol ResearchHost: AnyObject, Sendable {
 /// The research maps of one window (feature mind-map, DEC-006, DEC-009): the single writer of a map file, the snapshot the page
 /// draws, the actions the page sends, and the AI jobs that work on maps and research documents (`jobs`). It owns what a job
 /// hands to the next snapshot (the node it added, the notice it ends with) and the PDF renderer of the editor page. The window
-/// is reached only through `ResearchHost`; the jobs' tasks are in the window's `TaskBag`.
+/// is reached only through `ResearchHost` and the open project through `ProjectProviding` (its folder, and its database where the
+/// assistant's runs are recorded); the jobs' tasks are in the window's `TaskBag`.
 @MainActor
 final class ResearchMapController {
     /// The answer to a map action: the snapshot for the page and the text the tab holds now.
@@ -59,10 +56,11 @@ final class ResearchMapController {
     private static let log = Logger(subsystem: "com.markview.app", category: "research")
 
     private(set) weak var host: ResearchHost?
+    private let project: any ProjectProviding
     private let tasks: TaskBag
 
     /// The jobs bar of the window: new research, follow-ups, comments and the map jobs.
-    private(set) lazy var jobs = ResearchJobs(host: host, maps: self, tasks: tasks)
+    private(set) lazy var jobs = ResearchJobs(host: host, project: project, maps: self, tasks: tasks)
 
     /// The id of the node an AI job just added to a map (by map path); the next snapshot of that map carries it to the page.
     var jobCreated: [String: String] = [:]
@@ -71,8 +69,9 @@ final class ResearchMapController {
     /// Set by the editor view: makes the PDF of a report (Markdown, file name) with the editor page's renderer and asks where to save it.
     var pdfExporter: ((String, String) -> Bool)?
 
-    init(host: ResearchHost, tasks: TaskBag) {
+    init(host: ResearchHost, project: any ProjectProviding, tasks: TaskBag) {
         self.host = host
+        self.project = project
         self.tasks = tasks
     }
 
@@ -306,7 +305,7 @@ final class ResearchMapController {
             NSWorkspace.shared.open(url)
             return nil
         }
-        guard let root = host?.researchRoot?.standardizedFileURL else { return "No project is open." }
+        guard let root = project.root?.standardizedFileURL else { return "No project is open." }
         var path = text
         var line: Int?
         var endLine: Int?

@@ -25,7 +25,6 @@
 1 MarkView/Views/Workspace/FileTreeView.swift
 1 MarkView/Views/Workspace/ImageViewerView.swift
 2 MarkView/Views/Workspace/SearchPanelView.swift
-1 MarkView/Views/Workspace/SelectionActionBar.swift
 1 MarkView/Views/Workspace/SharedSearchView.swift
 2 MarkView/Views/Workspace/TOCView.swift
 1 MarkView/Views/Workspace/TabBarView.swift

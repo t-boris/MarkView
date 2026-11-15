@@ -174,11 +174,10 @@ Owns a private `WhisperClient`; `Phase` = `idle | starting | recording(since:) |
 |---|---|---|
 | `WorkspaceManager.handleSelectionAction` (`WorkspaceManager.swift:1657-1681`) | `CLICompletion.run` | Translate/explain selection, 120 s |
 | `WorkspaceManager.translateDocument` + chunk translation (`:1732-1739`, `:1863-1874`) | `AIAssistantPreferences.backend/model`, `CLIToolLocator.resolve`, `CLICompletion.run` | Engine fixed per document, 240 s |
-| Recursive Insight start (`WorkspaceManager.swift:2114`) | `CLIToolLocator.resolve` | Pre-flight check |
+| Recursive Insight start (`InsightCoordinator.start`, `Models/Insight/InsightCoordinator.swift`) | `CLIToolLocator.resolve` | Pre-flight check |
 | `WorkspaceManager.handleCodeAction` / `handleNavigation` (`:915-1000`) | `CodeExplainStore.explain/rate/freshness`, `CodeNavigationStore.*` | From bridge `codeAction` messages (`EditorView.swift:737-746`) |
-| `WorkspaceManager.startupCommand` (`:3094-3102`) | `CLIToolLocator.resolve`, `CLITool.modelArgs`, `AIAssistantPreferences.model` | Interactive terminals |
+| `AITerminalsController.startupCommand` (`Models/Terminal/AITerminalsController.swift`) | `CLIToolLocator.resolve`, `CLITool.modelArgs`, `AIAssistantPreferences.model` | Interactive terminals |
 | `WorkspaceManager.aiPrompt` (`:3519-3524`) | `AIPrompts.codebaseAuditPrompt` | AI Tools menu → terminal |
-| `TerminalPromptBar` (`TerminalView.swift:221-292`) | `TerminalPrompt.all`, `.text(file:pullRequest:)` | → `sendToAssistant` |
 | `ArchitectureStore` (12 requests, e.g. `ArchitectureStore.swift:554`, `:1559`, `:2840`) | `CLICompletion.Request/run`, `xrayModel` | X-Ray; see [architecture-and-xray](architecture-and-xray.md) |
 | `XRaySearch` (`XRaySearch.swift:29-33`, `:98-133`) | `CodeNavigator.find/rank/sortUsages`, `CLICompletion.Request` | Symbol hints for ⚡ search, 900 s |
 | `ImportanceRater.request` (`ImportanceRater.swift:186-194`) | `CLICompletion.Request`, `xrayModel` | 240 s, low effort |
@@ -243,7 +242,7 @@ Owns a private `WhisperClient`; `Phase` = `idle | starting | recording(since:) |
    (BUG-048). `AgentActivityMonitor` already tails each terminal's own session log every 3 s;
    for Claude it also reads the model with `ClaudeSessionModel.reading` (replies of the session
    itself, `/model` confirmations, not subagents, only lines since the shell started).
-   `WorkspaceManager.claudeModelReported` then renames that tab, and
+   `AITerminalsController.liveModelReported` then renames that tab, and
    `AIAssistantPreferences.remember` stores the model for the project and for the defaults, so the
    next start uses it instead of the old choice. Nothing restarts: `aiModelChanged` restarts an
    agent only for a pick made in MarkView after it started (`ModelPickLog`, set by

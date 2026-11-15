@@ -24,7 +24,7 @@ struct ModuleExplorerView: View {
                             Text("$\(String(format: "%.2f", costDollars))")
                                 .uiFont(size: 9, weight: .bold).foregroundColor(palette.textDim)
                         }
-                        if let progress = workspaceManager.indexingProgress {
+                        if let progress = workspaceManager.project.indexingProgress {
                             ProgressView().scaleEffect(0.4)
                             Text(progress).uiFont(size: 8).foregroundColor(palette.blue).lineLimit(1)
                         }

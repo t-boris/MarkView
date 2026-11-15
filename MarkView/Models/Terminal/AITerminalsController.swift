@@ -1,15 +1,11 @@
 import AppKit
 import Foundation
 
-/// What the terminals of a window need of the window: its folder and project, the linked folders, the browser the agents drive, the
-/// editor, and the watch over open files that runs while a terminal does. `WorkspaceManager` conforms.
+/// What the terminals of a window need of the window: the browser the agents drive, the editor, and the watch over open files that
+/// runs while a terminal does. The folder, the project and its linked folders come from the window's `ProjectProviding`.
+/// `WorkspaceManager` conforms.
 @MainActor
 protocol AITerminalsHost: AnyObject {
-    /// The folder open in the window (the AI terminals fall back to it before their own root is set).
-    var openFolderURL: URL? { get }
-    /// The project whose assistant choice applies.
-    var aiProject: URL? { get }
-    var linkedFolderURLs: [URL] { get }
     /// This window's id for agents driving its browser tab (`BrowserControlServer`).
     var browserControlID: UUID { get }
     func registerBrowserControl()
@@ -26,6 +22,8 @@ protocol AITerminalsHost: AnyObject {
 @MainActor
 final class AITerminalsController: ObservableObject, AssistantProviding, RemoteAssistantHost {
     private weak var host: (any AITerminalsHost)?
+    /// The folder, the project whose assistant choice applies and the folders linked to it.
+    private let projectContext: any ProjectProviding
     /// What the assistants in the AI terminals are doing (the toolbar, the tabs).
     let activity: AgentActivityMonitor
 
@@ -51,8 +49,9 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
     /// Dev server terminals started by Preview Web App, by app folder path.
     private var previewTerminals: [String: UUID] = [:]
 
-    init(host: any AITerminalsHost, tasks: TaskBag) {
+    init(host: any AITerminalsHost, project: any ProjectProviding, tasks: TaskBag) {
         self.host = host
+        self.projectContext = project
         activity = AgentActivityMonitor(tasks: tasks)
         activity.provider = self
         activity.start()
@@ -61,10 +60,10 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
     // MARK: - Where and which
 
     /// Where new terminals start: the AI root, else the folder open in the window.
-    var root: URL? { workspaceRoot ?? host?.openFolderURL }
+    var root: URL? { workspaceRoot ?? projectContext.root }
 
     /// The project whose assistant choice applies.
-    var project: URL? { host?.aiProject }
+    var project: URL? { projectContext.aiProject }
 
     func showAIConsole() { host?.showAIConsole() }
 
@@ -83,23 +82,21 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
     // MARK: - Starting an assistant
 
     /// The command that starts `profile` in the shell with the model chosen for it, or nil
-    /// for a plain shell. Every assistant runs without permission prompts; Claude updates itself first.
+    /// for a plain shell. Every assistant runs without permission prompts; one that updates itself does that first.
     /// `continuing` adds the assistant's option that picks up its last session in the folder.
     /// `model` replaces the model chosen for the project: a Cockpit step runs with the model its plan names.
     private func startupCommand(for profile: TerminalProfile, continuing: Bool = false, model: String? = nil) -> String? {
         guard let tool = profile.tool else { return nil }
         let path = CLIToolLocator.resolve(tool) ?? tool.binaryName
         let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let linked = tool.additionalFolderArgs(host?.linkedFolderURLs ?? []).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        let linked = tool.additionalFolderArgs(projectContext.linkedFolderURLs).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         let run = ([quoted] + (continuing ? tool.continueArgs : []) + tool.modelArgs(model ?? chosenModel(for: profile))
                    + tool.fullAccessArgs + linked + browserToolArgs(for: tool)).joined(separator: " ")
-        switch tool {
-        case .claude: return "\(quoted) update && \(run)"
-        case .codex, .cline, .copilot, .antigravity: return run
-        }
+        guard !tool.provider.updateArgs.isEmpty else { return run }
+        return ([quoted] + tool.provider.updateArgs).joined(separator: " ") + " && " + run
     }
 
-    /// Shell-quoted arguments that give Claude Code and Codex the MCP server for this window's
+    /// Shell-quoted arguments that give an assistant the MCP servers for this window's
     /// browser tab (Task 80); none when terminal links do not open in MarkView.
     private func browserToolArgs(for tool: CLITool) -> [String] {
         guard let host else { return [] }
@@ -108,60 +105,40 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
         let windowID = host.browserControlID
         // The browser tools (when terminal links open in MarkView) and the project tools (features, bugs,
         // prototypes), each a server of this same binary, both bound to this window.
-        var servers: [(name: String, codexName: String, command: String, args: [String])] = []
+        var servers: [AgentMCPServer] = []
         if TerminalBrowserBridge.isEnabled, let server = BrowserControlServer.mcpArguments(window: windowID) {
-            servers.append((BrowserAgentTools.serverName, "markview_browser", server.command, server.args))
+            servers.append(AgentMCPServer(name: BrowserAgentTools.serverName, tomlName: "markview_browser", flag: "--mcp-browser", label: "browser",
+                                          command: server.command, args: server.args))
         }
         if let server = BrowserControlServer.mcpArguments(window: windowID, flag: "--mcp-project") {
-            servers.append((ProjectAgentTools.serverName, ProjectAgentTools.serverName, server.command, server.args))
+            servers.append(AgentMCPServer(name: ProjectAgentTools.serverName, tomlName: ProjectAgentTools.serverName, flag: "--mcp-project",
+                                          label: "project", command: server.command, args: server.args))
         }
         guard !servers.isEmpty else { return [] }
         let shellQuote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-        switch tool {
-        case .claude:
-            let config: [String: Any] = ["mcpServers": Dictionary(uniqueKeysWithValues: servers.map { ($0.name, ["command": $0.command, "args": $0.args] as [String: Any]) })]
-            guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.withoutEscapingSlashes]),
-                  let json = String(data: data, encoding: .utf8) else { return [] }
-            return ["--mcp-config", shellQuote(json)]
-        case .codex:
-            let toml = { (text: String) in "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
-            return servers.flatMap { server in
-                ["-c", shellQuote("mcp_servers.\(server.codexName).command=" + toml(server.command)),
-                 "-c", shellQuote("mcp_servers.\(server.codexName).args=[" + server.args.map(toml).joined(separator: ",") + "]")]
-            }
-        case .copilot:
-            let config: [String: Any] = ["mcpServers": Dictionary(uniqueKeysWithValues: servers.map {
-                ($0.name, ["type": "local", "command": $0.command, "args": $0.args, "tools": ["*"]] as [String: Any]) })]
-            guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.withoutEscapingSlashes]),
-                  let json = String(data: data, encoding: .utf8) else { return [] }
-            return ["--additional-mcp-config", shellQuote(json)]
-        case .cline:
-            // Cline has no per-session option: its own settings must list the servers (BUG-026).
-            AgentBrowserRegistration.ensureCline(executable: servers[0].command)
-            return []
-        case .antigravity:
-            // Antigravity keeps its servers in its own configuration, added with `agy mcp add`.
-            AgentBrowserRegistration.ensureAntigravity(executable: servers[0].command)
-            return []
-        }
+        if let arguments = tool.provider.mcpLaunchArguments(for: servers, quote: shellQuote) { return arguments }
+        // No per-session option: the assistant's own settings must list the servers (BUG-026).
+        AgentBrowserRegistration.ensureRegistered(tool, executable: servers[0].command)
+        return []
     }
 
-    /// BUG-025: an organisation's Copilot policy may allow only listed MCP servers; Copilot then
+    /// BUG-025: an organisation's policy may allow only listed MCP servers; the assistant then (Copilot)
     /// prints `MCP server was blocked by policy: "markview-browser"` at every start. On that message
-    /// the server is turned off for Copilot on this Mac, and the terminal can restart without it.
-    private func watchForMCPPolicyBlock(_ session: TerminalSession) {
+    /// the server is turned off for it on this Mac, and the terminal can restart without it.
+    private func watchForMCPPolicyBlock(_ session: TerminalSession, tool: CLITool) {
+        let name = tool.displayName
         var recent = ""
         session.onOutput = { [weak self, weak session] data in
             recent = String((recent + String(decoding: data, as: UTF8.self)).suffix(4_000))
             guard BrowserAgentTools.reportsPolicyBlock(recent) else { return }
             recent = ""
             DispatchQueue.main.async {
-                guard let self, let session, BrowserControlServer.agentToolsEnabled(.copilot) else { return }
-                UserDefaults.standard.set(false, forKey: BrowserControlServer.agentToolsKey(.copilot))
+                guard let self, let session, BrowserControlServer.agentToolsEnabled(tool) else { return }
+                UserDefaults.standard.set(false, forKey: BrowserControlServer.agentToolsKey(tool))
                 let alert = NSAlert()
-                alert.messageText = "Copilot's policy blocks MarkView's browser tools"
-                alert.informativeText = "Your organisation allows Copilot only the MCP servers it lists, so it refused \"\(BrowserAgentTools.serverName)\". MarkView no longer gives Copilot these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). Copilot itself keeps working."
-                alert.addButton(withTitle: "Restart Copilot Without Them")
+                alert.messageText = "\(name)'s policy blocks MarkView's browser tools"
+                alert.informativeText = "Your organisation allows \(name) only the MCP servers it lists, so it refused \"\(BrowserAgentTools.serverName)\". MarkView no longer gives \(name) these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). \(name) itself keeps working."
+                alert.addButton(withTitle: "Restart \(name) Without Them")
                 alert.addButton(withTitle: "Later")
                 guard alert.runModal() == .alertFirstButtonReturn else { return }
                 self.relaunch(session, as: session.profile, continuing: true)
@@ -170,12 +147,10 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
     }
 
     /// The command that continues `profile`'s last session in `directory` (BUG-005), or nil to start
-    /// fresh: a shell, Cline (no "continue last" option), or Claude with no session there —
-    /// `claude --continue` then stops with "No conversation found" instead of starting one.
-    /// Codex and Copilot start a new session by themselves when there is none.
+    /// fresh: a shell, an assistant with no "continue last" option (Cline), or one with no session there
+    /// when it would stop instead of starting one (Claude Code: "No conversation found").
     private func resumeCommand(for profile: TerminalProfile, in directory: URL) -> String? {
-        guard let tool = profile.tool, !tool.continueArgs.isEmpty else { return nil }
-        if tool == .claude, !AgentModelProbe.hasClaudeSession(cwd: directory) { return nil }
+        guard let tool = profile.tool, !tool.continueArgs.isEmpty, tool.provider.hasSession(in: directory) else { return nil }
         return startupCommand(for: profile, continuing: true)
     }
 
@@ -228,7 +203,7 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
         connect(session)
         session.browserWindowID = host.browserControlID
         host.registerBrowserControl()
-        if profile.tool == .copilot { watchForMCPPolicyBlock(session) }
+        if let tool = profile.tool, tool.provider.reportsMCPPolicyBlock { watchForMCPPolicyBlock(session, tool: tool) }
         sessions.append(session)
         shownID = session.id
         host.terminalStarted()
@@ -237,14 +212,14 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
 
     /// Connect a home assistant while preserving this window's work-computer root.
     @discardableResult
-    func openRemoteAITerminal(code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool, savedConnectionID: UUID? = nil) async throws -> TerminalSession {
+    func openRemoteAITerminal(code: String, provider: CLITool, model: String?, resume: Bool, savedConnectionID: UUID? = nil) async throws -> TerminalSession {
         guard let host, let root else { throw RemoteFailure.invalid("Open the folder you want the home assistant to work in.") }
         let invitation = try RemoteInvitation(code: code)
         host.registerBrowserControl()
         let connection = try await RemoteTerminalConnection(invitation: invitation, root: root, browserWindowID: host.browserControlID, provider: provider, model: model, resume: resume, savedConnectionID: savedConnectionID)
         guard self.root?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else { connection.stop(); throw RemoteFailure.invalid("The open folder changed. Connect again for the new folder.") }
-        let session = TerminalSession(directory: root, profile: provider == .claude ? .claude : .codex,
-                                      title: "Home · " + provider.title)
+        let session = TerminalSession(directory: root, profile: TerminalProfile(provider),
+                                      title: "Home · " + provider.displayName)
         connection.onState = { [weak session] phase, text in
             session?.remoteConnectionState = .init(phase: phase, detail: text, lastSeen: phase == .online ? Date() : nil)
             if let savedConnectionID { RemoteConnectionsStore.shared.update(savedConnectionID, phase, text) }
@@ -345,13 +320,14 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
         objectWillChange.send()
     }
 
-    /// A Claude Code agent's own log names the model it runs now. When that is not what MarkView shows
+    /// A live-switching agent's (Claude Code) own log names the model it runs now. When that is not what MarkView shows
     /// (the user switched with `/model` inside the session), the agent's tab shows it, and it becomes
-    /// the model the project (and every project with no choice of its own) starts Claude Code with next
+    /// the model the project (and every project with no choice of its own) starts the assistant with next
     /// time. Nothing restarts: the conversation goes on.
-    func claudeModelReported(_ model: String, terminalID: UUID) {
+    func liveModelReported(_ model: String, terminalID: UUID) {
         guard let session = sessions.first(where: { $0.id == terminalID }),
-              session.profile == .claude, !session.isRemote, session.isRunning else { return }
+              let tool = session.profile.tool, let live = tool.provider.liveModelSwitch,
+              !session.isRemote, session.isRunning else { return }
         let previous = session.observedModel
         session.observedModel = model
         let picked = session.pendingModelPick == model
@@ -361,20 +337,19 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
         // unless the Agents header asked for exactly this model.
         if session.model == nil, previous == nil, !picked { return }
         // A model pinned by id (--model claude-opus-4-1) and the family alias the log reports are the same.
-        if let pinned = session.model, ClaudeSessionModel.family(of: pinned) == model { return }
-        session.adoptRunningModel(model, title: ClaudeSessionModel.title(session.title, model: model))
-        AIAssistantPreferences.remember(model, for: .claude, project: project)
+        if let pinned = session.model, live.family(of: pinned) == model { return }
+        session.adoptRunningModel(model, title: live.title(session.title, model: model))
+        AIAssistantPreferences.remember(model, for: tool, project: project)
         objectWillChange.send()
     }
 
-    /// The model switch in the Agents header. Claude Code switches live: `/model` is typed into the
-    /// running session, so nothing restarts and the conversation goes on; the session's log then
-    /// confirms it and `claudeModelReported` renames the tab and remembers the model. Another
+    /// The model switch in the Agents header. An assistant with a live switch (Claude Code) switches in place: the
+    /// command (`/model`) is typed into the running session, so nothing restarts and the conversation goes on; the
+    /// session's log then confirms it and `liveModelReported` renames the tab and remembers the model. Another
     /// assistant starts again with the model, and picks its conversation up where its CLI can resume.
     func switchModel(of session: TerminalSession, to model: String) {
-        guard session.profile != .shell, !session.isRemote, !model.isEmpty else { return }
-        guard session.profile == .claude else {
-            guard let tool = session.profile.tool else { return }
+        guard let tool = session.profile.tool, !session.isRemote, !model.isEmpty else { return }
+        guard let live = tool.provider.liveModelSwitch else {
             AssistantChoice(project: project).setModel(model, for: tool)
             // The panel restarts the shown agent only when the project's own assistant changes its
             // model; a Copilot tab beside a Claude project would stay as it was.
@@ -386,12 +361,12 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
         }
         // Only a family alias is typed, never free text. While the agent answers, the command would
         // queue behind the answer or land in the wrong place; the menu is off then, this covers the race.
-        guard ClaudeSessionModel.families.contains(model), session.isRunning, !session.printed(within: 3) else {
+        guard live.families.contains(model), session.isRunning, !session.printed(within: 3) else {
             NSSound.beep()
             return
         }
         session.pendingModelPick = model
-        session.paste("/model \(model)", submit: true)
+        session.paste(live.command(for: model), submit: true)
     }
 
     // MARK: - Prompts

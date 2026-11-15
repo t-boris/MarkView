@@ -383,3 +383,15 @@ extension BackdropBuilder {
         return group
     }
 }
+
+// MARK: - Registrations (AR-34)
+
+final class GitFlowBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("gitflow", title: "Git Flow", symbol: "arrow.triangle.branch", order: 100)
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { builder.gitFlow() }
+}
+
+final class TypewriterBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("typewriter", title: "Typewriter", symbol: "text.cursor", order: 110)
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { builder.typewriter() }
+}

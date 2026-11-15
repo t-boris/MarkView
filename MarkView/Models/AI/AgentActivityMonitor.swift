@@ -1,8 +1,8 @@
 import Foundation
 
-/// Watches the assistants running in a window's AI terminals (Claude Code, Codex, Cline, Copilot, Antigravity)
-/// and publishes what each one is doing, for the tabs and the toolbar. Reads each one's own session
-/// store off the main thread every few seconds, and only while an assistant terminal is running.
+/// Watches the assistants running in a window's AI terminals and publishes what each one is doing, for the tabs and the
+/// toolbar. Reads each one's own session store off the main thread every few seconds, and only while an assistant terminal is
+/// running.
 @MainActor
 final class AgentActivityMonitor: ObservableObject {
     struct Entry: Equatable, Identifiable {
@@ -14,8 +14,8 @@ final class AgentActivityMonitor: ObservableObject {
     /// One entry per running assistant terminal whose session can be read.
     @Published private(set) var entries: [Entry] = []
 
-    /// The window whose terminals are watched: its sessions, the shown one, and where a model a Claude Code terminal's own log
-    /// names (BUG-048) is reported, only when the log belongs to that terminal's process.
+    /// The window whose terminals are watched: its sessions, the shown one, and where a model an assistant terminal's own log
+    /// names (BUG-048, Claude Code) is reported, only when the log belongs to that terminal's process.
     weak var provider: (any AssistantProviding)?
     /// Owns the read of the session stores, so it ends with the folder or the window (AR-19).
     private let tasks: TaskBag
@@ -24,7 +24,7 @@ final class AgentActivityMonitor: ObservableObject {
 
     private var timer: Timer?
     private var busy = false
-    private var seen: [UUID: Seen] = [:]
+    private var seen: [UUID: ActivityCache] = [:]
     static let interval: TimeInterval = 3
 
     func start() {
@@ -59,7 +59,7 @@ final class AgentActivityMonitor: ObservableObject {
 
     private func tick() {
         guard !busy else { return }
-        let watched = (provider?.sessions ?? []).filter { $0.isRunning && $0.profile != .shell }
+        let watched = (provider?.sessions ?? []).filter { $0.isRunning && $0.profile.tool != nil }
         guard !watched.isEmpty else {
             if !entries.isEmpty { entries = [] }
             seen = [:]
@@ -75,55 +75,22 @@ final class AgentActivityMonitor: ObservableObject {
         }, for: "agent-activity.read")
     }
 
-    private typealias Seen = (url: URL, size: Int, date: Date, activity: AgentActivity?)
     private typealias Job = (id: UUID, name: String, directory: URL, profile: TerminalProfile, shell: pid_t, printing: Bool,
-                             cached: Seen?, since: Date?)
+                             cached: ActivityCache?, since: Date?)
     private typealias Reading = (results: [(UUID, String, URL, Int, Date, AgentActivity?)], models: [(UUID, String)])
 
-    /// Reads each watched assistant's own session store, off the main actor; ends early when the window's tasks are cancelled.
+    /// Reads each watched assistant's own session store (its provider's reader), off the main actor; ends early when the
+    /// window's tasks are cancelled.
     nonisolated private static func read(_ jobs: [Job]) async -> Reading {
         var results: [(UUID, String, URL, Int, Date, AgentActivity?)] = []
         var models: [(UUID, String)] = []
         for job in jobs {
             guard !Task.isCancelled else { break }
-            switch job.profile {
-            case .claude, .codex:
-                // The log of this terminal's own process; the newest log of the folder may be another tab's.
-                let own = job.profile == .claude ? AgentActivityLog.claudeLog(shell: job.shell) : nil
-                let url = job.profile == .codex ? AgentActivityLog.newestCodexLog(for: job.directory)
-                    : (own ?? AgentActivityLog.newestClaudeLog(for: job.directory))
-                guard let url, let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
-                      let date = values.contentModificationDate else { continue }
-                let size = values.fileSize ?? 0
-                if let cached = job.cached, cached.url == url, cached.size == size, cached.date == date,
-                   cached.activity?.state != .working {
-                    results.append((job.id, job.name, url, size, date, cached.activity))
-                    continue
-                }
-                let lines = AgentActivityLog.tail(of: url)
-                if own != nil, let reading = ClaudeSessionModel.reading(lines: lines, since: job.since) {
-                    models.append((job.id, reading.model))
-                }
-                let activity = job.profile == .codex ? AgentActivityParser.codex(lines: lines)
-                                                     : AgentActivityParser.claude(lines: lines)
-                results.append((job.id, job.name, url, size, date, activity))
-            case .cline:
-                guard let session = AgentActivityLog.clineSession(directory: job.directory, shell: job.shell),
-                      let data = try? Data(contentsOf: session.messages) else { continue }
-                results.append((job.id, job.name, session.messages, data.count, Date(),
-                                AgentActivityParser.cline(messagesJSON: data, status: session.status)))
-            case .copilot:
-                guard let turn = AgentActivityLog.copilotTurn(directory: job.directory) else { continue }
-                results.append((job.id, job.name, job.directory, 0, Date(),
-                                AgentActivityParser.copilot(userMessage: turn.user, response: turn.response, busy: job.printing)))
-            case .antigravity:
-                guard let conversation = AgentActivityLog.antigravityConversation(directory: job.directory) else { continue }
-                results.append((job.id, job.name, job.directory, 0, Date(),
-                                AgentActivityParser.antigravity(title: conversation.title, preview: conversation.preview,
-                                                                status: conversation.status, busy: job.printing)))
-            case .shell:
-                break
-            }
+            guard let reader = job.profile.tool?.provider.activity,
+                  let read = reader.read(ActivityRequest(directory: job.directory, shell: job.shell, printing: job.printing,
+                                                         cached: job.cached, since: job.since)) else { continue }
+            results.append((job.id, job.name, read.source, read.size, read.date, read.activity))
+            if let model = read.model { models.append((job.id, model)) }
         }
         return (results, models)
     }
@@ -131,11 +98,11 @@ final class AgentActivityMonitor: ObservableObject {
     private func apply(_ results: [(UUID, String, URL, Int, Date, AgentActivity?)], models: [(UUID, String)], cancelled: Bool) {
         busy = false
         guard !cancelled else { return }
-        for (id, model) in models { provider?.claudeModelReported(model, terminalID: id) }
+        for (id, model) in models { provider?.liveModelReported(model, terminalID: id) }
         var next: [Entry] = []
-        var cache: [UUID: Seen] = [:]
+        var cache: [UUID: ActivityCache] = [:]
         for (id, name, url, size, date, activity) in results {
-            cache[id] = (url, size, date, activity)
+            cache[id] = ActivityCache(url: url, size: size, date: date, activity: activity)
             if let activity { next.append(Entry(id: id, name: name, activity: activity)) }
         }
         seen = cache
