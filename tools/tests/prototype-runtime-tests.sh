@@ -20,7 +20,7 @@ PY
 
 cp tools/tests/PrototypeRuntimeTests.swift "$out/main.swift"
 swiftc -O -o "$out/prototype-runtime-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift MarkView/Models/Prototype/PrototypeFiles.swift MarkView/Models/Prototype/PrototypeStyles.swift MarkView/Models/Prototype/PrototypeShellStructure.swift \
-  MarkView/Models/Prototype/PrototypeEmbedded.swift MarkView/Models/Prototype/PrototypeAI.swift MarkView/Models/Prototype/PrototypeRuntime.swift \
+  MarkView/Models/Prototype/PrototypeEmbedded.swift MarkView/Models/AI/AIOperation.swift MarkView/Models/Prototype/PrototypeAI.swift MarkView/Models/Prototype/PrototypeRuntime.swift \
   MarkView/Models/Prototype/PrototypeAudit.swift MarkView/Models/Prototype/PrototypeThemes.swift MarkView/Models/Prototype/PrototypeBaseline.swift MarkView/Models/Prototype/PrototypeTailwind.swift \
   MarkView/Models/Prototype/PrototypeHandoff.swift MarkView/Models/Prototype/PrototypeHandoffDraft.swift MarkView/Bridge/PrototypeSchemeHandler.swift tools/tests/PrototypeCLIStub.swift "$out/main.swift"
 "$out/prototype-runtime-tests" "$out/listener.js"

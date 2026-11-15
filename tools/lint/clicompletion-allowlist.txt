@@ -9,7 +9,6 @@
 2 MarkView/Models/Insight/InsightSession.swift
 1 MarkView/Models/Lifecycle/FeatureAI.swift
 2 MarkView/Models/ProjectOps/ProjectOperationDiscoveryService.swift
-1 MarkView/Models/Prototype/PrototypeAI.swift
 3 MarkView/Models/QA/QAModel.swift
 1 MarkView/Models/QA/QARunAssistant.swift
 1 MarkView/Models/QA/QARunModel.swift
