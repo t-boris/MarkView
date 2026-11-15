@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 209,
+  "suiteCount": 210,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -119,7 +119,7 @@
         "MarkView/Models/AI/AIAssistants.swift",
         "MarkView/Models/AI/AICallLog.swift",
         "MarkView/Models/AI/AIOperation.swift",
-        "MarkView/Models/AI/AgentActivityMonitor.swift",
+        "MarkView/Models/Terminal/AgentActivityMonitor.swift",
         "MarkView/Models/AI/AgentProcesses.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
@@ -151,6 +151,7 @@
         "MarkView/Models/Terminal/AITerminalsController.swift",
         "MarkView/Models/Terminal/AssistantProviding.swift",
         "MarkView/Models/Workspace/LinkedFolders.swift",
+        "MarkView/Models/AI/LinkedFolderStore.swift",
         "MarkView/Models/Workspace/TaskBag.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
@@ -194,7 +195,8 @@
       "script": "tools/tests/architecture-lint-tests.sh",
       "tier": "pure",
       "sources": [
-        "tools/lint/architecture-lint.sh"
+        "tools/lint/architecture-lint.sh",
+        "tools/lint/domain-dependencies.py"
       ]
     },
     {
@@ -243,6 +245,7 @@
         "MarkView/Models/Book/BookPDFTransform.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "MarkView/Models/Workspace/LinkedFolders.swift",
+        "MarkView/Models/AI/LinkedFolderStore.swift",
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Resources/Editor/book.html",
         "MarkView/Models/AI/AIOperation.swift",
@@ -795,7 +798,7 @@
         "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "MarkView/Models/AI/ProviderHints.swift",
-        "MarkView/Models/AI/SystemProbe.swift",
+        "MarkView/Models/Deployments/SystemProbe.swift",
         "tools/tests/DatabaseExplorerTests.swift",
         "tools/tests/database-explorer-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
@@ -877,7 +880,7 @@
         "MarkView/Models/AI/CommandPolicy.swift",
         "MarkView/Models/Deployments/DeploymentLogs.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
-        "MarkView/Models/AI/SystemProbe.swift",
+        "MarkView/Models/Deployments/SystemProbe.swift",
         "tools/tests/DeploymentLogsTests.swift",
         "tools/tests/deployment-logs-tests.sh"
       ]
@@ -901,7 +904,7 @@
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
-        "MarkView/Models/AI/SystemProbe.swift",
+        "MarkView/Models/Deployments/SystemProbe.swift",
         "tools/tests/DeploymentSSHTests.swift",
         "tools/tests/deployment-ssh-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
@@ -926,7 +929,7 @@
         "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "MarkView/Models/AI/ProviderHints.swift",
-        "MarkView/Models/AI/SystemProbe.swift",
+        "MarkView/Models/Deployments/SystemProbe.swift",
         "tools/tests/StoreTestSupport.swift",
         "tools/tests/DeploymentStoreTests.swift",
         "tools/tests/deployment-store-tests.sh",
@@ -942,7 +945,6 @@
         "MarkView/Models/AI/AIOperation.swift",
         "MarkView/Models/AI/DiagramAI.swift",
         "tools/tests/DiagramAITests.swift",
-        "tools/tests/DiagramArchStub.swift",
         "tools/tests/DiagramCLIStub.swift",
         "tools/tests/diagram-tests.sh"
       ]
@@ -1032,6 +1034,7 @@
         "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
         "MarkView/Models/Workspace/DocumentState.swift",
         "MarkView/Models/Workspace/DocumentTranslator.swift",
+        "MarkView/Models/Insight/SemanticUsage.swift",
         "MarkView/Models/Workspace/EditorDocumentRouting.swift",
         "MarkView/Models/Workspace/MarkdownDocumentChunker.swift",
         "MarkView/Models/Workspace/ProjectProviding.swift",
@@ -1128,7 +1131,7 @@
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/WelcomeBackdrop.swift",
         "MarkView/Models/Book/PDFReader.swift",
-        "MarkView/Models/Browser/BrowserControlServer.swift",
+        "MarkView/Models/Browser/BrowserAgentTabs.swift",
         "MarkView/Models/Browser/BrowserElementPick.swift",
         "MarkView/Models/Browser/BrowserHost.swift",
         "MarkView/Models/Browser/WebPreview.swift",
@@ -1150,7 +1153,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/BrowserHostStubs.swift",
         "tools/tests/BrowserHostTests.swift",
-        "tools/tests/browser-host-tests.sh"
+        "tools/tests/browser-host-tests.sh",
+        "MarkView/Models/AgentTools/AgentToolWindow.swift"
       ]
     },
     {
@@ -1321,9 +1325,7 @@
       "script": "tools/tests/github-command-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/Lifecycle/EvidenceTimings.swift",
         "MarkView/Models/Git/GitHubClient.swift",
-        "MarkView/Models/Lifecycle/LifecycleCapture.swift",
         "tools/tests/GitHubCommandTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
@@ -1334,9 +1336,7 @@
       "script": "tools/tests/github-remote-profile-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/Lifecycle/EvidenceTimings.swift",
         "MarkView/Models/Git/GitHubClient.swift",
-        "MarkView/Models/Lifecycle/LifecycleCapture.swift",
         "tools/tests/CLIToolLocatorStub.swift",
         "tools/tests/GitHubRemoteProfileTests.swift",
         "tools/tests/github-remote-profile-tests.sh",
@@ -1461,9 +1461,11 @@
         "MarkView/Models/Insight/InsightSession.swift",
         "MarkView/Models/Insight/InsightTreeSnapshot.swift",
         "MarkView/Models/Insight/SemanticDatabase.swift",
+        "MarkView/Models/Insight/SemanticUsage.swift",
         "MarkView/Models/Insight/SemanticModels.swift",
         "MarkView/Models/Insight/SemanticSchema.swift",
         "MarkView/Models/Workspace/LinkedFolders.swift",
+        "MarkView/Models/AI/LinkedFolderStore.swift",
         "MarkView/Models/Workspace/ProjectProviding.swift",
         "MarkView/Models/Workspace/TaskBag.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
@@ -1586,6 +1588,7 @@
         "MarkView/Models/Workspace/ArchiveSupport.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Workspace/LinkedFolders.swift",
+        "MarkView/Models/AI/LinkedFolderStore.swift",
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Models/Workspace/ProjectSearch.swift",
         "tools/tests/LinkedFoldersTests.swift",
@@ -1647,9 +1650,7 @@
       "script": "tools/tests/new-project-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/Lifecycle/EvidenceTimings.swift",
         "MarkView/Models/Git/GitHubClient.swift",
-        "MarkView/Models/Lifecycle/LifecycleCapture.swift",
         "MarkView/Models/Workspace/NewProject.swift",
         "MarkView/Models/Workspace/ProjectDraftStore.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
@@ -1998,6 +1999,7 @@
         "MarkView/Models/AI/AgentProcesses.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "MarkView/Models/Workspace/LinkedFolders.swift",
+        "MarkView/Models/AI/LinkedFolderStore.swift",
         "MarkView/Models/Appearance/ProjectColor.swift",
         "tools/tests/ProjectAIChoiceTests.swift",
         "tools/tests/project-ai-choice-tests.sh",
@@ -2832,7 +2834,7 @@
       "sources": [
         "MarkView/Models/AI/AgentProcesses.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
-        "MarkView/Models/Browser/BrowserControlServer.swift",
+        "MarkView/Models/AgentTools/AgentToolServer.swift",
         "MarkView/Models/Browser/BrowserAgentExecutor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "MarkView/Models/Cockpit/CockpitAgentRegistry.swift",
@@ -2849,7 +2851,12 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/RemoteBrowserTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "MarkView/Models/AgentTools/AgentToolWindow.swift",
+        "MarkView/Models/Browser/BrowserAgentTabs.swift",
+        "MarkView/Models/AI/AgentToolsSetting.swift",
+        "MarkView/Models/Remote/RemoteBrowserRelay.swift",
+        "MarkView/Models/AI/Providers/AssistantMCP.swift"
       ]
     },
     {
@@ -3051,6 +3058,8 @@
         "MarkView/Models/Architecture/CodeArchitecture.swift",
         "MarkView/Models/Architecture/CodePathTags.swift",
         "MarkView/Models/Insight/SemanticDatabase.swift",
+        "MarkView/Models/Architecture/SemanticDatabase+Architecture.swift",
+        "MarkView/Models/Insight/SemanticUsage.swift",
         "MarkView/Models/Insight/SemanticModels.swift",
         "MarkView/Models/Insight/SemanticSchema.swift",
         "MarkView/Models/Research/ResearchDocument.swift",
@@ -3067,6 +3076,7 @@
         "MarkView/Models/Research/ResearchPrompt.swift",
         "MarkView/Models/Workspace/FrontMatter.swift",
         "MarkView/Models/Workspace/LinkedFolders.swift",
+        "MarkView/Models/AI/LinkedFolderStore.swift",
         "MarkView/Models/Workspace/ProjectProviding.swift",
         "MarkView/Models/Workspace/TaskBag.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
@@ -3273,7 +3283,7 @@
       "sources": [
         "MarkView/Models/AI/CommandPolicy.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
-        "MarkView/Models/AI/SystemProbe.swift",
+        "MarkView/Models/Deployments/SystemProbe.swift",
         "tools/tests/SystemProbeTests.swift",
         "tools/tests/system-probe-tests.sh"
       ]
@@ -3505,6 +3515,7 @@
         "MarkView/Models/Lifecycle/IssueListing.swift",
         "MarkView/Models/Lifecycle/IssueTransitionLog.swift",
         "MarkView/Models/Workspace/LinkedFolders.swift",
+        "MarkView/Models/AI/LinkedFolderStore.swift",
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
         "MarkView/Models/UIStudio/UIStudioAgents.swift",
@@ -4133,6 +4144,7 @@
         "MarkView/Models/Workspace/ArchiveSupport.swift",
         "MarkView/Models/Workspace/FrontMatter.swift",
         "MarkView/Models/Workspace/LinkedFolders.swift",
+        "MarkView/Models/AI/LinkedFolderStore.swift",
         "MarkView/Models/Architecture/ProjectChangeReview.swift",
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Models/Workspace/ProjectSearch.swift",
@@ -4209,6 +4221,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Insight/SemanticDatabase.swift",
+        "MarkView/Models/Architecture/SemanticDatabase+Architecture.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "MarkView/Models/Insight/SemanticSchema.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
@@ -4428,6 +4441,7 @@
         "MarkView/Models/Workspace/ExcludedFolders.swift",
         "MarkView/Models/Workspace/FileNode.swift",
         "MarkView/Models/Workspace/LinkedFolders.swift",
+        "MarkView/Models/AI/LinkedFolderStore.swift",
         "MarkView/Models/Workspace/ProjectContext.swift",
         "MarkView/Models/Workspace/ProjectProviding.swift",
         "MarkView/Models/Workspace/SchemaVersionedStore.swift",
@@ -4490,8 +4504,6 @@
         "MarkView/Models/Architecture/CodeExplainer.swift",
         "MarkView/Models/Architecture/HistoricalBaseline.swift",
         "MarkView/Models/Git/GitHubClient.swift",
-        "MarkView/Models/Lifecycle/EvidenceTimings.swift",
-        "MarkView/Models/Lifecycle/LifecycleCapture.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
@@ -4557,7 +4569,7 @@
         "MarkView/Models/AI/CommandPolicy.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/AI/ProviderHints.swift",
-        "MarkView/Models/AI/SystemProbe.swift",
+        "MarkView/Models/Deployments/SystemProbe.swift",
         "MarkView/Models/Appearance/AppTheme.swift",
         "MarkView/Models/Appearance/BackdropRegistry.swift",
         "MarkView/Models/Appearance/ProjectBackdrop.swift",
@@ -4606,6 +4618,18 @@
         "tools/tests/ToolTabsRouterStubs.swift",
         "tools/tests/ToolTabsRouterTests.swift",
         "tools/tests/tool-tabs-router-tests.sh"
+      ]
+    },
+    {
+      "name": "window-composition-tests",
+      "script": "tools/tests/window-composition-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Workspace/TaskBag.swift",
+        "MarkView/Models/Workspace/WindowComposition.swift",
+        "tools/tests/WindowCompositionStubs.swift",
+        "tools/tests/WindowCompositionTests.swift",
+        "tools/tests/window-composition-tests.sh"
       ]
     }
   ]

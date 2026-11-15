@@ -8,7 +8,7 @@ import MarkViewCore
 /// Agents get an MCP server, `MarkView --mcp-browser`: this same binary, run without UI, speaking
 /// MCP (JSON-RPC, one message per line) on stdin/stdout. Each tool call is relayed over a Unix
 /// socket to the running app, which performs it in a browser tab of the window the terminal
-/// belongs to (`BrowserControlServer`). Claude Code, Codex and Copilot started from the AI panel
+/// belongs to (`AgentToolServer`). Claude Code, Codex and Copilot started from the AI panel
 /// get the server with the window in its arguments; an agent started by hand (registered once in
 /// its own configuration) finds the app and the window through its parent processes.
 enum BrowserAgentTools {

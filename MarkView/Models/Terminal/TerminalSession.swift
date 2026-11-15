@@ -17,6 +17,14 @@ protocol TerminalConnection: AnyObject {
     func stop()
 }
 
+/// Where a terminal sends what the person opens in it: a file goes to the editor of the window, a web address to its browser tab.
+/// The window's `AITerminalsHost` is the target of its terminals (`AITerminalsController`).
+@MainActor
+protocol TerminalLinkTarget: AnyObject {
+    func openFile(_ url: URL, line: Int?, endLine: Int?)
+    func openInAppBrowser(_ url: URL)
+}
+
 /// One embedded terminal: a login shell on a pseudo-terminal (PTY) that Swift owns,
 /// drawn by xterm.js in its own web view (`Resources/Editor/terminal.html`).
 ///
@@ -61,12 +69,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     @Published private(set) var profile: TerminalProfile
     /// Tab title in the AI panel ("Claude Code", "Codex 2").
     var title: String
-    /// Supplied by the workspace for both AI-panel terminals and folder terminal tabs.
-    var openFile: ((URL, Int?) -> Void)?
+    /// The window this terminal belongs to, for both AI-panel terminals and folder terminal tabs: files open in its editor and web
+    /// addresses in its browser tab (links clicked here, and pages programs in it open: `TerminalBrowserBridge`). Nil, as for a project
+    /// operation, keeps the default apps.
+    private(set) weak var links: (any TerminalLinkTarget)?
     var openExternalURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
-    /// Shows a web address in the browser tab of this terminal's window: links clicked here and
-    /// pages programs in it open (`TerminalBrowserBridge`). Nil keeps the default browser.
-    var openInAppBrowser: ((URL) -> Void)?
 
     @Published private(set) var isRunning = false
     @Published private(set) var exitCode: Int32?
@@ -85,7 +92,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     private var childPID: pid_t = 0
     /// The terminal's shell process: agents started in it are its descendants.
     var shellPID: pid_t { childPID }
-    /// The window whose browser tabs agents in this terminal drive (`BrowserControlServer`).
+    /// The window whose browser tabs agents in this terminal drive (`AgentToolServer`).
     var browserWindowID: UUID?
     private var operationStartedOnce = false
     private var readSource: DispatchSourceRead?
@@ -113,7 +120,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     init(directory: URL, profile: TerminalProfile = .shell, startupCommand: String? = nil,
          resumeCommand: String? = nil, title: String? = nil, model: String? = nil,
-         operationCommand: String? = nil) {
+         operationCommand: String? = nil, links: (any TerminalLinkTarget)? = nil) {
+        self.links = links
         self.directory = directory
         self.profile = profile
         self.startupCommand = startupCommand
@@ -204,14 +212,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             }.value
             switch target {
             case .web(let url):
-                if let openInAppBrowser, TerminalBrowserBridge.isEnabled,
+                if let links, TerminalBrowserBridge.isEnabled,
                    ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-                    openInAppBrowser(url)
+                    links.openInAppBrowser(url)
                 } else {
                     openExternalURL(url)
                 }
             case .file(let url, let line):
-                if FileType.isOpenable(url), let openFile { openFile(url, line) }
+                if FileType.isOpenable(url), let links { links.openFile(url, line: line, endLine: nil) }
                 else { openExternalURL(url) }
             case nil: break
             }
@@ -306,7 +314,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         environment["COLORTERM"] = "truecolor"
         environment["TERM_PROGRAM"] = "MarkView"
         if environment["LANG"] == nil { environment["LANG"] = "en_US.UTF-8" }
-        if openInAppBrowser != nil {
+        if links != nil {
             environment.merge(TerminalBrowserBridge.environment(for: self, shell: shell, inherited: environment)) { $1 }
         }
 

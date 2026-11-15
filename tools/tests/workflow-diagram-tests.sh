@@ -1,5 +1,5 @@
 #!/bin/bash
-# BUG-112: the geometry of the transition state diagram (Models/WorkflowDiagramLayout.swift): lanes, states, arrows, hit testing and
+# BUG-112: the geometry of the transition state diagram (Models/Lifecycle/WorkflowDiagramLayout.swift): lanes, states, arrows, hit testing and
 # what an arrow drawn between two states means. Foundation only; compiled on its own with a test main (no XCTest target exists).
 #   tools/tests/workflow-diagram-tests.sh
 set -euo pipefail

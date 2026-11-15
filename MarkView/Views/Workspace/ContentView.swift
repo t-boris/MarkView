@@ -1357,7 +1357,7 @@ private struct BrowserToolsToggle: View {
 
     init(tool: CLITool) {
         self.tool = tool
-        _enabled = AppStorage(BrowserControlServer.agentToolsKey(tool))
+        _enabled = AppStorage(tool.agentToolsKey)
     }
 
     var body: some View { Toggle(tool.displayName, isOn: $enabled) }

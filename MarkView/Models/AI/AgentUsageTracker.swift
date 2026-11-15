@@ -228,7 +228,7 @@ final class AgentUsageTracker: ObservableObject {
             state.backoff = 0
             state.nextFetch = time.addingTimeInterval(Self.pollInterval)
             state.note = nil
-            WorkspaceManager.debugLog("agent usage: \(agent.rawValue) official data, \(windows.count) window(s)")
+            AppLog.workspace.debug("agent usage: \(agent.rawValue) official data, \(windows.count) window(s)")
         case .signedOut:
             // Never refreshed by the app; the CLI refreshes its own sign-in on use (DEC-011).
             state.windows = nil
@@ -236,19 +236,19 @@ final class AgentUsageTracker: ObservableObject {
             state.backoff = 0
             state.nextFetch = time.addingTimeInterval(agent.signedOutInterval ?? Self.pollInterval)
             state.note = "Official limit data unavailable — open \(name) to refresh sign-in"
-            WorkspaceManager.debugLog("agent usage: \(agent.rawValue) official data unavailable (signed out or expired)")
+            AppLog.workspace.debug("agent usage: \(agent.rawValue) official data unavailable (signed out or expired)")
         case .keychainDenied:
             state.windows = nil
             state.fetchedAt = nil
             state.blocked = true
             state.note = "Official limit data unavailable — Keychain access to \(name)'s sign-in was denied. Click ↻ to try again."
-            WorkspaceManager.debugLog("agent usage: \(agent.rawValue) Keychain access denied")
+            AppLog.workspace.debug("agent usage: \(agent.rawValue) Keychain access denied")
         case .failed(let reason, let retryAfter):
             state.backoff = state.backoff == 0 ? Self.backoffStart : min(state.backoff * 2, Self.backoffCap)
             let wait = max(state.backoff, retryAfter ?? 0)
             state.nextFetch = time.addingTimeInterval(wait)
             state.note = "Couldn't refresh official data (\(reason)); next try in \(UsageFormat.countdown(wait))"
-            WorkspaceManager.debugLog("agent usage: \(agent.rawValue) official fetch failed: \(reason)")
+            AppLog.workspace.debug("agent usage: \(agent.rawValue) official fetch failed: \(reason)")
         }
         official[agent] = state
         rebuild(agent)
@@ -341,7 +341,7 @@ final class AgentUsageTracker: ObservableObject {
         case .failure(let error):
             state.events = nil
             state.error = (error as? UsageLogError)?.message ?? "Local logs could not be read"
-            WorkspaceManager.debugLog("agent usage: \(agent.rawValue) local logs: \(state.error ?? "")")
+            AppLog.workspace.debug("agent usage: \(agent.rawValue) local logs: \(state.error ?? "")")
         }
         local[agent] = state
         rebuild(agent)

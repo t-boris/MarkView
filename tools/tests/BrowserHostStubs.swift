@@ -2,9 +2,9 @@ import Combine
 import Foundation
 
 // Collaborators of `BrowserHost` that the checks do not exercise: the browser tab itself (a real one is a WebKit view), the terminals, the
-// stores the control tools reach, the control server's socket and the sessions a tab can carry. They stand in for the app's own types
-// (named like them) and record what the host asks of them; the host, the tabs, the panels, the project's web-app discovery and the
-// control window it registers are the shipping code.
+// stores the control tools reach, the control server's window table and the sessions a tab can carry. They stand in for the app's own types
+// (named like them) and record what the host asks of them; the host, the tabs, the panels, the project's web-app discovery, the
+// control window it registers and the browser tool it hands to agents are the shipping code.
 
 struct InsightSession {
     let id = UUID()
@@ -25,9 +25,12 @@ final class BrowserSession: NSObject, ObservableObject {
     let id = UUID()
     @Published private(set) var url: URL?
     @Published var agentName = "T1"
+    var agentStopped = false
+    var agentLastUsed: Date?
+    var displayTitle: String { url?.host ?? "" }
     @Published var preview: WebPreviewState?
     @Published var pickNotice: String?
-    weak var host: (any BrowserSessionHost)?
+    private(set) weak var host: (any BrowserSessionHost)?
     var isAppPreview = false
     var localReadRoot: URL?
     var previewTerminalID: UUID?
@@ -35,7 +38,7 @@ final class BrowserSession: NSObject, ObservableObject {
     var loaded: [URL] = []
     var previews: [URL] = []
     var electronStandIn = false
-    init(url: URL?) { self.url = url }
+    init(url: URL?, host: (any BrowserSessionHost)? = nil) { self.url = url; self.host = host }
     func load(_ url: URL) { self.url = url; loaded.append(url) }
     func showPreview(_ url: URL) { previews.append(url); preview = nil; self.url = url }
     func standInForElectron() { electronStandIn = true }
@@ -65,6 +68,24 @@ final class StubTerminals: DevServerTerminals {
     var previews: [String: TerminalSession] = [:]
     func previewTerminal(forApp folderPath: String) -> TerminalSession? { previews[folderPath] }
     func rememberPreviewTerminal(_ session: TerminalSession, forApp folderPath: String) { previews[folderPath] = session }
+}
+
+/// The tool server's window table (`AgentToolServer`): the windows that registered, without a socket.
+@MainActor
+enum AgentToolServer {
+    static var registered: [UUID: AgentToolWindow] = [:]
+    static func register(_ id: UUID, _ window: AgentToolWindow) { registered[id] = window }
+}
+
+/// What an agent's tab tool runs in the page: the tab it ran in is recorded in the reply.
+enum BrowserAddress { static func url(from text: String) -> URL? { URL(string: text) } }
+@MainActor
+enum BrowserAgentExecutor {
+    static func settle(_ session: BrowserSession, started: Bool) async {}
+    static func status(_ session: BrowserSession) -> BrowserAgentTools.Reply { .init(text: "loaded") }
+    static func run(_ tool: String, _ args: [String: Any], in session: BrowserSession) async -> BrowserAgentTools.Reply {
+        .init(text: "\(tool) ran in \(session.agentName)")
+    }
 }
 
 // What the control tools reach of the window.

@@ -65,13 +65,13 @@ enum ControlToolRunner {
 
     // MARK: - Choosing a window
 
-    private static func windowInfos(_ live: [(id: UUID, window: BrowserControlServer.Window, workspace: WorkspaceManager)])
+    private static func windowInfos(_ live: [(id: UUID, window: AgentToolWindow, workspace: WorkspaceManager)])
         -> [(id: String, title: String, project: String?)] {
         live.map { (id: $0.id.uuidString, title: $0.workspace.hostWindow?.title ?? "", project: $0.workspace.project.projectFolder?.path) }
     }
 
     static func window(_ args: [String: Any], caller: Caller) throws -> Target {
-        let live = BrowserControlServer.liveWindows()
+        let live = AgentToolServer.liveWindows()
         let query = try ProjectAgentTools.text(args, "window")
         switch ControlAgentTools.pickWindow(query, among: windowInfos(live), callerFolder: caller.folder) {
         case .one(let index):
@@ -90,7 +90,7 @@ enum ControlToolRunner {
         }
     }
 
-    private static func windowLines(_ live: [(id: UUID, window: BrowserControlServer.Window, workspace: WorkspaceManager)]) -> String {
+    private static func windowLines(_ live: [(id: UUID, window: AgentToolWindow, workspace: WorkspaceManager)]) -> String {
         live.map { entry -> String in
             let title = entry.workspace.hostWindow?.title ?? ""
             let project = entry.workspace.project.projectFolder?.path ?? "no project open"
@@ -106,7 +106,7 @@ enum ControlToolRunner {
     }
 
     private static func windowList() -> String {
-        let live = BrowserControlServer.liveWindows()
+        let live = AgentToolServer.liveWindows()
         let pid = ProcessInfo.processInfo.processIdentifier
         guard !live.isEmpty else { return "MarkView (process \(pid)) has no window open yet." }
         let order = NSApp.orderedWindows
@@ -141,7 +141,7 @@ enum ControlToolRunner {
 
     private static func recentProjects() -> String {
         let paths = Settings.standard.value(Setting.recentProjects)  // shared by all windows
-        let open = Set(BrowserControlServer.liveWindows().compactMap { $0.workspace.project.projectFolder?.path })
+        let open = Set(AgentToolServer.liveWindows().compactMap { $0.workspace.project.projectFolder?.path })
         let lines = paths.filter { FileManager.default.fileExists(atPath: $0) }.map { $0 + (open.contains($0) ? "  (open)" : "") }
         return lines.isEmpty ? "No recent projects." : lines.joined(separator: "\n")
     }
@@ -159,7 +159,7 @@ enum ControlToolRunner {
             throw Invalid(message: "\(path) is not a folder.")
         }
         let url = URL(fileURLWithPath: path, isDirectory: true)
-        let live = BrowserControlServer.liveWindows()
+        let live = AgentToolServer.liveWindows()
         if let open = live.first(where: { $0.workspace.project.projectFolder.map { standardized($0.path) } == path }) {
             let target = Target(id: open.id, workspace: open.workspace)
             return .init(text: "\(path) is already open in window \(target.shortID). \(projectLine(target.workspace))")
@@ -189,7 +189,7 @@ enum ControlToolRunner {
         }
         var opened: Target?
         let appeared = await waitUntil(25) {
-            opened = BrowserControlServer.liveWindows().first { isOpen($0.workspace, path) }.map { Target(id: $0.id, workspace: $0.workspace) }
+            opened = AgentToolServer.liveWindows().first { isOpen($0.workspace, path) }.map { Target(id: $0.id, workspace: $0.workspace) }
             return opened != nil
         }
         guard appeared, let opened else {

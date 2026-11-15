@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 #if canImport(MarkViewCore)
 import MarkViewCore
@@ -20,12 +21,6 @@ protocol InsightHost: AnyObject {
     func removeInsightTab(sessionID: UUID)
 }
 
-/// The editor page that shows an insight session; it drops the blob URLs the iframe made for the vendored libraries.
-@MainActor
-protocol InsightPage: AnyObject {
-    func releaseInsightBlobs()
-}
-
 /// Recursive Insight of one window: starts a session in a tab, answers the iframe player's bridge messages, exports the archive
 /// and ends sessions in the order Decision 11 §4 requires. It owns the graph engine over the open folder's database; the sessions
 /// themselves live in their tabs. Every task it starts is kept in the window's `TaskBag`, so closing the folder cancels it.
@@ -34,8 +29,9 @@ final class InsightCoordinator {
     private weak var host: InsightHost?
     private let project: any ProjectProviding
     private let tasks: TaskBag
-    /// The page that shows the sessions; set by the editor view when it routes an insight tab.
-    weak var page: InsightPage?
+    /// Sent when the page that shows the sessions must drop the blob URLs the insight iframe made for the vendored libraries (the first
+    /// step of closing an insight tab). The editor page listens while it routes an insight tab.
+    let blobReleases = PassthroughSubject<Void, Never>()
 
     init(host: InsightHost, project: any ProjectProviding, tasks: TaskBag) {
         self.host = host
@@ -106,7 +102,7 @@ final class InsightCoordinator {
     func close(_ session: InsightSession) {
         let id = session.id
         tasks.store(Task { [weak self] in
-            self?.page?.releaseInsightBlobs()
+            self?.blobReleases.send()
             await session.cancel()
             self?.host?.removeInsightTab(sessionID: id)
         }, for: "insight.close.\(id)")

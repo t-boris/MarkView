@@ -137,7 +137,7 @@ final class CockpitSession: ObservableObject {
     func loadAgents() async -> [CockpitAgentChoice] {
         let root = self.root
         var found: [CockpitAgentChoice] = []
-        for tool in CLITool.allCases where BrowserControlServer.agentToolsEnabled(tool) {
+        for tool in CLITool.allCases where tool.agentToolsEnabled {
             guard await CLIToolLocator.resolveThorough(tool) != nil else { continue }
             let models = await Task.detached { AIAssistantPreferences.modelOptions(for: tool) }.value
             let defaultModel = AIAssistantPreferences.model(for: tool, project: root) ?? AIAssistantPreferences.configuredModel(for: tool)

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 // Recursive Insight of a window (AR-14 step 2): the shipping InsightCoordinator, InsightArchiveExport, InsightSession and
@@ -51,11 +52,15 @@ final class StubHost: InsightHost {
     }
 }
 
+/// The editor page: it listens to the coordinator while an insight tab is routed, and records that it was asked to drop the blobs.
 @MainActor
-final class StubPage: InsightPage {
+final class StubPage {
     let host: StubHost
-    init(host: StubHost) { self.host = host }
-    func releaseInsightBlobs() { host.events.append("release") }
+    private var listening: AnyCancellable?
+    init(host: StubHost, coordinator: InsightCoordinator) {
+        self.host = host
+        listening = coordinator.blobReleases.sink { [weak self] in self?.host.events.append("release") }
+    }
 }
 
 func skeleton(title: String, topics: [String]) -> InsightSkeleton {
@@ -185,8 +190,7 @@ func run() async {
     host.active = session
     let tasks = TaskBag()
     let coordinator = InsightCoordinator(host: host, project: project, tasks: tasks)
-    let page = StubPage(host: host)
-    coordinator.page = page
+    let page = StubPage(host: host, coordinator: coordinator)
     let sid = session.id.uuidString
 
     coordinator.didRequestInsightDeepDive(sessionId: UUID().uuidString, sectionId: "s1", topicIndex: 0)
@@ -238,6 +242,7 @@ func run() async {
     check(await waitUntil { host.sessions.isEmpty }, "the tab is removed once the session has ended")
     check(host.events == ["release", "remove"], "the page releases its blobs before the tab is removed (events: \(host.events))")
     check((try? cache.readNode(nodeId: rootId)) == liveRootBefore, "closing keeps the cache, so reopening the folder's insight reuses it")
+    withExtendedLifetime(page) {}
 }
 
 let semaphore = DispatchSemaphore(value: 0)

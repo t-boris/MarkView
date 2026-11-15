@@ -8,7 +8,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library -o "$out/document-translator-tests" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/Workspace/DocumentTranslator.swift MarkView/Models/Workspace/MarkdownDocumentChunker.swift MarkView/Models/Workspace/ProjectProviding.swift \
+    MarkView/Models/Workspace/DocumentTranslator.swift MarkView/Models/Insight/SemanticUsage.swift MarkView/Models/Workspace/MarkdownDocumentChunker.swift MarkView/Models/Workspace/ProjectProviding.swift \
     MarkView/Models/AI/AIOperation.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/ACPAssistant.swift \
     MarkView/Models/AI/AgentProcesses.swift MarkView/Models/AI/Providers/*.swift tools/tests/CLICompletionTestSupport.swift \
     MarkView/Models/Workspace/DocumentState.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Workspace/TabClosing.swift \

@@ -12,6 +12,12 @@ cp tools/tests/AITerminalsControllerTests.swift "$out/main.swift"
 cat > "$out/Stub.swift" <<'SWIFT'
 import Foundation
 
+@MainActor
+protocol TerminalLinkTarget: AnyObject {
+    func openFile(_ url: URL, line: Int?, endLine: Int?)
+    func openInAppBrowser(_ url: URL)
+}
+
 /// A terminal that starts no shell: it records what the controller asked of it.
 @MainActor
 final class TerminalSession: NSObject, ObservableObject, Identifiable {
@@ -29,8 +35,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     var isRemote: Bool { connection != nil }
     @Published var remoteConnectionState: RemoteConnectionState?
     var onOutput: ((Data) -> Void)?
-    var openFile: ((URL, Int?) -> Void)?
-    var openInAppBrowser: ((URL) -> Void)?
+    private(set) weak var links: (any TerminalLinkTarget)?
     var browserWindowID: UUID?
     var shellPID: pid_t { 0 }
     var running = false
@@ -43,7 +48,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     var adopted: [(model: String, title: String)] = []
 
     init(directory: URL, profile: TerminalProfile = .shell, startupCommand: String? = nil, resumeCommand: String? = nil,
-         title: String? = nil, model: String? = nil) {
+         title: String? = nil, model: String? = nil, links: (any TerminalLinkTarget)? = nil) {
+        self.links = links
         self.directory = directory
         self.profile = profile
         self.startupCommand = startupCommand
@@ -89,11 +95,18 @@ final class RemoteConnectionsStore {
     func update(_ id: UUID, _ phase: RemoteConnectionState.Phase, _ detail: String) {}
 }
 
-enum BrowserControlServer {
-    static func agentToolsEnabled(_ tool: CLITool) -> Bool { true }
-    static func agentToolsKey(_ tool: CLITool) -> SettingsKey<Bool> { Setting.browserAgentTools(tool.rawValue) }
-    static func mcpArguments(window id: UUID, flag: String = "--mcp-browser") -> (command: String, args: [String])? {
-        ("/usr/local/bin/markview", [flag, "--window", id.uuidString])
+extension CLITool {
+    var agentToolsEnabled: Bool { true }
+    var agentToolsKey: SettingsKey<Bool> { Setting.browserAgentTools(rawValue) }
+}
+enum AgentToolServer {
+    static func mcpServers(window id: UUID, includingBrowser: Bool) -> [AgentMCPServer] {
+        func server(_ name: String, _ tomlName: String, _ flag: String, _ label: String) -> AgentMCPServer {
+            AgentMCPServer(name: name, tomlName: tomlName, flag: flag, label: label,
+                           command: "/usr/local/bin/markview", args: [flag, "--window", id.uuidString])
+        }
+        return (includingBrowser ? [server(BrowserAgentTools.serverName, "markview_browser", "--mcp-browser", "browser")] : [])
+            + [server(ProjectAgentTools.serverName, ProjectAgentTools.serverName, "--mcp-project", "project")]
     }
 }
 enum BrowserAgentTools {
@@ -124,9 +137,9 @@ swiftc -o "$out/ai-terminals-controller-tests" -target "$(uname -m)-apple-macos1
     MarkView/Models/Workspace/ProjectProviding.swift \
     MarkView/Models/Remote/RemoteAssistantHost.swift MarkView/Models/Remote/RemoteProtocol.swift \
     MarkView/Models/Remote/RemoteConnectionState.swift \
-    MarkView/Models/AI/AgentActivityMonitor.swift \
+    MarkView/Models/Terminal/AgentActivityMonitor.swift \
     MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/Providers/*.swift \
     MarkView/Models/AI/AICallLog.swift MarkView/Models/AI/AgentProcesses.swift MarkView/Models/AI/AIOperation.swift \
-    MarkView/Models/AI/OutputLanguage.swift MarkView/Models/Workspace/TaskBag.swift MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/Appearance/ProjectColor.swift \
+    MarkView/Models/AI/OutputLanguage.swift MarkView/Models/Workspace/TaskBag.swift MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/AI/LinkedFolderStore.swift MarkView/Models/Appearance/ProjectColor.swift \
     "$out/Stub.swift" "$out/main.swift"
 "$out/ai-terminals-controller-tests"

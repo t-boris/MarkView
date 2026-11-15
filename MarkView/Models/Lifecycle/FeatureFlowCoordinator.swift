@@ -31,9 +31,9 @@ protocol FeatureFlowTabs: AnyObject {
 @MainActor
 final class FeatureFlowCoordinator: ObservableObject {
     /// Feature workspaces of the folder (docs/features/<slug>/…).
-    let features = FeatureStore()
+    let features: FeatureStore
     /// Pull requests, issues and Actions of the folder's GitHub repository.
-    let gitHub = GitHubStore()
+    let gitHub: GitHubStore
     /// This window's bug basket for batch Fix with AI (issue #31); a new folder empties it.
     private(set) lazy var bugBatch = BugBatch(store: features)
 
@@ -52,6 +52,9 @@ final class FeatureFlowCoordinator: ObservableObject {
     private var gitHubRoot: URL?
     /// Watches the Settings switch (every window follows it).
     private var gitHubSettingObserver: SettingsObserver?
+    /// What follows the folder's repository: the Git client's branch reaches GitHub, and each poll reaches the lifecycle of the features.
+    private var branchFollower: AnyCancellable?
+    private var pollFollower: AnyCancellable?
 
     init(project: any ProjectProviding, assistants: any AssistantProviding & AssistantPrompting, tabs: any FeatureFlowTabs,
          requests: WindowRequests, layout: PanelLayout, chrome: WindowChrome, gitClient: GitClient, research: ResearchMapController) {
@@ -63,6 +66,9 @@ final class FeatureFlowCoordinator: ObservableObject {
         self.chrome = chrome
         self.gitClient = gitClient
         self.research = research
+        let gitHub = GitHubStore()
+        self.gitHub = gitHub
+        features = FeatureStore(gitHub: gitHub)
     }
 
     // MARK: - Folder and window
@@ -74,15 +80,14 @@ final class FeatureFlowCoordinator: ObservableObject {
         features.setup(root: root)
         if newFolder { bugBatch.reset() }
         features.assistant.project = project
-        features.assistant.gitHubClient = { [weak self] in self?.gitHub.client }
     }
 
     /// Find the folder's GitHub repository and follow the current branch's CI, only when the integration is turned on in Settings
     /// (MarkView stays a plain viewer otherwise).
     private func setUpGitHub(at root: URL) {
         gitHubRoot = root
-        gitClient.onBranch = { [weak self] branch in self?.gitHub.branchChanged(branch) }
-        gitHub.onPoll = { [weak self] client in self?.features.syncLifecycle(with: client) }
+        branchFollower = gitClient.branchReports.sink { [weak self] branch in self?.gitHub.branchChanged(branch) }
+        pollFollower = gitHub.polls.sink { [weak self] client in self?.features.syncLifecycle(with: client) }
         if gitHubSettingObserver == nil {
             // The Settings switch is one for every window: a change of its value looks again at it.
             gitHubSettingObserver = SettingsObserver([Setting.gitHubEnabled.erased]) { [weak self] in

@@ -1635,7 +1635,7 @@ final class ArchitectureStore: ObservableObject {
                               root: rootPath, outlining: Array(outlining), activateFilter: filters.activateFilter,
                               searchSummaries: filters.searchSummaries, searchAnswers: filters.searchAnswers,
                               understandingAnswers: filters.understandingAnswers, edgeNotes: edgeNotes,
-                              codeSequenceDiagrams: (snapshot?.codeSequences ?? []).map { CodeArchitecture.sequenceMermaid($0.diagram) },
+                              codeSequenceDiagrams: (snapshot?.codeSequences ?? []).map { DiagramAI.sequenceMermaid($0.diagram) },
                               automaticState: AutomaticStatePayload(automaticState),
                               automaticAnalysis: projectRoot == nil,
                               codeSequenceInfo: (snapshot?.codeSequences ?? []).map { sequence in

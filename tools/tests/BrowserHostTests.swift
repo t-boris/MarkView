@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 // The browser of a window (AR-14 step 9): the shipping `BrowserHost` over the shipping tabs (`TabsController`), panels, project web-app
-// discovery and control window (`BrowserControlServer.Window`), on real temporary folders and a real local port. The tab itself (a WebKit
+// discovery and control window (`AgentToolWindow`), on real temporary folders and a real local port. The tab itself (a WebKit
 // view), the terminals and the stores the control tools reach are stand-ins (`BrowserHostStubs.swift`); no page is loaded and no window
 // is shown.
 
@@ -253,23 +253,33 @@ func localHTML() {
 func control() async {
     print("-- control by agents")
     let rig = Rig()
-    BrowserControlServer.registered = [:]
+    AgentToolServer.registered = [:]
     rig.browser.register()
-    guard let window = BrowserControlServer.registered[rig.browser.controlID] else { check(false, "the window is registered"); return }
+    guard let window = AgentToolServer.registered[rig.browser.controlID] else { check(false, "the window is registered"); return }
     check(window.workspace() === rig.window.workspace && window.root() == rig.folder, "the control tools reach the window's workspace and folder")
     check(window.features() === rig.window.features && window.deployments() === rig.window.deployments && window.discussions() === rig.window.discussions,
           "and the stores of the window")
-    check(window.tabs().isEmpty && window.active() == nil, "no browser tab, no active one")
-    let opened = window.open(URL(string: "https://example.com/")!, "Jira")
-    check(opened.agentName == "Jira" && window.tabs().map(\.id) == [opened.id] && window.active() === opened, "an agent opens a named tab, which is the active one")
+    let none = await window.browser("browser_tabs", [:])
+    check(!none.isError && none.text.contains("No browser tabs are open") && rig.sessions.isEmpty, "no browser tab, none listed")
+    let opened = await window.browser("browser_open_tab", ["url": "https://example.com/", "name": "Jira"])
+    check(!opened.isError && opened.text.hasPrefix("Opened tab Jira.") && rig.sessions.map(\.agentName) == ["Jira"] && rig.sessions[0].url == URL(string: "https://example.com/"),
+          "an agent opens a named tab on an address")
+    let listed = await window.browser("browser_tabs", [:])
+    check(listed.text.contains("Jira") && listed.text.contains("[active]"), "which is the active one")
     write("note", to: rig.folder.appendingPathComponent("note.md"))
     await rig.tabs.openTextFile(rig.folder.appendingPathComponent("note.md"))
-    check(window.active() == nil, "a document in front is no active browser tab")
-    window.show(opened)
-    check(window.active() === opened, "the agent can bring its tab to the front")
-    let unnamed = window.open(nil, nil)
-    check(unnamed.agentName == "T1", "a tab opened without a name gets the next free one")
-    BrowserControlServer.registered = [:]
+    check(!(await window.browser("browser_tabs", [:])).text.contains("[active]"), "a document in front is no active browser tab")
+    let ran = await window.browser("browser_snapshot", ["tab": "Jira"])
+    check(ran.text == "browser_snapshot ran in Jira" && rig.tabs.activeTabIndex == 0 && rig.sessions[0].agentLastUsed != nil,
+          "a tool runs in the tab it names, brings it to the front and marks it used")
+    let unnamed = await window.browser("browser_open_tab", [:])
+    check(unnamed.text == "Opened tab T1." && rig.sessions.map(\.agentName) == ["Jira", "T1"], "a tab opened without a name gets the next free one")
+    let missing = await window.browser("browser_click", ["tab": "Nowhere"])
+    check(missing.isError && missing.text.contains("No single browser tab matches"), "a tab that does not exist is refused with the list of the open ones")
+    rig.sessions[0].agentStopped = true
+    let stopped = await window.browser("browser_click", ["tab": "Jira"])
+    check(stopped.isError && stopped.text.contains("stopped agent control"), "a tab the user stopped is not driven")
+    AgentToolServer.registered = [:]
 }
 
 // MARK: Preview Web App

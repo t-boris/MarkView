@@ -158,7 +158,7 @@ enum ToolTabsRouterChecks {
         // The Deployments store asks for its tab when an approval waits.
         rig.tabs.closeTab(at: rig.tabs.openTabs.firstIndex { $0.kind.toolID == .deployments }!)
         check(rig.tabs(of: .deployments).isEmpty, "the Deployments tab closes")
-        router.deployments.store.onNeedsAttention?()
+        router.deployments.store.needsAttention.send()
         check(rig.tabs(of: .deployments).count == 1 && rig.tabs.activeTab?.kind.toolID == .deployments, "a waiting approval brings the Deployments tab back")
 
         // The folder opens and closes under the stores, tabs or none.

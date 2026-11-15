@@ -115,6 +115,8 @@ struct EditorView: NSViewRepresentable {
         /// every kind switch (and on switch to a different insight session) to avoid
         /// retain cycles and stale forwarding.
         var insightCancellables = Set<AnyCancellable>()
+        /// Listens for the close of an insight tab; kept while the page lives, whatever tab is shown (the blobs outlive the tab).
+        private var insightBlobRelease: AnyCancellable?
         /// Re-renders the Architecture tab whenever `ArchitectureStore` changes.
         private var architectureCancellable: AnyCancellable?
         /// Which X-Ray the subscription above follows ("" = the project's).
@@ -488,9 +490,6 @@ struct EditorView: NSViewRepresentable {
         /// Follows the job list while a research map is on screen: the step the assistant is on changes
         /// without the file changing, and the map view shows it.
         func followResearchMapJobs() {
-            parent.workspaceManager.research.pdfExporter = { [weak self] markdown, fileName in
-                self?.exportResearchMapPDF(markdown, fileName: fileName) ?? false
-            }
             guard researchMapJobsCancellable == nil else { return }
             researchMapJobsCancellable = parent.workspaceManager.research.jobs.$jobs
                 .throttle(for: .milliseconds(500), scheduler: DispatchQueue.main, latest: true)
@@ -602,9 +601,9 @@ struct EditorView: NSViewRepresentable {
             currentDocumentBaseURL = nil
 
             // The coordinator's ordered close (Decision 11 §4, step 1) asks this page to revoke the session's blob URLs
-            // BEFORE `await session.cancel()` allows new Combine emissions. The page is held weakly; once its web view
+            // BEFORE `await session.cancel()` allows new Combine emissions. The page listens until it is gone; once its web view
             // is gone, closing the tab frees the blobs anyway.
-            self.parent.workspaceManager.insight.page = self
+            insightBlobRelease = self.parent.workspaceManager.insight.blobReleases.sink { [weak self] in self?.releaseInsightBlobs() }
 
             // Skeleton paint. compactMap drops the initial `nil` (T6 init) so the
             // iframe srcdoc is built only when a real skeleton is available. Reset
@@ -877,16 +876,6 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         }
     }
 
-    /// The report of a research map is printed from its Markdown by the PDF pipeline of the editor.
-    /// Returns false when there is no editor page to take the request.
-    @MainActor
-    func exportResearchMapPDF(_ markdown: String, fileName: String) -> Bool {
-        guard self.webView != nil else { return false }
-        let title = (fileName as NSString).deletingPathExtension
-        PDFExporter.exportPDF(markdown: markdown, title: title, fileName: fileName, baseURL: currentDocumentBaseURL, documentFiles: documentFiles)
-        return true
-    }
-
     func bridge(_ bridge: WebViewBridge, didReceiveArchitectureAction action: String, payload: [String: Any]) {
         Task { @MainActor in
             self.parent.workspaceManager.codeXRay.handleArchitectureAction(action, payload: payload)
@@ -1080,9 +1069,9 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     }
 }
 
-extension EditorView.Coordinator: InsightPage {
+extension EditorView.Coordinator {
     /// Revokes the blob URLs the insight iframe made for its vendored libraries (the first step of closing an insight tab).
-    func releaseInsightBlobs() {
+    fileprivate func releaseInsightBlobs() {
         guard let webView else { return }
         bridge.releaseInsightBlobs(into: webView)
     }

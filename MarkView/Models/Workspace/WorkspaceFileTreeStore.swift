@@ -18,9 +18,10 @@ final class WorkspaceFileTreeStore: ObservableObject {
         }
     }
 
-    var shouldAutoRefresh: () -> Bool = { true }
-    /// Called on every beat of the watcher's timer (the Git status changes without the top folder changing).
-    var onTimer: () -> Void = {}
+    /// True while the folder is still being opened (its index is being built): the watcher leaves the tree alone until it is done.
+    var autoRefreshPaused = false
+    /// One beat of the watcher's timer (the Git status changes without the top folder changing); the window follows it.
+    let timerBeats = PassthroughSubject<Void, Never>()
 
     private var fileWatcher: DispatchSourceFileSystemObject?
     private var fileWatchTimer: Timer?
@@ -162,7 +163,7 @@ final class WorkspaceFileTreeStore: ObservableObject {
             self.fileWatchDebounce?.cancel()
 
             let work = DispatchWorkItem { [weak self] in
-                guard let self, self.shouldAutoRefresh() else { return }
+                guard let self, !self.autoRefreshPaused else { return }
                 self.reloadFileTree()
             }
 
@@ -179,9 +180,9 @@ final class WorkspaceFileTreeStore: ObservableObject {
     }
 
     private func checkForFileTreeChanges() {
-        onTimer()
+        timerBeats.send()
         guard let rootURL = rootNode?.url else { return }
-        guard shouldAutoRefresh() else { return }
+        guard !autoRefreshPaused else { return }
         // Clear cached resource values so we see fresh modification dates
         (rootURL as NSURL).removeCachedResourceValue(forKey: .contentModificationDateKey)
         guard let modDate = rootModificationDate(for: rootURL) else { return }

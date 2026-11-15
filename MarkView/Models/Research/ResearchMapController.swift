@@ -39,12 +39,15 @@ protocol ResearchHost: AnyObject, Sendable {
     /// Before a research job reads `file`: unsaved edits in its tab are saved, or the person cancels. True when the disk is current.
     func saveBeforeResearch(_ file: URL, action: String) -> Bool
     /// A research job rewrote `file` on disk: its tab shows the new text; a tab with unsaved edits gets `applyToEdited` applied.
-    func researchDocumentChanged(_ file: URL, content: String, applyToEdited: (String) -> String?)
+    /// False when that tab has unsaved edits that conflict with the change: it is left as it was.
+    func researchDocumentChanged(_ file: URL, content: String, applyToEdited: (String) -> String?) -> Bool
+    /// The report of the research map `mapFile` (Markdown) is printed as a PDF, and the person is asked where to save it.
+    func exportResearchPDF(_ markdown: String, fileName: String, near mapFile: URL)
 }
 
 /// The research maps of one window (feature mind-map, DEC-006, DEC-009): the single writer of a map file, the snapshot the page
 /// draws, the actions the page sends, and the AI jobs that work on maps and research documents (`jobs`). It owns what a job
-/// hands to the next snapshot (the node it added, the notice it ends with) and the PDF renderer of the editor page. The window
+/// hands to the next snapshot (the node it added, the notice it ends with). The window
 /// is reached only through `ResearchHost` and the open project through `ProjectProviding` (its folder, and its database where the
 /// assistant's runs are recorded); the jobs' tasks are in the window's `TaskBag`.
 @MainActor
@@ -66,8 +69,6 @@ final class ResearchMapController {
     var jobCreated: [String: String] = [:]
     /// What an AI job tells the person when it ends (by map path); the next snapshot of that map carries it to the page as a notice.
     var jobNotice: [String: String] = [:]
-    /// Set by the editor view: makes the PDF of a report (Markdown, file name) with the editor page's renderer and asks where to save it.
-    var pdfExporter: ((String, String) -> Bool)?
 
     init(host: ResearchHost, project: any ProjectProviding, tasks: TaskBag) {
         self.host = host

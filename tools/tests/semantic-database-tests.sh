@@ -12,7 +12,7 @@ trap 'rm -rf "$out"' EXIT
 cp tools/tests/SemanticDatabaseTests.swift "$out/main.swift"
 swiftc -O -o "$out/check" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/Insight/SemanticDatabase.swift MarkView/Models/Insight/SemanticSchema.swift MarkView/Models/Insight/SemanticModels.swift \
+    MarkView/Models/Insight/SemanticDatabase.swift MarkView/Models/Architecture/SemanticDatabase+Architecture.swift MarkView/Models/Insight/SemanticSchema.swift MarkView/Models/Insight/SemanticModels.swift \
     MarkView/Models/Architecture/ArchitectureModel.swift MarkView/Models/Architecture/CodeArchitecture.swift \
     MarkView/Models/Architecture/CodePathTags.swift MarkView/Models/Architecture/AutoAnalysisScheduler.swift \
     MarkView/Models/AI/DiagramAI.swift MarkView/Models/AI/AIOperation.swift tools/tests/DiagramCLIStub.swift tools/tests/SemanticDatabaseTestSupport.swift \

@@ -6,10 +6,14 @@ import Foundation
 import WebKit
 
 /// Stand-in for the app's terminal (the bridge only needs its id and handler).
+@MainActor protocol TerminalLinkTarget: AnyObject {
+    func openFile(_ url: URL, line: Int?, endLine: Int?)
+    func openInAppBrowser(_ url: URL)
+}
+
 @MainActor final class TerminalSession {
     let id = UUID()
-    var openInAppBrowser: ((URL) -> Void)?
-    var openFile: ((URL, Int?) -> Void)?
+    var links: (any TerminalLinkTarget)?
     var shellPID: pid_t = 0
     var browserWindowID: UUID?
 }

@@ -42,7 +42,7 @@ final class CockpitAgentAttempt {
     func run(_ task: CockpitHostTask) async -> CockpitHostReply {
         guard !Task.isCancelled, let assistants,
               let tool = CLITool.allCases.first(where: { $0.displayName == task.step.agent }),
-              BrowserControlServer.agentToolsEnabled(tool),
+              tool.agentToolsEnabled,
               let terminal = assistants.openAITerminal(TerminalProfile(tool), resuming: false, model: stepModel) else {
             return Self.failure("The assigned agent or its MarkView project tools are unavailable.")
         }

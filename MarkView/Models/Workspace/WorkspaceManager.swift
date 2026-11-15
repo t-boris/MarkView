@@ -28,33 +28,36 @@ enum WorkspaceAITool: String {
     }
 }
 
-/// Manages the workspace state including open files, tabs, and folder structure
+/// The observable face of one window. The window is made of parts (tabs, panels, project, terminals, browser, X-Ray, feature flow, ...)
+/// built in one place, `WindowComposition` (`AR-17`); this class holds them for the views that observe it, conforms to the narrow host
+/// protocols the parts ask of their window, and carries the window's own commands: open or close a folder, open a file in its ways,
+/// remove the folder's metadata.
 @MainActor
-class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, WindowSessionHost, ToolTabsWindow {
-    /// The open project: its folder and tree, linked and excluded folders, search database, index and recents (`AR-14` step 8).
-    let project = ProjectContext()
-    /// Which tab each panel of this window shows; never shared with other windows (BUG-004).
-    let layout = PanelLayout()
-    /// Everything else this window shows of itself (expanded sections, widths, panel modes); never shared with other windows.
-    let windowUI = WindowUIState()
-    /// The panels of this window that are shown. Views that draw or toggle them observe this object, not the manager (`AR-14`).
-    let chrome = WindowChrome()
-    /// What this window was asked to show in a sheet, popover or alert; never shared with other windows (`AR-14`).
-    let requests = WindowRequests()
-    /// The theme of this window; a change here leaves every other window alone.
-    let theme = WindowTheme()
-    /// The tabs of this window. Views that show them observe this object, not the manager (`AR-15`).
-    let tabs = TabsController()
-    /// Keyed cancellable background task bag owned by this window (`AR-19`).
-    let taskBag = TaskBag()
-    /// AI tool runs working in a headless agent (diagrams, code map, review, audit).
-    let aiJobs = AIToolJobs()
+class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, WindowSessionWindow, ToolTabsWindow {
+    /// The parts of this window. The one late binding of the window: each part is given this object through its own narrow protocol.
+    private(set) lazy var composition = WindowComposition(host: self)
+
+    var project: ProjectContext { composition.project }
+    var layout: PanelLayout { composition.layout }
+    var windowUI: WindowUIState { composition.windowUI }
+    var chrome: WindowChrome { composition.chrome }
+    var requests: WindowRequests { composition.requests }
+    var theme: WindowTheme { composition.theme }
+    var tabs: TabsController { composition.tabs }
+    var taskBag: TaskBag { composition.taskBag }
+    var aiJobs: AIToolJobs { composition.aiJobs }
+    var gitClient: GitClient { composition.gitClient }
+    var research: ResearchMapController { composition.research }
+    var flow: FeatureFlowCoordinator { composition.flow }
+    var fileOperations: FileOperationsController { composition.fileOperations }
+    var translator: DocumentTranslator { composition.translator }
+    var terminals: AITerminalsController { composition.terminals }
+    var browser: BrowserHost { composition.browser }
+    var codeXRay: CodeAndXRayCoordinator { composition.codeXRay }
+    var insight: InsightCoordinator { composition.insight }
+    var toolTabs: ToolTabsRouter { composition.toolTabs }
 
     // MARK: - Tool tabs
-
-    /// The tools of this window: the tab of each tool of `ToolRegistry`, and the stores that need wiring to the project (`AR-14` step 10).
-    private(set) lazy var toolTabs = ToolTabsRouter(window: self, project: project, tabs: tabs, layout: layout, chrome: chrome,
-                                                    requests: requests, features: flow.features, assistants: terminals)
 
     /// Opens the tab of a tool of `ToolRegistry`, or returns to it.
     func openTool(_ id: ToolID) { toolTabs.open(id) }
@@ -83,39 +86,18 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
     func presentPDFBook(_ urls: [URL]? = nil) {
         let sources: [URL]
         if let urls { sources = urls }
-        else if openTabs.indices.contains(activeTabIndex), case .file = openTabs[activeTabIndex].kind { sources = [openTabs[activeTabIndex].url] }
+        else if tabs.openTabs.indices.contains(tabs.activeTabIndex), case .file = tabs.openTabs[tabs.activeTabIndex].kind { sources = [tabs.openTabs[tabs.activeTabIndex].url] }
         else { sources = [] }
         requests.pdfBookSelection = BookPDFSelection(urls: sources)
     }
 
     var pdfBookDrafts: [String: String] {
         var result: [String: String] = [:]
-        for tab in openTabs where tab.isModified { if case .file = tab.kind { result[tab.url.path] = tab.content } }
+        for tab in tabs.openTabs where tab.isModified { if case .file = tab.kind { result[tab.url.path] = tab.content } }
         return result
     }
-    /// The Git state of this window. Views that show it observe this object, not the manager (`AR-15`).
-    let gitClient = GitClient()
-    /// Research of this window: the maps, and the jobs for new research, follow-ups and comments (docs/research/).
-    private(set) lazy var research = ResearchMapController(host: self, project: project, tasks: taskBag)
-    /// The feature flow: the feature workspaces and the GitHub repository of the folder, intake, "Implement with AI" and "Fix with AI",
-    /// and the bug basket (`AR-14` step 9).
-    private(set) lazy var flow = FeatureFlowCoordinator(project: project, assistants: terminals, tabs: self, requests: requests, layout: layout,
-                                                        chrome: chrome, gitClient: gitClient, research: research)
-    /// Creates, renames, moves, copies and trashes the files of the project, with the tabs that follow or close (`AR-14` step 2).
-    private(set) lazy var fileOperations = FileOperationsController(host: self, tabs: tabs, project: project)
-    /// Translates documents into another language and opens the result in a new tab (`AR-14` step 1).
-    private(set) lazy var translator = DocumentTranslator(tabs: tabs, project: project, tasks: taskBag)
-    /// The terminals of this window: the AI panel's, the editor tabs', the AI terminals that come back across launches, and what the
-    /// assistants are doing.
-    private(set) lazy var terminals = AITerminalsController(host: self, project: project, tasks: taskBag)
-    /// The browser of this window: its tabs, what agents drive of them, Preview Web App and the picked page element (`AR-14` step 9).
-    private(set) lazy var browser = BrowserHost(tabs: tabs, layout: layout, chrome: chrome, project: project, terminals: terminals, window: self)
-    /// Code explanations, code navigation, the X-Ray tabs and the AI actions on selected text (`AR-14` step 11).
-    let codeXRay: CodeAndXRayCoordinator
     /// Team-shared operation definitions and the process registry for this workspace root.
     @Published private(set) var projectOperations: ProjectOperationsStore?
-    /// Recursive Insight of this window (`AR-14`): its graph engine runs over the project's database.
-    private(set) lazy var insight = InsightCoordinator(host: self, project: project, tasks: taskBag)
     private var cancellables: Set<AnyCancellable> = []
 
     // The project is read through `project` (`ProjectProviding`). These four read-only aliases stay for the code of the regions
@@ -125,15 +107,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
     var aiProject: URL? { project.aiProject }
     var semanticDatabase: SemanticDatabase? { project.database }
 
-    /// The tabs of this window for the code that is not a view. A view that shows tabs observes `tabs` itself: reading them
-    /// through the manager would not redraw it (`AR-15`).
-    var openTabs: [OpenTab] { tabs.openTabs }
-
-    var activeTabIndex: Int {
-        get { tabs.activeTabIndex }
-        set { tabs.activeTabIndex = newValue }
-    }
-
+    /// The tab the person is looking at. A view that shows tabs observes `tabs` itself: reading them through the manager would not
+    /// redraw it (`AR-15`).
     var activeTab: OpenTab? { tabs.activeTab }
 
     func showGitHubTab(_ item: GitHubItem, root: URL) { tabs.showGitHubTab(item, root: root) }
@@ -148,53 +123,9 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
 
     init() {
         Self.debugLog("WorkspaceManager init START")
-        codeXRay = CodeAndXRayCoordinator(project: project)
-        codeXRay.host = self
-        // The X-Ray of this window follows the repository the GitHub integration works with (the PR X-Ray reads it).
-        flow.gitHub.$selectedRepo
-            .sink { [weak self] repo in self?.codeXRay.architecture.review.gitHubRepo = repo }
-            .store(in: &cancellables)
-
-        project.fileTree.onTimer = { [weak self] in
-            guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating, NSApp.isActive else { return }
-            Task { await self.gitClient.refreshStatus() }
-        }
-        project.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-            .store(in: &cancellables)
-        codeXRay.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-            .store(in: &cancellables)
-        tabs.events
-            .sink { [weak self] event in
-                guard let self else { return }
-                switch event {
-                case .saved(let url):
-                    // A file saved inside the project is a change the automatic code analysis refreshes
-                    // from (REQ-002), at once rather than after the change watcher's latency.
-                    if let root = self.rootNode?.url.standardizedFileURL.path, url.standardizedFileURL.path.hasPrefix(root + "/") {
-                        self.codeXRay.architecture.noteProjectChanged()
-                    }
-                case .reloadedFromDisk:
-                    self.refreshFileTree()
-                case .terminalClosed(let id):
-                    self.terminals.closeTabTerminal(id)
-                case .insightClosed(let session):
-                    self.insight.close(session)
-                }
-            }
-            .store(in: &cancellables)
-        // Edits made outside MarkView (an agent, a terminal) change the status: look again when the
-        // app comes back to the front.
-        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
-            .sink { [weak self] _ in
-                guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating else { return }
-                Task { await self.gitClient.refresh() }
-            }
+        composition.connect()
+        composition.changes
+            .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
         Self.debugLog("WorkspaceManager init DONE")
     }
@@ -300,6 +231,12 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
     var windowFolder: URL? { rootNode?.url }
     var themeSettings: WindowThemeSettings { theme.settings }
 
+    var sessionChanges: AnyPublisher<Void, Never> {
+        objectWillChange.map { _ in () }.merge(with: composition.sessionChanges).eraseToAnyPublisher()
+    }
+
+    func windowWillClose() { composition.close() }
+
     func terminalDirectory(for id: UUID) -> URL? { terminals.tabTerminal(id)?.directory }
 
     func restoreArchitectureTab(scope: String) {
@@ -344,8 +281,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
         stopAllTerminals()
         project.stopIndexing()
         insight.cancelSessions()
-        let keep = openTabs.enumerated().filter { $0.element.isFileBacked }.map(\.offset)
-        for index in openTabs.indices.reversed() where !keep.contains(index) { tabs.removeTab(at: index) }
+        let keep = tabs.openTabs.enumerated().filter { $0.element.isFileBacked }.map(\.offset)
+        for index in tabs.openTabs.indices.reversed() where !keep.contains(index) { tabs.removeTab(at: index) }
         releaseWorkspaceEngines()
         codeXRay.reset()
 
@@ -488,8 +425,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
         if let root = rootNode?.url {
             candidates.append(root.appendingPathComponent(path))
         }
-        if activeTabIndex >= 0, activeTabIndex < openTabs.count {
-            let canvasDir = openTabs[activeTabIndex].url.deletingLastPathComponent()
+        if tabs.activeTabIndex >= 0, tabs.activeTabIndex < tabs.openTabs.count {
+            let canvasDir = tabs.openTabs[tabs.activeTabIndex].url.deletingLastPathComponent()
             candidates.append(canvasDir.appendingPathComponent(path))
         }
 
@@ -548,7 +485,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
                 return false
             }
         }
-        guard tabs.resolveUnsavedChanges(at: Array(openTabs.indices), before: "closing the folder") else { return false }
+        guard tabs.resolveUnsavedChanges(at: Array(tabs.openTabs.indices), before: "closing the folder") else { return false }
 
         Self.debugLog("closeFolder: \(rootNode?.url.path ?? "(no folder)")")
         Settings.standard.remove(Setting.lastFolder)
@@ -638,7 +575,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
     weak var hostWindow: NSWindow?
 
     /// A window with nothing open: no folder, no tab. Agents may open a project in it; they never replace a project.
-    var isBlank: Bool { rootNode == nil && openTabs.isEmpty }
+    var isBlank: Bool { rootNode == nil && tabs.openTabs.isEmpty }
 
     // MARK: - Terminal tabs
 
@@ -660,19 +597,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
         terminals.stopAll()
         tabs.stopWatchingOpenFiles()
     }
-
-    /// The open document, whole: the terminal writer delivers pastes of any length (BUG-002).
-    private func activeDocumentContext(contentOverride: String? = nil, defaultFileName: String = "project") -> (fileName: String, content: String) {
-        let fileName = activeTab?.url.lastPathComponent ?? defaultFileName
-
-        if let contentOverride {
-            return (fileName, contentOverride)
-        }
-
-        let content = activeTab?.content ?? ""
-        return (fileName, content)
-    }
-
 }
 
 /// What the terminals read of the window: the browser agents drive, and the editor (`AITerminalsController`).
@@ -700,13 +624,13 @@ extension AITerminalsController: DevServerTerminals {}
 extension WorkspaceManager: ResearchHost {
     func researchTab(for file: URL) -> ResearchTabText? {
         let path = file.standardizedFileURL.path
-        guard let tab = openTabs.first(where: { $0.isFileBacked && $0.url.standardizedFileURL.path == path }) else { return nil }
+        guard let tab = tabs.openTabs.first(where: { $0.isFileBacked && $0.url.standardizedFileURL.path == path }) else { return nil }
         return ResearchTabText(text: tab.content, isModified: tab.isModified)
     }
 
     func researchTabSaved(_ file: URL, text: String) {
         let path = file.standardizedFileURL.path
-        guard let index = openTabs.firstIndex(where: { $0.isFileBacked && $0.url.standardizedFileURL.path == path }) else { return }
+        guard let index = tabs.openTabs.firstIndex(where: { $0.isFileBacked && $0.url.standardizedFileURL.path == path }) else { return }
         tabs.updateTab(at: index) { tab in
             tab.content = text
             tab.originalContent = text
@@ -715,26 +639,30 @@ extension WorkspaceManager: ResearchHost {
     }
 
     func researchEditorFile(documentID: UUID?, event: String) -> URL? {
-        guard let index = tabs.editorTabIndex(documentID: documentID, event: event), openTabs[index].isFileBacked else { return nil }
-        return openTabs[index].url
+        guard let index = tabs.editorTabIndex(documentID: documentID, event: event), tabs.openTabs[index].isFileBacked else { return nil }
+        return tabs.openTabs[index].url
     }
 
     func researchWatchOpenFiles() { tabs.startWatchingOpenFiles() }
 
     func saveBeforeResearch(_ file: URL, action: String) -> Bool { tabs.saveBeforeReading(file, action: action) }
 
-    func researchDocumentChanged(_ file: URL, content: String, applyToEdited: (String) -> String?) {
+    func researchDocumentChanged(_ file: URL, content: String, applyToEdited: (String) -> String?) -> Bool {
         refreshFileTree()
-        if !tabs.fileRewritten(file, content: content, applyToEdited: applyToEdited) {
-            research.jobs.message = "\(file.lastPathComponent) was updated on disk, but its tab has unsaved edits that conflict; reload it to see the AI's change."
-        }
+        return tabs.fileRewritten(file, content: content, applyToEdited: applyToEdited)
+    }
+
+    func exportResearchPDF(_ markdown: String, fileName: String, near mapFile: URL) {
+        PDFExporter.exportPDF(markdown: markdown, title: (fileName as NSString).deletingPathExtension, fileName: fileName,
+                              baseURL: mapFile.deletingLastPathComponent(),
+                              roots: DocumentFiles.roots(project: project.root, documents: tabs.openTabs.filter(\.isFileBacked).map(\.url)))
     }
 }
 
 /// What Recursive Insight reads of the window and does to its tabs (`InsightCoordinator`).
 extension WorkspaceManager: InsightHost {
     var insightSessions: [InsightSession] {
-        openTabs.compactMap { tab in
+        tabs.openTabs.compactMap { tab in
             if case .insight(let session) = tab.kind { return session }
             return nil
         }
@@ -751,7 +679,7 @@ extension WorkspaceManager: InsightHost {
 
     func removeInsightTab(sessionID: UUID) {
         // The index is resolved now: tabs may have closed while the session was ending.
-        guard let index = openTabs.firstIndex(where: {
+        guard let index = tabs.openTabs.firstIndex(where: {
             if case .insight(let session) = $0.kind { return session.id == sessionID }
             return false
         }) else { return }
