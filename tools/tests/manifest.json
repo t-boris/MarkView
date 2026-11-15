@@ -198,6 +198,14 @@
       ]
     },
     {
+      "name": "build-warnings-tests",
+      "script": "tools/tests/build-warnings-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "tools/lint/build-warnings.sh"
+      ]
+    },
+    {
       "name": "archive-tests",
       "script": "tools/tests/archive-tests.sh",
       "tier": "pure",

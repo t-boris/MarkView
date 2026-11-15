@@ -1,0 +1,2 @@
+# Compiler warnings of the app target and of Packages/MarkViewCore (AR-43): `<count> <path>`, a ratchet that only falls.
+# No line means none allowed. Fix the warning instead of adding a line; run tools/lint/build-warnings.sh --tighten after removing one.
