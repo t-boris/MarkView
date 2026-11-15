@@ -1,3 +1,47 @@
+# Three new themes and four new welcome animations (2026-11-14, proposed 6.25.0)
+
+Boris: "add about three new themes and three new animations for the splash screen, the main screen; invent something interesting". Status: APPROVED by Boris's answers (themes: Nord + Forest + Daylight; animations: he ticked all four of Git Flow, Deep Sea, Warp, Typewriter, so all four are built, "about three" leaves room). Implementation in worktree `MarkView-welcome-themes`, branch `feat/welcome-animations-and-themes`.
+
+Reading of the request (to confirm): "themes" = window appearances in the theme picker (`AppTheme`, today 6 presets: 5 dark, only 1 light); "animations" = backdrops of the welcome screen (`WelcomeBackdrop`, today 9 animated + By Project, Shuffle, Off).
+
+## Themes (appended to the picker, all per-window like the others, DEC-002)
+
+| Theme | Mode | Idea | Accent |
+|---|---|---|---|
+| Nord | dark | arctic blue-grey, frost cyan (Nord palette family) | ~#88C0D0 |
+| Forest | dark | deep moss green, warm parchment text (first green theme) | ~#A7C080 |
+| Daylight | light | cool daylight grey-white, deep teal (a second light theme, cooler than warm Paper) | ~#0F766E |
+
+Final hex values are tuned by the existing contrast checks (body text and accent >= 4.5 on bg and sidebar), not guessed.
+
+- [ ] `Models/AppTheme.swift`: three cases, `displayName`, `summary`, `isPreset`, `isDark`, `webID`, `pickerChoices`, one `Base` palette each. Stored name of an unknown theme already falls back to Classic Dark, so no migration.
+- [ ] `Resources/Editor/vendor/js/markview-themes.js`: base + `t` + `syn` + `struct` + `term` tokens per theme (the web editor, code colours, terminal).
+- [ ] `tools/tests`: add the three to `ThemeModelTests` (presets), `ThemeWebTests` (Look list, compares Swift and JS base colours), `WindowThemeTests` (list).
+- [ ] Docs: `docs/architecture/modules/app-shell-and-workspace.md`, `editor-and-bridge.md`, README theme list.
+
+## Animations, four of them (Core Animation only, DEC-001: no frame timer, no display link, bounded layer counts, still picture for Reduce Motion)
+
+1. **Git Flow**: horizontal lanes of a commit graph; branches fork off and merge back along curves, commit dots pulse, the whole graph drifts left as a seamless loop (replicator + one translation). Colours from the theme (blue/green/purple/orange).
+2. **Deep Sea**: surface waves (path animation between two wave paths), swaying light rays from above, rising bubbles, a few jellyfish pulsing and drifting. Calm, cyan/blue/purple.
+3. **Warp**: hyperspace, streaks radiating from a drifting vanishing point with staggered speeds and a soft glow in the middle. Slow and low contrast on purpose (no flashing).
+
+4. **Typewriter**: lines of Markdown (headings, bullets, a code fence) drawn as text-like bars that are typed out left to right by a caret, then fade and scroll up; a blinking caret. Bars, not real text, so no document content is involved.
+
+Spare ideas: Snowfall, Paper Planes, Fireflies, Rainy Window.
+
+- [ ] `Models/WelcomeBackdrop.swift`: cases `gitflow`, `deepsea`, `warp`, `typewriter` with title and symbol, added to `animated` (so Shuffle includes them). By Project rules stay as they are.
+- [ ] `Views/BackdropLayerBuilders.swift`: dispatch; new files `Views/DevBackdropLayers.swift` (Git Flow, Typewriter) and `Views/AtmosphereBackdropLayers.swift` (Deep Sea, Warp) (project.yml and `MarkView.xcodeproj` kept aligned) with the four builders as a `BackdropBuilder` extension, `detail` 1...4 respected.
+- [ ] Background pill/menu picks the new cases up from `allCases`; check that the menu stays one screen tall.
+- [ ] `tools/tests/WelcomeScreenTests.swift`: new scenes in the dark / light / narrow checks, presentation-layer motion, changing rendered frames, layer-count bound, click-through, Reduce Motion.
+- [ ] `docs/architecture/modules/welcome-backdrops.md` (nine -> thirteen), README.
+
+## Verification and delivery
+
+- Pure + render checks: `theme-model-tests.sh`, `theme-web-tests.sh`, `window-theme-tests.sh`, `welcome-screen-tests.sh` with `SNAPSHOT_DIR` and I look at the pictures of each scene in a dark and a light theme; every script of every triggered workflow; Debug build.
+- Real app, invisibly (app-probe, alpha-0 window, empty HOME): each new backdrop and theme selected, layers move, hit test nil; CPU of the app idle with each new scene for ~10 s (BUG-117 lesson).
+- Delivery per CLAUDE.md: branch `feat/welcome-animations-and-themes`, `./bump-version.sh minor` (6.25.0), one PR, merge, `./release.sh --publish` from a clean worktree, remove my worktree. Boris installs; I do not touch the running app.
+- Not verifiable by me: how the scenes look on a real display, WindowServer cost, taste.
+
 # Antigravity usage next to Claude and Codex in the top bar (2026-11-14, 6.24.0)
 
 Boris: show how much Antigravity quota is left in the top bar, in parallel with Claude and Codex. Research (memory `antigravity-usage-source-agy-usage`): `agy --output-format json -p "/usage"` is a free, structured source (about 2 s, no model tokens, no conversation). Boris approved the proposal as written ("Да, делай так, как предложил"); the headline window is the most used one, like Claude and Codex.
