@@ -2,33 +2,38 @@ import CryptoKit
 import Darwin
 import Foundation
 
-/// Atomic file writer with parent directory creation and POSIX permissions set before rename (`AR-24`, `FU-04`).
+/// Atomic file writer (`AR-24`, `FU-04`, `FU-23`): the data is written to a private temporary file that already has the
+/// final mode and metadata, then renamed over the target in one step, so a reader sees the old file or the new one and
+/// never a partial write.
+///
+/// - A symbolic link is followed: the file it points at is replaced and the link stays a link.
+/// - The temporary file lives in the volume's item replacement directory (`FileManager.url(for: .itemReplacementDirectory)`,
+///   on the target's volume so the rename stays atomic), never next to the target: file watchers and `git status` of the
+///   target's folder do not see it, and it is removed on every exit. A crash leaves it in the system's temporary area.
+/// - An existing file keeps its extended attributes (quarantine, Finder tags) and ACL; a new file gets none.
+/// - The mode is set before the rename, so a file never exists with a mode weaker than the one requested (`FU-04`).
+/// - The rename gives the file a new inode: other hard links to the old file keep its old content.
 public enum AtomicFile {
     public static func write(_ data: Data, to url: URL, permissions: Int16? = nil) throws {
-        let dir = url.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let fm = FileManager.default
+        let target = try resolvingSymbolicLinks(url)
+        try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
 
         var existingStat = stat()
-        let preservedMode: mode_t? = (permissions == nil && stat(url.path, &existingStat) == 0)
-            ? (existingStat.st_mode & 0o777)
-            : nil
-        let targetMode = permissions.map { mode_t($0) } ?? preservedMode ?? mode_t(0o644)
+        let exists = stat(target.path, &existingStat) == 0
+        let targetMode = permissions.map { mode_t($0) } ?? (exists ? existingStat.st_mode & 0o777 : mode_t(0o644))
 
-        let tmpURL = dir.appendingPathComponent(".\(url.lastPathComponent).tmp-\(UUID().uuidString)")
-        let fd = open(tmpURL.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, targetMode)
+        let scratch = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: target, create: true)
+        defer { try? fm.removeItem(at: scratch) }
+        let tmpURL = scratch.appendingPathComponent(target.lastPathComponent)
+        let fd = open(tmpURL.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
         guard fd >= 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
 
-        var cleanupTmp = true
-        defer {
-            if cleanupTmp {
-                unlink(tmpURL.path)
-            }
-        }
-
         var closed = false
         do {
+            if exists { copyMetadata(from: target.path, to: fd) }
             // Apply target permissions before rename so atomic overwrites never weaken existing or requested modes (`FU-04`).
             guard fchmod(fd, targetMode) == 0 else {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
@@ -56,14 +61,56 @@ public enum AtomicFile {
             throw error
         }
 
-        guard rename(tmpURL.path, url.path) == 0 else {
+        guard rename(tmpURL.path, target.path) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
-        cleanupTmp = false
     }
 
     public static func write(_ text: String, to url: URL, permissions: Int16? = nil) throws {
         try write(Data(text.utf8), to: url, permissions: permissions)
+    }
+
+    /// The file `url` stands for: a link as the last component is replaced by what it points at, until the last component
+    /// is not a link. The folder is resolved physically at every step, so a relative link is read from where the link
+    /// really is. A link to a missing file resolves to where that file would be created, as a shell redirect does.
+    private static func resolvingSymbolicLinks(_ url: URL) throws -> URL {
+        let fm = FileManager.default
+        var current = url
+        for _ in 0..<32 { // the depth at which the kernel itself reports a loop of links
+            let folder = physicalPath(current.deletingLastPathComponent().path) ?? current.deletingLastPathComponent().path
+            let folderURL = URL(fileURLWithPath: folder, isDirectory: true)
+            let candidate = folderURL.appendingPathComponent(current.lastPathComponent)
+            guard let destination = try? fm.destinationOfSymbolicLink(atPath: candidate.path) else { return candidate }
+            current = URL(fileURLWithPath: destination, relativeTo: folderURL).absoluteURL
+        }
+        throw POSIXError(.ELOOP)
+    }
+
+    /// Extended attributes and ACL, byte for byte (`copyfile` would rewrite the quarantine record). Best effort: a file
+    /// whose attributes cannot be copied is still saved.
+    private static func copyMetadata(from source: String, to fd: Int32) {
+        if let acl = acl_get_file(source, ACL_TYPE_EXTENDED) {
+            _ = acl_set_fd_np(fd, acl, ACL_TYPE_EXTENDED)
+            acl_free(UnsafeMutableRawPointer(acl))
+        }
+        let listSize = listxattr(source, nil, 0, 0)
+        guard listSize > 0 else { return }
+        var list = [CChar](repeating: 0, count: listSize)
+        guard listxattr(source, &list, listSize, 0) == listSize else { return }
+        for nameBytes in list.split(separator: 0) {
+            let name = String(decoding: nameBytes.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            let valueSize = getxattr(source, name, nil, 0, 0, 0)
+            guard valueSize >= 0 else { continue }
+            var value = [UInt8](repeating: 0, count: valueSize)
+            guard getxattr(source, name, &value, valueSize, 0, 0) == valueSize else { continue }
+            _ = fsetxattr(fd, name, value, valueSize, 0, 0)
+        }
+    }
+
+    private static func physicalPath(_ path: String) -> String? {
+        guard let resolved = realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 }
 

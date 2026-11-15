@@ -29,7 +29,6 @@ final class WindowSessionController {
     private var entries: [UUID: Entry] = [:]
     private var saveTask: Task<Void, Never>?
     private var revision = 0
-    private var saveBlockedByNewerSchema = false
     private(set) var terminating = false
 
     init() {
@@ -182,35 +181,39 @@ final class WindowSessionController {
     }
 
     private func scheduleSave() {
-        guard !terminating, !saveBlockedByNewerSchema else { return }
+        guard !terminating else { return }
         saveTask?.cancel()
         saveTask = Task { [weak self] in
             do { try await Task.sleep(nanoseconds: 400_000_000) } catch { return }
-            guard let self, !self.terminating, !self.saveBlockedByNewerSchema else { return }
+            guard let self, !self.terminating else { return }
             self.revision += 1
             do {
-                try await self.storage.save(self.archive(), revision: self.revision)
-            } catch let err as SchemaStoreError {
-                self.saveBlockedByNewerSchema = true
-                NSLog("[WindowSession] Autosave paused: %@", err.localizedDescription)
+                if case .refused(let announce) = try await self.storage.save(self.archive(), revision: self.revision), announce {
+                    self.announceRefusedSave()
+                }
             } catch {
                 NSLog("[WindowSession] Could not save window sessions: %@", error.localizedDescription)
             }
         }
     }
 
-    func saveBeforeTermination() async throws {
+    /// The refusal reaches the user once per launch, in the banner every window already has for save errors, on the
+    /// front window (`WindowSessionStorage` decides when it is the first one).
+    private func announceRefusedSave() {
+        NSLog("[WindowSession] Autosave refused: windowSessions.json was written by a newer MarkView and is left untouched.")
+        let workspace = NSApp.orderedWindows.lazy.compactMap { window in self.entries.values.first { $0.window === window }?.workspace }.first
+            ?? entries.values.lazy.compactMap(\.workspace).first
+        workspace?.lastSaveError = "The saved windows were written by a newer MarkView and are left untouched. Windows you open now will not be remembered."
+    }
+
+    /// Never fails and never holds up the quit: see `WindowSessionStorage.saveAtQuit`.
+    func saveBeforeTermination() async {
         terminating = true
         saveTask?.cancel()
         // If quit arrives before the first window attached, retain the loaded archive.
         let previous = await loadedArchive.value
         revision += 1
-        do {
-            try await storage.save(loaded ? archive() : previous ?? WindowSessionArchive(windows: []), revision: revision)
-        } catch {
-            terminating = false
-            throw error
-        }
+        await storage.saveAtQuit(loaded ? archive() : previous ?? WindowSessionArchive(windows: []), revision: revision)
     }
 
     private func restoreFrame(_ frame: CGRect, on window: NSWindow) {

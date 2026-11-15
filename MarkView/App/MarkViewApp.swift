@@ -68,26 +68,21 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         Task { @MainActor in
-            do {
-                guard await ProjectOperationsStore.stopAllBeforeQuit() else {
-                    sender.reply(toApplicationShouldTerminate: false)
-                    return
-                }
-                await RemoteRelaySettings.finishBeforeQuit()
-                await RemoteConnectionsStore.shared.finishPendingChanges()
-                try await WindowSessionController.shared.saveBeforeTermination()
-                await CockpitAgentRegistry.cancelAllAndWait(reason: "MarkView is closing.")
-                sender.reply(toApplicationShouldTerminate: true)
-            } catch {
-                // Keep the windows and unsaved drafts open when the archive cannot be written.
-                sender.presentError(error)
+            guard await ProjectOperationsStore.stopAllBeforeQuit() else {
                 sender.reply(toApplicationShouldTerminate: false)
+                return
             }
+            await RemoteRelaySettings.finishBeforeQuit()
+            await RemoteConnectionsStore.shared.finishPendingChanges()
+            // The window session is saved on a best-effort basis: an unwritable file never cancels the quit.
+            await WindowSessionController.shared.saveBeforeTermination()
+            await CockpitAgentRegistry.cancelAllAndWait(reason: "MarkView is closing.")
+            sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
     }
 
-    /// Quitting for real (not when a save error keeps the windows open): stop the assistants of headless runs
+    /// Quitting for real (not when the user keeps a running project operation): stop the assistants of headless runs
     /// so none keeps working, and spending tokens, for a window that is gone.
     func applicationWillTerminate(_ notification: Notification) {
         BrowserControlServer.shutdown()
