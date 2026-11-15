@@ -87,6 +87,7 @@ def fixture():
     write(root, "tools/lint/workspace-manager-views.txt", "1 MarkView/Views/Workspace/Tab.swift\n")
     write(root, "tools/lint/assistant-switch-allowlist.txt", "# no assistant is named outside its provider\n")
     write(root, "tools/lint/atomic-write-allowlist.txt", "1 MarkView/Models/Workspace/Export.swift\n")
+    write(root, "tools/lint/file-size-allowlist.txt", "# no file is over the limit\n")
     write(root, "tools/lint/project-paths-allowlist.txt", "# none outside ProjectPaths\n")
     write(root, "tools/lint/app-log-allowlist.txt", "# none outside AppLog\n")
     return root
@@ -229,6 +230,20 @@ try:
     check(code == 1 and "[workspace-manager] MarkView/Views/Workspace/Panel.swift: 1 @EnvironmentObject WorkspaceManager declaration(s), 0 allowed (new sites)" in out,
           "a new view that takes the whole WorkspaceManager fails")
     check("Tab.swift" not in out, "@ObservedObject and other environment objects are not counted")
+
+    # --- file-size ratchet
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Big.swift", "let x = 1\n" * 2003)
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[file-size] MarkView/Models/Workspace/Big.swift: 3 line(s) beyond 2000, 0 allowed (new sites)" in out,
+          "a Swift file longer than the limit fails")
+    write(root, "tools/lint/file-size-allowlist.txt", "3 MarkView/Models/Workspace/Big.swift\n")
+    code, out = run(root)
+    check(code == 0 and "file-size: 3 in 1 file(s), 3 allowed" in out, "a listed oversized file passes while it does not grow")
+    write(root, "MarkView/Models/Workspace/Big.swift", "let x = 1\n" * 2010)
+    code, out = run(root)
+    check(code == 1 and "10 line(s) beyond 2000, 3 allowed (more sites)" in out, "an oversized file that grows fails")
 
     # --- atomic-write ratchet
     root = fresh()

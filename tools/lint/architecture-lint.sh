@@ -222,6 +222,21 @@ ratchet("workspace-manager", "workspace-manager-views.txt", "@EnvironmentObject 
         "# `@EnvironmentObject ... WorkspaceManager` declarations: views that take the whole manager (AR-14). `<count> <path>`; a ratchet\n"
         "# that only falls. Run tools/lint/architecture-lint.sh --tighten after narrowing a view's dependency.")
 
+MAX_SWIFT_LINES = 2000
+
+def oversize_lines(files):
+    """Lines beyond MAX_SWIFT_LINES per Swift file; a file that fits does not appear."""
+    counts = {}
+    for path in files:
+        total = len(path.read_text(encoding="utf-8", errors="replace").splitlines())
+        if total > MAX_SWIFT_LINES:
+            counts[rel(path)] = total - MAX_SWIFT_LINES
+    return counts
+
+ratchet("file-size", "file-size-allowlist.txt", f"line(s) beyond {MAX_SWIFT_LINES}", oversize_lines(app_swift + package_swift),
+        f"# Swift files longer than {MAX_SWIFT_LINES} lines (AR-16): `<lines beyond the limit> <path>`; a ratchet that only falls. Split a file along\n"
+        "# its responsibilities (a type with its own state, not an extension that only moves lines) and run --tighten; the goal is an empty list.")
+
 ASSISTANT_LITERAL = re.compile(r"(?<![\w\"/~.\-])\.(?:claude|codex|cline|copilot|antigravity)\b")
 
 def assistant_sites(files):
@@ -312,7 +327,7 @@ if manager_file.is_file():
             violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
 
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "assistant-switch", "atomic-write", "project-paths", "app-log", "bridge-no-bypass", "no-private-escape", "tabs-direct"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "bridge-no-bypass", "no-private-escape", "tabs-direct"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):
