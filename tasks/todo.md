@@ -1,3 +1,36 @@
+# Finish the architecture review (2026-11-15, goal from Boris: "fix all issues described above, finish the architecture review issue")
+
+Source: `docs/architecture/architecture-review-2026-11.md` (AR-01..AR-49) and `docs/architecture/architecture-review-2026-11-followup.md` (FU-01..FU-30, sections 10 and 12). Decisions DEC-001..DEC-011 stand. Rules: CLAUDE.md "Architecture & Refactoring Rules" (a finding is done when the old thing is gone and a count says so; one finding per pull request; a first real caller in the same pull request; behaviour tests only). Merged PRs are batched into one version bump and one release per wave; nothing is installed without Boris asking.
+
+## Wave 1: regressions and small defects (independent files, run in parallel)
+- [ ] A1 FU-20: Mermaid SVG loses its `<style>` in `mvKit.sanitizeMermaidSvg`; test renders a real diagram and checks a computed fill.
+- [ ] A2 AR-01 rest (FU-24, 25, 26): CSS parsed not regexed, canvas colour, Insight SVG sink, nonce miss logged and tested.
+- [ ] B1 FU-21 + FU-15: quit must not be refused by a newer session file; one notice.
+- [ ] B2 FU-23: document save through `AtomicFile` keeps symlinks, attributes; temp file outside the project folder.
+- [ ] C1 FU-22: `Subprocess` really kills the process group.
+- [ ] D1 Cockpit and Remote sockets: token and peer check (AR-40 rest).
+- [ ] D2 FU-27, 28, 29: runner kills its group and has per-tier limits; structural rules become a named lint script; dead `ToolSurface` flags removed.
+- [ ] E1 Records (docs, straight to main): stale paths in `docs/architecture` (140), REQ and review ticks that the code does not support, `CLAUDE.md` slip.
+- [ ] Wave 1 release prep: one version bump, release.
+
+## Wave 2: migrations to zero (count must reach the target)
+- [ ] AR-25 `Process()` outside `Subprocess`: 17 sites in 15 files -> 0.
+- [ ] AR-26 `CLICompletion.run` outside `AIOperation`: 55 in 28 files -> 0.
+- [ ] AR-31 `ToolRegistry` drives menu, tab icons, titles, restore, welcome tiles: lists to edit 7 -> 1; Workflow/QA icons, Cockpit tile.
+- [ ] AR-35 remaining assistant switches -> provider registry.
+- [ ] AR-36/39 all `.dde` JSON stores through `SchemaVersionedStore`; AR-24 `AtomicFile`, `ProjectPaths`, logger.
+- [ ] AR-27 / AR-04 one `WKWebViewConfiguration` factory; `JS.call` for every `evaluateJavaScript`.
+- [ ] AR-18 settings key registry and one defaults observer.
+
+## Wave 3: structure
+- [ ] AR-20 shared home + dependency lint with a falling violation count; AR-21.
+- [ ] AR-14 `WorkspaceManager` steps 2-11, AR-17 composition root, AR-19 tasks/timers, AR-16 split of the two big stores.
+- [ ] AR-37/38 SQLite off the main actor with real migrations; AR-42/43 main-thread paths and concurrency warnings.
+- [ ] AR-28/29 typed bridge both sides; split the three JS files over 2800 lines.
+- [ ] AR-32/33/34 themes as data with user folder, layout presets with UI, backdrop registry.
+
+Status is written here only with the count that proves it.
+
 # Architecture Review 2026-11 Implementation (2026-11-15, 6.26.0)
 
 Full implementation of `docs/architecture/architecture-review-2026-11.md` across Phases 0–7 and Continuous items (`AR-01..AR-49`, `REQ-001..REQ-008`, `DEC-001..DEC-010`, GitHub issue `#414`).
