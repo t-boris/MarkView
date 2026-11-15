@@ -48,8 +48,8 @@ jobs:
           HAS_CERT: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
           HAS_KEY: ${{ secrets.NOTARY_KEY_P8 != '' }}
         run: |
-          VERSION=$(grep -m1 'MARKETING_VERSION' project.yml | sed -E 's/.*"?MARKETING_VERSION"?: *"?([0-9.]+)"?.*/\1/')
-          [ -n "$VERSION" ] || { echo "No MARKETING_VERSION in project.yml"; exit 1; }
+          VERSION=$(sed -n 's/.*MARKETING_VERSION = \([0-9.]*\);/\1/p' MarkView.xcodeproj/project.pbxproj | head -n1)
+          [ -n "$VERSION" ] || { echo "No MARKETING_VERSION in MarkView.xcodeproj/project.pbxproj"; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           if [ "$HAS_CERT" = "true" ] && [ "$HAS_KEY" = "true" ]; then
@@ -145,7 +145,7 @@ jobs:
         run: |
           BUILT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/release/MarkView.app/Contents/Info.plist)
           [ "$BUILT" = "${{ steps.meta.outputs.version }}" ] || {
-            echo "Built $BUILT but project.yml says ${{ steps.meta.outputs.version }}"; exit 1; }
+            echo "Built $BUILT but MarkView.xcodeproj/project.pbxproj says ${{ steps.meta.outputs.version }}"; exit 1; }
           shasum -a 256 "build/MarkView-${{ steps.meta.outputs.version }}.dmg"
 
       - name: Publish the release

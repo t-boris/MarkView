@@ -928,25 +928,22 @@ See Apple's [command-line tools guide](https://developer.apple.com/documentation
 ```bash
 git clone https://github.com/t-boris/MarkView.git
 cd MarkView
-./install.sh                 # Release build → /Applications (for development)
+xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO build
 ./release.sh --install       # signed build + DMG installer in build/, installed from the DMG
 ```
 
-- `project.yml` is the source of truth for the Xcode project: after adding files or targets, run
-  `./setup.sh` (it needs [XcodeGen](https://github.com/yonaskolb/XcodeGen)) to regenerate
-  `MarkView.xcodeproj`.
+- `MarkView.xcodeproj` (plus the local `Packages/MarkViewCore` Swift package) is the source of truth for the Xcode project (XcodeGen and `project.yml` have been retired).
 - `release.sh` signs with the first *Developer ID Application* identity in your keychain and
   enables the hardened runtime. With a `notarytool` profile (`NOTARY_PROFILE`, default
   `markview-notary`) it notarizes and staples the DMG; `--publish` creates the GitHub
   release, only from a clean checkout of `origin/main`.
-- CI compiles every push and pull request (Xcode 16). The signed DMG is published by
+- CI runs `Packages/MarkViewCore` tests, `./tools/tests/run.sh --tier pure`, and compiles every push and pull request. The signed DMG is published by
   `./release.sh --publish`; the manual *Publish Release* workflow can build one in CI when the signing
   secrets are configured.
-- The bundled web libraries (CodeMirror, Cytoscape + ELK, xterm.js and the data-viewer bundle with
+- The bundled web libraries (CodeMirror, Cytoscape + ELK, xterm.js, DOMPurify, Turndown, and the data-viewer bundle with
   SQLite WebAssembly, Parquet, Arrow, Avro and spreadsheet readers) are rebuilt with
   `cd tools/web-vendor && npm ci && ./build.sh`.
-- There is no XCTest target; 96 focused standalone scripts live in `tools/tests/` (for example
-  `tools/tests/cycle-time-tests.sh`), each checking a pure module, mostly by compiling it with `swiftc`.
+- Automated standalone suites live in `tools/tests/` and are cataloged in `tools/tests/manifest.json` (run pure suites via `./tools/tests/run.sh --tier pure`, or list all suites via `./tools/tests/run.sh --all --list`).
 
 <details>
 <summary><b>Project layout</b></summary>
@@ -994,8 +991,8 @@ at 2.17.0; its principles still hold, but when it disagrees with the code, the c
 
 | | |
 |---|---|
-| App | Swift 5.9, SwiftUI + AppKit, WKWebView; 236 Swift files, about 85,000 lines; no Swift packages |
-| Editor | markdown-it, Turndown, Mermaid, KaTeX, Prism, d3, Chart.js |
+| App | Swift 5.9, SwiftUI + AppKit, WKWebView; local `Packages/MarkViewCore` Swift package |
+| Editor | markdown-it, DOMPurify, Turndown, Mermaid, KaTeX, Prism, d3, Chart.js |
 | Code viewer | CodeMirror 6 (47 grammars) |
 | Data viewers | SQLite WebAssembly, Papa Parse, hyparquet, Apache Arrow, fflate |
 | X-Ray | Cytoscape.js + ELK, Louvain clustering, git history |

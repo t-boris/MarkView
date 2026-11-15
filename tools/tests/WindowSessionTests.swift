@@ -93,6 +93,19 @@ import Foundation
         try JSONEncoder().encode(WindowSessionArchive(version: 99, windows: [first])).write(to: url)
         let unknown = await storage.load()
         check(unknown == nil, "unknown archive versions are rejected")
+        let futureBytes = try Data(contentsOf: url)
+        var refusedOverwrite = false
+        do {
+            try await storage.save(WindowSessionArchive(windows: [first]), revision: 7)
+        } catch let err as SchemaStoreError {
+            if case .newerSchemaVersion = err { refusedOverwrite = true }
+        }
+        let stillFutureBytes = try Data(contentsOf: url)
+        check(refusedOverwrite && stillFutureBytes == futureBytes, "newer schema archives are never overwritten on save")
+        let permsURL = url.deletingLastPathComponent().appendingPathComponent("perms-session.json")
+        try await WindowSessionStorage(url: permsURL).save(WindowSessionArchive(windows: [first]), revision: 1)
+        let posixPerms = (try FileManager.default.attributesOfItem(atPath: permsURL.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0
+        check(posixPerms == 0o600, "saved window sessions enforce 0600 permissions")
         print("Window session checks: \(checks), failures: 0")
     }
 

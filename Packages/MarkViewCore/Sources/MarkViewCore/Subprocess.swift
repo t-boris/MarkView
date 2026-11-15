@@ -6,6 +6,7 @@ public struct SubprocessSpec: Sendable {
     public var executable: String
     public var arguments: [String]
     public var cwd: URL?
+    /// Extra environment variables merged into the inherited process environment (and `settings.cli.extraPATH`).
     public var environment: [String: String]?
     public var stdin: Data?
     public var timeout: TimeInterval
@@ -58,9 +59,11 @@ public struct SubprocessResult: Sendable, Equatable {
     }
 }
 
-/// Unified subprocess runner with concurrent stdout/stderr draining, output caps,
-/// SIGTERM -> SIGKILL escalation on timeout, and task cancellation (`AR-25`).
+/// Unified subprocess runner with concurrent stdout/stderr draining, bounded output caps,
+/// merged environment + `settings.cli.extraPATH`, SIGTERM -> SIGKILL escalation, and cancellation (`AR-25`, `FU-04`).
 public enum Subprocess {
+    public static let extraPATHDefaultsKey = "settings.cli.extraPATH"
+
     public static let defaultSearchPaths: [String] = [
         "/opt/homebrew/bin",
         "/usr/local/bin",
@@ -70,15 +73,66 @@ public enum Subprocess {
         "/sbin",
     ]
 
-    /// Resolves an executable name or path against explicit search paths.
-    public static func resolveExecutable(_ nameOrPath: String, searchPaths: [String] = defaultSearchPaths) -> String? {
+    /// Reads configured extra PATH directories from UserDefaults (`settings.cli.extraPATH`).
+    public static func configuredExtraPATHDirectories(defaults: UserDefaults = .standard) -> [String] {
+        guard let raw = defaults.string(forKey: extraPATHDefaultsKey) else { return [] }
+        return raw
+            .split(whereSeparator: { $0 == ":" || $0 == "\n" || $0 == "," })
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Combines explicit paths, `settings.cli.extraPATH`, inherited `PATH`, and `defaultSearchPaths` without duplicates.
+    public static func effectiveSearchPaths(
+        extra: [String] = configuredExtraPATHDirectories(),
+        inheritedPATH: String? = ProcessInfo.processInfo.environment["PATH"]
+    ) -> [String] {
+        var result: [String] = []
+        var seen = Set<String>()
+        func add(_ path: String) {
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { return }
+            result.append(trimmed)
+        }
+        for p in extra { add(p) }
+        if let inheritedPATH {
+            for p in inheritedPATH.split(separator: ":") { add(String(p)) }
+        }
+        for p in defaultSearchPaths { add(p) }
+        return result
+    }
+
+    /// Builds the child environment by merging `spec.environment` into inherited environment
+    /// and including `settings.cli.extraPATH` in `PATH` (`FU-04`).
+    public static func mergedEnvironment(
+        overrides: [String: String]?,
+        base: [String: String] = ProcessInfo.processInfo.environment,
+        extraPATH: [String] = configuredExtraPATHDirectories()
+    ) -> [String: String] {
+        var env = base
+        let basePATH = overrides?["PATH"] ?? base["PATH"]
+        let combined = effectiveSearchPaths(extra: extraPATH, inheritedPATH: basePATH)
+        if let overrides {
+            for (key, value) in overrides {
+                env[key] = value
+            }
+        }
+        if !combined.isEmpty {
+            env["PATH"] = combined.joined(separator: ":")
+        }
+        return env
+    }
+
+    /// Resolves an executable name or path against explicit search paths, `settings.cli.extraPATH`, inherited PATH, and default system paths.
+    public static func resolveExecutable(_ nameOrPath: String, searchPaths: [String]? = nil) -> String? {
         let trimmed = nameOrPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let fm = FileManager.default
         if trimmed.contains("/") {
             return fm.isExecutableFile(atPath: trimmed) ? trimmed : nil
         }
-        for dir in searchPaths {
+        let paths = searchPaths ?? effectiveSearchPaths()
+        for dir in paths {
             let candidate = (dir as NSString).appendingPathComponent(trimmed)
             if fm.isExecutableFile(atPath: candidate) {
                 return candidate
@@ -87,7 +141,7 @@ public enum Subprocess {
         return nil
     }
 
-    /// Runs `spec` off the caller's actor, draining stdout/stderr concurrently to avoid pipe deadlocks.
+    /// Runs `spec` off the caller's actor, draining stdout/stderr concurrently with bounded output capture.
     public static func run(_ spec: SubprocessSpec) async -> SubprocessResult {
         let box = ProcessBox()
         return await withTaskCancellationHandler {
@@ -143,7 +197,7 @@ public enum Subprocess {
         private let lock = NSLock()
         private var data = Data()
         private(set) var truncated = false
-        private let maxBytes: Int
+        let maxBytes: Int
 
         init(maxBytes: Int) {
             self.maxBytes = max(1024, maxBytes)
@@ -166,10 +220,54 @@ public enum Subprocess {
             }
         }
 
+        var remainingCapacity: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return max(0, maxBytes - data.count)
+        }
+
         func snapshot() -> (String, Bool) {
             lock.lock()
             defer { lock.unlock() }
             return (String(decoding: data, as: UTF8.self), truncated)
+        }
+    }
+
+    /// Reads any already-buffered bytes from a pipe handle without blocking if a descendant
+    /// process inherited and kept the write end open (`FU-04`).
+    private static func drainNonBlocking(handle: FileHandle, into collector: PipeCollector) {
+        let fd = handle.fileDescriptor
+        guard fd >= 0 else { return }
+        let oldFlags = fcntl(fd, F_GETFL, 0)
+        if oldFlags >= 0 {
+            _ = fcntl(fd, F_SETFL, oldFlags | O_NONBLOCK)
+        }
+        defer {
+            if oldFlags >= 0 {
+                _ = fcntl(fd, F_SETFL, oldFlags)
+            }
+            try? handle.close()
+        }
+
+        var buffer = [UInt8](repeating: 0, count: 16_384)
+        var totalExtraRead = 0
+        // Cap extra post-exit non-blocking read to avoid unbounded work if a child is actively flooding.
+        let hardLimit = max(collector.maxBytes, 1024) + 16_384
+        while totalExtraRead < hardLimit {
+            let n = buffer.withUnsafeMutableBytes { raw -> Int in
+                guard let base = raw.baseAddress else { return -1 }
+                return Darwin.read(fd, base, raw.count)
+            }
+            if n > 0 {
+                totalExtraRead += n
+                collector.append(Data(buffer[0..<n]))
+                if collector.remainingCapacity == 0 {
+                    // Drain up to a tiny bounded remainder to detect truncation, or stop if full.
+                    break
+                }
+            } else {
+                break
+            }
         }
     }
 
@@ -192,9 +290,7 @@ public enum Subprocess {
         if let cwd = spec.cwd {
             process.currentDirectoryURL = cwd
         }
-        if let env = spec.environment {
-            process.environment = env
-        }
+        process.environment = mergedEnvironment(overrides: spec.environment)
 
         let outPipe = Pipe()
         let errPipe = Pipe()
@@ -216,30 +312,55 @@ public enum Subprocess {
 
         let outCollector = PipeCollector(maxBytes: spec.maxOutputBytes)
         let errCollector = PipeCollector(maxBytes: spec.maxOutputBytes)
-        let drainGroup = DispatchGroup()
+        let eofGroup = DispatchGroup()
 
+        let outFinishLock = NSLock()
+        var outFinished = false
+        let errFinishLock = NSLock()
+        var errFinished = false
+
+        eofGroup.enter()
         outPipe.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
             if chunk.isEmpty {
                 handle.readabilityHandler = nil
+                outFinishLock.lock()
+                let shouldLeave = !outFinished
+                outFinished = true
+                outFinishLock.unlock()
+                if shouldLeave { eofGroup.leave() }
             } else {
                 outCollector.append(chunk)
             }
         }
+
+        eofGroup.enter()
         errPipe.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
             if chunk.isEmpty {
                 handle.readabilityHandler = nil
+                errFinishLock.lock()
+                let shouldLeave = !errFinished
+                errFinished = true
+                errFinishLock.unlock()
+                if shouldLeave { eofGroup.leave() }
             } else {
                 errCollector.append(chunk)
             }
         }
 
+        let stdinGroup = DispatchGroup()
         do {
             try process.run()
         } catch {
             outPipe.fileHandleForReading.readabilityHandler = nil
             errPipe.fileHandleForReading.readabilityHandler = nil
+            outFinishLock.lock()
+            if !outFinished { outFinished = true; eofGroup.leave() }
+            outFinishLock.unlock()
+            errFinishLock.lock()
+            if !errFinished { errFinished = true; eofGroup.leave() }
+            errFinishLock.unlock()
             return SubprocessResult(
                 exitCode: -1,
                 stdout: "",
@@ -250,12 +371,16 @@ public enum Subprocess {
             )
         }
 
+        // Close our copies of the write ends so EOF reflects only the child process.
+        try? outPipe.fileHandleForWriting.close()
+        try? errPipe.fileHandleForWriting.close()
+
         if let inputData = spec.stdin, let inPipe {
-            drainGroup.enter()
+            stdinGroup.enter()
             DispatchQueue.global(qos: .utility).async {
                 try? inPipe.fileHandleForWriting.write(contentsOf: inputData)
                 try? inPipe.fileHandleForWriting.close()
-                drainGroup.leave()
+                stdinGroup.leave()
             }
         }
 
@@ -277,12 +402,15 @@ public enum Subprocess {
         if spec.timeout > 0 {
             timer.cancel()
         }
-        _ = drainGroup.wait(timeout: .now() + 1.0)
+        _ = stdinGroup.wait(timeout: .now() + 1.0)
+        // Wait briefly for readabilityHandlers to finish flushing buffered output after exit,
+        // without blocking indefinitely if a background grandchild kept stdout/stderr open (`FU-04`).
+        _ = eofGroup.wait(timeout: .now() + 0.15)
 
         outPipe.fileHandleForReading.readabilityHandler = nil
         errPipe.fileHandleForReading.readabilityHandler = nil
-        outCollector.append(outPipe.fileHandleForReading.readDataToEndOfFile())
-        errCollector.append(errPipe.fileHandleForReading.readDataToEndOfFile())
+        drainNonBlocking(handle: outPipe.fileHandleForReading, into: outCollector)
+        drainNonBlocking(handle: errPipe.fileHandleForReading, into: errCollector)
 
         let (stdout, outTrunc) = outCollector.snapshot()
         let (stderr, errTrunc) = errCollector.snapshot()

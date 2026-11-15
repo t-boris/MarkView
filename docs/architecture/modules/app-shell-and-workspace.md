@@ -8,7 +8,7 @@ This subsystem is the process entry point, the window shell, and the per-window 
 
 - **Process entry**: normal GUI launch, or the headless `--dde-index <folder>` child process that runs the structural indexer (`MarkView/App/MarkViewApp.swift:126-167`).
 - **Scene and menus**: `WindowGroup`, File/View/Settings commands, and routing of commands to the focused window's `WorkspaceManager` through `FocusedValue` (`MarkView/App/MarkViewApp.swift:169-298`, `MarkView/Views/ContentView.swift:4-23`).
-- **External open requests**: Finder "Open With", `application(_:open:)`, the `/tmp/markview_open_path.txt` Quick Action handoff, drag-and-drop onto the window, and last-folder restore (`MarkView/App/MarkViewApp.swift:111-117,341-386`, `MarkView/Views/ContentView.swift:173-241,342-360`).
+- **External open requests**: Finder "Open With", `application(_:open:)`, the validated `markview_open_path.txt` Quick Action handoff (`temporaryDirectory` and `/tmp`, `O_NOFOLLOW` + regular/owner `fstat`), drag-and-drop onto the window, and session/last-folder restore (`MarkView/App/MarkViewApp.swift`, `MarkView/Views/ContentView.swift`).
 - **Workspace lifecycle**: open folder, single-file workspace, close folder, remove or recreate metadata; creates `.dde/` and the SQLite `SemanticDatabase`; starts the out-of-process structural index (`MarkView/Models/WorkspaceManager.swift:451-545,771-824,1394-1531,2987-3045`).
 - **Tabs**: open, switch, reorder, close, save, reload from disk, and the tab kinds (file, image, X-Ray, terminal, GitHub, Insight) (`MarkView/Models/WorkspaceManager.swift:212-291`, `MarkView/Models/DocumentState.swift:137-232`).
 - **File tree**: a one-folder-at-a-time browser with breadcrumbs, filtering, sort, create file/folder, drag-and-drop move/copy, git badges, and "Reveal in File Tree" (`MarkView/Views/FileTreeView.swift`).
@@ -32,7 +32,7 @@ What it does **not** own. It calls into these, but the logic lives in sibling mo
 | X-Ray, PR X-Ray, Explain, code navigation | `ArchitectureStore`, `CodeExplainStore`, `CodeNavigationStore`, `ImportanceRater` | [architecture-and-xray](./architecture-and-xray.md) |
 | SQLite, structural indexer, GraphRAG, Recursive Insight | `SemanticDatabase`, `StructuralIndexer`, `IncrementalCompiler`, `GraphRAG`, `InsightSession` | [semantic-index-and-insight](./semantic-index-and-insight.md) |
 | Git, GitHub, terminals, lifecycle, usage | `GitClient`, `GitHubStore`, `GitHubClient`, `TerminalSession`, `AgentUsageTracker` | [git-github-terminal-lifecycle-usage](./git-github-terminal-lifecycle-usage.md) |
-| Build, versioning, release | scripts, `project.yml` | [build-release-testing](./build-release-testing.md) |
+| Build, versioning, release | `MarkView.xcodeproj`, `Packages/MarkViewCore`, scripts | [build-release-testing](./build-release-testing.md) |
 
 ## 2. Files
 
@@ -218,7 +218,7 @@ sequenceDiagram
         Entry->>App: MarkViewApp.main()
         App->>CV: WindowGroup body → ContentView()
         CV->>WM: @StateObject init (reads layout defaults, recentFiles.json)
-        CV->>CV: onAppear: force darkAqua, size 1200×800, set onOpenURLs, start 1 s Timer polling /tmp/markview_open_path.txt
+        CV->>CV: onAppear: force darkAqua, size 1200×800, set onOpenURLs, poll markview_open_path.txt (O_NOFOLLOW + fstat)
         CV->>CV: onAppear: restoreLastFolder() (once/launch, after 0.6 s)
         OS-->>Del: application(_:open:) (Open With)
         Del->>App: enqueueOpen(urls) → post .openInActiveWindow
@@ -312,7 +312,7 @@ flowchart TD
 | Root dir source (`WorkspaceManager.swift:118-151`) | writes to the **root directory entry only** (`O_EVTONLY`, `.write`) | `DispatchSource` on the main queue, 1 s debounce | `reloadFileTree()` if `indexingProgress == nil` |
 | Root mtime poll (`:148-164`) | the root's `contentModificationDate` | `Timer` every 10 s | same |
 | Open-files poll (`:3483-3506`) | all file-backed, unmodified tabs | `Timer` every 2 s, started on the first terminal | reload content changed on disk, then `refreshFileTree()` |
-| Finder handoff (`MarkViewApp.swift:208-212,341-355`) | `/tmp/markview_open_path.txt` | `Timer` every 1 s **per window `onAppear`** | `enqueueOpen` |
+| Finder handoff (`MarkViewApp.swift`) | `temporaryDirectory/markview_open_path.txt` and `/tmp/markview_open_path.txt` | Poll every 1 s (`O_NOFOLLOW` + regular-file/owner check) | `enqueueOpen` |
 
 `FileTreeView` does not render `FileNode.children`. `directoryContents` calls `contentsOfDirectory` on every body evaluation (`FileTreeView.swift:23-59`). Replacing `rootNode` just triggers a redraw. As a result, subfolder changes appear whenever any published property changes, not through the watcher.
 
@@ -394,7 +394,7 @@ positions kept by AppKit views are written with `publishing: false` (no redraw p
 | `<folder>/.markview-insight/` | Insight cache (kept after tab close) | referenced `:758,1579-1584` |
 | `$TMPDIR/insight-export-<uuid>/` | staging copy for the ZIP export, removed in `defer` | `:2528-2545,2468` |
 | `~/markview_debug.log` | appended plain-text log, never rotated | `MarkViewApp.swift:16-26,75-85,329-339`; `WorkspaceManager.swift:192-202,436-446,3020-3023` |
-| `/tmp/markview_open_path.txt` | one path; read and deleted | `MarkViewApp.swift:341-355` |
+| `markview_open_path.txt` (`temporaryDirectory` / `/tmp`) | one path; opened with `O_NOFOLLOW`, owner/regular checked, read and deleted | `MarkViewApp.swift` |
 | `<repo>/.gitignore` | appended anchored entries | `FileTreeView.swift:529-550` |
 | user files | UTF-8 text, atomic write | `saveFile` `:2748`; new file `# <name>` template `FileTreeView.swift:570-572` |
 

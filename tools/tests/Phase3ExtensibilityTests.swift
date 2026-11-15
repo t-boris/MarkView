@@ -13,120 +13,48 @@ func check(_ condition: Bool, _ name: String) {
     }
 }
 
-print("=== Phase 3: Declarative Extension Points & Registries Verification ===")
+print("=== Phase 3: Declarative ToolRegistry & PanelLayout Verification ===")
 
-// 1. AR-31 / DEC-001: ToolRegistry covers all 10 singleton tools across surfaces
-let expectedToolIDs: Set<String> = [
-    "git", "deployments", "workflow", "qa", "uiStudio",
-    "prototype", "cockpit", "architecture", "researchMap", "discussions"
+// 1. AR-31 / DEC-001 / FU-02: ToolRegistry matches the 8 live workspace tools and toolbar/session surfaces
+let expectedToolIDs: Set<ToolDescriptor.ToolID> = [
+    .git, .deployments, .workflow, .qa, .uiStudio, .cockpit, .discussions, .changeReview
 ]
 let actualToolIDs = Set(ToolRegistry.all.map(\.id))
-check(actualToolIDs == expectedToolIDs,
-      "AR-31/DEC-001: ToolRegistry.all registers all 10 singleton workspace tools")
-check(ToolRegistry.toolbarTools.count == 10 && ToolRegistry.menuTools.count == 10 && ToolRegistry.welcomeTools.count == 10,
-      "AR-31: Toolbar, View menu, and Welcome screen read from one ToolRegistry without drift")
-check(ToolRegistry.descriptor(for: "discussions")?.surfaces.contains(.sessionRestore) == true &&
-      ToolRegistry.descriptor(for: "architecture")?.surfaces.contains(.sessionRestore) == true,
-      "AR-31: ToolRegistry tracks sessionRestore surface metadata")
+check(actualToolIDs == expectedToolIDs && ToolRegistry.all.count == 8,
+      "AR-31/FU-02: ToolRegistry.all registers the 8 live singleton workspace tools")
 
-// 2. AR-32 / DEC-003: Data-driven themes + user theme JSON loading + automatic web CSS token derivation
-check(ThemeRegistry.builtIn.count == 11,
-      "AR-32: ThemeRegistry.builtIn exposes all 11 built-in theme definitions")
+let expectedPrimaryIDs: [ToolDescriptor.ToolID] = [.git, .deployments, .workflow, .qa, .uiStudio, .cockpit]
+check(ToolRegistry.primaryToolbarTools.map(\.id) == expectedPrimaryIDs,
+      "AR-31/FU-02: ToolRegistry.primaryToolbarTools matches the 6 primary toolbar buttons in order")
+check(ToolRegistry.toolbarTools.count == 7 &&
+      ToolRegistry.toolbarTools.last?.id == .discussions,
+      "AR-31/FU-02: ToolRegistry.toolbarTools covers primary tools plus discussions")
 
-let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("mv-themes-\(UUID().uuidString)")
-defer { try? FileManager.default.removeItem(at: tempDir) }
-try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+check(ToolRegistry.restorableTools.map(\.id).contains(.changeReview) &&
+      ToolRegistry.restorableTools.map(\.id).contains(.discussions) &&
+      !ToolRegistry.restorableTools.map(\.id).contains(.uiStudio),
+      "AR-31/FU-02: ToolRegistry tracks sessionRestore surface metadata accurately")
 
-let userThemeJSON = """
-{
-  "id": "solarizedDark",
-  "displayName": "Solarized Dark",
-  "summary": "Precision dark palette by Ethan Schoonover",
-  "isDark": true,
-  "bg": "#002B36",
-  "bgSidebar": "#073642",
-  "bgInput": "#0D414F",
-  "bgHover": "#0A3A47",
-  "bgActive": "#134B5B",
-  "bgBanner": "#00212B",
-  "text": "#839496",
-  "textDim": "#586E75",
-  "textBright": "#FDF6E3",
-  "border": "#073642",
-  "accent": "#268BD2",
-  "green": "#859900",
-  "orange": "#CB4B16",
-  "yellow": "#B58900",
-  "purple": "#6C71C4",
-  "red": "#DC322F",
-  "cyan": "#2AA198"
-}
-"""
-try? userThemeJSON.write(to: tempDir.appendingPathComponent("solarized-dark.json"), atomically: true, encoding: .utf8)
-try? "{ invalid json ".write(to: tempDir.appendingPathComponent("broken.json"), atomically: true, encoding: .utf8)
+let sampleRoot = URL(fileURLWithPath: "/tmp/markview-tool-registry-test")
+check(ToolRegistry.sentinelURL(for: .git, in: sampleRoot).path == "/tmp/markview-tool-registry-test/.dde/.markview-git" &&
+      ToolRegistry.sentinelURL(for: .uiStudio, in: sampleRoot, suffix: "abc").path == "/tmp/markview-tool-registry-test/.dde/.markview-ui-studio-abc",
+      "AR-31/FU-02: ToolRegistry.sentinelURL resolves per-tool sentinel URLs")
 
-let loadedUserThemes = ThemeRegistry.loadUserThemes(from: tempDir)
-check(loadedUserThemes.count == 1 && loadedUserThemes.first?.id == "solarizedDark",
-      "AR-32/DEC-003: ThemeRegistry.loadUserThemes loads valid user JSON theme and skips malformed JSON")
-
-if let userTheme = loadedUserThemes.first {
-    let tokens = userTheme.effectiveWebTokens
-    let cssVars = tokens.cssVariables()
-    check(cssVars["--bg-color"] == "#002B36" &&
-          cssVars["--code-bg"] == "#073642" &&
-          cssVars["--heading-color"] == "#FDF6E3" &&
-          cssVars["--link-color"] != nil,
-          "AR-32/DEC-003: ThemeDefinition derives web CSS tokens automatically when webTokens are omitted")
-    let palette = userTheme.makePalette()
-    check(ThemeColor.contrast(palette.text, palette.bg) >= ThemePalette.readableContrast &&
-          ThemeColor.contrast(palette.blue, palette.bg) >= ThemePalette.readableContrast,
-          "AR-32: User theme palette enforces WCAG contrast >= 4.5")
-}
-
-// 3. AR-33 / DEC-002: LayoutPreset (Writing, Review, QA, Cockpit) with explicit user selection only
-let presetIDs = LayoutPreset.builtIn.map(\.id)
-check(presetIDs == ["writing", "review", "qa", "cockpit"],
-      "AR-33/DEC-002: LayoutPreset ships Writing, Review, QA, and Cockpit presets")
-
+// 2. AR-33 / FU-08: PanelLayout has no hidden layout presets and starts in default workspace state
 let suiteName = "com.markview.phase3.\(UUID().uuidString)"
 let defaults = UserDefaults(suiteName: suiteName)!
 defer { defaults.removePersistentDomain(forName: suiteName) }
 
 Task { @MainActor in
     let layout = PanelLayout(defaults: defaults)
-    check(layout.activePresetID == nil,
-          "AR-33/DEC-002: PanelLayout has no automatic preset trigger on init")
-    layout.apply(preset: .review)
-    check(layout.activePresetID == "review" &&
-          layout.workspaceArea == .work &&
-          layout.workSection == .git &&
-          layout.navigatorTab == .git &&
-          layout.leftPanel == "issues",
-          "AR-33/DEC-002: PanelLayout.apply(preset:) updates panel state on explicit user selection")
-    layout.apply(preset: .cockpit)
-    check(layout.activePresetID == "cockpit" &&
-          layout.workSection == .terminal &&
-          layout.navigatorTab == .terminal,
-          "AR-33/DEC-002: PanelLayout.apply(preset: .cockpit) switches to Cockpit layout")
+    check(layout.workspaceArea == .files
+              && layout.navigatorTab == .contents
+              && layout.workSection == .features
+              && layout.leftPanel == "files"
+              && layout.gitSection == .changes,
+          "AR-33/FU-08: PanelLayout initializes directly to clean defaults without presets")
 }
-RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-// 4. AR-34: BackdropRegistry, MCPToolRegistry, and FileTypeRegistry
-check(BackdropRegistry.all.count == WelcomeBackdrop.allCases.count &&
-      BackdropRegistry.descriptor(for: .matrix).isAnimatedScene &&
-      !BackdropRegistry.descriptor(for: .off).isAnimatedScene,
-      "AR-34: BackdropRegistry covers all WelcomeBackdrop cases with scene metadata")
-
-check(MCPToolRegistry.all.count >= 40 &&
-      MCPToolRegistry.descriptor(for: "markview_create_feature")?.isMutating == true &&
-      MCPToolRegistry.descriptor(for: "markview_get_feature")?.isMutating == false,
-      "Section 7.5: MCPToolRegistry maps MCP tools to mutating/read-only descriptors")
-
-check(FileTypeRegistry.descriptor(forExtension: "md")?.kind == "markdown" &&
-      FileTypeRegistry.descriptor(forExtension: "swift")?.kind == "code" &&
-      FileTypeRegistry.descriptor(forExtension: "parquet")?.kind == "data" &&
-      FileTypeRegistry.descriptor(forExtension: "pdf")?.kind == "pdf",
-      "Section 7.6: FileTypeRegistry maps extensions to kind, symbol, color, and viewerMode")
+RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.15))
 
 print("\nPhase 3 Extensibility checks: \(passed) passed, \(failed) failed")
 if failed > 0 { exit(1) }

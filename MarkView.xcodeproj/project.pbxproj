@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E10000000000000000000001 /* MarkViewCore in Frameworks */ = {isa = PBXBuildFile; productRef = E10000000000000000000002 /* MarkViewCore */; };
 		00CA6729A7DBFA482D057D61 /* RemoteRelaySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D8F327CF62CE717D060C3A /* RemoteRelaySettings.swift */; };
 		01824FCE6C8423DDB049E120 /* FeatureReviewGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE3D4429958A004ADFE5D2C /* FeatureReviewGate.swift */; };
 		01833EC335A594FF5C294559 /* UIStudioTrackingLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF8D0D924530B8C94483B11 /* UIStudioTrackingLine.swift */; };
@@ -22,10 +23,6 @@
 		07044898F5427AD51A50B41F /* AIToolRuns.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFB /* AIToolRuns.swift */; };
 		07044898F5427AD51A50B420 /* AIToolJobsBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFC /* AIToolJobsBanner.swift */; };
 		07044898F5427AD51A50B421 /* AppFontScaleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFD /* AppFontScaleView.swift */; };
-		07044898F5427AD51A50B422 /* Subprocess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFE /* Subprocess.swift */; };
-		07044898F5427AD51A50B423 /* CoreFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFF /* CoreFiles.swift */; };
-		07044898F5427AD51A50B424 /* SettingsRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD00 /* SettingsRegistry.swift */; };
-		07044898F5427AD51A50B425 /* WebHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD01 /* WebHost.swift */; };
 		07044898F5427AD51A50B426 /* ExtensionRegistries.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD03 /* ExtensionRegistries.swift */; };
 		07044898F5427AD51A50B427 /* WorkspaceControllers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD04 /* WorkspaceControllers.swift */; };
 		07044898F5427AD51A50B428 /* AILayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD05 /* AILayer.swift */; };
@@ -806,10 +803,6 @@
 		A6E0167483A13431C669BCFB /* AIToolRuns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIToolRuns.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BCFC /* AIToolJobsBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIToolJobsBanner.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BCFD /* AppFontScaleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFontScaleView.swift; sourceTree = "<group>"; };
-		A6E0167483A13431C669BCFE /* Subprocess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Subprocess.swift; sourceTree = "<group>"; };
-		A6E0167483A13431C669BCFF /* CoreFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreFiles.swift; sourceTree = "<group>"; };
-		A6E0167483A13431C669BD00 /* SettingsRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRegistry.swift; sourceTree = "<group>"; };
-		A6E0167483A13431C669BD01 /* WebHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebHost.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD03 /* ExtensionRegistries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionRegistries.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD04 /* WorkspaceControllers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceControllers.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD05 /* AILayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AILayer.swift; sourceTree = "<group>"; };
@@ -1007,6 +1000,17 @@
 		FFDFB9B4AC589ED10AEE08BC /* FeatureNavigatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureNavigatorView.swift; sourceTree = "<group>"; };
 		FFEF7847F3AAA59FC62971D9 /* chart-4.4.9.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "chart-4.4.9.min.js"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		E10000000000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E10000000000000000000001 /* MarkViewCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		00BD6F2ACF5BEABE50E3CF24 /* Products */ = {
@@ -1528,23 +1532,11 @@
 				F21E96FB5400057E1B7290BB /* MarkViewDebug.entitlements */,
 				FBC1F0FD85C20C85C60FB39B /* App */,
 				FDDA5D16CE226A85C4EC1EC5 /* Bridge */,
-				A6E0167483A13431C669BD02 /* Core */,
 				64955AAAF582A77E3212EF93 /* Models */,
 				A4294BCB4C93DBA2B086BE26 /* Resources */,
 				6A2FEDD268AD8F78F008FAB0 /* Views */,
 			);
 			path = MarkView;
-			sourceTree = "<group>";
-		};
-		A6E0167483A13431C669BD02 /* Core */ = {
-			isa = PBXGroup;
-			children = (
-				A6E0167483A13431C669BCFE /* Subprocess.swift */,
-				A6E0167483A13431C669BCFF /* CoreFiles.swift */,
-				A6E0167483A13431C669BD00 /* SettingsRegistry.swift */,
-				A6E0167483A13431C669BD01 /* WebHost.swift */,
-			);
-			path = Core;
 			sourceTree = "<group>";
 		};
 		CAA4BC6FC508C8DB00F9FE7E /* Remote */ = {
@@ -1685,6 +1677,7 @@
 				E0AE88DFAFAA7D4E50C3D56E /* Build Cockpit runtime */,
 				8709D6C07BCDBE7C517E0938 /* Build Web Editor (optional) */,
 				2776339960AF9B470EDA298C /* Sources */,
+				E10000000000000000000004 /* Frameworks */,
 				79F72EFBC3B18E087E02052A /* Resources */,
 			);
 			buildRules = (
@@ -1693,6 +1686,7 @@
 			);
 			name = MarkView;
 			packageProductDependencies = (
+				E10000000000000000000002 /* MarkViewCore */,
 			);
 			productName = MarkView;
 			productReference = E143C9957CEAB8D0014627D8 /* MarkView.app */;
@@ -1725,6 +1719,9 @@
 			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
+			packageReferences = (
+				E10000000000000000000003 /* XCLocalSwiftPackageReference "Packages/MarkViewCore" */,
+			);
 			targets = (
 				8606D7DFEB902E7FACBE043E /* MarkView */,
 			);
@@ -1800,10 +1797,6 @@
 				07044898F5427AD51A50B41F /* AIToolRuns.swift in Sources */,
 				07044898F5427AD51A50B420 /* AIToolJobsBanner.swift in Sources */,
 				07044898F5427AD51A50B421 /* AppFontScaleView.swift in Sources */,
-				07044898F5427AD51A50B422 /* Subprocess.swift in Sources */,
-				07044898F5427AD51A50B423 /* CoreFiles.swift in Sources */,
-				07044898F5427AD51A50B424 /* SettingsRegistry.swift in Sources */,
-				07044898F5427AD51A50B425 /* WebHost.swift in Sources */,
 				07044898F5427AD51A50B426 /* ExtensionRegistries.swift in Sources */,
 				07044898F5427AD51A50B427 /* WorkspaceControllers.swift in Sources */,
 				07044898F5427AD51A50B428 /* AILayer.swift in Sources */,
@@ -2280,7 +2273,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.26.0;
+				CURRENT_PROJECT_VERSION = 6.26.1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -2295,7 +2288,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.26.0;
+				MARKETING_VERSION = 6.26.1;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -2360,7 +2353,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.26.0;
+				CURRENT_PROJECT_VERSION = 6.26.1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -2381,7 +2374,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.26.0;
+				MARKETING_VERSION = 6.26.1;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -2433,6 +2426,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		E10000000000000000000003 /* XCLocalSwiftPackageReference "Packages/MarkViewCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/MarkViewCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E10000000000000000000002 /* MarkViewCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E10000000000000000000003 /* XCLocalSwiftPackageReference "Packages/MarkViewCore" */;
+			productName = MarkViewCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 3E4EE3E2F0713529DCE967F6 /* Project object */;
 }

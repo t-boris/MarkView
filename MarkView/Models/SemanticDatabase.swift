@@ -1,5 +1,8 @@
 import Foundation
 import SQLite3
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// SQLite wrapper for .dde/state.db — stores semantic blocks, documents, and compilation cache
 @MainActor
@@ -8,8 +11,6 @@ class SemanticDatabase {
     var sqliteTransientValue: sqlite3_destructor_type { Self.sqliteTransient }
     private var db: OpaquePointer?
     let dbPath: String
-    /// Off-main-thread serialized SQLite executor (`AR-37`).
-    private(set) lazy var backgroundExecutor: SemanticDatabaseExecutor? = try? SemanticDatabaseExecutor(dbPath: dbPath)
 
     init(workspacePath: URL, dbName: String = "state.db") throws {
         let fm = FileManager.default

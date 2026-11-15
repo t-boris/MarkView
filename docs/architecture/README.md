@@ -1,6 +1,6 @@
 # MarkView Architecture Documentation
 
-Reverse-engineered from the code at `main` `85b6f8d` (version 2.17.0, 2026-09-26) and updated through version 6.26.0 (2026-11-15, full implementation of [architecture-review-2026-11.md](./architecture-review-2026-11.md)). It is meant for
+Reverse-engineered from the code at `main` `85b6f8d` (version 2.17.0, 2026-09-26) and updated through version 6.26.x ([architecture-review-2026-11.md](./architecture-review-2026-11.md) and [architecture-review-2026-11-followup.md](./architecture-review-2026-11-followup.md)). It is meant for
 engineers and AI agents who need to change MarkView safely. Every module doc cites symbols and `path:line`;
 when code and docs disagree, the code wins. Update the affected doc in the same change.
 
@@ -29,14 +29,14 @@ Feature specs and bug reports produced *by* the app live in [`docs/features`](..
 | Module | Scope |
 |---|---|
 | [App shell & workspace](./modules/app-shell-and-workspace.md) | Entry point, windows, menus, `WorkspaceManager`, tabs, file tree, settings window |
-| [Editor & bridge](./modules/editor-and-bridge.md) | WKWebView editor, `markview-*.js`, **bridge message catalog**, PDF export, vendored JS, `EditorWeb` status |
+| [Editor & bridge](./modules/editor-and-bridge.md) | WKWebView editor, `markview-*.js`, **bridge message catalog**, PDF export, vendored JS |
 | [AI assistants & dictation](./modules/ai-assistants-and-dictation.md) | Claude/Codex/Cline/Copilot integration, prompts, Explain, code navigation, embeddings, Whisper |
 | [Feature workflow](./modules/feature-workflow.md) | Feature/bug intake, AI rounds, on-disk spec schema (REQ/DEC/Q/F/SRC, BUG) |
 | [End-to-End QA](./modules/end-to-end-qa.md) | Scenarios, web runner and players, video with subtitles, UX review, bug filing |
 | [Architecture & X-Ray](./modules/architecture-and-xray.md) | Repo scanner, component graph, AI grouping, Cytoscape map, PR X-Ray |
 | [Semantic index & Insight](./modules/semantic-index-and-insight.md) | SQLite schema, structural indexer, GraphRAG prompt assembly, Recursive Insight |
 | [Git, GitHub, terminal, lifecycle, usage](./modules/git-github-terminal-lifecycle-usage.md) | VCS panel, `gh` integration, PTY terminal and links, lifecycle analytics, quota tracker |
-| [Build, release & testing](./modules/build-release-testing.md) | XcodeGen, settings, signing, release pipeline, standalone tests |
+| [Build, release & testing](./modules/build-release-testing.md) | `MarkView.xcodeproj`, `Packages/MarkViewCore`, settings, signing, release pipeline, standalone tests |
 
 ## Recipes index
 

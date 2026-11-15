@@ -163,8 +163,14 @@
         // and an inline iframe-side message dispatch script.
         // ---------------------------------------------------------------------------
         async function buildInsightSrcdoc(skeleton, libBlobURLs, katexCSSInline) {
+            // Per-load cryptographic CSP nonce (FU-10, AR-02): replaces 'unsafe-inline' when loaded via WKWebView.
+            const rawNonce = (typeof window.__markviewInsightNonce === 'string' && /^[A-Za-z0-9+/_=-]+$/.test(window.__markviewInsightNonce))
+                ? window.__markviewInsightNonce
+                : '';
+            const scriptPolicy = rawNonce ? ("'nonce-" + rawNonce + "' blob: data:") : "'unsafe-inline' blob: data:";
+            const nonceAttr = rawNonce ? (' nonce="' + escapeForHTMLAttribute(rawNonce) + '"') : '';
             // CSP per task spec / Decision 10 (null-origin iframe, AR-02).
-            const csp = "default-src 'none'; script-src 'unsafe-inline' blob: data:; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; font-src data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+            const csp = "default-src 'none'; script-src " + scriptPolicy + "; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; font-src data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
             const title = escapeForHTMLText(skeleton && skeleton.title ? skeleton.title : 'Insight');
 
             // Inline required vendored libraries from state.insightLibBytes with </script>
@@ -178,7 +184,7 @@
                 const src = state.insightLibBytes && state.insightLibBytes.get(libName);
                 if (typeof src === 'string' && src.length > 0) {
                     const safeSrc = src.replace(/<\/(script)/gi, '<\\/$1');
-                    libScripts += '<script>' + safeSrc + '</script>\n';
+                    libScripts += '<script' + nonceAttr + '>' + safeSrc + '</script>\n';
                 }
             }
 
@@ -292,7 +298,7 @@
                                 }
                             }
                             try {
-                                mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', flowchart: { htmlLabels: true },
+                                mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', flowchart: { htmlLabels: true },
                                                      theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default' });
                                 mermaid.run({ nodes: sec.querySelectorAll('.mermaid'), suppressErrors: true });
                             } catch (e) { /* per-block recover handled by mermaid */ }
@@ -363,7 +369,10 @@
                         sectionBuffers[sid] += String(p.htmlChunk || '');
                     } else if (data.type === 'initSectionLib') {
                         var ssid = String(p.sectionId || '');
-                        if (ssid) flushSectionBuffer(ssid);
+                        if (ssid) {
+                            if (typeof p.html === 'string') sectionBuffers[ssid] = p.html;
+                            flushSectionBuffer(ssid);
+                        }
                         initSectionLib(ssid);
                     } else if (data.type === 'updateInsightProgress') {
                         // In-iframe progress banner — prominent feedback while
@@ -809,7 +818,7 @@
                 '<div class="spacer"></div>' +
                 '<button id="iframe-btn-save" title="Export the whole insight tree as a self-contained ZIP website">📦 Export ZIP</button>' +
                 '</div>' +
-                '<script>' + iframeScript + '</script>' +
+                '<script' + nonceAttr + '>' + iframeScript + '</script>' +
                 '</body></html>';
         }
 

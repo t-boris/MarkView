@@ -9,7 +9,7 @@ the module section with full `path:line` detail.
 
 | Mode | Trigger | What happens |
 |---|---|---|
-| GUI | normal launch | `MarkViewApp.main()` → `WindowGroup` → `ContentView` → `@StateObject WorkspaceManager`. On appear: restore `workspace.lastFolder` after 0.6 s, drain Finder "Open With" URLs queued by `MarkViewAppDelegate`, and poll `/tmp/markview_open_path.txt` every 1 s |
+| GUI | normal launch | `MarkViewApp.main()` → `WindowGroup` → `ContentView` → `@StateObject WorkspaceManager`. On appear: restore `WindowSessionStorage` / `workspace.lastFolder`, drain Finder "Open With" URLs queued by `MarkViewAppDelegate`, and poll `markview_open_path.txt` (in `temporaryDirectory` and `/tmp`, validated with `O_NOFOLLOW` + regular-file/owner check) every 1 s |
 | Headless indexer | `--dde-index <folder>` | `DDEIndexerRunner.run`: open `SemanticDatabase`, `StructuralIndexer.indexAll()`, print `[mvindexer] N/M` to stderr, `exit` |
 
 Details: [app-shell §5.1](./modules/app-shell-and-workspace.md#51-launch).

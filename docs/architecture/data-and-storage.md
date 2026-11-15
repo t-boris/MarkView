@@ -46,8 +46,7 @@ documents, but no user content.
 
 | Path | Notes |
 |---|---|
-| `/tmp/markview_open_path.txt` | Finder Quick Action handoff. Read, then deleted. World-writable location |
-| `/tmp/markview-insight-diag.log` | Insight and bridge diagnostics. World-readable, unbounded, contains content prefixes |
+| `$TMPDIR/markview_open_path.txt` (and `/tmp/markview_open_path.txt`) | Finder Quick Action handoff. Opened with `O_NOFOLLOW`, verified via `fstat` (regular file owned by current UID), read, then deleted |
 | `$TMPDIR/markview-cli/` | Working folder for CLI runs. Codex writes `schema-<uuid>.json` here and deletes it |
 | `$TMPDIR/markview_whisper_<uuid>.wav` | Recording, deleted after transcription or cancel |
 | `$TMPDIR/insight-export-<uuid>/` | Export staging, removed afterwards |

@@ -13,16 +13,15 @@ implementation.
 
 ## Repository Map
 
-- `MarkView/App/`: application entry point and lifecycle
-- `MarkView/Core/`: shared infrastructure (`ProcessRunner`, `PathSafety`, `AtomicFileWriter`, `SingleFlightKeyed`, `AppLog`, `ProjectPaths`, `CoreDigest`)
-- `MarkView/Views/`: SwiftUI views and WKWebView coordination
-- `MarkView/Models/`: workspace, AI (`AIOperation`, `AssistantProviderRegistry`), indexing (`SemanticDatabaseExecutor`), registries (`MarkdownCommandRegistry`, `SurfaceRegistry`, `WorkspaceLayoutPreset`), search, and Git behavior
-- `MarkView/Bridge/`: Swift-to-JavaScript bridge (`WebViewBridge`, `TypedWebBridge`) and PDF export
-- `MarkView/Resources/Editor/`: bundled HTML, JavaScript (`mv-kit.js`, `markview-*.js`), CSS, and vendor assets
-- `Packages/MarkViewCore/`: local Swift package with `swift test` target (`MarkViewCoreTests`)
+- `MarkView/App/`: application entry point, window scenes, Finder open handoff (`MarkViewApp.swift`)
+- `Packages/MarkViewCore/`: local Swift package linked into `MarkView` (`Subprocess`, `PathSafety`, `AtomicFile`, `SingleFlight`, `RotatingJSONLinesFile`, `MarkViewPaths`, `ContentDigest`, `SettingsRegistry`, `WebHost`, `WeakScriptMessageHandler`) with `swift test` target (`MarkViewCoreTests`)
+- `MarkView/Views/`: SwiftUI views and `WKWebView` coordination (`EditorView`, `ContentView`, etc.)
+- `MarkView/Models/`: workspace (`WorkspaceManager`, `DocumentScrollSideTable`, `TaskBag`, `PanelLayout`), AI (`AIOperation`, `AssistantProviderRegistry`, `CLICompletion`), indexing (`SemanticDatabase`), storage (`SchemaVersionedStore`, `WindowSessionStorage`), registries (`ToolRegistry`), search, browser control (`BrowserControlServer`), and Git behavior
+- `MarkView/Bridge/`: Swift-to-JavaScript bridge (`WebViewBridge`) and PDF export
+- `MarkView/Resources/Editor/`: bundled HTML, JavaScript (`mv-kit.js`, `markview-*.js`), CSS, and vendor assets (including `dompurify.min.js` and `turndown.js`)
 - `Tests/Fixtures/` and `TestFiles/`: manual and fixture data, plus `tools/tests/` automated test suites (`tools/tests/run.sh` and `tools/tests/manifest.json`)
 - `MarkView.xcodeproj`: canonical Xcode project (XcodeGen and `project.yml` have been retired)
-- `tools/web-vendor/`: builds the bundled CodeMirror, Cytoscape, ELK, DOMPurify, and Turndown files in
+- `tools/web-vendor/`: builds the bundled CodeMirror, Cytoscape, ELK, xterm.js, DOMPurify, and Turndown files in
   `Resources/Editor/vendor/js` (`npm ci && ./build.sh`); never load them from a CDN
 - `tasks/todo.md`: active work log; `tasks/archive/`: archived task logs; `tasks/lessons.md`: durable debugging lessons
 
@@ -41,7 +40,7 @@ implementation.
   JavaScript (`mv-kit.js` / `markview-bridge.js`).
 - Keep UI state mutations on `@MainActor`; move file, database, network, and
   child-process work off the main thread (`SWIFT_STRICT_CONCURRENCY = targeted` is enabled).
-- Never call `Process.waitUntilExit()` on the main thread. Use `ProcessRunner` so pipes
+- Never call `Process.waitUntilExit()` on the main thread. Use `MarkViewCore.Subprocess` so pipes
   are drained concurrently with waiting and bounded by timeouts and output caps.
 - For a hang or beachball, collect evidence first with
   `/usr/bin/sample <pid> 3` and inspect thread 0.
@@ -50,6 +49,19 @@ implementation.
 - Validate file paths, network responses, and bridge payloads at their boundaries.
 - Avoid direct edits to minified third-party assets unless intentionally updating
   the bundled dependency.
+
+### Architecture & Refactoring Rules
+
+1. **A finding is done when the old thing is gone.** Acceptance is a count that must reach zero
+   or a stated number (e.g., `Process()` outside `Subprocess` = 0; `CLICompletion.run` outside
+   `AIOperation` = 0; lists to edit for a new tool = 1).
+2. **No abstraction without a first real caller in the same pull request,** and the code it
+   replaces deleted in that pull request.
+3. **One finding (or one extraction step) per pull request.** No multi-phase grab-bag pull requests.
+4. **Tests check behavior of the app's path,** never the presence of text. A structural rule
+   (e.g., no `Process()` outside Core) is a lint script with an explicit name, not a feature test.
+5. **Status follows evidence.** "Done" is written by whoever ran the count, with the count.
+6. **`verified` stays the owner's status** (as the feature workflow specifies).
 
 ## Git Workflow
 
@@ -105,13 +117,15 @@ xcodebuild -project MarkView.xcodeproj -scheme MarkView \
   CODE_SIGNING_ALLOWED=NO build
 
 swift test --package-path Packages/MarkViewCore
+./tools/tests/run.sh --tier pure
 ./tools/tests/run.sh --changed
 ```
 
 Standalone verification suites live under `tools/tests/` and are cataloged in
-`tools/tests/manifest.json` (run all suites with `./tools/tests/run.sh --all` or
-a specific suite with `./tools/tests/run.sh <name>`). Use the relevant fixtures
-and perform a focused check for behavior that compilation does not cover.
+`tools/tests/manifest.json` (run all suites with `./tools/tests/run.sh --all`,
+pure suites with `./tools/tests/run.sh --tier pure`, or a specific suite with
+`./tools/tests/run.sh <name>`). Use the relevant fixtures and perform a focused
+check for behavior that compilation does not cover.
 
 ## Completion
 

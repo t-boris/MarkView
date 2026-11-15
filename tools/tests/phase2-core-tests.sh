@@ -9,11 +9,8 @@ swift test --package-path Packages/MarkViewCore
 
 cp tools/tests/Phase2CoreTests.swift "$out/main.swift"
 swiftc -o "$out/phase2-core-tests" \
-    MarkView/Core/Subprocess.swift \
-    MarkView/Core/CoreFiles.swift \
+    Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Models/OutputLanguage.swift \
-    MarkView/Core/SettingsRegistry.swift \
-    MarkView/Core/WebHost.swift \
     "$out/main.swift"
 
 "$out/phase2-core-tests"

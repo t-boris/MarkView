@@ -215,10 +215,14 @@ final class WorkspaceTabsStore: ObservableObject {
     /// True while updating side-table metadata (`scrollPosition`, `activeHeadingId`) so `WorkspaceManager`
     /// does not broadcast `objectWillChange` across the entire window on scroll events (`AR-15`).
     private(set) var isSilentTabMetadataUpdate = false
+    /// Invoked whenever one or more tabs leave `openTabs`, allowing per-tab side tables to prune entries (`FU-11`).
+    var onTabsRemoved: (([UUID]) -> Void)?
 
     func reset() {
+        let removed = openTabs.map(\.id)
         openTabs = []
         activeTabIndex = -1
+        if !removed.isEmpty { onTabsRemoved?(removed) }
     }
 
     func firstIndex(of url: URL) -> Int? {
@@ -262,8 +266,10 @@ final class WorkspaceTabsStore: ObservableObject {
 
     func removeTab(at index: Int) {
         guard index >= 0 && index < openTabs.count else { return }
+        let removedID = openTabs[index].id
         openTabs.remove(at: index)
         normalizeActiveTabIndex(preferred: activeTabIndex)
+        onTabsRemoved?([removedID])
     }
 
     /// Move a tab to `target` (the position it takes); the active tab stays active.
@@ -279,23 +285,29 @@ final class WorkspaceTabsStore: ObservableObject {
     func keepOnlyTab(at index: Int) {
         guard index >= 0 && index < openTabs.count else { return }
         let kept = openTabs[index]
+        let removed = openTabs.enumerated().compactMap { $0.offset == index ? nil : $0.element.id }
         openTabs = [kept]
         activeTabIndex = 0
+        if !removed.isEmpty { onTabsRemoved?(removed) }
     }
 
     /// Keeps the tabs `isIncluded` accepts, in their order. The active tab stays active when it stays open; otherwise `TabClosing` picks
     /// the neighbour (or the Welcome tab).
     func keepTabs(where isIncluded: (OpenTab) -> Bool) {
         let keep = openTabs.map(isIncluded)
+        let removed = zip(openTabs, keep).compactMap { $0.1 ? nil : $0.0.id }
         let active = TabClosing.activeIndex(afterKeeping: keep, active: activeTabIndex)
         openTabs = zip(openTabs, keep).filter(\.1).map(\.0)
         activeTabIndex = active
+        if !removed.isEmpty { onTabsRemoved?(removed) }
     }
 
     func keepTabs(through index: Int) {
         guard index >= 0 && index < openTabs.count else { return }
+        let removed = openTabs.dropFirst(index + 1).map(\.id)
         openTabs = Array(openTabs.prefix(index + 1))
         normalizeActiveTabIndex(preferred: activeTabIndex)
+        if !removed.isEmpty { onTabsRemoved?(removed) }
     }
 
     func normalizeActiveTabIndex(preferred: Int? = nil) {
@@ -336,7 +348,7 @@ enum WorkspaceAITool: String {
 
 /// Manages the workspace state including open files, tabs, and folder structure
 @MainActor
-class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding, AssistantContextProviding {
+class WorkspaceManager: ObservableObject {
     @Published var recentFiles: [URL] = []
     /// Recently opened folders (standardized paths), most recent first.
     @Published private(set) var recentProjects: [String] =
@@ -349,31 +361,8 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
     let theme = WindowTheme()
     /// Per-tab scroll position and active heading side table (`AR-15`).
     let scrollState = DocumentScrollSideTable()
-    /// Focused modal and sheet coordinator (`AR-14`).
-    let modals = WorkspaceModalCoordinator()
-    /// Focused semantic and structural indexing coordinator (`AR-14`).
-    let semanticCoordinator = WorkspaceSemanticCoordinator()
-    /// Focused window panel chrome coordinator (`AR-14`).
-    let chrome = WorkspaceChromeCoordinator()
     /// Keyed cancellable background task bag owned by this window (`AR-19`).
     let taskBag = TaskBag()
-    /// Visibility-aware repeating poll scheduler owned by this window (`AR-19`).
-    let taskScheduler = WindowTaskScheduler()
-    /// Composition container grouping narrow per-window dependencies (`AR-17`).
-    private(set) lazy var windowDependencies = WindowDependencies(
-        layout: layout,
-        windowUI: windowUI,
-        theme: theme,
-        scrollState: scrollState,
-        modals: modals,
-        semanticCoordinator: semanticCoordinator,
-        chrome: chrome,
-        taskBag: taskBag,
-        scheduler: taskScheduler,
-        projectContext: self,
-        tabsProvider: self,
-        assistantContext: self
-    )
     /// AI tool runs working in a headless agent (diagrams, code map, review, audit).
     let aiJobs = AIToolJobs()
 
@@ -382,14 +371,33 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
         return CLICompletion.Assistant.chosen(tool: tool, project: aiProject)
     }
 
-    /// Apply a built-in layout preset explicitly chosen by the user (`AR-33`, `DEC-002`).
-    func applyLayoutPreset(_ preset: LayoutPreset) {
-        layout.apply(preset: preset)
-        showFileTree = preset.showFileTree
-        showCenter = true
-        showTOC = preset.showNavigator
-        terminalVisible = preset.showNavigator
-        agentsVisible = (preset.id == "cockpit")
+    func openTool(_ id: ToolDescriptor.ToolID) {
+        switch id {
+        case .git: openGit()
+        case .deployments: openDeployments()
+        case .workflow: openWorkflow()
+        case .qa: openQA()
+        case .uiStudio: openUIStudio()
+        case .cockpit: openCockpit()
+        case .discussions: openDiscussions()
+        case .changeReview: openChangeReview()
+        }
+    }
+
+    nonisolated static func toolMatches(_ id: ToolDescriptor.ToolID, kind: TabKind) -> Bool {
+        switch (id, kind) {
+        case (.git, .git),
+             (.deployments, .deployments),
+             (.workflow, .workflow),
+             (.qa, .qa),
+             (.uiStudio, .uiStudio),
+             (.cockpit, .cockpit),
+             (.discussions, .discussions),
+             (.changeReview, .changeReview):
+            return true
+        default:
+            return false
+        }
     }
     /// The project's operations, with this window as the one that shows what the person starts from here.
     func operations() -> ProjectOperationsStore? {
@@ -726,6 +734,10 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
         agentActivity.terminals = { [weak self] in self?.aiTerminals ?? [] }
         agentActivity.activeTerminalID = { [weak self] in self?.activeAITerminalID }
         agentActivity.onClaudeModel = { [weak self] id, model in self?.claudeModelReported(model, terminalID: id) }
+        let sideTable = scrollState
+        tabsStore.onTabsRemoved = { removedIDs in
+            for id in removedIDs { sideTable.removeTab(id) }
+        }
         agentActivity.start()
 
         // Restore layout from UserDefaults
@@ -810,10 +822,7 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
         // outside its terminals; the browser tools check the terminal-links setting themselves.
         registerBrowserControl()
         taskBag.cancelAll()
-        taskScheduler.stopAll()
         scrollState.reset()
-        modals.reset()
-        semanticCoordinator.reset()
         fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
         tabsStore.reset()
         architecture.reset()
@@ -1209,7 +1218,8 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
             switch tab.kind {
             case .file:
                 let draft = tab.isModified ? WorkspaceDraft(content: tab.content, original: tab.originalContent) : nil
-                saved = .file(url: tab.url, draft: draft, notes: tab.notesView, scroll: Double(tab.scrollPosition))
+                let currentScroll = scrollState.scrollPosition(for: tab.id, fallback: tab.scrollPosition)
+                saved = .file(url: tab.url, draft: draft, notes: tab.notesView, scroll: Double(currentScroll))
             case .image: saved = .image(tab.url)
             case .pdf: saved = .pdf(tab.url)
             case .archive: saved = .archive(tab.url)
@@ -1271,6 +1281,7 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
                     tabsStore.appendTab(tab)
                 }
                 guard openTabs.count > before else { continue }
+                let restoredScroll: CGFloat = scroll.isFinite ? CGFloat(max(0, scroll)) : 0
                 tabsStore.updateTab(at: before) { tab in
                     if let draft {
                         tab.content = draft.content
@@ -1278,8 +1289,9 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
                         tab.headings = extractHeadings(from: draft.content)
                     }
                     tab.notesView = notes
-                    tab.scrollPosition = scroll.isFinite ? CGFloat(max(0, scroll)) : 0
+                    tab.scrollPosition = restoredScroll
                 }
+                scrollState.setScrollPosition(restoredScroll, for: openTabs[before].id)
             case .deployments: openDeployments()
             case .discussions: openDiscussions()
             case .workflow: openWorkflow()
@@ -2232,10 +2244,7 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
         structuralIndexer?.terminate()
         structuralIndexer = nil
         taskBag.cancelAll()
-        taskScheduler.stopAll()
         scrollState.reset()
-        modals.reset()
-        semanticCoordinator.reset()
 
         tabsStore.reset()
         fileTreeStore.reset()
@@ -4841,7 +4850,7 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
         session.openFile = { [weak self] url in self?.openFile(url) }
         session.featureStore = { [weak self] in self?.features }
         session.onFeatureExported = { [weak self] slug in self?.showFeatureContext(slug) }
-        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-ui-studio-" + session.id.uuidString),
+        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .uiStudio, in: root, suffix: session.id.uuidString),
                           content: "", originalContent: "")
         tab.kind = .uiStudio(session)
         tabsStore.appendTab(tab, activate: true)
@@ -4921,7 +4930,7 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
         for index in openTabs.indices {
             if case .deployments = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
         }
-        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-deployments"), content: "", originalContent: "")
+        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .deployments, in: root), content: "", originalContent: "")
         tab.kind = .deployments
         layout.workspaceArea = .files
         showCenter = true
@@ -4936,7 +4945,7 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
         for index in openTabs.indices {
             if case .git = openTabs[index].kind { activeTabIndex = index; return }
         }
-        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-git"), content: "", originalContent: "")
+        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .git, in: root), content: "", originalContent: "")
         tab.kind = .git
         tabsStore.appendTab(tab, activate: true)
     }
@@ -4950,7 +4959,7 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
         for index in openTabs.indices {
             if case .workflow = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
         }
-        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-workflow"), content: "", originalContent: "")
+        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .workflow, in: root), content: "", originalContent: "")
         tab.kind = .workflow
         layout.workspaceArea = .files
         showCenter = true
@@ -4966,7 +4975,7 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
             activeTabIndex = index
             return
         }
-        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-cockpit"), content: "", originalContent: "")
+        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .cockpit, in: root), content: "", originalContent: "")
         let session: CockpitSession
         if let existing = cockpitSession, existing.root.standardizedFileURL == root.standardizedFileURL {
             session = existing
@@ -4990,7 +4999,7 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
         for index in openTabs.indices {
             if case .qa = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
         }
-        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-qa"), content: "", originalContent: "")
+        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .qa, in: root), content: "", originalContent: "")
         tab.kind = .qa
         layout.workspaceArea = .files
         showCenter = true
@@ -5003,7 +5012,7 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
         for index in openTabs.indices {
             if case .changeReview = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
         }
-        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-file-changes"), content: "", originalContent: "")
+        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .changeReview, in: root), content: "", originalContent: "")
         tab.kind = .changeReview
         layout.workspaceArea = .files
         showCenter = true
@@ -5017,7 +5026,7 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
         for index in openTabs.indices {
             if case .discussions = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
         }
-        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-discussions"), content: "", originalContent: "")
+        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .discussions, in: root), content: "", originalContent: "")
         tab.kind = .discussions
         layout.workspaceArea = .files
         showCenter = true

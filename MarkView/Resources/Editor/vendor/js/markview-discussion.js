@@ -10,6 +10,54 @@
     const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const VISUAL = ['mermaid', 'svg', 'chart', 'html'];
 
+    function ensureDiscussionPurifyURIHook() {
+        if (typeof window.DOMPurify !== 'undefined' && typeof window.DOMPurify.addHook === 'function' && !window.DOMPurify.__markviewURIHookInstalled) {
+            window.DOMPurify.__markviewURIHookInstalled = true;
+            window.DOMPurify.addHook('afterSanitizeAttributes', function (node) {
+                if (!node || !node.hasAttribute) return;
+                ['src', 'href', 'xlink:href', 'action', 'formaction', 'poster'].forEach(function (attr) {
+                    if (!node.hasAttribute(attr)) return;
+                    var val = node.getAttribute(attr).replace(/[\u0000-\u0020]+/g, '');
+                    if (/^file:/i.test(val) || (/^data:/i.test(val) && !/^data:image\/(?:png|jpe?g|gif|webp|avif)[;,]/i.test(val))) {
+                        node.removeAttribute(attr);
+                    }
+                });
+            });
+        }
+    }
+
+    function sanitizeDiscussionHTML(rawHTML) {
+        if (typeof window.DOMPurify !== 'undefined' && typeof window.DOMPurify.sanitize === 'function') {
+            ensureDiscussionPurifyURIHook();
+            return window.DOMPurify.sanitize(String(rawHTML || ''), {
+                USE_PROFILES: { html: true, svg: true, mathMl: true },
+                ADD_TAGS: ['details', 'summary', 'canvas', 'button', 'figure', 'figcaption'],
+                ADD_ATTR: ['target', 'open', 'class', 'id', 'title', 'alt', 'src', 'href', 'width', 'height', 'viewBox', 'data-kind', 'data-src', 'data-expand', 'data-save', 'data-copy'],
+                ALLOW_DATA_ATTR: true,
+                DATA_URI_TAGS: [],
+                ALLOW_UNKNOWN_PROTOCOLS: false,
+                ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|data:image\/(?:png|jpe?g|gif|webp|avif)[;,]|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+                FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'base', 'meta', 'link', 'style'],
+                FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseenter', 'onmouseleave', 'onfocus', 'onblur', 'onkeydown', 'onkeyup', 'onkeypress', 'onsubmit', 'onchange', 'oninput', 'onmousedown', 'onmouseup', 'oncontextmenu', 'ondblclick', 'ondrag', 'ondrop', 'onpaste', 'oncopy', 'oncut', 'onanimationstart', 'onanimationend', 'ontoggle']
+            });
+        }
+        return '<pre class="sanitization-error">' + esc(rawHTML) + '</pre>';
+    }
+
+    function sanitizeMermaidSVG(rawSVG) {
+        if (typeof window.DOMPurify !== 'undefined' && typeof window.DOMPurify.sanitize === 'function') {
+            ensureDiscussionPurifyURIHook();
+            return window.DOMPurify.sanitize(String(rawSVG || ''), {
+                USE_PROFILES: { svg: true, html: true },
+                ADD_TAGS: ['foreignObject'],
+                ALLOW_DATA_ATTR: false,
+                ALLOW_UNKNOWN_PROTOCOLS: false,
+                FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'base', 'meta', 'link']
+            });
+        }
+        return '<pre class="sanitization-error">Sanitizer unavailable.</pre>';
+    }
+
     // ---- SVG: parsed, stripped of anything active, serialized back ----
     function cleanSVG(source) {
         const doc = new DOMParser().parseFromString(source, 'image/svg+xml');
@@ -45,8 +93,7 @@
         }
         if (lang === 'chart') return '<figure class="visual" data-kind="chart" data-src="' + encodeURIComponent(src) + '">' + tools('Save PNG') + '<canvas></canvas></figure>';
         if (lang === 'html') {
-            const page = '<!DOCTYPE html><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:"><meta charset="utf-8"><style>body{font:14px/1.5 -apple-system,system-ui,sans-serif;margin:12px;color:#1f2328}</style>' + src;
-            return '<figure class="visual" data-kind="html"><iframe sandbox="" srcdoc="' + esc(page) + '"></iframe></figure>';
+            return '<figure class="visual" data-kind="html" data-src="' + encodeURIComponent(src) + '"></figure>';
         }
         return defaultFence(tokens, idx, options, env, self);
     };
@@ -77,12 +124,20 @@
     let counter = 0;
     function themeMermaid() { try { mermaid.initialize(Object.assign({ startOnLoad: false, securityLevel: 'strict' }, T.mermaid())); } catch (e) {} }
     function hydrate(root) {
+        root.querySelectorAll('figure[data-kind="html"]').forEach((fig) => {
+            const src = decodeURIComponent(fig.dataset.src || '');
+            const page = '<!DOCTYPE html><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:"><meta charset="utf-8"><style>body{font:14px/1.5 -apple-system,system-ui,sans-serif;margin:12px;color:#1f2328}</style>' + src;
+            const frame = document.createElement('iframe');
+            frame.setAttribute('sandbox', '');
+            frame.srcdoc = page;
+            fig.replaceChildren(frame);
+        });
         root.querySelectorAll('figure[data-kind="mermaid"]').forEach((fig) => {
             const src = decodeURIComponent(fig.dataset.src), body = fig.querySelector('.body');
             const key = T.signature() + ':' + src;
-            if (mermaidCache.has(key)) { body.innerHTML = mermaidCache.get(key); return; }
+            if (mermaidCache.has(key)) { body.innerHTML = sanitizeMermaidSVG(mermaidCache.get(key)); return; }
             body.innerHTML = '<span class="drawing">Drawing…</span>';
-            mermaid.render('mmd' + (++counter), src).then((r) => { mermaidCache.set(key, r.svg); body.innerHTML = r.svg; })
+            mermaid.render('mmd' + (++counter), src).then((r) => { const clean = sanitizeMermaidSVG(r.svg); mermaidCache.set(key, clean); body.innerHTML = clean; })
                 .catch(() => { body.innerHTML = '<pre><code>' + esc(src) + '</code></pre><p class="drawing error">This diagram could not be drawn; its source is shown.</p>'; });
         });
         root.querySelectorAll('figure[data-kind="chart"]').forEach((fig) => {
@@ -200,11 +255,11 @@
         let html = '';
         if (!turns.length && !live) html = '<div id="empty">Ask a question about the project. The answer comes in the form that fits it: text, a table, a diagram.</div>';
         for (const [index, turn] of turns.entries()) {
-            html += '<div class="turn"><div class="who">You</div><div class="q">' + esc(turn.question) + '</div><div class="answer-header"><div class="who">Assistant</div><button data-copy="' + index + '">Copy Markdown</button></div><div class="a">' + md.render(visibleText(turn.answer, false).text) + '</div></div>';
+            html += '<div class="turn"><div class="who">You</div><div class="q">' + esc(turn.question) + '</div><div class="answer-header"><div class="who">Assistant</div><button data-copy="' + index + '">Copy Markdown</button></div><div class="a">' + sanitizeDiscussionHTML(md.render(visibleText(turn.answer, false).text)) + '</div></div>';
         }
         if (live) {
             const v = visibleText(live.text || '', true);
-            html += '<div class="turn"><div class="who">You</div><div class="q">' + esc(live.question) + '</div><div class="answer-header"><div class="who">Assistant</div>' + (v.text ? '<button data-copy="live">Copy Markdown</button>' : '') + '</div><div class="a">' + md.render(v.text) +
+            html += '<div class="turn"><div class="who">You</div><div class="q">' + esc(live.question) + '</div><div class="answer-header"><div class="who">Assistant</div>' + (v.text ? '<button data-copy="live">Copy Markdown</button>' : '') + '</div><div class="a">' + sanitizeDiscussionHTML(md.render(v.text)) +
                 (v.drawing ? '<p class="drawing">Drawing…</p>' : '') + '</div><div class="status">' + esc(live.status || 'Working') + '</div>' +
                 (live.error ? '<div class="error">' + esc(live.error) + '</div>' : '') + '</div>';
         }

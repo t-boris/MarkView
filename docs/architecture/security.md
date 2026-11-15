@@ -14,7 +14,7 @@ flowchart LR
   Swift -- "argv / stdin" --> CLI["AI CLIs, git, gh, zip"]
   Swift -- "HTTPS + bearer" --> Net["OpenAI, Anthropic, ChatGPT"]
   Term["PTY output<br/>(any program)"] --> TermWeb["terminal.html"] -- "link / input" --> Swift
-  Local["Other local processes"] -. "/tmp files" .-> Swift
+  Local["Local processes /<br/>control socket clients"] -. "token (0600) + peer UID" .-> Swift
 ```
 
 ## 2. What is enforced
@@ -22,33 +22,26 @@ flowchart LR
 | Boundary | Control | Where |
 |---|---|---|
 | Bridge → file open | Paths must stay under the workspace or X-Ray root; `..` and absolute paths rejected for canvas and wikilinks; symlink escapes blocked | [app-shell](./modules/app-shell-and-workspace.md), [X-Ray](./modules/architecture-and-xray.md) |
-| Bridge → URL open | `openURL` opens only `https://github.com…` | `WorkspaceManager.swift:1239` |
+| Bridge → URL open | `openURL` opens only `https://github.com…` | `WorkspaceManager.swift` |
 | Bridge → PR actions | Operations and merge methods are allowlisted | `ArchitectureStore` |
-| Insight messages | Main-frame origin check; UUID and manifest membership checked; logged values sanitized | [semantic](./modules/semantic-index-and-insight.md) |
+| HTML & CSP (editor, book, discussion, canvas, code) | Rendered HTML sanitized with vendored DOMPurify (`fail closed` if unavailable, `afterSanitizeAttributes` strips `file:` and non-raster `data:`); no `'unsafe-inline'` in `script-src` | `markview-render.js`, `markview-book.js`, `markview-discussion.js`, `markview-canvas.js`, `markview-code.js` |
+| Insight iframe | Sandboxed null-origin `allow-scripts` (no `allow-same-origin`); DOMPurify HTML sanitization; `postMessage` origin + source verification; nonce CSP without `'unsafe-inline'` and Mermaid `securityLevel: 'strict'` | `markview-insight-handlers.js`, `markview-insight-srcdoc.js`, `EditorView.swift` |
+| Finder Quick Action handoff | `markview_open_path.txt` in `temporaryDirectory` / `/tmp` opened with `O_NOFOLLOW`, verified via `fstat` as a regular file owned by `getuid()`, then deleted | `MarkViewApp.swift` |
+| Control socket (`markview-control`) | Per-instance `0600` token (read via `O_NOFOLLOW` + `fstat`), fail-closed constant-time verification, kernel peer UID (`== getuid()`) check, socket/token unlinked on quit | `BrowserControlServer.swift`, `BrowserAgentTools.swift` |
 | Terminal links | Only `http(s)` and existing local files; `javascript:`, `data:`, `ssh:`, remote `file:` rejected | `TerminalLink.swift` |
 | AI CLIs | Read-only modes (Claude tool allowlist, Codex `--sandbox read-only`, ACP permission filter); prompt envelopes escape `<file>` tags; model-suggested paths checked for containment and existence | [ai-assistants](./modules/ai-assistants-and-dictation.md) |
-| Subprocesses | Argument arrays, not shell strings (git, gh, zip); `gh`/git prompts disabled | module docs |
-| Vendor tokens | Read-only, re-read per fetch, ephemeral `URLSession`, redirects refused | [usage](./modules/git-github-terminal-lifecycle-usage.md) |
-| Logs | The OpenAI key is logged only as presence and length | app shell |
+| Subprocesses | Argument arrays, not shell strings (`git`, `gh`, `zip`); `gh`/git prompts disabled | module docs |
+| Credentials & Logs | OpenAI key stored in Keychain (`WhisperClient`, UserDefaults fallback deleted only after Keychain save succeeds); dictation text and `/tmp/markview-insight-diag.log` removed from logs; Web Inspector gated on `#if DEBUG` | `WhisperClient.swift`, `EditorView.swift`, `WebViewBridge.swift` |
+| Vendor bundles | Turndown, DOMPurify, CodeMirror, Cytoscape, xterm.js, etc. vendored locally in `Resources/Editor/vendor/` (no CDN loads in `index.html`) | `tools/web-vendor`, `index.html` |
 
-## 3. Known weaknesses
+## 3. Remaining open security work (tracked in architecture review)
 
-| # | Weakness | Impact |
+| # | Weakness | Impact / Status |
 |---|---|---|
-| S1 | Markdown renders with `html: true` into the page that owns `window.webkit.messageHandlers.bridge`, and the CSP allows inline scripts (`markview-state.js:53`, `index.html:21`) | A crafted document can post any bridge message, for example PR actions or opening a `file://` link through `NSWorkspace` |
-| S2 | The Insight iframe is switched to `allow-scripts allow-same-origin` at runtime (`markview-insight-handlers.js:132`). The script stripping is a per-chunk regex, and Mermaid runs with `securityLevel:'loose'` | Model output can script the parent page. Exported HTML runs inline scripts in a browser |
-| S3 | `.canvas` text nodes render markdown with HTML enabled and an unescaped `color` style (`markview-canvas.js:163,463`) | HTML injection in the bridge-owning page |
-| S4 | Every AI terminal runs its assistant with full access, always and with no setting (BUG-006): `claude --dangerously-skip-permissions`, `codex --dangerously-bypass-approvals-and-sandbox`, `cline --auto-approve true`, `copilot --allow-all`; GitHub issue bodies, CI logs and PR text are pasted into it | Prompt injection from repo or GitHub content gets full agent permissions |
-| S5 | OpenAI key in plaintext UserDefaults, not the Keychain | Readable by any process running as the user |
-| S6 | `/tmp/markview_open_path.txt` is polled and trusted | Any local process can make the app open a path |
-| S7 | "Open in Terminal.app" escapes only `"` in AppleScript; the shell sees an unquoted path | A folder name containing `;`, `$()` or backticks runs a command |
-| S8 | `/tmp/markview-insight-diag.log` is world-readable and records content prefixes and JS stacks; `WhisperClient` `NSLog`s transcript prefixes | Document contents leak to logs, against the CLAUDE.md rule |
-| S9 | Terminal links pass non-openable existing files to `NSWorkspace.open` | Cmd+clicking a printed `.command` path runs it |
-| S10 | ACP permission check: searches allowed whatever paths they name; reads don't resolve symlinks | Reads outside the project through a symlink |
-| S11 | Four editor scripts load from jsDelivr without SRI | Supply-chain risk, plus offline breakage |
-| S12 | Web Inspector is enabled in Release builds (`EditorView.swift:19`) | Debug surface in shipped builds |
-| S13 | Unescaped strings are spliced into `evaluateJavaScript` (`WebViewBridge.swift:614,637`) | JS breaks on an apostrophe in a folder name; possible injection |
-| S14 | Content is sent to AI CLIs without redaction (deployment configs up to 40k chars, untracked diffs, whole documents); `newBug` posts the raw description to a GitHub issue | Secrets can leave the machine or be published |
+| S4 | AI terminals pass full-access flags unless adjusted by the user/settings | Prompt injection risk in interactive agent terminals |
+| S7 | "Open in Terminal.app" retains AppleScript string escaping fallback | Hardened escaping / terminal launch migration |
+| S10 | ACP permission check edge cases for searches and un-resolved read symlinks | Scheduled for AI security hardening |
+| S13 | Legacy `evaluateJavaScript` interpolations outside `JS.call` | Incremental migration to `JS.call` (Step E) |
 
 ## 4. Rules for contributors
 

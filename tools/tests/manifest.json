@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 168,
+  "suiteCount": 174,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -957,6 +957,25 @@
       "script": "tools/tests/phase0-safety-tests.sh",
       "tier": "gui",
       "sources": [
+        "MarkView/App/MarkViewApp.swift",
+        "MarkView/Bridge/WebViewBridge.swift",
+        "MarkView/Models/CLICompletion.swift",
+        "MarkView/Models/DeploymentExecutor.swift",
+        "MarkView/Models/FeatureIntake.swift",
+        "MarkView/Models/InsightArchiveExporter.swift",
+        "MarkView/Models/UIStudioSession.swift",
+        "MarkView/Models/WhisperClient.swift",
+        "MarkView/Resources/Editor/book.html",
+        "MarkView/Resources/Editor/discussion.html",
+        "MarkView/Resources/Editor/index.html",
+        "MarkView/Resources/Editor/vendor/js/markview-book.js",
+        "MarkView/Resources/Editor/vendor/js/markview-canvas.js",
+        "MarkView/Resources/Editor/vendor/js/markview-code.js",
+        "MarkView/Resources/Editor/vendor/js/markview-discussion.js",
+        "MarkView/Resources/Editor/vendor/js/markview-insight-handlers.js",
+        "MarkView/Resources/Editor/vendor/js/markview-insight-srcdoc.js",
+        "MarkView/Resources/Editor/vendor/js/markview-render.js",
+        "MarkView/Views/EditorView.swift",
         "tools/tests/Phase0SafetyTests.swift"
       ]
     },
@@ -965,7 +984,15 @@
       "script": "tools/tests/phase1-cleanup-tests.sh",
       "tier": "pure",
       "sources": [
-        "tools/tests/Phase1CleanupTests.swift"
+        ".github/workflows/publish-release.yml",
+        "MarkView.xcodeproj/project.pbxproj",
+        "MarkView/Bridge/WebViewBridge.swift",
+        "MarkView/Models/PanelLayout.swift",
+        "MarkView/Resources/Editor/vendor/MANIFEST.txt",
+        "bump-version.sh",
+        "release.sh",
+        "tools/tests/Phase1CleanupTests.swift",
+        "tools/tests/manifest.json"
       ]
     },
     {
@@ -973,9 +1000,14 @@
       "script": "tools/tests/phase2-core-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Core/CoreInfrastructure.swift",
-        "MarkView/Core/CoreFiles.swift",
-        "MarkView/Bridge/TypedWebBridge.swift"
+        "MarkView/Models/OutputLanguage.swift",
+        "Packages/MarkViewCore/Package.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsRegistry.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "Packages/MarkViewCore/Tests/MarkViewCoreTests/MarkViewCoreTests.swift",
+        "tools/tests/Phase2CoreTests.swift"
       ]
     },
     {
@@ -984,8 +1016,8 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/ExtensionRegistries.swift",
-        "MarkView/Models/AppTheme.swift",
-        "MarkView/Models/WelcomeBackdrop.swift"
+        "MarkView/Models/PanelLayout.swift",
+        "tools/tests/Phase3ExtensibilityTests.swift"
       ]
     },
     {
@@ -994,8 +1026,10 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/WorkspaceControllers.swift",
-        "MarkView/Models/WorkspaceManager.swift",
-        "MarkView/Views/TOCView.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsRegistry.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "tools/tests/Phase4ShellTests.swift"
       ]
     },
     {
@@ -1003,8 +1037,10 @@
       "script": "tools/tests/phase5-ai-tests.sh",
       "tier": "pure",
       "sources": [
+        "MarkView/Models/AIAssistants.swift",
         "MarkView/Models/AILayer.swift",
-        "MarkView/Models/AIAssistants.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "tools/tests/Phase5AITests.swift"
       ]
     },
     {
@@ -1012,9 +1048,12 @@
       "script": "tools/tests/phase6-storage-security-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/StorageAndSecurity.swift",
+        "MarkView/Info.plist",
+        "MarkView/Models/BrowserAgentTools.swift",
         "MarkView/Models/BrowserControlServer.swift",
-        "MarkView/Models/BrowserAgentTools.swift"
+        "MarkView/Models/StorageAndSecurity.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/Phase6StorageSecurityTests.swift"
       ]
     },
     {
@@ -1022,9 +1061,12 @@
       "script": "tools/tests/phase7-web-ci-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Resources/Editor/vendor/js/mv-kit.js",
         ".github/workflows/ci.yml",
-        "CLAUDE.md"
+        ".github/workflows/publish-release.yml",
+        "CLAUDE.md",
+        "MarkView/Resources/Editor/vendor/js/markview-bridge.js",
+        "MarkView/Resources/Editor/vendor/js/mv-kit.js",
+        "tools/tests/Phase7WebCITests.swift"
       ]
     },
     {
@@ -2128,7 +2170,6 @@
         "MarkView/Models/WebAppPreview.swift",
         "MarkView/Resources/Editor/vendor/js/markview-ui-studio.js",
         "MarkView/Views/UIStudioPreviewHost.swift",
-        "MarkView/ai-calls.js",
         "tools/tests/UIStudioLiveRun.swift",
         "tools/tests/UIStudioLiveStubs.swift",
         "tools/tests/ui-studio-live-run.sh"
@@ -2330,8 +2371,10 @@
       "sources": [
         "MarkView/Models/AppTheme.swift",
         "MarkView/Models/DocumentState.swift",
+        "MarkView/Models/StorageAndSecurity.swift",
         "MarkView/Models/WindowSession.swift",
         "MarkView/Models/WindowUIState.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/WindowSessionTests.swift"
       ]
     },

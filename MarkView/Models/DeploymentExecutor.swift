@@ -166,11 +166,34 @@ struct SSHExecutor: DeploymentExecutor {
     nonisolated(unsafe) static var extraOptions: [String] = []
 
     /// Per-user mode-0700 directory for SSH ControlMaster sockets (AR-12).
+    /// Placed under `/tmp` rather than `temporaryDirectory` (`/var/folders/...`) so
+    /// `ControlPath` stays well under macOS's 104-byte `sockaddr_un.sun_path` limit.
     private static func controlSocketDirectory() -> URL {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("mvssh", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
-        return dir
+        let uid = getuid()
+        let preferred = "/tmp/mvssh-\(uid)"
+        if ensureSecureSocketDirectory(atPath: preferred) {
+            return URL(fileURLWithPath: preferred, isDirectory: true)
+        }
+        var template = Array("/tmp/mvssh-\(uid)-XXXXXX".utf8CString)
+        if let created = template.withUnsafeMutableBufferPointer({ buf -> String? in
+            guard let ptr = buf.baseAddress, mkdtemp(ptr) != nil else { return nil }
+            chmod(ptr, 0o700)
+            return String(cString: ptr)
+        }) {
+            return URL(fileURLWithPath: created, isDirectory: true)
+        }
+        return FileManager.default.temporaryDirectory.appendingPathComponent("mvssh", isDirectory: true)
+    }
+
+    private static func ensureSecureSocketDirectory(atPath path: String) -> Bool {
+        var st = stat()
+        if lstat(path, &st) != 0 {
+            guard errno == ENOENT, mkdir(path, 0o700) == 0 else { return false }
+            guard lstat(path, &st) == 0 else { return false }
+        }
+        guard (st.st_mode & S_IFMT) == S_IFDIR, st.st_uid == getuid() else { return false }
+        chmod(path, 0o700)
+        return true
     }
 
     /// nil when the definition is not safe to use.

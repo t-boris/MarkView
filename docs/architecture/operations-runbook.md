@@ -31,8 +31,7 @@ xcodebuild -project MarkView.xcodeproj -scheme MarkView \
 - Check the editor bundle after a build:
   `ls .../MarkView.app/Contents/Resources/Editor/` must list `index.html`, `terminal.html` and
   `vendor/` (`tasks/lessons.md:268-270`).
-- Changes confined to `EditorWeb/`: `cd EditorWeb && npm run type-check && npm run build`.
-  This is not an app change (`CLAUDE.md` Project).
+- Changes confined to `MarkView/Resources/Editor/`: validate syntax (`node --check`) and re-run `xcodebuild`. (The old dormant `EditorWeb/` prototype has been deleted.)
 - After changing `tools/web-vendor/package.json`:
   `cd tools/web-vendor && npm ci && ./build.sh`, then rebuild the app
   (`tools/web-vendor/build.sh:3`).
@@ -178,9 +177,9 @@ Process lessons that affect operations:
 
 1. The working tree holds only the intended changes (`git status`). Credentials and `.dde/` are
    not staged (`CLAUDE.md` Working Rules, `.gitignore:34-35`).
-2. The version is bumped at the right semver level. `project.yml` and both pbxproj configurations
-   agree (`bump-version.sh:19-22`); check with
-   `grep -n 'MARKETING_VERSION\|CURRENT_PROJECT_VERSION' project.yml MarkView.xcodeproj/project.pbxproj`.
+2. The version is bumped at the right semver level. Both configurations in `MarkView.xcodeproj/project.pbxproj`
+   agree (`./bump-version.sh` checks every occurrence); check with
+   `grep -n 'MARKETING_VERSION\|CURRENT_PROJECT_VERSION' MarkView.xcodeproj/project.pbxproj`.
 3. If vendored JS changed: run `tools/web-vendor` `npm ci && ./build.sh` and commit the outputs.
 4. The Debug build passes and the relevant `tools/tests/*.sh` pass (sections 1 and 3).
 5. Build the release artifact **without** installing:
@@ -207,6 +206,6 @@ Process lessons that affect operations:
 |---|---|---|
 | `SIGN_IDENTITY` | `release.sh:14` | overrides the auto-detected Developer ID identity |
 | `NOTARY_PROFILE` | `release.sh:41-44` | `notarytool` keychain profile; turns on notarization and stapling |
-| `TARGET_BUILD_DIR`, `UNLOCALIZED_RESOURCES_FOLDER_PATH`, `SRCROOT` | pre-build script, `project.yml:42-48` | Xcode build settings; destination of the editor copy |
-| `HOME` | `install.sh:18` | locates the legacy sandbox container plist |
+| `TARGET_BUILD_DIR`, `UNLOCALIZED_RESOURCES_FOLDER_PATH`, `SRCROOT` | pre-build script, `MarkView.xcodeproj/project.pbxproj` | Xcode build settings; destination of the editor copy |
+| `HOME` | legacy paths | User home directory |
 | `GH_TOKEN` (`secrets.GITHUB_TOKEN`), `GITHUB_OUTPUT`, `GITHUB_WORKSPACE`, `github.sha` | `.github/workflows/build-release.yml:30-45`, `:58`, `:67-68` | CI release publishing |

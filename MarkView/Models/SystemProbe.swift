@@ -119,7 +119,7 @@ enum SystemProbe {
     done
     ps -eo pid=,pcpu=,pmem=,comm= 2>/dev/null | sort -k2 -nr | head -6 | while read pid cpu mem name; do mv "proc|$pid|$cpu|$mem|$name"; done
     if command -v docker >/dev/null 2>&1; then
-      docker ps --format '{{.Names}}|{{.Status}}|{{.Image}}' 2>/dev/null | while IFS= read -r line; do mv "container|$line"; done
+      ( docker ps --format '{{.Names}}|{{.Status}}|{{.Image}}' </dev/null 2>/dev/null & p=$!; ( sleep 2; kill -9 "$p" 2>/dev/null ) </dev/null >/dev/null 2>&1 & w=$!; wait "$p" 2>/dev/null; kill -9 "$w" 2>/dev/null ) | while IFS= read -r line; do mv "container|$line"; done
     fi
     if command -v systemctl >/dev/null 2>&1; then
       systemctl --failed --no-legend --plain 2>/dev/null | while read unit rest; do [ -n "$unit" ] && mv "failed|$unit"; done

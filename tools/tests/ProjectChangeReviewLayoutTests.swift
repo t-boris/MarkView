@@ -88,10 +88,15 @@ func fixture() -> (before: String, after: String) {
         guard let list = views.first(where: { String(describing: type(of: $0)).hasPrefix("ListCoreScrollView") }) else {
             check(false, "\(name): the file list is on screen"); continue
         }
-        let scrolls = views.filter { String(describing: type(of: $0)) == "HostingScrollView" }.map(frame)
-        guard let diff = scrolls.max(by: { $0.height < $1.height }) else { check(false, "\(name): the changes are on screen"); continue }
-        let document = views.first { String(describing: type(of: $0)) == "DocumentView" && abs(frame($0).minX - diff.minX) < 2 }.map { frame($0) }
-        let clip = views.first { String(describing: type(of: $0)) == "HostingClipView" && abs(frame($0).minX - diff.minX) < 2 }.map { frame($0) }
+        guard let diffScrollView = views.filter({ String(describing: type(of: $0)) == "HostingScrollView" })
+            .max(by: { frame($0).height < frame($1).height }) else {
+            check(false, "\(name): the changes are on screen"); continue
+        }
+        let diff = frame(diffScrollView)
+        let document = ((diffScrollView as? NSScrollView)?.documentView).map(frame)
+            ?? views.first { String(describing: type(of: $0)) == "DocumentView" && abs(frame($0).minX - diff.minX) < 2 }.map { frame($0) }
+        let clip = ((diffScrollView as? NSScrollView)?.contentView).map(frame)
+            ?? views.first { (String(describing: type(of: $0)).contains("ClipView") || $0 is NSClipView) && abs(frame($0).minX - diff.minX) < 2 }.map { frame($0) }
         let total = hosting.bounds.width
         if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
             hosting.cacheDisplay(in: hosting.bounds, to: rep)

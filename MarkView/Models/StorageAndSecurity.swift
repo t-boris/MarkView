@@ -1,15 +1,16 @@
 import Foundation
-import SQLite3
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
-// MARK: - Schema-Versioned Atomic JSON Store & Load Result (AR-36, AR-39)
-
-/// Explicit result of loading a persistent store file (`AR-36`).
+/// Result of reading a schema-versioned local store (`AR-36`, `FU-04`).
 ///
-/// Distinguishes a file that has not been created yet (`.missing`) from a file whose bytes
-/// are unreadable or fail schema decoding (`.corrupted`), preventing silent data loss.
+/// Distinguishes missing files, corrupted files, and files written by a newer schema version
+/// so callers never silently overwrite unrecognized or corrupted state as if it were empty.
 enum StoreLoadResult<T> {
     case loaded(T, schemaVersion: Int)
     case missing(URL)
+    case newerSchema(URL, Int)
     case corrupted(URL, String)
 
     var value: T? {
@@ -20,6 +21,22 @@ enum StoreLoadResult<T> {
     var isCorrupted: Bool {
         if case .corrupted = self { return true }
         return false
+    }
+
+    var isNewerSchema: Bool {
+        if case .newerSchema = self { return true }
+        return false
+    }
+}
+
+enum SchemaStoreError: LocalizedError, Equatable {
+    case newerSchemaVersion(url: URL, found: Int, supported: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .newerSchemaVersion(let url, let found, let supported):
+            return "Refusing to overwrite \(url.lastPathComponent) because its schema version (\(found)) is newer than supported (\(supported))."
+        }
     }
 }
 
@@ -36,13 +53,28 @@ struct VersionedEnvelope<Payload: Codable>: Codable {
     }
 }
 
-/// Atomic, schema-versioned JSON store (`AR-36`, `AR-39`).
+private struct SchemaVersionProbe: Decodable {
+    let schema: Int?
+    let version: Int?
+
+    var detectedVersion: Int? { schema ?? version }
+}
+
+private let schemaBackupTimestampFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.timeZone = TimeZone(secondsFromGMT: 0)
+    f.dateFormat = "yyyyMMddHHmmss"
+    return f
+}()
+
+/// Atomic, schema-versioned JSON store (`AR-36`, `AR-39`, `FU-04`).
 ///
-/// - Writes through a sibling temporary file + `FileManager.replaceItemAt` so power loss or crashes
-///   never leave a truncated JSON file.
+/// - Writes through `AtomicFile.write` (POSIX `fchmod` before `rename`) so permissions and file contents are atomic.
 /// - Wraps payloads in `VersionedEnvelope` (`schema: currentSchemaVersion`), while transparently reading
 ///   legacy unversioned payloads (`schemaVersion: 0`) so existing user files upgrade in place.
-/// - Preserves a `.corrupt` backup copy before overwriting a corrupted file when `backupCorruptedOnSave` is enabled.
+/// - Refuses to overwrite or downgrade payloads whose schema/version is newer than `currentSchemaVersion`.
+/// - Preserves non-clobbering `.corrupt-<timestamp>-<suffix>` backup copies before overwriting corrupted files.
 struct SchemaVersionedStore<T: Codable> {
     let currentSchemaVersion: Int
     let backupCorruptedOnSave: Bool
@@ -69,7 +101,17 @@ struct SchemaVersionedStore<T: Codable> {
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
+
+        if let probe = try? decoder.decode(SchemaVersionProbe.self, from: raw),
+           let foundSchema = probe.detectedVersion,
+           foundSchema > currentSchemaVersion {
+            return .newerSchema(url, foundSchema)
+        }
+
         if let envelope = try? decoder.decode(VersionedEnvelope<T>.self, from: raw) {
+            if envelope.schema > currentSchemaVersion {
+                return .newerSchema(url, envelope.schema)
+            }
             return .loaded(envelope.data, schemaVersion: envelope.schema)
         }
 
@@ -85,168 +127,31 @@ struct SchemaVersionedStore<T: Codable> {
 
     func save(_ value: T, to url: URL, permissions: Int16 = 0o600) throws {
         let fm = FileManager.default
-        if backupCorruptedOnSave, fm.fileExists(atPath: url.path) {
-            if case .corrupted = load(from: url) {
-                let backupURL = url.appendingPathExtension("corrupt")
-                try? fm.removeItem(at: backupURL)
-                try? fm.copyItem(at: url, to: backupURL)
+        if fm.fileExists(atPath: url.path) {
+            switch load(from: url) {
+            case .newerSchema(_, let foundVersion):
+                throw SchemaStoreError.newerSchemaVersion(
+                    url: url,
+                    found: foundVersion,
+                    supported: currentSchemaVersion
+                )
+            case .corrupted:
+                if backupCorruptedOnSave {
+                    let stamp = schemaBackupTimestampFormatter.string(from: Date())
+                    let uniqueSuffix = UUID().uuidString.prefix(8).lowercased()
+                    let backupURL = url.appendingPathExtension("corrupt-\(stamp)-\(uniqueSuffix)")
+                    try? fm.copyItem(at: url, to: backupURL)
+                }
+            case .loaded, .missing:
+                break
             }
         }
 
-        let envelope = VersionedEnvelope(schema: currentSchemaVersion, updatedAt: Date(), data: value)
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let envelope = VersionedEnvelope(schema: currentSchemaVersion, updatedAt: Date(), data: value)
         let encoded = try encoder.encode(envelope)
         try AtomicFile.write(encoded, to: url, permissions: permissions)
-    }
-}
-
-// MARK: - Off-Main-Thread SQLite Executor & Ordered Schema Migrations (AR-37, AR-38)
-
-/// Ordered SQLite schema migration entry applied under `BEGIN IMMEDIATE` and recorded in `PRAGMA user_version` (`AR-38`).
-struct SQLiteMigration: Sendable {
-    let version: Int32
-    let name: String
-    let statements: [String]
-}
-
-/// Serialized off-main-thread SQLite actor (`AR-37`, `AR-38`).
-///
-/// Runs queries, batch writes, and numbered schema migrations on its own actor executor so
-/// SQLite I/O never blocks `@MainActor`.
-actor SemanticDatabaseExecutor {
-    let dbPath: String
-    private var db: OpaquePointer?
-
-    init(dbPath: String, migrations: [SQLiteMigration] = SemanticDatabaseExecutor.defaultMigrations) throws {
-        self.dbPath = dbPath
-        var ptr: OpaquePointer?
-        guard sqlite3_open(dbPath, &ptr) == SQLITE_OK, let opened = ptr else {
-            let msg = ptr.map { String(cString: sqlite3_errmsg($0)) } ?? "sqlite3_open failed"
-            if let ptr { sqlite3_close(ptr) }
-            throw NSError(domain: "com.markview.sqlite", code: 1, userInfo: [NSLocalizedDescriptionKey: msg])
-        }
-        self.db = opened
-        try Self.execSQL(opened, "PRAGMA foreign_keys = ON")
-        try Self.execSQL(opened, "PRAGMA journal_mode = WAL")
-        try Self.execSQL(opened, "PRAGMA synchronous = NORMAL")
-        try Self.execSQL(opened, "PRAGMA busy_timeout = 5000")
-        try Self.applyMigrations(migrations, on: opened)
-    }
-
-    deinit {
-        if let db {
-            sqlite3_close(db)
-        }
-    }
-
-    func currentUserVersion() -> Int32 {
-        guard let db else { return 0 }
-        return Self.queryUserVersion(on: db)
-    }
-
-    func execute(_ sql: String) throws {
-        guard let db else { return }
-        try Self.execSQL(db, sql)
-    }
-
-    func executeTransaction(_ statements: [String]) throws {
-        guard let db else { return }
-        try Self.execSQL(db, "BEGIN IMMEDIATE")
-        do {
-            for sql in statements {
-                try Self.execSQL(db, sql)
-            }
-            try Self.execSQL(db, "COMMIT")
-        } catch {
-            try? Self.execSQL(db, "ROLLBACK")
-            throw error
-        }
-    }
-
-    func queryScalarInt(_ sql: String) -> Int64? {
-        guard let db else { return nil }
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK,
-              sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        return sqlite3_column_int64(stmt, 0)
-    }
-
-    static let defaultMigrations: [SQLiteMigration] = [
-        SQLiteMigration(
-            version: 1,
-            name: "initial_doc_id_scheme",
-            statements: [
-                """
-                CREATE TABLE IF NOT EXISTS schema_migrations (
-                    version INTEGER PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    applied_at INTEGER NOT NULL
-                )
-                """
-            ]
-        ),
-        SQLiteMigration(
-            version: 2,
-            name: "documents_updated_at_index",
-            statements: [
-                """
-                CREATE TABLE IF NOT EXISTS schema_migrations (
-                    version INTEGER PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    applied_at INTEGER NOT NULL
-                )
-                """
-            ]
-        ),
-    ]
-
-    static func queryUserVersion(on db: OpaquePointer) -> Int32 {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "PRAGMA user_version", -1, &stmt, nil) == SQLITE_OK,
-              sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
-        return sqlite3_column_int(stmt, 0)
-    }
-
-    static func applyMigrations(_ migrations: [SQLiteMigration], on db: OpaquePointer) throws {
-        let sorted = migrations.sorted { $0.version < $1.version }
-        var current = queryUserVersion(on: db)
-        for migration in sorted where migration.version > current {
-            try execSQL(db, "BEGIN IMMEDIATE")
-            do {
-                try execSQL(db, """
-                    CREATE TABLE IF NOT EXISTS schema_migrations (
-                        version INTEGER PRIMARY KEY,
-                        name TEXT NOT NULL,
-                        applied_at INTEGER NOT NULL
-                    )
-                """)
-                for sql in migration.statements {
-                    try execSQL(db, sql)
-                }
-                let now = Int(Date().timeIntervalSince1970)
-                let escapedName = migration.name.replacingOccurrences(of: "'", with: "''")
-                try execSQL(db, "INSERT OR REPLACE INTO schema_migrations (version, name, applied_at) VALUES (\(migration.version), '\(escapedName)', \(now))")
-                try execSQL(db, "PRAGMA user_version = \(migration.version)")
-                try execSQL(db, "COMMIT")
-                current = migration.version
-            } catch {
-                try? execSQL(db, "ROLLBACK")
-                throw error
-            }
-        }
-    }
-
-    private static func execSQL(_ db: OpaquePointer, _ sql: String) throws {
-        var errMsg: UnsafeMutablePointer<CChar>?
-        let rc = sqlite3_exec(db, sql, nil, nil, &errMsg)
-        if rc != SQLITE_OK {
-            let msg = errMsg.map { String(cString: $0) } ?? "SQLite error \(rc)"
-            sqlite3_free(errMsg)
-            throw NSError(domain: "com.markview.sqlite", code: Int(rc), userInfo: [NSLocalizedDescriptionKey: msg])
-        }
     }
 }

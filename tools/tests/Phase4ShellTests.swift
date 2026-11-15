@@ -94,22 +94,13 @@ func runPhase4Tests() async {
     bag.cancelAll()
     check(task2.isCancelled && bag.activeCount == 0, "AR-19: TaskBag.cancelAll cancels all tracked tasks")
 
-    // 4. AR-14 & AR-17: Focused coordinators & WindowDependencies composition container
-    let deps = WindowDependencies()
-    deps.modals.showGlobalSearch = true
-    deps.semanticCoordinator.indexingProgress = "Indexing..."
-    deps.chrome.apply(preset: .review, to: deps.layout)
-    check(deps.chrome.showFileTree && deps.chrome.showCenter && deps.chrome.showTOC, "AR-14: WorkspaceChromeCoordinator applies Review layout preset")
-    deps.modals.reset()
-    deps.semanticCoordinator.reset()
-    check(!deps.modals.showGlobalSearch && deps.semanticCoordinator.indexingProgress == nil, "AR-14: Focused coordinators reset cleanly")
-
-    // 5. AR-19: WindowTaskScheduler lifecycle
-    let scheduler = WindowTaskScheduler()
-    scheduler.scheduleRepeating(key: "poll", interval: 1.0) {}
-    check(scheduler.scheduledKeys.contains("poll"), "AR-19: WindowTaskScheduler registers repeating key")
-    scheduler.stopAll()
-    check(scheduler.scheduledKeys.isEmpty, "AR-19: WindowTaskScheduler.stopAll clears all timers")
+    // 4. FU-11: DocumentScrollSideTable cleans up per-tab scroll state when tabs close
+    let closedTabID = UUID()
+    scrollState.setScrollPosition(420.0, for: closedTabID)
+    scrollState.setActiveHeading("h-close", for: closedTabID)
+    scrollState.removeTab(closedTabID)
+    check(scrollState.scrollPosition(for: closedTabID) == 0 && scrollState.activeHeading(for: closedTabID) == nil,
+          "FU-11: DocumentScrollSideTable.removeTab clears scroll position and active heading for closed tabs")
 }
 
 let semaphore = DispatchSemaphore(value: 0)

@@ -137,7 +137,10 @@
                             tokens.forEach(function(t) {
                                 if (t.map && t.block && t.nesting >= 0) t.attrSet('data-line', String(t.map[0] + 1 + offset));
                             });
-                            html = md.renderer.render(tokens, md.options, {});
+                            const renderedCodeMD = md.renderer.render(tokens, md.options, {});
+                            html = (typeof window.sanitizeMarkdownHTML === 'function')
+                                ? window.sanitizeMarkdownHTML(renderedCodeMD)
+                                : '<pre class="sanitization-error">' + source.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
                         } catch (e) {
                             html = '<pre>' + source.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
                         }
@@ -1235,7 +1238,14 @@
                     const q = document.createElement('div'); q.className = 'code-ai-q'; q.textContent = turn.label;
                     const a = document.createElement('div'); a.className = 'code-ai-a markdown-body';
                     if (turn.a) {
-                        a.innerHTML = aiMd ? aiMd.render(turn.a) : escapeHTML(turn.a).replace(/\n/g, '<br>');
+                        if (aiMd) {
+                            const renderedAI = aiMd.render(turn.a);
+                            a.innerHTML = (typeof window.sanitizeMarkdownHTML === 'function')
+                                ? window.sanitizeMarkdownHTML(renderedAI)
+                                : '<pre class="sanitization-error">' + escapeHTML(turn.a) + '</pre>';
+                        } else {
+                            a.innerHTML = escapeHTML(turn.a).replace(/\n/g, '<br>');
+                        }
                         linkPlaces(a);
                     }
                     if (!turn.done) {

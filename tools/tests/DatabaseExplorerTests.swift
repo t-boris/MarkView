@@ -5,10 +5,30 @@ func check(_ condition: Bool, _ message: String, line: Int = #line) {
     if condition { print("ok   \(message)") } else { failures += 1; print("FAIL \(message) (line \(line))") }
 }
 
-func shell(_ command: String) -> (Int32, String) {
+func shell(_ command: String, timeout: TimeInterval = 30) -> (Int32, String) {
     let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/sh"); p.arguments = ["-c", command]
     let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
-    try? p.run(); let data = pipe.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
+    let done = DispatchSemaphore(value: 0)
+    p.terminationHandler = { _ in done.signal() }
+    do {
+        try p.run()
+    } catch {
+        return (127, "")
+    }
+    var data = Data()
+    let readDone = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async {
+        data = pipe.fileHandleForReading.readDataToEndOfFile()
+        readDone.signal()
+    }
+    if done.wait(timeout: .now() + timeout) == .timedOut {
+        p.terminate()
+        if done.wait(timeout: .now() + 1) == .timedOut, p.processIdentifier > 0 {
+            kill(p.processIdentifier, SIGKILL)
+        }
+        return (124, "")
+    }
+    _ = readDone.wait(timeout: .now() + 2)
     return (p.terminationStatus, String(decoding: data, as: UTF8.self))
 }
 
@@ -91,7 +111,7 @@ final class Recorder: DeploymentExecutor, @unchecked Sendable {
     check(PostgresClient.detailSQL(schema: "a\"b", table: "it's").contains("\"a\"\"b\".\"it''s\""), "identifiers are quoted in generated SQL")
 
     // MARK: A real database
-    let hasDocker = shell("docker info >/dev/null 2>&1").0 == 0
+    let hasDocker = shell("exec docker info >/dev/null 2>&1", timeout: 3).0 == 0
     let hasPsql = shell("command -v psql || ls /opt/homebrew/opt/libpq/bin/psql").0 == 0
     guard hasDocker, hasPsql else {
         print("skip live checks: docker or psql is missing")

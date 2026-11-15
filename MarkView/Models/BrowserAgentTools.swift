@@ -449,20 +449,47 @@ enum BrowserAgentTools {
         return token
     }
 
-    /// Reads the per-instance token for `socketPath` when present and owned by `getuid()` (`AR-40`).
+    /// Verifies a control socket token against `expectedToken` fail-closed and constant-time (`AR-40`, `FU-03`).
+    static func verifyToken(_ provided: String?, expected: String?) -> Bool {
+        guard let expected, !expected.isEmpty,
+              let provided, !provided.isEmpty else { return false }
+        let a = Array(expected.utf8)
+        let b = Array(provided.utf8)
+        guard a.count == b.count else { return false }
+        var diff: UInt8 = 0
+        for i in 0..<a.count { diff |= a[i] ^ b[i] }
+        return diff == 0
+    }
+
+    /// Reads the per-instance token from the `0600` regular token file owned by `getuid()` (`AR-40`, `FU-03`),
+    /// falling back to `MARKVIEW_CONTROL_TOKEN` only when the token file is absent.
     static func readSocketToken(forSocket socketPath: String) -> String? {
-        if let envToken = ProcessInfo.processInfo.environment[controlTokenEnvKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let path = tokenPath(forSocket: socketPath)
+        let fd = open(path, O_RDONLY | O_NOFOLLOW)
+        if fd >= 0 {
+            defer { close(fd) }
+            var st = stat()
+            guard fstat(fd, &st) == 0,
+                  (st.st_mode & S_IFMT) == S_IFREG,
+                  (st.st_mode & 0o077) == 0,
+                  st.st_uid == getuid() else { return nil }
+            var data = Data()
+            var buf = [UInt8](repeating: 0, count: 1024)
+            while true {
+                let n = Darwin.read(fd, &buf, buf.count)
+                if n > 0 { data.append(buf, count: n) }
+                else { break }
+                if data.count > 8192 { return nil }
+            }
+            let raw = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return raw.isEmpty ? nil : raw
+        }
+        if errno == ENOENT,
+           let envToken = ProcessInfo.processInfo.environment[controlTokenEnvKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !envToken.isEmpty {
             return envToken
         }
-        let path = tokenPath(forSocket: socketPath)
-        var st = stat()
-        guard lstat(path, &st) == 0,
-              (st.st_mode & S_IFMT) == S_IFREG,
-              st.st_uid == getuid(),
-              let raw = try? String(contentsOfFile: path, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
-              !raw.isEmpty else { return nil }
-        return raw
+        return nil
     }
 
     /// Kernel-verified peer process ID (`LOCAL_PEERPID`) and user ID (`LOCAL_PEERCRED`) of an accepted Unix domain socket (`AR-40`).

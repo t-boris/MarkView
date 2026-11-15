@@ -1,4 +1,5 @@
 import Foundation
+import WebKit
 import XCTest
 @testable import MarkViewCore
 
@@ -25,6 +26,65 @@ final class MarkViewCoreTests: XCTestCase {
             timeout: 0.2
         ))
         XCTAssertTrue(timedOut.timedOut)
+    }
+
+    func testSubprocessMergesEnvironmentAndRespectsExtraPATH() async throws {
+        // Environment override merges with inherited environment instead of wiping it (`FU-04`).
+        let merged = await Subprocess.run(SubprocessSpec(
+            executable: "/bin/sh",
+            arguments: ["-c", "printf '%s|%s' \"$PATH\" \"$MARKVIEW_TEST_ENV\""],
+            environment: ["MARKVIEW_TEST_ENV": "merged-ok"]
+        ))
+        XCTAssertTrue(merged.succeeded)
+        let parts = merged.stdout.components(separatedBy: "|")
+        XCTAssertEqual(parts.count, 2)
+        XCTAssertFalse(parts[0].isEmpty, "Inherited PATH must be preserved when spec.environment is set")
+        XCTAssertEqual(parts[1], "merged-ok")
+
+        // `settings.cli.extraPATH` resolves custom binary locations (`FU-04`).
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("mvbin-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let toolURL = tempDir.appendingPathComponent("mv-custom-tool")
+        try AtomicFile.write("#!/bin/sh\necho extra-path-ok\n", to: toolURL, permissions: 0o755)
+
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: Subprocess.extraPATHDefaultsKey)
+        defaults.set(tempDir.path, forKey: Subprocess.extraPATHDefaultsKey)
+        defer {
+            if let previous { defaults.set(previous, forKey: Subprocess.extraPATHDefaultsKey) }
+            else { defaults.removeObject(forKey: Subprocess.extraPATHDefaultsKey) }
+        }
+
+        let resolved = Subprocess.resolveExecutable("mv-custom-tool")
+        XCTAssertEqual(resolved, toolURL.path)
+        let res = await Subprocess.run(SubprocessSpec(executable: "mv-custom-tool"))
+        XCTAssertTrue(res.succeeded)
+        XCTAssertEqual(res.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "extra-path-ok")
+    }
+
+    func testSubprocessDoesNotHangOnDetachedDescendantHoldingStdout() async {
+        // Spawns a background sleep child that keeps stdout open after parent exits;
+        // Subprocess.run must return promptly without blocking on unbounded readDataToEndOfFile (`FU-04`).
+        let res = await Subprocess.run(SubprocessSpec(
+            executable: "/bin/sh",
+            arguments: ["-c", "echo parent-done; sleep 3 &"],
+            timeout: 2
+        ))
+        XCTAssertEqual(res.exitCode, 0)
+        XCTAssertFalse(res.timedOut)
+        XCTAssertTrue(res.stdout.contains("parent-done"))
+        XCTAssertLessThan(res.durationMs, 1500)
+    }
+
+    func testAtomicFilePermissionsBeforeRename() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("mvatomic-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let secret = temp.appendingPathComponent("token")
+        try AtomicFile.write("secret-token", to: secret, permissions: 0o600)
+        let attrs = try FileManager.default.attributesOfItem(atPath: secret.path)
+        let mode = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0
+        XCTAssertEqual(mode & 0o777, 0o600)
     }
 
     func testProjectPathsSymlinkContainment() throws {
@@ -54,15 +114,38 @@ final class MarkViewCoreTests: XCTestCase {
         XCTAssertNotEqual(ProjectPaths.projectCacheIdentifier(for: a), ProjectPaths.projectCacheIdentifier(for: b))
     }
 
-    func testJSONLinesRotation() throws {
+    func testRotatingJSONLinesOAppendAndRotation() throws {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent("mvjsonl-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: temp) }
-        let log = JSONLinesFile(url: temp.appendingPathComponent("events.jsonl"), maxBytes: 1024)
-        for i in 0..<60 {
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        let logURL = temp.appendingPathComponent("events.jsonl")
+        // Write an interrupted line missing trailing newline; O_APPEND handler inserts separator newline.
+        try Data("{\"seq\":-1}".utf8).write(to: logURL)
+
+        let log = RotatingJSONLinesFile(url: logURL, maxBytes: 1024)
+        for i in 0..<25 {
             try log.appendLine("{\"seq\":\(i),\"msg\":\"\(String(repeating: "x", count: 30))\"}")
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: log.url.appendingPathExtension("1").path))
         XCTAssertFalse(log.readLines().isEmpty)
+        let firstRotatedLines = try String(contentsOf: log.url.appendingPathExtension("1"), encoding: .utf8)
+            .split(separator: "\n")
+        XCTAssertEqual(firstRotatedLines.first, "{\"seq\":-1}")
+        XCTAssertTrue(firstRotatedLines.dropFirst().first?.hasPrefix("{\"seq\":0,") == true)
+    }
+
+    func testWeakScriptMessageHandlerDoesNotRetainTarget() {
+        final class DummyHandler: NSObject, WKScriptMessageHandler {
+            func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {}
+        }
+        weak var weakTarget: DummyHandler?
+        autoreleasepool {
+            let target = DummyHandler()
+            weakTarget = target
+            let proxy = WeakScriptMessageHandler(target)
+            _ = proxy.target
+        }
+        XCTAssertNil(weakTarget)
     }
 
     func testSettingsRegistryDefaults() {

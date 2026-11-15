@@ -55,8 +55,9 @@ class WhisperClient: ObservableObject {
     /// Reads the OpenAI API key from Keychain, migrating any legacy UserDefaults entry on first access (AR-10).
     nonisolated static func loadAPIKey() -> String? {
         if let legacy = UserDefaults.standard.string(forKey: apiKeyStorage), !legacy.isEmpty {
-            _ = saveAPIKeyToKeychain(legacy)
-            UserDefaults.standard.removeObject(forKey: apiKeyStorage)
+            if saveAPIKeyToKeychain(legacy) {
+                UserDefaults.standard.removeObject(forKey: apiKeyStorage)
+            }
             return legacy
         }
         let query: [String: Any] = [
@@ -75,10 +76,11 @@ class WhisperClient: ObservableObject {
         return key
     }
 
-    /// Saves the OpenAI API key to Keychain and removes any plaintext copy from UserDefaults (AR-10).
+    /// Saves the OpenAI API key to Keychain and removes any plaintext copy from UserDefaults only on success (AR-10, FU-09).
     nonisolated static func saveAPIKey(_ key: String) {
-        UserDefaults.standard.removeObject(forKey: apiKeyStorage)
-        _ = saveAPIKeyToKeychain(key)
+        if saveAPIKeyToKeychain(key) {
+            UserDefaults.standard.removeObject(forKey: apiKeyStorage)
+        }
     }
 
     private nonisolated static func saveAPIKeyToKeychain(_ key: String) -> Bool {

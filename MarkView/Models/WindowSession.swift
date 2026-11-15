@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 import CoreGraphics
 
 /// Separate identities preserve two windows even when they show the same folder.
@@ -71,29 +74,35 @@ struct WindowSessionArchive: Codable {
 /// All archive IO is serialized off the main thread; quitting awaits the last write.
 actor WindowSessionStorage {
     let url: URL
+    private let store: SchemaVersionedStore<WindowSessionArchive>
     private var latestRevision = -1
 
-    init(url: URL) { self.url = url }
+    init(url: URL) {
+        self.url = url
+        self.store = SchemaVersionedStore<WindowSessionArchive>(currentSchemaVersion: 1, backupCorruptedOnSave: true)
+    }
 
     func load() -> WindowSessionArchive? {
-        guard let data = try? Data(contentsOf: url),
-              let archive = try? JSONDecoder().decode(WindowSessionArchive.self, from: data),
-              archive.version == 1 else { return nil }
+        let loadedArchive: WindowSessionArchive
+        switch store.load(from: url) {
+        case .loaded(let archive, _):
+            loadedArchive = archive
+        case .missing, .newerSchema, .corrupted:
+            return nil
+        }
+        guard loadedArchive.version == 1 else { return nil }
         // URLs in this local archive must never turn into external open requests.
-        guard archive.windows.allSatisfy({ state in
+        guard loadedArchive.windows.allSatisfy({ state in
             state.folder == nil || state.folder!.isFileURL
         }) else { return nil }
         var seen = Set<UUID>()
-        return WindowSessionArchive(windows: archive.windows.filter { seen.insert($0.id).inserted })
+        return WindowSessionArchive(windows: loadedArchive.windows.filter { seen.insert($0.id).inserted })
     }
 
     func save(_ archive: WindowSessionArchive, revision: Int) throws {
         guard revision > latestRevision else { return }
-        let data = try JSONEncoder().encode(archive)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: url, options: .atomic)
-        // Unsaved editor text is local session data, not a shared project artifact.
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        // Keep session data private to the user with atomic 0o600 permissions (`AR-39`, `FU-04`).
+        try store.save(archive, to: url, permissions: 0o600)
         latestRevision = revision
     }
 }

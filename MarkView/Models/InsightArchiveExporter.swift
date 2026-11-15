@@ -25,6 +25,9 @@
 //     the staging directory is removed by `cache.cleanup` after the exporter exits.
 
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Typed errors emitted by `InsightArchiveExporter.bundle`.
 enum InsightArchiveExporterError: Error {
@@ -73,66 +76,41 @@ struct InsightArchiveExporter {
         // not append entries to a stale archive.
         try? FileManager.default.removeItem(at: tmpURL)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
-        // Explicit argument array — NEVER `/bin/sh -c` or string concatenation.
-        // `tmpURL.path` and `"."` are passed verbatim to `zip`; shell
-        // metacharacters in the user-chosen destination filename cannot escape
-        // into command interpretation.
-        process.arguments = ["-r", "-q", tmpURL.path, "."]
-        process.currentDirectoryURL = stagingURL
-
-        let stderrPipe = Pipe()
-        process.standardError = stderrPipe
-        // Discard stdout via /dev/null and pass -q so zip never fills a pipe buffer (AR-07).
-        process.standardOutput = FileHandle.nullDevice
-
-        // Cancellation hook: if the parent Task is cancelled (e.g. closeTab
-        // fires during export), send SIGTERM to the zip process and clean up
-        // the partial `.tmp`. The `withTaskCancellationHandler` runs the
-        // `onCancel:` block synchronously on the Task that observed the
-        // cancellation; `process.terminate()` is itself synchronous and
-        // signal-based — safe from any thread.
-        do {
-            try await withTaskCancellationHandler {
-                try process.run()
-                // Bridge the synchronous `waitUntilExit` to async via
-                // `terminationHandler`. Done outside `withCheckedContinuation`
-                // means the cancellation handler can `terminate()` while we
-                // wait, which produces a non-zero exit code that we observe
-                // below and translate to `.cancelled`.
-                await Self.waitUntilExit(process: process)
-            } onCancel: {
-                // Synchronous SIGTERM. Idempotent — `terminate()` on an
-                // already-exited process is a no-op (no exception).
-                if process.isRunning {
-                    process.terminate()
-                }
-            }
-        } catch {
-            // `process.run()` threw — could not even spawn. Best-effort cleanup.
-            try? FileManager.default.removeItem(at: tmpURL)
-            throw InsightArchiveExporterError.launchFailed(
-                Self.sanitizeForError(error.localizedDescription)
-            )
+        let executable = "/usr/bin/zip"
+        guard FileManager.default.isExecutableFile(atPath: executable) else {
+            throw InsightArchiveExporterError.launchFailed("zip executable not found at \(executable)")
         }
 
-        // After process exits — check for cancellation FIRST so we surface
-        // `.cancelled` rather than a misleading `.zipFailed` for the SIGTERM
-        // exit code (typically 143 = 128 + SIGTERM).
+        // Delegate process execution, pipe draining, and cancellation (SIGTERM -> SIGKILL)
+        // directly to shared `Subprocess` (`AR-07`, `AR-25`) with an explicit argument array.
+        let spec = SubprocessSpec(
+            executable: executable,
+            arguments: ["-r", "-q", tmpURL.path, "."],
+            cwd: stagingURL,
+            timeout: 120,
+            maxOutputBytes: 64 * 1024
+        )
+        let result = await Subprocess.run(spec)
+
+        // Check cancellation FIRST so an aborted tab close surfaces `.cancelled`
+        // rather than a misleading `.zipFailed` for the signal exit status.
         if Task.isCancelled {
             try? FileManager.default.removeItem(at: tmpURL)
             throw InsightArchiveExporterError.cancelled
         }
 
-        if process.terminationStatus != 0 {
-            // Read sanitized stderr for the error message. Best-effort — if
-            // the pipe is exhausted or unreadable, fall back to an exit-code
-            // string.
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            let raw = String(data: stderrData, encoding: .utf8) ?? ""
+        if result.exitCode == -1 && !result.timedOut {
+            try? FileManager.default.removeItem(at: tmpURL)
+            let message = result.stderr.isEmpty
+                ? "zip failed to launch"
+                : Self.sanitizeForError(result.stderr)
+            throw InsightArchiveExporterError.launchFailed(message)
+        }
+
+        if !result.succeeded {
+            let raw = result.timedOut ? "zip timed out" : result.stderr
             let message = raw.isEmpty
-                ? "zip exited with status \(process.terminationStatus)"
+                ? "zip exited with status \(result.exitCode)"
                 : Self.sanitizeForError(raw)
             try? FileManager.default.removeItem(at: tmpURL)
             throw InsightArchiveExporterError.zipFailed(message)
@@ -153,19 +131,6 @@ struct InsightArchiveExporter {
             throw InsightArchiveExporterError.moveFailed(
                 Self.sanitizeForError(error.localizedDescription)
             )
-        }
-    }
-
-    /// Bridge `Process.waitUntilExit` (synchronous) to `async`. Foundation
-    /// invokes `terminationHandler` exactly once when the process exits, even
-    /// if the handler is set AFTER the exit (the runtime calls it synchronously
-    /// upon assignment in that case). The handler may fire on a background
-    /// queue; the continuation resume is itself thread-safe.
-    private static func waitUntilExit(process: Process) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            process.terminationHandler = { _ in
-                continuation.resume()
-            }
         }
     }
 

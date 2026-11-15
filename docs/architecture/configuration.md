@@ -70,8 +70,7 @@ The app reads no environment variables of its own. It **sets** these for child p
 | `git` via `GitHubClient` / PR fetch | `GIT_TERMINAL_PROMPT=0` (not set by `GitClient`) |
 | Terminal shell | `TERM=xterm-256color`, `COLORTERM=truecolor`, `TERM_PROGRAM=MarkView`, `LANG` if unset, `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1`. Removes `CLAUDECODE` and `CLAUDE_CODE_*` |
 
-Scripts read `SIGN_IDENTITY` and `NOTARY_PROFILE` (`release.sh`) and `HOME` (`install.sh`). CI uses
-`GH_TOKEN`. See [build-release-testing](./modules/build-release-testing.md).
+Scripts read `SIGN_IDENTITY` and `NOTARY_PROFILE` (`release.sh`). CI uses `GH_TOKEN`. See [build-release-testing](./modules/build-release-testing.md).
 
 ## 5. Hard-coded limits worth knowing
 
@@ -85,8 +84,7 @@ Scripts read `SIGN_IDENTITY` and `NOTARY_PROFILE` (`release.sh`) and `HOME` (`in
 
 ## 6. Build-time configuration
 
-- `project.yml` is the source of truth. `MARKETING_VERSION` equals `CURRENT_PROJECT_VERSION`, and
-  both are set by `./bump-version.sh`.
+- `MarkView.xcodeproj/project.pbxproj` is the single source of truth (XcodeGen and `project.yml` have been retired). `MARKETING_VERSION` equals `CURRENT_PROJECT_VERSION`, and both are set by `./bump-version.sh`.
 - `MarkView/Info.plist`: document types, usage strings (microphone, Apple Events), and
   **ATS arbitrary loads allowed**.
 - Entitlements: **App Sandbox off** in both configurations. Release adds audio input and Apple Events;

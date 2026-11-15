@@ -11,5 +11,7 @@ enum = source.split('enum GitHubItem:')[1].split('/// Represents an open tab')[0
 (pathlib.Path(sys.argv[1]) / 'GitHubItem.swift').write_text('import Foundation\nenum GitHubItem:' + enum)
 PY
 swiftc -parse-as-library -o "$out/window-session-tests" \
+    Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
+    MarkView/Models/StorageAndSecurity.swift \
     MarkView/Models/WindowSession.swift MarkView/Models/WindowUIState.swift MarkView/Models/AppTheme.swift "$out/GitHubItem.swift" tools/tests/WindowSessionTests.swift
 "$out/window-session-tests" "$@"
