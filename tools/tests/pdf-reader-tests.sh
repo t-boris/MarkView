@@ -24,7 +24,8 @@ Path(sys.argv[1]).write_text(
 PY
 swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library \
     MarkView/Models/Workspace/DocumentState.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Workspace/TabClosing.swift MarkView/Models/Workspace/BackgroundFileScans.swift MarkView/Models/Book/PDFReader.swift \
-    MarkView/Views/Book/PDFReaderView.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/WindowTheme.swift MarkView/Views/Appearance/AppPalette.swift "$out/WorkspaceRouting.swift" \
+    MarkView/Views/Book/PDFReaderView.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift MarkView/Models/Appearance/WindowTheme.swift MarkView/Views/Appearance/AppPalette.swift "$out/WorkspaceRouting.swift" \
     tools/tests/PDFReaderRoutingTests.swift tools/tests/TabClosingStoreTests.swift tools/tests/PDFReaderViewTests.swift tools/tests/PDFReaderTests.swift \
     -o "$out/pdf-reader-tests"
+cp -R MarkView/Resources/Themes "$out/Themes"
 "$out/pdf-reader-tests"

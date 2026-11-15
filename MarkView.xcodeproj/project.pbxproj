@@ -140,6 +140,8 @@
 		50C9811EB6493D805B5FA933 /* ImageAttachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A43E6F411BFA9317576340 /* ImageAttachments.swift */; };
 		50D251A1681AFC25E03D6ADE /* QATriage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C8AE85C96F4CB7538464D4 /* QATriage.swift */; };
 		51B9668C9837BB172207FCF7 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8092DC6E5F714F3D3FCECDA6 /* AppTheme.swift */; };
+		FC23C53CC58B8C4823CA32DC /* ThemeCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859D442D26FFA14CBAAC4CA9 /* ThemeCatalog.swift */; };
+		C6AA1BB96A823FAF0EFF7B8A /* ThemeDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43CE70B29B8B41798599E7A3 /* ThemeDefinition.swift */; };
 		51C77BD7462326A12025316B /* RemoteConnectionsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A7D6D41319CC3068C3A8F1A /* RemoteConnectionsStore.swift */; };
 		51EF23EFF18B23D265B0671C /* UIStudioLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1128F0C9820E78B348DCCB79 /* UIStudioLog.swift */; };
 		5267607F0F025A3799E9CCF1 /* WorkflowProposal.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89F1284B57A1B17703A148F /* WorkflowProposal.swift */; };
@@ -338,6 +340,7 @@
 		C30849D1EB88CFBA5B4D748C /* FeatureVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89E15210EC0B4B920554FD0D /* FeatureVocabulary.swift */; };
 		C437CB6464A6748152C17D72 /* BookBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1024FF456031B1D1BC834778 /* BookBuilder.swift */; };
 		C49808DDF55EA4CFAE1DF0D3 /* WelcomeBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0BA904D56E2EC5A116AF06 /* WelcomeBackdrop.swift */; };
+		94B0CE18854EE1CAA250F6F0 /* BackdropRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62F8B96DC7472F6EF102D485 /* BackdropRegistry.swift */; };
 		C5A3AF560E0A3F1732079F2A /* ProjectOperationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8342199E7F182C48ECA2B9C3 /* ProjectOperationsStore.swift */; };
 		C5D230483D49D5FBD8D6A0AE /* ProjectBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEFEA342845F3A1FEE82AFF9 /* ProjectBackdrop.swift */; };
 		C736E5E1FFFB0156CDA82E01 /* AgentUsageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB9D81DA338A806D3B356A8 /* AgentUsageViews.swift */; };
@@ -460,6 +463,7 @@
 		09A17E5C789C8522CA39B941 /* TypedWebBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51C33F7988006A528DE872B7 /* TypedWebBridge.swift */; };
 		FF7B7975E6E5BB57226F4446 /* QAPageEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10AB314CA9B3FD3A9A58668 /* QAPageEvidence.swift */; };
 		FF99949FBDA0BB735F226A9B /* QARun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C0F0778AC373BF137EF446E /* QARun.swift */; };
+		BD375AC847408FB729CCA3D8 /* Themes in Resources */ = {isa = PBXBuildFile; fileRef = 19A6C275D7F3349437E8936A /* Themes */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -667,6 +671,7 @@
 		5C41B9BB6F1B879525F97C0A /* RemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCommand.swift; sourceTree = "<group>"; };
 		5C68AEF16B013848A18B3396 /* CockpitPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitPlan.swift; sourceTree = "<group>"; };
 		5D0BA904D56E2EC5A116AF06 /* WelcomeBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeBackdrop.swift; sourceTree = "<group>"; };
+		62F8B96DC7472F6EF102D485 /* BackdropRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackdropRegistry.swift; sourceTree = "<group>"; };
 		5E240F8B955EB833FBFEF31A /* markview-insight-srcdoc.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-insight-srcdoc.js"; sourceTree = "<group>"; };
 		5F082514F679706487E2C4F0 /* CockpitComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitComponents.swift; sourceTree = "<group>"; };
 		5FA9A072A34C2A6381C48622 /* TerminalBrowserBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBrowserBridge.swift; sourceTree = "<group>"; };
@@ -755,6 +760,8 @@
 		7EF62FDEADD2FAE576E0E24D /* DictationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationViews.swift; sourceTree = "<group>"; };
 		7FE78C53DEED7EB4A038D5AA /* PrototypeEmbedded.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeEmbedded.swift; sourceTree = "<group>"; };
 		8092DC6E5F714F3D3FCECDA6 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		859D442D26FFA14CBAAC4CA9 /* ThemeCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeCatalog.swift; sourceTree = "<group>"; };
+		43CE70B29B8B41798599E7A3 /* ThemeDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeDefinition.swift; sourceTree = "<group>"; };
 		822BBB9906718BE7001F081A /* DatabaseKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseKeychain.swift; sourceTree = "<group>"; };
 		823643E6B47C049231687A8C /* QAActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAActions.swift; sourceTree = "<group>"; };
 		8342199E7F182C48ECA2B9C3 /* ProjectOperationsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperationsStore.swift; sourceTree = "<group>"; };
@@ -1034,6 +1041,7 @@
 		8481AD7D0786783E89B0C11E /* markview-book-md.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-book-md.js"; sourceTree = "<group>"; };
 		AF4999B5DE274BA1571F8ADA /* markview-terminal.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-terminal.js"; sourceTree = "<group>"; };
 		5D42EFED00836F5D45A63E3C /* mv-kit.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "mv-kit.js"; sourceTree = "<group>"; };
+		19A6C275D7F3349437E8936A /* Themes */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Themes; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1150,9 +1158,12 @@
 			children = (
 				F4B5A603D8B6885145771D0A /* AppFontScale.swift */,
 				8092DC6E5F714F3D3FCECDA6 /* AppTheme.swift */,
+				859D442D26FFA14CBAAC4CA9 /* ThemeCatalog.swift */,
+				43CE70B29B8B41798599E7A3 /* ThemeDefinition.swift */,
 				FEFEA342845F3A1FEE82AFF9 /* ProjectBackdrop.swift */,
 				BA8F968A66CC85F478E65280 /* ProjectColor.swift */,
 				5D0BA904D56E2EC5A116AF06 /* WelcomeBackdrop.swift */,
+				62F8B96DC7472F6EF102D485 /* BackdropRegistry.swift */,
 				9373C4D827475F2C25EDED31 /* WindowTheme.swift */,
 			);
 			path = Appearance;
@@ -1873,6 +1884,7 @@
 			isa = PBXGroup;
 			children = (
 				E8077A542DBDB29608BB9BC4 /* Editor */,
+				19A6C275D7F3349437E8936A /* Themes */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -2115,6 +2127,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D7042AC7B61742EF5FAF04C6 /* Assets.xcassets in Resources */,
+				BD375AC847408FB729CCA3D8 /* Themes in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2219,6 +2232,8 @@
 				F4E8E20ACAFF5B15F70E79AC /* AppFontScale.swift in Sources */,
 				A7CEF9D3F896F83A07ED97DD /* AppPalette.swift in Sources */,
 				51B9668C9837BB172207FCF7 /* AppTheme.swift in Sources */,
+				FC23C53CC58B8C4823CA32DC /* ThemeCatalog.swift in Sources */,
+				C6AA1BB96A823FAF0EFF7B8A /* ThemeDefinition.swift in Sources */,
 				66A2E7B7F4FDF6FD2B44C822 /* ArchitectureModel.swift in Sources */,
 				CC06E828F3E074262772D431 /* ArchitectureScanner.swift in Sources */,
 				ACC4EC4EED2064E5A42D8B93 /* ArchitectureStore.swift in Sources */,
@@ -2609,6 +2624,7 @@
 				09A17E5C789C8522CA39B941 /* TypedWebBridge.swift in Sources */,
 				7A3232D368417A275B24DB31 /* WelcomeActions.swift in Sources */,
 				C49808DDF55EA4CFAE1DF0D3 /* WelcomeBackdrop.swift in Sources */,
+				94B0CE18854EE1CAA250F6F0 /* BackdropRegistry.swift in Sources */,
 				C833761DF72AB6FA2DC6AFF8 /* WelcomeBackdropView.swift in Sources */,
 				D27B170992C1798ACAFC3080 /* WelcomeView.swift in Sources */,
 				680E68CB74543FD075CEDBB8 /* WhisperClient.swift in Sources */,

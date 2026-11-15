@@ -37,33 +37,44 @@ final class WindowTheme: ObservableObject {
     @Published private(set) var palette: AppPalette
     /// Whether the picker popover of this window is open (the menu item and the header button set it).
     @Published var showsPicker = false
+    /// The themes this window can draw; shared by every window.
+    let catalog: ThemeCatalog
 
+    /// The theme that is drawn: the chosen one, or Classic Dark / Light for System and for an id that no theme has now.
+    private var definition: ThemeDefinition
     private let store: ThemeSettingsStore
     private let system: SystemAppearance
     /// The windows that show this theme: the workspace window, and the settings window while it shows this workspace.
     private let windows = NSHashTable<NSWindow>.weakObjects()
     private var systemObservation: AnyCancellable?
+    private var catalogObservation: AnyCancellable?
 
     init(settings: WindowThemeSettings? = nil, store: ThemeSettingsStore = ThemeSettingsStore(),
-         system: SystemAppearance? = nil) {
+         system: SystemAppearance? = nil, catalog: ThemeCatalog? = nil) {
         let system = system ?? SystemAppearance.shared
+        let catalog = catalog ?? ThemeCatalog.shared
         let start = settings ?? store.startingSettings()
+        let drawn = catalog.resolve(start.theme, systemIsDark: system.isDark)
         self.store = store
         self.system = system
+        self.catalog = catalog
         self.settings = start
-        self.palette = AppPalette(start.palette(systemIsDark: system.isDark))
+        self.definition = drawn
+        self.palette = AppPalette(ThemePalette.make(drawn, accent: start.activeOverride))
         systemObservation = system.$isDark.dropFirst().sink { [weak self] _ in
             // The new value is read from the published property after it is set.
             DispatchQueue.main.async { self?.refresh() }
         }
+        // A theme file added while the app runs can be the one this window had stored: draw it as soon as it is there.
+        catalogObservation = catalog.$library.dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.refresh() }
+        }
     }
 
-    /// The appearance that is drawn (System resolves to Classic Dark or Classic Light).
-    var drawnTheme: AppTheme { palette.theme }
     var isDark: Bool { palette.isDark }
 
-    /// What the web pages of this window receive: the appearance id and the accent the person chose (nil = its own).
-    var webID: String { palette.theme.webID }
+    /// What the web pages of this window receive: the id of the theme that is drawn and the accent the person chose (nil = its own).
+    var webID: String { definition.id }
     var webAccent: String? { settings.activeOverride?.hex }
 
     /// The accent shown as selected in the picker, and the appearance's own.
@@ -72,7 +83,8 @@ final class WindowTheme: ObservableObject {
 
     /// How `choice` looks in this window (with the accent this window remembers for it), for the picker's miniatures.
     func previewPalette(for choice: AppTheme) -> AppPalette {
-        AppPalette(ThemePalette.make(choice.resolved(systemIsDark: system.isDark), accent: settings.accentOverride(for: choice)))
+        let drawn = catalog.library.resolve(choice, systemIsDark: system.isDark).definition
+        return AppPalette(ThemePalette.make(drawn, accent: settings.accentOverride(for: choice)))
     }
 
     func select(_ theme: AppTheme) {
@@ -111,7 +123,8 @@ final class WindowTheme: ObservableObject {
     }
 
     private func refresh() {
-        palette = AppPalette(settings.palette(systemIsDark: system.isDark))
+        definition = catalog.resolve(settings.theme, systemIsDark: system.isDark)
+        palette = AppPalette(ThemePalette.make(definition, accent: settings.activeOverride))
         applyWindowAppearance()
     }
 
@@ -120,7 +133,7 @@ final class WindowTheme: ObservableObject {
     }
 
     private func applyWindowAppearance(to window: NSWindow) {
-        let wanted: NSAppearance? = settings.theme == .system ? nil : NSAppearance(named: palette.isDark ? .darkAqua : .aqua)
+        let wanted: NSAppearance? = settings.theme.isSystem ? nil : NSAppearance(named: palette.isDark ? .darkAqua : .aqua)
         if window.appearance?.name != wanted?.name { window.appearance = wanted }
     }
 }
@@ -128,23 +141,38 @@ final class WindowTheme: ObservableObject {
 // MARK: - Web pages
 
 extension WindowTheme {
-    /// The arguments of the pages' theme functions (`setTheme`, `mvSetTheme`): the appearance id and the accent or null.
-    var webArguments: String { "'\(webID)', \(webAccent.map { "'\($0)'" } ?? "null")" }
+    /// The arguments of the pages' theme functions (`setTheme`, `mvSetTheme`): the id of the drawn theme, the accent or null, and the
+    /// theme itself (`ThemeDefinition.webPayload`), so a page needs no table of themes of its own.
+    var webArguments: String { "'\(webID)', \(webAccent.map { "'\($0)'" } ?? "null"), \(definition.webPayload)" }
 
-    /// The attributes of a page's <html> element that draw it right from the first paint, before its scripts run.
-    /// Values are appearance ids and `#RRGGBB` colours only, so they need no escaping.
+    /// The attributes of a page's <html> element that draw it right from the first paint, before its scripts run: the id, the mode,
+    /// the accent, and the theme's tokens. Values are ids, `#RRGGBB` colours and the payload JSON, which is escaped where it is written.
     private var htmlAttributePairs: [(name: String, value: String)] {
         var pairs = [("data-preset", webID), ("data-theme", isDark ? "dark" : "light")]
         if let accent = webAccent { pairs.append(("data-accent", accent)) }
+        pairs.append(("data-theme-tokens", definition.webPayload))
         return pairs
     }
 
     /// The same attributes as page text, for a page loaded from a string (the editor).
-    var htmlAttributes: String { htmlAttributePairs.map { "\($0.name)=\"\($0.value)\"" }.joined(separator: " ") }
+    var htmlAttributes: String {
+        htmlAttributePairs.map { "\($0.name)=\"\(Self.htmlEscaped($0.value))\"" }.joined(separator: " ")
+    }
 
     /// The same attributes as a script for `WKUserScript` at document start, for a page loaded from a file
     /// (discussion, terminal): they are on <html> before the page's own scripts run.
     var firstPaintScript: String {
-        htmlAttributePairs.map { "document.documentElement.setAttribute('\($0.name)', '\($0.value)');" }.joined(separator: " ")
+        htmlAttributePairs.map { "document.documentElement.setAttribute('\($0.name)', \(Self.scriptLiteral($0.value)));" }.joined(separator: " ")
+    }
+
+    private static func htmlEscaped(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+    }
+
+    /// `text` as a JavaScript string literal.
+    private static func scriptLiteral(_ text: String) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: text, options: [.fragmentsAllowed, .withoutEscapingSlashes]) else { return "\"\"" }
+        return String(decoding: data, as: UTF8.self)
     }
 }
