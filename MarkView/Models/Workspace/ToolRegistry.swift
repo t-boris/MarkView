@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The identity of a tool that has one tab per window (Git, Workflow, QA...). The raw value is also the key the tool's tab is saved
 /// under in a window session, so a value never changes once released (`AR-31`).
@@ -130,13 +133,13 @@ struct ToolRegistry: Sendable {
 
     static let shared = ToolRegistry(tools: [
         ToolDescriptor(
-            id: .git, title: "Git", icon: "arrow.triangle.branch", sentinelPath: ".dde/.markview-git",
+            id: .git, title: "Git", icon: "arrow.triangle.branch", sentinelPath: ProjectPaths.sentinelRelativePath("git"),
             toolbar: .primary,
             welcome: ToolWelcomeTile(section: .run, order: 10, hint: "Changes, commits, branches", requiresGitRepository: true),
             restorable: true
         ),
         ToolDescriptor(
-            id: .deployments, title: "Build & Deployment", icon: "server.rack", sentinelPath: ".dde/.markview-deployments",
+            id: .deployments, title: "Build & Deployment", icon: "server.rack", sentinelPath: ProjectPaths.sentinelRelativePath("deployments"),
             shortcut: ToolShortcut(key: "d", modifiers: [.command, .control]),
             toolbar: .primary,
             menu: ToolMenuEntry(slot: .afterAgents, order: 1, requiresFolder: false),
@@ -144,13 +147,13 @@ struct ToolRegistry: Sendable {
             restorable: true
         ),
         ToolDescriptor(
-            id: .workflow, title: "Workflow", icon: "point.3.connected.trianglepath.dotted", sentinelPath: ".dde/.markview-workflow",
+            id: .workflow, title: "Workflow", icon: "point.3.connected.trianglepath.dotted", sentinelPath: ProjectPaths.sentinelRelativePath("workflow"),
             toolbar: .primary,
             welcome: ToolWelcomeTile(section: .run, order: 30, hint: "Statuses and processes of tasks"),
             restorable: true
         ),
         ToolDescriptor(
-            id: .qa, title: "End-to-End QA", icon: "checkmark.shield", sentinelPath: ".dde/.markview-qa",
+            id: .qa, title: "End-to-End QA", icon: "checkmark.shield", sentinelPath: ProjectPaths.sentinelRelativePath("qa"),
             shortcut: ToolShortcut(key: "8", modifiers: .command),
             toolbar: .primary,
             menu: ToolMenuEntry(slot: .afterWebPreview, order: 2, requiresFolder: true),
@@ -158,7 +161,7 @@ struct ToolRegistry: Sendable {
             restorable: true
         ),
         ToolDescriptor(
-            id: .uiStudio, title: "UI Studio", icon: "macwindow.and.cursorarrow", sentinelPath: ".dde/.markview-ui-studio-",
+            id: .uiStudio, title: "UI Studio", icon: "macwindow.and.cursorarrow", sentinelPath: ProjectPaths.sentinelRelativePath("ui-studio-"),
             shortcut: ToolShortcut(key: "7", modifiers: .command),
             toolbar: .primary,
             menu: ToolMenuEntry(slot: .afterWebPreview, order: 1, requiresFolder: true),
@@ -166,14 +169,14 @@ struct ToolRegistry: Sendable {
             restorable: false
         ),
         ToolDescriptor(
-            id: .cockpit, title: "Copilot Cockpit", icon: "airplane", sentinelPath: ".dde/.markview-cockpit",
+            id: .cockpit, title: "Copilot Cockpit", icon: "airplane", sentinelPath: ProjectPaths.sentinelRelativePath("cockpit"),
             toolbar: .primary,
             menu: ToolMenuEntry(slot: .afterWebPreview, order: 3, requiresFolder: true),
             welcome: ToolWelcomeTile(section: .run, order: 60, hint: "Plan a goal, then watch the run"),
             restorable: false
         ),
         ToolDescriptor(
-            id: .discussions, title: "Discussions", icon: "bubble.left.and.text.bubble.right", sentinelPath: ".dde/.markview-discussions",
+            id: .discussions, title: "Discussions", icon: "bubble.left.and.text.bubble.right", sentinelPath: ProjectPaths.sentinelRelativePath("discussions"),
             shortcut: ToolShortcut(key: "i", modifiers: [.command, .control]),
             toolbar: .afterBrowser,
             menu: ToolMenuEntry(slot: .afterAgents, order: 2, requiresFolder: false),
@@ -181,7 +184,7 @@ struct ToolRegistry: Sendable {
             restorable: true
         ),
         ToolDescriptor(
-            id: .changeReview, title: "File changes", icon: "doc.text.magnifyingglass", sentinelPath: ".dde/.markview-file-changes",
+            id: .changeReview, title: "File changes", icon: "doc.text.magnifyingglass", sentinelPath: ProjectPaths.sentinelRelativePath("file-changes"),
             restorable: true
         )
     ])

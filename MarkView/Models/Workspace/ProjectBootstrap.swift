@@ -1,4 +1,5 @@
 import Foundation
+import MarkViewCore
 
 /// Creates the local project from a confirmed draft (REQ-004): an unused folder (DEC-009), the
 /// specification with a README and .gitignore (DEC-023), and a local Git repository with the
@@ -49,8 +50,8 @@ enum ProjectBootstrap {
                 try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
                 if FileManager.default.fileExists(atPath: target.path) { try FileManager.default.removeItem(at: target) }
                 try FileManager.default.copyItem(at: specification, to: target)
-                try Data(readme.utf8).write(to: destination.appendingPathComponent("README.md"), options: .atomic)
-                try Data(ProjectFoundation.gitignore.utf8).write(to: destination.appendingPathComponent(".gitignore"), options: .atomic)
+                try AtomicFile.write(Data(readme.utf8), to: destination.appendingPathComponent("README.md"))
+                try AtomicFile.write(Data(ProjectFoundation.gitignore.utf8), to: destination.appendingPathComponent(".gitignore"))
             }
             draft.filesWritten = true
             try await save(draft)

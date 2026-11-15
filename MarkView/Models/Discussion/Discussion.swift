@@ -1,5 +1,8 @@
 import Foundation
 import Combine
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One thing a discussion has settled or still owes: a decision, an open question, or an option that was rejected.
 struct DiscussionItem: Codable, Identifiable, Equatable {
@@ -116,6 +119,9 @@ final class DiscussionStore: ObservableObject {
     @Published var lastError: String?
 
     private(set) var root: URL?
+    /// Every folder name in `.dde/discussions`, readable discussion or not.
+    private var takenSlugs: Set<String> = []
+    private static let fileStore = SchemaVersionedStore<Discussion>()
 
     var selected: Discussion? { discussions.first { $0.slug == selectedSlug } }
 
@@ -130,20 +136,27 @@ final class DiscussionStore: ObservableObject {
         load()
     }
 
-    static func base(root: URL) -> URL { root.appendingPathComponent(".dde/discussions", isDirectory: true) }
+    static func base(root: URL) -> URL { ProjectPaths.discussionsFolder(root) }
+    private static func fileURL(base: URL, slug: String) -> URL {
+        base.appendingPathComponent(slug, isDirectory: true).appendingPathComponent("discussion.json")
+    }
     func folder(_ slug: String) -> URL? { root.map { Self.base(root: $0).appendingPathComponent(slug, isDirectory: true) } }
     func noteURL(_ slug: String, turn: Int) -> URL? { folder(slug)?.appendingPathComponent(Discussion.noteName(turn)) }
 
     func load() {
         guard let root else { return }
         let base = Self.base(root: root)
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: base.path)) ?? []
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: base.path)) ?? []).filter { !$0.hasPrefix(".") }
+        var problems: [String] = []
+        // A discussion that cannot be read stays on disk as it is, and its folder name stays taken so that no new discussion
+        // takes its place.
         discussions = names.compactMap { name -> Discussion? in
-            guard let data = try? Data(contentsOf: base.appendingPathComponent(name).appendingPathComponent("discussion.json")) else { return nil }
-            return try? decoder.decode(Discussion.self, from: data)
+            let result = Self.fileStore.load(from: Self.fileURL(base: base, slug: name))
+            if let problem = result.problem { problems.append("Discussion \"\(name)\": \(problem)") }
+            return result.value
         }.sorted { $0.updatedAt > $1.updatedAt }
+        takenSlugs = Set(names)
+        lastError = problems.isEmpty ? nil : problems.joined(separator: "\n")
         selectedSlug = discussions.first?.slug
     }
 
@@ -151,10 +164,11 @@ final class DiscussionStore: ObservableObject {
     func create(title: String, scope: String? = nil, now: Date = Date()) -> String? {
         let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard root != nil, !name.isEmpty else { return nil }
-        let slug = Discussion.slug(for: name, existing: Set(discussions.map(\.slug)))
+        let slug = Discussion.slug(for: name, existing: takenSlugs.union(discussions.map(\.slug)))
         var discussion = Discussion(slug: slug, title: name, createdAt: now, updatedAt: now)
         discussion.scope = (scope ?? "").isEmpty ? nil : scope
         discussions.insert(discussion, at: 0)
+        takenSlugs.insert(slug)
         selectedSlug = slug
         save(discussion)
         return slug
@@ -164,6 +178,7 @@ final class DiscussionStore: ObservableObject {
         guard let folder = folder(slug) else { return }
         try? FileManager.default.removeItem(at: folder)
         discussions.removeAll { $0.slug == slug }
+        takenSlugs.remove(slug)
         if selectedSlug == slug { selectedSlug = discussions.first?.slug }
     }
 
@@ -186,7 +201,7 @@ final class DiscussionStore: ObservableObject {
         save(discussion)
         if let url = noteURL(slug, turn: turn.id) {
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? discussion.note(for: turn).write(to: url, atomically: true, encoding: .utf8)
+            try? AtomicFile.write(discussion.note(for: turn), to: url)
         }
         return turn
     }
@@ -231,13 +246,9 @@ final class DiscussionStore: ObservableObject {
     }
 
     private func save(_ discussion: Discussion) {
-        guard let folder = folder(discussion.slug) else { return }
+        guard let root else { return }
         do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            encoder.dateEncodingStrategy = .iso8601
-            try encoder.encode(discussion).write(to: folder.appendingPathComponent("discussion.json"), options: .atomic)
+            try Self.fileStore.save(discussion, to: Self.fileURL(base: Self.base(root: root), slug: discussion.slug))
         } catch {
             lastError = "Could not save the discussion: \(error.localizedDescription)"
         }

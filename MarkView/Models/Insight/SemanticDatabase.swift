@@ -38,7 +38,7 @@ actor SemanticDatabase {
         let fm = FileManager.default
 
         // Try .dde/ next to workspace first; fall back to app container if sandboxed
-        var ddeDir = workspacePath.appendingPathComponent(".dde")
+        var ddeDir = ProjectPaths.localFolder(workspacePath)
         do {
             if !fm.fileExists(atPath: ddeDir.path) {
                 try fm.createDirectory(at: ddeDir, withIntermediateDirectories: true)
@@ -49,7 +49,7 @@ actor SemanticDatabase {
             let workspaceId = ProjectPaths.projectCacheIdentifier(for: workspacePath)
             ddeDir = appSupport.appendingPathComponent("MarkView/Projects/\(workspaceId)")
             try fm.createDirectory(at: ddeDir, withIntermediateDirectories: true)
-            NSLog("[SemanticDB] Sandbox fallback: \(ddeDir.path)")
+            AppLog.index.notice("Sandbox fallback: \(ddeDir.path)")
         }
 
         let path = ddeDir.appendingPathComponent(dbName).path
@@ -67,16 +67,16 @@ actor SemanticDatabase {
                                                pragmas: SemanticSchema.pragmas,
                                                busyTimeoutMilliseconds: SemanticSchema.busyTimeoutMilliseconds)
             if let backup = opened.backup {
-                NSLog("[SemanticDB] \(path) was unreadable; moved aside to \(backup.path) and rebuilt (derived index data)")
+                AppLog.index.error("\(path) was unreadable; moved aside to \(backup.path) and rebuilt (derived index data)")
             }
             if opened.startVersion != opened.endVersion {
-                NSLog("[SemanticDB] Schema of \(path) migrated from version \(opened.startVersion) to \(opened.endVersion)")
+                AppLog.index.notice("Schema of \(path) migrated from version \(opened.startVersion) to \(opened.endVersion)")
             }
             return (opened, true)
         } catch let error as SQLiteSchemaError {
             switch error {
             case .newerSchema, .migrationFailed:
-                NSLog("[SemanticDB] \(path) left untouched, using an empty in-memory index for this session: \(error.localizedDescription)")
+                AppLog.index.error("\(path) left untouched, using an empty in-memory index for this session: \(error.localizedDescription)")
                 do {
                     return (try SQLiteSchema.openInMemory(migrations: SemanticSchema.migrations, pragmas: SemanticSchema.pragmas), false)
                 } catch {

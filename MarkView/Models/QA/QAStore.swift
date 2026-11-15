@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // End-to-End QA (feature end-to-end-qa, DEC-006 and DEC-014): where scenarios and runs live. Reusable assets (scenarios) are in
 // `.markview/qa/`, which may be committed; runs, with their frames and video, are in `.dde/qa/`, which carries its own
@@ -41,7 +44,7 @@ enum QAStore {
     static func configFolder(_ root: URL) -> URL { root.appendingPathComponent(".markview/qa", isDirectory: true) }
     static func scenariosFolder(_ root: URL) -> URL { configFolder(root).appendingPathComponent("scenarios", isDirectory: true) }
 
-    static func localFolder(_ root: URL) -> URL { root.appendingPathComponent(".dde/qa", isDirectory: true) }
+    static func localFolder(_ root: URL) -> URL { ProjectPaths.qaFolder(root) }
     static func runsFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("runs", isDirectory: true) }
     static func runFolder(_ root: URL, runID: String) -> URL { runsFolder(root).appendingPathComponent(safeID(runID), isDirectory: true) }
     static func runURL(_ root: URL, runID: String) -> URL { runFolder(root, runID: runID).appendingPathComponent("run.json") }
@@ -94,7 +97,7 @@ enum QAStore {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let ignore = folder.appendingPathComponent(".gitignore")
         if !FileManager.default.fileExists(atPath: ignore.path) {
-            try? "# End-to-End QA runs: recordings, frames and evidence stay out of Git.\n*\n".write(to: ignore, atomically: true, encoding: .utf8)
+            try? AtomicFile.write("# End-to-End QA runs: recordings, frames and evidence stay out of Git.\n*\n", to: ignore)
         }
     }
 
@@ -105,7 +108,7 @@ enum QAStore {
 
     static func save<T: Encodable>(_ value: T, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try encoder.encode(value).write(to: url, options: .atomic)
+        try AtomicFile.write(encoder.encode(value), to: url)
     }
 
     // MARK: Scenarios
@@ -170,21 +173,32 @@ enum QAStore {
 
     // MARK: Runs
 
+    /// Runs are the machine's own data in `.dde/qa/`: an enveloped, schema-versioned file, unlike the scenarios in `.markview/qa/` that
+    /// a team commits and edits by hand.
+    private static let runStore = SchemaVersionedStore<QARunRecord>()
+
     static func saveRun(_ run: QARunRecord, root: URL) throws {
         guard safeID(run.id) == run.id else { throw QAStoreError.badID(run.id) }
         prepareLocalFolder(root)
-        try save(run, to: runURL(root, runID: run.id))
+        try runStore.save(run, to: runURL(root, runID: run.id))
     }
 
+    /// The run, or nil when there is none or its file cannot be read (logged and left as it is; a save copies it to a backup first).
     static func loadRun(_ root: URL, runID: String) -> QARunRecord? {
         guard safeID(runID) == runID else { return nil }
-        return load(QARunRecord.self, from: runURL(root, runID: runID))
+        return readRun(at: runURL(root, runID: runID))
     }
 
     /// The runs on this Mac, newest first.
     static func loadRuns(_ root: URL) -> [QARunRecord] {
         let folders = (try? FileManager.default.contentsOfDirectory(at: runsFolder(root), includingPropertiesForKeys: nil)) ?? []
-        return folders.compactMap { load(QARunRecord.self, from: $0.appendingPathComponent("run.json")) }.sorted { $0.startedAt > $1.startedAt }
+        return folders.compactMap { readRun(at: $0.appendingPathComponent("run.json")) }.sorted { $0.startedAt > $1.startedAt }
+    }
+
+    private static func readRun(at url: URL) -> QARunRecord? {
+        let result = runStore.load(from: url)
+        result.logProblem("QA")
+        return result.value
     }
 
     // MARK: Deleting runs (Q-010)
@@ -195,8 +209,7 @@ enum QAStore {
         guard safeID(runID) == runID else { throw QAStoreError.badID(runID) }
         let folder = runFolder(root, runID: runID)
         guard (try? FileManager.default.attributesOfItem(atPath: folder.path)) != nil else { return nil }
-        let inside = runsFolder(root).resolvingSymlinksInPath().path + "/"
-        guard folder.resolvingSymlinksInPath().path.hasPrefix(inside) else { throw QAStoreError.outsideRuns(runID) }
+        guard ProjectPaths.containsStrictly(folder, root: runsFolder(root)) else { throw QAStoreError.outsideRuns(runID) }
         return folder
     }
 

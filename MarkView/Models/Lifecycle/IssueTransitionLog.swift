@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // The durable side of the lifecycle (issue-lifecycle-management, plan I-2): the transition history and operation journal
 // of a project (DEC-014) and the one service that applies a decided transition around the stored status. Foundation only
@@ -168,7 +171,7 @@ final class FileTransitionStorage: TransitionStorage {
     init(url: URL) { self.url = url }
 
     convenience init(projectRoot: URL) {
-        self.init(url: projectRoot.appendingPathComponent(".dde/lifecycle/transitions.jsonl"))
+        self.init(url: ProjectPaths.transitionsLog(projectRoot))
     }
 
     /// Times are kept to the millisecond, so what is read back orders against an observation made a moment before it.

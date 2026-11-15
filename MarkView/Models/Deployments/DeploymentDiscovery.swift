@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// A place the project seems to run, found in its files (workflows, config of a platform, docs, scripts) and in
 /// `~/.ssh/config`. The person looks at each one and keeps the ones that are real. Foundation only, checked in
@@ -41,7 +44,7 @@ struct SSHConfigHost: Equatable {
 
 enum DeploymentDiscovery {
     static let maximumFileBytes = 300_000
-    static let ignoredDirectories: Set<String> = [".git", "node_modules", ".build", "build", "dist", "DerivedData", ".dde", "vendor", "Pods", ".venv", "venv", "target"]
+    static let ignoredDirectories: Set<String> = [".git", "node_modules", ".build", "build", "dist", "DerivedData", ProjectPaths.localFolderName, "vendor", "Pods", ".venv", "venv", "target"]
     /// Hosts that appear in docs as the place code lives, not as a server to look at.
     static let codeHosts: Set<String> = ["github.com", "gitlab.com", "bitbucket.org", "ssh.dev.azure.com", "git.sr.ht"]
     /// Words that follow "ssh" in prose and commands but are not machines.

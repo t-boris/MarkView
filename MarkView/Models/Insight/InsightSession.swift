@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import MarkViewCore
 
 // MARK: - Supporting Types
 //
@@ -339,7 +340,7 @@ final class InsightSession: ObservableObject, Identifiable {
     func generateRoot() async {
         // Idempotency.
         if activeTask != nil {
-            NSLog("[Insight] generateRoot called while activeTask in flight — ignoring")
+            AppLog.insight.error("generateRoot called while activeTask in flight — ignoring")
             return
         }
 
@@ -348,7 +349,7 @@ final class InsightSession: ObservableObject, Identifiable {
         if mdFiles.isEmpty {
             lastError = "no markdown files in folder"
             lastErrorRetryable = false
-            NSLog("[Insight] generateRoot called with empty mdFiles list")
+            AppLog.insight.notice("generateRoot called with empty mdFiles list")
             return
         }
 
@@ -462,7 +463,7 @@ final class InsightSession: ObservableObject, Identifiable {
                 statusMessage = "Section '\(section.title ?? section.id)' retried ✓"
             }
         } catch {
-            NSLog("[Insight] retrySection failed: %@", Self.sanitizeForLog(error.localizedDescription))
+            AppLog.insight.error("retrySection failed: \(Self.sanitizeForLog(error.localizedDescription))")
             await markSectionFailed(sectionId: sectionId, forNodeId: nodeIdLocal)
             if currentNodeId == nodeIdLocal {
                 lastError = "retry failed: \(error.localizedDescription)"
@@ -546,7 +547,7 @@ final class InsightSession: ObservableObject, Identifiable {
             guard let existing = nodes[childId] else { continue }
             if case .topic(let exLabel, let exHint, _) = existing.scope,
                exLabel == trimmed, exHint == trimmed {
-                NSLog("[Insight] expandCustom: reusing existing child for topic '%@'", Self.sanitizeForLog(trimmed))
+                AppLog.insight.notice("expandCustom: reusing existing child for topic '\(Self.sanitizeForLog(trimmed))'")
                 await navigateTo(nodeId: childId)
                 return
             }
@@ -729,11 +730,11 @@ final class InsightSession: ObservableObject, Identifiable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let snap = try? decoder.decode(RootSnapshot.self, from: data) else {
-            NSLog("[Insight] snapshot decode failed — falling back to fresh generation")
+            AppLog.insight.error("snapshot decode failed — falling back to fresh generation")
             return false
         }
         guard snap.rootId == rootId else {
-            NSLog("[Insight] snapshot rootId mismatch — folder path collision? regenerating")
+            AppLog.insight.notice("snapshot rootId mismatch — folder path collision? regenerating")
             return false
         }
 
@@ -790,7 +791,7 @@ final class InsightSession: ObservableObject, Identifiable {
         currentNodeSections = rootNode.sectionStates
         allSectionsReady = true
         cachedNodeHTML = (try? cache.readNode(nodeId: rootId))
-        NSLog("[Insight] snapshot restored: %d nodes total", entries.count)
+        AppLog.insight.notice("snapshot restored: \(entries.count) nodes total")
         return true
     }
 
@@ -837,9 +838,9 @@ final class InsightSession: ObservableObject, Identifiable {
             do {
                 let data = try encoder.encode(snap)
                 try self.cache.writeSnapshotData(data)
-                NSLog("[Insight] snapshot saved (%d nodes, %d bytes)", entries.count, data.count)
+                AppLog.insight.notice("snapshot saved (\(entries.count) nodes, \(data.count) bytes)")
             } catch {
-                NSLog("[Insight] snapshot save failed: %@", String(describing: error))
+                AppLog.insight.error("snapshot save failed: \(String(describing: error))")
             }
         }
     }
@@ -863,7 +864,7 @@ final class InsightSession: ObservableObject, Identifiable {
             return
         }
         guard let section = parentSkeleton.sections.first(where: { $0.id == sectionId }) else {
-            NSLog("[Insight] expand: unknown sectionId %@", Self.sanitizeForLog(sectionId))
+            AppLog.insight.error("expand: unknown sectionId \(Self.sanitizeForLog(sectionId))")
             lastError = "unknown section"
             lastErrorRetryable = false
             return
@@ -871,8 +872,7 @@ final class InsightSession: ObservableObject, Identifiable {
         guard let topics = section.deepDiveTopics,
               topicIndex >= 0,
               topicIndex < topics.count else {
-            NSLog("[Insight] expand: topicIndex %d out of bounds (topics: %d)",
-                  topicIndex, section.deepDiveTopics?.count ?? 0)
+            AppLog.insight.notice("expand: topicIndex \(topicIndex) out of bounds (topics: \(section.deepDiveTopics?.count ?? 0))")
             lastError = "deep-dive index out of bounds"
             lastErrorRetryable = false
             return
@@ -890,8 +890,7 @@ final class InsightSession: ObservableObject, Identifiable {
             guard let existing = nodes[childId] else { continue }
             if case .topic(let exLabel, let exHint, _) = existing.scope,
                exLabel == topic.label, exHint == topic.hint {
-                NSLog("[Insight] expand: reusing existing child for topic '%@' (no regen)",
-                      Self.sanitizeForLog(topic.label))
+                AppLog.insight.notice("expand: reusing existing child for topic '\(Self.sanitizeForLog(topic.label))' (no regen)")
                 await navigateTo(nodeId: childId)
                 return
             }
@@ -1138,7 +1137,7 @@ final class InsightSession: ObservableObject, Identifiable {
         var validatedSections: [InsightSection] = []
         for section in parsed.sections {
             if seenSectionIds.contains(section.id) {
-                NSLog("[Insight] phase1: duplicate section id '%@' — dropping", Self.sanitizeForLog(section.id))
+                AppLog.insight.notice("phase1: duplicate section id '\(Self.sanitizeForLog(section.id))' — dropping")
                 continue
             }
             seenSectionIds.insert(section.id)
@@ -1147,8 +1146,7 @@ final class InsightSession: ObservableObject, Identifiable {
             if let hint = section.scopeHint, !hint.isEmpty {
                 let validURLs = validateScopeHint(hint)
                 if validURLs.count != hint.count {
-                    NSLog("[Insight] phase1: section '%@' had %d invalid scope_hint paths (kept %d)",
-                          Self.sanitizeForLog(section.id), hint.count - validURLs.count, validURLs.count)
+                    AppLog.insight.error("phase1: section '\(Self.sanitizeForLog(section.id))' had \(hint.count - validURLs.count) invalid scope_hint paths (kept \(validURLs.count))")
                 }
                 // We don't mutate scopeHint here — T4's `buildSectionPrompt` re-validates
                 // against folderURL on each call, so leaving the (possibly noisy) original
@@ -1159,8 +1157,7 @@ final class InsightSession: ObservableObject, Identifiable {
                 var seenTopicIds = Set<String>()
                 for topic in topics {
                     if seenTopicIds.contains(topic.id) {
-                        NSLog("[Insight] phase1: section '%@' duplicate topic id '%@'",
-                              Self.sanitizeForLog(section.id), Self.sanitizeForLog(topic.id))
+                        AppLog.insight.notice("phase1: section '\(Self.sanitizeForLog(section.id))' duplicate topic id '\(Self.sanitizeForLog(topic.id))'")
                     }
                     seenTopicIds.insert(topic.id)
                 }
@@ -1303,9 +1300,7 @@ final class InsightSession: ObservableObject, Identifiable {
                         // Per-section error (rate limit, network blip, parse). Mark
                         // ONLY this section as failed; siblings keep streaming.
                         // Sanitised log for audit-trail integrity (T10 SEC-001).
-                        NSLog("[Insight] phase2 section %@ failed: %@",
-                              Self.sanitizeForLog(sectionId),
-                              Self.sanitizeForLog(error.localizedDescription))
+                        AppLog.insight.error("phase2 section \(Self.sanitizeForLog(sectionId)) failed: \(Self.sanitizeForLog(error.localizedDescription))")
                         await self.markSectionFailed(sectionId: sectionId, forNodeId: nodeId)
                     }
                 }
@@ -1366,7 +1361,7 @@ final class InsightSession: ObservableObject, Identifiable {
             lastError = "response too large (>10 MB)"
             lastErrorRetryable = false
             statusMessage = ""
-            NSLog("[Insight] per-node 10 MB cap exceeded; stream cancelled")
+            AppLog.insight.notice("per-node 10 MB cap exceeded; stream cancelled")
             return
         }
 
@@ -1896,7 +1891,7 @@ final class InsightSession: ObservableObject, Identifiable {
 
     /// Strip `\r`, `\n`, and `\0` control bytes and truncate to 64 chars. Mirrors
     /// `WorkspaceManager.sanitizeForLog` (line 1507) and `WebViewBridge.sanitizeForLog`.
-    /// Applied to every LLM-controlled string interpolated into `NSLog(...)` so a
+    /// Applied to every LLM-controlled string interpolated into an `AppLog` message so a
     /// poisoned scope_hint / section id / topic id cannot forge audit-log lines via
     /// embedded newlines (Wave 6 audit T10 SEC-001 / CWE-117 fix).
     ///
@@ -1956,7 +1951,7 @@ final class InsightSession: ObservableObject, Identifiable {
         if let erroringNode = nodes[forNodeId] {
             erroringNode.status = .failed
         } else {
-            NSLog("[Insight] handleStreamError: node \(forNodeId) was evicted before error landed")
+            AppLog.insight.error("handleStreamError: node \(forNodeId) was evicted before error landed")
         }
 
         // Only mutate visible UI state when the user is still looking at the erroring node.
@@ -2003,7 +1998,7 @@ final class InsightSession: ObservableObject, Identifiable {
             }
             running -= victim.rawBufferForCap
             nodes.removeValue(forKey: victim.id)
-            NSLog("[Insight] evicted node \(victim.id) (level=\(victim.level), \(victim.rawBufferForCap) bytes)")
+            AppLog.insight.notice("evicted node \(victim.id) (level=\(victim.level), \(victim.rawBufferForCap) bytes)")
         }
     }
 
@@ -2032,11 +2027,11 @@ final class InsightSession: ObservableObject, Identifiable {
             let inside = (candidatePath == folderResolvedPath) ||
                          candidatePath.hasPrefix(folderPathPrefix)
             guard inside else {
-                NSLog("[Insight] scope_hint rejected: %@ — outside folder or symlink escape", Self.sanitizeForLog(trimmed))
+                AppLog.insight.error("scope_hint rejected: \(Self.sanitizeForLog(trimmed)) — outside folder or symlink escape")
                 continue
             }
             guard candidate.pathExtension.lowercased() == "md" else {
-                NSLog("[Insight] scope_hint rejected: %@ — non-md", Self.sanitizeForLog(trimmed))
+                AppLog.insight.error("scope_hint rejected: \(Self.sanitizeForLog(trimmed)) — non-md")
                 continue
             }
             // Existence check — `URL(fileURLWithPath:)` does not verify the
@@ -2046,7 +2041,7 @@ final class InsightSession: ObservableObject, Identifiable {
             // the read in buildSkeleton would silently throw → wrappedFiles
             // ends up empty → "No readable files in folder" fallback.
             guard FileManager.default.fileExists(atPath: candidatePath) else {
-                NSLog("[Insight] scope_hint rejected: %@ — file does not exist", Self.sanitizeForLog(trimmed))
+                AppLog.insight.error("scope_hint rejected: \(Self.sanitizeForLog(trimmed)) — file does not exist")
                 continue
             }
             result.append(candidate)

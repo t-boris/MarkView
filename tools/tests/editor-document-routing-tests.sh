@@ -13,5 +13,5 @@ swiftc -O -o "$out/editor-document-routing-tests" MarkView/Models/Workspace/Edit
 "$out/editor-document-routing-tests"
 mkdir "$out/web"
 cp tools/tests/EditorDocumentIdWebTests.swift "$out/web/main.swift"
-swiftc -O -o "$out/editor-document-id-web-tests" MarkView/Bridge/TypedWebBridge.swift "$out/web/main.swift"
+swiftc -O -o "$out/editor-document-id-web-tests" MarkView/Bridge/TypedWebBridge.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift "$out/web/main.swift"
 "$out/editor-document-id-web-tests" "$PWD/MarkView/Resources/Editor"

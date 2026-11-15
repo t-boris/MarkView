@@ -105,15 +105,7 @@ struct LogSource: Codable, Identifiable, Equatable {
     var command: String
 }
 
+/// The payload of `.dde/deployments.json`; `SchemaVersionedStore` carries its version.
 struct DeploymentsFile: Codable, Equatable {
-    var version = 1
     var environments: [DeploymentEnvironment] = []
-
-    static func decode(_ data: Data) -> DeploymentsFile? { try? JSONDecoder().decode(DeploymentsFile.self, from: data) }
-
-    func encoded() throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(self)
-    }
 }

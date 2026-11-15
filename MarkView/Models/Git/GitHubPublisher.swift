@@ -65,13 +65,20 @@ final class GitHubPublisher: ObservableObject {
 
     var slug: String { owner + "/" + name }
 
-    private var recordURL: URL { root.appendingPathComponent(GitHubConnectionRecord.relativePath) }
+    private var recordURL: URL { GitHubConnectionRecord.url(root: root) }
 
     // MARK: Preparing
 
     func prepare() async {
         phase = .loading
-        record = await loadRecord()
+        let loaded = await loadRecord()
+        record = loaded.value
+        // A record that cannot be read may stand for a repository MarkView already created: publishing on without it could create a
+        // second one, so the person decides what to do with the file.
+        if let problem = loaded.problem {
+            phase = .blocked("\(problem) Publishing waits until the file is repaired or removed.")
+            return
+        }
         guard await git(["rev-parse", "--is-inside-work-tree"]).status == 0 else {
             phase = .blocked("This folder has no Git repository. Initialize one in the Git tab first.")
             return
@@ -109,28 +116,16 @@ final class GitHubPublisher: ObservableObject {
         phase = .choose
     }
 
-    private func loadRecord() async -> GitHubConnectionRecord? {
-        let url = recordURL
-        return await Task.detached { () -> GitHubConnectionRecord? in
-            guard let data = try? Data(contentsOf: url) else { return nil }
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            return try? decoder.decode(GitHubConnectionRecord.self, from: data)
-        }.value
+    private func loadRecord() async -> StoreLoadResult<GitHubConnectionRecord> {
+        let root = root
+        return await Task.detached { GitHubConnectionRecord.load(root: root) }.value
     }
 
     /// Without this record a retry could create a second repository, so a failed write stops publishing.
     private func saveRecord(_ record: GitHubConnectionRecord) async throws {
         self.record = record
-        let url = recordURL
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(record)
-        try await Task.detached {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: url, options: .atomic)
-        }.value
+        let root = root
+        try await Task.detached { try record.save(root: root) }.value
     }
 
     /// MarkView created a repository for this project that is not pushed yet: the target is fixed,

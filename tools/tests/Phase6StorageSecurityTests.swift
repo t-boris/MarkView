@@ -27,7 +27,7 @@ func runPhase6Tests() async {
     defer { try? FileManager.default.removeItem(at: tempDir) }
 
     // 1. AR-36, AR-39 & FU-04: SchemaVersionedStore, non-clobbering corrupt backups, and downgrade refusal
-    let store = SchemaVersionedStore<SamplePreferencesRecord>(currentSchemaVersion: 2, backupCorruptedOnSave: true)
+    let store = SchemaVersionedStore<SamplePreferencesRecord>(currentSchemaVersion: 2)
     let fileURL = tempDir.appendingPathComponent("prefs.json")
 
     let missingResult = store.load(from: fileURL)
@@ -107,6 +107,50 @@ func runPhase6Tests() async {
     } else {
         check(false, "FU-04/FU-14: SchemaVersionedStore loads legacy payload with version field as schemaVersion 0")
     }
+
+    // The contract every store of AR-36/AR-39 relies on, beyond the legacy upgrade above.
+    // An envelope whose payload cannot be read is damage, never an empty legacy payload: a payload of optional fields would
+    // otherwise load as empty and the next save would replace the real content.
+    struct AllOptional: Codable, Equatable { var a: String?; var b: Int? }
+    let optionalStore = SchemaVersionedStore<AllOptional>()
+    let wrongEnvelope = tempDir.appendingPathComponent("wrong-envelope.json")
+    let wrongBytes = Data(#"{"schema":1,"updatedAt":"2026-11-15T00:00:00Z","data":{"a":["not","a","string"]}}"#.utf8)
+    try! wrongBytes.write(to: wrongEnvelope)
+    check(optionalStore.load(from: wrongEnvelope).isCorrupted, "AR-36: an envelope with an unreadable payload is corrupted, not an empty legacy payload")
+    // A legacy document that is not an envelope still loads when every field is optional.
+    let bareOptional = tempDir.appendingPathComponent("bare-optional.json")
+    try! Data(#"{"a":"x"}"#.utf8).write(to: bareOptional)
+    check(optionalStore.load(from: bareOptional).value == AllOptional(a: "x", b: nil), "AR-36: a bare payload of optional fields loads as schema 0")
+
+    // Dates: a store whose old files used the default numeric dates reads them, and the same store reads ISO 8601 ones.
+    struct Stamped: Codable, Equatable { var at: Date }
+    let numeric = SchemaVersionedStore<Stamped>(dates: .referenceDate)
+    let numericURL = tempDir.appendingPathComponent("numeric.json")
+    try! JSONEncoder().encode(Stamped(at: Date(timeIntervalSinceReferenceDate: 800_000_000))).write(to: numericURL)
+    check(numeric.load(from: numericURL).value == Stamped(at: Date(timeIntervalSinceReferenceDate: 800_000_000)), "AR-36: a legacy file with numeric dates loads")
+    try! numeric.save(Stamped(at: Date(timeIntervalSinceReferenceDate: 800_000_000)), to: numericURL)
+    check(numeric.load(from: numericURL).value == Stamped(at: Date(timeIntervalSinceReferenceDate: 800_000_000)) && StoreFixture.envelope(numericURL)?.schema == 1,
+          "AR-36: the envelope keeps numeric dates exact")
+    let isoURL = tempDir.appendingPathComponent("iso.json")
+    try! Data(#"{"at":"2026-11-01T10:00:00Z"}"#.utf8).write(to: isoURL)
+    check(numeric.load(from: isoURL).value != nil, "AR-36: a legacy file with ISO 8601 dates loads in a numeric-dates store")
+
+    // recentFiles.json: the previous version wrote a bare JSON array of paths.
+    let recents = SchemaVersionedStore<[String]>()
+    let recentsURL = tempDir.appendingPathComponent("recentFiles.json")
+    try! Data(#"["/Users/me/a.md","/Users/me/b.md"]"#.utf8).write(to: recentsURL)
+    check(recents.load(from: recentsURL).value == ["/Users/me/a.md", "/Users/me/b.md"], "AR-36: a legacy recent-files array loads intact")
+    try! recents.save(["/Users/me/c.md", "/Users/me/a.md"], to: recentsURL)
+    check(StoreFixture.envelope(recentsURL)?.schema == 1 && recents.load(from: recentsURL).value == ["/Users/me/c.md", "/Users/me/a.md"],
+          "AR-36: the recent-files list is written in the envelope and reloads")
+
+    // A file is written with the mode it already had; a new file is not made private unless the caller asks.
+    let modeURL = tempDir.appendingPathComponent("mode.json")
+    try! optionalStore.save(AllOptional(a: "1", b: nil), to: modeURL)
+    check(((try? FileManager.default.attributesOfItem(atPath: modeURL.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0) == 0o644, "AR-39: a new store file gets the ordinary mode")
+    try! FileManager.default.setAttributes([.posixPermissions: 0o640], ofItemAtPath: modeURL.path)
+    try! optionalStore.save(AllOptional(a: "2", b: nil), to: modeURL)
+    check(((try? FileManager.default.attributesOfItem(atPath: modeURL.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0) == 0o640, "AR-39: a save keeps the mode the file already had")
 
     // 2. AR-40: the control socket token, its file, the peer check and the shared server protection are checked over real
     //    sockets by tools/tests/private-socket-tests.sh (and, per server, remote-browser-, remote-workspace- and cockpit-host-bridge-tests).

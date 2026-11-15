@@ -1,4 +1,5 @@
 import Foundation
+import MarkViewCore
 
 /// The feature workspaces of the open folder (`docs/features/<slug>/`): read from their Markdown
 /// files, written back as the user and the AI act on them. Files changed outside the app
@@ -237,7 +238,7 @@ final class FeatureStore: ObservableObject {
 
     private func write(_ text: String, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try text.write(to: url, atomically: true, encoding: .utf8)
+        try AtomicFile.write(text, to: url)
     }
 
     /// Create a feature: its folder and overview. Returns its slug.

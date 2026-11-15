@@ -1,6 +1,9 @@
 import CryptoKit
 import Darwin
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Native file selection is the security boundary for discovery. The assistant receives
 /// excerpts, not a readable folder, so every backend sees the same bounded inputs.
@@ -50,7 +53,7 @@ enum ProjectOperationDiscovery {
     ]
     private static let deniedExtensions: Set<String> = ["pem", "key"]
     private static let ignoredFolders: Set<String> = [
-        ".git", ".dde", "node_modules", "vendor", ".build", "build", "dist", "DerivedData", ".next",
+        ".git", ProjectPaths.localFolderName, "node_modules", "vendor", ".build", "build", "dist", "DerivedData", ".next",
     ]
 
     static func scan(root: URL) -> Inputs {
@@ -145,7 +148,7 @@ enum ProjectOperationDiscovery {
     }
 
     private static func isInside(_ url: URL, _ folder: URL) -> Bool {
-        url.path == folder.path || url.path.hasPrefix(folder.path + "/")
+        ProjectPaths.contains(url, root: folder)
     }
 
     static func canonical(_ url: URL) -> URL {

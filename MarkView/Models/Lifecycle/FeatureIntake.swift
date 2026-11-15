@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The standard ways into the project (user request): dump everything you know and the AI
 /// turns it into a feature or a bug report (each with its GitHub issue), kept as Markdown;
@@ -311,7 +314,7 @@ extension FeatureAssistant {
         if !questions.isEmpty { front["questions"] = .list(questions.map(\.yaml)) }
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try front.join(body: "# \(title)\n\n" + report).write(to: file, atomically: true, encoding: .utf8)
+            try AtomicFile.write(front.join(body: "# \(title)\n\n" + report), to: file)
         } catch {
             self.error = "Could not write the bug report: \(error.localizedDescription)"
             return nil
@@ -330,7 +333,7 @@ extension FeatureAssistant {
                 issueRef = "#\(number)"
                 front.set("issue", "#\(number)")
                 do {
-                    try front.join(body: "# \(title)\n\n" + report).write(to: file, atomically: true, encoding: .utf8)
+                    try AtomicFile.write(front.join(body: "# \(title)\n\n" + report), to: file)
                 } catch {
                     self.error = "GitHub issue #\(number) was created, but saving the link into the bug report failed: \(error.localizedDescription)"
                 }

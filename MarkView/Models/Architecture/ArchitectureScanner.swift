@@ -44,8 +44,8 @@ struct ArchitectureScanner {
     /// Folders the scan never enters; `ProjectChangeWatcher` ignores changes inside them too.
     static let skippedDirectories: Set<String> = [
         "node_modules", "build", "dist", "out", "target", "Pods", "DerivedData", ".build",
-        "venv", ".venv", "__pycache__", "coverage", ".next", ".nuxt", ".dde", ".git",
-        ".markview-insight", ".idea", ".vscode", "bower_components",
+        "venv", ".venv", "__pycache__", "coverage", ".next", ".nuxt", ProjectPaths.localFolderName, ".git",
+        ProjectPaths.insightFolderName, ".idea", ".vscode", "bower_components",
     ]
     static let manifestNames: Set<String> = [
         "package.json", "Package.swift", "go.mod", "Cargo.toml", "pyproject.toml", "setup.py",

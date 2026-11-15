@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Where UI Studio keeps its files (§10.3). Reusable configuration that may be committed — the environment, scenarios and
 /// feature packages — lives in `.markview/studio/` next to the team-owned `.markview/operations.json`. Session data — the
@@ -16,7 +19,7 @@ enum StudioStore {
         return configFolder(root).appendingPathComponent(folder.isEmpty ? "screens.json" : "screens-\(safeID(folder)).json")
     }
 
-    static func localFolder(_ root: URL) -> URL { root.appendingPathComponent(".dde/studio", isDirectory: true) }
+    static func localFolder(_ root: URL) -> URL { ProjectPaths.studioFolder(root) }
     static func historyURL(_ root: URL) -> URL { localFolder(root).appendingPathComponent("history.json") }
     static func capturesFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("captures", isDirectory: true) }
     static func capturesURL(_ root: URL) -> URL { localFolder(root).appendingPathComponent("captures.json") }
@@ -24,7 +27,7 @@ enum StudioStore {
     /// The images a person attached to requests (REQ-005): `<8 hex digits>.png`, kept with the turn that sent them.
     static func attachmentsFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("attachments", isDirectory: true) }
     /// The project-relative form of `attachmentsFolder`, as a turn records and a prompt names an attached image.
-    static let attachmentsPath = ".dde/studio/attachments"
+    static let attachmentsPath = ProjectPaths.studioAttachmentsRelativePath
     /// Whether `path` is a project-relative path of a saved attachment. A turn read from `history.json` may name anything, so
     /// only these reach a prompt or the assistant's image list.
     static func isAttachmentPath(_ path: String) -> Bool {
@@ -54,7 +57,7 @@ enum StudioStore {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let ignore = folder.appendingPathComponent(".gitignore")
         if !FileManager.default.fileExists(atPath: ignore.path) {
-            try? "# UI Studio session data: history, captures and selection pictures stay out of Git.\n*\n".write(to: ignore, atomically: true, encoding: .utf8)
+            try? AtomicFile.write("# UI Studio session data: history, captures and selection pictures stay out of Git.\n*\n", to: ignore)
         }
     }
 
@@ -65,16 +68,29 @@ enum StudioStore {
 
     static func save<T: Encodable>(_ value: T, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try encoder.encode(value).write(to: url, options: .atomic)
+        try AtomicFile.write(encoder.encode(value), to: url)
     }
 
     /// The scenario a session ended on, so that the next one opens on it and the data asked for is still there (BUG-087). It is the
     /// person's own state, kept with the session data (never committed), not with the team's scenarios.
     private struct ActiveScenario: Codable { var id: String }
-    static func loadActiveScenarioID(_ root: URL) -> String? { load(ActiveScenario.self, from: activeScenarioURL(root))?.id }
-    static func saveActiveScenarioID(_ id: String, root: URL) {
+
+    /// Reads a file of `.dde/studio/` (the session's own data, never committed). A file that cannot be read is logged and left as it
+    /// is; the next save copies it to a backup first (`SchemaVersionedStore`).
+    private static func loadLocal<T: Codable>(_ type: T.Type, from url: URL) -> T? {
+        let result = SchemaVersionedStore<T>().load(from: url)
+        result.logProblem("UIStudio")
+        return result.value
+    }
+
+    private static func saveLocal<T: Codable>(_ value: T, to url: URL, root: URL) throws {
         prepareLocalFolder(root)
-        try? save(ActiveScenario(id: id), to: activeScenarioURL(root))
+        try SchemaVersionedStore<T>().save(value, to: url)
+    }
+
+    static func loadActiveScenarioID(_ root: URL) -> String? { loadLocal(ActiveScenario.self, from: activeScenarioURL(root))?.id }
+    static func saveActiveScenarioID(_ id: String, root: URL) {
+        try? saveLocal(ActiveScenario(id: id), to: activeScenarioURL(root), root: root)
     }
 
     static func loadScreenBook(_ root: URL, appFolder: String) -> StudioScreenBook? {
@@ -111,16 +127,14 @@ enum StudioStore {
         try? FileManager.default.removeItem(at: scenariosFolder(root).appendingPathComponent(safeID(id) + ".json"))
     }
 
-    static func loadHistory(_ root: URL) -> [StudioOperation] { load([StudioOperation].self, from: historyURL(root)) ?? [] }
+    static func loadHistory(_ root: URL) -> [StudioOperation] { loadLocal([StudioOperation].self, from: historyURL(root)) ?? [] }
     static func saveHistory(_ history: [StudioOperation], root: URL) throws {
-        prepareLocalFolder(root)
-        try save(history, to: historyURL(root))
+        try saveLocal(history, to: historyURL(root), root: root)
     }
 
-    static func loadCaptures(_ root: URL) -> [StudioCapture] { load([StudioCapture].self, from: capturesURL(root)) ?? [] }
+    static func loadCaptures(_ root: URL) -> [StudioCapture] { loadLocal([StudioCapture].self, from: capturesURL(root)) ?? [] }
     static func saveCaptures(_ captures: [StudioCapture], root: URL) throws {
-        prepareLocalFolder(root)
-        try save(captures, to: capturesURL(root))
+        try saveLocal(captures, to: capturesURL(root), root: root)
     }
 
     static func loadPackages(_ root: URL) -> [StudioPackage] {

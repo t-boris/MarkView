@@ -7,5 +7,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/DeploymentDiscoveryTests.swift "$out/main.swift"
-swiftc -O -o "$out/deployment-discovery-tests" MarkView/Models/AI/CommandPolicy.swift MarkView/Models/Deployments/DeploymentModels.swift MarkView/Models/Deployments/DeploymentDiscovery.swift MarkView/Models/AI/ProviderHints.swift "$out/main.swift"
+swiftc -O -o "$out/deployment-discovery-tests" MarkView/Models/AI/CommandPolicy.swift MarkView/Models/Deployments/DeploymentModels.swift MarkView/Models/Deployments/DeploymentDiscovery.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/AI/ProviderHints.swift "$out/main.swift"
 "$out/deployment-discovery-tests"

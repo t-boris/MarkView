@@ -57,7 +57,7 @@ struct StudioWorkingSnapshot: Equatable {
 
 /// Code revision identity (§10.1) and the working snapshot behind it.
 enum StudioRevisionProbe {
-    static let ignoredFolders: Set<String> = [".git", "node_modules", ".dde", "dist", "build", ".next", ".nuxt", ".svelte-kit",
+    static let ignoredFolders: Set<String> = [".git", "node_modules", ProjectPaths.localFolderName, "dist", "build", ".next", ".nuxt", ".svelte-kit",
                                               "DerivedData", ".build", "Pods", "coverage", ".turbo", ".cache", "out", "target"]
     static let maxListedFiles = 6_000
     static let maxHashedBytes = 2_000_000
@@ -170,7 +170,7 @@ enum StudioChangeError: Error, Equatable, LocalizedError {
 /// Applies, records and selectively undoes source changes (EDIT-05…EDIT-07, plan I-6).
 enum StudioChanges {
     /// Folders a UI change never writes: version control, dependencies, MarkView's own data, build output.
-    static let protectedFolders: Set<String> = [".git", "node_modules", ".dde", ".markview", "dist", "build", ".next", ".nuxt",
+    static let protectedFolders: Set<String> = [".git", "node_modules", ProjectPaths.localFolderName, ".markview", "dist", "build", ".next", ".nuxt",
                                                 ".svelte-kit", "DerivedData", ".build", "Pods", "vendor", "out", "target", "coverage"]
     static let maxFileSize = 2_000_000
 
@@ -183,11 +183,9 @@ enum StudioChanges {
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let url = base.appendingPathComponent(trimmed).standardizedFileURL
         // A symlink inside the project must not lead outside it.
-        let resolvedParent = url.deletingLastPathComponent().resolvingSymlinksInPath().path
-        guard resolvedParent == base.path || resolvedParent.hasPrefix(base.path + "/") else { return nil }
+        guard ProjectPaths.contains(url.deletingLastPathComponent(), root: base) else { return nil }
         if FileManager.default.fileExists(atPath: url.path) {
-            let resolved = url.resolvingSymlinksInPath().path
-            guard resolved.hasPrefix(base.path + "/") else { return nil }
+            guard ProjectPaths.containsStrictly(url, root: base) else { return nil }
         }
         let binary: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "ico", "woff", "woff2", "ttf", "otf", "zip", "pdf", "wasm", "mp4", "mov"]
         guard !binary.contains(url.pathExtension.lowercased()) else { return nil }
@@ -264,7 +262,7 @@ enum StudioChanges {
     private static func put(_ text: String?, at url: URL) throws {
         if let text {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            try AtomicFile.write(text, to: url)
         } else if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }

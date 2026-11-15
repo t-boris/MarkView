@@ -371,7 +371,7 @@ class GitClient: ObservableObject {
         if !text.components(separatedBy: "\n").contains(where: { $0.trimmingCharacters(in: .whitespaces) == entry }) {
             if !text.isEmpty && !text.hasSuffix("\n") { text += "\n" }
             text += entry + "\n"
-            do { try text.write(to: file, atomically: true, encoding: .utf8) } catch {
+            do { try AtomicFile.write(text, to: file) } catch {
                 lastError = "Couldn't update .gitignore: \(error.localizedDescription)"
                 return
             }
