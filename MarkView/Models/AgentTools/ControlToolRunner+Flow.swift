@@ -196,7 +196,7 @@ extension ControlToolRunner {
             return .init(text: out + describe(target, slug))
         }
         let features = store.features
-        out += "Window \(target.shortID) — \(workspace.projectFolder?.path ?? "")\nFeatures: \(features.count), bugs: \(store.bugs.count)\n"
+        out += "Window \(target.shortID) — \(workspace.project.projectFolder?.path ?? "")\nFeatures: \(features.count), bugs: \(store.bugs.count)\n"
         for feature in features { out += "  \(featureLine(feature)) · readiness \(feature.readiness)%\n" }
         let running = runningSteps(store.assistant)
         if !running.isEmpty { out += "Running: " + running.joined(separator: ", ") + "\n" }
@@ -392,7 +392,7 @@ extension ControlToolRunner {
         }
         let workspace = target.workspace
         let session = try await workTerminal(target, args, caller: caller)
-        let done = DefinitionOfDone.load(root: workspace.projectFolder)
+        let done = DefinitionOfDone.load(root: workspace.project.projectFolder)
         workspace.startImplementation(feature.folder, done: done, in: session)
         lastSent[session.id] = Date()
         let id = ControlAgentTools.shortID(session.id.uuidString)

@@ -26,6 +26,8 @@
 		07044898F5427AD51A50B426 /* ToolRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD03 /* ToolRegistry.swift */; };
 		07044898F5427AD51A50B427 /* DocumentScrollSideTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */; };
 		07044898F5427AD51A50B430 /* TaskBag.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD10 /* TaskBag.swift */; };
+		12372A07C54BD6115EFB9D95 /* WorkspaceFileTreeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */; };
+		6AB6D14AB6537ECE80EBEDEB /* ProjectContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 494BD864CD65E25C23E882EB /* ProjectContext.swift */; };
 		3F7E81CB447C533A218B8912 /* BackgroundFileScans.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A6A798B75CA28695E850FC /* BackgroundFileScans.swift */; };
 		07044898F5427AD51A50B431 /* MarkdownDocumentChunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD11 /* MarkdownDocumentChunker.swift */; };
 		07044898F5427AD51A50B428 /* AIOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD05 /* AIOperation.swift */; };
@@ -305,6 +307,8 @@
 		AB772A1CF9E16E47D4B8E23B /* GitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5CB38E9CF1EB846033B0A8 /* GitView.swift */; };
 		ABAF5DAC540027464649560A /* ProjectChangeReviewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8930513F5E47FE846434F86D /* ProjectChangeReviewModel.swift */; };
 		ACC4EC4EED2064E5A42D8B93 /* ArchitectureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A4D926B6E77144DA360543F /* ArchitectureStore.swift */; };
+		3F05808A1EC2557CCFC1A3A0 /* XRayCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3ECF56CDA8B6B63BCF15EA8 /* XRayCommand.swift */; };
+		19D506E600C91FF4D84FFA92 /* CodeAndXRayCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03901FEE36F3EFC9B514BC3C /* CodeAndXRayCoordinator.swift */; };
 		AD14A1DE17208264B020F4DD /* UIStudioDataFix.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD11BE03C1B1516FA7E0C8E9 /* UIStudioDataFix.swift */; };
 		AD1A9D000AE91E8675089859 /* UIStudioEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83829D1752CE48AE3223142A /* UIStudioEvidence.swift */; };
 		ADC917FEF6129655640DB28B /* QATriageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F367DDF19DFC9F487BE4CC /* QATriageService.swift */; };
@@ -834,6 +838,8 @@
 		9948C896E8CDF0E775CA331E /* CockpitLeverPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitLeverPanel.swift; sourceTree = "<group>"; };
 		9A1BAC4896C73C835E150997 /* BrowserElementPick.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserElementPick.swift; sourceTree = "<group>"; };
 		9A4D926B6E77144DA360543F /* ArchitectureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureStore.swift; sourceTree = "<group>"; };
+		B3ECF56CDA8B6B63BCF15EA8 /* XRayCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayCommand.swift; sourceTree = "<group>"; };
+		03901FEE36F3EFC9B514BC3C /* CodeAndXRayCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeAndXRayCoordinator.swift; sourceTree = "<group>"; };
 		9A7D6D41319CC3068C3A8F1A /* RemoteConnectionsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteConnectionsStore.swift; sourceTree = "<group>"; };
 		9BD5813E43B8EA8DD4CE8C0F /* ArchitectureScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureScanner.swift; sourceTree = "<group>"; };
 		9C0F0778AC373BF137EF446E /* QARun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QARun.swift; sourceTree = "<group>"; };
@@ -861,6 +867,8 @@
 		A6E0167483A13431C669BD03 /* ToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolRegistry.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentScrollSideTable.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD10 /* TaskBag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskBag.swift; sourceTree = "<group>"; };
+		BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFileTreeStore.swift; sourceTree = "<group>"; };
+		494BD864CD65E25C23E882EB /* ProjectContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectContext.swift; sourceTree = "<group>"; };
 		17A6A798B75CA28695E850FC /* BackgroundFileScans.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundFileScans.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD11 /* MarkdownDocumentChunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocumentChunker.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD05 /* AIOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIOperation.swift; sourceTree = "<group>"; };
@@ -1215,6 +1223,8 @@
 				B6B0748CACE05B758D369F89 /* ArchitectureModel.swift */,
 				9BD5813E43B8EA8DD4CE8C0F /* ArchitectureScanner.swift */,
 				9A4D926B6E77144DA360543F /* ArchitectureStore.swift */,
+				B3ECF56CDA8B6B63BCF15EA8 /* XRayCommand.swift */,
+				03901FEE36F3EFC9B514BC3C /* CodeAndXRayCoordinator.swift */,
 				667F1344BF2C7E12038C9AEB /* AutoAnalysisScheduler.swift */,
 				7B5AB3B32AD80B0DC35219D3 /* ChangeExplanation.swift */,
 				26E37F916C227D94583C78C0 /* CodeArchitecture.swift */,
@@ -1607,6 +1617,8 @@
 				659CA4BBD506746CE1B89857 /* StructureOutline.swift */,
 				75282A5DF053FCD311C2528B /* TabClosing.swift */,
 				A6E0167483A13431C669BD10 /* TaskBag.swift */,
+				BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */,
+				494BD864CD65E25C23E882EB /* ProjectContext.swift */,
 				17A6A798B75CA28695E850FC /* BackgroundFileScans.swift */,
 				5B3E1F0C54027CD3A8565C4C /* TextDiff.swift */,
 				96A769BF1AF0740BC8A28F30 /* WebAppPreview.swift */,
@@ -2306,6 +2318,8 @@
 				07044898F5427AD51A50B426 /* ToolRegistry.swift in Sources */,
 				07044898F5427AD51A50B427 /* DocumentScrollSideTable.swift in Sources */,
 				07044898F5427AD51A50B430 /* TaskBag.swift in Sources */,
+				12372A07C54BD6115EFB9D95 /* WorkspaceFileTreeStore.swift in Sources */,
+				6AB6D14AB6537ECE80EBEDEB /* ProjectContext.swift in Sources */,
 				3F7E81CB447C533A218B8912 /* BackgroundFileScans.swift in Sources */,
 				07044898F5427AD51A50B431 /* MarkdownDocumentChunker.swift in Sources */,
 				07044898F5427AD51A50B428 /* AIOperation.swift in Sources */,
@@ -2329,6 +2343,8 @@
 				66A2E7B7F4FDF6FD2B44C822 /* ArchitectureModel.swift in Sources */,
 				CC06E828F3E074262772D431 /* ArchitectureScanner.swift in Sources */,
 				ACC4EC4EED2064E5A42D8B93 /* ArchitectureStore.swift in Sources */,
+				3F05808A1EC2557CCFC1A3A0 /* XRayCommand.swift in Sources */,
+				19D506E600C91FF4D84FFA92 /* CodeAndXRayCoordinator.swift in Sources */,
 				026ACF09E6ABAA2B642614D3 /* ArchiveSupport.swift in Sources */,
 				776B4CCD3D7E382170DA54D9 /* ArchiveTabView.swift in Sources */,
 				633818C4C0B55262B8E03D5D /* AutoAnalysisScheduler.swift in Sources */,

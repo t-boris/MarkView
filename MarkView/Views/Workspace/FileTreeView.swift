@@ -65,7 +65,7 @@ struct FileTreeView: View {
     private var roots: [FileBrowserRoot] {
         guard let project = projectRootURL else { return [] }
         return [FileBrowserRoot(url: project, name: project.lastPathComponent, linkedID: nil)]
-            + workspaceManager.linkedFolders.map { FileBrowserRoot(url: $0.url, name: $0.name, linkedID: $0.id) }
+            + workspaceManager.project.linkedFolders.map { FileBrowserRoot(url: $0.url, name: $0.name, linkedID: $0.id) }
     }
 
     private var filter: FileBrowserFilter {
@@ -74,7 +74,7 @@ struct FileTreeView: View {
     }
 
     private var source: FileBrowserSource {
-        FileBrowserSource(roots: roots, filter: filter, sort: workspaceManager.fileTreeSortOrder,
+        FileBrowserSource(roots: roots, filter: filter, sort: workspaceManager.project.fileTree.sortOrder,
                           hasViewer: { FileType.hasViewer($0) }, isIgnored: ignoredLookup)
     }
 
@@ -83,7 +83,7 @@ struct FileTreeView: View {
         guard git.isGitRepo, let root = git.workingDirectory else { return { _, _ in false } }
         let status = git.repoStatus
         let prefix = root.standardizedFileURL.path + "/"
-        let linkedPaths = workspaceManager.linkedFolders.map { $0.url.standardizedFileURL.path }
+        let linkedPaths = workspaceManager.project.linkedFolders.map { $0.url.standardizedFileURL.path }
         return { url, isDirectory in
             let path = url.standardizedFileURL.path
             guard path.hasPrefix(prefix), !linkedPaths.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) else { return false }
@@ -92,7 +92,7 @@ struct FileTreeView: View {
     }
 
     private var sortBinding: Binding<FileTreeSortOrder> {
-        Binding(get: { workspaceManager.fileTreeSortOrder }, set: { workspaceManager.fileTreeSortOrder = $0 })
+        Binding(get: { workspaceManager.project.fileTree.sortOrder }, set: { workspaceManager.project.fileTree.sortOrder = $0 })
     }
 
     /// Where Icon and List views are.
@@ -143,13 +143,13 @@ struct FileTreeView: View {
     private var listingKey: String {
         let rootIdentity = workspaceManager.rootNode.map { String(describing: ObjectIdentifier($0)) } ?? ""
         let directory = currentDirectory?.standardizedFileURL.path ?? ""
-        let sort = workspaceManager.fileTreeSortOrder
+        let sort = workspaceManager.project.fileTree.sortOrder
         return [searchKey, rootIdentity, directory, String(atWorkspace), mode.rawValue,
                 String(describing: sort.field), String(sort.ascending), expanded.sorted().joined(separator: "|")].joined(separator: "#")
     }
 
     private var listingMonitorKey: String {
-        [workspaceManager.searchRootsKey, currentDirectory?.path ?? "", String(atWorkspace), mode.rawValue,
+        [workspaceManager.project.searchRootsKey, currentDirectory?.path ?? "", String(atWorkspace), mode.rawValue,
          String(isTreeSearch), expanded.sorted().joined(separator: "|")].joined(separator: "#")
     }
 
@@ -211,7 +211,7 @@ struct FileTreeView: View {
 
     private func linkedFolder(of entry: FileBrowserEntry) -> LinkedFolder? {
         guard let id = entry.root?.linkedID else { return nil }
-        return workspaceManager.linkedFolders.first { $0.id == id }
+        return workspaceManager.project.linkedFolders.first { $0.id == id }
     }
 
     /// The path shown in the breadcrumb strip: where Icon and List views are; in Tree view the folder that
@@ -232,7 +232,7 @@ struct FileTreeView: View {
     /// Everything that restarts the walk of the disk behind a Tree search.
     private var searchKey: String {
         [String(isTreeSearch), searchText, String(preferences.showHidden), String(preferences.hideIgnored),
-         preferences.category.rawValue, workspaceManager.searchRootsKey, String(listVersion),
+         preferences.category.rawValue, workspaceManager.project.searchRootsKey, String(listVersion),
          String(preferences.hideIgnored ? git.repoStatus.entries.hashValue : 0)].joined(separator: "|")
     }
 
@@ -290,11 +290,11 @@ struct FileTreeView: View {
 
             if projectRootURL != nil {
                 browserArea
-            } else if workspaceManager.indexingProgress != nil {
+            } else if workspaceManager.project.indexingProgress != nil {
                 VStack(spacing: 12) {
                     Spacer()
                     ProgressView().scaleEffect(0.8)
-                    Text(workspaceManager.indexingProgress ?? "")
+                    Text(workspaceManager.project.indexingProgress ?? "")
                         .uiFont(size: 11).foregroundColor(palette.blue)
                         .lineLimit(2).multilineTextAlignment(.center)
                     Spacer()
@@ -317,7 +317,7 @@ struct FileTreeView: View {
             }
 
             // Progress bar
-            if let progress = workspaceManager.indexingProgress {
+            if let progress = workspaceManager.project.indexingProgress {
                 Divider().background(palette.border)
                 HStack(spacing: 6) {
                     ProgressView().scaleEffect(0.4).frame(width: 12, height: 12)
@@ -343,10 +343,10 @@ struct FileTreeView: View {
             searchText = ""
             revealedURL = nil
         }
-        .onChange(of: workspaceManager.linkedFolders) { _ in
+        .onChange(of: workspaceManager.project.linkedFolders) { _ in
             // An unlinked folder cannot stay browsed or open.
-            if let current = currentDirectory, workspaceManager.containerRoot(for: current) == nil { currentDirectory = nil }
-            if let anchor = treeAnchor, workspaceManager.containerRoot(for: anchor) == nil { treeAnchor = nil }
+            if let current = currentDirectory, workspaceManager.project.containerRoot(for: current) == nil { currentDirectory = nil }
+            if let anchor = treeAnchor, workspaceManager.project.containerRoot(for: anchor) == nil { treeAnchor = nil }
             expanded = expanded.filter { key in roots.contains { key == $0.key || key.hasPrefix($0.key + "/") } }
         }
         .task(id: listingMonitorKey) { installListingMonitors() }
@@ -415,7 +415,7 @@ struct FileTreeView: View {
         .padding(.vertical, 4)
         .overlay(alignment: .trailing) {
             HStack(spacing: 0) {
-            Button(action: { workspaceManager.openArchitecture() }) {
+            Button(action: { workspaceManager.codeXRay.openArchitecture() }) {
                 Image(systemName: "viewfinder")
                     .uiFont(size: 9, weight: .semibold)
                     .foregroundColor(palette.textDim)
@@ -474,7 +474,7 @@ struct FileTreeView: View {
                 .help("New graph diagram in \(here.lastPathComponent) (AI)")
             } else if projectRootURL != nil {
                 // The Workspace level has no folder to create in: it is where folders are linked (DEC-009).
-                Button { workspaceManager.chooseFoldersToLink() } label: {
+                Button { workspaceManager.project.chooseFoldersToLink() } label: {
                     Image(systemName: "link.badge.plus").uiFont(size: 11).foregroundColor(palette.textDim)
                 }
                 .buttonStyle(.plain)
@@ -517,7 +517,7 @@ struct FileTreeView: View {
                     Button("New Graph Diagram...") { workspaceManager.presentGraphCreator(in: here) }
                     Divider()
                 }
-                Button("Link Folder…") { workspaceManager.chooseFoldersToLink() }
+                Button("Link Folder…") { workspaceManager.project.chooseFoldersToLink() }
                 if let here = destination {
                     Button { workspaceManager.presentPDFBook([here]) } label: { Label("Export This Folder as PDF Book…", systemImage: "book.closed") }
                 }
@@ -626,7 +626,7 @@ struct FileTreeView: View {
         workspaceManager.fileTreeRevealRequest = nil
         var target = request.standardizedFileURL
         // The project, or the linked folder, the item is in (Task 59).
-        guard let root = workspaceManager.containerRoot(for: target)?.standardizedFileURL else { return }
+        guard let root = workspaceManager.project.containerRoot(for: target)?.standardizedFileURL else { return }
         while target.path != root.path, !FileManager.default.fileExists(atPath: target.path) {
             target = target.deletingLastPathComponent()
         }
@@ -732,7 +732,7 @@ struct FileTreeView: View {
     private func folderRow(_ entry: FileBrowserEntry, tree: FileBrowserRow? = nil) -> some View {
         let url = entry.url
         let linked = linkedFolder(of: entry)
-        let inProject = linked == nil && workspaceManager.linkedFolder(containing: url) == nil
+        let inProject = linked == nil && workspaceManager.project.linkedFolder(containing: url) == nil
         let deco = inProject ? gitDecoration(url, isDirectory: true) : GitDecoration()
         return HStack(spacing: 6) {
             if let tree { disclosure(tree) }
@@ -771,7 +771,7 @@ struct FileTreeView: View {
         .modifier(PlaceAwareDrag(isPlace: entry.root != nil, item: { dragItem(url) }))
         .background(rowBackground(url, isFolder: true))
         .onDrop(of: [.fileURL], isTargeted: dropBinding(url)) { providers in drop(providers, into: url) }
-        .opacity(workspaceManager.isExcluded(url) ? 0.4 : deco.state == .ignored ? 0.5 : (tree?.isMatch == false ? 0.6 : 1.0))
+        .opacity(workspaceManager.project.isExcluded(url) ? 0.4 : deco.state == .ignored ? 0.5 : (tree?.isMatch == false ? 0.6 : 1.0))
         .contextMenu { folderMenu(entry) }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Folder \(entry.name)")
@@ -781,7 +781,7 @@ struct FileTreeView: View {
 
     private func fileRow(_ entry: FileBrowserEntry, tree: FileBrowserRow? = nil) -> some View {
         let url = entry.url
-        let inProject = workspaceManager.linkedFolder(containing: url) == nil
+        let inProject = workspaceManager.project.linkedFolder(containing: url) == nil
         let gitStatus = inProject ? fileGitStatus(url) : nil
         let deco = inProject ? gitDecoration(url, isDirectory: false) : GitDecoration()
         let (icon, color) = fileIcon(for: entry)
@@ -820,7 +820,7 @@ struct FileTreeView: View {
     private func iconCell(_ entry: FileBrowserEntry) -> some View {
         let url = entry.url
         let linked = linkedFolder(of: entry)
-        let inProject = linked == nil && workspaceManager.linkedFolder(containing: url) == nil
+        let inProject = linked == nil && workspaceManager.project.linkedFolder(containing: url) == nil
         let deco = inProject ? gitDecoration(url, isDirectory: entry.isDirectory) : GitDecoration()
         let (icon, color): (String, Color) = entry.isDirectory
             ? (linked == nil ? "folder.fill" : "folder.fill.badge.gearshape",
@@ -839,7 +839,7 @@ struct FileTreeView: View {
         .frame(maxWidth: .infinity)
         .background(RoundedRectangle(cornerRadius: 6).fill(rowBackground(url, isFolder: entry.isDirectory)))
         .contentShape(Rectangle())
-        .opacity(workspaceManager.isExcluded(url) ? 0.4 : deco.state == .ignored ? 0.5 : entry.isUnsupported ? 0.7 : 1)
+        .opacity(workspaceManager.project.isExcluded(url) ? 0.4 : deco.state == .ignored ? 0.5 : entry.isUnsupported ? 0.7 : 1)
         .help(linked.map { "Linked folder: \($0.path)" } ?? (entry.isUnsupported ? "\(entry.name) — no viewer in MarkView" : entry.name))
         .onTapGesture { click(entry) }
         .modifier(PlaceAwareDrag(isPlace: entry.root != nil, item: { dragItem(url) }))
@@ -858,30 +858,30 @@ struct FileTreeView: View {
     @ViewBuilder private func folderMenu(_ entry: FileBrowserEntry) -> some View {
         let url = entry.url
         let linked = linkedFolder(of: entry)
-        let inProject = linked == nil && workspaceManager.linkedFolder(containing: url) == nil
+        let inProject = linked == nil && workspaceManager.project.linkedFolder(containing: url) == nil
         // The project folder and the linked folders are places: they are not renamed, moved or excluded from here.
         let isPlace = entry.root != nil
         if isPartOfSelection(url) {
             selectionMenu
         } else {
             if let linked {
-                Button("Unlink Folder") { workspaceManager.unlinkFolder(linked.id) }
+                Button("Unlink Folder") { workspaceManager.project.unlinkFolder(linked.id) }
                 Divider()
             } else if inProject {
                 if !isPlace {
-                    if workspaceManager.isExcluded(url) {
+                    if workspaceManager.project.isExcluded(url) {
                         Button("Include Folder") {
                             if let root = workspaceManager.rootNode?.url {
                                 let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
-                                workspaceManager.includeFolder(rel)
+                                workspaceManager.project.includeFolder(rel)
                             }
                         }
                     } else {
-                        Button("Exclude Folder") { workspaceManager.excludeFolder(url) }
+                        Button("Exclude Folder") { workspaceManager.project.excludeFolder(url) }
                     }
                     Divider()
                 }
-                Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
+                Button { workspaceManager.codeXRay.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
                 Button { workspaceManager.startRecursiveInsight(at: url) } label: { Label("Recursive Insight", systemImage: "sparkles") }
                 Button { workspaceManager.openDiscussion(about: url) } label: { Label("Discuss…", systemImage: "bubble.left.and.text.bubble.right") }
                 Button { workspaceManager.startResearch(fromFolder: url) } label: { Label("New Research from This Folder…", systemImage: "books.vertical") }
@@ -933,7 +933,7 @@ struct FileTreeView: View {
             if entry.isUnsupported {
                 Button { NSWorkspace.shared.open(url) } label: { Label("Open with Default App", systemImage: "arrow.up.forward.app") }
             } else {
-                if inProject { Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") } }
+                if inProject { Button { workspaceManager.codeXRay.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") } }
                 if FileType.isHTML(url) {
                     Button { workspaceManager.openHTMLInBrowser(url) } label: { Label("Open in Browser", systemImage: "safari") }
                 }
@@ -1280,7 +1280,7 @@ struct FileTreeView: View {
     /// as in Finder), copied when they come from elsewhere (e.g. Finder).
     private func drop(_ providers: [NSItemProvider], into folder: URL) -> Bool {
         let copyRequested = NSEvent.modifierFlags.contains(.option)
-        let roots = ([workspaceManager.rootNode?.url] + workspaceManager.linkedFolders.map(\.url))
+        let roots = ([workspaceManager.rootNode?.url] + workspaceManager.project.linkedFolders.map(\.url))
             .compactMap { $0?.standardizedFileURL.path }
         var urls: [URL] = []
         let group = DispatchGroup()

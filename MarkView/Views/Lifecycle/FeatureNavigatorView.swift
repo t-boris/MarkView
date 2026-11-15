@@ -900,7 +900,7 @@ struct IntakeSheet: View {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if kind == .understand {
             dismiss()
-            workspaceManager.understandInXRay(input, attachments: attachments)
+            workspaceManager.codeXRay.understandInXRay(input, attachments: attachments)
             return
         }
         if kind == .research {

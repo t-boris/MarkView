@@ -195,7 +195,7 @@ struct DocumentSearchView: View {
         let term = searchQuery
         Task {
             // docIds are workspace-relative paths (or `@linked/...`): resolved directly, which is one file check.
-            var url = workspaceManager.fileURL(forDocumentId: result.documentId)
+            var url = workspaceManager.project.fileURL(forDocumentId: result.documentId)
             if url == nil {
                 // Fallback by-name search: headings/entity names, or legacy filename docIds. A tree walk, so off the main thread.
                 let name = result.documentId, folder = root.url

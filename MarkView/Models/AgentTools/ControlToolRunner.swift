@@ -64,7 +64,7 @@ enum ControlToolRunner {
 
     private static func windowInfos(_ live: [(id: UUID, window: BrowserControlServer.Window, workspace: WorkspaceManager)])
         -> [(id: String, title: String, project: String?)] {
-        live.map { (id: $0.id.uuidString, title: $0.workspace.hostWindow?.title ?? "", project: $0.workspace.projectFolder?.path) }
+        live.map { (id: $0.id.uuidString, title: $0.workspace.hostWindow?.title ?? "", project: $0.workspace.project.projectFolder?.path) }
     }
 
     static func window(_ args: [String: Any], caller: Caller) throws -> Target {
@@ -90,7 +90,7 @@ enum ControlToolRunner {
     private static func windowLines(_ live: [(id: UUID, window: BrowserControlServer.Window, workspace: WorkspaceManager)]) -> String {
         live.map { entry -> String in
             let title = entry.workspace.hostWindow?.title ?? ""
-            let project = entry.workspace.projectFolder?.path ?? "no project open"
+            let project = entry.workspace.project.projectFolder?.path ?? "no project open"
             return "\(ControlAgentTools.shortID(entry.id.uuidString)) · \"\(title)\" · \(project)"
         }.joined(separator: "\n")
     }
@@ -113,7 +113,7 @@ enum ControlToolRunner {
             let workspace = entry.workspace
             let front = workspace.hostWindow.map { $0 === frontmost } ?? false
             let title = workspace.hostWindow?.title ?? ""
-            let project = workspace.projectFolder?.path ?? "no project open"
+            let project = workspace.project.projectFolder?.path ?? "no project open"
             let marker = front ? " · in front" : ""
             out += "\n\(ControlAgentTools.shortID(entry.id.uuidString)) · \"\(title)\" · \(project)\(marker)\n"
             let described = workspace.aiTerminals.map { "\($0.title) (\(state(of: $0, in: workspace)))" }
@@ -137,8 +137,8 @@ enum ControlToolRunner {
     }
 
     private static func recentProjects() -> String {
-        let paths = UserDefaults.standard.stringArray(forKey: WorkspaceManager.recentProjectsKey) ?? []  // shared by all windows
-        let open = Set(BrowserControlServer.liveWindows().compactMap { $0.workspace.projectFolder?.path })
+        let paths = UserDefaults.standard.stringArray(forKey: ProjectContext.recentProjectsKey) ?? []  // shared by all windows
+        let open = Set(BrowserControlServer.liveWindows().compactMap { $0.workspace.project.projectFolder?.path })
         let lines = paths.filter { FileManager.default.fileExists(atPath: $0) }.map { $0 + (open.contains($0) ? "  (open)" : "") }
         return lines.isEmpty ? "No recent projects." : lines.joined(separator: "\n")
     }
@@ -157,7 +157,7 @@ enum ControlToolRunner {
         }
         let url = URL(fileURLWithPath: path, isDirectory: true)
         let live = BrowserControlServer.liveWindows()
-        if let open = live.first(where: { $0.workspace.projectFolder.map { standardized($0.path) } == path }) {
+        if let open = live.first(where: { $0.workspace.project.projectFolder.map { standardized($0.path) } == path }) {
             let target = Target(id: open.id, workspace: open.workspace)
             return .init(text: "\(path) is already open in window \(target.shortID). \(projectLine(target.workspace))")
         }
@@ -166,7 +166,7 @@ enum ControlToolRunner {
         if !named.isEmpty {
             let target = try window(args, caller: caller)
             guard target.workspace.isBlank else {
-                throw Invalid(message: "Window \(target.shortID) has \(target.workspace.projectFolder?.path ?? "tabs") open and is not replaced. Leave `window` out to open \(path) in a new window.")
+                throw Invalid(message: "Window \(target.shortID) has \(target.workspace.project.projectFolder?.path ?? "tabs") open and is not replaced. Leave `window` out to open \(path) in a new window.")
             }
             reuse = target
         } else if args["new_window"] as? Bool == true {
@@ -197,7 +197,7 @@ enum ControlToolRunner {
 
     /// The folder is the window's project and its features are loaded.
     private static func isOpen(_ workspace: WorkspaceManager, _ path: String) -> Bool {
-        workspace.projectFolder.map { standardized($0.path) } == path && workspace.features.root != nil
+        workspace.project.projectFolder.map { standardized($0.path) } == path && workspace.features.root != nil
     }
 
     private static func projectLine(_ workspace: WorkspaceManager) -> String {

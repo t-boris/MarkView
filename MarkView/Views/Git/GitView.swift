@@ -872,12 +872,12 @@ struct GitBranchMenu: View {
     private func compareList(reverse: Bool) -> some View {
         let others = git.localBranches.filter { $0 != git.branch }
         ForEach(others, id: \.self) { name in
-            Button(name) { workspaceManager.compareBranch(name, reverse: reverse) }
+            Button(name) { workspaceManager.codeXRay.compareBranch(name, reverse: reverse) }
         }
         if !git.remoteBranches.isEmpty {
             Menu("Remote Branches") {
                 ForEach(git.remoteBranches, id: \.self) { name in
-                    Button(name) { workspaceManager.compareBranch(name, reverse: reverse) }
+                    Button(name) { workspaceManager.codeXRay.compareBranch(name, reverse: reverse) }
                 }
             }
         }

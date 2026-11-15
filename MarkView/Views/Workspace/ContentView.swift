@@ -350,7 +350,7 @@ struct ContentView: View {
         }
         .sheet(item: $workspaceManager.operationEditRequest) { request in
             if let store = workspaceManager.projectOperations {
-                let nodes = workspaceManager.architecture.snapshot?.view("deployment")?.nodes
+                let nodes = workspaceManager.codeXRay.architecture.snapshot?.view("deployment")?.nodes
                     .filter { $0.kind != "root" && $0.kind != "moduleRef" }
                     .map { ProjectOperation.Node(id: $0.id, name: $0.name) } ?? []
                 ProjectOperationEditor(store: store, request: request, deploymentNodes: nodes)
@@ -389,7 +389,7 @@ struct ContentView: View {
                 await changeReview.refresh()
             }
         }
-        .onChange(of: workspaceManager.rootOpenedAsFolder) { _ in updateWindowIdentity() }
+        .onChange(of: workspaceManager.project.rootOpenedAsFolder) { _ in updateWindowIdentity() }
         // Finder "Open With" / Quick Action: requests wait in
         // MarkViewApp.pendingOpenURLs until the active window takes them.
         // Drain on every moment this window may have become eligible — a new
@@ -675,8 +675,8 @@ struct ContentView: View {
 
     private var filesCenter: some View {
         VStack(spacing: 0) {
-            if !workspaceManager.selectionActions.isEmpty {
-                SelectionActionBar().environmentObject(workspaceManager)
+            if !workspaceManager.codeXRay.selectionActions.isEmpty {
+                SelectionActionBar(coordinator: workspaceManager.codeXRay)
             }
             if let resume = workspaceManager.handoffResume,
                workspaceManager.layout.workspaceArea == .files {
@@ -756,7 +756,7 @@ struct ContentView: View {
             }
             workspaceManager.layout.workspaceArea = .files
         case .projectMap:
-            workspaceManager.openArchitecture()
+            workspaceManager.codeXRay.openArchitecture()
         case .work:
             workspaceManager.layout.workspaceArea = .work
             workspaceManager.layout.leftPanel = "issues"
@@ -862,14 +862,14 @@ struct ContentView: View {
                 ProjectDraftList(drafts: ProjectDraftStore.shared) { id in
                     workspaceManager.newProject = NewProjectRequest(resume: id)
                 }
-                if !workspaceManager.recentProjects.isEmpty {
+                if !workspaceManager.project.recentProjects.isEmpty {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Recent projects").uiFont(size: 13, weight: .semibold)
-                        ForEach(workspaceManager.recentProjects, id: \.self) { path in
+                        ForEach(workspaceManager.project.recentProjects, id: \.self) { path in
                             RecentProjectRow(path: path) {
                                 workspaceManager.openFolder(URL(fileURLWithPath: path, isDirectory: true))
                             } onRemove: {
-                                workspaceManager.removeRecentProject(path)
+                                workspaceManager.project.removeRecentProject(path)
                             }
                         }
                     }
@@ -897,7 +897,7 @@ struct ContentView: View {
         case .research: workspaceManager.newResearch()
         case .tool(let tool): workspaceManager.openTool(tool)
         case .tasks: activate(.work)
-        case .xray: workspaceManager.openArchitecture()
+        case .xray: workspaceManager.codeXRay.openArchitecture()
         case .search: workspaceManager.showGlobalSearch = true
         case .files: activate(.files)
         case .openFile: openFile()
@@ -1175,7 +1175,7 @@ private struct AIToolsMenuItems: View {
             Button("Codebase Audit") { workspaceManager.runAITool(named: "audit") }
             Button("Code Structure Map") { workspaceManager.runAITool(named: "codemap") }
             Button("Recursive Insight") { workspaceManager.startRecursiveInsight() }
-                .disabled(workspaceManager.rootNode == nil || !workspaceManager.hasMarkdownFiles)
+                .disabled(workspaceManager.rootNode == nil || !workspaceManager.project.hasMarkdownFiles)
         }
     }
 }

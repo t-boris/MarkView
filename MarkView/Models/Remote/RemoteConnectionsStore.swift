@@ -83,7 +83,7 @@ final class RemoteConnectionsStore: ObservableObject {
         guard storageError == nil else { throw RemoteFailure.invalid(storageError!) }
         let invitation = try RemoteInvitation(code: code)
         guard invitation.isPersistent else { throw RemoteFailure.invalid("Create a saved connection code with the updated MarkView on the home Mac first.") }
-        guard let root = workspace.aiWorkspaceRoot ?? workspace.rootNode?.url else { throw RemoteFailure.invalid("Open a project folder first.") }
+        guard let root = workspace.aiWorkspaceRoot ?? workspace.project.root else { throw RemoteFailure.invalid("Open a project folder first.") }
         guard !entries.contains(where: { (try? RemoteInvitation(code: $0.code).room) == invitation.room }) else {
             throw RemoteFailure.invalid("This connection is already saved. Use its existing row, or create another connection on the home Mac.")
         }
@@ -97,7 +97,7 @@ final class RemoteConnectionsStore: ObservableObject {
     func attach(_ workspace: WorkspaceManager) {
         Task { [weak self, weak workspace] in
             guard let self else { return }; await ready()
-            guard let workspace, !shuttingDown, let root = workspace.aiWorkspaceRoot ?? workspace.rootNode?.url else { return }
+            guard let workspace, !shuttingDown, let root = workspace.aiWorkspaceRoot ?? workspace.project.root else { return }
             for entry in entries where entry.role == .work && !entry.revoking && entry.rootPath.map(canonical) == canonical(root.path) {
                 guard connections[entry.id] == nil, !paused.contains(entry.id), !starting.contains(entry.id) else { continue }
                 do { try await open(entry, workspace: workspace) }
@@ -109,7 +109,7 @@ final class RemoteConnectionsStore: ObservableObject {
     func reconnect(_ entry: SavedRemoteConnection, workspace: WorkspaceManager) async throws {
         guard !entry.revoking else { return }
         if entry.role == .home { hosts[entry.id]?.suspend(); startHost(entry); return }
-        guard entry.rootPath.map(canonical) == (workspace.aiWorkspaceRoot ?? workspace.rootNode?.url).map({ canonical($0.path) }) else {
+        guard entry.rootPath.map(canonical) == (workspace.aiWorkspaceRoot ?? workspace.project.root).map({ canonical($0.path) }) else {
             throw RemoteFailure.invalid("Open the saved project folder before reconnecting: " + (entry.rootPath ?? ""))
         }
         connections[entry.id]?.stop(); connections[entry.id] = nil
