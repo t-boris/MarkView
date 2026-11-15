@@ -1,4 +1,5 @@
 import Foundation
+import MarkViewCore
 
 /// GraphRAG — Recursive Insight prompt building: content classification, skeleton, sections
 @MainActor
@@ -195,7 +196,7 @@ The iframe will call mermaid.run() with securityLevel="loose" + htmlLabels=true 
             }
             return .general
         } catch {
-            NSLog("[Insight] classifyContent failed, defaulting to .general: %@", String(describing: error))
+            AppLog.insight.error("classifyContent failed, defaulting to .general: \(String(describing: error))")
             return .general
         }
     }
@@ -239,18 +240,18 @@ The iframe will call mermaid.run() with securityLevel="loose" + htmlLabels=true 
             } else if stdFile.hasPrefix(folderPathPrefix) {
                 relative = String(stdFile.dropFirst(folderPathPrefix.count))
             } else {
-                NSLog("[GraphRAG.v2] skip out-of-folder: \(fileURL.path)")
+                AppLog.insight.notice("[GraphRAG.v2] skip out-of-folder: \(fileURL.path)")
                 continue
             }
             if relative.hasPrefix("..") || relative.contains("/../") {
-                NSLog("[GraphRAG.v2] skip path-traversal: \(fileURL.path)")
+                AppLog.insight.notice("[GraphRAG.v2] skip path-traversal: \(fileURL.path)")
                 continue
             }
             let body: String
             do {
                 body = try String(contentsOf: fileURL, encoding: .utf8)
             } catch {
-                NSLog("[GraphRAG.v2] skip unreadable: \(fileURL.path)")
+                AppLog.insight.error("[GraphRAG.v2] skip unreadable: \(fileURL.path)")
                 continue
             }
 
@@ -284,8 +285,7 @@ The iframe will call mermaid.run() with securityLevel="loose" + htmlLabels=true 
             // Diag: tell us WHY the wrapping loop yielded zero entries.
             // Most common: every file URL was rejected as out-of-folder
             // (folderURL standardization mismatch) or all reads threw.
-            NSLog("[Insight] buildSkeleton FALLBACK — wrappedFiles empty. mdFiles=%d folderURL=%@",
-                  mdFiles.count, folderURL.path)
+            AppLog.insight.notice("buildSkeleton FALLBACK — wrappedFiles empty. mdFiles=\(mdFiles.count) folderURL=\(folderURL.path)")
             return Self.fallbackSkeleton(reason: "No readable files in folder")
         }
 
@@ -442,14 +442,14 @@ The iframe will call mermaid.run() with securityLevel="loose" + htmlLabels=true 
             // Defence-in-depth: ensure at least one section exists (schema requires it but a
             // fallback skeleton with zero sections would render nothing).
             guard !decoded.sections.isEmpty else {
-                NSLog("[GraphRAG.v2] skeleton parsed with zero sections; returning fallback")
+                AppLog.insight.notice("[GraphRAG.v2] skeleton parsed with zero sections; returning fallback")
                 return Self.fallbackSkeleton(reason: "Empty skeleton")
             }
             return decoded
         } catch {
             // Schema violation: log a sanitized warning (NEVER log the dict — it could echo
             // attacker-planted content) and return a fallback skeleton so the UI still renders.
-            NSLog("[GraphRAG.v2] skeleton schema violation, using fallback: \(String(describing: error).prefix(160))")
+            AppLog.insight.error("[GraphRAG.v2] skeleton schema violation, using fallback: \(String(describing: error).prefix(160))")
             return Self.fallbackSkeleton(reason: "Skeleton schema violation")
         }
     }
@@ -534,17 +534,17 @@ The iframe will call mermaid.run() with securityLevel="loose" + htmlLabels=true 
                 // Reject obvious traversal attempts before doing any FS work. Any `..` segment in
                 // the hint is suspicious; the model should never emit one for legitimate content.
                 if raw.hasPrefix("..") || raw.contains("/../") || raw.contains("\\") {
-                    NSLog("[GraphRAG.v2] section '\(section.id)' scopeHint rejected (traversal): \(raw)")
+                    AppLog.insight.error("[GraphRAG.v2] section '\(section.id)' scopeHint rejected (traversal): \(raw)")
                     continue
                 }
                 guard let url = relativeIndex[raw] else {
-                    NSLog("[GraphRAG.v2] section '\(section.id)' scopeHint not found: \(raw)")
+                    AppLog.insight.error("[GraphRAG.v2] section '\(section.id)' scopeHint not found: \(raw)")
                     continue
                 }
                 // Final defence: re-verify containment of the resolved URL.
                 let std = url.resolvingSymlinksInPath().standardizedFileURL.path
                 if std != resolvedFolderPath && !std.hasPrefix(folderPathPrefix) {
-                    NSLog("[GraphRAG.v2] section '\(section.id)' scopeHint out-of-folder: \(raw)")
+                    AppLog.insight.notice("[GraphRAG.v2] section '\(section.id)' scopeHint out-of-folder: \(raw)")
                     continue
                 }
                 if seen.insert(url.path).inserted {
@@ -588,7 +588,7 @@ The iframe will call mermaid.run() with securityLevel="loose" + htmlLabels=true 
             do {
                 body = try String(contentsOf: fileURL, encoding: .utf8)
             } catch {
-                NSLog("[GraphRAG.v2] section '\(section.id)' skip unreadable: \(fileURL.path)")
+                AppLog.insight.error("[GraphRAG.v2] section '\(section.id)' skip unreadable: \(fileURL.path)")
                 continue
             }
             let truncated: String

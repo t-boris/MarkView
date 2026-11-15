@@ -1,14 +1,14 @@
 import Foundation
 
-/// "Close Documents" on the shipping `OpenTab` and `WorkspaceTabsStore`: which tabs are documents, and what stays open and active.
+/// "Close Documents" on the shipping `OpenTab` and `TabsController`: which tabs are documents, and what stays open and active.
 enum TabClosingStoreTests {
     @MainActor static func run() {
         func tab(_ name: String, _ kind: TabKind) -> OpenTab {
             OpenTab(url: URL(fileURLWithPath: "/tmp/\(name)"), content: "", originalContent: "", kind: kind)
         }
-        let pdfHarness = PDFReaderRoutingHarness()
-        pdfHarness.openFile(URL(fileURLWithPath: "/tmp/doc.pdf"))
-        let documents = [tab("a.md", .file), tab("b.png", .image), pdfHarness.openTabs[0], tab("c.zip", .archive), tab("d.csv", .data)]
+        let pdfTabs = TabsController()
+        pdfTabs.openDocument(URL(fileURLWithPath: "/tmp/doc.pdf"))
+        let documents = [tab("a.md", .file), tab("b.png", .image), pdfTabs.openTabs[0], tab("c.zip", .archive), tab("d.csv", .data)]
         let tools = [tab("t", .terminal(UUID())), tab("x", .architecture(scope: "")), tab("pr", .architecture(scope: TabKind.pullRequestScope)),
                      tab("i", .insight(InsightSession())), tab("dep", .tool(.deployments)), tab("dis", .tool(.discussions)), tab("wf", .tool(.workflow)), tab("g", .tool(.git)),
                      tab("rev", .tool(.changeReview)), tab("gh", .github(.run(id: 1, repo: "o/r", title: "Run"))), tab("br", .browser(BrowserSession())),
@@ -17,8 +17,8 @@ enum TabClosingStoreTests {
         precondition(documents.allSatisfy(\.isDocument), "file, image, PDF, archive and data tabs are documents")
         precondition(tools.allSatisfy { !$0.isDocument }, "every tool tab stays when documents close")
 
-        func store(_ list: [OpenTab], active: Int) -> WorkspaceTabsStore {
-            let store = WorkspaceTabsStore()
+        func store(_ list: [OpenTab], active: Int) -> TabsController {
+            let store = TabsController()
             list.forEach { store.appendTab($0, activate: false) }
             store.activeTabIndex = active
             return store

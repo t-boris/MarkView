@@ -95,5 +95,89 @@ let record = GitHubConnectionRecord(owner: "boris", name: "app", visibility: "pr
 check("record slug", record.slug == "boris/app")
 check("record round-trips", (try? JSONDecoder().decode(GitHubConnectionRecord.self, from: JSONEncoder().encode(record))) == record)
 
+// The record is a schema-versioned store (AR-36): a record the previous version wrote still loads; one that cannot be read is
+// never taken for "no record" (a second repository could be created) and is never replaced without a backup.
+let projectRoot = StoreFixture.folder("github-record")
+defer { try? FileManager.default.removeItem(at: projectRoot) }
+let recordFile = GitHubConnectionRecord.url(root: projectRoot)
+check("no record: missing", { if case .missing = GitHubConnectionRecord.load(root: projectRoot) { return true } else { return false } }())
+let legacyRecord = """
+{
+  "committed" : true,
+  "createdByMarkView" : true,
+  "name" : "app",
+  "owner" : "boris",
+  "pushed" : false,
+  "updated" : "1970-01-01T00:00:00Z",
+  "visibility" : "private"
+}
+"""
+StoreFixture.write(legacyRecord, to: recordFile)
+check("legacy record: it loads intact", GitHubConnectionRecord.load(root: projectRoot).value == record)
+var pushedRecord = record
+pushedRecord.pushed = true
+try pushedRecord.save(root: projectRoot)
+check("legacy record: the next save writes the envelope", StoreFixture.envelope(recordFile)?.schema == 1 && GitHubConnectionRecord.load(root: projectRoot).value == pushedRecord)
+StoreFixture.write("{ \"owner\": ", to: recordFile)
+let unreadable = GitHubConnectionRecord.load(root: projectRoot)
+check("damaged record: it is a problem, not a missing record", unreadable.value == nil && unreadable.problem?.contains("github-connection.json") == true)
+check("damaged record: loading leaves it as it is", StoreFixture.bytes(recordFile) == Data("{ \"owner\": ".utf8) && StoreFixture.backups(of: recordFile).isEmpty)
+try record.save(root: projectRoot)
+check("damaged record: a save keeps the old bytes in a dated backup",
+      StoreFixture.backups(of: recordFile).count == 1 && StoreFixture.bytes(StoreFixture.backups(of: recordFile)[0]) == Data("{ \"owner\": ".utf8))
+StoreFixture.write(StoreFixture.newerFile(payload: #"{"owner":"x"}"#), to: recordFile)
+var refusedNewer = false
+do { try record.save(root: projectRoot) } catch SchemaStoreError.newerSchemaVersion { refusedNewer = true } catch {}
+check("newer record: it is a problem and a save is refused", GitHubConnectionRecord.load(root: projectRoot).isNewerSchema && refusedNewer)
+
+// The unfinished-project drafts are a schema-versioned store (AR-36). The legacy fixture is the draft.json the previous version wrote.
+MainActor.assumeIsolated {
+    func settle(_ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if condition() { return true }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        return condition()
+    }
+    let draftsFolder = StoreFixture.folder("project-drafts")
+    defer { try? FileManager.default.removeItem(at: draftsFolder) }
+    let legacyID = UUID()
+    let legacyDraft = draftsFolder.appendingPathComponent("\(legacyID.uuidString)/draft.json")
+    StoreFixture.write("""
+    {
+      "created" : "2026-11-01T09:00:00Z",
+      "filesWritten" : false,
+      "gitInitialized" : false,
+      "id" : "\(legacyID.uuidString)",
+      "idea" : "A recipe planner",
+      "slug" : "recipes",
+      "stage" : "confirmed",
+      "title" : "Recipe Planner",
+      "updated" : "2026-11-02T09:00:00Z"
+    }
+    """, to: legacyDraft)
+    let brokenID = UUID()
+    let brokenDraft = draftsFolder.appendingPathComponent("\(brokenID.uuidString)/draft.json")
+    StoreFixture.write("{ \"id\": ", to: brokenDraft)
+
+    let drafts = ProjectDraftStore(folder: draftsFolder)
+    check("legacy draft: it is listed with its stage and title", settle { drafts.drafts.count == 1 }
+          && drafts.draft(legacyID)?.title == "Recipe Planner" && drafts.draft(legacyID)?.stage == .confirmed && drafts.draft(legacyID)?.slug == "recipes")
+    check("legacy draft: reading leaves both files as written", StoreFixture.envelope(legacyDraft) == nil && StoreFixture.bytes(brokenDraft) == Data("{ \"id\": ".utf8)
+          && StoreFixture.backups(of: brokenDraft).isEmpty)
+    var resumed = drafts.draft(legacyID)!
+    resumed.stage = .creating
+    let saved = Task { try await drafts.save(resumed) }
+    check("legacy draft: a save writes the envelope", settle { StoreFixture.envelope(legacyDraft)?.schema == 1 } && StoreFixture.backups(of: legacyDraft).isEmpty)
+    _ = saved
+    let again = ProjectDraftStore(folder: draftsFolder)
+    check("legacy draft: the envelope reloads with the new stage", settle { again.drafts.count == 1 } && again.draft(legacyID)?.stage == .creating)
+    let rewritten = Task { var changed = ProjectDraft(idea: "x"); changed.id = brokenID; try await again.save(changed) }
+    _ = rewritten
+    check("damaged draft: a save over it keeps the old bytes in a dated backup", settle { StoreFixture.envelope(brokenDraft)?.schema == 1 }
+          && StoreFixture.backups(of: brokenDraft).count == 1 && StoreFixture.bytes(StoreFixture.backups(of: brokenDraft)[0]) == Data("{ \"id\": ".utf8))
+}
+
 print(failures == 0 ? "All checks passed." : "\(failures) check(s) failed.")
 exit(failures == 0 ? 0 : 1)

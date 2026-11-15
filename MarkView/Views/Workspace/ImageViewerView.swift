@@ -12,6 +12,7 @@ import MarkViewCore
 struct ImageViewerView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
     let url: URL
     @StateObject private var canvas = ImageCanvasController()
     /// The folder's images, for the arrows and the slideshow.
@@ -63,7 +64,7 @@ struct ImageViewerView: View {
     /// Show the neighbouring image in this tab.
     private func go(_ step: Int, wrap: Bool) {
         guard let target = ImageSiblings.neighbour(of: url, in: siblings, step: step, wrap: wrap) else { return }
-        workspaceManager.showImage(target, replacing: url)
+        tabs.showImage(target, replacing: url)
     }
 
     private func togglePlay() {
@@ -121,7 +122,7 @@ struct ImageViewerView: View {
                 textButton("1:1", "Actual size (one image pixel per screen pixel)") { canvas.actualSize() }
             }
             if url.pathExtension.lowercased() == "svg" {
-                textButton("Source", "Open the SVG as XML text") { workspaceManager.openImageAsText(url) }
+                textButton("Source", "Open the SVG as XML text") { tabs.openImageAsText(url) }
             }
             Image(systemName: "hand.draw")
                 .uiFont(size: 11).foregroundColor(palette.textDim)

@@ -1,4 +1,5 @@
 import Foundation
+import MarkViewCore
 
 /// A running or failed AI tool run (diagram, code map, review, audit) that works inside a headless
 /// agent. Shown by `AIToolJobsBanner`; a successful run disappears and opens its result.
@@ -94,7 +95,7 @@ extension WorkspaceManager {
             let spec = try await DiagramAI.generate(prompt: prompt, root: root, label: "diagram:\(kind.rawValue)",
                                                     onStage: { handle.stage($0) }, record: jobRecorder)
             let url = DiagramAI.freeURL(in: target, base: kind.defaultName)
-            try DiagramAI.markdown(spec).write(to: url, atomically: true, encoding: .utf8)
+            try AtomicFile.write(DiagramAI.markdown(spec), to: url)
             return url
         }, onDone: { [weak self] url in
             self?.refreshFileTree()
@@ -122,7 +123,7 @@ extension WorkspaceManager {
             } else {
                 throw DiagramAI.Failure.unusable(["the diagram block was not found in \(url.lastPathComponent); it changed while the assistant worked"])
             }
-            try updated.write(to: url, atomically: true, encoding: .utf8)
+            try AtomicFile.write(updated, to: url)
             return url
         }, onDone: { [weak self] url in
             // The open tab picks the changed file up on its own (file watching), keep the tab on it.
@@ -190,7 +191,7 @@ extension WorkspaceManager {
             if let omitted = spec.omitted { doc += "\n\nLeft out: \(omitted)" }
             doc += "\n\n" + sections + "\n"
             let url = DiagramAI.freeURL(in: root, base: "code-structure-map")
-            try doc.write(to: url, atomically: true, encoding: .utf8)
+            try AtomicFile.write(doc, to: url)
             return url
         }, onDone: { [weak self] url in
             self?.refreshFileTree()
@@ -220,12 +221,12 @@ extension WorkspaceManager {
                                                      label: "critic", handle: handle)
             let parts = answer.components(separatedBy: "=====TASKS=====")
             let review = DiagramAI.freeURL(in: root, base: "review-\(stem)")
-            try parts[0].trimmingCharacters(in: .whitespacesAndNewlines).write(to: review, atomically: true, encoding: .utf8)
+            try AtomicFile.write(parts[0].trimmingCharacters(in: .whitespacesAndNewlines), to: review)
             if parts.count > 1 {
                 let tasksDir = root.appendingPathComponent("tasks", isDirectory: true)
                 try FileManager.default.createDirectory(at: tasksDir, withIntermediateDirectories: true)
                 let tasks = DiagramAI.freeURL(in: tasksDir, base: "review-tasks-\(stem)")
-                try parts[1].trimmingCharacters(in: .whitespacesAndNewlines).write(to: tasks, atomically: true, encoding: .utf8)
+                try AtomicFile.write(parts[1].trimmingCharacters(in: .whitespacesAndNewlines), to: tasks)
             }
             return review
         }, onDone: { [weak self] url in
@@ -320,7 +321,7 @@ extension WorkspaceManager {
                 }
                 let url = outDir.appendingPathComponent(name)
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try text.write(to: url, atomically: true, encoding: .utf8)
+                try AtomicFile.write(text, to: url)
                 if index == nil || name.hasPrefix("00") { index = url }
             }
             return index

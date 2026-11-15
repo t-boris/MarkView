@@ -5,9 +5,7 @@ import Darwin
 import Foundation
 import SQLite3
 import UserNotifications
-#if canImport(MarkViewCore)
 import MarkViewCore
-#endif
 
 private let projectSQLiteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -27,7 +25,7 @@ struct ProjectOperationLastRun: Codable {
 /// can contain secrets or machine-specific details and never enter version control.
 private enum ProjectOperationHistory {
     static func open(root: URL) throws -> OpaquePointer {
-        let folder = root.appendingPathComponent(".dde", isDirectory: true)
+        let folder = ProjectPaths.localFolder(root)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         var db: OpaquePointer?
         let path = folder.appendingPathComponent("state.db").path

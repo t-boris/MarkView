@@ -18,43 +18,43 @@ public enum SettingsScope: String, CaseIterable, Sendable {
 public protocol SettingsValue {
     /// The stored value, or nil when the key is not set or holds another type.
     static func read(from defaults: UserDefaults, name: String) -> Self?
-    func write(to defaults: UserDefaults, name: String)
+    func store(in defaults: UserDefaults, name: String)
 }
 
 extension Bool: SettingsValue {
     public static func read(from defaults: UserDefaults, name: String) -> Bool? { defaults.object(forKey: name) as? Bool }
-    public func write(to defaults: UserDefaults, name: String) { defaults.set(self, forKey: name) }
+    public func store(in defaults: UserDefaults, name: String) { defaults.set(self, forKey: name) }
 }
 
 extension Int: SettingsValue {
     public static func read(from defaults: UserDefaults, name: String) -> Int? { defaults.object(forKey: name) as? Int }
-    public func write(to defaults: UserDefaults, name: String) { defaults.set(self, forKey: name) }
+    public func store(in defaults: UserDefaults, name: String) { defaults.set(self, forKey: name) }
 }
 
 extension Double: SettingsValue {
     public static func read(from defaults: UserDefaults, name: String) -> Double? { defaults.object(forKey: name) as? Double }
-    public func write(to defaults: UserDefaults, name: String) { defaults.set(self, forKey: name) }
+    public func store(in defaults: UserDefaults, name: String) { defaults.set(self, forKey: name) }
 }
 
 extension String: SettingsValue {
     public static func read(from defaults: UserDefaults, name: String) -> String? { defaults.string(forKey: name) }
-    public func write(to defaults: UserDefaults, name: String) { defaults.set(self, forKey: name) }
+    public func store(in defaults: UserDefaults, name: String) { defaults.set(self, forKey: name) }
 }
 
 extension Data: SettingsValue {
     public static func read(from defaults: UserDefaults, name: String) -> Data? { defaults.data(forKey: name) }
-    public func write(to defaults: UserDefaults, name: String) { defaults.set(self, forKey: name) }
+    public func store(in defaults: UserDefaults, name: String) { defaults.set(self, forKey: name) }
 }
 
 extension Array: SettingsValue where Element == String {
     public static func read(from defaults: UserDefaults, name: String) -> [String]? { defaults.stringArray(forKey: name) }
-    public func write(to defaults: UserDefaults, name: String) { defaults.set(self, forKey: name) }
+    public func store(in defaults: UserDefaults, name: String) { defaults.set(self, forKey: name) }
 }
 
 /// A property-list dictionary: callers that know the shape of the values cast them (`as? [String: String]`).
 extension Dictionary: SettingsValue where Key == String, Value == Any {
     public static func read(from defaults: UserDefaults, name: String) -> [String: Any]? { defaults.dictionary(forKey: name) }
-    public func write(to defaults: UserDefaults, name: String) { defaults.set(self, forKey: name) }
+    public func store(in defaults: UserDefaults, name: String) { defaults.set(self, forKey: name) }
 }
 
 /// What a key is, without its value type: the registry's table and an observer's list.
@@ -100,7 +100,7 @@ public struct Settings: @unchecked Sendable {
 
     public func contains<Value>(_ key: SettingsKey<Value>) -> Bool { defaults.object(forKey: key.name) != nil }
 
-    public func set<Value>(_ value: Value, for key: SettingsKey<Value>) { value.write(to: defaults, name: key.name) }
+    public func set<Value>(_ value: Value, for key: SettingsKey<Value>) { value.store(in: defaults, name: key.name) }
 
     /// Stores `value`, or removes the key when it is nil.
     public func set<Value>(_ value: Value?, for key: SettingsKey<Value>) {

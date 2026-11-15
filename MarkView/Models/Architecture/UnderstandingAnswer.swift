@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The transient, cited answer to an I Need to Understand question. Topic filters keep
 /// their existing contract; this contract requires meaning and provenance as well as places.
@@ -170,7 +173,7 @@ struct UnderstandingAnswer: Codable {
     /// id or overwrite another research file. An unsuccessful save leaves no placeholder.
     func save(question: String, root: URL, author: String, date: String, attachments: [URL] = []) throws -> URL {
         let folder = root.appendingPathComponent("docs/research", isDirectory: true)
-        guard folder.resolvingSymlinksInPath().path.hasPrefix(root.resolvingSymlinksInPath().path + "/") else {
+        guard ProjectPaths.containsStrictly(folder, root: root) else {
             throw Failure.invalid("The research folder is outside this workspace.")
         }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -220,7 +223,7 @@ struct UnderstandingAnswer: Codable {
 
 enum UnderstandingAttachments {
     static func copy(_ files: [URL], to folder: URL, root: URL) throws -> [String] {
-        guard folder.resolvingSymlinksInPath().path.hasPrefix(root.resolvingSymlinksInPath().path + "/") else {
+        guard ProjectPaths.containsStrictly(folder, root: root) else {
             throw UnderstandingAnswer.Failure.invalid("The attachment folder is outside this workspace.")
         }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

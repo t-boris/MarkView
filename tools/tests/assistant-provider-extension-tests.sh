@@ -12,6 +12,6 @@ providers=$(ls MarkView/Models/AI/Providers/*.swift | grep -v '/AssistantProvide
 swiftc -parse-as-library -o "$out/assistant-provider-extension-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     $providers tools/tests/FakeAssistantProviderList.swift tools/tests/FakeAssistantProvider.swift \
     MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/ACPAssistant.swift MarkView/Models/AI/AgentProcesses.swift \
-    MarkView/Models/Terminal/TerminalProfile.swift MarkView/Models/Lifecycle/HandoffPrompt.swift MarkView/Models/Lifecycle/DefinitionOfDone.swift \
+    MarkView/Models/Terminal/TerminalProfile.swift MarkView/Models/Lifecycle/HandoffPrompt.swift MarkView/Models/Lifecycle/DefinitionOfDone.swift MarkView/Models/Workspace/SchemaVersionedStore.swift \
     tools/tests/CLICompletionTestSupport.swift tools/tests/AssistantExtensionTests.swift
 "$out/assistant-provider-extension-tests"

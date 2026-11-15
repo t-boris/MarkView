@@ -26,7 +26,7 @@ public enum AtomicFile {
         let scratch = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: target, create: true)
         defer { try? fm.removeItem(at: scratch) }
         let tmpURL = scratch.appendingPathComponent(target.lastPathComponent)
-        let fd = open(tmpURL.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+        let fd = Darwin.open(tmpURL.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
         guard fd >= 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
@@ -35,7 +35,7 @@ public enum AtomicFile {
         do {
             if exists { copyMetadata(from: target.path, to: fd) }
             // Apply target permissions before rename so atomic overwrites never weaken existing or requested modes (`FU-04`).
-            guard fchmod(fd, targetMode) == 0 else {
+            guard Darwin.fchmod(fd, targetMode) == 0 else {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
 
@@ -51,17 +51,17 @@ public enum AtomicFile {
                     written += n
                 }
             }
-            _ = fsync(fd)
+            _ = Darwin.fsync(fd)
             closed = true
-            guard close(fd) == 0 else {
+            guard Darwin.close(fd) == 0 else {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
         } catch {
-            if !closed { close(fd) }
+            if !closed { Darwin.close(fd) }
             throw error
         }
 
-        guard rename(tmpURL.path, target.path) == 0 else {
+        guard Darwin.rename(tmpURL.path, target.path) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
     }
@@ -148,6 +148,11 @@ public enum ProjectPaths {
         return target.hasPrefix(prefix)
     }
 
+    /// True when `url` resolves strictly inside `root`: under it, and not `root` itself (`AR-24`).
+    public static func containsStrictly(_ url: URL, root: URL) -> Bool {
+        relativePath(of: url, under: root)?.isEmpty == false
+    }
+
     /// Relative path of `url` under `root` if `contains(url, root: root)` holds; nil otherwise.
     public static func relativePath(of url: URL, under root: URL) -> String? {
         let base = canonical(root).path
@@ -169,4 +174,64 @@ public enum ProjectPaths {
             .prefix(12)
         return "\(leaf)-\(hash)"
     }
+}
+
+// MARK: - Where MarkView keeps its own files in a project (AR-24)
+
+/// The one place that names the folders and files MarkView keeps inside a project. A `".dde` or `".markview-` literal anywhere
+/// else is a finding (tools/lint/architecture-lint.sh, rule `project-paths`): add the location here, with a test in
+/// MarkViewCoreTests that asserts its relative path.
+extension ProjectPaths {
+    /// MarkView's local folder in a project: caches, run records and the stores that are never committed.
+    public static let localFolderName = ".dde"
+    /// The folder the Recursive Insight pages are written to.
+    public static let insightFolderName = ".markview-insight"
+
+    // MARK: Relative paths (prose, pickers, stored relative names)
+
+    public static let workflowRelativePath = localFolderName + "/workflow/workflow.json"
+    public static let githubConnectionRelativePath = localFolderName + "/github-connection.json"
+    public static let studioRelativePath = localFolderName + "/studio"
+    public static let studioAttachmentsRelativePath = studioRelativePath + "/attachments"
+    public static let studioTitaniumDataRelativePath = studioRelativePath + "/titanium-data"
+    public static let legacyPrototypesRelativePath = localFolderName + "/prototypes"
+    public static let prototypeExportsRelativePath = localFolderName + "/exports/prototypes"
+    public static let cockpitRelativePath = localFolderName + "/cockpit"
+
+    /// The relative path of a UI Studio capture picture.
+    public static func studioCaptureRelativePath(id: String) -> String { studioRelativePath + "/captures/\(id).png" }
+
+    // MARK: Folders and files under `.dde`
+
+    public static func localFolder(_ root: URL) -> URL { root.appendingPathComponent(localFolderName, isDirectory: true) }
+    public static func workflowFile(_ root: URL) -> URL { root.appendingPathComponent(workflowRelativePath) }
+    public static func lifecycleFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("lifecycle", isDirectory: true) }
+    public static func cycleTimeFile(_ root: URL) -> URL { lifecycleFolder(root).appendingPathComponent("cycle-time.json") }
+    public static func transitionsLog(_ root: URL) -> URL { lifecycleFolder(root).appendingPathComponent("transitions.jsonl") }
+    public static func sessionsLog(_ root: URL) -> URL { lifecycleFolder(root).appendingPathComponent("sessions.jsonl") }
+    public static func qaFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("qa", isDirectory: true) }
+    public static func studioFolder(_ root: URL) -> URL { root.appendingPathComponent(studioRelativePath, isDirectory: true) }
+    public static func cockpitFolder(_ root: URL) -> URL { root.appendingPathComponent(cockpitRelativePath, isDirectory: true) }
+    public static func cockpitRunsFolder(_ root: URL) -> URL { cockpitFolder(root).appendingPathComponent("runs", isDirectory: true) }
+    public static func cockpitResultsFolder(_ root: URL) -> URL { cockpitFolder(root).appendingPathComponent("results", isDirectory: true) }
+    public static func cockpitTemporalFolder(_ root: URL) -> URL { cockpitFolder(root).appendingPathComponent("temporal", isDirectory: true) }
+    public static func discussionsFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("discussions", isDirectory: true) }
+    public static func understandingFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("understanding", isDirectory: true) }
+    public static func xrayFoldersFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("xray-folders", isDirectory: true) }
+    public static func cacheFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("cache", isDirectory: true) }
+    public static func xrayCacheFolder(_ root: URL) -> URL { cacheFolder(root).appendingPathComponent("xray", isDirectory: true) }
+    public static func xrayContentFolder(_ root: URL) -> URL { cacheFolder(root).appendingPathComponent("xray-content", isDirectory: true) }
+    public static func explainCacheFolder(_ root: URL) -> URL { cacheFolder(root).appendingPathComponent("explain", isDirectory: true) }
+    public static func insightFolder(_ root: URL) -> URL { root.appendingPathComponent(insightFolderName, isDirectory: true) }
+
+    // MARK: Placeholder names
+
+    /// The name of a tab that has no file behind it ("never read or written"): `.markview-<kind>`.
+    public static func placeholderName(_ kind: String) -> String { ".markview-" + kind }
+
+    /// The path of a tool's sentinel file, relative to the project: `.dde/.markview-<tool>`.
+    public static func sentinelRelativePath(_ tool: String) -> String { localFolderName + "/" + placeholderName(tool) }
+
+    /// True when `url` is the local folder or lies inside one: some ancestor is named `.dde`.
+    public static func isInLocalFolder(_ url: URL) -> Bool { url.pathComponents.contains(localFolderName) }
 }

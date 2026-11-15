@@ -4,6 +4,7 @@ import SwiftUI
 struct TOCView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
     /// This window's panel tabs (BUG-004: not @AppStorage, which every window observes).
     @ObservedObject var layout: PanelLayout
     var showTabs = true
@@ -31,7 +32,7 @@ struct TOCView: View {
             case .terminal: contentsList
             case .feature:
                 VStack(spacing: 0) {
-                    if let tab = workspaceManager.activeTab,
+                    if let tab = tabs.activeTab,
                        let feature = workspaceManager.features.locate(tab.url)?.feature {
                         HandoffPanelView(feature: feature).environmentObject(workspaceManager)
                     }
@@ -42,7 +43,7 @@ struct TOCView: View {
 
     private var contentsList: some View {
         Group {
-            if let tab = workspaceManager.activeTab {
+            if let tab = tabs.activeTab {
                 ContentsPanelView(tab: tab) { headingsList(tab) }
             } else {
                 emptyState("No File Open")
@@ -52,8 +53,8 @@ struct TOCView: View {
 
     /// The headings of a Markdown document; a click scrolls to one.
     private func headingsList(_ tab: OpenTab) -> some View {
-        TOCHeadingsListView(tab: tab, scrollState: workspaceManager.scrollState) { headingID in
-            workspaceManager.updateActiveHeading(headingID)
+        TOCHeadingsListView(tab: tab, scrollState: tabs.scroll) { headingID in
+            tabs.updateActiveHeading(headingID)
             NotificationCenter.default.post(.scrollToHeading, for: workspaceManager, object: headingID)
         }
     }
@@ -79,7 +80,7 @@ private struct TOCHeadingsListView: View {
     let onSelectHeading: (String) -> Void
 
     var body: some View {
-        let activeID = scrollState.activeHeading(for: tab.id, fallback: tab.activeHeadingId)
+        let activeID = scrollState.activeHeading(for: tab.id)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(tab.headings) { heading in
@@ -213,5 +214,5 @@ struct DocumentSearchView: View {
 
 #Preview {
     let workspaceManager = WorkspaceManager()
-    return TOCView(layout: workspaceManager.layout).environmentObject(workspaceManager)
+    return TOCView(layout: workspaceManager.layout).environmentObject(workspaceManager).observingParts(of: workspaceManager)
 }

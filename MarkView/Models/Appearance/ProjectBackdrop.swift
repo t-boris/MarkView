@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Evidence gathered locally for the welcome screen. No document text is retained or sent to an assistant.
 struct ProjectBackdropSignals: Equatable, Sendable {
@@ -65,7 +68,7 @@ struct ProjectBackdropContext: Equatable, Sendable {
 /// A bounded, cancellable scan off the main thread. Dependencies, generated output and symbolic links are excluded.
 enum ProjectBackdropScanner {
     static let entryLimit = 2500
-    static let ignored: Set<String> = [".git", ".dde", ".markview", ".build", "node_modules", "pods", "carthage", "vendor", "build", "dist", "deriveddata", "venv", ".venv", "__pycache__", "target", "tests", "testfiles", "fixtures"]
+    static let ignored: Set<String> = [".git", ProjectPaths.localFolderName, ".markview", ".build", "node_modules", "pods", "carthage", "vendor", "build", "dist", "deriveddata", "venv", ".venv", "__pycache__", "target", "tests", "testfiles", "fixtures"]
     static let sourceExtensions: Set<String> = ["swift", "m", "mm", "h", "kt", "java", "ts", "tsx", "js", "jsx", "py", "rs", "go", "c", "cpp", "cs", "rb", "dart"]
 
     static func scan(_ root: URL) -> ProjectBackdropSignals {

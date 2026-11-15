@@ -28,6 +28,9 @@
 #   settings-observer    (AR-18) no `didChangeNotification` outside Settings.swift: the notification fires on every write to the
 #                        preferences (a divider drag, a window's own state); a view or a model that follows a setting uses
 #                        SettingsObserver(keys) or SettingsObserver.changes(of:), which calls back only when one of its keys changed
+#   tabs-direct          (AR-15) a view never reads the window's tabs (openTabs, activeTab, activeTabIndex, lastSaveError) through the
+#                        manager, and the manager never forwards a part's objectWillChange (tabs, file tree, layout, Git) into its own:
+#                        a view observes the part it shows, so typing redraws what shows the tabs and nothing else
 # Ratchets: a count that may fall and never rise. Today's sites are listed per file in an allow-list; a new site or a higher
 # count fails, and so does a lower count that the list does not yet say (run `--tighten`), so that the allowance never has slack.
 #   process              Process() outside Packages/MarkViewCore Subprocess.swift     tools/lint/process-allowlist.txt
@@ -35,6 +38,10 @@
 #   workspace-manager    `@EnvironmentObject ... WorkspaceManager` declarations         tools/lint/workspace-manager-views.txt
 #   assistant-switch     a literal `.claude` / `.codex` / `.cline` / `.copilot` / `.antigravity` outside Models/AI/Providers
 #                        (a `case`, a comparison, a default: the assistants are named only by their providers)  tools/lint/assistant-switch-allowlist.txt
+#   atomic-write         `.write(to:` / `.write(toFile:` outside AtomicFile (CoreFiles.swift)  tools/lint/atomic-write-allowlist.txt
+#   project-paths        a string literal that starts with `.dde` or `.markview-` outside ProjectPaths (CoreFiles.swift)
+#                        tools/lint/project-paths-allowlist.txt
+#   app-log              `NSLog(` and `Logger(subsystem:` outside AppLog (Packages/MarkViewCore AppLog.swift)  tools/lint/app-log-allowlist.txt
 # A migration that reaches zero ends with an empty list (no lines), which means none allowed.
 #
 # Usage: tools/lint/architecture-lint.sh [--root <repo>] [--tighten]
@@ -246,6 +253,29 @@ ratchet("assistant-switch", "assistant-switch-allowlist.txt", "assistant literal
         "# Lines outside Models/AI/Providers that name an assistant (`.claude`, `.codex`, ...): a switch case, a comparison or a\n"
         "# default (AR-35). `<count> <path>`; a ratchet that only falls. Run tools/lint/architecture-lint.sh --tighten after removing\n"
         "# a site; the goal is an empty list: an assistant is described by its provider and nowhere else.")
+
+ratchet("atomic-write", "atomic-write-allowlist.txt", "direct file write(s)",
+        count_sites(app_swift + package_swift, re.compile(r"\.write\((?:to|toFile):"),
+                    exclude=lambda p: "/Tests/" in rel(p) or "/.build/" in rel(p) or rel(p) == "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"),
+        "# `.write(to:` / `.write(toFile:` outside AtomicFile (AR-24). `<count> <path>`; a ratchet that only falls. What may stay: a user's own\n"
+        "# export or download (PDF, picture, HTML export), a scratch file in the temporary folder or a staging folder that is published by one\n"
+        "# move, a file that must never replace an existing one (`.withoutOverwriting`), and an append-only log. Everything else, every file\n"
+        "# of app or project state, goes through AtomicFile.write. Run tools/lint/architecture-lint.sh --tighten after converting a site.")
+
+ratchet("project-paths", "project-paths-allowlist.txt", "path literal(s)",
+        count_sites(app_swift + package_swift, re.compile(r'"\.(?:dde|markview-)'),
+                    exclude=lambda p: "/Tests/" in rel(p) or "/.build/" in rel(p) or rel(p) == "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"),
+        "# String literals that start with `.dde` or `.markview-` outside ProjectPaths (AR-24). `<count> <path>`; a ratchet that only falls.\n"
+        "# The folders and files MarkView keeps in a project are named once, by ProjectPaths in Packages/MarkViewCore (CoreFiles.swift), with a\n"
+        "# test per path. Add a location there instead of writing the literal. Prose that merely mentions `.dde/` in a longer sentence is not a\n"
+        "# path and is not counted.")
+
+ratchet("app-log", "app-log-allowlist.txt", "NSLog or Logger site(s)",
+        count_sites(app_swift + package_swift, re.compile(r"(?<![A-Za-z0-9_.])NSLog\(|(?<![A-Za-z0-9_])Logger\(subsystem:"),
+                    exclude=lambda p: "/Tests/" in rel(p) or "/.build/" in rel(p) or rel(p) == "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift"),
+        "# `NSLog(` and `Logger(subsystem:` outside AppLog (AR-24). `<count> <path>`; a ratchet that only falls. Every message goes through a\n"
+        "# category of AppLog (Packages/MarkViewCore, AppLog.swift), which keeps interpolated strings private. Add a category there instead of a\n"
+        "# new Logger, and never log file contents, tokens, prompts or request headers.")
 
 # --- semantic-database-actor
 database = root / "MarkView" / "Models" / "Insight" / "SemanticDatabase.swift"
@@ -471,8 +501,21 @@ for path in settings_files:
         if "didChangeNotification" in text:
             violations.append(("settings-observer", f"{rel(path)}:{number}: observes every UserDefaults write; use SettingsObserver(keys) or SettingsObserver.changes(of:)"))
 
+# --- tabs-direct
+tab_read = re.compile(r"\b(?:workspaceManager|manager|workspace|wm)\??\.(?:openTabs|activeTab|activeTabIndex|lastSaveError)\b")
+for path in swift_files("MarkView/Views"):
+    for number, line in code_lines(path):
+        if tab_read.search(line):
+            violations.append(("tabs-direct", f"{rel(path)}:{number}: reads the window's tabs through the manager; take TabsController as an @EnvironmentObject so the view redraws with them"))
+forwarded = re.compile(r"\b(?:tabs|chrome|requests|project\.fileTree|layout|gitClient)\.objectWillChange\b")
+manager_file = root / "MarkView" / "Models" / "Workspace" / "WorkspaceManager.swift"
+if manager_file.is_file():
+    for number, line in code_lines(manager_file):
+        if forwarded.search(line):
+            violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
+
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "assistant-switch", "bridge-no-bypass", "no-private-escape", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "assistant-switch", "atomic-write", "project-paths", "app-log", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

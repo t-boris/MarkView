@@ -1,7 +1,5 @@
 import SwiftUI
-#if canImport(MarkViewCore)
 import MarkViewCore
-#endif
 
 /// Files: the project folder and its linked folders in three views (Icons, List, Tree), with filters and an
 /// explicit sort. The rules are in `FileBrowserModel.swift`; this view draws them and keeps the actions
@@ -9,6 +7,10 @@ import MarkViewCore
 struct FileTreeView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
+    @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
+    @EnvironmentObject private var git: GitClient
+    @EnvironmentObject private var requests: WindowRequests
     /// The view and the filter choices of this window; they persist across restarts with its session (AC-5, DEC-008)
     /// and no other window follows them. The sort order persists in the file tree store.
     @WindowStorage(Setting.fileBrowserViewMode) private var storedMode: String
@@ -61,9 +63,8 @@ struct FileTreeView: View {
     /// The list has keyboard focus: ⌫ moves the selection to the Trash.
     @FocusState private var listFocused: Bool
 
-    private var git: GitClient { workspaceManager.gitClient }
     private var mode: FileBrowserViewMode { preferences.mode }
-    private var projectRootURL: URL? { workspaceManager.rootNode?.url }
+    private var projectRootURL: URL? { fileTree.rootNode?.url }
 
     // MARK: Model glue
 
@@ -80,7 +81,7 @@ struct FileTreeView: View {
     }
 
     private var source: FileBrowserSource {
-        FileBrowserSource(roots: roots, filter: filter, sort: workspaceManager.project.fileTree.sortOrder,
+        FileBrowserSource(roots: roots, filter: filter, sort: fileTree.sortOrder,
                           hasViewer: { FileType.hasViewer($0) }, isIgnored: ignoredLookup)
     }
 
@@ -98,7 +99,7 @@ struct FileTreeView: View {
     }
 
     private var sortBinding: Binding<FileTreeSortOrder> {
-        Binding(get: { workspaceManager.project.fileTree.sortOrder }, set: { workspaceManager.project.fileTree.sortOrder = $0 })
+        Binding(get: { fileTree.sortOrder }, set: { fileTree.sortOrder = $0 })
     }
 
     /// Where Icon and List views are.
@@ -147,9 +148,9 @@ struct FileTreeView: View {
     }
 
     private var listingKey: String {
-        let rootIdentity = workspaceManager.rootNode.map { String(describing: ObjectIdentifier($0)) } ?? ""
+        let rootIdentity = fileTree.rootNode.map { String(describing: ObjectIdentifier($0)) } ?? ""
         let directory = currentDirectory?.standardizedFileURL.path ?? ""
-        let sort = workspaceManager.project.fileTree.sortOrder
+        let sort = fileTree.sortOrder
         return [searchKey, rootIdentity, directory, String(atWorkspace), mode.rawValue,
                 String(describing: sort.field), String(sort.ascending), expanded.sorted().joined(separator: "|")].joined(separator: "#")
     }
@@ -335,7 +336,7 @@ struct FileTreeView: View {
             }
         }
         .background(palette.bgSidebar)
-        .onChange(of: workspaceManager.rootNode?.url) { _ in
+        .onChange(of: fileTree.rootNode?.url) { _ in
             // Browsing state belongs to the previous folder.
             currentDirectory = nil
             atWorkspace = false
@@ -365,7 +366,7 @@ struct FileTreeView: View {
             seedTree()
             reveal(with: proxy)
         }
-        .onChange(of: workspaceManager.fileTreeRevealRequest) { _ in reveal(with: proxy) }
+        .onChange(of: requests.fileTreeRevealRequest) { _ in reveal(with: proxy) }
         }
     }
 
@@ -627,9 +628,9 @@ struct FileTreeView: View {
     /// off only the filter choices that would hide it (DEC-008), scroll to the item and highlight it. An item
     /// not on disk (a terminal or X-Ray tab) shows its nearest existing folder.
     private func reveal(with proxy: ScrollViewProxy) {
-        guard let request = workspaceManager.fileTreeRevealRequest,
+        guard let request = requests.fileTreeRevealRequest,
               let projectRoot = projectRootURL?.standardizedFileURL else { return }
-        workspaceManager.fileTreeRevealRequest = nil
+        requests.fileTreeRevealRequest = nil
         var target = request.standardizedFileURL
         // The project, or the linked folder, the item is in (Task 59).
         guard let root = workspaceManager.project.containerRoot(for: target)?.standardizedFileURL else { return }
@@ -877,7 +878,7 @@ struct FileTreeView: View {
                 if !isPlace {
                     if workspaceManager.project.isExcluded(url) {
                         Button("Include Folder") {
-                            if let root = workspaceManager.rootNode?.url {
+                            if let root = fileTree.rootNode?.url {
                                 let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
                                 workspaceManager.project.includeFolder(rel)
                             }
@@ -928,11 +929,11 @@ struct FileTreeView: View {
         } else {
             if let gs {
                 if gs.isStaged {
-                    Button("Unstage") { workspaceManager.gitClient.unstageFile(gs.file) }
+                    Button("Unstage") { git.unstageFile(gs.file) }
                 } else {
-                    Button("Stage") { workspaceManager.gitClient.stageFile(gs.file) }
+                    Button("Stage") { git.stageFile(gs.file) }
                 }
-                Button("Discard Changes") { workspaceManager.gitClient.discardChanges(gs.file) }
+                Button("Discard Changes") { git.discardChanges(gs.file) }
                 Divider()
             }
             if git.isGitRepo && inProject { Button("Add to .gitignore") { addToGitignore(url, isDirectory: false) } }
@@ -1100,7 +1101,7 @@ struct FileTreeView: View {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         var errors: [String] = []
         for url in urls {
-            workspaceManager.closeTabs(under: url)
+            tabs.closeTabs(under: url)
             do { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } catch {
                 errors.append("Couldn't move “\(url.lastPathComponent)” to the Trash: \(error.localizedDescription)")
             }
@@ -1195,14 +1196,12 @@ struct FileTreeView: View {
     }
 
     private func fileGitStatus(_ url: URL) -> GitClient.GitFileStatus? {
-        let git = workspaceManager.gitClient
         guard let root = git.workingDirectory else { return nil }
         let relative = url.path.replacingOccurrences(of: root.path + "/", with: "")
         return git.changedFiles.first(where: { $0.file == relative })
     }
 
     private func stageAllInFolder(_ url: URL) {
-        let git = workspaceManager.gitClient
         guard let root = git.workingDirectory else { return }
         let relative = url.path.replacingOccurrences(of: root.path + "/", with: "")
         for file in git.changedFiles where file.file.hasPrefix(relative) {
@@ -1216,14 +1215,14 @@ struct FileTreeView: View {
         let config = NSWorkspace.OpenConfiguration()
         NSWorkspace.shared.open([folderURL], withApplicationAt: terminalURL, configuration: config) { _, error in
             if let error {
-                NSLog("[FileTreeView] Failed to open Terminal at %@: %@", folderURL.path, error.localizedDescription)
+                AppLog.fileTree.error("Failed to open Terminal at \(folderURL.path): \(error.localizedDescription)")
             }
         }
     }
 
     /// Add a file or folder to the repository's .gitignore (as an anchored path), once.
     private func addToGitignore(_ url: URL, isDirectory: Bool) {
-        guard let root = git.workingDirectory ?? workspaceManager.rootNode?.url else { return }
+        guard let root = git.workingDirectory ?? fileTree.rootNode?.url else { return }
         Task {
             let top = await GitHubClient.execute(["rev-parse", "--show-toplevel"], in: root, git: true)
             let repo = URL(fileURLWithPath: top.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1256,7 +1255,7 @@ struct FileTreeView: View {
             }
             let template = name.hasSuffix(".md") ? "# \(name.replacingOccurrences(of: ".md", with: ""))\n\n" : ""
             do {
-                try template.write(to: fileURL, atomically: true, encoding: .utf8)
+                try AtomicFile.write(template, to: fileURL)
             } catch {
                 return showError("Couldn't create “\(name)”: \(error.localizedDescription)")
             }
@@ -1286,7 +1285,7 @@ struct FileTreeView: View {
     /// as in Finder), copied when they come from elsewhere (e.g. Finder).
     private func drop(_ providers: [NSItemProvider], into folder: URL) -> Bool {
         let copyRequested = NSEvent.modifierFlags.contains(.option)
-        let roots = ([workspaceManager.rootNode?.url] + workspaceManager.project.linkedFolders.map(\.url))
+        let roots = ([fileTree.rootNode?.url] + workspaceManager.project.linkedFolders.map(\.url))
             .compactMap { $0?.standardizedFileURL.path }
         var urls: [URL] = []
         let group = DispatchGroup()
@@ -1402,7 +1401,8 @@ struct FileTreeView: View {
 }
 
 #Preview {
-    FileTreeView().environmentObject(WorkspaceManager())
+    let workspace = WorkspaceManager()
+    FileTreeView().environmentObject(workspace).observingParts(of: workspace)
 }
 
 

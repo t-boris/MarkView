@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import MarkViewCore
 
 /// Fast AI filters: a criterion ("payment flow") becomes search terms once (one short
 /// AI call, cached), then every file and section is scored locally from where those
@@ -52,7 +53,7 @@ enum FilterSearch {
         terms = terms.filter { seen.insert($0).inserted }
         if let file, let data = try? JSONEncoder().encode(terms) {
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: file, options: .atomic)
+            try? AtomicFile.write(data, to: file)
         }
         return terms
     }

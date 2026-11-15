@@ -1,4 +1,5 @@
 import Foundation
+import MarkViewCore
 
 /// The one place where the status of a feature or a bug changes (issue-lifecycle-management, REQ-001, plan I-3). It owns the
 /// project's `IssueTransitionService` (journal `.dde/lifecycle/transitions.jsonl`, status stored in the Markdown front matter),
@@ -45,7 +46,7 @@ final class IssueLifecycleCoordinator {
         guard let root = store.root else { return nil }
         let key = root.standardizedFileURL.path
         if let cached, cached.root == key { return cached }
-        let folder = root.appendingPathComponent(".dde/lifecycle", isDirectory: true)
+        let folder = ProjectPaths.lifecycleFolder(root)
         let statuses = MarkdownIssueStatusStore(root: root)
         let workflowStore = ProjectWorkflowStore(projectRoot: root)
         let load = readWorkflow(workflowStore, root: root)

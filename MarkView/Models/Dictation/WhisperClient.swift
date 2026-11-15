@@ -219,15 +219,15 @@ class WhisperClient: ObservableObject {
             isRecording = started
             if started {
                 Self.active = self
-                NSLog("[Whisper] Recording started")
+                AppLog.dictation.notice("Recording started")
             } else {
                 try? FileManager.default.removeItem(at: url)
                 error = "Failed to start recording — check microphone"
-                NSLog("[Whisper] record() returned false")
+                AppLog.dictation.notice("record() returned false")
             }
         } catch {
             self.error = "Microphone error: \(error.localizedDescription)"
-            NSLog("[Whisper] Recording error: \(error)")
+            AppLog.dictation.error("Recording error: \(error)")
         }
     }
 
@@ -243,7 +243,7 @@ class WhisperClient: ObservableObject {
         // Check file exists and has content
         guard let attrs = try? fm.attributesOfItem(atPath: url.path),
               let size = attrs[.size] as? Int, size > 100 else {
-            NSLog("[Whisper] Recording file empty or missing")
+            AppLog.dictation.error("Recording file empty or missing")
             error = "Recording failed — no audio captured"
             return nil
         }
@@ -254,7 +254,9 @@ class WhisperClient: ObservableObject {
             return RecordingLevel.peak(ofWAV: data)
         }.value
         lastPeakDB = peak.map(RecordingLevel.decibels)
-        NSLog("[Whisper] Recording stopped, file size: \(size) bytes, peak \(lastPeakDB.map { "\($0) dB" } ?? "unknown"), transcribing (\(Self.engine == .openAI ? "OpenAI" : "on this Mac"))...")
+        let peakText = lastPeakDB.map { "\($0) dB" } ?? "unknown"
+        let engineName = Self.engine == .openAI ? "OpenAI" : "on this Mac"
+        AppLog.dictation.notice("Recording stopped, file size: \(size) bytes, peak \(peakText), transcribing (\(engineName))...")
         guard generation == started else { return nil }
         if let peak, RecordingLevel.isSilent(peak) {
             fail(.silence(peakDB: RecordingLevel.decibels(peak)))
@@ -318,7 +320,7 @@ class WhisperClient: ObservableObject {
         self.language = OnDeviceSpeech.displayName(language)
         do {
             let text = try await OnDeviceSpeech.transcribe(fileURL: fileURL, language: language)
-            NSLog("[Speech] Recognized \(text.count) characters in \(language)")
+            AppLog.dictation.notice("Recognized \(text.count) characters in \(language)")
             transcribedText = text
             return text
         } catch OnDeviceSpeech.Failure.languageNotInstalled(let name) {
@@ -328,7 +330,7 @@ class WhisperClient: ObservableObject {
             // Cancelled on purpose (`cancel()`): not a failure to report.
             if Task.isCancelled || error is CancellationError { return nil }
             let nsError = error as NSError
-            NSLog("[Speech] Recognition failed: \(nsError.domain) \(nsError.code)")
+            AppLog.dictation.error("Recognition failed: \(nsError.domain) \(nsError.code)")
             fail(.recognition(domain: nsError.domain, code: nsError.code))
             return nil
         }
@@ -386,7 +388,7 @@ class WhisperClient: ObservableObject {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 let failure = TranscriptionFailure.http(status: status, body: data, model: Self.selectedModel)
                 // Status and error code only: the body can echo part of the API key.
-                NSLog("[Whisper] Transcription failed: \(failure.tag ?? "HTTP \(status)")")
+                AppLog.dictation.error("Transcription failed: \(failure.tag ?? "HTTP \(status)")")
                 fail(failure)
                 return nil
             }
@@ -397,13 +399,13 @@ class WhisperClient: ObservableObject {
                 return nil
             }
 
-            NSLog("[Whisper] Transcribed \(text.count) characters")
+            AppLog.dictation.notice("Transcribed \(text.count) characters")
             transcribedText = text
             return text
         } catch {
             // Cancelled on purpose (`cancel()`): not a failure to report.
             if Task.isCancelled || (error as? URLError)?.code == .cancelled { return nil }
-            NSLog("[Whisper] Transcription request failed: \(error)")
+            AppLog.dictation.error("Transcription request failed: \(error)")
             fail(.network(error))
             return nil
         }

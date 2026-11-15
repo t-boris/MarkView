@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Tailwind for a prototype made from the code of a Tailwind v4 app (BUG-063).
 ///
@@ -173,14 +176,14 @@ enum PrototypeTailwind {
             let target = site.appendingPathComponent(path)
             if (try? Data(contentsOf: target)) == data { return }
             try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: target, options: .atomic)
+            try AtomicFile.write(data, to: target)
             changed = true
         }
         try write(script, to: scriptPath)
         try write(Data(sourceScript(css: css).utf8), to: sourcePath)
         for page in pages(site: site, fileManager: fm) {
             guard let html = try? String(contentsOf: page.url, encoding: .utf8), let withLines = linked(html, prefix: page.prefix), withLines != html else { continue }
-            try withLines.write(to: page.url, atomically: true, encoding: .utf8)
+            try AtomicFile.write(withLines, to: page.url)
             changed = true
         }
         return changed ? .applied : .current

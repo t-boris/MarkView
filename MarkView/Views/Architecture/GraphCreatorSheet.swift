@@ -4,6 +4,7 @@ import SwiftUI
 struct GraphCreatorSheet: View {
     @Environment(\.palette) private var palette
     let workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
     @Binding var isPresented: Bool
     var preselectedType: String = "architecture"
 
@@ -118,9 +119,8 @@ struct GraphCreatorSheet: View {
             cachedFiles = loaded
             loadingFiles = false
             // Pre-select current file if one is open
-            let wm = workspaceManager
-            if wm.activeTabIndex >= 0, wm.activeTabIndex < wm.openTabs.count {
-                let currentFile = wm.openTabs[wm.activeTabIndex].url.lastPathComponent
+            if let tab = tabs.activeTab {
+                let currentFile = tab.url.lastPathComponent
                 // Only the open document by default: many documents blur the diagram's question.
                 selectedFiles = Set(loaded.filter { $0.hasSuffix(currentFile) })
             }
@@ -139,10 +139,7 @@ struct GraphCreatorSheet: View {
     }
 
     private func selectCurrentFile() {
-        let wm = workspaceManager
-        guard wm.activeTabIndex >= 0, wm.activeTabIndex < wm.openTabs.count else { return }
-        let currentFile = wm.openTabs[wm.activeTabIndex].url
-        guard let root = wm.rootNode?.url else { return }
+        guard let currentFile = tabs.activeTab?.url, let root = workspaceManager.rootNode?.url else { return }
         let relative = currentFile.path.replacingOccurrences(of: root.path + "/", with: "")
         selectedFiles = [relative]
     }

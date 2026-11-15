@@ -199,9 +199,6 @@ struct QARunLine: Equatable {
 
 /// A run of the selected branches of one scenario against one target. Each branch has an outcome of its own (DEC-003).
 struct QARunRecord: Codable, Equatable, Identifiable {
-    static let currentSchema = 1
-
-    var schema: Int = QARunRecord.currentSchema
     var id: String
     var scenarioID: String
     var targetID: String

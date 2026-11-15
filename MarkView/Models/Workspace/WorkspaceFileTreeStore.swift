@@ -225,10 +225,9 @@ final class WorkspaceFileTreeStore: ObservableObject {
         Self.log("reloadFileTree: rootNode updated on MainActor")
     }
 
-    private nonisolated static let fileTreeLogger = Logger(subsystem: "com.markview.app", category: "file-tree")
 
     private nonisolated static func log(_ msg: String) {
-        fileTreeLogger.debug("[FileTree] \(msg, privacy: .public)")
+        AppLog.fileTree.debug("\(msg)")
     }
 
     private func rootModificationDate(for url: URL) -> Date? {

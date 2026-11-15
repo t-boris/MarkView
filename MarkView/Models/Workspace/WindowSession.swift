@@ -147,7 +147,7 @@ actor WindowSessionStorage {
 
     init(url: URL) {
         self.url = url
-        self.store = SchemaVersionedStore<WindowSessionArchive>(currentSchemaVersion: 1, backupCorruptedOnSave: true)
+        self.store = SchemaVersionedStore<WindowSessionArchive>(currentSchemaVersion: 1)
     }
 
     func load() -> WindowSessionArchive? {
@@ -158,14 +158,14 @@ actor WindowSessionStorage {
         case .missing:
             return nil
         case .newerSchema(_, let found):
-            NSLog("[WindowSession] Ignoring windowSessions.json: schema version %d is newer than supported (%d).", found, store.currentSchemaVersion)
+            AppLog.windowSession.error("Ignoring windowSessions.json: schema version \(found) is newer than supported (\(self.store.currentSchemaVersion)).")
             return nil
         case .corrupted(_, let detail):
-            NSLog("[WindowSession] Could not read windowSessions.json: %@", detail)
+            AppLog.windowSession.error("Could not read windowSessions.json: \(detail)")
             return nil
         }
         guard loadedArchive.version == 1 else {
-            NSLog("[WindowSession] Ignoring windowSessions.json: unsupported archive payload version %d.", loadedArchive.version)
+            AppLog.windowSession.error("Ignoring windowSessions.json: unsupported archive payload version \(loadedArchive.version).")
             return nil
         }
         // URLs in this local archive must never turn into external open requests.
@@ -203,10 +203,10 @@ actor WindowSessionStorage {
     func saveAtQuit(_ archive: WindowSessionArchive, revision: Int) {
         do {
             if case .refused = try save(archive, revision: revision) {
-                NSLog("[WindowSession] Not saved at quit: %@ was written by a newer MarkView and is left untouched.", url.lastPathComponent)
+                AppLog.windowSession.error("Not saved at quit: \(self.url.lastPathComponent) was written by a newer MarkView and is left untouched.")
             }
         } catch {
-            NSLog("[WindowSession] Could not save window sessions at quit: %@", error.localizedDescription)
+            AppLog.windowSession.error("Could not save window sessions at quit: \(error.localizedDescription)")
         }
     }
 

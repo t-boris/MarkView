@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import MarkViewCore
 
 struct ProjectOperationUnknown: Codable {
     var label: String
@@ -112,8 +113,8 @@ enum ProjectOperationDiscoveryService {
                 continue
             }
             let canonicalRoot = ProjectOperationDiscovery.canonical(root)
-            let outside = !cwdURL.path.hasPrefix(canonicalRoot.path + "/") && cwdURL != canonicalRoot
-            let permittedOutside = inputs.grantedFolders.contains { cwdURL.path == $0 || cwdURL.path.hasPrefix($0 + "/") }
+            let outside = !ProjectPaths.contains(cwdURL, root: canonicalRoot)
+            let permittedOutside = inputs.grantedFolders.contains { ProjectPaths.contains(cwdURL, root: URL(fileURLWithPath: $0)) }
             if outside && !permittedOutside {
                 invalid.append(ProjectOperationUnknown(label: candidate.label, kind: candidate.kind,
                     environment: candidate.environment.isEmpty ? nil : candidate.environment,

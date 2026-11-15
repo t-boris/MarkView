@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import XCTest
 @testable import MarkViewCore
 
@@ -328,5 +329,104 @@ final class MarkViewCoreTests: XCTestCase {
         let a = URL(fileURLWithPath: "/Users/alice/work/app")
         let b = URL(fileURLWithPath: "/Users/bob/work/app")
         XCTAssertNotEqual(ProjectPaths.projectCacheIdentifier(for: a), ProjectPaths.projectCacheIdentifier(for: b))
+    }
+
+    /// The layout of MarkView's own files in a project (AR-24). The expected strings are the contract: a stored project keeps
+    /// working only while every accessor still names the same relative path, so each distinct path is asserted here.
+    func testProjectLayoutPaths() {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("mvcore-layout-\(UUID().uuidString)")
+        let folders: [(String, URL)] = [
+            (".dde", ProjectPaths.localFolder(root)),
+            (".dde/workflow/workflow.json", ProjectPaths.workflowFile(root)),
+            (".dde/lifecycle", ProjectPaths.lifecycleFolder(root)),
+            (".dde/lifecycle/cycle-time.json", ProjectPaths.cycleTimeFile(root)),
+            (".dde/lifecycle/transitions.jsonl", ProjectPaths.transitionsLog(root)),
+            (".dde/lifecycle/sessions.jsonl", ProjectPaths.sessionsLog(root)),
+            (".dde/qa", ProjectPaths.qaFolder(root)),
+            (".dde/studio", ProjectPaths.studioFolder(root)),
+            (".dde/cockpit", ProjectPaths.cockpitFolder(root)),
+            (".dde/cockpit/runs", ProjectPaths.cockpitRunsFolder(root)),
+            (".dde/cockpit/results", ProjectPaths.cockpitResultsFolder(root)),
+            (".dde/cockpit/temporal", ProjectPaths.cockpitTemporalFolder(root)),
+            (".dde/discussions", ProjectPaths.discussionsFolder(root)),
+            (".dde/understanding", ProjectPaths.understandingFolder(root)),
+            (".dde/xray-folders", ProjectPaths.xrayFoldersFolder(root)),
+            (".dde/cache", ProjectPaths.cacheFolder(root)),
+            (".dde/cache/xray", ProjectPaths.xrayCacheFolder(root)),
+            (".dde/cache/xray-content", ProjectPaths.xrayContentFolder(root)),
+            (".dde/cache/explain", ProjectPaths.explainCacheFolder(root)),
+            (".markview-insight", ProjectPaths.insightFolder(root)),
+        ]
+        for (relative, url) in folders {
+            XCTAssertEqual(ProjectPaths.relativePath(of: url, under: root), relative, relative)
+            XCTAssertTrue(ProjectPaths.contains(url, root: root), relative)
+        }
+        // Relative names that are stored, shown or handed to a tool.
+        XCTAssertEqual(ProjectPaths.localFolderName, ".dde")
+        XCTAssertEqual(ProjectPaths.insightFolderName, ".markview-insight")
+        XCTAssertEqual(ProjectPaths.workflowRelativePath, ".dde/workflow/workflow.json")
+        XCTAssertEqual(ProjectPaths.githubConnectionRelativePath, ".dde/github-connection.json")
+        XCTAssertEqual(ProjectPaths.studioRelativePath, ".dde/studio")
+        XCTAssertEqual(ProjectPaths.studioAttachmentsRelativePath, ".dde/studio/attachments")
+        XCTAssertEqual(ProjectPaths.studioTitaniumDataRelativePath, ".dde/studio/titanium-data")
+        XCTAssertEqual(ProjectPaths.studioCaptureRelativePath(id: "cap-1"), ".dde/studio/captures/cap-1.png")
+        XCTAssertEqual(ProjectPaths.legacyPrototypesRelativePath, ".dde/prototypes")
+        XCTAssertEqual(ProjectPaths.prototypeExportsRelativePath, ".dde/exports/prototypes")
+        XCTAssertEqual(ProjectPaths.cockpitRelativePath, ".dde/cockpit")
+        // Names of tabs that have no file behind them.
+        XCTAssertEqual(ProjectPaths.placeholderName("terminal-1"), ".markview-terminal-1")
+        XCTAssertEqual(ProjectPaths.placeholderName("github-a-b-pr-7"), ".markview-github-a-b-pr-7")
+        XCTAssertEqual(ProjectPaths.sentinelRelativePath("git"), ".dde/.markview-git")
+        XCTAssertEqual(ProjectPaths.sentinelRelativePath("ui-studio-"), ".dde/.markview-ui-studio-")
+    }
+
+    func testIsInLocalFolder() {
+        XCTAssertTrue(ProjectPaths.isInLocalFolder(URL(fileURLWithPath: "/work/app/.dde/notes/a.md")))
+        XCTAssertTrue(ProjectPaths.isInLocalFolder(URL(fileURLWithPath: "/work/app/.dde")))
+        XCTAssertFalse(ProjectPaths.isInLocalFolder(URL(fileURLWithPath: "/work/app/docs/a.md")))
+        XCTAssertFalse(ProjectPaths.isInLocalFolder(URL(fileURLWithPath: "/work/app/.ddenotes/a.md")),
+                       "a folder whose name only starts with .dde is not the local folder")
+    }
+
+    func testContainsStrictlyExcludesTheRootAndEscapes() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("mvcore-strict-\(UUID().uuidString)")
+        let root = temp.appendingPathComponent("project")
+        let outside = temp.appendingPathComponent("outside")
+        defer { try? FileManager.default.removeItem(at: temp) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("docs"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+
+        XCTAssertTrue(ProjectPaths.contains(root, root: root), "the root contains itself")
+        XCTAssertFalse(ProjectPaths.containsStrictly(root, root: root), "but not strictly")
+        XCTAssertTrue(ProjectPaths.containsStrictly(root.appendingPathComponent("docs"), root: root))
+        XCTAssertTrue(ProjectPaths.containsStrictly(root.appendingPathComponent("docs/not-yet.md"), root: root), "a file that is not there yet")
+        XCTAssertFalse(ProjectPaths.containsStrictly(root.appendingPathComponent("../outside/x.md"), root: root), "a dot-dot escape")
+        XCTAssertFalse(ProjectPaths.containsStrictly(temp.appendingPathComponent("project-sibling/x.md"), root: root), "a sibling that shares the prefix")
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("link"), withDestinationURL: outside)
+        XCTAssertFalse(ProjectPaths.containsStrictly(root.appendingPathComponent("link/x.md"), root: root), "a symlink that leaves the root")
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("home"), withDestinationURL: root)
+        XCTAssertFalse(ProjectPaths.containsStrictly(root.appendingPathComponent("home"), root: root), "a symlink to the root itself")
+    }
+
+    /// What AppLog promises (AR-24): a message reaches the unified log under the app's subsystem and its category, a dynamic string
+    /// in it is stored as `<private>`, and the static text and the numbers stay readable. Read back from this process's own log.
+    func testAppLogKeepsInterpolatedStringsPrivate() throws {
+        let secret = "SECRET-\(UUID().uuidString)"
+        let started = Date().addingTimeInterval(-1)
+        AppLog.store.error("probe failed: \(secret) after \(7) tries")
+
+        let store: OSLogStore
+        do { store = try OSLogStore(scope: .currentProcessIdentifier) } catch { throw XCTSkip("The process log store is not readable here: \(error)") }
+        var found: OSLogEntryLog?
+        for _ in 0..<6 where found == nil {
+            let entries = try store.getEntries(at: store.position(date: started),
+                                               matching: NSPredicate(format: "subsystem == %@", AppLog.subsystem))
+            found = entries.compactMap { $0 as? OSLogEntryLog }.first { $0.composedMessage.hasPrefix("probe ") }
+            if found == nil { Thread.sleep(forTimeInterval: 0.3) }
+        }
+        let entry = try XCTUnwrap(found, "the message did not reach the unified log")
+        XCTAssertEqual(entry.category, "store")
+        XCTAssertEqual(entry.composedMessage, "probe failed: <private> after 7 tries")
+        XCTAssertFalse(entry.composedMessage.contains(secret))
     }
 }

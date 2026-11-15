@@ -308,6 +308,38 @@ do {
         QAStore.prepareLocalFolder(root)
         check("store: an edited ignore file is not overwritten", (try? String(contentsOf: QAStore.localFolder(root).appendingPathComponent(".gitignore"), encoding: .utf8)) == "# mine\n")
     } catch { check("store: runs saved (\(error))", false) }
+
+    // A run record is a schema-versioned store (AR-36). The legacy fixture is what the previous version wrote: the bare record, with
+    // the `schema` field it carried inside it.
+    do {
+        let legacyRoot = FileManager.default.temporaryDirectory.appendingPathComponent("qa-legacy-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: legacyRoot) }
+        let legacyRun = QARunRecord(id: "20261108-090000-cccc", scenarioID: "checkout", targetID: "local", targetKind: .local, selected: [main], startedAt: now)
+        var bare = try JSONSerialization.jsonObject(with: QAStore.encoder.encode(legacyRun)) as? [String: Any] ?? [:]
+        bare["schema"] = 1
+        let file = QAStore.runURL(legacyRoot, runID: legacyRun.id)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: bare, options: [.prettyPrinted, .sortedKeys]).write(to: file)
+        check("store legacy: a run written before the envelope loads intact", QAStore.loadRun(legacyRoot, runID: legacyRun.id) == legacyRun)
+        check("store legacy: the list holds it and reading leaves it as written", QAStore.loadRuns(legacyRoot).map(\.id) == [legacyRun.id] && StoreFixture.envelope(file) == nil)
+        try QAStore.saveRun(legacyRun, root: legacyRoot)
+        check("store legacy: the next save writes the envelope and it reloads",
+              StoreFixture.envelope(file)?.schema == 1 && QAStore.loadRun(legacyRoot, runID: legacyRun.id) == legacyRun && StoreFixture.backups(of: file).isEmpty)
+
+        let junk = Data("{ \"id\": ".utf8)
+        try junk.write(to: file)
+        check("store damaged: the run is not listed and the file is left as it is",
+              QAStore.loadRun(legacyRoot, runID: legacyRun.id) == nil && QAStore.loadRuns(legacyRoot).isEmpty && StoreFixture.bytes(file) == junk)
+        try QAStore.saveRun(legacyRun, root: legacyRoot)
+        check("store damaged: a save keeps the old bytes in a dated backup",
+              StoreFixture.backups(of: file).count == 1 && StoreFixture.bytes(StoreFixture.backups(of: file)[0]) == junk && QAStore.loadRun(legacyRoot, runID: legacyRun.id) == legacyRun)
+
+        let future = Data(StoreFixture.newerFile(payload: "{}").utf8)
+        try future.write(to: file)
+        var refused = false
+        do { try QAStore.saveRun(legacyRun, root: legacyRoot) } catch SchemaStoreError.newerSchemaVersion { refused = true }
+        check("store newer: a save is refused and the file is untouched", refused && StoreFixture.bytes(file) == future && QAStore.loadRun(legacyRoot, runID: legacyRun.id) == nil)
+    } catch { check("store legacy: checks ran (\(error))", false) }
 }
 
 // MARK: - Generation: what the AI wrote

@@ -22,5 +22,5 @@ swiftc -module-cache-path /private/tmp/markview-swift-cache -o "$out/terminal-li
 "$out/terminal-link-tests" "$PWD/MarkView/Resources/Editor/terminal.html" "$out/fixtures" "$@"
 
 cp tools/tests/EditorLineLinkTests.swift "$out/main.swift"
-swiftc -module-cache-path /private/tmp/markview-swift-cache -o "$out/editor-line-tests" MarkView/Bridge/TypedWebBridge.swift "$out/main.swift"
+swiftc -module-cache-path /private/tmp/markview-swift-cache -o "$out/editor-line-tests" MarkView/Bridge/TypedWebBridge.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift "$out/main.swift"
 "$out/editor-line-tests" "$PWD/MarkView/Resources/Editor/index.html"

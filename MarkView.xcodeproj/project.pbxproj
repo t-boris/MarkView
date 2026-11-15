@@ -26,6 +26,11 @@
 		07044898F5427AD51A50B426 /* ToolRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD03 /* ToolRegistry.swift */; };
 		07044898F5427AD51A50B427 /* DocumentScrollSideTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */; };
 		07044898F5427AD51A50B430 /* TaskBag.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD10 /* TaskBag.swift */; };
+		98C5629E8EC7EF49B7CC3471 /* TabsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FB7907ACA21EEA149AD8958 /* TabsController.swift */; };
+		4618C98597316124EAB34D9F /* FinderOpenRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */; };
+		C041BCC7EAEF6931AECB3CE1 /* WindowSessionSnapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */; };
+		C8154BE60D692E4B2E5DEA64 /* WindowRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */; };
+		D1B5AF536376371B8D63C2F7 /* WindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 371B8D63C2F7DBE224FF185A /* WindowChrome.swift */; };
 		12372A07C54BD6115EFB9D95 /* WorkspaceFileTreeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */; };
 		6AB6D14AB6537ECE80EBEDEB /* ProjectContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 494BD864CD65E25C23E882EB /* ProjectContext.swift */; };
 		3F7E81CB447C533A218B8912 /* BackgroundFileScans.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A6A798B75CA28695E850FC /* BackgroundFileScans.swift */; };
@@ -268,6 +273,7 @@
 		8FE54D4E55AA567CEA794978 /* UIStudioSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 437E30B3E5F2185484ADA2D6 /* UIStudioSelection.swift */; };
 		900ECE863153B574438A6AF1 /* UIStudioModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AA953CE3F790CC504854A3A /* UIStudioModels.swift */; };
 		909D6D522F19DECD394127BE /* BrowserControlServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0B17502A10EDBEA695CFD4 /* BrowserControlServer.swift */; };
+		7BF2F153EB33E7C7F2F61838 /* BrowserAgentExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ED1088DB8E0637B1C695E71 /* BrowserAgentExecutor.swift */; };
 		90FBEE7F8E1CC870B1044E53 /* PrototypeAudit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EBA0E9DC5756C90FFE50D30 /* PrototypeAudit.swift */; };
 		92E892A9C166F65D28165C5B /* PrototypeHandoffRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43880FB3F93C0C307561B6E5 /* PrototypeHandoffRun.swift */; };
 		937FC2CF2D73FB64E6B4B85E /* IssueLifecycleContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 895F4D266DDC908733BA5EBA /* IssueLifecycleContext.swift */; };
@@ -869,6 +875,11 @@
 		A6E0167483A13431C669BD03 /* ToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolRegistry.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentScrollSideTable.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD10 /* TaskBag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskBag.swift; sourceTree = "<group>"; };
+		8FB7907ACA21EEA149AD8958 /* TabsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabsController.swift; sourceTree = "<group>"; };
+		6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderOpenRequests.swift; sourceTree = "<group>"; };
+		6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSessionSnapshotter.swift; sourceTree = "<group>"; };
+		2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRequests.swift; sourceTree = "<group>"; };
+		371B8D63C2F7DBE224FF185A /* WindowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChrome.swift; sourceTree = "<group>"; };
 		BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFileTreeStore.swift; sourceTree = "<group>"; };
 		494BD864CD65E25C23E882EB /* ProjectContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectContext.swift; sourceTree = "<group>"; };
 		17A6A798B75CA28695E850FC /* BackgroundFileScans.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundFileScans.swift; sourceTree = "<group>"; };
@@ -878,6 +889,7 @@
 		A6E0167483A13431C669BD06 /* SchemaVersionedStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaVersionedStore.swift; sourceTree = "<group>"; };
 		A8AEF205A13BAE60E2DC57A7 /* ImportanceRater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportanceRater.swift; sourceTree = "<group>"; };
 		AA0B17502A10EDBEA695CFD4 /* BrowserControlServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserControlServer.swift; sourceTree = "<group>"; };
+		4ED1088DB8E0637B1C695E71 /* BrowserAgentExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserAgentExecutor.swift; sourceTree = "<group>"; };
 		AA2CA37BE6C93E0C73995455 /* markview-research-map-layout.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map-layout.js"; sourceTree = "<group>"; };
 		AA781698B8CEDAAB7EE8028A /* IntakeTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntakeTextEditor.swift; sourceTree = "<group>"; };
 		AA8E82029CBD23F4C986B612 /* IntakeAttachmentBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntakeAttachmentBar.swift; sourceTree = "<group>"; };
@@ -1268,6 +1280,7 @@
 			children = (
 				7DED21BC61360BE8D42222AB /* AgentBrowserRegistration.swift */,
 				AA0B17502A10EDBEA695CFD4 /* BrowserControlServer.swift */,
+				4ED1088DB8E0637B1C695E71 /* BrowserAgentExecutor.swift */,
 				C6F3720D5BC18F678F2F42FB /* BrowserDownloads.swift */,
 				9A1BAC4896C73C835E150997 /* BrowserElementPick.swift */,
 				3E83CEDED9E2C01ACB93A1FC /* BrowserPagePDF.swift */,
@@ -1620,6 +1633,11 @@
 				659CA4BBD506746CE1B89857 /* StructureOutline.swift */,
 				75282A5DF053FCD311C2528B /* TabClosing.swift */,
 				A6E0167483A13431C669BD10 /* TaskBag.swift */,
+				8FB7907ACA21EEA149AD8958 /* TabsController.swift */,
+				6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */,
+				6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */,
+				2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */,
+				371B8D63C2F7DBE224FF185A /* WindowChrome.swift */,
 				BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */,
 				494BD864CD65E25C23E882EB /* ProjectContext.swift */,
 				17A6A798B75CA28695E850FC /* BackgroundFileScans.swift */,
@@ -2321,6 +2339,11 @@
 				07044898F5427AD51A50B426 /* ToolRegistry.swift in Sources */,
 				07044898F5427AD51A50B427 /* DocumentScrollSideTable.swift in Sources */,
 				07044898F5427AD51A50B430 /* TaskBag.swift in Sources */,
+				98C5629E8EC7EF49B7CC3471 /* TabsController.swift in Sources */,
+				4618C98597316124EAB34D9F /* FinderOpenRequests.swift in Sources */,
+				C041BCC7EAEF6931AECB3CE1 /* WindowSessionSnapshotter.swift in Sources */,
+				C8154BE60D692E4B2E5DEA64 /* WindowRequests.swift in Sources */,
+				D1B5AF536376371B8D63C2F7 /* WindowChrome.swift in Sources */,
 				12372A07C54BD6115EFB9D95 /* WorkspaceFileTreeStore.swift in Sources */,
 				6AB6D14AB6537ECE80EBEDEB /* ProjectContext.swift in Sources */,
 				3F7E81CB447C533A218B8912 /* BackgroundFileScans.swift in Sources */,
@@ -2362,6 +2385,7 @@
 				66B92D183453F703F252CA0D /* BookPDFTransform.swift in Sources */,
 				3F86E0D206B89BE60050116B /* BrowserAgentTools.swift in Sources */,
 				909D6D522F19DECD394127BE /* BrowserControlServer.swift in Sources */,
+				7BF2F153EB33E7C7F2F61838 /* BrowserAgentExecutor.swift in Sources */,
 				DCB91AFB6ECAD91E5A2A5DBC /* BrowserDownloads.swift in Sources */,
 				3C66B42CE08BE7AD585AC81A /* BrowserElementPick.swift in Sources */,
 				4345AA82ADCF820AD138E290 /* BrowserPagePDF.swift in Sources */,

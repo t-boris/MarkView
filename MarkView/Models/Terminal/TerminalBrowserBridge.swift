@@ -88,7 +88,7 @@ enum TerminalBrowserBridge {
                 try write(text, to: support.zsh.appendingPathComponent(name), executable: false)
             }
         } catch {
-            NSLog("[MarkView] terminal browser bridge unavailable: \(error.localizedDescription)")
+            AppLog.browser.error("terminal browser bridge unavailable: \(error.localizedDescription)")
             return nil
         }
         watch(support.spool)
@@ -98,8 +98,9 @@ enum TerminalBrowserBridge {
 
     private static func write(_ text: String, to url: URL, executable: Bool) throws {
         if (try? String(contentsOf: url, encoding: .utf8)) != text {
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            try AtomicFile.write(text, to: url, permissions: executable ? 0o700 : 0o600)
         }
+        // The content may be unchanged while the mode is not.
         try FileManager.default.setAttributes([.posixPermissions: executable ? 0o700 : 0o600], ofItemAtPath: url.path)
     }
 

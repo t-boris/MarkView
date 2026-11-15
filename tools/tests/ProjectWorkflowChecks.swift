@@ -312,8 +312,9 @@ check("the plan survives being written and read", (try? JSONDecoder().decode(Pen
 
 // MARK: Adoption from the Definition of Done and the guide (DEC-022)
 
+/// A Definition of Done file as the app wrote it before the envelope: every item with its title, instruction, mode and custom flag.
 func dod(_ items: [(String, String)]) -> Data {
-    let list = items.map { #"{"id":"\#($0.0)","mode":"\#($0.1)"}"# }.joined(separator: ",")
+    let list = items.map { #"{"custom":false,"id":"\#($0.0)","instruction":"Do \#($0.0).","mode":"\#($0.1)","title":"\#($0.0)"}"# }.joined(separator: ",")
     return Data(#"{"items":[\#(list)]}"#.utf8)
 }
 let plain = ProjectWorkflowStore.adopted(definition: nil, guide: nil)
@@ -408,6 +409,49 @@ if case .damaged(let why) = store.load() { check("a well-formed but invalid work
 
 try! fm.removeItem(at: file)
 check("removing the file makes the project adopt again", store.load() == .missing)
+
+// The plan a save owes items is a schema-versioned store (AR-36): the legacy file is the bare plan the previous version wrote.
+let pendingFile = root.appendingPathComponent(".dde/workflow/pending-replacements.json")
+check("no plan is pending when there is no file", store.pending() == nil)
+try! JSONEncoder().encode(plan).write(to: pendingFile)
+check("legacy plan: it loads intact", store.pending() == plan)
+check("legacy plan: reading leaves it as written", StoreFixture.envelope(pendingFile) == nil)
+var nextPlan = plan; nextPlan.revision = 4
+try! store.savePending(nextPlan)
+check("legacy plan: the next save writes the envelope and it reloads", StoreFixture.envelope(pendingFile)?.schema == 1 && store.pending() == nextPlan
+      && StoreFixture.backups(of: pendingFile).isEmpty)
+let junkPlan = Data("{ \"revision\": ".utf8)
+try! junkPlan.write(to: pendingFile)
+check("damaged plan: nothing is pending and the file is left as it is", store.pending() == nil && StoreFixture.bytes(pendingFile) == junkPlan)
+try! store.savePending(plan)
+check("damaged plan: the next plan keeps the old bytes in a dated backup",
+      StoreFixture.backups(of: pendingFile).count == 1 && StoreFixture.bytes(StoreFixture.backups(of: pendingFile)[0]) == junkPlan && store.pending() == plan)
+let futurePlan = Data(StoreFixture.newerFile(payload: "{}").utf8)
+try! futurePlan.write(to: pendingFile)
+var planRefused = false
+do { try store.savePending(plan) } catch SchemaStoreError.newerSchemaVersion { planRefused = true } catch {}
+check("newer plan: a save is refused and the file is untouched", planRefused && StoreFixture.bytes(pendingFile) == futurePlan)
+store.clearPending()
+
+// Adoption reads the Definition of Done through its store: a checklist saved by this version (in the envelope) counts as much as an
+// old one, and one that cannot be read means the standard rules, with the file left alone.
+do {
+    let project = tempProject()
+    try! fm.createDirectory(at: project.appendingPathComponent(".dde"), withIntermediateDirectories: true)
+    var checklist = DefinitionOfDone.standard
+    for i in checklist.items.indices where ["pr", "ci"].contains(checklist.items[i].id) { checklist.items[i].mode = .skip }
+    try! checklist.save(root: project)
+    guard case .loaded(let fromEnvelope) = ProjectWorkflowStore(projectRoot: project).adoptIfMissing(projectRoot: project) else { fatalError("adoption did not load") }
+    check("an enveloped checklist is adopted like an old one", !fromEnvelope.variant(StandardWorkflow.bugVariantID)!.deliveryRules.pullRequestRequired)
+
+    let damagedProject = tempProject()
+    try! fm.createDirectory(at: damagedProject.appendingPathComponent(".dde"), withIntermediateDirectories: true)
+    let damagedChecklist = damagedProject.appendingPathComponent(".dde/definition-of-done.json")
+    try! Data("{ \"items\": [".utf8).write(to: damagedChecklist)
+    guard case .loaded(let fromDamaged) = ProjectWorkflowStore(projectRoot: damagedProject).adoptIfMissing(projectRoot: damagedProject) else { fatalError("adoption did not load") }
+    check("a checklist that cannot be read adopts the standard rules and stays as it is",
+          fromDamaged.variant(StandardWorkflow.bugVariantID)!.deliveryRules.pullRequestRequired && StoreFixture.bytes(damagedChecklist) == Data("{ \"items\": [".utf8))
+}
 
 // Which projects start on a board and which keep the specification stages (DEC-002).
 func adopt(prepare: (URL) -> Void) -> ProjectWorkflow {

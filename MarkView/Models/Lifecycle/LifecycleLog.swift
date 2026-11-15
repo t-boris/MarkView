@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(MarkViewCore)
 import MarkViewCore
-#endif
 
 /// The delivery-evidence log of this Mac: one JSON-lines file in the app's Application Support folder, shared by every window. It
 /// holds what GitHub and git showed about a feature's delivery (see EvidenceTimings.swift), never a change of status - the workflow
@@ -98,7 +96,7 @@ final class LifecycleLog: ObservableObject {
                     guard let event = try? decoder.decode(LifecycleEvent.self, from: Data(line.utf8)) else { return true }
                     return event.project != project
                 }
-                try (kept.map(String.init).joined(separator: "\n") + (kept.isEmpty ? "" : "\n")).write(to: url, atomically: true, encoding: .utf8)
+                try AtomicFile.write(kept.map(String.init).joined(separator: "\n") + (kept.isEmpty ? "" : "\n"), to: url)
             } catch {
                 let message = "Could not delete the delivery evidence: \(error.localizedDescription)"
                 Task { @MainActor in LifecycleLog.shared.lastError = message }

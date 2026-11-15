@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// What a Cockpit step changed in the project, compared with what its controls allow. The tool gate cannot see the agent's own shell
 /// and editor, so the project is compared before and after the step. Foundation only: tools/tests/cockpit-policy-tests.sh checks it.
@@ -15,7 +18,7 @@ enum CockpitStepAudit {
     }
 
     /// Notes and project documentation that MarkView and the agent write while working are not source.
-    static let documentFolders = ["docs/", "tasks/", ".dde/"]
+    static let documentFolders = ["docs/", "tasks/", ProjectPaths.localFolderName + "/"]
     private static let listed = 10
 
     /// The paths whose content differs between the two snapshots, including files that became clean again, minus documentation.

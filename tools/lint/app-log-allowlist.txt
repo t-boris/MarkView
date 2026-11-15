@@ -1,0 +1,3 @@
+# `NSLog(` and `Logger(subsystem:` outside AppLog (AR-24). `<count> <path>`; a ratchet that only falls. Every message goes through a
+# category of AppLog (Packages/MarkViewCore, AppLog.swift), which keeps interpolated strings private. Add a category there instead of a
+# new Logger, and never log file contents, tokens, prompts or request headers.

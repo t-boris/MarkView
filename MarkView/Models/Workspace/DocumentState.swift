@@ -1,6 +1,9 @@
 import Foundation
 import UniformTypeIdentifiers
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Supported file types for viewing/editing
 enum FileType: String {
@@ -318,9 +321,9 @@ enum GitHubItem: Hashable, Codable {
     var marker: String {
         let repo = self.repo.replacingOccurrences(of: "/", with: "-")
         switch self {
-        case .run(let id, _, _): return ".markview-github-\(repo)-run-\(id)"
-        case .issue(let number, _, _): return ".markview-github-\(repo)-issue-\(number)"
-        case .pullRequest(let number, _, _): return ".markview-github-\(repo)-pr-\(number)"
+        case .run(let id, _, _): return ProjectPaths.placeholderName("github-\(repo)-run-\(id)")
+        case .issue(let number, _, _): return ProjectPaths.placeholderName("github-\(repo)-issue-\(number)")
+        case .pullRequest(let number, _, _): return ProjectPaths.placeholderName("github-\(repo)-pr-\(number)")
         }
     }
 }
@@ -335,8 +338,6 @@ struct OpenTab: Identifiable {
     var isModified: Bool = false
     var kind: TabKind = .file
     var headings: [HeadingItem] = []
-    var activeHeadingId: String?
-    var scrollPosition: CGFloat = 0
     /// A text file shown with line-aligned Explain notes instead of its dedicated viewer.
     var notesView = false
     /// Bumped when a data tab's file changes on disk: its viewer reads it again (a log follows).
