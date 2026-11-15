@@ -198,6 +198,8 @@ struct ContentView: View {
     /// Project color identity of the open project folder; nil without one (feature-2, DEC-012).
     @State private var projectKey: String?
     @ObservedObject private var projectColors = ProjectColorStore.shared
+    /// The layout presets of the Layout menu (`AR-33`).
+    @ObservedObject private var layouts = LayoutCatalog.shared
     @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
     private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
     @State private var sessionAttached = false
@@ -436,6 +438,7 @@ struct ContentView: View {
                                  selected: workspaceManager.showCenter) { workspaceManager.toggleCenter() }
                     headerButton("sidebar.trailing", help: "Right panel (⌘2)", width: controlWidth,
                                  selected: workspaceManager.terminalVisible) { workspaceManager.toggleRightPanel() }
+                    layoutMenu.frame(width: controlWidth, height: controlWidth)
                 }
                 .background(RoundedRectangle(cornerRadius: 7).fill(palette.bgActive.opacity(0.5)))
                 headerDivider
@@ -566,6 +569,21 @@ struct ContentView: View {
                 workspaceManager.openTool(tool.id)
             }.disabled(workspaceManager.rootNode == nil)
         }
+    }
+
+    /// The layout presets (`AR-33`, `DEC-002`): chosen by hand, applied to this window only.
+    private var layoutMenu: some View {
+        Menu {
+            LayoutMenuItems(library: layouts.library, enabled: workspaceManager.rootNode != nil,
+                            apply: { workspaceManager.applyLayoutPreset($0) }, reload: { Task { await layouts.reload() } })
+        } label: {
+            toolbarIcon("rectangle.3.group", width: toolbarIconWidth)
+        }
+        .menuStyle(.borderlessButton)
+        .tint(palette.text)
+        .menuIndicator(.hidden)
+        .help("Layout: arrange the panels of this window")
+        .accessibilityLabel("Layout")
     }
 
     /// Less frequent window tools, kept alongside the direct project buttons.

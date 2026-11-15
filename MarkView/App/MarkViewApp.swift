@@ -200,6 +200,8 @@ struct MarkViewApp: App {
     @NSApplicationDelegateAdaptor(MarkViewAppDelegate.self) private var appDelegate
     @FocusedValue(\.workspaceManager) private var activeWorkspace
     @FocusedValue(\.workspaceHasFolder) private var activeWorkspaceHasFolder
+    /// The layout presets of View > Layout (`AR-33`).
+    @ObservedObject private var layouts = LayoutCatalog.shared
 
     /// Marketing version from Info.plist, shown in each workspace window's title (ContentView).
     static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
@@ -348,6 +350,13 @@ struct MarkViewApp: App {
                 .disabled(activeWorkspaceHasFolder != true)
 
                 toolMenuItems(.afterWebPreview)
+
+                Divider()
+
+                Menu("Layout") {
+                    LayoutMenuItems(library: layouts.library, enabled: activeWorkspaceHasFolder == true,
+                                    apply: { activeWorkspace?.applyLayoutPreset($0) }, reload: { Task { await layouts.reload() } })
+                }
             }
 
             CommandGroup(after: .appSettings) {

@@ -464,6 +464,11 @@
 		FF7B7975E6E5BB57226F4446 /* QAPageEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10AB314CA9B3FD3A9A58668 /* QAPageEvidence.swift */; };
 		FF99949FBDA0BB735F226A9B /* QARun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C0F0778AC373BF137EF446E /* QARun.swift */; };
 		BD375AC847408FB729CCA3D8 /* Themes in Resources */ = {isa = PBXBuildFile; fileRef = 19A6C275D7F3349437E8936A /* Themes */; };
+		47E7720348AC420D7AD2F5E1 /* LayoutPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 545B82933E80F637B3D031FC /* LayoutPreset.swift */; };
+		098275A906077BE8F377085F /* LayoutCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FCD870E4FEBBB1E8EFD7A70 /* LayoutCatalog.swift */; };
+		33B12FE12086C36050EA5EC5 /* Layouts in Resources */ = {isa = PBXBuildFile; fileRef = 6BD15252A9E2CE1BFDC082B1 /* Layouts */; };
+		30E64AE7EADB12ACEDF06F7C /* WorkspaceLayoutPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 174B04661CD9C2082E56D312 /* WorkspaceLayoutPresets.swift */; };
+		5AB29D0E6D378BCA103C73C2 /* LayoutMenuItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7414D561557EDF1F97CF4217 /* LayoutMenuItems.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1042,6 +1047,11 @@
 		AF4999B5DE274BA1571F8ADA /* markview-terminal.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-terminal.js"; sourceTree = "<group>"; };
 		5D42EFED00836F5D45A63E3C /* mv-kit.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "mv-kit.js"; sourceTree = "<group>"; };
 		19A6C275D7F3349437E8936A /* Themes */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Themes; sourceTree = "<group>"; };
+		545B82933E80F637B3D031FC /* LayoutPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutPreset.swift; sourceTree = "<group>"; };
+		2FCD870E4FEBBB1E8EFD7A70 /* LayoutCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutCatalog.swift; sourceTree = "<group>"; };
+		6BD15252A9E2CE1BFDC082B1 /* Layouts */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Layouts; sourceTree = "<group>"; };
+		174B04661CD9C2082E56D312 /* WorkspaceLayoutPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLayoutPresets.swift; sourceTree = "<group>"; };
+		7414D561557EDF1F97CF4217 /* LayoutMenuItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutMenuItems.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1550,6 +1560,9 @@
 				DEE77C117377664F496CB39A /* FrontMatter.swift */,
 				17A43E6F411BFA9317576340 /* ImageAttachments.swift */,
 				45125D00F1E8300687141768 /* ImageSiblings.swift */,
+				174B04661CD9C2082E56D312 /* WorkspaceLayoutPresets.swift */,
+				2FCD870E4FEBBB1E8EFD7A70 /* LayoutCatalog.swift */,
+				545B82933E80F637B3D031FC /* LayoutPreset.swift */,
 				AAA5D1BB0D677AB3259D0471 /* LinkedFolders.swift */,
 				C18592F11080A421A6A1EC86 /* ListSelection.swift */,
 				A6E0167483A13431C669BD11 /* MarkdownDocumentChunker.swift */,
@@ -1821,6 +1834,7 @@
 				26726FF62649B52BE2384159 /* FileTreeView.swift */,
 				C1352CCA937A85BB9BD45E31 /* ImageAttachmentViews.swift */,
 				65C20CCECAE81DAC301D96C3 /* ImageViewerView.swift */,
+				7414D561557EDF1F97CF4217 /* LayoutMenuItems.swift */,
 				5B43997D8A629734399B2640 /* NewProjectSheet.swift */,
 				3F11B5789897E966C65CC52B /* PanelTabButton.swift */,
 				BD72F5E6622A4D7E9B1E74C5 /* ProjectWelcomeScreen.swift */,
@@ -1885,6 +1899,7 @@
 			children = (
 				E8077A542DBDB29608BB9BC4 /* Editor */,
 				19A6C275D7F3349437E8936A /* Themes */,
+				6BD15252A9E2CE1BFDC082B1 /* Layouts */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -2128,6 +2143,7 @@
 			files = (
 				D7042AC7B61742EF5FAF04C6 /* Assets.xcassets in Resources */,
 				BD375AC847408FB729CCA3D8 /* Themes in Resources */,
+				33B12FE12086C36050EA5EC5 /* Layouts in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2389,7 +2405,11 @@
 				FF31A6655922E26D0D222D9B /* ImageAttachmentViews.swift in Sources */,
 				50C9811EB6493D805B5FA933 /* ImageAttachments.swift in Sources */,
 				4BC2DB65987F55B55E83314C /* ImageSiblings.swift in Sources */,
+				30E64AE7EADB12ACEDF06F7C /* WorkspaceLayoutPresets.swift in Sources */,
+				098275A906077BE8F377085F /* LayoutCatalog.swift in Sources */,
+				47E7720348AC420D7AD2F5E1 /* LayoutPreset.swift in Sources */,
 				B237AD4A0A5D93A4F161E5CB /* ImageViewerView.swift in Sources */,
+				5AB29D0E6D378BCA103C73C2 /* LayoutMenuItems.swift in Sources */,
 				24CA3B7AAECDBF270D956080 /* ImportanceRater.swift in Sources */,
 				655AEBF582AECF54E3EECC62 /* InsightArchiveExporter.swift in Sources */,
 				8A57F974EAA1485CCD758868 /* InsightCache.swift in Sources */,
