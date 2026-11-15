@@ -10,7 +10,6 @@ trap 'rm -rf "$out"' EXIT
 cat > "$out/Stub.swift" << 'EOF'
 import Foundation
 enum ACPAssistant {
-    static func cachedModels(_ tool: CLITool) -> [AIModelOption] { [] }
     static func refreshModels(_ tool: CLITool, toolPath: String) async throws -> [AIModelOption] { [] }
     static func run(_ request: CLICompletion.Request, tool: CLITool, toolPath: String, model: String?, workDir: URL,
                     onDelta: (@Sendable (String) -> Void)?, onActivity: (@Sendable (CLICompletion.Activity) -> Void)?)
@@ -30,7 +29,7 @@ swiftc -o "$out/phase5-tests" \
     "$ROOT"/Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     "$ROOT/MarkView/Models/AI/AIAssistants.swift" \
     "$ROOT/MarkView/Models/AI/AIOperation.swift" \
-    "$ROOT/MarkView/Models/AI/AssistantProviderRegistry.swift" \
+    "$ROOT"/MarkView/Models/AI/Providers/*.swift \
     "$ROOT/MarkView/Models/Appearance/ProjectColor.swift" \
     "$ROOT/MarkView/Models/Workspace/LinkedFolders.swift" \
     "$ROOT/MarkView/Models/AI/AICallLog.swift" \

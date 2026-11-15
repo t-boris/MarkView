@@ -14,57 +14,6 @@ protocol TerminalConnection: AnyObject {
     func stop()
 }
 
-/// What a terminal in the AI panel runs: an assistant inside the user's shell, or the
-/// shell alone.
-enum TerminalProfile: String, CaseIterable, Identifiable {
-    case claude, codex, cline, copilot, antigravity, shell
-
-    var id: String { rawValue }
-
-    init(_ tool: CLITool) {
-        switch tool {
-        case .claude: self = .claude
-        case .codex: self = .codex
-        case .cline: self = .cline
-        case .copilot: self = .copilot
-        case .antigravity: self = .antigravity
-        }
-    }
-
-    var tool: CLITool? {
-        switch self {
-        case .claude: return .claude
-        case .codex: return .codex
-        case .cline: return .cline
-        case .copilot: return .copilot
-        case .antigravity: return .antigravity
-        case .shell: return nil
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .claude: return "Claude Code"
-        case .codex: return "Codex"
-        case .cline: return "Cline"
-        case .copilot: return "Copilot"
-        case .antigravity: return "Antigravity"
-        case .shell: return "Shell"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .claude: return "sparkle"
-        case .codex: return "chevron.left.forwardslash.chevron.right"
-        case .cline: return "circle.hexagongrid"
-        case .copilot: return "airplane"
-        case .antigravity: return "wand.and.stars"
-        case .shell: return "terminal"
-        }
-    }
-}
-
 /// One embedded terminal: a login shell on a pseudo-terminal (PTY) that Swift owns,
 /// drawn by xterm.js in its own web view (`Resources/Editor/terminal.html`).
 ///

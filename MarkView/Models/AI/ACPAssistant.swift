@@ -18,29 +18,9 @@ import MarkViewCore
 /// Neither has a schema flag nor a system prompt over ACP, so the instructions and the
 /// JSON schema lead the prompt, and a malformed JSON answer gets one repair turn.
 enum ACPAssistant {
-    /// How one assistant is started and what it needs around the protocol.
-    private struct Profile {
-        var arguments: [String]
-        /// Session mode that keeps the assistant read-only, set after `session/new`.
-        var readOnlyMode: String?
-        /// A chunk the CLI puts into the answer that is not part of it.
-        var noticePrefix: String?
-    }
-
-    private static func profile(_ tool: CLITool, effort: String?) -> Profile {
-        switch tool {
-        case .copilot:
-            // Only these tools exist for the model: no shell, no edits, no web, no subagents.
-            var arguments = ["--acp", "--no-auto-update", "--no-ask-user", "--disable-builtin-mcps",
-                             "--no-custom-instructions"]
-            if let effort { arguments += ["--reasoning-effort", effort] }
-            arguments += ["--available-tools", "view", "grep", "glob"]
-            return Profile(arguments: arguments, readOnlyMode: nil, noticePrefix: "Info: Disabled tools:")
-        default:
-            var arguments = ["--acp"]
-            if let effort { arguments += ["--thinking", effort] }
-            return Profile(arguments: arguments, readOnlyMode: "plan", noticePrefix: nil)
-        }
+    private static func profile(_ tool: CLITool, effort: String?) -> ACPLaunchProfile {
+        guard let support = tool.provider.acp else { preconditionFailure("\(tool.displayName) does not run over ACP") }
+        return support.launchProfile(effort: effort)
     }
 
     /// Ask `tool` once. Mirrors `CLICompletion.run` for the other assistants.
@@ -404,18 +384,6 @@ enum ACPAssistant {
 
     // MARK: - Models
 
-    private static func modelsKey(_ tool: CLITool) -> String { "settings.cli.\(tool.rawValue)Models" }
-
-    /// Models the signed-in account offers, from the last check (Settings or menus).
-    static func cachedModels(_ tool: CLITool) -> [AIModelOption] {
-        guard let data = UserDefaults.standard.data(forKey: modelsKey(tool)),
-              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] else { return [] }
-        return rows.compactMap { row in
-            guard let id = row["id"], !id.isEmpty else { return nil }
-            return AIModelOption(id: id, name: row["name"] ?? id, detail: row["detail"] ?? "")
-        }
-    }
-
     /// Start the assistant, open a session (no prompt, no tokens) and remember its model list.
     static func refreshModels(_ tool: CLITool, toolPath: String) async throws -> [AIModelOption] {
         let connection = ACPConnection(tool: tool, executable: toolPath, arguments: profile(tool, effort: nil).arguments,
@@ -436,10 +404,7 @@ enum ACPAssistant {
             let usage = ((row["_meta"] as? [String: Any])?["copilotUsage"] as? String).map { " · \($0) premium requests" } ?? ""
             return AIModelOption(id: id, name: row["name"] as? String ?? id, detail: (row["description"] as? String ?? id) + usage)
         }
-        if !models.isEmpty,
-           let data = try? JSONSerialization.data(withJSONObject: models.map { ["id": $0.id, "name": $0.name, "detail": $0.detail] }) {
-            UserDefaults.standard.set(data, forKey: modelsKey(tool))
-        }
+        ACPModelCache.store(models, for: tool.rawValue)
         return models
     }
 
@@ -557,10 +522,9 @@ private final class ACPConnection: @unchecked Sendable {
                 let detail = self.stderrTail.trimmingCharacters(in: .whitespacesAndNewlines)
                 let killed = exit.signaled && exit.status == SIGKILL
                 let name = self.tool.displayName
-                self.failAll(self.failure ?? CLICompletion.Failure.failed(self.tool, killed && self.tool == .cline
-                    ? "macOS stopped Cline (its binary's signature is invalid — a known problem of the npm package). "
-                      + "Fix: codesign --force --sign - \"$(dirname $(readlink -f $(which cline)))/.cline\""
-                    : "\(name) exited (\(exit.status))" + (detail.isEmpty ? "" : ": \(detail.suffix(400))")))
+                let message = (killed ? self.tool.provider.acp?.killedMessage : nil)
+                    ?? "\(name) exited (\(exit.status))" + (detail.isEmpty ? "" : ": \(detail.suffix(400))")
+                self.failAll(self.failure ?? CLICompletion.Failure.failed(self.tool, message))
             })
             child = started
             AgentProcesses.add(started)

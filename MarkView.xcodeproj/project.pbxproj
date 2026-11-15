@@ -469,6 +469,23 @@
 		33B12FE12086C36050EA5EC5 /* Layouts in Resources */ = {isa = PBXBuildFile; fileRef = 6BD15252A9E2CE1BFDC082B1 /* Layouts */; };
 		30E64AE7EADB12ACEDF06F7C /* WorkspaceLayoutPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 174B04661CD9C2082E56D312 /* WorkspaceLayoutPresets.swift */; };
 		5AB29D0E6D378BCA103C73C2 /* LayoutMenuItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7414D561557EDF1F97CF4217 /* LayoutMenuItems.swift */; };
+		E214BB0F603274CB34B904C6 /* AssistantProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47FD117E3B89CF8F4644E36D /* AssistantProvider.swift */; };
+		595704AE086B1FF35FFFE3E5 /* AssistantACP.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0EC2B7C74F5B960CB9E79B7 /* AssistantACP.swift */; };
+		72741F90DD9AA197E5F1572A /* CLITool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43ECB118C66665AF67859B9E /* CLITool.swift */; };
+		8C6A0C17FA47ED5CC0F35838 /* ClaudeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D8B7A04C3640E99F6F0BDDE /* ClaudeProvider.swift */; };
+		D998013CAF7149E26FED3B23 /* CodexProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F182FAF95368EABFB9D3E8 /* CodexProvider.swift */; };
+		F66D949D3E0A85EBEA9D6998 /* ClineProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 567F82E56E9DA02E6569B6EA /* ClineProvider.swift */; };
+		7CF5DA3CE7C5EE1FDF0658C8 /* CopilotProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69FC1C3D0E8793EC31299096 /* CopilotProvider.swift */; };
+		58D34C0375E4198443DE5659 /* AntigravityProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1241E52C30F6483587F0922C /* AntigravityProvider.swift */; };
+		B0458690522BE1E9B6BB5BD4 /* AssistantProviderList.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED74EBF2936E077A4E03BA99 /* AssistantProviderList.swift */; };
+		D60695C56BA2C3B2F9BC1380 /* AssistantActivitySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EEF27F06681E5D75FF2C9AF /* AssistantActivitySupport.swift */; };
+		65D5426B68B4A28976FEB1B1 /* AssistantUsageSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751AC0B4C8063CFA621044B6 /* AssistantUsageSupport.swift */; };
+		431F415D09BA34C8E5383407 /* AssistantMCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46FF1586741486079728E57C /* AssistantMCP.swift */; };
+		9396AB387AE4434F1D182D9E /* AssistantLiveModelSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 981138F6713A19C1BC852E9B /* AssistantLiveModelSwitch.swift */; };
+		F305760817B31D8C26E57969 /* AssistantSessionLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40B65CF2FEDAE28837EA9E34 /* AssistantSessionLog.swift */; };
+		4D5CBBE44F455F4E8115F7C0 /* AssistantCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0730D4137E1CBDE1064F774B /* AssistantCompletion.swift */; };
+		BB6E1E461163983EAB5A6CBA /* AssistantRemote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD2C2EE028EB674A5C5F57F /* AssistantRemote.swift */; };
+		B6035B49606094068AB49C6D /* TerminalProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61FB7EE1BB94329885567434 /* TerminalProfile.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1052,6 +1069,23 @@
 		6BD15252A9E2CE1BFDC082B1 /* Layouts */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Layouts; sourceTree = "<group>"; };
 		174B04661CD9C2082E56D312 /* WorkspaceLayoutPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLayoutPresets.swift; sourceTree = "<group>"; };
 		7414D561557EDF1F97CF4217 /* LayoutMenuItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutMenuItems.swift; sourceTree = "<group>"; };
+		47FD117E3B89CF8F4644E36D /* AssistantProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantProvider.swift; sourceTree = "<group>"; };
+		C0EC2B7C74F5B960CB9E79B7 /* AssistantACP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantACP.swift; sourceTree = "<group>"; };
+		43ECB118C66665AF67859B9E /* CLITool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITool.swift; sourceTree = "<group>"; };
+		7D8B7A04C3640E99F6F0BDDE /* ClaudeProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeProvider.swift; sourceTree = "<group>"; };
+		E3F182FAF95368EABFB9D3E8 /* CodexProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexProvider.swift; sourceTree = "<group>"; };
+		567F82E56E9DA02E6569B6EA /* ClineProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClineProvider.swift; sourceTree = "<group>"; };
+		69FC1C3D0E8793EC31299096 /* CopilotProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotProvider.swift; sourceTree = "<group>"; };
+		1241E52C30F6483587F0922C /* AntigravityProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AntigravityProvider.swift; sourceTree = "<group>"; };
+		ED74EBF2936E077A4E03BA99 /* AssistantProviderList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantProviderList.swift; sourceTree = "<group>"; };
+		7EEF27F06681E5D75FF2C9AF /* AssistantActivitySupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantActivitySupport.swift; sourceTree = "<group>"; };
+		751AC0B4C8063CFA621044B6 /* AssistantUsageSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantUsageSupport.swift; sourceTree = "<group>"; };
+		46FF1586741486079728E57C /* AssistantMCP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantMCP.swift; sourceTree = "<group>"; };
+		981138F6713A19C1BC852E9B /* AssistantLiveModelSwitch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantLiveModelSwitch.swift; sourceTree = "<group>"; };
+		40B65CF2FEDAE28837EA9E34 /* AssistantSessionLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantSessionLog.swift; sourceTree = "<group>"; };
+		0730D4137E1CBDE1064F774B /* AssistantCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantCompletion.swift; sourceTree = "<group>"; };
+		9CD2C2EE028EB674A5C5F57F /* AssistantRemote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantRemote.swift; sourceTree = "<group>"; };
+		61FB7EE1BB94329885567434 /* TerminalProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalProfile.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1120,25 +1154,21 @@
 			isa = PBXGroup;
 			children = (
 				7EC1F9BA32F5B57727E0D268 /* ACPAssistant.swift */,
-				B9352C3EC3E8CCF2B38B41AF /* AgentActivity.swift */,
 				11C21E5BBAD478CDEDD9BEC6 /* AgentActivityMonitor.swift */,
 				14DA99E32A3358E5851D585A /* AgentProcesses.swift */,
-				CA7B7306EDD4435E3DCEBAAC /* AgentUsage.swift */,
-				BF5B52ABAB4C525B14894004 /* AgentUsageLogs.swift */,
 				2844310A95C80FBE1E88187C /* AgentUsageTracker.swift */,
 				43F98342E7F3820A62C4E015 /* AIAssistants.swift */,
 				F4700050C38EAE4C47A81DF3 /* AICallLog.swift */,
 				A6E0167483A13431C669BD05 /* AIOperation.swift */,
 				1A772D24F7564B57E808520A /* AIPrompts.swift */,
 				A6E0167483A13431C669BCFB /* AIToolRuns.swift */,
-				A6E0167483A13431C669BD12 /* AssistantProviderRegistry.swift */,
-				BDD60B865C8AFD298FC5EB04 /* ClaudeSessionModel.swift */,
 				8617D6996AEA0B711F366A7C /* CLICompletion.swift */,
 				4E5C49BB3F8E4AF05F47765E /* CommandPolicy.swift */,
 				CF4BDCBD84C68089E10F1CCC /* DiagramAI.swift */,
 				2DDC0BA825074D867C9D7697 /* OutputLanguage.swift */,
 				3C5186158816AE816A500A12 /* ProviderHints.swift */,
 				2813544220B3EBEC33B10F32 /* SystemProbe.swift */,
+				DAFD936599E6497BB1CC0AB4 /* Providers */,
 			);
 			path = AI;
 			sourceTree = "<group>";
@@ -1494,6 +1524,7 @@
 				8D10759E6114CC3E831EE66D /* TerminalChildProcess.swift */,
 				A440251497E5756568B77B87 /* TerminalLink.swift */,
 				E5547BF6AD940A3322F4D1A0 /* TerminalSession.swift */,
+				61FB7EE1BB94329885567434 /* TerminalProfile.swift */,
 			);
 			path = Terminal;
 			sourceTree = "<group>";
@@ -2075,6 +2106,34 @@
 			path = Bridge;
 			sourceTree = "<group>";
 		};
+		DAFD936599E6497BB1CC0AB4 /* Providers */ = {
+			isa = PBXGroup;
+			children = (
+				A6E0167483A13431C669BD12 /* AssistantProviderRegistry.swift */,
+				47FD117E3B89CF8F4644E36D /* AssistantProvider.swift */,
+				C0EC2B7C74F5B960CB9E79B7 /* AssistantACP.swift */,
+				43ECB118C66665AF67859B9E /* CLITool.swift */,
+				7D8B7A04C3640E99F6F0BDDE /* ClaudeProvider.swift */,
+				E3F182FAF95368EABFB9D3E8 /* CodexProvider.swift */,
+				567F82E56E9DA02E6569B6EA /* ClineProvider.swift */,
+				69FC1C3D0E8793EC31299096 /* CopilotProvider.swift */,
+				1241E52C30F6483587F0922C /* AntigravityProvider.swift */,
+				ED74EBF2936E077A4E03BA99 /* AssistantProviderList.swift */,
+				CA7B7306EDD4435E3DCEBAAC /* AgentUsage.swift */,
+				BF5B52ABAB4C525B14894004 /* AgentUsageLogs.swift */,
+				BDD60B865C8AFD298FC5EB04 /* ClaudeSessionModel.swift */,
+				B9352C3EC3E8CCF2B38B41AF /* AgentActivity.swift */,
+				7EEF27F06681E5D75FF2C9AF /* AssistantActivitySupport.swift */,
+				751AC0B4C8063CFA621044B6 /* AssistantUsageSupport.swift */,
+				46FF1586741486079728E57C /* AssistantMCP.swift */,
+				981138F6713A19C1BC852E9B /* AssistantLiveModelSwitch.swift */,
+				40B65CF2FEDAE28837EA9E34 /* AssistantSessionLog.swift */,
+				0730D4137E1CBDE1064F774B /* AssistantCompletion.swift */,
+				9CD2C2EE028EB674A5C5F57F /* AssistantRemote.swift */,
+			);
+			path = Providers;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -2222,6 +2281,23 @@
 				47B282BD306263A5DE536089 /* ACPAssistant.swift in Sources */,
 				D4F3C35D9679DCE67FDD55E2 /* AIAssistantPickerView.swift in Sources */,
 				436C087D720363F0E8146706 /* AIAssistants.swift in Sources */,
+				B6035B49606094068AB49C6D /* TerminalProfile.swift in Sources */,
+				BB6E1E461163983EAB5A6CBA /* AssistantRemote.swift in Sources */,
+				4D5CBBE44F455F4E8115F7C0 /* AssistantCompletion.swift in Sources */,
+				F305760817B31D8C26E57969 /* AssistantSessionLog.swift in Sources */,
+				9396AB387AE4434F1D182D9E /* AssistantLiveModelSwitch.swift in Sources */,
+				431F415D09BA34C8E5383407 /* AssistantMCP.swift in Sources */,
+				65D5426B68B4A28976FEB1B1 /* AssistantUsageSupport.swift in Sources */,
+				D60695C56BA2C3B2F9BC1380 /* AssistantActivitySupport.swift in Sources */,
+				B0458690522BE1E9B6BB5BD4 /* AssistantProviderList.swift in Sources */,
+				58D34C0375E4198443DE5659 /* AntigravityProvider.swift in Sources */,
+				7CF5DA3CE7C5EE1FDF0658C8 /* CopilotProvider.swift in Sources */,
+				F66D949D3E0A85EBEA9D6998 /* ClineProvider.swift in Sources */,
+				D998013CAF7149E26FED3B23 /* CodexProvider.swift in Sources */,
+				8C6A0C17FA47ED5CC0F35838 /* ClaudeProvider.swift in Sources */,
+				72741F90DD9AA197E5F1572A /* CLITool.swift in Sources */,
+				595704AE086B1FF35FFFE3E5 /* AssistantACP.swift in Sources */,
+				E214BB0F603274CB34B904C6 /* AssistantProvider.swift in Sources */,
 				45E882A9EAE673E382F7EDC1 /* AICallLog.swift in Sources */,
 				3824EA89779E6F8AD2B05497 /* AIPrompts.swift in Sources */,
 				07044898F5427AD51A50B41F /* AIToolRuns.swift in Sources */,

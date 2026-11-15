@@ -737,11 +737,7 @@ final class FeatureStore: ObservableObject {
     /// terminal that has not started yet or a CLI without a readable log.
     nonisolated private static func answeredModel(_ tool: CLITool, directory: URL, since: Date?) -> String? {
         guard let since else { return nil }
-        switch tool {
-        case .claude: return AgentModelProbe.claudeModel(cwd: directory, since: since)
-        case .codex: return AgentModelProbe.codexModel(cwd: directory, since: since)
-        default: return nil
-        }
+        return tool.provider.answeredModel(in: directory, since: since)
     }
 
     /// Features whose GitHub and git history is followed: those with an "implementation

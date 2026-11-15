@@ -1,8 +1,8 @@
 import Foundation
 
-// Usage counted from the agents' local CLI logs (DEC-007): Claude Code's
-// ~/.claude/projects/**/*.jsonl and Codex's ~/.codex/sessions/**/*.jsonl. Foundation only and
-// no network (DEC-013); tools/tests/agent-usage-tests.sh checks the line parsers.
+// Usage counted from the agents' local CLI logs (DEC-007), in the format each assistant's provider describes
+// (`UsageLogFormat`): Claude Code's ~/.claude/projects/**/*.jsonl, Codex's ~/.codex/sessions/**/*.jsonl. Foundation
+// only and no network (DEC-013); tools/tests/agent-usage-tests.sh checks the line parsers.
 
 /// Tokens (and cost, when the log records it) of one model call.
 struct UsageEvent: Sendable {
@@ -24,40 +24,10 @@ enum UsageLogError: Error, Equatable {
     }
 }
 
-/// Parsers of single log lines.
+/// What the log formats share (the formats themselves are in each assistant's provider file).
 enum UsageLogLine {
-    /// A Claude Code `assistant` line. The CLI writes one line per content block with the same
-    /// `message.id` and `requestId`, so `key` is used to count each call once. Cost only when
-    /// the line carries `costUSD` (older CLI versions); current ones record none per call.
-    static func claude(_ line: Data, dates: ISO8601DateFormatter) -> (key: String, event: UsageEvent)? {
-        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-              object["type"] as? String == "assistant",
-              let message = object["message"] as? [String: Any],
-              let usage = message["usage"] as? [String: Any],
-              let date = parseDate(object["timestamp"], dates) else { return nil }
-        let fields = ["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
-        let tokens = fields.reduce(0) { $0 + ((usage[$1] as? NSNumber)?.intValue ?? 0) }
-        let id = message["id"] as? String ?? object["uuid"] as? String ?? ""
-        let request = object["requestId"] as? String ?? ""
-        let cost = (object["costUSD"] as? NSNumber)?.doubleValue
-        return ("\(id):\(request)", UsageEvent(date: date, tokens: tokens, costUSD: cost))
-    }
-
-    /// A Codex `token_count` event: the session's cumulative total so far.
-    static func codex(_ line: Data, dates: ISO8601DateFormatter) -> (date: Date, total: Int)? {
-        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-              let payload = object["payload"] as? [String: Any],
-              payload["type"] as? String == "token_count",
-              let date = parseDate(object["timestamp"], dates) else { return nil }
-        // `info` is null before the first model call of a session.
-        guard let info = payload["info"] as? [String: Any],
-              let total = info["total_token_usage"] as? [String: Any],
-              let tokens = (total["total_tokens"] as? NSNumber)?.intValue else { return (date, -1) }
-        return (date, tokens)
-    }
-
     /// Fast path with fractional seconds (what the CLIs write), then any ISO 8601 form.
-    private static func parseDate(_ value: Any?, _ dates: ISO8601DateFormatter) -> Date? {
+    static func date(_ value: Any?, _ dates: ISO8601DateFormatter) -> Date? {
         guard let string = value as? String else { return nil }
         return dates.date(from: string) ?? OfficialUsageParser.isoDate(string)
     }
@@ -73,7 +43,8 @@ enum UsageLogLine {
 /// rescan after the CLI appended a few lines costs only those lines. Not thread-safe: it is
 /// confined to one serial queue (`AgentUsageTracker.logQueue`), hence `@unchecked Sendable`.
 final class UsageLogReader: @unchecked Sendable {
-    let agent: UsageAgent
+    let agent: CLITool
+    private let format: any UsageLogFormat
     private let roots: [URL]
     private let dates = UsageLogLine.timestampFormatter()
 
@@ -92,14 +63,12 @@ final class UsageLogReader: @unchecked Sendable {
     /// The earliest date the cached files cover; an earlier `since` forces a full rescan.
     private var coveredSince: Date?
 
-    init(agent: UsageAgent, home: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    /// Nil for an assistant that keeps no readable local logs (`CLITool.hasLocalLogs`).
+    init?(agent: CLITool, home: URL = FileManager.default.homeDirectoryForCurrentUser) {
+        guard let usage = agent.provider.usage, let format = usage.localLogs else { return nil }
         self.agent = agent
-        let base = home.appendingPathComponent(agent.dataDirectoryName)
-        switch agent {
-        case .claude: roots = [base.appendingPathComponent("projects")]
-        case .codex: roots = [base.appendingPathComponent("sessions"), base.appendingPathComponent("archived_sessions")]
-        case .antigravity: roots = []  // no readable local logs (`UsageAgent.hasLocalLogs`)
-        }
+        self.format = format
+        roots = format.roots(in: home.appendingPathComponent(usage.dataDirectoryName))
     }
 
     /// The directories to watch for changes.
@@ -197,39 +166,27 @@ final class UsageLogReader: @unchecked Sendable {
 
     private static let chunkSize: UInt64 = 8 << 20
 
-    private static let claudeMarker = Data(#""usage""#.utf8)
-    private static let codexMarker = Data(#""token_count""#.utf8)
-
     private func parse(_ chunk: Data, into state: inout FileState) {
-        let marker = agent == .claude ? Self.claudeMarker : Self.codexMarker
         var lineStart = chunk.startIndex
         while lineStart < chunk.endIndex {
             let lineEnd = chunk[lineStart...].firstIndex(of: 0x0A) ?? chunk.endIndex
             let line = chunk[lineStart..<lineEnd]
             lineStart = lineEnd + 1
             // Most lines (tool output, prompts) carry no usage: skip them without decoding.
-            guard line.range(of: marker) != nil else { continue }
-            switch agent {
-            case .claude:
-                // Only assistant lines count as candidates for the format check.
-                guard line.range(of: Data(#""assistant""#.utf8)) != nil else { continue }
+            guard line.range(of: format.marker) != nil else { continue }
+            switch format.read(line: Data(line), dates: dates, lastTotal: &state.lastTotal) {
+            case .notUsage:
+                continue
+            case .unrecognised:
                 state.candidates += 1
-                guard let (key, event) = UsageLogLine.claude(Data(line), dates: dates) else { continue }
-                state.parsed += 1
-                guard seenKeys.insert(key).inserted else { continue }
-                state.keys.append(key)
-                state.events.append(event)
-            case .codex:
+            case .counted(let key, let event):
                 state.candidates += 1
-                guard let (date, total) = UsageLogLine.codex(Data(line), dates: dates) else { continue }
                 state.parsed += 1
-                guard total >= 0 else { continue }
-                // A total below the last one means a new counter (e.g. a resumed session).
-                let delta = total >= state.lastTotal ? total - state.lastTotal : total
-                state.lastTotal = total
-                if delta > 0 { state.events.append(UsageEvent(date: date, tokens: delta, costUSD: nil)) }
-            case .antigravity:
-                continue  // never read: `UsageAgent.hasLocalLogs` is false
+                if let key {
+                    guard seenKeys.insert(key).inserted else { continue }
+                    state.keys.append(key)
+                }
+                if let event { state.events.append(event) }
             }
         }
     }

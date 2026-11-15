@@ -68,7 +68,7 @@ enum ProjectOperationDiscoveryService {
         var candidates = local.operations.map { ($0, false) }
         var unknowns = local.notDetermined
         let tool = AIAssistantPreferences.backend(project: root)
-        let canSearchWeb = tool == .claude || tool == .codex
+        let canSearchWeb = tool.provider.canSearchWeb
         var webSearched = false
         if canSearchWeb && !unknowns.isEmpty {
             phase("web")

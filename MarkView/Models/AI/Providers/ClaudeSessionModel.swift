@@ -6,11 +6,17 @@ import Foundation
 /// (BUG-048). Pure and Foundation-only: `tools/tests/claude-session-model-tests.sh` checks it.
 enum ClaudeSessionModel {
     /// A model the log says the session used, and when.
-    struct Reading: Equatable {
-        /// What `--model` accepts: a family alias ("sonnet") when the name belongs to a known family,
-        /// else the model id as logged.
-        let model: String
-        let date: Date
+    typealias Reading = AssistantModelReading
+
+    /// Claude Code's live model switch: `/model <family>` typed into the running session.
+    static let liveSwitch: any AssistantLiveModelSwitch = Live()
+
+    private struct Live: AssistantLiveModelSwitch {
+        var families: [String] { ClaudeSessionModel.families }
+        func family(of name: String) -> String? { ClaudeSessionModel.family(of: name) }
+        func command(for model: String) -> String { "/model \(model)" }
+        func title(_ title: String, model: String) -> String { ClaudeSessionModel.title(title, model: model) }
+        func reading(lines: [Data], since: Date?) -> AssistantModelReading? { ClaudeSessionModel.reading(lines: lines, since: since) }
     }
 
     /// Families `--model` takes as aliases, which always mean the family's newest model.

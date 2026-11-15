@@ -160,7 +160,7 @@ struct DDESettingsView: View {
             // Usage chips in the workspace top bar: which detected agents are shown (DEC-012).
             GroupBox("Agent usage (Terminal tab)") {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(UsageAgent.allCases) { agent in AgentUsageVisibilityToggle(agent: agent) }
+                    ForEach(CLITool.usageTracked) { agent in AgentUsageVisibilityToggle(agent: agent) }
                     Text("Official limit data is requested with the agent's own sign-in, read locally and sent only to its vendor. Otherwise usage is counted from local logs (~/.claude, ~/.codex). Antigravity's numbers come from its own command (agy /usage); MarkView reads no sign-in for it.")
                         .uiFont(size: 9).foregroundColor(palette.textDim)
                 }.padding(8)
@@ -538,11 +538,11 @@ struct DDESettingsView: View {
 /// Show or hide one agent's usage chip; undetected agents are listed but never shown.
 private struct AgentUsageVisibilityToggle: View {
     @Environment(\.palette) private var palette
-    let agent: UsageAgent
+    let agent: CLITool
     @AppStorage private var hidden: Bool
     private let detected: Bool
 
-    init(agent: UsageAgent) {
+    init(agent: CLITool) {
         self.agent = agent
         _hidden = AppStorage(wrappedValue: false, agent.hiddenKey)
         detected = AgentUsageTracker.isDetected(agent)

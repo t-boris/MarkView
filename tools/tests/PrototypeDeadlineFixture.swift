@@ -1,6 +1,7 @@
 import Foundation
 
 enum CLITool { case claude }
+enum AssistantProviderRegistry { static var defaultTool: CLITool { .claude } }
 enum CLICompletion {
     struct Request {
         let project: URL?

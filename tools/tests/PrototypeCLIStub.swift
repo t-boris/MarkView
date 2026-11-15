@@ -2,6 +2,7 @@ import Foundation
 // Stand-in for CLICompletion that runs the real `claude` CLI (see prototype-live-run.sh): same read-only
 // tools and JSON schema as the app, so the prompts and schemas can be checked against a real assistant.
 enum CLITool { case claude }
+enum AssistantProviderRegistry { static var defaultTool: CLITool { .claude } }
 enum CLICompletion {
     struct Request {
         let project: URL?

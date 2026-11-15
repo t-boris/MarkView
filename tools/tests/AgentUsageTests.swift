@@ -116,19 +116,19 @@ let claudeJSON = """
            {"kind":"weekly_all","group":"weekly","percent":13,"resets_at":"2026-10-02T18:59:59.760125+00:00","scope":null},
            {"kind":"weekly_scoped","group":"weekly","percent":0,"resets_at":"2026-10-02T19:00:00+00:00","scope":{"model":{"id":null,"display_name":"Fable"},"surface":null}}]}
 """
-let claude = OfficialUsageParser.claude(Data(claudeJSON.utf8)) ?? []
+let claude = ClaudeUsage.parse(Data(claudeJSON.utf8)) ?? []
 expect(claude.map(\.label), ["5h", "week", "Fable wk"], "claude limits labels")
 expect(claude.map(\.percentUsed), [19, 13, 0], "claude limits percents")
 expect(claude.first?.resetsAt.map { Int($0.timeIntervalSince1970) }, Int(date("2026-09-26T22:59:59Z").timeIntervalSince1970),
        "six-digit fractional seconds parse")
 expect(QuotaWindow.headline(of: claude)?.id, "session", "claude headline")
 expect(claude.map(\.modelScope), [nil, nil, "Fable"], "claude scoped window keeps its model")
-let legacy = OfficialUsageParser.claude(Data("""
+let legacy = ClaudeUsage.parse(Data("""
 {"five_hour":{"utilization":42.5,"resets_at":"2026-09-26T22:59:59Z"},"seven_day":null,"seven_day_opus":{"utilization":5,"resets_at":null}}
 """.utf8)) ?? []
 expect(legacy.map(\.id), ["five_hour", "seven_day_opus"], "claude legacy keys")
 expect(legacy.map(\.modelScope), [nil, "Opus"], "claude legacy scoped window")
-expect(OfficialUsageParser.claude(Data(#"{"error":{"type":"authentication_error"}}"#.utf8)) == nil, true, "claude error body unrecognised")
+expect(ClaudeUsage.parse(Data(#"{"error":{"type":"authentication_error"}}"#.utf8)) == nil, true, "claude error body unrecognised")
 
 // Codex official response (shape seen 2026-09-26)
 let codexJSON = """
@@ -136,12 +136,12 @@ let codexJSON = """
  "primary_window":{"used_percent":1,"limit_window_seconds":604800,"reset_after_seconds":592301,"reset_at":1791050407},
  "secondary_window":{"used_percent":55.5,"limit_window_seconds":18000,"reset_after_seconds":600}}}
 """
-let codex = OfficialUsageParser.codex(Data(codexJSON.utf8), now: now) ?? []
+let codex = CodexUsage.parse(Data(codexJSON.utf8), now: now) ?? []
 expect(codex.map(\.label), ["week", "5h"], "codex labels")
 expect(codex.first?.resetsAt, Date(timeIntervalSince1970: 1_791_050_407), "codex reset_at")
 expect(codex.last?.resetsAt, now.addingTimeInterval(600), "codex reset_after_seconds fallback")
 expect(QuotaWindow.headline(of: codex)?.id, "secondary_window", "codex headline")
-expect(OfficialUsageParser.codex(Data(#"{"rate_limit":{"primary_window":null,"secondary_window":null}}"#.utf8), now: now) == nil,
+expect(CodexUsage.parse(Data(#"{"rate_limit":{"primary_window":null,"secondary_window":null}}"#.utf8), now: now) == nil,
        true, "codex without windows unrecognised")
 
 // Antigravity (DEC-020): `agy --output-format json -p "/usage"`, shape seen 2026-11-14 (descriptions shortened)
@@ -159,7 +159,7 @@ let antigravityGroups = """
   {"id":"gemini-argon-wtu-weekly","name":"Gemini 4 Argon Weekly Limit","description":"You have used some.","window":"weekly","remaining_fraction":0.9298666715621948,"reset_time":"2026-11-22T03:10:56Z"}]}
 """
 let antigravityData = Data(antigravityJSON(antigravityGroups).utf8)
-let antigravity = OfficialUsageParser.antigravity(antigravityData) ?? []
+let antigravity = AntigravityUsage.parse(antigravityData) ?? []
 expect(antigravity.map(\.id), ["gemini-weekly", "gemini-5h", "3p-weekly", "3p-5h", "gemini-argon-wtu-weekly"], "antigravity bucket ids")
 expect(antigravity.map(\.label), ["Gemini wk", "Gemini 5h", "Claude and GPT wk", "Claude and GPT 5h", "Gemini 4 Argon wk"],
        "antigravity labels carry the group, without the word models")
@@ -177,7 +177,7 @@ expect(antigravity.last?.pace(now: date("2026-11-19T03:10:56Z")), .under, "7% us
 expect(antigravity.last?.pace(now: date("2026-11-15T03:10:56Z")), .ahead, "7% used before the window has started to run: ahead")
 expect(antigravity.first?.pace(now: now), nil, "an unused bucket has no pace")
 
-let exhausted = OfficialUsageParser.antigravity(Data(antigravityJSON(#"""
+let exhausted = AntigravityUsage.parse(Data(antigravityJSON(#"""
 {"name":"Gemini Models","buckets":[{"id":"a","window":"5h","remaining_fraction":0,"reset_time":"2026-11-15T08:19:24Z"},
  {"id":"b","window":"weekly","remaining_fraction":-0.2,"reset_time":"2026-11-22T03:19:24Z"},
  {"id":"c","window":"weekly","remaining_fraction":1.3,"reset_time":"2026-11-22T03:19:24Z"},
@@ -190,32 +190,32 @@ expect(exhausted.first?.level, .critical, "an exhausted bucket is critical")
 expect(exhausted.first?.resetsAt, date("2026-11-15T08:19:24Z"), "an exhausted bucket keeps its reset time")
 expect(exhausted.last?.label, "Gemini daily", "unknown window kind keeps its name")
 expect(exhausted.last?.duration, nil, "unknown window kind has no length")
-let unnamed = OfficialUsageParser.antigravity(Data(antigravityJSON(#"{"buckets":[{"window":"5h","remaining_fraction":0.4,"reset_time":"2026-11-15T08:19:24Z"}]}"#).utf8)) ?? []
+let unnamed = AntigravityUsage.parse(Data(antigravityJSON(#"{"buckets":[{"window":"5h","remaining_fraction":0.4,"reset_time":"2026-11-15T08:19:24Z"}]}"#).utf8)) ?? []
 expect(unnamed.map(\.id), ["0_0_5h"], "bucket without an id gets a stable one")
 expect(unnamed.map(\.label), ["Group 1 5h"], "group without a name")
-expect(OfficialUsageParser.antigravity(Data("{}".utf8)) == nil, true, "antigravity: empty object unrecognised")
-expect(OfficialUsageParser.antigravity(Data(antigravityJSON("").utf8)) == nil, true, "antigravity: no groups unrecognised")
-expect(OfficialUsageParser.antigravity(Data(antigravityJSON(#"{"name":"G","buckets":[]}"#).utf8)) == nil, true, "antigravity: no buckets unrecognised")
-expect(OfficialUsageParser.antigravity(Data("Authentication required".utf8)) == nil, true, "antigravity: text unrecognised")
+expect(AntigravityUsage.parse(Data("{}".utf8)) == nil, true, "antigravity: empty object unrecognised")
+expect(AntigravityUsage.parse(Data(antigravityJSON("").utf8)) == nil, true, "antigravity: no groups unrecognised")
+expect(AntigravityUsage.parse(Data(antigravityJSON(#"{"name":"G","buckets":[]}"#).utf8)) == nil, true, "antigravity: no buckets unrecognised")
+expect(AntigravityUsage.parse(Data("Authentication required".utf8)) == nil, true, "antigravity: text unrecognised")
 
 // What one `agy` run means (exit -1: could not start, -2: stopped at our timeout)
 let signInPrompt = "Authentication required. Please visit the URL to log in:\n  https://accounts.google.com/o/oauth2/auth?client_id=x\n\nWaiting for authentication (timeout 60s)..."
-expect(OfficialUsageParser.antigravityRun(exitCode: 0, stdout: String(data: antigravityData, encoding: .utf8)!, stderr: ""),
+expect(AntigravityUsage.interpret(exitCode: 0, stdout: String(data: antigravityData, encoding: .utf8)!, stderr: ""),
        .windows(antigravity), "a good answer gives the windows")
-expect(OfficialUsageParser.antigravityRun(exitCode: -2, stdout: signInPrompt, stderr: ""), .signedOut, "sign-in prompt cut at our timeout is signed out")
-expect(OfficialUsageParser.antigravityRun(exitCode: 1, stdout: "", stderr: "Error: authentication failed or timed out"), .signedOut, "authentication failed is signed out")
-expect(OfficialUsageParser.antigravityRun(exitCode: -2, stdout: "", stderr: ""), .failed("agy did not answer in time"), "timeout without output")
-expect(OfficialUsageParser.antigravityRun(exitCode: -1, stdout: "", stderr: "no such file"), .failed("could not start the agy command"), "could not start")
-expect(OfficialUsageParser.antigravityRun(exitCode: 0, stdout: "{\"status\":\"SUCCESS\"}", stderr: ""), .failed("response not recognised"), "unknown json")
-expect(OfficialUsageParser.antigravityRun(exitCode: 2, stdout: "boom", stderr: ""), .failed("response not recognised"), "other failure")
+expect(AntigravityUsage.interpret(exitCode: -2, stdout: signInPrompt, stderr: ""), .signedOut, "sign-in prompt cut at our timeout is signed out")
+expect(AntigravityUsage.interpret(exitCode: 1, stdout: "", stderr: "Error: authentication failed or timed out"), .signedOut, "authentication failed is signed out")
+expect(AntigravityUsage.interpret(exitCode: -2, stdout: "", stderr: ""), .failed("agy did not answer in time"), "timeout without output")
+expect(AntigravityUsage.interpret(exitCode: -1, stdout: "", stderr: "no such file"), .failed("could not start the agy command"), "could not start")
+expect(AntigravityUsage.interpret(exitCode: 0, stdout: "{\"status\":\"SUCCESS\"}", stderr: ""), .failed("response not recognised"), "unknown json")
+expect(AntigravityUsage.interpret(exitCode: 2, stdout: "boom", stderr: ""), .failed("response not recognised"), "other failure")
 
 // The agents and what differs between them
-expect(UsageAgent.allCases.map(\.rawValue), ["claude", "codex", "antigravity"], "agents in bar order")
-expect(UsageAgent.allCases.map(\.hasLocalLogs), [true, true, false], "only Claude and Codex have local logs")
-expect(UsageAgent.antigravity.displayName, "Antigravity", "antigravity name")
-expect(UsageAgent.antigravity.dataDirectoryName, ".gemini/antigravity-cli", "antigravity data directory")
-expect(UsageAgent.antigravity.hiddenKey, "settings.usage.antigravity.hidden", "antigravity hide key")
-expect(UsageAgent.allCases.map { $0.signedOutInterval ?? -1 }, [-1, -1, 1800], "only Antigravity waits longer (30 minutes) while signed out")
+expect(CLITool.usageTracked.map(\.rawValue), ["claude", "codex", "antigravity"], "agents in bar order")
+expect(CLITool.usageTracked.map(\.hasLocalLogs), [true, true, false], "only Claude and Codex have local logs")
+expect(CLITool.antigravity.displayName, "Antigravity", "antigravity name")
+expect(CLITool.antigravity.dataDirectoryName, ".gemini/antigravity-cli", "antigravity data directory")
+expect(CLITool.antigravity.hiddenKey, "settings.usage.antigravity.hidden", "antigravity hide key")
+expect(CLITool.usageTracked.map { $0.signedOutInterval ?? -1 }, [-1, -1, 1800], "only Antigravity waits longer (30 minutes) while signed out")
 expect(AgentUsageState.resolve(official: antigravity, limit: nil, limitUsage: nil, today: nil, localError: nil, now: now).headline?.id,
        "gemini-argon-wtu-weekly", "antigravity official state")
 
@@ -237,20 +237,20 @@ let dates = UsageLogLine.timestampFormatter()
 let claudeLine = Data("""
 {"type":"assistant","timestamp":"2026-09-26T08:00:04.131Z","requestId":"req_1","message":{"id":"msg_1","model":"claude-sonnet-5","usage":{"input_tokens":2,"cache_creation_input_tokens":27007,"cache_read_input_tokens":11694,"output_tokens":322}}}
 """.utf8)
-let parsedClaude = UsageLogLine.claude(claudeLine, dates: dates)
+let parsedClaude = ClaudeUsage.Log.parse(claudeLine, dates: dates)
 expect(parsedClaude?.key, "msg_1:req_1", "claude dedupe key")
 expect(parsedClaude?.event.tokens, 2 + 27007 + 11694 + 322, "claude tokens include cache")
 expect(parsedClaude?.event.costUSD, nil, "claude no cost recorded")
 let costLine = Data(#"{"type":"assistant","timestamp":"2026-09-26T08:00:04Z","costUSD":0.5,"message":{"id":"m","usage":{"input_tokens":1}}}"#.utf8)
-expect(UsageLogLine.claude(costLine, dates: dates)?.event.costUSD, 0.5, "timestamp without fraction; cost recorded")
+expect(ClaudeUsage.Log.parse(costLine, dates: dates)?.event.costUSD, 0.5, "timestamp without fraction; cost recorded")
 let userLine = Data(#"{"type":"user","timestamp":"2026-09-26T08:00:04.131Z","message":{"usage":{}}}"#.utf8)
-expect(UsageLogLine.claude(userLine, dates: dates) == nil, true, "user lines ignored")
+expect(ClaudeUsage.Log.parse(userLine, dates: dates) == nil, true, "user lines ignored")
 let codexLine = Data("""
 {"timestamp":"2026-09-25T15:21:09.530Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":21101,"cached_input_tokens":12416,"output_tokens":368,"total_tokens":21469}},"rate_limits":{}}}
 """.utf8)
-expect(UsageLogLine.codex(codexLine, dates: dates)?.total, 21469, "codex cumulative total")
+expect(CodexUsage.Log.parse(codexLine, dates: dates)?.total, 21469, "codex cumulative total")
 let codexNull = Data(#"{"timestamp":"2026-09-25T15:21:09.530Z","type":"event_msg","payload":{"type":"token_count","info":null}}"#.utf8)
-expect(UsageLogLine.codex(codexNull, dates: dates)?.total, -1, "codex null info recognised, no tokens")
+expect(CodexUsage.Log.parse(codexNull, dates: dates)?.total, -1, "codex null info recognised, no tokens")
 
 // Reader over a temporary home: dedupe, deltas, incremental reads, unrecognised format
 let home = FileManager.default.temporaryDirectory.appendingPathComponent("agent-usage-tests-\(UUID().uuidString)")
@@ -271,7 +271,7 @@ try! ([claudeRecord("1", 100, "2026-09-26T08:00:00.000Z"), claudeRecord("1", 100
 try! (claudeRecord("1", 100, "2026-09-26T08:00:00.000Z") + "\n" + claudeRecord("3", 7, "2026-09-26T09:00:00.000Z") + "\n")
     .write(to: claudeDir.appendingPathComponent("b.jsonl"), atomically: true, encoding: .utf8)
 
-let claudeReader = UsageLogReader(agent: .claude, home: home)
+let claudeReader = UsageLogReader(agent: .claude, home: home)!
 let since = date("2026-09-26T00:00:00Z")
 let events = try! claudeReader.events(since: .distantPast)
 expect(events.usage(from: since).tokens, 107, "claude: duplicates counted once, window filter")
@@ -297,7 +297,7 @@ try! ([codexRecord(nil, "2026-09-26T08:00:00.000Z"), codexRecord(1000, "2026-09-
        codexRecord(1000, "2026-09-26T08:01:01.000Z"), codexRecord(1500, "2026-09-26T08:02:00.000Z"),
        codexRecord(200, "2026-09-26T09:00:00.000Z")].joined(separator: "\n") + "\n")
     .write(to: codexDir.appendingPathComponent("rollout-1.jsonl"), atomically: true, encoding: .utf8)
-let codexEvents = try! UsageLogReader(agent: .codex, home: home).events(since: .distantPast)
+let codexEvents = try! UsageLogReader(agent: .codex, home: home)!.events(since: .distantPast)
 expect(codexEvents.usage(from: since).tokens, 1700, "codex: deltas, repeats ignored, counter restart")
 expect(codexEvents.recordsCost, false, "codex records no cost")
 
@@ -307,13 +307,13 @@ try! FileManager.default.createDirectory(at: broken.appendingPathComponent(".cla
 try! (#"{"type":"assistant","usage":{"tokens":5}}"# + "\n")
     .write(to: broken.appendingPathComponent(".claude/projects/p/x.jsonl"), atomically: true, encoding: .utf8)
 do {
-    _ = try UsageLogReader(agent: .claude, home: broken).events(since: .distantPast)
+    _ = try UsageLogReader(agent: .claude, home: broken)!.events(since: .distantPast)
     expect("no error", "unrecognised", "changed format")
 } catch let error as UsageLogError {
     expect(error, .unrecognised("Claude Code log format not recognised"), "changed format")
 } catch { expect("\(error)", "unrecognised", "changed format") }
 do {
-    _ = try UsageLogReader(agent: .codex, home: broken).events(since: .distantPast)
+    _ = try UsageLogReader(agent: .codex, home: broken)!.events(since: .distantPast)
     expect("no error", "unreadable", "missing logs")
 } catch let error as UsageLogError {
     expect(error, .unreadable("No local logs in ~/.codex"), "missing logs")
@@ -321,3 +321,10 @@ do {
 
 print(failures == 0 ? "OK: \(checks) checks passed" : "\(failures) of \(checks) checks failed")
 exit(failures == 0 ? 0 : 1)
+
+// The suite names the assistants by their stored identity; the app names none outside its providers.
+extension CLITool {
+    static var claude: CLITool { CLITool(rawValue: "claude")! }
+    static var codex: CLITool { CLITool(rawValue: "codex")! }
+    static var antigravity: CLITool { CLITool(rawValue: "antigravity")! }
+}

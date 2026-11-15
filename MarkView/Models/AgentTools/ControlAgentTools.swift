@@ -130,7 +130,7 @@ enum ControlAgentTools {
     static let profile = BrowserAgentTools.MCPProfile(serverName: serverName, instructions: instructions, unavailableNote: unavailableNote,
                                                       tools: tools, probeTool: "markview_windows", rechecksApp: true, alwaysListsTools: true)
 
-    static let agentTools = ["claude", "codex", "cline", "copilot", "antigravity"]
+    static var agentTools: [String] { CLITool.allCases.map(\.rawValue) }
 
     // MARK: - Flow steps
 

@@ -19,6 +19,8 @@
 #   process              Process() outside Packages/MarkViewCore Subprocess.swift     tools/lint/process-allowlist.txt
 #   clicompletion        CLICompletion.run outside Models/AI/AIOperation.swift          tools/lint/clicompletion-allowlist.txt
 #   workspace-manager    `@EnvironmentObject ... WorkspaceManager` declarations         tools/lint/workspace-manager-views.txt
+#   assistant-switch     a literal `.claude` / `.codex` / `.cline` / `.copilot` / `.antigravity` outside Models/AI/Providers
+#                        (a `case`, a comparison, a default: the assistants are named only by their providers)  tools/lint/assistant-switch-allowlist.txt
 # A migration that reaches zero ends with an empty list (no lines), which means none allowed.
 #
 # Usage: tools/lint/architecture-lint.sh [--root <repo>] [--tighten]
@@ -213,6 +215,24 @@ ratchet("workspace-manager", "workspace-manager-views.txt", "@EnvironmentObject 
         "# `@EnvironmentObject ... WorkspaceManager` declarations: views that take the whole manager (AR-14). `<count> <path>`; a ratchet\n"
         "# that only falls. Run tools/lint/architecture-lint.sh --tighten after narrowing a view's dependency.")
 
+ASSISTANT_LITERAL = re.compile(r"(?<![\w\"/~.\-])\.(?:claude|codex|cline|copilot|antigravity)\b")
+
+def assistant_sites(files):
+    """Lines that name an assistant by an enum literal; a trailing `// ...` comment does not count."""
+    counts = {}
+    for path in files:
+        if rel(path).startswith("MarkView/Models/AI/Providers/"):
+            continue
+        hits = sum(1 for _, line in code_lines(path) if ASSISTANT_LITERAL.search(re.split(r"\s//", line)[0]))
+        if hits:
+            counts[rel(path)] = hits
+    return counts
+
+ratchet("assistant-switch", "assistant-switch-allowlist.txt", "assistant literal(s)", assistant_sites(app_swift),
+        "# Lines outside Models/AI/Providers that name an assistant (`.claude`, `.codex`, ...): a switch case, a comparison or a\n"
+        "# default (AR-35). `<count> <path>`; a ratchet that only falls. Run tools/lint/architecture-lint.sh --tighten after removing\n"
+        "# a site; the goal is an empty list: an assistant is described by its provider and nowhere else.")
+
 # --- semantic-database-actor
 database = root / "MarkView" / "Models" / "Insight" / "SemanticDatabase.swift"
 if database.is_file():
@@ -249,7 +269,7 @@ if js_dir.is_dir():
                 violations.append(("no-private-escape", f"{rel(path)}:{index + 1}: escapes HTML itself; use window.mvKit.escapeHtml / escapeAttr"))
 
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "bridge-no-bypass", "no-private-escape"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "assistant-switch", "bridge-no-bypass", "no-private-escape"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

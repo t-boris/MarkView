@@ -18,7 +18,7 @@ enum RemoteProviderLiveChecks {
 
     private static func check() async throws {
         guard (6...7).contains(CommandLine.arguments.count),
-              let provider = RemoteProviderConfiguration.Provider(rawValue: CommandLine.arguments[1]),
+              let provider = RemoteProviderConfiguration.tool(named: CommandLine.arguments[1]),
               let relay = URL(string: CommandLine.arguments[4]) else {
             throw RemoteFailure.invalid("Usage: remote-provider-live <claude|codex> <executable> <MarkView executable> <relay URL> <access-key file>")
         }
@@ -67,13 +67,13 @@ enum RemoteProviderLiveChecks {
         do {
             let context = await workspace.describe()
             func batchCommand(_ prompt: String, resume: Bool) async throws -> String {
-                let threadID = provider == .codex && resume
+                let threadID = provider.provider.remote?.refreshesThreadInstructions == true && resume
                     ? try await RemoteCodexContext.prepare(executable: executable, directory: homeRoot, context: context) : nil
-                var command = try RemoteProviderConfiguration.command(provider: provider, executable: executable, app: app,
+                var command = try RemoteProviderConfiguration.command(tool: provider, executable: executable, app: app,
                     socket: bridge.path, context: context, directory: homeRoot, model: ProcessInfo.processInfo.environment["MARKVIEW_LIVE_MODEL"], resume: resume,
                     resumeThreadID: threadID)
                 // Exercise the production MCP and hook settings with the providers' batch interfaces.
-                if provider == .claude {
+                if provider.rawValue == "claude" {
                     command += " --print --output-format json --max-turns 16 " + RemoteProviderConfiguration.quote(prompt)
                 } else {
                     if resume {
@@ -102,7 +102,7 @@ enum RemoteProviderLiveChecks {
                       !(await audit.names()).isDisjoint(with: ["edit_file", "write_file", "exec_command"]) else {
                     throw RemoteFailure.invalid("A natural file-edit request must use WORK tools and leave HOME untouched.")
                 }
-                print("\(provider.title): natural absolute-path request and resumed file edit passed.")
+                print("\(provider.displayName): natural absolute-path request and resumed file edit passed.")
                 await requests.close(); await workspace.close(); await home.revoke(); await work.close()
                 homeReceiver.cancel(); workReceiver.cancel()
                 print("Fixture: \(fixture.path)")
@@ -129,12 +129,12 @@ enum RemoteProviderLiveChecks {
             let names = await audit.names()
             guard names.isSuperset(of: ["workspace_info", "read_file", "write_file", "edit_file", "exec_command"]),
                   try String(contentsOf: workRoot.appendingPathComponent("edit.txt"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines) == "beta" else { throw RemoteFailure.invalid("The provider did not exercise all required work-computer tools.") }
-            print("\(provider.title): real login, HTTPS MCP, work-file read/write, Git and home-file isolation passed.")
+            print("\(provider.displayName): real login, HTTPS MCP, work-file read/write, Git and home-file isolation passed.")
             let resumePrompt = "Use the work-computer write_file tool to create resumed.txt containing only the phrase I asked you to remember in our previous turn. Do not read any files or logs to recover it. Then finish."
             try await run(try await batchCommand(resumePrompt, resume: true), directory: homeRoot)
             let recalled = try String(contentsOf: workRoot.appendingPathComponent("resumed.txt"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
             guard recalled == memory else { throw RemoteFailure.invalid("The provider did not continue its previous conversation.") }
-            print("\(provider.title): conversation continuation passed.")
+            print("\(provider.displayName): conversation continuation passed.")
             await requests.close(); await workspace.close(); await home.revoke(); await work.close()
             homeReceiver.cancel(); workReceiver.cancel()
             print("Fixture: \(fixture.path)")

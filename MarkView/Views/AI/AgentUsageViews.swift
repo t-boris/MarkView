@@ -22,13 +22,12 @@ extension UsageLevel {
 struct AgentUsageBar: View {
     @Environment(\.palette) private var palette
     @ObservedObject private var tracker = AgentUsageTracker.shared
-    @AppStorage(UsageAgent.claude.hiddenKey) private var claudeHidden = false
-    @AppStorage(UsageAgent.codex.hiddenKey) private var codexHidden = false
-    @AppStorage(UsageAgent.antigravity.hiddenKey) private var antigravityHidden = false
+    /// The agents the user hid (Settings → DDE), read from the defaults so a toggle there redraws the bar.
+    @State private var hidden = AgentUsageBar.hiddenAgents()
     @State private var showingAll = false
     /// The chip whose details are open; kept here so that switching to another form (a resize, a new countdown
     /// text) does not close it.
-    @State private var detailsFor: UsageAgent?
+    @State private var detailsFor: CLITool?
 
     var body: some View {
         // With no agent to show the first form is empty and always fits, so the bar stays in the view tree (and
@@ -41,17 +40,15 @@ struct AgentUsageBar: View {
         }
         .onAppear { tracker.indicatorAppeared() }
         .onDisappear { tracker.indicatorDisappeared() }
-    }
-
-    private var agents: [UsageAgent] {
-        tracker.detected.filter { agent in
-            switch agent {
-            case .claude: return !claudeHidden
-            case .codex: return !codexHidden
-            case .antigravity: return !antigravityHidden
-            }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            let now = Self.hiddenAgents()
+            if now != hidden { hidden = now }
         }
     }
+
+    private static func hiddenAgents() -> Set<CLITool> { Set(CLITool.usageTracked.filter(AgentUsageTracker.isHidden)) }
+
+    private var agents: [CLITool] { tracker.detected.filter { !hidden.contains($0) } }
 
     private func chips(_ detail: AgentUsageChip.Detail) -> some View {
         HStack(spacing: 4) {
@@ -104,7 +101,7 @@ struct AgentUsageBar: View {
 
 struct AgentUsageChip: View {
     @Environment(\.palette) private var palette
-    let agent: UsageAgent
+    let agent: CLITool
     @ObservedObject var tracker: AgentUsageTracker
     let detail: Detail
     @Binding var showingDetails: Bool
@@ -131,7 +128,7 @@ struct AgentUsageChip: View {
 
     /// One sentence for VoiceOver and the gauge's tooltip: the agent, the quota used or why there is none, and how
     /// trustworthy it is. Unavailable usage is said to be unavailable, never zero.
-    static func summary(of agent: UsageAgent, snapshot: AgentUsageSnapshot?, now: Date) -> String {
+    static func summary(of agent: CLITool, snapshot: AgentUsageSnapshot?, now: Date) -> String {
         guard let snapshot else { return "\(agent.displayName): reading usage." }
         switch snapshot.state {
         case .official, .userLimit:
@@ -223,7 +220,7 @@ private struct UsageMeter: View {
 
 struct AgentUsagePopover: View {
     @Environment(\.palette) private var palette
-    let agent: UsageAgent
+    let agent: CLITool
     @ObservedObject var tracker: AgentUsageTracker
     @State private var editingLimit = false
 
@@ -408,7 +405,7 @@ struct AgentUsagePopover: View {
 
 private struct FallbackLimitForm: View {
     @Environment(\.palette) private var palette
-    let agent: UsageAgent
+    let agent: CLITool
     @ObservedObject var tracker: AgentUsageTracker
     let recordsCost: Bool
     let done: () -> Void
