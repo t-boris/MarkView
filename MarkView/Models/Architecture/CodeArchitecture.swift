@@ -499,6 +499,18 @@ enum CodeArchitecture {
 
     /// The assistant needs all affected paths to repair an answer, while the
     /// user-facing error intentionally displays only the first few problems.
+    /// The model in an answer: its structured JSON, else the JSON object in its text. An answer with no object at all is `unusable`.
+    static func decode(_ result: CLICompletion.Result) throws -> CodeArchitectureModel {
+        let text = result.text
+        let hasObject = result.structured != nil || (text.contains("{") && text.contains("}"))
+        do {
+            guard hasObject else { throw AIOperationError.emptyResponse("code-architecture") }
+            return try AIJSONSalvage.decode(CodeArchitectureModel.self, from: text, structured: result.structured, operation: "code-architecture")
+        } catch AIOperationError.emptyResponse {
+            throw DiagramAI.Failure.unusable(["The answer was not an architecture JSON object"])
+        }
+    }
+
     static func repairFeedback(for error: Error) -> String {
         if case DiagramAI.Failure.unusable(let problems) = error {
             return problems.prefix(40).map { "- " + $0 }.joined(separator: "\n")

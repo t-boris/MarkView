@@ -419,6 +419,7 @@
         "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
         "MarkView/Models/Architecture/CodeArchitecture.swift",
         "MarkView/Models/Architecture/CodePathTags.swift",
+        "MarkView/Models/AI/AIOperation.swift",
         "MarkView/Models/AI/DiagramAI.swift",
         "tools/tests/CodeArchitectureTestSupport.swift",
         "tools/tests/CodeArchitectureTests.swift",

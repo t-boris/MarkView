@@ -233,10 +233,13 @@ struct AIOperation<Input, Output> {
     }
 
     /// Run the operation. `onDelta` and `onActivity` report the streaming answer and the assistant's activity of every attempt.
+    /// It runs on the caller's actor, so the feature's closures (`parse`, `validate`, `repair`, `onResult`) keep the isolation
+    /// they were written in; only the assistant's run itself leaves it.
     func execute(
         _ input: Input,
         onDelta: Delta? = nil,
-        onActivity: Activity? = nil
+        onActivity: Activity? = nil,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws -> (output: Output, result: CLICompletion.Result) {
         let original = Self.labelled(buildRequest(input), as: name)
         var request = original
@@ -312,12 +315,26 @@ extension AIOperation where Input == CLICompletion.Request, Output == CLIComplet
     static func run(name: String, runner: @escaping Runner = AIAssistantRunner.run) -> AIOperation {
         AIOperation(name: name, parse: { $0 }, runner: runner)
     }
+
+    /// Ask once and take the run as it came.
+    static func ask(_ request: CLICompletion.Request, name: String,
+                    onDelta: Delta? = nil, onActivity: Activity? = nil,
+                    isolation: isolated (any Actor)? = #isolation) async throws -> CLICompletion.Result {
+        try await run(name: name).execute(request, onDelta: onDelta, onActivity: onActivity).result
+    }
 }
 
 extension AIOperation where Input == CLICompletion.Request, Output == String {
     /// One run answered in plain text, as it is written.
     static func text(name: String, runner: @escaping Runner = AIAssistantRunner.run) -> AIOperation {
         AIOperation(name: name, parse: { $0.text }, runner: runner)
+    }
+}
+
+extension AIOperation where Input == CLICompletion.Request, Output == [String: Any] {
+    /// One run whose structured answer is read as an object; an answer that is no object reads as an empty one.
+    static func object(name: String, runner: @escaping Runner = AIAssistantRunner.run) -> AIOperation {
+        AIOperation(name: name, parse: { $0.structured as? [String: Any] ?? [:] }, runner: runner)
     }
 }
 

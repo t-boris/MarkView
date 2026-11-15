@@ -98,9 +98,11 @@ final class ProjectChangeReview: ObservableObject {
         Task {
             defer { explaining.remove(key) }
             do {
-                let result = try await CLICompletion.run(request)
-                guard let object = result.structured as? [String: Any],
-                      let reading = ChangeExplainer.parse(object, hunkCount: asked.included) else {
+                // The reading of the answer, or nil when the answer does not explain these changes.
+                let operation = AIOperation<CLICompletion.Request, ChangeExplanation?>(name: "change-review") { result in
+                    (result.structured as? [String: Any]).flatMap { ChangeExplainer.parse($0, hunkCount: asked.included) }
+                }
+                guard let reading = try await operation.execute(request).output else {
                     explanationFailures[key] = "The assistant's answer did not explain these changes. Try again."
                     return
                 }
