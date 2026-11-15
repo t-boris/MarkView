@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "id": "qa",
+  "name": "QA",
+  "symbol": "checkmark.shield",
+  "summary": "End-to-End QA with the tasks beside it",
+  "panels": { "files": false, "center": true, "right": true, "agents": false },
+  "right": "feature",
+  "tool": "qa"
+}

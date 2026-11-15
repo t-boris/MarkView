@@ -39,7 +39,7 @@ struct DeploymentsView: View {
 
     private func scan() {
         store.scan()
-        let nodes = workspaceManager.architecture.snapshot?.view("deployment")?.nodes
+        let nodes = workspaceManager.codeXRay.architecture.snapshot?.view("deployment")?.nodes
             .filter { $0.kind != "root" && $0.kind != "moduleRef" }
             .map { ProjectOperation.Node(id: $0.id, name: $0.name) } ?? []
         workspaceManager.projectOperations?.discover(nodes: nodes)

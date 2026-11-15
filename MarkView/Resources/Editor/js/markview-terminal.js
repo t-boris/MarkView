@@ -174,9 +174,9 @@ document.addEventListener('DOMContentLoaded', function() {
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         term.write(bytes);
     };
-    // Swift: mvSetTheme('midnight', '#79B8FF') (accent '' = the appearance's own).
-    window.mvSetTheme = function(id, accent) {
-        const applied = MarkViewThemes.apply(id, accent);
+    // Swift: mvSetTheme('midnight', '#79B8FF', definition) (accent '' or null = the appearance's own).
+    window.mvSetTheme = function(id, accent, definition) {
+        const applied = MarkViewThemes.apply(id, accent, definition);
         term.options.theme = MarkViewThemes.terminalTheme(applied.id, applied.override);
     };
     window.mvFocus = function() { term.focus(); };

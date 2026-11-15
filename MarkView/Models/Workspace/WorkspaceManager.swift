@@ -7,231 +7,6 @@ import os
 import MarkViewCore
 #endif
 
-/// Owns file-tree state, exclusion rules, and file-system watching for the active workspace.
-@MainActor
-final class WorkspaceFileTreeStore: ObservableObject {
-    @Published var rootNode: FileNode?
-    @Published private(set) var excludedFolders: Set<String> = []
-    @Published var sortOrder = FileTreeSortOrder() {
-        didSet {
-            UserDefaults.standard.set(sortOrder.field.rawValue, forKey: "fileTree.sortField")
-            UserDefaults.standard.set(sortOrder.ascending, forKey: "fileTree.sortAscending")
-            refresh()
-        }
-    }
-
-    var shouldAutoRefresh: () -> Bool = { true }
-    /// Called on every beat of the watcher's timer (the Git status changes without the top folder changing).
-    var onTimer: () -> Void = {}
-
-    private var fileWatcher: DispatchSourceFileSystemObject?
-    private var fileWatchTimer: Timer?
-    private var fileWatchDebounce: DispatchWorkItem?
-    private var lastRootModDate: Date?
-    /// Whether the open folder holds a Markdown file (`AR-42`). A background walk answers it after the tree loads or reloads;
-    /// until it has answered the flag is false, and the views that read it update when it changes.
-    @Published private(set) var hasMarkdownFiles = false
-    private var markdownProbe: Task<Void, Never>?
-
-    init() {
-        let ud = UserDefaults.standard
-        if let savedField = ud.string(forKey: "fileTree.sortField"),
-           let field = FileTreeSortField(rawValue: savedField) {
-            sortOrder.field = field
-        }
-        if ud.object(forKey: "fileTree.sortAscending") != nil {
-            sortOrder.ascending = ud.bool(forKey: "fileTree.sortAscending")
-        }
-    }
-
-    func reset() {
-        stopWatching()
-        rootNode = nil
-        excludedFolders = []
-        lastRootModDate = nil
-        probeMarkdownFiles()
-    }
-
-    func setRootNode(_ node: FileNode?) {
-        rootNode = node
-        lastRootModDate = node.map { rootModificationDate(for: $0.url) } ?? nil
-        probeMarkdownFiles()
-    }
-
-    /// Look for a Markdown file in the open folder off the main thread; a newer probe (another tree load) replaces this one.
-    private func probeMarkdownFiles() {
-        markdownProbe?.cancel()
-        guard let folder = rootNode?.url else {
-            markdownProbe = nil
-            hasMarkdownFiles = false
-            return
-        }
-        markdownProbe = Task.detached(priority: .utility) { [weak self] in
-            let found = BackgroundFileScans.containsMarkdown(in: folder)
-            guard !Task.isCancelled else { return }
-            await self?.finishMarkdownProbe(folder: folder, found: found)
-        }
-    }
-
-    private func finishMarkdownProbe(folder: URL, found: Bool) {
-        guard rootNode?.url == folder else { return }
-        hasMarkdownFiles = found
-    }
-
-    func loadExcludedFolders() {
-        excludedFolders = rootNode.map { ExcludedFolders.load(for: $0.url) } ?? []
-    }
-
-    @discardableResult
-    func excludeFolder(_ folderURL: URL) -> String? {
-        guard let relativePath = relativePath(for: folderURL) else { return nil }
-        excludedFolders.insert(relativePath)
-        saveExcludedFolders()
-        return relativePath
-    }
-
-    @discardableResult
-    func includeFolder(_ relativePath: String) -> Bool {
-        let removed = excludedFolders.remove(relativePath) != nil
-        if removed {
-            saveExcludedFolders()
-        }
-        return removed
-    }
-
-    func isExcluded(_ url: URL) -> Bool {
-        guard let relativePath = relativePath(for: url) else { return false }
-        return excludedFolders.contains { relativePath.hasPrefix($0) }
-    }
-
-    func refresh() {
-        Self.log("refresh() called, rootNode=\(rootNode?.url.path ?? "nil")")
-        // Clear all cached resource values for the root URL tree
-        if let rootURL = rootNode?.url {
-            (rootURL as NSURL).removeAllCachedResourceValues()
-        }
-        reloadFileTree()
-    }
-
-    func startWatchingCurrentRoot() {
-        guard let rootURL = rootNode?.url else { return }
-        startFileWatcher(for: rootURL)
-    }
-
-    func stopWatching() {
-        fileWatchDebounce?.cancel()
-        fileWatchDebounce = nil
-        fileWatchTimer?.invalidate()
-        fileWatchTimer = nil
-        fileWatcher?.cancel()
-        fileWatcher = nil
-    }
-
-    private func saveExcludedFolders() {
-        guard let root = rootNode?.url else { return }
-        ExcludedFolders.save(excludedFolders, for: root)
-    }
-
-    private func relativePath(for url: URL) -> String? {
-        guard let root = rootNode?.url else { return nil }
-        let rootPath = root.standardizedFileURL.path
-        let targetPath = url.standardizedFileURL.path
-
-        if targetPath == rootPath { return "" }
-        guard targetPath.hasPrefix(rootPath + "/") else { return nil }
-        return String(targetPath.dropFirst(rootPath.count + 1))
-    }
-
-    private func startFileWatcher(for url: URL) {
-        stopWatching()
-        lastRootModDate = rootModificationDate(for: url)
-
-        let fd = open(url.path, O_EVTONLY)
-        guard fd != -1 else { return }
-
-        let queue = DispatchQueue.main
-        fileWatcher = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: .write,
-            queue: queue
-        )
-
-        fileWatcher?.setEventHandler { [weak self] in
-            guard let self else { return }
-            self.fileWatchDebounce?.cancel()
-
-            let work = DispatchWorkItem { [weak self] in
-                guard let self, self.shouldAutoRefresh() else { return }
-                self.reloadFileTree()
-            }
-
-            self.fileWatchDebounce = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
-        }
-
-        fileWatcher?.setCancelHandler { close(fd) }
-        fileWatcher?.resume()
-
-        fileWatchTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.checkForFileTreeChanges() }
-        }
-    }
-
-    private func checkForFileTreeChanges() {
-        onTimer()
-        guard let rootURL = rootNode?.url else { return }
-        guard shouldAutoRefresh() else { return }
-        // Clear cached resource values so we see fresh modification dates
-        (rootURL as NSURL).removeCachedResourceValue(forKey: .contentModificationDateKey)
-        guard let modDate = rootModificationDate(for: rootURL) else { return }
-
-        if modDate != lastRootModDate {
-            lastRootModDate = modDate
-            reloadFileTree()
-        }
-    }
-
-    private func reloadFileTree() {
-        guard let currentRoot = rootNode else {
-            Self.log("reloadFileTree: rootNode is nil, skipping")
-            return
-        }
-        let rootURL = currentRoot.url
-        Self.log("reloadFileTree: rebuilding from \(rootURL.path)")
-        let expandedPaths = currentRoot.expandedDirectoryPaths()
-        let sort = sortOrder
-
-        // Clear URL resource cache so FileManager sees new files
-        (rootURL as NSURL).removeCachedResourceValue(forKey: .contentModificationDateKey)
-
-        Task.detached {
-            let rebuilt = FileNode.buildTree(from: rootURL, sortOrder: sort)
-            rebuilt.restoreExpansionState(from: expandedPaths, sortOrder: sort)
-            let childCount = rebuilt.children?.count ?? 0
-            Self.log("reloadFileTree: rebuilt with \(childCount) children")
-            await MainActor.run {
-                self.rootNode = rebuilt
-                self.lastRootModDate = self.rootModificationDate(for: rootURL)
-                self.probeMarkdownFiles()
-                Self.log("reloadFileTree: rootNode updated on MainActor")
-            }
-        }
-    }
-
-    private nonisolated static let fileTreeLogger = Logger(subsystem: "com.markview.app", category: "file-tree")
-
-    private nonisolated static func log(_ msg: String) {
-        fileTreeLogger.debug("[FileTree] \(msg, privacy: .public)")
-    }
-
-    private func rootModificationDate(for url: URL) -> Date? {
-        // Must clear cache — URL resource values are aggressively cached by Foundation
-        (url as NSURL).removeCachedResourceValue(forKey: .contentModificationDateKey)
-        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-        return values?.contentModificationDate
-    }
-}
-
 enum WorkspaceAITool: String {
     case architecture
     case dataflow
@@ -256,9 +31,8 @@ enum WorkspaceAITool: String {
 /// Manages the workspace state including open files, tabs, and folder structure
 @MainActor
 class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
-    /// Recently opened folders (standardized paths), most recent first.
-    @Published private(set) var recentProjects: [String] =
-        UserDefaults.standard.stringArray(forKey: WorkspaceManager.recentProjectsKey) ?? []
+    /// The open project: its folder and tree, linked and excluded folders, search database, index and recents (`AR-14` step 8).
+    let project = ProjectContext()
     /// Which tab each panel of this window shows; never shared with other windows (BUG-004).
     let layout = PanelLayout()
     /// Everything else this window shows of itself (expanded sections, widths, panel modes); never shared with other windows.
@@ -350,31 +124,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         if store.runs.isEmpty { requests.operationConsoleVisible = false }
     }
 
-    struct SelectionActionState: Identifiable {
-        enum Phase { case running, completed, stopped, failed }
-        let id: UUID
-        let title: String
-        let scope: String
-        let assistant: String
-        let started: Date
-        var stage: String = "Starting"
-        var partial: String = ""
-        var phase: Phase = .running
-    }
-    @Published private(set) var selectionActions: [UUID: SelectionActionState] = [:]
-    private var selectionTasks: [UUID: Task<CLICompletion.Result, Error>] = [:]
-    private var stoppedSelectionActions: Set<UUID> = []
-
-    func stopSelectionAction(_ id: UUID) {
-        stoppedSelectionActions.insert(id)
-        selectionTasks[id]?.cancel()
-        if var state = selectionActions[id] {
-            state.stage = "Stopping…"
-            selectionActions[id] = state
-        }
-    }
-
-    func dismissSelectionAction(_ id: UUID) { selectionActions.removeValue(forKey: id) }
 
     /// Files opened from outside the app on their own (Finder, Quick Action): the documents, nothing around them.
     func openDocumentsOnly(_ urls: [URL]) {
@@ -393,7 +142,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         chrome.terminalVisible = true
     }
 
-    @Published var semanticDatabase: SemanticDatabase?
     /// The id of the node an AI job just added to a map (by map path); the next snapshot of that map carries it to the page.
     var researchMapJobCreated: [String: String] = [:]
     /// What an AI job tells the person when it ends (by map path); the next snapshot of that map carries it to the page as a notice.
@@ -459,124 +207,18 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     private var terminalTabs: [UUID: TerminalSession] = [:]
     /// Dev server terminals started by Preview Web App, by app folder path.
     private var previewTerminals: [String: UUID] = [:]
-    /// Project architecture (Architecture tab).
-    let architecture = ArchitectureStore()
+    /// Code explanations, code navigation, the X-Ray tabs and the AI actions on selected text (`AR-14` step 11).
+    let codeXRay: CodeAndXRayCoordinator
     /// Team-shared operation definitions and the process registry for this workspace root.
     @Published private(set) var projectOperations: ProjectOperationsStore?
-    /// AI margin notes for code files (code viewer → Explain).
-    let codeExplain = CodeExplainStore()
-    /// Go to definition / find usages, jump history and AI answers about selected code.
-    let codeNav = CodeNavigationStore()
-    /// The open folder looks like a software project (manifest or source files).
-    @Published var isCodeProject = false
-    @Published var graphRAG: GraphRAG?
-    @Published var indexingProgress: String?
-    /// Progress of the out-of-process structural index, shown ONLY in the footer.
-    /// Separate from `indexingProgress` (which drives the file-tree spinner, the
-    /// auto-refresh gate and the module panel) so background indexing never blocks
-    /// the tree, the module explorer, or opening another folder.
-    @Published var structuralIndexProgress: String?
-    @Published var analysisStage: String?
-    @Published var analysisDetail: String?
-    @Published var totalFilesInWorkspace: Int = 0
-    @Published var analyzedFiles: Int = 0
-    @Published var semanticRefreshVersion: Int = 0
-    /// The folder tree of this window. Views that show it observe this object, not the manager (`AR-15`).
-    let fileTreeStore = WorkspaceFileTreeStore()
     private var cancellables: Set<AnyCancellable> = []
 
-    var rootNode: FileNode? {
-        get { fileTreeStore.rootNode }
-        set { fileTreeStore.setRootNode(newValue) }
-    }
-
-    /// False while the root is only a single file's folder (feature-2, DEC-012).
-    @Published private(set) var rootOpenedAsFolder = false
-
-    /// The open project folder, the one that gets a project color; nil for a single file's folder.
-    var projectFolder: URL? { rootOpenedAsFolder ? rootNode?.url : nil }
-    /// The project whose assistant, model and X-Ray model this window uses (BUG-021);
-    /// nil for a single file, which uses the defaults.
-    var aiProject: URL? { projectFolder }
-
-    // MARK: - Linked folders (Task 59)
-
-    /// Folders attached to the open project as aliases: browsed, searched, indexed and readable by
-    /// the AI together with it; the project's own elements stay in the project folder.
-    @Published private(set) var linkedFolders: [LinkedFolder] = []
-
-    /// Changes whenever the searchable roots change (the project or its linked folders).
-    var searchRootsKey: String { ([rootNode?.url.path ?? ""] + linkedFolders.map(\.path)).joined(separator: "\n") }
-
-    func loadLinkedFolders() {
-        linkedFolders = LinkedFolders.load(project: projectFolder).filter { FileManager.default.fileExists(atPath: $0.path) }
-    }
-
-    /// Link `urls` to the open project. Returns the reasons for the ones that could not be linked.
-    @discardableResult
-    func linkFolders(_ urls: [URL]) -> [String] {
-        guard let project = projectFolder else { return ["Open a project folder first."] }
-        var errors: [String] = []
-        var added = false
-        for url in urls {
-            switch LinkedFolders.link(url, to: project, existing: linkedFolders) {
-            case .success(let folder):
-                linkedFolders.append(folder)
-                added = true
-            case .failure(let error):
-                errors.append(error.message)
-            }
-        }
-        if added { linkedFoldersChanged(project) }
-        return errors
-    }
-
-    func unlinkFolder(_ id: String) {
-        guard let project = projectFolder, linkedFolders.contains(where: { $0.id == id }) else { return }
-        linkedFolders.removeAll { $0.id == id }
-        linkedFoldersChanged(project)
-    }
-
-    /// The folder panel of "Link Folder…" (File menu, file tree).
-    func chooseFoldersToLink() {
-        guard projectFolder != nil else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = true
-        panel.message = "Choose folders to link to this project. They are browsed and searched with it; the project's own files stay where they are."
-        panel.prompt = "Link"
-        guard panel.runModal() == .OK else { return }
-        let errors = linkFolders(panel.urls)
-        if !errors.isEmpty {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = errors.count == 1 ? "The folder was not linked." : "Some folders were not linked."
-            alert.informativeText = errors.joined(separator: "\n")
-            alert.runModal()
-        }
-    }
-
-    /// The linked folder that contains `url`, if any.
-    func linkedFolder(containing url: URL) -> LinkedFolder? {
-        LinkedFolders.folder(containing: url, in: linkedFolders)
-    }
-
-    /// The root `url` belongs to: the project folder, or the linked folder containing it.
-    func containerRoot(for url: URL) -> URL? {
-        if let root = rootNode?.url {
-            let path = url.standardizedFileURL.path
-            let rootPath = root.standardizedFileURL.path
-            if path == rootPath || path.hasPrefix(rootPath + "/") { return root }
-        }
-        return linkedFolder(containing: url)?.url
-    }
-
-    /// Persist the list, then index the linked folders (the search index follows `searchRootsKey`).
-    private func linkedFoldersChanged(_ project: URL) {
-        LinkedFolders.save(linkedFolders, project: project)
-        if let root = rootNode?.url, semanticDatabase != nil { runStructuralIndex(at: root) }
-    }
+    // The project is read through `project` (`ProjectProviding`). These four read-only aliases stay for the code of the regions
+    // that the other decompositions of this file (`AR-14` steps 2-7) are still moving out, and go with them.
+    var rootNode: FileNode? { project.rootNode }
+    var projectFolder: URL? { project.projectFolder }
+    var aiProject: URL? { project.aiProject }
+    var semanticDatabase: SemanticDatabase? { project.database }
 
     /// The tabs of this window for the code that is not a view. A view that shows tabs observes `tabs` itself: reading them
     /// through the manager would not redraw it (`AR-15`).
@@ -591,6 +233,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
     init() {
         Self.debugLog("WorkspaceManager init START")
+        codeXRay = CodeAndXRayCoordinator(project: project)
+        codeXRay.host = self
         research.workspace = self
         qa.assistantSelection = { [weak self] in
             guard let self, let terminal = self.assistantTerminal, let tool = terminal.profile.tool else { return nil }
@@ -599,16 +243,23 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         }
         agentActivity.terminals = { [weak self] in self?.aiTerminals ?? [] }
         agentActivity.activeTerminalID = { [weak self] in self?.activeAITerminalID }
-        agentActivity.onClaudeModel = { [weak self] id, model in self?.claudeModelReported(model, terminalID: id) }
+        agentActivity.onModelReading = { [weak self] id, model in self?.liveModelReported(model, terminalID: id) }
         agentActivity.start()
 
-        fileTreeStore.shouldAutoRefresh = { [weak self] in
-            self?.indexingProgress == nil
-        }
-        fileTreeStore.onTimer = { [weak self] in
+        project.fileTree.onTimer = { [weak self] in
             guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating, NSApp.isActive else { return }
             Task { await self.gitClient.refreshStatus() }
         }
+        project.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+        codeXRay.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
         tabs.events
             .sink { [weak self] event in
                 guard let self else { return }
@@ -617,7 +268,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
                     // A file saved inside the project is a change the automatic code analysis refreshes
                     // from (REQ-002), at once rather than after the change watcher's latency.
                     if let root = self.rootNode?.url.standardizedFileURL.path, url.standardizedFileURL.path.hasPrefix(root + "/") {
-                        self.architecture.noteProjectChanged()
+                        self.codeXRay.architecture.noteProjectChanged()
                     }
                 case .reloadedFromDisk:
                     self.refreshFileTree()
@@ -644,40 +295,15 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         workspaceLogger.debug("\(msg, privacy: .public)")
     }
 
-    /// Folder reopened on the next launch; cleared by Close Folder.
-    static let lastFolderKey = "workspace.lastFolder"
-    /// How many recently opened folders are remembered and listed on the welcome screen.
-    static let maxRecentProjects = 30
-    static let recentProjectsKey = "workspace.recentProjects"
-
-    /// Removes a folder from the recent projects list; the folder itself is untouched.
-    func removeRecentProject(_ path: String) {
-        setRecentProjects(recentProjects.filter { $0 != path })
-    }
-
-    private func setRecentProjects(_ paths: [String]) {
-        recentProjects = paths
-        UserDefaults.standard.set(paths, forKey: Self.recentProjectsKey)
-    }
-
     func openFolder(_ url: URL, completion: (() -> Void)? = nil) {
         projectOperations = ProjectOperationsStore.forRoot(url)
-        UserDefaults.standard.set(url.standardizedFileURL.path, forKey: Self.lastFolderKey)
-        var recent = recentProjects
-        recent.removeAll { $0 == url.standardizedFileURL.path }
-        recent.insert(url.standardizedFileURL.path, at: 0)
-        setRecentProjects(Array(recent.prefix(Self.maxRecentProjects)))
-        rootOpenedAsFolder = true
+        project.beginOpening(url)
         // Agents working in this folder can reach its browser tabs (BUG-027) and its project tools even from
         // outside its terminals; the browser tools check the terminal-links setting themselves.
         registerBrowserControl()
         taskBag.cancelAll()
-        fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
         tabs.reset()
-        architecture.reset()
-        folderXRays = [:]
-        codeNav.reset()
-        indexingProgress = "Loading folder structure..."
+        codeXRay.reset()
         Self.debugLog("openFolder START: \(url.path)")
 
         // Run setup steps asynchronously — sleep briefly to let SwiftUI render each step
@@ -691,76 +317,37 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             let migration = await Task.detached { PrototypeFiles.migrateLegacy(root: url) }.value
             if !migration.isEmpty { Self.debugLog("Prototype storage migration: \(migration.summary)") }
 
-            // Build tree on background thread to avoid blocking UI
-            let sort = self.fileTreeStore.sortOrder
-            let node = await Task.detached {
-                FileNode.buildTree(from: url, sortOrder: sort)
-            }.value
-            guard !Task.isCancelled else { return }
-            self.fileTreeStore.setRootNode(node)
-            self.fileTreeStore.loadExcludedFolders()
-            self.loadLinkedFolders()
-            Self.debugLog("Tree loaded: \(node.children?.count ?? 0) children")
+            guard await project.loadTree(of: url) else { return }
 
-            indexingProgress = "Setting up workspace..."
+            project.indexingProgress = "Setting up workspace..."
             try? await Task.sleep(nanoseconds: 100_000_000)
             guard !Task.isCancelled else { return }
 
-            self.fileTreeStore.startWatchingCurrentRoot()
+            project.startWatching(url)
             Self.debugLog("File watcher started, calling initDDEWorkspaceAsync...")
 
             await initDDEWorkspaceAsync(at: url)
             Self.debugLog("openFolder COMPLETE")
 
-            // Code projects get a prominent "Open Architecture" on the welcome screen.
-            let isCode = await Task.detached { ArchitectureScanner.looksLikeCodeProject(url) }.value
-            if rootNode?.url == url { isCodeProject = isCode }
             // Code projects are analyzed in the background without the X-Ray tab; the store
             // honours the switch (`.off`, DEC-001) and applies the size cap from its own scan (DEC-003).
-            if rootNode?.url == url, isCode {
-                architecture.startAutomaticCodeAnalysis(root: url, db: semanticDatabase)
+            let isCode = await Task.detached { ArchitectureScanner.looksLikeCodeProject(url) }.value
+            if project.root == url, isCode {
+                codeXRay.architecture.startAutomaticCodeAnalysis(root: url, db: project.database)
             }
             completion?()
         }
         taskBag.store(setupTask, for: "openFolder")
     }
 
-    /// Initialize .dde/ workspace structure and SQLite database — async to keep UI responsive
+    /// Opens the folder's database and connects the services that work on it — async to keep UI responsive.
     private func initDDEWorkspaceAsync(at url: URL) async {
-        let fm = FileManager.default
-        let ddeRoot = url.appendingPathComponent(".dde")
-
-        indexingProgress = "Creating workspace structure..."
-        Self.debugLog("initDDE: creating dirs...")
-        try? await Task.sleep(nanoseconds: 100_000_000)
-
-        for subdir in ["cache/provider_responses", "cache/embeddings", "cache/indexes", "overlays"] {
-            let dir = ddeRoot.appendingPathComponent(subdir)
-            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
-
-        indexingProgress = "Opening database..."
-        Self.debugLog("initDDE: opening database...")
-        try? await Task.sleep(nanoseconds: 100_000_000)
-
         do {
-            let db = try await SemanticDatabase.open(workspacePath: url)
+            guard try await project.openDatabase(at: url) else { return }
             Self.debugLog("initDDE: database opened")
-            let projectId = url.lastPathComponent
-            try await db.ensureProject(id: projectId, name: url.lastPathComponent, rootPath: url.path)
-            // Another folder was opened while the file was being opened: this database is not for this window any more.
-            guard !Task.isCancelled else { return }
-            self.semanticDatabase = db
+            aiWorkspaceRoot = url
 
-            indexingProgress = "Initializing engines..."
-            Self.debugLog("initDDE: creating engines...")
-            try? await Task.sleep(nanoseconds: 100_000_000)
-
-            self.graphRAG = GraphRAG(db: db)
-            self.aiWorkspaceRoot = url
-            Self.debugLog("initDDE: engines created")
-
-            indexingProgress = "Connecting services..."
+            project.indexingProgress = "Connecting services..."
             try? await Task.sleep(nanoseconds: 100_000_000)
 
             gitClient.setup(at: url)
@@ -770,134 +357,15 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             discussions.setRoot(url)
             Self.debugLog("initDDE: git setup done")
 
-            // Load cached diagrams and analysis results from database
-            loadCachedResults()
-
             // Structural indexing runs silently in background — no progress indicator
-            indexingProgress = nil
-            runStructuralIndex(at: url)
+            project.indexingProgress = nil
+            project.refreshSemanticViews()
+            project.runStructuralIndex(at: url)
             Self.debugLog("initDDE: structural index started")
-
         } catch {
             Self.debugLog("initDDE: ERROR: \(error)")
-            indexingProgress = nil
+            project.indexingProgress = nil
         }
-    }
-
-    // MARK: - Markdown File Scanning (Recursive Insight)
-
-    /// Enumerate `.md` files in `folderURL` for Recursive Insight.
-    ///
-    /// Filters applied (per tech-spec Decision 10 §7):
-    /// - `.skipsHiddenFiles` and `.skipsPackageDescendants` enumerator options
-    ///   (the latter prevents descending into `.app` / `.bundle` / `.docset`).
-    /// - Path extension must be `.md` (case-insensitive).
-    /// - Paths containing `.dde` are excluded (matches existing convention).
-    /// - Symlinks resolving outside `folderURL` are skipped (containment check
-    ///   via `resolvingSymlinksInPath().standardizedFileURL` — order matters:
-    ///   resolve symlinks BEFORE standardizing).
-    ///
-    /// There is no file-count limit: folders too large to inline are handed to
-    /// the AI CLI as a catalog plus read-only folder access (see GraphRAG).
-    ///
-    /// Per-file size truncation is the caller's responsibility — this helper
-    /// only enumerates URLs.
-    func scanMarkdownFiles(in folderURL: URL) -> [URL] {
-        let resolvedFolderPath = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
-        // Append the platform path separator so prefix checks cannot be bypassed
-        // by sibling folders sharing a name prefix (e.g. `/x/foo` vs `/x/foobar`).
-        // `URL.standardizedFileURL.path` strips trailing slashes, so guard against
-        // an existing trailing `/` to avoid `//` artifacts on edge cases.
-        let resolvedFolderPrefix = resolvedFolderPath.hasSuffix("/")
-            ? resolvedFolderPath
-            : resolvedFolderPath + "/"
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: folderURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else {
-            return []
-        }
-
-        var results: [URL] = []
-        while let url = enumerator.nextObject() as? URL {
-            guard url.pathExtension.lowercased() == "md" else { continue }
-            guard !url.path.contains(".dde") else { continue }
-
-            let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
-            // The `==` clause covers the (unlikely) case of the folder URL itself
-            // surfacing here; the prefix clause requires a path-separator boundary
-            // so a sibling like `/x/foobar/secret.md` cannot pass for `/x/foo`.
-            guard resolvedFile == resolvedFolderPath || resolvedFile.hasPrefix(resolvedFolderPrefix) else {
-                NSLog("[Insight] Skipped symlink escape: \(url.path)")
-                continue
-            }
-
-            results.append(url)
-        }
-        return results
-    }
-
-    /// Whether the open folder holds a Markdown file, for the menu's disabled state (`AR-42`): the store's flag, found by a
-    /// background walk, so reading it never touches the disk.
-    var hasMarkdownFiles: Bool { fileTreeStore.hasMarkdownFiles }
-
-    // MARK: - Folder Exclusion
-
-    /// Exclude a folder — removes all its entities from the DB
-    func excludeFolder(_ folderURL: URL) {
-        guard let relativePath = fileTreeStore.excludeFolder(folderURL) else { return }
-
-        // Remove all DB entities for files in this folder: the folder walk and the writes run off the main thread.
-        guard let db = semanticDatabase else { return }
-        let root = rootNode?.url
-        let linked = linkedFolders
-        Task.detached {
-            var ids: [String] = []
-            if let enumerator = FileManager.default.enumerator(at: folderURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-                while let url = enumerator.nextObject() as? URL {
-                    guard url.pathExtension.lowercased() == "md" else { continue }
-                    ids.append(LinkedFolders.documentId(for: url, root: root ?? url.deletingLastPathComponent(), linked: linked))
-                }
-            }
-            await db.forgetDocuments(ids)
-        }
-        objectWillChange.send()
-        NSLog("[DDE] Excluded folder: \(relativePath)")
-    }
-
-    /// Re-include a previously excluded folder
-    func includeFolder(_ relativePath: String) {
-        guard fileTreeStore.includeFolder(relativePath) else { return }
-        // Re-index would happen on next Refresh
-        objectWillChange.send()
-        NSLog("[DDE] Re-included folder: \(relativePath)")
-    }
-
-    /// Check if a path is excluded
-    func isExcluded(_ url: URL) -> Bool {
-        fileTreeStore.isExcluded(url)
-    }
-
-    /// Canonical document id for `url` in the current workspace — path relative to
-    /// the workspace root (folder root, or the parent dir for a single-file
-    /// workspace). Must be used by EVERY docId producer so same-named files in
-    /// different folders never collide. See `SemanticDatabase.documentId(for:root:)`.
-    func docId(for url: URL) -> String {
-        let root = rootNode?.url ?? url.deletingLastPathComponent()
-        return LinkedFolders.documentId(for: url, root: root, linked: linkedFolders)
-    }
-
-    /// The file a document id of this workspace names: a path inside the project, or
-    /// `@linked/<name>/…` inside a linked folder (Task 59); nil when it is neither on disk.
-    func fileURL(forDocumentId id: String) -> URL? {
-        if let linked = LinkedFolders.resolve(documentId: id, in: linkedFolders) {
-            return FileManager.default.fileExists(atPath: linked.path) ? linked : nil
-        }
-        guard let root = rootNode?.url else { return nil }
-        let direct = root.appendingPathComponent(id)
-        return FileManager.default.fileExists(atPath: direct.path) ? direct : nil
     }
 
     /// Open a file in a new tab or switch to existing tab
@@ -908,7 +376,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         // /tmp, a terminal link) opens as a tab and must not replace the project's search
         // database, git client and AI root.
         let isMD = url.pathExtension.lowercased() == "md"
-        if isMD && !rootOpenedAsFolder && !isFileInCurrentWorkspace(url) {
+        if isMD && !project.rootOpenedAsFolder && !isFileInCurrentWorkspace(url) {
             initSingleFileWorkspace(fileURL: url)
         }
         if let feature = features.locate(url)?.feature {
@@ -939,9 +407,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
                           content: "", originalContent: "")
         tab.kind = .architecture(scope: scope)
         tabs.appendTab(tab)
-        if let context = xrayContext(scope) {
-            xrayStore(for: scope).restoreCached(root: context.root, db: context.db)
-        }
+        codeXRay.restoreCachedXRay(scope: scope)
     }
 
     func restoreTerminal(in directory: URL) { openTerminal(in: directory) }
@@ -950,27 +416,12 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
     // MARK: - Workspace metadata
 
-    /// Everything MarkView has written into the open folder: the index database and
-    /// caches (`.dde/`), Recursive Insight pages and a CLAUDE.md it generated.
-    func metadataItems() -> [URL] {
-        guard let root = rootNode?.url else { return [] }
-        let fm = FileManager.default
-        var items = [root.appendingPathComponent(".dde"), root.appendingPathComponent(".markview-insight")]
-            .filter { fm.fileExists(atPath: $0.path) }
-        let claude = root.appendingPathComponent(".claude/CLAUDE.md")
-        if let text = try? String(contentsOf: claude, encoding: .utf8),
-           text.hasPrefix("# Project Context — Auto-generated by MarkView DDE") {
-            items.append(claude)
-        }
-        return items
-    }
-
     /// Delete this folder's metadata after confirmation. With `recreate`, rebuild the
     /// index right away; otherwise nothing is written again until the folder is
     /// reopened or Recreate is chosen.
     func removeMetadata(recreate: Bool) {
         guard let root = rootNode?.url else { return }
-        let items = metadataItems()
+        let items = project.metadataItems()
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = recreate
@@ -989,28 +440,16 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
         // Stop everything that could still write into the folder.
         stopAllTerminals()
-        structuralIndexer?.terminate()
-        structuralIndexer = nil
+        project.stopIndexing()
         for tab in openTabs {
             if case .insight(let session) = tab.kind { Task { await session.cancel() } }
         }
         let keep = openTabs.enumerated().filter { $0.element.isFileBacked }.map(\.offset)
         for index in openTabs.indices.reversed() where !keep.contains(index) { tabs.removeTab(at: index) }
         releaseWorkspaceEngines()
-        architecture.reset()
-        folderXRays = [:]
-        codeExplain.reset()
-        indexingProgress = nil
-        structuralIndexProgress = nil
+        codeXRay.reset()
 
-        var failures: [String] = []
-        for item in items {
-            do { try FileManager.default.removeItem(at: item) } catch { failures.append(item.lastPathComponent) }
-        }
-        let claudeDir = root.appendingPathComponent(".claude")
-        if (try? FileManager.default.contentsOfDirectory(atPath: claudeDir.path))?.isEmpty == true {
-            try? FileManager.default.removeItem(at: claudeDir)
-        }
+        let failures = project.deleteMetadata(items)
         if !failures.isEmpty {
             let error = NSAlert()
             error.messageText = "Some items could not be deleted"
@@ -1019,100 +458,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         }
         Self.debugLog("removeMetadata: \(items.count) items removed from \(root.path), recreate=\(recreate)")
         if recreate {
-            Task { await initDDEWorkspaceAsync(at: root) }
+            taskBag.store(Task { await initDDEWorkspaceAsync(at: root) }, for: "recreateWorkspace")
         }
-    }
-
-    // MARK: - Code explanations
-
-    /// Workspace-relative path used as the cache key for a file's notes.
-    func workspaceRelativePath(_ url: URL) -> String {
-        let path = url.standardizedFileURL.path
-        if let root = rootNode?.url.standardizedFileURL.path, path.hasPrefix(root + "/") {
-            return String(path.dropFirst(root.count + 1))
-        }
-        if linkedFolder(containing: url) != nil, let root = rootNode?.url {
-            return LinkedFolders.documentId(for: url, root: root, linked: linkedFolders)
-        }
-        return path
-    }
-
-    private func explainDirectory(for url: URL) -> URL {
-        // A pull request's copy of a project file keeps its notes with the project's.
-        if architecture.prRelativePath(for: url) != nil, let root = rootNode?.url {
-            return root.appendingPathComponent(".dde/cache/explain", isDirectory: true)
-        }
-        return cacheDirectory(for: url).appendingPathComponent("explain", isDirectory: true)
-    }
-
-    /// AI filters available to the code viewer: Importance and the user's own.
-    /// The one-off filter of this window (typed into an X-Ray or notes filter box); other windows have their own.
-    private(set) var temporaryFilter: ImportanceRater.Filter?
-    private var aiFilters: [ImportanceRater.Filter] { ImportanceRater.allFilters(temporary: temporaryFilter) }
-
-    /// Create or delete a user filter (from the Architecture tab or the code viewer).
-    func createFilter(name: String, criterion: String) {
-        ImportanceRater.addFilter(name: name, criterion: criterion)
-        allXRayStores.forEach { $0.filtersChanged() }
-        codeExplain.filtersChanged()
-    }
-
-    /// The one-off AI filter from a filter box (X-Ray or notes); empty clears it.
-    func setTemporaryFilter(_ criterion: String) {
-        let previous = temporaryFilter
-        temporaryFilter = ImportanceRater.temporaryFilter(for: criterion)
-        allXRayStores.forEach { $0.temporaryFilter = temporaryFilter }
-        if let previous {
-            architecture.forgetRatings(filterId: previous.id, db: semanticDatabase)
-            folderXRays.values.forEach { $0.forgetRatings(filterId: previous.id, db: nil) }
-        }
-        allXRayStores.forEach { $0.filtersChanged() }
-        codeExplain.filtersChanged()
-    }
-
-    func deleteFilter(id: String) {
-        if ImportanceRater.isTemporary(id) {
-            if temporaryFilter?.id == id { setTemporaryFilter("") }
-            return
-        }
-        ImportanceRater.removeFilter(id: id)
-        architecture.forgetRatings(filterId: id, db: semanticDatabase)
-        codeExplain.filtersChanged()
-    }
-
-    /// Project path of a file in the code viewer. A file shown from a fetched pull request
-    /// (MarkView's cache) counts as that project path, so its notes, explanations and PR
-    /// lens are all about the same file.
-    private func codePath(for url: URL) -> String {
-        architecture.prRelativePath(for: url) ?? workspaceRelativePath(url)
-    }
-
-    /// Load cached notes for a code file that just opened.
-    func prepareCodeNotes(for url: URL) {
-        codeExplain.load(path: codePath(for: url), directory: explainDirectory(for: url))
-        codeNav.sendState(url: url)
-    }
-
-    /// The margin panel state for `url`, as a JSON object literal.
-    func codeNotesJSON(for url: URL) -> String {
-        let content = openTabs.first { $0.url.standardizedFileURL == url.standardizedFileURL }?.content ?? ""
-        let path = codePath(for: url)
-        return codeExplain.payloadJSON(path: path, content: content, filters: aiFilters,
-                                       pr: architecture.prFileNotes(path: path, content: content),
-                                       search: architecture.searchNotes(path: path))
-    }
-
-    // MARK: - Explain with AI
-
-    /// "Explain with AI — everything related" on a code element: the X-Ray's ⚡ search for
-    /// it, with everything connected to it in red.
-    func explainSymbol(name: String, path: String, line: Int) {
-        guard rootNode != nil, CodeNavigator.isNavigable(name) else { return }
-        let criterion = "\(name) — \((path as NSString).lastPathComponent):\(line)"
-        architecture.searchSymbols[criterion] = XRaySearch.Symbol(name: name, path: path, line: line)
-        setTemporaryFilter(criterion)
-        openArchitecture()
-        if let id = temporaryFilter?.id { architecture.activate(filterId: id) }
     }
 
     /// Show a text file's Explain notes, or return to its dedicated viewer.
@@ -1131,170 +478,14 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
                             tab.originalContent = text
                             tab.notesView = true
                         }
-                        if explain { explainIfNeeded(url) }
+                        if explain { codeXRay.explainIfNeeded(url) }
                     } catch { tabs.showReadError(error, url: url) }
                 }
             } else { tabs.updateActiveTab { $0.notesView = false } }
         } else if tab.isFileBacked {
             tabs.updateActiveTab { $0.notesView = show }
-            if show && explain { explainIfNeeded(tab.url) }
+            if show && explain { codeXRay.explainIfNeeded(tab.url) }
         }
-    }
-
-    private func explainIfNeeded(_ url: URL) {
-        prepareCodeNotes(for: url)
-        if codeExplain.explanations[codePath(for: url)] == nil {
-            handleCodeAction("explain", payload: [:], url: url)
-        }
-    }
-
-    /// Requests from the code viewer's margin panel.
-    func handleCodeAction(_ action: String, payload: [String: Any], url: URL) {
-        guard let tab = openTabs.first(where: { $0.url.standardizedFileURL == url.standardizedFileURL }) else { return }
-        let root = rootNode?.url ?? url.deletingLastPathComponent()
-        let path = codePath(for: url)
-        switch action {
-        case "explain":
-            codeExplain.explain(path: path, content: tab.content, root: root, directory: explainDirectory(for: url),
-                                db: semanticDatabase)
-        case "rate":
-            let id = payload["filter"] as? String ?? ImportanceRater.importance.id
-            guard let filter = aiFilters.first(where: { $0.id == id }) else { return }
-            codeExplain.rate(path: path, content: tab.content, filter: filter, root: root,
-                             directory: explainDirectory(for: url), db: semanticDatabase)
-        case "freshness":
-            codeExplain.freshness(path: path, root: root, directory: explainDirectory(for: url))
-        case "explainPR":
-            architecture.explainPRFile(path: path, root: root, db: semanticDatabase)
-        case "createFilter":
-            createFilter(name: payload["name"] as? String ?? "", criterion: payload["criterion"] as? String ?? "")
-        case "tempFilter":
-            setTemporaryFilter(payload["criterion"] as? String ?? "")
-        case "explainSymbol":
-            guard let name = payload["name"] as? String else { return }
-            explainSymbol(name: name, path: path, line: (payload["line"] as? NSNumber)?.intValue ?? 1)
-        case "navDefinition", "navUsages", "navOpen", "navBack", "navForward", "askAI", "askStop":
-            handleNavigation(action, payload: payload, url: url, path: path, root: root)
-        default:
-            break
-        }
-    }
-
-    /// Go to definition, find usages, history and AI questions from the code viewer.
-    private func handleNavigation(_ action: String, payload: [String: Any], url: URL, path: String, root: URL) {
-        let line = (payload["line"] as? NSNumber)?.intValue ?? 1
-        let here = CodeNavigationStore.Place(url: url.standardizedFileURL, line: line)
-        let open: (URL, Int) -> Void = { [weak self] target, line in self?.openFile(target, line: line) }
-        switch action {
-        case "navDefinition":
-            guard let name = payload["name"] as? String else { return }
-            codeNav.goToDefinition(name: name, line: line, url: url, path: path, root: root, open: open)
-        case "navUsages":
-            guard let name = payload["name"] as? String else { return }
-            codeNav.findUsages(name: name, url: url, path: path, root: root)
-        case "navOpen":
-            // A result from the viewer's list or a `path:line` in an AI answer: a file inside
-            // the project only. A bare or partial path is looked up by its ending.
-            guard let target = payload["path"] as? String, let targetLine = (payload["target"] as? NSNumber)?.intValue else { return }
-            let base = root.standardizedFileURL.path + "/"
-            let file = root.appendingPathComponent(target).standardizedFileURL
-            if file.path.hasPrefix(base), FileManager.default.fileExists(atPath: file.path) {
-                codeNav.jump(from: here, to: file, line: targetLine, open: open)
-                return
-            }
-            let suffix = "/" + target.trimmingCharacters(in: CharacterSet(charactersIn: "./"))
-            let current = path
-            Task {
-                let match = await Task.detached(priority: .userInitiated) { () -> String? in
-                    let candidates = ArchitectureScanner.listFiles(root: root).filter { ("/" + $0).hasSuffix(suffix) }
-                    // Nearest to the file the question was about.
-                    let folder = (current as NSString).deletingLastPathComponent
-                    return candidates.max { a, b in
-                        a.commonPrefix(with: folder).count < b.commonPrefix(with: folder).count
-                    }
-                }.value
-                guard let match else { return }
-                codeNav.jump(from: here, to: root.appendingPathComponent(match), line: targetLine, open: open)
-            }
-        case "navBack":
-            codeNav.goBack(current: here, open: open)
-        case "navForward":
-            codeNav.goForward(current: here, open: open)
-        case "askAI":
-            guard let id = payload["id"] as? String, let question = payload["question"] as? String,
-                  let snippet = payload["text"] as? String, !snippet.isEmpty else { return }
-            let start = (payload["start"] as? NSNumber)?.intValue ?? 1
-            let history = (payload["history"] as? [[String: String]]) ?? []
-            codeNav.ask(id: id, question: question, snippet: snippet, start: start,
-                        end: (payload["end"] as? NSNumber)?.intValue ?? start, path: path,
-                        language: FileType.codeLanguage(for: url), history: history, url: url,
-                        root: root, db: semanticDatabase)
-        case "askStop":
-            if let id = payload["id"] as? String { codeNav.stopAnswer(id: id) }
-        default:
-            break
-        }
-    }
-
-    // MARK: - Architecture
-
-    /// Folder X-Rays by folder path (relative to the project root). The project's own
-    /// X-Ray is `architecture` (scope "").
-    private var folderXRays: [String: ArchitectureStore] = [:]
-
-    /// The store behind an X-Ray tab.
-    func xrayStore(for scope: String) -> ArchitectureStore {
-        if scope.isEmpty || scope == TabKind.pullRequestScope { return architecture }
-        if let store = folderXRays[scope] { return store }
-        let store = ArchitectureStore()
-        store.projectRoot = rootNode?.url
-        if let root = rootNode?.url {
-            // Kept in the project's .dde, never inside the folder itself.
-            let key = String(ContentHash.of(scope).prefix(24))
-            let base = root.appendingPathComponent(".dde/xray-folders", isDirectory: true)
-            store.persistenceFile = base.appendingPathComponent(key + ".json")
-            store.cacheDirectory = root.appendingPathComponent(".dde/cache/xray", isDirectory: true)
-        }
-        store.temporaryFilter = temporaryFilter
-        folderXRays[scope] = store
-        return store
-    }
-
-    /// Every X-Ray store that exists (the project's and the folders').
-    private var allXRayStores: [ArchitectureStore] { [architecture] + folderXRays.values }
-
-    /// Root folder and database of an X-Ray scope (folder X-Rays keep no database).
-    private func xrayContext(_ scope: String) -> (root: URL, db: SemanticDatabase?)? {
-        guard let root = rootNode?.url else { return nil }
-        if scope.isEmpty || scope == TabKind.pullRequestScope { return (root, semanticDatabase) }
-        return (root.appendingPathComponent(scope), nil)
-    }
-
-    /// Open (or switch to) the project's X-Ray. The first time the folder is scanned;
-    /// later openings show the stored result.
-    func openArchitecture() {
-        layout.workspaceArea = .projectMap
-        openXRayTab(scope: "")
-    }
-
-    private func openXRayTab(scope: String) {
-        guard let root = rootNode?.url, let context = xrayContext(scope) else { return }
-        layout.workspaceArea = .projectMap
-        let isThisTab = { (tab: OpenTab) -> Bool in
-            if case .architecture(let s) = tab.kind { return s == scope }
-            return false
-        }
-        if let index = openTabs.firstIndex(where: isThisTab) {
-            tabs.activeTabIndex = index
-        } else {
-            let marker = scope.isEmpty ? ".markview-architecture"
-                : scope == TabKind.pullRequestScope ? ".markview-pr-xray"
-                : ".markview-architecture-" + String(ContentHash.of(scope).prefix(12))
-            var tab = OpenTab(url: root.appendingPathComponent(marker), content: "", originalContent: "")
-            tab.kind = .architecture(scope: scope)
-            tabs.appendTab(tab)
-        }
-        xrayStore(for: scope).open(root: context.root, db: context.db)
     }
 
     // MARK: - Moving and copying files
@@ -1317,53 +508,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         return result.errors.first
     }
 
-    /// The PR X-Ray tab: the project's X-Ray seen through one change — what it touches,
-    /// the links it adds or removes, and the AI's architectural reading of it.
-    func openPRXRay(source: String?) {
-        guard let root = rootNode?.url else { return }
-        openXRayTab(scope: TabKind.pullRequestScope)
-        if let source, !source.isEmpty {
-            architecture.refreshPRSources(root: root)
-            // A comparison with an earlier commit can span months of work: it is shown, and analysed when asked.
-            architecture.analyzeWhenLoaded = HistoricalBaseline.commitHash(fromSourceId: source) == nil
-            architecture.showPR(source, root: root, db: semanticDatabase)
-        } else {
-            // Nothing chosen yet: everything on this branch vs main, uncommitted included.
-            architecture.selectDefaultSource = true
-            architecture.refreshPRSources(root: root)
-        }
-    }
-
-    /// Compare this checkout with another branch in the PR X-Ray. `reverse` shows what `ref` has that this
-    /// branch lacks (read from `ref`, nothing is checked out); otherwise this branch's commits and uncommitted
-    /// changes against `ref`.
-    func compareBranch(_ ref: String, reverse: Bool) {
-        guard let root = rootNode?.url, GitClient.isPlausibleBranchName(ref) else { return }
-        let current = gitClient.branch.isEmpty ? "this checkout" : gitClient.branch
-        let title = reverse ? "\(ref) vs \(current): what \(ref) adds"
-                            : "\(current) vs \(ref) (commits + uncommitted)"
-        openXRayTab(scope: TabKind.pullRequestScope)
-        // No AI run until asked: Analyze and Review are buttons in the view.
-        architecture.showComparison(id: (reverse ? "rev:" : "cmp:") + ref, title: title, root: root, db: semanticDatabase)
-        architecture.refreshPRSources(root: root)
-    }
-
-    /// X-Ray from the file tree. A folder gets its own X-Ray tab — its own structure,
-    /// found and named inside it as if it were the project. A file opens with Explain
-    /// (its sections, importance, freshness and filters).
-    func openXRay(for url: URL) {
-        guard let root = rootNode?.url.standardizedFileURL else { return }
-        let target = url.standardizedFileURL
-        let isFolder = (try? target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-        guard isFolder else {
-            explainFile(target)
-            return
-        }
-        openXRayTab(scope: target.path == root.path ? "" : workspaceRelativePath(target))
-    }
-
     /// Open a file with its Explain notes, starting an explanation if there is none yet.
-    private func explainFile(_ url: URL) {
+    func explainFile(_ url: URL) {
         layout.workspaceArea = .files
         guard !FileType.isImage(url), !Archive.isArchive(url), FileType.hasTextSource(url) else {
             openFile(url)
@@ -1377,297 +523,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             }
             guard activeTab?.url == url else { return }
             setNotesView(true, explain: true)
-        }
-    }
-
-    /// Requests from an X-Ray tab's web view, for the X-Ray of the active tab.
-    func handleArchitectureAction(_ action: String, payload: [String: Any]) {
-        var scope = ""
-        if case .architecture(let s) = activeTab?.kind { scope = s }
-        guard let (root, db) = xrayContext(scope) else { return }
-        let architecture = xrayStore(for: scope)
-        let semanticDatabase = db
-        switch action {
-        case "operationRun":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let id = payload["id"] as? String else { return }
-            operations()?.run(id: id)
-        case "operationOpen":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let id = payload["id"] as? String else { return }
-            operations()?.openPanel(id: id)
-        case "operationEdit":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let id = payload["id"] as? String else { return }
-            operations()?.edit(id: id)
-        case "operationAdd":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
-            operations()?.edit(id: nil)
-        case "operationAdopt":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let id = payload["id"] as? String else { return }
-            projectOperations?.adoptDiscovered(id: id)
-        case "operationDiscover":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
-            let nodes = architecture.snapshot?.view("deployment")?.nodes
-                .filter { $0.kind != "root" && $0.kind != "moduleRef" }
-                .map { ProjectOperation.Node(id: $0.id, name: $0.name) } ?? []
-            projectOperations?.discover(nodes: nodes)
-        case "operationCancelDiscovery":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
-            projectOperations?.cancelDiscovery()
-        case "operationDismissReport":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
-            projectOperations?.dismissDiscoveryReport()
-        case "operationAcceptProposal":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let index = payload["index"] as? Int else { return }
-            projectOperations?.acceptProposal(index: index)
-        case "operationRejectProposal":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let index = payload["index"] as? Int else { return }
-            projectOperations?.rejectProposal(index: index)
-        case "operationAddUnknown":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let index = payload["index"] as? Int else { return }
-            operations()?.addUnknown(index: index)
-        case "openFile":
-            guard let path = payload["path"] as? String, !path.isEmpty else { return }
-            let url = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path)).standardizedFileURL
-            // Stay inside the X-Ray's folder or, for a folder X-Ray's answer, the open project.
-            let projectPath = (rootNode?.url ?? root).standardizedFileURL.path
-            guard url.path.hasPrefix(root.standardizedFileURL.path + "/") || url.path.hasPrefix(projectPath + "/") else { return }
-            // From the PR X-Ray: the viewer opens on the change ("Pull request" lens), showing
-            // a fetched pull request's own version of the file (which may not exist here).
-            // From the ⚡ search's answer: the viewer opens on the search's places in the file.
-            if payload["fromSearch"] as? Bool == true { architecture.markSearchFocus(path: path) }
-            if payload["fromPR"] as? Bool == true {
-                architecture.markPRFocus(path: path)
-                let line = payload["line"] as? Int
-                let endLine = payload["endLine"] as? Int
-                let findText = payload["find"] as? String
-                if let cached = architecture.prFileURL(path: path) {
-                    openFile(cached, line: line, endLine: endLine)
-                    return
-                }
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if let prFile = await self.architecture.resolvePRFileURL(path: path) {
-                        self.openFile(prFile, line: line, endLine: endLine)
-                        return
-                    }
-                    guard FileManager.default.fileExists(atPath: url.path) else { return }
-                    if FileType.isOpenable(url) {
-                        self.openFile(url, line: line, endLine: endLine)
-                        if let text = findText, !text.isEmpty, FileType.from(url: url) == .markdown {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                                NotificationCenter.default.post(.scrollToText, for: self, object: String(text.prefix(80)))
-                            }
-                        }
-                    } else {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    }
-                }
-                return
-            }
-            guard FileManager.default.fileExists(atPath: url.path) else { return }
-            if FileType.isOpenable(url) {
-                openFile(url, line: payload["line"] as? Int, endLine: payload["endLine"] as? Int)
-                // Markdown: scroll to a heading or to where the document mentions something.
-                if let text = payload["find"] as? String, !text.isEmpty, FileType.from(url: url) == .markdown {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        NotificationCenter.default.post(.scrollToText, for: self, object: String(text.prefix(80)))
-                    }
-                }
-            } else {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
-            }
-        case "rescan":
-            architecture.scan(root: root, db: semanticDatabase)
-        case "analyze":
-            architecture.analyze(root: root, db: semanticDatabase)
-        case "describeBook":
-            // Book view: "Describe this chapter" (path) or "Describe remaining chapters" (no path).
-            architecture.describeBook(path: payload["path"] as? String, root: root, db: semanticDatabase)
-        case "recursiveInsight":
-            // Book panel: the insight of a part (folder) or chapter (document) of this X-Ray.
-            let relative = payload["path"] as? String ?? ""
-            let target = relative.isEmpty ? root : root.appendingPathComponent(relative).standardizedFileURL
-            guard target.path == root.standardizedFileURL.path || target.path.hasPrefix(root.standardizedFileURL.path + "/"),
-                  FileManager.default.fileExists(atPath: target.path) else { return }
-            startRecursiveInsight(at: target)
-        case "askBook":
-            // A question about the book: answered like "I need to understand" (what, why, how,
-            // origin, with sources), over this X-Ray's root — the project's or the folder's.
-            let question = (payload["question"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !question.isEmpty else { return }
-            setTemporaryFilter(question)
-            if let filter = temporaryFilter {
-                architecture.understand(filter: filter, root: root, db: semanticDatabase)
-                architecture.activate(filterId: filter.id)
-            }
-        case "cancelAnalysis":
-            architecture.cancelAnalysis()
-        case "tempFilter":
-            setTemporaryFilter(payload["criterion"] as? String ?? "")
-        case "openPRXRay":
-            openPRXRay(source: payload["source"] as? String)
-        case "openPRNumber":
-            // "123", "#123" or a GitHub link ".../pull/123".
-            let text = (payload["text"] as? String ?? "").trimmingCharacters(in: .whitespaces)
-            let number = text.range(of: #"(\d+)\s*$|pull/(\d+)"#, options: .regularExpression)
-                .map { String(text[$0]).filter(\.isNumber) } ?? ""
-            if !number.isEmpty { openPRXRay(source: "gh:" + number) }
-        case "analyzePR":
-            architecture.analyzePR(root: root, db: semanticDatabase, fresh: payload["again"] as? Bool == true)
-        case "historyCommits":
-            // Comparison by date: the commits of the calendar day chosen in the PR X-Ray ("YYYY-MM-DD").
-            architecture.listHistory(day: payload["day"] as? String ?? "", root: root)
-        case "compareWithCommit":
-            // The comparison with a date opens in the comparison view, like a branch comparison, from the project's X-Ray
-            // as well as from the PR X-Ray (BUG-110): it needs no pull request.
-            if scope.isEmpty { openXRayTab(scope: TabKind.pullRequestScope) }
-            architecture.compareWithCommit(sha: payload["sha"] as? String ?? "", root: root, db: semanticDatabase)
-        case "prFileDiff":
-            architecture.showFileDiff(path: payload["path"] as? String ?? "")
-        case "explainPRFile":
-            architecture.explainPRFile(path: payload["path"] as? String ?? "", root: root, db: semanticDatabase)
-        case "askPR":
-            let path = payload["path"] as? String
-            architecture.askPR(question: payload["question"] as? String ?? "", path: path?.isEmpty == true ? nil : path,
-                               root: root, db: semanticDatabase)
-        case "filterSearch":
-            architecture.searchFilter(filterId: payload["filter"] as? String ?? "", root: root, db: semanticDatabase)
-        case "showPR":
-            architecture.showPR(payload["source"] as? String ?? "", root: root)
-        case "reviewPR":
-            if payload["again"] as? Bool == true {
-                architecture.reviewAgain(root: root, db: semanticDatabase)
-            } else {
-                architecture.reviewPR(root: root, db: semanticDatabase)
-            }
-        case "prTasksToTerminal":
-            // Typed at the assistant's prompt, not sent: check the list and press Enter.
-            if let text = architecture.prTasksText() { sendToAssistant(text, submit: false) }
-        case "copyPRTasks":
-            if let text = architecture.prTasksText() {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-            }
-        case "refreshPRSources":
-            architecture.refreshPRSources(root: root)
-        case "prAction":
-            // op: approve | requestChanges | comment | merge | close; method: merge | squash | rebase.
-            let op = payload["op"] as? String ?? ""
-            let method = payload["method"] as? String ?? "squash"
-            guard ["approve", "requestChanges", "comment", "merge", "close"].contains(op),
-                  GitHubClient.mergeMethods.contains(method) else { return }
-            architecture.prAction(op, body: payload["body"] as? String ?? "", method: method, root: root)
-        case "prFindingFix", "prFixAll":
-            let prompt = action == "prFixAll"
-                ? architecture.prTasksText()
-                : architecture.findingFixPrompt(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1)
-            guard let prompt else { return }
-            let number = architecture.shownPRNumber
-            Task {
-                if let error = await fixInPullRequest(number, prompt: prompt) {
-                    let alert = NSAlert()
-                    alert.messageText = "Cannot fix in the pull request"
-                    alert.informativeText = error
-                    alert.runModal()
-                }
-            }
-        case "prFindingExplain":
-            architecture.explainFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1, db: semanticDatabase)
-        case "prFindingComment":
-            architecture.commentFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1, root: root)
-        case "prFindingIssue":
-            architecture.issueFromFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1, root: root)
-        case "prFindingDismiss":
-            architecture.dismissFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1)
-        case "openURL":
-            // Only GitHub links, opened in the browser.
-            if let text = payload["url"] as? String, let url = URL(string: text), url.scheme == "https",
-               url.host == "github.com" {
-                NSWorkspace.shared.open(url)
-            }
-        case "setComponent":
-            architecture.setComponent(path: payload["path"] as? String ?? "", component: payload["component"] as? String ?? "",
-                                      db: semanticDatabase)
-        case "rateImportance":
-            architecture.rateImportance(viewId: payload["view"] as? String ?? "modules",
-                                        parentId: payload["parent"] as? String ?? "",
-                                        filterId: payload["filter"] as? String ?? "importance",
-                                        root: root, db: semanticDatabase)
-        case "createFilter":
-            createFilter(name: payload["name"] as? String ?? "", criterion: payload["criterion"] as? String ?? "")
-        case "deleteFilter":
-            deleteFilter(id: payload["id"] as? String ?? "")
-        case "outlineFile":
-            guard let path = payload["path"] as? String, !path.isEmpty else { return }
-            architecture.outlineFile(path: path, root: root, db: semanticDatabase)
-        case "saveSearchAnswer":
-            let filterId = payload["filter"] as? String ?? ""
-            if architecture.understandingAnswers[filterId] != nil {
-                Task {
-                    if let file = await architecture.saveUnderstanding(filterId: filterId, root: root, author: features.defaultOwner) {
-                        refreshFileTree()
-                        openFile(file)
-                    }
-                }
-                return
-            }
-            if let file = architecture.saveSearchAnswer(filterId: payload["filter"] as? String ?? "", root: root,
-                                                        author: features.defaultOwner) {
-                refreshFileTree()
-                openFile(file)
-            }
-        case "retryUnderstanding":
-            architecture.retryUnderstanding(filterId: payload["filter"] as? String ?? "", root: root, db: db)
-        case "openUnderstandingSource":
-            guard let source = architecture.understandingSource(filterId: payload["filter"] as? String ?? "",
-                                                                sourceId: payload["source"] as? String ?? "") else { return }
-            if source.kind == .document {
-                // Inside the X-Ray's folder, or (from a folder X-Ray) anywhere in the open project.
-                if let path = UnderstandingAnswer.relativePath(source.path, root: root) {
-                    openFile(root.appendingPathComponent(path), line: source.start, endLine: source.end)
-                } else if let projectURL = rootNode?.url, let path = UnderstandingAnswer.relativePath(source.path, root: projectURL) {
-                    openFile(projectURL.appendingPathComponent(path), line: source.start, endLine: source.end)
-                }
-            } else if source.kind == .pr || source.kind == .commit {
-                if !source.url.isEmpty, UnderstandingAnswer.isGitHubURL(source.url, kind: source.kind, target: source.target),
-                   let url = URL(string: source.url) {
-                    NSWorkspace.shared.open(url)
-                } else if source.kind == .commit {
-                    let hash = source.target
-                    guard hash.count == 40, hash.allSatisfy(\.isHexDigit) else { return }
-                    Task {
-                        let result = await GitHubClient.execute(["show", "--format=fuller", "--stat", "--patch", hash, "--"], in: root, git: true)
-                        guard result.status == 0 else { return }
-                        let file = FileManager.default.temporaryDirectory.appendingPathComponent("MarkView-commit-\(hash).md")
-                        // Indent rather than fence: commit content may itself contain fences.
-                        let text = "# Commit \(hash)\n\n" + result.stdout.components(separatedBy: "\n").map { "    " + $0 }.joined(separator: "\n")
-                        do { try Data(text.utf8).write(to: file); openFile(file) }
-                        catch { NSLog("Could not open the commit document") }
-                    }
-                }
-            }
-        case "explainEdge":
-            guard let source = payload["source"] as? String, let target = payload["target"] as? String else { return }
-            architecture.explainEdge(view: payload["view"] as? String ?? "modules", source: source, target: target,
-                                     kind: payload["kind"] as? String ?? "uses", label: payload["label"] as? String,
-                                     root: root, db: semanticDatabase, fresh: payload["again"] as? Bool == true)
-        case "refreshCode":
-            // The Code view's Refresh (DEC-002): the automatic pipeline now, forced.
-            architecture.refreshCode(root: root, db: semanticDatabase)
-        case "traceCode":
-            guard let scope = payload["scope"] as? String, let question = payload["question"] as? String else { return }
-            architecture.traceCode(scope: scope, question: question, root: root, db: semanticDatabase)
-        case "describe":
-            architecture.describe(viewId: payload["view"] as? String ?? "modules", nodeId: payload["id"] as? String ?? "",
-                                  root: root, db: semanticDatabase)
-        default:
-            break
         }
     }
 
@@ -1769,29 +624,24 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
     /// Check if a file belongs to the currently open workspace
     private func isFileInCurrentWorkspace(_ url: URL) -> Bool {
-        guard semanticDatabase != nil || singleFileSetup != nil else { return false }
-        guard let root = rootNode else { return false }
+        guard project.hasWorkspace else { return false }
         // A pull request's copy of a project file (MarkView's cache, opened from the PR
         // X-Ray) belongs to the open project: it must not turn it into a single-file workspace.
-        if architecture.prRelativePath(for: url) != nil { return true }
-        let filePath = url.standardizedFileURL.path
-        let rootPath = root.url.standardizedFileURL.path
-        if filePath.hasPrefix(rootPath + "/") { return true }
-        // A file in a linked folder belongs to the project (Task 59).
-        return linkedFolder(containing: url) != nil
+        if codeXRay.architecture.prRelativePath(for: url) != nil { return true }
+        return project.contains(url)
     }
 
     /// Drop the database and every engine bound to the current workspace.
     private func releaseWorkspaceEngines() {
         cockpitSession?.closeProject()
         cockpitSession = nil
-        singleFileSetup?.cancel()
-        singleFileSetup = nil
-        semanticDatabase = nil
-        graphRAG = nil
+        project.releaseDatabase()
         stopAllTerminals()
         aiWorkspaceRoot = nil
     }
+
+    /// The Recursive Insight engine over the project's database; nil until the database is open.
+    var graphRAG: GraphRAG? { project.database.map(GraphRAG.init(db:)) }
 
     /// Close the open folder and every tab, returning the window to the welcome
     /// screen so another folder can be chosen. Returns false if the user cancelled
@@ -1821,7 +671,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         guard tabs.resolveUnsavedChanges(at: Array(openTabs.indices), before: "closing the folder") else { return false }
 
         Self.debugLog("closeFolder: \(rootNode?.url.path ?? "(no folder)")")
-        UserDefaults.standard.removeObject(forKey: Self.lastFolderKey)
+        UserDefaults.standard.removeObject(forKey: ProjectContext.lastFolderKey)
 
         // Stop work that would otherwise keep writing into the old workspace.
         for tab in openTabs {
@@ -1830,126 +680,33 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             }
         }
         stopAllTerminals()
-        structuralIndexer?.terminate()
-        structuralIndexer = nil
         taskBag.cancelAll()
 
         tabs.reset()
-        fileTreeStore.reset()
-        linkedFolders = []
+        project.closeFolder()
         releaseWorkspaceEngines()
-        architecture.reset()
-        folderXRays = [:]
+        codeXRay.reset()
         projectOperations = nil
-        codeNav.reset()
-        isCodeProject = false
         gitClient.reset()
         gitHubRoot = nil
         gitHub.reset()
         features.reset()
         deployments.setRoot(nil)
         discussions.setRoot(nil)
-        indexingProgress = nil
-        structuralIndexProgress = nil
-        analysisStage = nil
-        analysisDetail = nil
-        totalFilesInWorkspace = 0
-        analyzedFiles = 0
         requests.pendingGraphCreatorType = nil
         return true
     }
 
-    /// The single-file workspace being opened: while its database is still being created, another Markdown file
-    /// from the same folder joins it instead of starting a second one.
-    private var singleFileSetup: Task<Void, Never>?
-
     /// Initialize workspace for a single .md file — DB named after the file, indexes only this file
     private func initSingleFileWorkspace(fileURL: URL) {
         let parentDir = fileURL.deletingLastPathComponent()
-        let fileName = fileURL.deletingPathExtension().lastPathComponent
-        let dbName = "file_\(fileName).db"
-
-        NSLog("[DDE] initSingleFileWorkspace: file=\(fileURL.path) dir=\(parentDir.path) dbName=\(dbName)")
+        Self.debugLog("initSingleFileWorkspace: dir=\(parentDir.path)")
 
         releaseWorkspaceEngines()
 
         aiWorkspaceRoot = parentDir
         gitClient.setup(at: parentDir)
-
-        // Build file tree showing just the parent dir
-        if rootNode == nil {
-            rootOpenedAsFolder = false
-            fileTreeStore.setRootNode(FileNode.buildTree(from: parentDir, sortOrder: fileTreeStore.sortOrder))
-            fileTreeStore.loadExcludedFolders()
-        }
-
-        // The database is opened and filled off the main thread; the workspace gets it when it is ready.
-        singleFileSetup = Task {
-            do {
-                let db = try await SemanticDatabase.open(workspacePath: parentDir, dbName: dbName)
-                try await db.ensureProject(id: fileName, name: fileName, rootPath: parentDir.path)
-                // Closed, or another file's workspace took over, while the database was being opened.
-                guard !Task.isCancelled else { return }
-                self.semanticDatabase = db
-                self.graphRAG = GraphRAG(db: db)
-                singleFileSetup = nil
-
-                // Index this single file: create root module, parse document, index FTS
-                await indexSingleFile(fileURL: fileURL, db: db)
-
-                NSLog("[DDE] Single-file workspace initialized: \(fileName) → \(dbName)")
-            } catch {
-                singleFileSetup = nil
-                NSLog("[DDE] Failed to init single-file workspace: \(error)")
-            }
-        }
-    }
-
-    /// Index a single markdown file — structural parse + FTS + Haiku extraction.
-    /// Works fully in sandbox: no directory scan, content passed directly.
-    private func indexSingleFile(fileURL: URL, db: SemanticDatabase) async {
-        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
-            NSLog("[DDE] indexSingleFile: cannot read \(fileURL.path)")
-            return
-        }
-
-        let docId = fileURL.lastPathComponent
-        let fileName = fileURL.deletingPathExtension().lastPathComponent
-        let modId = "mod_single_file"
-
-        // Root module
-        await db.upsertModule(id: modId, name: fileName, path: fileURL.deletingLastPathComponent().path,
-                              parentId: nil, level: 0, fileCount: 1)
-
-        // FTS index
-        await db.indexDocumentFTS(documentId: docId, title: fileName, content: content)
-
-        // Content hash
-        var h: UInt32 = 0x811c9dc5
-        for byte in content.utf8 { h ^= UInt32(byte); h = h &* 0x01000193 }
-        try? await db.upsertDocument(id: docId, projectId: fileName, filePath: fileURL.path,
-                                     fileName: docId, fileExt: "md", contentHash: String(h, radix: 16))
-
-        // Parse symbols inline (headings) — no directory scan
-        let lines = content.components(separatedBy: "\n")
-        for (i, line) in lines.enumerated() {
-            let lineNum = i + 1
-            if line.range(of: #"^#{1,6}\s+.+"#, options: .regularExpression) != nil {
-                let level = line.prefix(while: { $0 == "#" }).count
-                let text = String(line.dropFirst(level)).trimmingCharacters(in: .whitespaces)
-                let symId = "sym_h_\(singleFileFnv1a("\(docId):\(lineNum):\(text)"))"
-                await db.insertSymbol(id: symId, moduleId: modId, documentId: docId,
-                                      name: text, kind: "heading", lineStart: lineNum, lineEnd: lineNum, context: nil)
-            }
-        }
-
-        NSLog("[DDE] indexSingleFile: parsed \(docId), \(content.count) chars")
-    }
-
-    private func singleFileFnv1a(_ str: String) -> String {
-        var hash: UInt32 = 0x811c9dc5
-        for byte in str.utf8 { hash ^= UInt32(byte); hash = hash &* 0x01000193 }
-        return String(hash, radix: 16)
+        project.openSingleFile(fileURL)
     }
 
 
@@ -1957,88 +714,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     func revealInFileTree(url: URL) {
         chrome.showFileTree = true
         requests.fileTreeRevealRequest = url.standardizedFileURL
-    }
-
-    /// Handle selection actions: translate or explain selected text via the selected AI CLI.
-    /// Result is shown in a popup — see `translateDocument` for the whole-document
-    /// path, which produces a translated copy in a new tab instead.
-    func handleSelectionAction(action: String, text: String, completion: @escaping (String, String) -> Void) async {
-        let (systemPrompt, title): (String, String) = {
-            switch action {
-            case "translate_ru":
-                return ("You are a professional translator. Translate the user's text to Russian word-for-word. Do NOT summarize, do NOT shorten, do NOT skip anything. Translate every single sentence. Return ONLY the translated text in markdown format.", "Translation to Russian")
-            case "translate_en":
-                return ("You are a professional translator. Translate the user's text to English word-for-word. Do NOT summarize, do NOT shorten, do NOT skip anything. Translate every single sentence. Return ONLY the translated text in markdown format.", "Translation to English")
-            case "explain":
-                return ("You are a knowledgeable assistant. Explain the following text clearly and concisely. Use markdown formatting. If it contains technical terms, define them. If it contains code, explain what it does.", "Explanation")
-            default:
-                return ("Process the following text.", "Result")
-            }
-        }()
-
-        var request = CLICompletion.Request(project: aiProject, prompt: text, systemPrompt: systemPrompt)
-        request.timeout = 120
-        let id = UUID()
-        let scope = activeTab.map { workspaceRelativePath($0.url) } ?? "Selected text"
-        let assistant = AIAssistantPreferences.summary(tool: request.tool,
-            model: request.model ?? AIAssistantPreferences.model(for: request.tool, project: request.project) ?? "")
-        selectionActions[id] = SelectionActionState(id: id, title: title,
-            scope: "\(scope) · selected text", assistant: assistant, started: Date())
-        let task = Task { [weak self] in
-            try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "selection-action", onDelta: { [weak self] delta in
-                Task { @MainActor in
-                    guard var state = self?.selectionActions[id], state.phase == .running else { return }
-                    state.partial += delta
-                    state.stage = "Writing answer"
-                    self?.selectionActions[id] = state
-                }
-            }, onActivity: { [weak self] activity in
-                Task { @MainActor in
-                    guard var state = self?.selectionActions[id], state.phase == .running else { return }
-                    switch activity {
-                    case .thinking: state.stage = "Thinking"
-                    case .writing, .answerDelta: state.stage = "Writing answer"
-                    case .read, .search, .run: state.stage = "Reading project context"
-                    case .webSearch, .webFetch: state.stage = "Reading web context"
-                    }
-                    self?.selectionActions[id] = state
-                }
-            })
-        }
-        selectionTasks[id] = task
-        defer {
-            selectionTasks.removeValue(forKey: id)
-            stoppedSelectionActions.remove(id)
-        }
-        do {
-            let result = try await task.value
-            if stoppedSelectionActions.contains(id) {
-                finishSelectionAction(id, phase: .stopped, stage: "Stopped · partial answer retained")
-                completion(title, selectionActions[id]?.partial ?? "Stopped")
-                return
-            }
-            result.record(in: semanticDatabase)
-            finishSelectionAction(id, phase: .completed, stage: "Completed")
-            completion(title, result.text)
-        } catch is CancellationError {
-            finishSelectionAction(id, phase: .stopped, stage: "Stopped · partial answer retained")
-            completion(title, selectionActions[id]?.partial ?? "Stopped")
-        } catch {
-            if stoppedSelectionActions.contains(id) {
-                finishSelectionAction(id, phase: .stopped, stage: "Stopped · partial answer retained")
-                completion(title, selectionActions[id]?.partial ?? "Stopped")
-                return
-            }
-            finishSelectionAction(id, phase: .failed, stage: error.localizedDescription)
-            completion(title, "Error: \(error.localizedDescription)")
-        }
-    }
-
-    private func finishSelectionAction(_ id: UUID, phase: SelectionActionState.Phase, stage: String) {
-        guard var state = selectionActions[id] else { return }
-        state.phase = phase
-        state.stage = stage
-        selectionActions[id] = state
     }
 
     // MARK: - Document Translation
@@ -2129,7 +804,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             }
 
             done += 1
-            indexingProgress = "Translating \(done)/\(translatableCount) (\(engine.label))..."
+            project.indexingProgress = "Translating \(done)/\(translatableCount) (\(engine.label))..."
 
             let expected = skeleton(of: chunk.text)
             var translated = await translateChunk(chunk.text, targetLang: targetLang, engine: engine,
@@ -2166,7 +841,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             NSLog("[DDE] Translation: \(failedChunks.count) chunk(s) left untranslated")
         }
         writeToTab(result)
-        indexingProgress = nil
+        project.indexingProgress = nil
         NSLog("[DDE] Translation complete: \(chunks.count) chunks, engine \(engine.label)")
         return nil
     }
@@ -2214,19 +889,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             NSLog("[DDE] Translation chunk error: \(error.localizedDescription)")
             return nil
         }
-    }
-
-    /// `<workspace>/.dde/cache` — the open folder when the document is in it, otherwise
-    /// the document's own folder (same place single-file mode keeps `.dde`).
-    func cacheDirectory(for url: URL) -> URL {
-        let path = url.standardizedFileURL.path
-        let root: URL
-        if let folder = rootNode?.url, path.hasPrefix(folder.standardizedFileURL.path + "/") {
-            root = folder
-        } else {
-            root = url.deletingLastPathComponent()
-        }
-        return root.appendingPathComponent(".dde/cache", isDirectory: true)
     }
 
     private func normalizeTranslation(_ raw: String) -> String {
@@ -2289,7 +951,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         }
 
         // 3. Enumerate .md files (any number), or the one document.
-        let mdFiles = targetIsFile ? [target] : scanMarkdownFiles(in: folderURL)
+        let mdFiles = targetIsFile ? [target] : ProjectContext.markdownFiles(in: folderURL)
 
         // 4. Empty folder check.
         guard !mdFiles.isEmpty else {
@@ -2900,15 +1562,9 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         return collapsed
     }
 
-    func refreshFileTree() {
-        Self.debugLog("refreshFileTree() called")
-        fileTreeStore.refresh()
-    }
 
-    var fileTreeSortOrder: FileTreeSortOrder {
-        get { fileTreeStore.sortOrder }
-        set { fileTreeStore.sortOrder = newValue }
-    }
+    /// Reload the file tree from disk. Kept for the regions of this file that other decompositions still move out (`AR-14` steps 2-7).
+    func refreshFileTree() { project.fileTree.refresh() }
 
     /// Folder a new diagram goes into (the file tree's "New Graph Diagram"); nil = project root.
     private(set) var graphCreatorFolder: URL?
@@ -2973,7 +1629,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
         // Persist to SQLite
         if let db = semanticDatabase {
-            let docId = self.docId(for: tab.url)
+            let docId = project.documentId(for: tab.url)
             let upserts = delta.added + delta.changed, removed = delta.removed
             // Deltas reach the database in the order the editor sent them.
             let previous = blockDeltaSave
@@ -2987,68 +1643,11 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// The block delta write in flight (`AR-37`): each delta waits for the one before it.
     private var blockDeltaSave: Task<Void, Never>?
 
-    // MARK: - Background Folder Analysis
-
-    /// V1: Deterministic structural indexing — instant, no LLM
-    /// Then V1.5: Haiku-based content module extraction (cheap, fast)
-    /// This workspace's indexer, so a newer one (folder closed and reopened) can tell its own exit from an older one's.
-    /// Weak: a started `SubprocessChild` keeps itself alive until it has exited, so its exit handler always runs,
-    /// whichever `WorkspaceManager` instance (windows create several) started it.
-    private weak var structuralIndexer: SubprocessChild?
-
-    /// Run structural indexing in a SEPARATE PROCESS (re-exec of this binary with
-    /// `--dde-index <folder>`) so the directory scan never competes with the UI.
-    /// The child writes modules/documents/symbols/FTS straight to the shared SQLite
-    /// DB (WAL + busy_timeout); on exit the app reloads cached results from disk.
-    private func runStructuralIndex(at url: URL) {
-        guard let exePath = Bundle.main.executablePath else {
-            Self.debugLog("runStructuralIndex: no executablePath")
-            return
-        }
-
-        structuralIndexProgress = "Indexing…"  // footer only; updated from child stderr
-        // Stream the child's stderr live so its progress shows in the footer (the runner drains the pipe, so the
-        // child never blocks on a full buffer).
-        let spec = SubprocessSpec(executable: exePath, arguments: ["--dde-index", url.path], timeout: 0, stdoutRouting: .discard)
-        do {
-            let child = try Subprocess.start(spec, onStderr: { [weak self] data in
-                guard let chunk = String(data: data, encoding: .utf8) else { return }
-                for raw in chunk.split(separator: "\n") {
-                    let line = String(raw)
-                    guard let r = line.range(of: "[mvindexer] ") else { continue }
-                    let msg = String(line[r.upperBound...])
-                    // The child emits bare "N/M" progress ticks; show them as a count.
-                    guard msg.range(of: #"^\d+/\d+$"#, options: .regularExpression) != nil else { continue }
-                    Task { @MainActor in self?.structuralIndexProgress = "Indexing \(msg) files" }
-                }
-            }, onExit: { [weak self] finished, exit in
-                WorkspaceManager.workspaceLogger.debug("structural index process exited code=\(exit.status, privacy: .public)")
-                Task { @MainActor in
-                    guard let self = self else { return }
-                    // A newer indexer (folder closed and reopened) owns the footer now.
-                    if let current = self.structuralIndexer, current !== finished { return }
-                    self.structuralIndexProgress = nil  // hide footer progress
-                    self.loadCachedResults()
-                    self.refreshSemanticViews()
-                }
-            })
-            structuralIndexer = child
-            Self.debugLog("structural index process launched pid=\(child.pid)")
-        } catch {
-            structuralIndexProgress = nil
-            Self.debugLog("structural index process FAILED to launch: \(error)")
-        }
-    }
-
-    func refreshSemanticViews() {
-        semanticRefreshVersion &+= 1
-    }
-
     func navigateToText(filePath: String?, fallbackDocumentId: String? = nil, searchText: String) {
         let trimmedText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
 
-        if let url = resolveWorkspaceFileURL(filePath: filePath, fallbackDocumentId: fallbackDocumentId) {
+        if let url = project.fileURL(filePath: filePath, fallbackDocumentId: fallbackDocumentId) {
             openFile(url)
         }
 
@@ -3056,13 +1655,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             try? await Task.sleep(nanoseconds: 250_000_000)
             NotificationCenter.default.post(.scrollToText, for: self, object: trimmedText)
         }
-    }
-
-    /// Refresh views that read the semantic database on demand.
-    private func loadCachedResults() {
-        // Don't load thousands of records into @Published arrays.
-        NSLog("[DDE] DB ready for lazy loading")
-        refreshSemanticViews()
     }
 
     /// Cursor moved to a different block
@@ -3117,86 +1709,64 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     }
 
     /// The command that starts `profile` in the shell with the model chosen for it, or nil
-    /// for a plain shell. Every assistant runs without permission prompts; Claude updates itself first.
+    /// for a plain shell. Every assistant runs without permission prompts; one that updates itself does that first.
     /// `continuing` adds the assistant's option that picks up its last session in the folder.
     /// `model` replaces the model chosen for the project: a Cockpit step runs with the model its plan names.
     private func startupCommand(for profile: TerminalProfile, continuing: Bool = false, model: String? = nil) -> String? {
         guard let tool = profile.tool else { return nil }
         let path = CLIToolLocator.resolve(tool) ?? tool.binaryName
         let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let linked = tool.additionalFolderArgs(linkedFolders.map(\.url)).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        let linked = tool.additionalFolderArgs(project.linkedFolders.map(\.url)).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         let run = ([quoted] + (continuing ? tool.continueArgs : []) + tool.modelArgs(model ?? chosenModel(for: profile))
                    + tool.fullAccessArgs + linked + browserToolArgs(for: tool)).joined(separator: " ")
-        switch tool {
-        case .claude: return "\(quoted) update && \(run)"
-        case .codex, .cline, .copilot, .antigravity: return run
-        }
+        guard !tool.provider.updateArgs.isEmpty else { return run }
+        return ([quoted] + tool.provider.updateArgs).joined(separator: " ") + " && " + run
     }
 
     /// This window's id for agents driving its browser tab (`BrowserControlServer`).
     let browserControlID = UUID()
 
-    /// Shell-quoted arguments that give Claude Code and Codex the MCP server for this window's
+    /// Shell-quoted arguments that give an assistant the MCP servers for this window's
     /// browser tab (Task 80); none when terminal links do not open in MarkView.
     private func browserToolArgs(for tool: CLITool) -> [String] {
         registerBrowserControl()
         guard BrowserControlServer.agentToolsEnabled(tool) else { return [] }
         // The browser tools (when terminal links open in MarkView) and the project tools (features, bugs,
         // prototypes), each a server of this same binary, both bound to this window.
-        var servers: [(name: String, codexName: String, command: String, args: [String])] = []
+        var servers: [AgentMCPServer] = []
         if TerminalBrowserBridge.isEnabled, let server = BrowserControlServer.mcpArguments(window: browserControlID) {
-            servers.append((BrowserAgentTools.serverName, "markview_browser", server.command, server.args))
+            servers.append(AgentMCPServer(name: BrowserAgentTools.serverName, tomlName: "markview_browser", flag: "--mcp-browser", label: "browser",
+                                          command: server.command, args: server.args))
         }
         if let server = BrowserControlServer.mcpArguments(window: browserControlID, flag: "--mcp-project") {
-            servers.append((ProjectAgentTools.serverName, ProjectAgentTools.serverName, server.command, server.args))
+            servers.append(AgentMCPServer(name: ProjectAgentTools.serverName, tomlName: ProjectAgentTools.serverName, flag: "--mcp-project",
+                                          label: "project", command: server.command, args: server.args))
         }
         guard !servers.isEmpty else { return [] }
         let shellQuote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-        switch tool {
-        case .claude:
-            let config: [String: Any] = ["mcpServers": Dictionary(uniqueKeysWithValues: servers.map { ($0.name, ["command": $0.command, "args": $0.args] as [String: Any]) })]
-            guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.withoutEscapingSlashes]),
-                  let json = String(data: data, encoding: .utf8) else { return [] }
-            return ["--mcp-config", shellQuote(json)]
-        case .codex:
-            let toml = { (text: String) in "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
-            return servers.flatMap { server in
-                ["-c", shellQuote("mcp_servers.\(server.codexName).command=" + toml(server.command)),
-                 "-c", shellQuote("mcp_servers.\(server.codexName).args=[" + server.args.map(toml).joined(separator: ",") + "]")]
-            }
-        case .copilot:
-            let config: [String: Any] = ["mcpServers": Dictionary(uniqueKeysWithValues: servers.map {
-                ($0.name, ["type": "local", "command": $0.command, "args": $0.args, "tools": ["*"]] as [String: Any]) })]
-            guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.withoutEscapingSlashes]),
-                  let json = String(data: data, encoding: .utf8) else { return [] }
-            return ["--additional-mcp-config", shellQuote(json)]
-        case .cline:
-            // Cline has no per-session option: its own settings must list the servers (BUG-026).
-            AgentBrowserRegistration.ensureCline(executable: servers[0].command)
-            return []
-        case .antigravity:
-            // Antigravity keeps its servers in its own configuration, added with `agy mcp add`.
-            AgentBrowserRegistration.ensureAntigravity(executable: servers[0].command)
-            return []
-        }
+        if let arguments = tool.provider.mcpLaunchArguments(for: servers, quote: shellQuote) { return arguments }
+        // No per-session option: the assistant's own settings must list the servers (BUG-026).
+        AgentBrowserRegistration.ensureRegistered(tool, executable: servers[0].command)
+        return []
     }
 
-    /// BUG-025: an organisation's Copilot policy may allow only listed MCP servers; Copilot then
+    /// BUG-025: an organisation's policy may allow only listed MCP servers; the assistant then (Copilot)
     /// prints `MCP server was blocked by policy: "markview-browser"` at every start. On that message
-    /// the server is turned off for Copilot on this Mac, and the terminal can restart without it.
-    private func watchForMCPPolicyBlock(_ session: TerminalSession) {
+    /// the server is turned off for it on this Mac, and the terminal can restart without it.
+    private func watchForMCPPolicyBlock(_ session: TerminalSession, tool: CLITool) {
+        let name = tool.displayName
         var recent = ""
         session.onOutput = { [weak self, weak session] data in
             recent = String((recent + String(decoding: data, as: UTF8.self)).suffix(4_000))
             guard BrowserAgentTools.reportsPolicyBlock(recent) else { return }
             recent = ""
             DispatchQueue.main.async {
-                guard let self, let session, BrowserControlServer.agentToolsEnabled(.copilot) else { return }
-                UserDefaults.standard.set(false, forKey: BrowserControlServer.agentToolsKey(.copilot))
+                guard let self, let session, BrowserControlServer.agentToolsEnabled(tool) else { return }
+                UserDefaults.standard.set(false, forKey: BrowserControlServer.agentToolsKey(tool))
                 let alert = NSAlert()
-                alert.messageText = "Copilot's policy blocks MarkView's browser tools"
-                alert.informativeText = "Your organisation allows Copilot only the MCP servers it lists, so it refused \"\(BrowserAgentTools.serverName)\". MarkView no longer gives Copilot these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). Copilot itself keeps working."
-                alert.addButton(withTitle: "Restart Copilot Without Them")
+                alert.messageText = "\(name)'s policy blocks MarkView's browser tools"
+                alert.informativeText = "Your organisation allows \(name) only the MCP servers it lists, so it refused \"\(BrowserAgentTools.serverName)\". MarkView no longer gives \(name) these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). \(name) itself keeps working."
+                alert.addButton(withTitle: "Restart \(name) Without Them")
                 alert.addButton(withTitle: "Later")
                 guard alert.runModal() == .alertFirstButtonReturn else { return }
                 self.relaunch(session, as: session.profile, continuing: true)
@@ -3215,7 +1785,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     func registerBrowserControl() {
         BrowserControlServer.register(browserControlID, .init(
             workspace: { [weak self] in self },
-            root: { [weak self] in self?.rootNode?.url },
+            root: { [weak self] in self?.project.root },
             tabs: { [weak self] in self?.browserSessions ?? [] },
             active: { [weak self] in
                 guard let self, self.openTabs.indices.contains(self.activeTabIndex),
@@ -3248,12 +1818,10 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     }
 
     /// The command that continues `profile`'s last session in `directory` (BUG-005), or nil to start
-    /// fresh: a shell, Cline (no "continue last" option), or Claude with no session there —
-    /// `claude --continue` then stops with "No conversation found" instead of starting one.
-    /// Codex and Copilot start a new session by themselves when there is none.
+    /// fresh: a shell, an assistant with no "continue last" option (Cline), or one with no session there
+    /// when it would stop instead of starting one (Claude Code: "No conversation found").
     private func resumeCommand(for profile: TerminalProfile, in directory: URL) -> String? {
-        guard let tool = profile.tool, !tool.continueArgs.isEmpty else { return nil }
-        if tool == .claude, !AgentModelProbe.hasClaudeSession(cwd: directory) { return nil }
+        guard let tool = profile.tool, !tool.continueArgs.isEmpty, tool.provider.hasSession(in: directory) else { return nil }
         return startupCommand(for: profile, continuing: true)
     }
 
@@ -3301,7 +1869,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
         session.browserWindowID = browserControlID
         registerBrowserControl()
-        if profile.tool == .copilot { watchForMCPPolicyBlock(session) }
+        if let tool = profile.tool, tool.provider.reportsMCPPolicyBlock { watchForMCPPolicyBlock(session, tool: tool) }
         aiTerminals.append(session)
         activeAITerminalID = session.id
         tabs.startWatchingOpenFiles()
@@ -3310,14 +1878,14 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
     /// Connect a home assistant while preserving this window's work-computer root.
     @discardableResult
-    func openRemoteAITerminal(code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool, savedConnectionID: UUID? = nil) async throws -> TerminalSession {
+    func openRemoteAITerminal(code: String, provider: CLITool, model: String?, resume: Bool, savedConnectionID: UUID? = nil) async throws -> TerminalSession {
         guard let root = aiWorkspaceRoot ?? rootNode?.url else { throw RemoteFailure.invalid("Open the folder you want the home assistant to work in.") }
         let invitation = try RemoteInvitation(code: code)
         registerBrowserControl()
         let connection = try await RemoteTerminalConnection(invitation: invitation, root: root, browserWindowID: browserControlID, provider: provider, model: model, resume: resume, savedConnectionID: savedConnectionID)
         guard (aiWorkspaceRoot ?? rootNode?.url)?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else { connection.stop(); throw RemoteFailure.invalid("The open folder changed. Connect again for the new folder.") }
-        let session = TerminalSession(directory: root, profile: provider == .claude ? .claude : .codex,
-                                      title: "Home · " + provider.title)
+        let session = TerminalSession(directory: root, profile: TerminalProfile(provider),
+                                      title: "Home · " + provider.displayName)
         connection.onState = { [weak session] phase, text in
             session?.remoteConnectionState = .init(phase: phase, detail: text, lastSeen: phase == .online ? Date() : nil)
             if let savedConnectionID { RemoteConnectionsStore.shared.update(savedConnectionID, phase, text) }
@@ -3417,13 +1985,14 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         objectWillChange.send()
     }
 
-    /// A Claude Code agent's own log names the model it runs now. When that is not what MarkView shows
+    /// A live-switching agent's (Claude Code) own log names the model it runs now. When that is not what MarkView shows
     /// (the user switched with `/model` inside the session), the agent's tab shows it, and it becomes
-    /// the model the project (and every project with no choice of its own) starts Claude Code with next
+    /// the model the project (and every project with no choice of its own) starts the assistant with next
     /// time. Nothing restarts: the conversation goes on.
-    private func claudeModelReported(_ model: String, terminalID: UUID) {
+    private func liveModelReported(_ model: String, terminalID: UUID) {
         guard let session = aiTerminals.first(where: { $0.id == terminalID }),
-              session.profile == .claude, !session.isRemote, session.isRunning else { return }
+              let tool = session.profile.tool, let live = tool.provider.liveModelSwitch,
+              !session.isRemote, session.isRunning else { return }
         let previous = session.observedModel
         session.observedModel = model
         let picked = session.pendingModelPick == model
@@ -3433,20 +2002,19 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         // unless the Agents header asked for exactly this model.
         if session.model == nil, previous == nil, !picked { return }
         // A model pinned by id (--model claude-opus-4-1) and the family alias the log reports are the same.
-        if let pinned = session.model, ClaudeSessionModel.family(of: pinned) == model { return }
-        session.adoptRunningModel(model, title: ClaudeSessionModel.title(session.title, model: model))
-        AIAssistantPreferences.remember(model, for: .claude, project: aiProject)
+        if let pinned = session.model, live.family(of: pinned) == model { return }
+        session.adoptRunningModel(model, title: live.title(session.title, model: model))
+        AIAssistantPreferences.remember(model, for: tool, project: aiProject)
         objectWillChange.send()
     }
 
-    /// The model switch in the Agents header. Claude Code switches live: `/model` is typed into the
-    /// running session, so nothing restarts and the conversation goes on; the session's log then
-    /// confirms it and `claudeModelReported` renames the tab and remembers the model. Another
+    /// The model switch in the Agents header. An assistant with a live switch (Claude Code) switches in place: the
+    /// command (`/model`) is typed into the running session, so nothing restarts and the conversation goes on; the
+    /// session's log then confirms it and `liveModelReported` renames the tab and remembers the model. Another
     /// assistant starts again with the model, and picks its conversation up where its CLI can resume.
     func switchModel(of session: TerminalSession, to model: String) {
-        guard session.profile != .shell, !session.isRemote, !model.isEmpty else { return }
-        guard session.profile == .claude else {
-            guard let tool = session.profile.tool else { return }
+        guard let tool = session.profile.tool, !session.isRemote, !model.isEmpty else { return }
+        guard let live = tool.provider.liveModelSwitch else {
             AssistantChoice(project: aiProject).setModel(model, for: tool)
             // The panel restarts the shown agent only when the project's own assistant changes its
             // model; a Copilot tab beside a Claude project would stay as it was.
@@ -3458,12 +2026,12 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         }
         // Only a family alias is typed, never free text. While the agent answers, the command would
         // queue behind the answer or land in the wrong place; the menu is off then, this covers the race.
-        guard ClaudeSessionModel.families.contains(model), session.isRunning, !session.printed(within: 3) else {
+        guard live.families.contains(model), session.isRunning, !session.printed(within: 3) else {
             NSSound.beep()
             return
         }
         session.pendingModelPick = model
-        session.paste("/model \(model)", submit: true)
+        session.paste(live.command(for: model), submit: true)
     }
 
     /// Send a prompt to an assistant (prompt buttons, AI Tools menu, graph edits,
@@ -3574,23 +2142,9 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
                                loadPullRequest: pr.number)
     }
 
-    /// "I need to understand …": the X-Ray's ⚡ search for the question — what takes part is
-    /// marked in every view, the answer and its places are on the right, and a file opened from
-    /// there shows the places inside it.
-    func understandInXRay(_ question: String, attachments: [URL] = []) {
-        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let root = rootNode?.url, !text.isEmpty else { return }
-        setTemporaryFilter(text)
-        openArchitecture()
-        if let filter = temporaryFilter {
-            architecture.understand(filter: filter, root: root, db: semanticDatabase, attachments: attachments)
-            architecture.activate(filterId: filter.id)
-        }
-    }
-
     /// "New … from this document": the document is the material (attached, so the AI reads it whole).
     func startIntake(_ kind: IntakeKind, fromDocument url: URL) {
-        let path = workspaceRelativePath(url)
+        let path = project.relativePath(of: url)
         let lead: String
         switch kind {
         case .feature, .quickFeature: lead = "Build a feature from the document \(path) (attached)."
@@ -3612,7 +2166,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     }
 
     func startResearch(fromFolder folder: URL) {
-        requests.intake = IntakeRequest(kind: .research, text: "Review the documents in \(workspaceRelativePath(folder)) and its subfolders: ", targets: [folder])
+        requests.intake = IntakeRequest(kind: .research, text: "Review the documents in \(project.relativePath(of: folder)) and its subfolders: ", targets: [folder])
     }
 
     /// Documents a new research starts with (DEC-009): the open document when it is a file in the folder.
@@ -3686,14 +2240,14 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// carries the definition of done. The feature is recorded as "implementation started" with the CLI
     /// that got it.
     func startImplementation(_ url: URL, done: DefinitionOfDone, in terminal: TerminalSession? = nil) {
-        let path = workspaceRelativePath(url)
+        let path = project.relativePath(of: url)
         let target = url.standardizedFileURL.path
         let slug = features.features.first(where: { $0.folder.standardizedFileURL.path == target })?.slug
             ?? features.locate(url)?.feature.slug
         let block = slug.map { features.lifecycle.handoffBlock(.feature, [$0]) } ?? ""
         guard let session = sendToAssistant(submit: true, to: terminal, promptFor: { session in
-            guard let backend = HandoffPrompt.GoalBackend(rawValue: session.profile.rawValue) else { return nil }
-            let prompt = HandoffPrompt.feature(path, backend: backend, done: done)
+            guard let tool = session.profile.tool else { return nil }
+            let prompt = HandoffPrompt.feature(path, tool: tool, done: done)
             return block.isEmpty ? prompt : prompt + "\n\n" + block
         }) else { return }
         guard let slug else { return }
@@ -3721,7 +2275,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.
     /// `terminal`: the one to fix it in (an agent driving the window names it); else the usual choice.
     func fixBugWithAI(_ url: URL, in terminal: TerminalSession? = nil) {
-        let claude = terminal.map { $0.profile.tool == .claude } ?? (AIAssistantPreferences.backend(project: aiProject) == .claude)
+        let tool: CLITool? = terminal != nil ? terminal?.profile.tool : AIAssistantPreferences.backend(project: aiProject)
         let key = features.bug(at: url)?.key
         // A bug the lifecycle does not let start (already fixed or closed) is not handed over: nothing could mark it.
         if let key, !features.lifecycle.canStartByHandoff(.bug, key) {
@@ -3729,7 +2283,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             return
         }
         let block = key.map { features.lifecycle.handoffBlock(.bug, [$0]) } ?? ""
-        let base = HandoffPrompt.bug(workspaceRelativePath(url), claude: claude)
+        let base = HandoffPrompt.bug(project.relativePath(of: url), tool: tool)
         let prompt = block.isEmpty ? base : base + "\n\n" + block
         // The report is marked fixing only after the prompt went out: a hand-off that failed leaves it open (REQ-003).
         guard let session = sendToAssistant(submit: true, to: terminal, promptFor: { _ in prompt }), let key else { return }
@@ -3746,12 +2300,12 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         bugBatch.reconcile()
         let bugs = bugBatch.eligible
         guard bugs.count >= BugBasket.minimumBatch, !assistantIsBusy, features.root != nil else { return }
-        let claude = AIAssistantPreferences.backend(project: aiProject) == .claude
+        let tool = AIAssistantPreferences.backend(project: aiProject)
         var session: TerminalSession?
         let outcome = BatchStart.run(bugs, canStart: { bug in
             features.lifecycle.canStartByHandoff(.bug, bug.key)
         }, send: { startable in
-            let base = BatchFixPrompt.make(startable, claude: claude)
+            let base = BatchFixPrompt.make(startable, tool: tool)
             let block = features.lifecycle.handoffBlock(.bug, startable.map(\.key))
             session = sendToAssistant(block.isEmpty ? base : base + "\n\n" + block, submit: true)
             return session != nil
@@ -3822,7 +2376,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         let newFolder = features.root != root
         features.setup(root: root)
         if newFolder { bugBatch.reset() }
-        features.assistant.database = { [weak self] in self?.semanticDatabase }
+        features.assistant.project = project
         features.assistant.gitHubClient = { [weak self] in self?.gitHub.client }
     }
 
@@ -3838,7 +2392,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     private func setUpGitHub(at root: URL) {
         gitHubRoot = root
         gitClient.onBranch = { [weak self] branch in self?.gitHub.branchChanged(branch) }
-        gitHub.onRepoChange = { [weak self] repo in self?.architecture.gitHubRepo = repo }
+        gitHub.onRepoChange = { [weak self] repo in self?.codeXRay.architecture.gitHubRepo = repo }
         gitHub.onPoll = { [weak self] client in self?.features.syncLifecycle(with: client) }
         if gitHubSettingObserver == nil {
             gitHubSettingObserver = NotificationCenter.default.addObserver(
@@ -3879,13 +2433,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         var tab = OpenTab(url: url, content: "", originalContent: "")
         tab.kind = .github(item)
         tabs.appendTab(tab)
-    }
-
-    /// "Review" on a pull request: its PR X-Ray, with the AI review started once it loads
-    /// (unless turned off in Settings).
-    func reviewPullRequest(_ number: Int) {
-        architecture.reviewWhenLoaded = GitHubSettings.autoReview
-        openPRXRay(source: "gh:\(number)")
     }
 
     /// Work on a pull request's code: check its branch out, refusing when the working tree
@@ -4226,7 +2773,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     func openDiscussion(about url: URL) {
         guard let root = rootNode?.url else { return }
         openTool(.discussions)
-        let rel = workspaceRelativePath(url)
+        let rel = project.relativePath(of: url)
         let path = url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/") ? rel : url.path
         if let existing = discussions.discussions.first(where: { $0.scope == path && $0.turns.isEmpty }) {
             discussions.selectedSlug = existing.slug
@@ -4290,7 +2837,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             }
         }
         let session = openBrowser(nil)
-        session.localReadRoot = containerRoot(for: file)
+        session.localReadRoot = project.containerRoot(for: file)
         session.load(file)
     }
 
@@ -4456,41 +3003,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         return (fileName, content)
     }
 
-    private func resolveWorkspaceFileURL(filePath: String?, fallbackDocumentId: String?) -> URL? {
-        let fm = FileManager.default
-
-        if let filePath, !filePath.isEmpty {
-            let directURL = URL(fileURLWithPath: filePath)
-            if fm.fileExists(atPath: directURL.path) {
-                return directURL
-            }
-
-            if let rootURL = rootNode?.url {
-                let relativeURL = rootURL.appendingPathComponent(filePath)
-                if fm.fileExists(atPath: relativeURL.path) {
-                    return relativeURL
-                }
-            }
-        }
-
-        guard let rootURL = rootNode?.url,
-              let fallbackDocumentId,
-              !fallbackDocumentId.isEmpty else { return nil }
-
-        if let resolved = fileURL(forDocumentId: fallbackDocumentId) { return resolved }
-
-        guard let enumerator = fm.enumerator(at: rootURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
-            return nil
-        }
-
-        while let url = enumerator.nextObject() as? URL {
-            if url.lastPathComponent == fallbackDocumentId {
-                return url
-            }
-        }
-
-        return nil
-    }
 }
 
 // MARK: - Research maps (feature mind-map, DEC-006, DEC-009)
@@ -4784,4 +3296,24 @@ extension WorkspaceManager: ProjectOperationsPresenter {
     }
 
     var operationsHostWindow: NSWindow? { hostWindow }
+}
+
+/// What `CodeAndXRayCoordinator` needs of this window; the coordinator holds no other reference to it (`AR-14` step 11).
+extension WorkspaceManager: CodeXRayHost {
+    var activeTabKind: TabKind? { tabs.activeTab?.kind }
+    var activeTabURL: URL? { tabs.activeTab?.url }
+    var gitBranch: String { gitClient.branch }
+    var defaultAuthor: String { features.defaultOwner }
+
+    func openTabContent(for url: URL) -> String? { tabs.content(ofOpen: url) }
+
+    func scrollToText(_ text: String) {
+        NotificationCenter.default.post(.scrollToText, for: self, object: text)
+    }
+
+    /// Bring the X-Ray tab of `scope` to the front, opening it when it is not there yet.
+    func showXRayTab(scope: String, root: URL) {
+        layout.workspaceArea = .projectMap
+        tabs.showArchitectureTab(scope: scope, root: root)
+    }
 }

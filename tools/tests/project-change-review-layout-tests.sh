@@ -9,6 +9,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/ProjectChangeReviewLayoutTests.swift "$out/main.swift"
 swiftc -target "$(uname -m)-apple-macos13.0" \
-    MarkView/Views/Architecture/ProjectChangeReviewView.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Workspace/TextDiff.swift MarkView/Models/Architecture/ChangeExplanation.swift MarkView/Models/AI/OutputLanguage.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/WindowTheme.swift \
+    MarkView/Views/Architecture/ProjectChangeReviewView.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Workspace/TextDiff.swift MarkView/Models/Architecture/ChangeExplanation.swift MarkView/Models/AI/OutputLanguage.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift MarkView/Models/Appearance/WindowTheme.swift \
     MarkView/Views/Appearance/AppPalette.swift "$out/main.swift" -o "$out/layout-tests"
+cp -R MarkView/Resources/Themes "$out/Themes"
 "$out/layout-tests"

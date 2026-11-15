@@ -362,9 +362,8 @@ private struct TerminalPanelTab: View {
     /// The tab's name. On a narrow panel "Claude Code" shortens to "Claude", keeping the number and
     /// the model ("Claude 2 · opus"), so the tab still shows what it runs.
     private var label: String {
-        let long = "Claude Code"
-        guard compact, session.profile == .claude, !session.isRemote, session.title.hasPrefix(long) else { return session.title }
-        return "Claude" + session.title.dropFirst(long.count)
+        guard compact, !session.isRemote, let tool = session.profile.tool, session.title.hasPrefix(tool.displayName) else { return session.title }
+        return tool.provider.compactName + session.title.dropFirst(tool.displayName.count)
     }
 
     var body: some View {
@@ -435,7 +434,7 @@ private struct TerminalPromptBar: View {
 
     private var activeFile: String? {
         guard let tab = tabs.activeTab, tab.isFileBacked else { return nil }
-        return workspaceManager.workspaceRelativePath(tab.url)
+        return workspaceManager.project.relativePath(of: tab.url)
     }
 
     @ViewBuilder

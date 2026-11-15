@@ -201,7 +201,7 @@ extension View {
             .environmentObject(workspace.layout)
             .environmentObject(workspace.chrome)
             .environmentObject(workspace.requests)
-            .environmentObject(workspace.fileTreeStore)
+            .environmentObject(workspace.project.fileTree)
             .environmentObject(workspace.gitClient)
     }
 }
@@ -229,16 +229,14 @@ private struct WorkspaceWindow: View {
     /// Project color identity of the open project folder; nil without one (feature-2, DEC-012).
     @State private var projectKey: String?
     @ObservedObject private var projectColors = ProjectColorStore.shared
+    /// The layout presets of the Layout menu (`AR-33`).
+    @ObservedObject private var layouts = LayoutCatalog.shared
     @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
     private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
     @State private var sessionAttached = false
     @State private var restorationComplete = false
     @State private var lastFilesTab: UUID?
     @AppStorage(TerminalBrowserBridge.enabledKey) private var openTerminalLinksInApp = true
-    @AppStorage(BrowserControlServer.agentToolsKey(.claude)) private var browserToolsClaude = true
-    @AppStorage(BrowserControlServer.agentToolsKey(.codex)) private var browserToolsCodex = true
-    @AppStorage(BrowserControlServer.agentToolsKey(.copilot)) private var browserToolsCopilot = true
-    @AppStorage(BrowserControlServer.agentToolsKey(.antigravity)) private var browserToolsAntigravity = true
 
     var body: some View {
         WindowThemeHost(theme: workspaceManager.theme) { windowContent }
@@ -383,7 +381,7 @@ private struct WorkspaceWindow: View {
         }
         .sheet(item: $requests.operationEditRequest) { request in
             if let store = workspaceManager.projectOperations {
-                let nodes = workspaceManager.architecture.snapshot?.view("deployment")?.nodes
+                let nodes = workspaceManager.codeXRay.architecture.snapshot?.view("deployment")?.nodes
                     .filter { $0.kind != "root" && $0.kind != "moduleRef" }
                     .map { ProjectOperation.Node(id: $0.id, name: $0.name) } ?? []
                 ProjectOperationEditor(store: store, request: request, deploymentNodes: nodes)
@@ -422,7 +420,7 @@ private struct WorkspaceWindow: View {
                 await changeReview.refresh()
             }
         }
-        .onChange(of: workspaceManager.rootOpenedAsFolder) { _ in updateWindowIdentity() }
+        .onChange(of: workspaceManager.project.rootOpenedAsFolder) { _ in updateWindowIdentity() }
         // Finder "Open With" / Quick Action: requests wait in
         // MarkViewApp.pendingOpenURLs until the active window takes them.
         // Drain on every moment this window may have become eligible — a new
@@ -467,6 +465,7 @@ private struct WorkspaceWindow: View {
                                  selected: chrome.showCenter) { chrome.toggleCenter() }
                     headerButton("sidebar.trailing", help: "Right panel (⌘2)", width: controlWidth,
                                  selected: chrome.terminalVisible) { chrome.toggleRightPanel() }
+                    layoutMenu.frame(width: controlWidth, height: controlWidth)
                 }
                 .background(RoundedRectangle(cornerRadius: 7).fill(palette.bgActive.opacity(0.5)))
                 headerDivider
@@ -599,6 +598,21 @@ private struct WorkspaceWindow: View {
         }
     }
 
+    /// The layout presets (`AR-33`, `DEC-002`): chosen by hand, applied to this window only.
+    private var layoutMenu: some View {
+        Menu {
+            LayoutMenuItems(library: layouts.library, enabled: workspaceManager.rootNode != nil,
+                            apply: { workspaceManager.applyLayoutPreset($0) }, reload: { Task { await layouts.reload() } })
+        } label: {
+            toolbarIcon("rectangle.3.group", width: toolbarIconWidth)
+        }
+        .menuStyle(.borderlessButton)
+        .tint(palette.text)
+        .menuIndicator(.hidden)
+        .help("Layout: arrange the panels of this window")
+        .accessibilityLabel("Layout")
+    }
+
     /// Less frequent window tools, kept alongside the direct project buttons.
     private var projectMenu: some View {
         Menu {
@@ -625,10 +639,7 @@ private struct WorkspaceWindow: View {
             Toggle("Open Terminal Links in MarkView", isOn: $openTerminalLinksInApp)
                 .help("Pages that Claude Code, Codex or dev servers open from MarkView's terminals show in the browser tab instead of the default browser (new terminals)")
             Menu("Browser Tools for Agents") {
-                Toggle("Claude Code", isOn: $browserToolsClaude)
-                Toggle("Codex", isOn: $browserToolsCodex)
-                Toggle("Copilot", isOn: $browserToolsCopilot)
-                Toggle("Antigravity", isOn: $browserToolsAntigravity)
+                ForEach(CLITool.allCases.filter { $0.provider.mcp != nil }) { BrowserToolsToggle(tool: $0) }
                 Text("For agents started from the AI panel (restart them after a change). Turn one off when its organisation's policy blocks MCP servers.")
             }
             Button("Connect Agents to MarkView…") { AgentBrowserRegistration.connectInteractively() }
@@ -695,8 +706,8 @@ private struct WorkspaceWindow: View {
 
     private var filesCenter: some View {
         VStack(spacing: 0) {
-            if !workspaceManager.selectionActions.isEmpty {
-                SelectionActionBar().environmentObject(workspaceManager)
+            if !workspaceManager.codeXRay.selectionActions.isEmpty {
+                SelectionActionBar(coordinator: workspaceManager.codeXRay)
             }
             if let resume = requests.handoffResume,
                layout.workspaceArea == .files {
@@ -776,7 +787,7 @@ private struct WorkspaceWindow: View {
             }
             layout.workspaceArea = .files
         case .projectMap:
-            workspaceManager.openArchitecture()
+            workspaceManager.codeXRay.openArchitecture()
         case .work:
             layout.workspaceArea = .work
             layout.leftPanel = "issues"
@@ -882,14 +893,14 @@ private struct WorkspaceWindow: View {
                 ProjectDraftList(drafts: ProjectDraftStore.shared) { id in
                     requests.newProject = NewProjectRequest(resume: id)
                 }
-                if !workspaceManager.recentProjects.isEmpty {
+                if !workspaceManager.project.recentProjects.isEmpty {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Recent projects").uiFont(size: 13, weight: .semibold)
-                        ForEach(workspaceManager.recentProjects, id: \.self) { path in
+                        ForEach(workspaceManager.project.recentProjects, id: \.self) { path in
                             RecentProjectRow(path: path) {
                                 workspaceManager.openFolder(URL(fileURLWithPath: path, isDirectory: true))
                             } onRemove: {
-                                workspaceManager.removeRecentProject(path)
+                                workspaceManager.project.removeRecentProject(path)
                             }
                         }
                     }
@@ -917,7 +928,7 @@ private struct WorkspaceWindow: View {
         case .research: workspaceManager.newResearch()
         case .tool(let tool): workspaceManager.openTool(tool)
         case .tasks: activate(.work)
-        case .xray: workspaceManager.openArchitecture()
+        case .xray: workspaceManager.codeXRay.openArchitecture()
         case .search: chrome.showGlobalSearch = true
         case .files: activate(.files)
         case .openFile: openFile()
@@ -1335,4 +1346,17 @@ private struct MinimizedAgentStatus: View {
         .padding(.leading, 6)
         .accessibilityElement(children: .combine)
     }
+}
+
+/// One row of "Browser Tools for Agents": whether an assistant started from the AI panel gets MarkView's MCP servers.
+private struct BrowserToolsToggle: View {
+    let tool: CLITool
+    @AppStorage private var enabled: Bool
+
+    init(tool: CLITool) {
+        self.tool = tool
+        _enabled = AppStorage(wrappedValue: true, BrowserControlServer.agentToolsKey(tool))
+    }
+
+    var body: some View { Toggle(tool.displayName, isOn: $enabled) }
 }

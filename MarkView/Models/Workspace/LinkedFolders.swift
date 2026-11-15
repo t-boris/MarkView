@@ -140,13 +140,3 @@ enum LinkedFolders {
         return folder.url.appendingPathComponent(relativePath)
     }
 }
-
-extension CLITool {
-    /// Arguments that let the CLI read `folders` besides its working directory (Claude
-    /// `--add-dir`). Codex reads the whole disk in its read-only sandbox; Cline and Copilot have
-    /// no such option.
-    func additionalFolderArgs(_ folders: [URL]) -> [String] {
-        guard self == .claude else { return [] }
-        return folders.flatMap { ["--add-dir", $0.path] }
-    }
-}

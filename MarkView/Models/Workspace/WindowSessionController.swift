@@ -80,7 +80,7 @@ final class WindowSessionController {
             loaded = true
             var windows = archive?.windows ?? []
             // One-time migration from versions that only remembered one folder.
-            if archive == nil, let path = UserDefaults.standard.string(forKey: WorkspaceManager.lastFolderKey) {
+            if archive == nil, let path = UserDefaults.standard.string(forKey: ProjectContext.lastFolderKey) {
                 windows = [WorkspaceWindowState(id: UUID(), folder: URL(fileURLWithPath: path))]
             }
             order = windows.map(\.id)
@@ -115,7 +115,7 @@ final class WindowSessionController {
             window.center()
         }
 
-        workspace.objectWillChange.merge(with: workspace.tabs.objectWillChange, workspace.fileTreeStore.objectWillChange, workspace.layout.objectWillChange,
+        workspace.objectWillChange.merge(with: workspace.tabs.objectWillChange, workspace.layout.objectWillChange,
                                          workspace.chrome.objectWillChange, workspace.theme.objectWillChange, workspace.windowUI.objectWillChange)
             .sink { [weak self] _ in self?.scheduleSave() }
             .store(in: &entry.subscriptions)
@@ -131,6 +131,10 @@ final class WindowSessionController {
             .sink { [weak self, weak workspace] _ in
                 // UI Studio sessions stop the development servers they started (REQ-006); the tabs' background work ends.
                 workspace?.tabs.shutdown()
+                // The project's index process, file watcher and background jobs end with its window (AR-19).
+                workspace?.project.close()
+                // So do the code analysis, the X-Ray scans and the AI answers about code that it started (AR-14 step 11).
+                workspace?.codeXRay.close()
                 self?.remove(id)
             }
             .store(in: &entry.subscriptions)

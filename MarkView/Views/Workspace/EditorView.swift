@@ -43,7 +43,7 @@ struct EditorView: NSViewRepresentable {
         documentFiles.allowedRoots = { [weak workspaceManager, weak tabs] in
             MainActor.assumeIsolated {
                 guard let workspaceManager, let tabs else { return [] }
-                return DocumentFiles.roots(project: workspaceManager.rootNode?.url,
+                return DocumentFiles.roots(project: workspaceManager.project.root,
                                            documents: tabs.openTabs.filter(\.isFileBacked).map(\.url))
             }
         }
@@ -206,7 +206,7 @@ struct EditorView: NSViewRepresentable {
                 forName: .codeNavEvent,
                 object: nil, queue: .main
             ) { [weak self] notification in
-                guard let self, notification.object as AnyObject? === self.parent.workspaceManager.codeNav,
+                guard let self, notification.object as AnyObject? === self.parent.workspaceManager.codeXRay.codeNav,
                       let webView = self.webView,
                       let url = notification.userInfo?["url"] as? URL, url == self.currentCodeURL,
                       let json = notification.userInfo?["json"] as? String else { return }
@@ -520,14 +520,14 @@ struct EditorView: NSViewRepresentable {
         /// Load cached notes for the code file and keep the margin panel in sync.
         private func routeCodeNotes(url: URL, webView: WKWebView) {
             let wm = parent.workspaceManager
-            wm.prepareCodeNotes(for: url)
+            wm.codeXRay.prepareCodeNotes(for: url)
             // Notes change with the explanation and with the selected pull request (X-Ray).
-            codeNotesCancellable = wm.codeExplain.$revision.map { _ in () }
-                .merge(with: wm.architecture.$revision.map { _ in () })
+            codeNotesCancellable = wm.codeXRay.codeExplain.$revision.map { _ in () }
+                .merge(with: wm.codeXRay.architecture.$revision.map { _ in () })
                 .debounce(for: .milliseconds(120), scheduler: DispatchQueue.main)
                 .sink { [weak self, weak webView] _ in
                     guard let self, let webView, let current = self.currentCodeURL else { return }
-                    self.bridge.setCodeNotes(self.parent.workspaceManager.codeNotesJSON(for: current), in: webView)
+                    self.bridge.setCodeNotes(self.parent.workspaceManager.codeXRay.codeNotesJSON(for: current), in: webView)
                 }
         }
 
@@ -535,7 +535,7 @@ struct EditorView: NSViewRepresentable {
         private func routeArchitecture(scope: String, webView: WKWebView) {
             currentCodeURL = nil
             lastLoadedContent = ""   // a file opened afterwards must reload into the editor
-            let store = parent.workspaceManager.xrayStore(for: scope)
+            let store = parent.workspaceManager.codeXRay.xrayStore(for: scope)
             let operations = scope.isEmpty ? parent.workspaceManager.projectOperations : nil
             if architectureCancellable == nil || architectureScope != scope || architectureOperationsRoot != operations?.root.path {
                 architectureScope = scope
@@ -868,7 +868,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
                 return
             }
             guard let url = self.currentCodeURL else { return }
-            self.parent.workspaceManager.handleCodeAction(action, payload: payload, url: url)
+            self.parent.workspaceManager.codeXRay.handleCodeAction(action, payload: payload, url: url)
         }
     }
 
@@ -904,7 +904,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
     func bridge(_ bridge: WebViewBridge, didReceiveArchitectureAction action: String, payload: [String: Any]) {
         Task { @MainActor in
-            self.parent.workspaceManager.handleArchitectureAction(action, payload: payload)
+            self.parent.workspaceManager.codeXRay.handleArchitectureAction(action, payload: payload)
         }
     }
 
@@ -988,7 +988,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     func bridge(_ bridge: WebViewBridge, didRequestSelectionAction action: String, text: String) {
         Task { @MainActor in
             let wm = self.parent.workspaceManager
-            await wm.handleSelectionAction(action: action, text: text) { title, result in
+            await wm.codeXRay.handleSelectionAction(action: action, text: text) { title, result in
                 if let webView = self.webView,
                    let script = JS.call("window.showSelectionResult", args: [title, result]) {
                     webView.evaluateJavaScript(script) { _, _ in }

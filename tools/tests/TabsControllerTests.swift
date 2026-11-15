@@ -52,11 +52,12 @@ enum TabsControllerChecks {
         await whatRedrawsWhat()
         await closeTabsUnderTrashedFolder()
         await tabKindsOpenWithoutTextLoad()
+        await xrayTabsAndOpenText()
         if failures > 0 {
             FileHandle.standardError.write(Data("\(failures) check(s) failed\n".utf8))
             exit(1)
         }
-        print("TabsController: open, edit, save, reload, close prompts, Close Documents, disk changes, moves, scroll table and redraws passed")
+        print("TabsController: open, edit, save, reload, close prompts, Close Documents, disk changes, moves, scroll table, redraws and X-Ray tabs passed")
     }
 
     @MainActor
@@ -331,6 +332,41 @@ enum TabsControllerChecks {
             tabs.activeTabIndex = 0
             tabs.saveActiveFile()
             check((try? Data(contentsOf: pdf)) == before && tabs.lastSaveError == nil, "saving a PDF tab writes nothing")
+            tabs.shutdown()
+        }
+    }
+
+    @MainActor
+    static func xrayTabsAndOpenText() async {
+        await folder { dir in
+            let tabs = TabsController(dialogs: Script().dialogs)
+            let note = dir.appendingPathComponent("note.md")
+            try? "# Note\n".write(to: note, atomically: true, encoding: .utf8)
+            await tabs.openTextFile(note)
+
+            func scope(_ tab: OpenTab) -> String? {
+                if case .architecture(let shown) = tab.kind { return shown }
+                return nil
+            }
+            tabs.showArchitectureTab(scope: "", root: dir)
+            check(tabs.openTabs.count == 2 && scope(tabs.openTabs[1]) == "" && tabs.activeTabIndex == 1, "the project's X-Ray opens in a tab of its own and shows")
+            check(tabs.openTabs[1].url == dir.appendingPathComponent(".markview-architecture"), "the project's X-Ray tab is named for the project")
+            tabs.activeTabIndex = 0
+            tabs.showArchitectureTab(scope: "", root: dir)
+            check(tabs.openTabs.count == 2 && tabs.activeTabIndex == 1, "showing the X-Ray again selects its tab instead of adding one")
+            tabs.showArchitectureTab(scope: TabKind.pullRequestScope, root: dir)
+            tabs.showArchitectureTab(scope: "Sources/Core", root: dir)
+            check(tabs.openTabs.count == 4 && scope(tabs.openTabs[2]) == TabKind.pullRequestScope && scope(tabs.openTabs[3]) == "Sources/Core",
+                  "the pull request's and a folder's X-Ray are tabs of their own")
+            check(tabs.openTabs[2].url.lastPathComponent == ".markview-pr-xray" && tabs.openTabs[3].url.lastPathComponent.hasPrefix(".markview-architecture-"),
+                  "each X-Ray tab has its own name")
+            tabs.showArchitectureTab(scope: "Sources/Core", root: dir)
+            check(tabs.openTabs.count == 4 && tabs.activeTabIndex == 3, "a folder's X-Ray is found by its folder")
+
+            tabs.updateTabContent("# Note\n\nunsaved\n", documentID: tabs.openTabs[0].id)
+            check(tabs.content(ofOpen: note) == "# Note\n\nunsaved\n", "an open file's text includes what is not saved yet")
+            check(tabs.content(ofOpen: dir.appendingPathComponent("../" + dir.lastPathComponent + "/note.md")) == "# Note\n\nunsaved\n", "the file is found by its standardized path")
+            check(tabs.content(ofOpen: dir.appendingPathComponent("other.md")) == nil, "a file that is not open has no text")
             tabs.shutdown()
         }
     }

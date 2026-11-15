@@ -11,17 +11,18 @@ struct AgentModelMenu: View {
     let pick: (String) -> Void
     @State private var options: [AIModelOption] = []
 
-    private var isClaude: Bool { session.profile == .claude }
+    /// The assistant switches its running session's model by a command (Claude Code's `/model`).
+    private var live: (any AssistantLiveModelSwitch)? { session.profile.tool?.provider.liveModelSwitch }
 
-    /// Claude Code answering: `/model` typed now would queue behind the answer.
+    /// A live-switching assistant answering: the command typed now would queue behind the answer.
     private var working: Bool {
-        isClaude && monitor.entries.contains { $0.id == session.id && $0.activity.state == .working }
+        live != nil && monitor.entries.contains { $0.id == session.id && $0.activity.state == .working }
     }
 
-    /// The model the session runs, as a catalog id: Claude's pinned ids and display names map to their family.
+    /// The model the session runs, as a catalog id: pinned ids and display names map to their family.
     private var current: String {
         guard let model = session.model else { return "" }
-        return isClaude ? (ClaudeSessionModel.family(of: model) ?? model) : model
+        return live.map { $0.family(of: model) ?? model } ?? model
     }
 
     var body: some View {
@@ -39,7 +40,7 @@ struct AgentModelMenu: View {
         .disabled(working || options.isEmpty)
         .help(working ? "The agent is answering — switch the model when it is idle"
               : options.isEmpty ? "No model list for this assistant yet. Open the assistant menu in the toolbar or Settings to load it."
-              : isClaude ? "Switch this agent's model now; the conversation goes on"
+              : live != nil ? "Switch this agent's model now; the conversation goes on"
               : "Start this assistant again with another model")
         .task(id: session.profile) {
             guard let tool = session.profile.tool else { return }

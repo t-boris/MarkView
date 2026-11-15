@@ -1,52 +1,31 @@
 import Foundation
 
-// Usage and quota of the AI coding agents (Claude Code, Codex, Antigravity): quota windows, the headline
-// window, colour levels, the user's fallback limit and its window, pace, the display state and
-// the parsers of the vendors' official usage responses. Foundation only, no app state:
+// Usage and quota of the AI coding agents: quota windows, the headline window, colour levels, the user's
+// fallback limit and its window, pace and the display state. The parsers of the vendors' official usage
+// responses are in each assistant's provider file. Foundation only, no app state:
 // tools/tests/agent-usage-tests.sh compiles this file on its own and checks the rules.
 // Spec: docs/features/ai-agent-usage-quota-tracker-codex-claude-code.
 
-/// The agents whose usage is tracked (DEC-012: a built-in list).
-enum UsageAgent: String, CaseIterable, Identifiable, Sendable {
-    case claude, codex, antigravity
+extension CLITool {
+    /// The assistants whose usage is tracked (DEC-012): those whose provider has a usage facet, in provider order.
+    static var usageTracked: [CLITool] { allCases.filter { $0.provider.usage != nil } }
 
-    var id: String { rawValue }
+    /// Name in the compact indicator ("Claude").
+    var shortName: String { provider.usage?.shortName ?? displayName }
 
-    var displayName: String {
-        switch self {
-        case .claude: return "Claude Code"
-        case .codex: return "Codex"
-        case .antigravity: return "Antigravity"
-        }
-    }
-
-    var shortName: String {
-        switch self {
-        case .claude: return "Claude"
-        case .codex: return "Codex"
-        case .antigravity: return "Antigravity"
-        }
-    }
-
-    /// The agent's data directory in the home folder; its presence counts as "detected".
-    var dataDirectoryName: String {
-        switch self {
-        case .claude: return ".claude"
-        case .codex: return ".codex"
-        case .antigravity: return ".gemini/antigravity-cli"
-        }
-    }
+    /// The assistant's data directory in the home folder; its presence counts as "detected".
+    var dataDirectoryName: String { provider.usage?.dataDirectoryName ?? "" }
 
     /// Whether usage can also be counted from local logs (the fallback of DEC-007). Antigravity keeps binary
     /// protobuf conversation files, so its only source is its own `/usage` command (DEC-020).
-    var hasLocalLogs: Bool { self != .antigravity }
+    var hasLocalLogs: Bool { provider.usage?.localLogs != nil }
 
     /// Seconds before the next automatic try while signed out, when it differs from the normal poll interval
     /// (`AgentUsageTracker.pollInterval`). For Antigravity every try starts a sign-in prompt that only ends at
     /// our timeout, so it waits longer (DEC-020); nil for the others.
-    var signedOutInterval: TimeInterval? { self == .antigravity ? 30 * 60 : nil }
+    var signedOutInterval: TimeInterval? { provider.usage?.signedOutInterval }
 
-    /// UserDefaults key: the user hid this agent's indicator (Settings → DDE).
+    /// UserDefaults key: the user hid this assistant's indicator (Settings → DDE).
     var hiddenKey: String { "settings.usage.\(rawValue).hidden" }
     /// UserDefaults key: the user's fallback limit, JSON-encoded `FallbackLimit`.
     var limitKey: String { "settings.usage.\(rawValue).limit" }
@@ -299,138 +278,10 @@ enum AgentUsageState: Equatable, Sendable {
 
 // MARK: - Official responses (DEC-005)
 
-/// Parses the vendors' usage responses into windows. Nil means the response was not recognised.
+/// What the vendors' usage parsers share (the parsers themselves are in each assistant's provider file).
 enum OfficialUsageParser {
     static let fiveHours: TimeInterval = 5 * 3600
     static let week: TimeInterval = 7 * 86_400
-
-    /// `GET https://api.anthropic.com/api/oauth/usage`. Newer responses list `limits`
-    /// (session / weekly_all / weekly_scoped); older ones only `five_hour`, `seven_day`, ….
-    static func claude(_ data: Data) -> [QuotaWindow]? {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        if let limits = root["limits"] as? [[String: Any]], !limits.isEmpty {
-            let windows = limits.enumerated().compactMap { index, limit in claudeLimit(limit, index: index) }
-            if !windows.isEmpty { return windows }
-        }
-        let legacy: [(key: String, label: String, title: String, duration: TimeInterval, model: String?)] = [
-            ("five_hour", "5h", "5-hour session", fiveHours, nil),
-            ("seven_day", "week", "Weekly (all models)", week, nil),
-            ("seven_day_opus", "Opus wk", "Weekly (Opus)", week, "Opus"),
-            ("seven_day_sonnet", "Sonnet wk", "Weekly (Sonnet)", week, "Sonnet"),
-        ]
-        let windows: [QuotaWindow] = legacy.compactMap { entry in
-            guard let value = root[entry.key] as? [String: Any],
-                  let percent = number(value["utilization"]) else { return nil }
-            return QuotaWindow(id: entry.key, label: entry.label, title: entry.title, percentUsed: percent,
-                               resetsAt: isoDate(value["resets_at"]), duration: entry.duration, source: .official,
-                               modelScope: entry.model)
-        }
-        return windows.isEmpty ? nil : windows
-    }
-
-    private static func claudeLimit(_ limit: [String: Any], index: Int) -> QuotaWindow? {
-        guard let kind = limit["kind"] as? String, let percent = number(limit["percent"]) else { return nil }
-        let resetsAt = isoDate(limit["resets_at"])
-        let scope = limit["scope"] as? [String: Any]
-        let model = ((scope?["model"] as? [String: Any])?["display_name"] as? String)
-            .flatMap { $0.isEmpty ? nil : $0 }
-        switch kind {
-        case "session":
-            return QuotaWindow(id: "session", label: "5h", title: "5-hour session", percentUsed: percent,
-                               resetsAt: resetsAt, duration: fiveHours, source: .official)
-        case "weekly_all":
-            return QuotaWindow(id: "weekly_all", label: "week", title: "Weekly (all models)", percentUsed: percent,
-                               resetsAt: resetsAt, duration: week, source: .official)
-        case "weekly_scoped":
-            let name = model ?? "scoped"
-            return QuotaWindow(id: "weekly_scoped_\(name)_\(index)", label: "\(name) wk", title: "Weekly (\(name))",
-                               percentUsed: percent, resetsAt: resetsAt, duration: week, source: .official, modelScope: name)
-        default:
-            // Unknown kinds are shown as they come, with the group ("weekly", …) as label.
-            let group = limit["group"] as? String ?? kind
-            let duration: TimeInterval? = group == "weekly" ? week : group == "session" ? fiveHours : nil
-            return QuotaWindow(id: "\(kind)_\(index)", label: group, title: kind.replacingOccurrences(of: "_", with: " "),
-                               percentUsed: percent, resetsAt: resetsAt, duration: duration, source: .official)
-        }
-    }
-
-    /// `GET https://chatgpt.com/backend-api/wham/usage`: `rate_limit.primary_window` and
-    /// `secondary_window`.
-    static func codex(_ data: Data, now: Date) -> [QuotaWindow]? {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let rateLimit = root["rate_limit"] as? [String: Any] else { return nil }
-        let windows: [QuotaWindow] = ["primary_window", "secondary_window"].compactMap { key in
-            guard let window = rateLimit[key] as? [String: Any],
-                  let percent = number(window["used_percent"]) else { return nil }
-            let seconds = number(window["limit_window_seconds"])
-            var resetsAt = number(window["reset_at"]).map { Date(timeIntervalSince1970: $0) }
-            if resetsAt == nil, let after = number(window["reset_after_seconds"]) {
-                resetsAt = now.addingTimeInterval(after)
-            }
-            let (label, title) = windowNames(seconds: seconds)
-            return QuotaWindow(id: key, label: label, title: title, percentUsed: percent,
-                               resetsAt: resetsAt, duration: seconds, source: .official)
-        }
-        return windows.isEmpty ? nil : windows
-    }
-
-    // MARK: Antigravity
-
-    /// `agy --output-format json -p "/usage"` (DEC-020): `command.data.groups[].buckets[]` with `window`
-    /// ("5h" / "weekly"), `remaining_fraction` and `reset_time`. Models share a bucket inside a group, so the
-    /// group name is the window's scope. A bucket nobody has used reports a reset time of now + window that moves
-    /// on every call, so it gets none (it would show a countdown that never runs down).
-    static func antigravity(_ data: Data) -> [QuotaWindow]? {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let command = root["command"] as? [String: Any],
-              let payload = command["data"] as? [String: Any],
-              let groups = payload["groups"] as? [[String: Any]] else { return nil }
-        var windows: [QuotaWindow] = []
-        for (groupIndex, group) in groups.enumerated() {
-            let groupName = (group["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Group \(groupIndex + 1)"
-            var short = groupName
-            if short.lowercased().hasSuffix(" models") { short = String(short.dropLast(" models".count)) }
-            for (bucketIndex, bucket) in (group["buckets"] as? [[String: Any]] ?? []).enumerated() {
-                guard let remaining = number(bucket["remaining_fraction"]), remaining.isFinite else { continue }
-                let percent = min(100, max(0, (1 - remaining) * 100))
-                let kind = bucket["window"] as? String
-                let (label, title, duration): (String, String, TimeInterval?)
-                switch kind {
-                case "5h": (label, title, duration) = ("5h", "5-hour", fiveHours)
-                case "weekly": (label, title, duration) = ("wk", "Weekly", week)
-                default: (label, title, duration) = (kind ?? "limit", kind ?? "Limit", nil)
-                }
-                let untouched = remaining >= 1 - 1e-9
-                let id = (bucket["id"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "\(groupIndex)_\(bucketIndex)_\(kind ?? "limit")"
-                windows.append(QuotaWindow(id: id, label: "\(short) \(label)", title: "\(groupName) · \(title)",
-                                           percentUsed: percent,
-                                           resetsAt: untouched ? nil : isoDate(bucket["reset_time"]),
-                                           duration: duration, source: .official, modelScope: groupName))
-            }
-        }
-        return windows.isEmpty ? nil : windows
-    }
-
-    /// What reading Antigravity's usage made of one `agy` run (DEC-020): the windows, "signed out" (the CLI
-    /// printed its sign-in prompt instead of an answer), or why there is nothing.
-    enum AntigravityRun: Equatable, Sendable {
-        case windows([QuotaWindow])
-        case signedOut
-        case failed(String)
-    }
-
-    /// `exitCode` -1 is "could not start" and -2 "stopped at our timeout" (`CLIToolLocator.run`). A signed-out
-    /// CLI waits for a pasted code, so its prompt can arrive together with the timeout.
-    static func antigravityRun(exitCode: Int32, stdout: String, stderr: String) -> AntigravityRun {
-        if let windows = antigravity(Data(stdout.utf8)) { return .windows(windows) }
-        let text = (stdout + "\n" + stderr).lowercased()
-        if text.contains("authentication required") || text.contains("authentication failed") { return .signedOut }
-        switch exitCode {
-        case -1: return .failed("could not start the agy command")
-        case -2: return .failed("agy did not answer in time")
-        default: return .failed("response not recognised")
-        }
-    }
 
     /// "5h" / "5-hour window", "week" / "Weekly", "3d" / "3-day window".
     static func windowNames(seconds: Double?) -> (label: String, title: String) {
@@ -441,7 +292,7 @@ enum OfficialUsageParser {
         return ("\(hours / 24)d", "\(hours / 24)-day window")
     }
 
-    private static func number(_ value: Any?) -> Double? {
+    static func number(_ value: Any?) -> Double? {
         // `is Bool` is true for any NSNumber 0 or 1, so compare the CF type instead.
         if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() { return number.doubleValue }
         if let string = value as? String { return Double(string) }

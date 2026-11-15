@@ -14,8 +14,10 @@ enum = source.split('enum GitHubItem:')[1].split('/// Represents an open tab')[0
 PY
 swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library -o "$out/window-chrome-tests" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Appearance/ProjectBackdrop.swift \
+    MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift \
+    MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Appearance/BackdropRegistry.swift MarkView/Models/Appearance/ProjectBackdrop.swift \
     MarkView/Models/Workspace/PanelLayout.swift MarkView/Models/Workspace/SchemaVersionedStore.swift MarkView/Models/Workspace/ToolRegistry.swift \
     MarkView/Models/Workspace/WindowSession.swift MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Workspace/WindowChrome.swift \
     "$out/GitHubItem.swift" tools/tests/WindowChromeTests.swift
+cp -R MarkView/Resources/Themes "$out/Themes"
 "$out/window-chrome-tests"

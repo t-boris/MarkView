@@ -1,5 +1,10 @@
 import Foundation
 
+// A window's theme is its id; these are the ids the checks use.
+extension AppTheme {
+    static let midnight = AppTheme("midnight")
+}
+
 /// A window's session taken and put back (`AR-14` step 7): the real `TabsController`, `WindowChrome`, `PanelLayout` and
 /// `WindowUIState` of one window are saved through the real session storage and restored into another window. Only what the manager
 /// alone can open (a folder, a terminal, a browser, an architecture view, a tool) is played by a fake host that records the calls.
@@ -141,7 +146,7 @@ enum WindowSessionSnapshotterChecks {
         source.layout.issuesFeature = "feature-one"
         source.layout.gitSection = .pullRequests
         source.layout.featureStage = .build
-        source.layout.welcomeBackdrop = WelcomeBackdrop.allCases.last!
+        source.layout.welcomeBackdrop = WelcomeBackdrop.all.last!
         source.windowUI.set("Documents", for: "search.panelMode", publishing: false)
         source.windowUI.set(412.0, for: "uiStudioInspectorWidth", publishing: false)
 
@@ -185,7 +190,7 @@ enum WindowSessionSnapshotterChecks {
               && target.layout.gitSection == .pullRequests && target.layout.featureStage == .build && target.layout.navigatorTab == .feature,
               "the tab each panel shows comes back")
         check(target.layout.workSection == .git, "the Work section comes back")
-        check(target.layout.welcomeBackdrop == WelcomeBackdrop.allCases.last!, "the window's welcome backdrop comes back")
+        check(target.layout.welcomeBackdrop == WelcomeBackdrop.all.last!, "the window's welcome backdrop comes back")
         check(target.windowUI.value("search.panelMode", fallback: "") == "Documents" && target.windowUI.value("uiStudioInspectorWidth", fallback: 0.0) == 412,
               "the interface state of the window comes back")
         check(loaded.theme == source.themeSettings, "the theme settings of the window are in the session")

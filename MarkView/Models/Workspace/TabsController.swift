@@ -240,6 +240,30 @@ final class TabsController: ObservableObject {
         }
     }
 
+    /// Brings the X-Ray tab of `scope` (the project's, a folder's or the pull request's) to the front, opening it under `root` when it
+    /// is not there yet.
+    func showArchitectureTab(scope: String, root: URL) {
+        let isThisTab = { (tab: OpenTab) -> Bool in
+            if case .architecture(let shown) = tab.kind { return shown == scope }
+            return false
+        }
+        if let index = openTabs.firstIndex(where: isThisTab) {
+            activeTabIndex = index
+        } else {
+            let marker = scope.isEmpty ? ".markview-architecture"
+                : scope == TabKind.pullRequestScope ? ".markview-pr-xray"
+                : ".markview-architecture-" + String(ContentHash.of(scope).prefix(12))
+            var tab = OpenTab(url: root.appendingPathComponent(marker), content: "", originalContent: "")
+            tab.kind = .architecture(scope: scope)
+            appendTab(tab)
+        }
+    }
+
+    /// The text the open tab for `url` holds, unsaved edits included; nil when the file is not open.
+    func content(ofOpen url: URL) -> String? {
+        openTabs.first { $0.url.standardizedFileURL == url.standardizedFileURL }?.content
+    }
+
     private func appendDocumentTab(_ url: URL, kind: TabKind) {
         var tab = OpenTab(url: url, content: "", originalContent: "")
         tab.kind = kind

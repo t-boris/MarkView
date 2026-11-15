@@ -67,7 +67,7 @@ extension ControlToolRunner {
     /// A new terminal with `tool` in the window's AI panel, once its agent process runs.
     static func startTerminal(_ target: Target, tool: CLITool, resume: Bool) async throws -> TerminalSession {
         let workspace = target.workspace
-        guard workspace.projectFolder != nil else {
+        guard workspace.project.projectFolder != nil else {
             throw Invalid(message: "Window \(target.shortID) has no project open. markview_open_project first.")
         }
         guard CLIToolLocator.resolve(tool) != nil else {
@@ -84,7 +84,7 @@ extension ControlToolRunner {
 
     private static func tool(named value: Any?, in workspace: WorkspaceManager) throws -> CLITool {
         guard let name = (value as? String)?.trimmingCharacters(in: .whitespaces).lowercased(), !name.isEmpty else {
-            return AIAssistantPreferences.backend(project: workspace.aiProject)
+            return AIAssistantPreferences.backend(project: workspace.project.aiProject)
         }
         guard let tool = CLITool(rawValue: name) else {
             throw Invalid(message: "`tool` must be one of: \(ControlAgentTools.agentTools.joined(separator: ", ")).")
@@ -101,13 +101,13 @@ extension ControlToolRunner {
 
     static func agents(_ target: Target) -> Reply {
         let workspace = target.workspace
-        let chosen = AIAssistantPreferences.backend(project: workspace.aiProject)
-        var out = "Window \(target.shortID) — \(workspace.projectFolder?.path ?? "no project open")\n\nAssistants:\n"
+        let chosen = AIAssistantPreferences.backend(project: workspace.project.aiProject)
+        var out = "Window \(target.shortID) — \(workspace.project.projectFolder?.path ?? "no project open")\n\nAssistants:\n"
         for tool in CLITool.allCases {
             let location = CLIToolLocator.resolve(tool) ?? "not installed"
             var line = "  \(tool.rawValue) — \(tool.displayName): \(location)"
             if tool == chosen {
-                let model = AIAssistantPreferences.model(for: tool, project: workspace.aiProject) ?? ""
+                let model = AIAssistantPreferences.model(for: tool, project: workspace.project.aiProject) ?? ""
                 line += model.isEmpty ? "  [the project's assistant]" : "  [the project's assistant, model \(model)]"
             }
             out += line + "\n"
@@ -153,10 +153,10 @@ extension ControlToolRunner {
         }
         var prompt = text
         if args["goal"] as? Bool == true {
-            guard let backend = HandoffPrompt.GoalBackend(rawValue: session.profile.rawValue) else {
+            guard let tool = session.profile.tool else {
                 throw Invalid(message: "A goal needs an agent terminal; this one is a shell.")
             }
-            prompt = HandoffPrompt.goal(text, backend: backend)
+            prompt = HandoffPrompt.goal(text, tool: tool)
         }
         session.pasteWhenReady(prompt, submit: args["submit"] as? Bool ?? true)
         lastSent[session.id] = Date()

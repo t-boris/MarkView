@@ -4,6 +4,7 @@
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 
 static NSString *OutDir;
 static FILE *LogF;
@@ -169,8 +170,11 @@ static void DumpAX(id el, NSWindow *w, int depth, int *count) {
         NSRect wf = [w convertRectFromScreen:f];
         CGFloat h = w.contentView.bounds.size.height;
         BOOL enabled = [k respondsToSelector:@selector(isAccessibilityEnabled)] ? [k isAccessibilityEnabled] : YES;
+        // A toolbar button that is the current one says so in its value ("current", "open").
+        id value = [k respondsToSelector:@selector(accessibilityValue)] ? [k accessibilityValue] : nil;
+        if ([value isKindOfClass:NSAttributedString.class]) value = [value string];
         if (label.length || title.length || [role isEqualToString:@"AXButton"])
-            L(@"ax %*s%@ label=%@ title=%@ x=%.0f y=%.0f w=%.0f h=%.0f enabled=%d", depth, "", role, label, title, wf.origin.x, h - wf.origin.y - wf.size.height, wf.size.width, wf.size.height, enabled);
+            L(@"ax %*s%@ label=%@ title=%@ x=%.0f y=%.0f w=%.0f h=%.0f enabled=%d value=%@", depth, "", role, label, title, wf.origin.x, h - wf.origin.y - wf.size.height, wf.size.width, wf.size.height, enabled, [value isKindOfClass:NSString.class] ? value : @"");
         DumpAX(k, w, depth + 1, count);
     }
 }
@@ -189,6 +193,39 @@ static void DumpMenu(NSMenu *menu, NSString *path, int *count) {
         L(@"menu %@ key=%@%@ enabled=%d", name, item.keyEquivalent.length ? mods : @"", item.keyEquivalent, item.isEnabled);
         if (item.submenu) DumpMenu(item.submenu, name, count);
     }
+}
+
+/// The pop-up buttons of the window, in view order. A toolbar `Menu` is one: SwiftUI fills its NSMenu only when it opens.
+static void CollectPopUps(NSView *v, NSMutableArray<NSPopUpButton *> *found) {
+    if ([v isKindOfClass:NSPopUpButton.class]) [found addObject:(NSPopUpButton *)v];
+    for (NSView *k in v.subviews) CollectPopUps(k, found);
+}
+
+/// Chooses `title` in the first toolbar menu that offers it, without opening the menu: the menu's delegate is told it is about to open, as it is
+/// just before the menu is shown, SwiftUI fills the menu a moment later, and the item's action runs as a click on it would run it. Nothing
+/// appears on the screen and no tracking loop starts.
+static void ChooseInToolbarMenu(NSWindow *w, NSString *title) {
+    NSMutableArray<NSPopUpButton *> *popUps = [NSMutableArray array];
+    CollectPopUps(w.contentView, popUps);
+    for (NSPopUpButton *button in popUps) {
+        id delegate = button.menu.delegate;
+        SEL willShow = NSSelectorFromString(@"popUpButtonCell:willShowMenu:");
+        if ([delegate respondsToSelector:willShow]) ((void (*)(id, SEL, id, id))objc_msgSend)(delegate, willShow, button.cell, button.menu);
+        if ([delegate respondsToSelector:@selector(menuWillOpen:)]) [delegate menuWillOpen:button.menu];
+    }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        for (NSPopUpButton *button in popUps) {
+            NSMenu *menu = button.menu;
+            for (NSMenuItem *item in menu.itemArray) {
+                if (![item.title isEqualToString:title]) continue;
+                if (!item.isEnabled) { L(@"menuchoose %@: disabled", title); return; }
+                [menu performActionForItemAtIndex:[menu indexOfItem:item]];
+                L(@"menuchoose %@: chosen", title);
+                return;
+            }
+        }
+        L(@"menuchoose %@: no toolbar menu offers it (%lu pop-up buttons)", title, (unsigned long)popUps.count);
+    });
 }
 
 static void RunNext(void);
@@ -248,6 +285,11 @@ static void RunNext(void) {
         int n = 0;
         DumpMenu(NSApp.mainMenu, @"", &n);
         L(@"menu total %d", n);
+    } else if ([cmd isEqualToString:@"menuchoose"]) {
+        // `menuchoose Review`: chooses that item in the toolbar menu of the picked window that offers it (a SwiftUI `Menu` button).
+        NSString *title = [[line substringFromIndex:11] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (w) ChooseInToolbarMenu(w, title); else L(@"menuchoose %@: no window", title);
+        delay = 1.2;
     } else if ([cmd isEqualToString:@"move"]) {
         if (w) MoveTo(w, p[1].doubleValue, p[2].doubleValue);
     } else if ([cmd isEqualToString:@"click"]) {

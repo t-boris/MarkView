@@ -530,8 +530,8 @@
                 };
             });
             const origSetTheme = window.setTheme;
-            window.setTheme = function(id, accent) {
-                origSetTheme(id, accent);
+            window.setTheme = function(id, accent, definition) {
+                origSetTheme(id, accent, definition);
                 if (A.cy) { A.cy.style(stylesheet()); restyle(); }
             };
         })(window.MVArchitecture);

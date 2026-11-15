@@ -44,7 +44,6 @@ struct AppPalette: Equatable {
         purple = Color(model.purple); red = Color(model.red); cyan = Color(model.cyan)
     }
 
-    var theme: AppTheme { model.theme }
     var isDark: Bool { model.isDark }
 
     /// The same colour for AppKit drawing.
@@ -56,7 +55,9 @@ struct AppPalette: Equatable {
 }
 
 private struct PaletteKey: EnvironmentKey {
-    static let defaultValue = AppPalette(ThemePalette.make(.classicDark))
+    /// What a view draws with when no window gave it a palette: Classic Dark, from the bundled themes.
+    static let defaultValue = AppPalette(ThemePalette.make(
+        ThemeLibrary.load(builtInFolder: ThemeCatalog.bundledFolder, userFolder: nil).resolve(.classicDark, systemIsDark: true).definition))
 }
 
 extension EnvironmentValues {

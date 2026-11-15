@@ -23,7 +23,7 @@ struct DiagnosticsBarView: View {
             }
 
             // Indexing progress (out-of-process structural index)
-            if let progress = workspaceManager.structuralIndexProgress {
+            if let progress = workspaceManager.project.structuralIndexProgress {
                 HStack(spacing: 5) {
                     ProgressView()
                         .controlSize(.mini)

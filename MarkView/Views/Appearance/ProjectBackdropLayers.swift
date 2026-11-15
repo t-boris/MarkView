@@ -223,3 +223,50 @@ extension BackdropBuilder {
         return layers
     }
 }
+
+// MARK: - Registrations (AR-34)
+
+/// Orbit: a large project, many source files, modules or features.
+final class OrbitBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("orbit", title: "Orbit", symbol: "atom", order: 50, project: .init(
+        priority: 30,
+        matches: { $0.signals.sourceFiles >= 160 || $0.signals.modules >= 8 || $0.features >= 20 },
+        reason: { "Orbit: \($0.features) features · \($0.signals.sampled ? "at least " : "")\($0.signals.sourceFiles) source files" }))
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { builder.orbit() }
+}
+
+/// Device Lab: a mobile application.
+final class DeviceLabBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("blueprint", title: "Device Lab", symbol: "iphone", order: 60, project: .init(
+        priority: 20,
+        matches: { $0.signals.platform == .ios || $0.signals.platform == .android },
+        reason: { "Device Lab: \($0.signals.platform.rawValue) application" }))
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { builder.blueprint() }
+}
+
+/// Circuit Flow: a backend or a web application.
+final class CircuitBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("circuit", title: "Circuit Flow", symbol: "cpu", order: 70, project: .init(
+        priority: 40,
+        matches: { $0.signals.platform == .backend || $0.signals.platform == .web },
+        reason: { "Circuit Flow: \($0.signals.platform.rawValue.lowercased()) project" }))
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { builder.circuit() }
+}
+
+/// Code Garden: what By Project draws when no other rule matches, and for a window without a project.
+final class GardenBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("garden", title: "Code Garden", symbol: "leaf", order: 80, project: .init(
+        priority: 100,
+        matches: nil,
+        reason: { $0.signals.inspected ? "Code Garden: a project taking shape" : "Reading the project's shape…" }))
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { builder.garden() }
+}
+
+/// Launch: every feature is completed and no bug is open.
+final class LaunchBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("launch", title: "Launch", symbol: "paperplane", order: 90, project: .init(
+        priority: 50,
+        matches: { $0.issuesKnown && $0.openBugs == 0 && $0.features > 0 && $0.completedFeatures == $0.features },
+        reason: { "Launch: all \($0.features) features completed · no open bugs" }))
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { builder.launch() }
+}

@@ -1,5 +1,10 @@
 import Foundation
 
+// A window's theme is its id; these are the ids the checks use.
+extension AppTheme {
+    static let midnight = AppTheme("midnight"), paper = AppTheme("paper")
+}
+
 @main struct WindowSessionTests {
     static var checks = 0
     static func check(_ condition: Bool, _ message: String) {

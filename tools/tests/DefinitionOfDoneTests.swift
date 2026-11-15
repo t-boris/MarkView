@@ -69,9 +69,14 @@ try? Data("not json".utf8).write(to: root.appendingPathComponent(".dde/definitio
 check("a broken file falls back to standard", DefinitionOfDone.load(root: root) == .standard)
 
 // The prompt.
-let prompt = HandoffPrompt.feature("docs/features/x", backend: .claude, done: standard)
+let prompt = HandoffPrompt.feature("docs/features/x", tool: .claude, done: standard)
 check("prompt keeps the objective and adds the checklist", prompt.hasPrefix("/goal Implement what docs/features/x") && prompt.contains("Definition of done"))
 check("prompt stays on one line", !prompt.contains("\n"))
-check("prompt without a checklist is unchanged", HandoffPrompt.feature("docs/features/x", backend: .claude) == HandoffPrompt.feature("docs/features/x", backend: .claude, done: DefinitionOfDone(items: [])))
+check("prompt without a checklist is unchanged", HandoffPrompt.feature("docs/features/x", tool: .claude) == HandoffPrompt.feature("docs/features/x", tool: .claude, done: DefinitionOfDone(items: [])))
 
 exit(failures == 0 ? 0 : 1)
+
+// The suite names the assistants by their stored identity; the app names none outside its providers.
+extension CLITool {
+    static var claude: CLITool { CLITool(rawValue: "claude")! }
+}

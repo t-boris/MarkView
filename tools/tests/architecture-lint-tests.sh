@@ -28,6 +28,9 @@ SWIFT = {
     "MarkView/Models/Workspace/Runner.swift": "let process = Process()\n",
     "MarkView/Views/Workspace/Tab.swift": "struct Tab {\n    @EnvironmentObject var workspace: WorkspaceManager\n    @ObservedObject var other: WorkspaceManager\n    @EnvironmentObject var theme: Theme\n}\n",
     "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift": "let process = Process()\n",
+    # The providers are the one place that names an assistant; strings, paths and trailing comments never count.
+    "MarkView/Models/AI/Providers/ClaudeProvider.swift": "struct P {\n    func f(_ t: CLITool) -> Int {\n        switch t {\n        case .claude, .codex: return 1\n        default: return 0\n        }\n    }\n}\n",
+    "MarkView/Models/AI/Paths.swift": "let a = \"~/.claude/settings.json\"\nlet b = home.appendingPathComponent(\".codex\")\nlet c = other.claude\nlet d = 1 // .copilot in a comment\n",
 }
 
 def write(root, relative, text):
@@ -79,6 +82,7 @@ def fixture():
     write(root, "tools/lint/process-allowlist.txt", "# Process() sites\n1 MarkView/Models/Workspace/Runner.swift\n")
     write(root, "tools/lint/clicompletion-allowlist.txt", "# none outside AIOperation\n")
     write(root, "tools/lint/workspace-manager-views.txt", "1 MarkView/Views/Workspace/Tab.swift\n")
+    write(root, "tools/lint/assistant-switch-allowlist.txt", "# no assistant is named outside its provider\n")
     return root
 
 def run(root, *args):
@@ -101,6 +105,8 @@ try:
     check(code == 0 and "hold" in out and "process: 1 in 1 file(s), 1 allowed" in out and "workspace-manager: 1 in 1 file(s), 1 allowed" in out,
           "a clean tree passes and reports the ratchet numbers")
     check("Subprocess.swift" not in out and "AIOperation.swift" not in out, "Subprocess.swift and AIOperation.swift are the allowed homes, not counted")
+    check("assistant-switch: 0 in 0 file(s), 0 allowed" in out,
+          "the providers, strings, paths, member names and trailing comments do not count as naming an assistant")
 
     # --- no-loose-swift
     root = fresh()
@@ -190,6 +196,23 @@ try:
     write(root, "tools/lint/clicompletion-allowlist.txt", "1 MarkView/Models/AI/Ask.swift\n")
     code, out = run(root)
     check(code == 1 and "[clicompletion] MarkView/Models/AI/Ask.swift: 0 CLICompletion.run call(s), 1 allowed; the count fell" in out, "a lower CLICompletion.run count fails until the allowance is lowered")
+
+    # --- assistant-switch ratchet
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Pick.swift", "func pick(_ tool: CLITool) -> Int {\n    switch tool {\n    case .claude: return 1\n    case .codex, .cline: return 2\n    default: return 0\n    }\n}\nlet same = tool == .antigravity\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[assistant-switch] MarkView/Models/Workspace/Pick.swift: 3 assistant literal(s), 0 allowed (new sites)" in out,
+          "a switch case or a comparison that names an assistant outside the providers fails and is counted per line")
+    root = fresh()
+    write(root, "tools/lint/assistant-switch-allowlist.txt", "1 MarkView/Models/Workspace/Pick.swift\n")
+    code, out = run(root)
+    check(code == 1 and "[assistant-switch] MarkView/Models/Workspace/Pick.swift: 0 assistant literal(s), 1 allowed; the count fell" in out,
+          "a lower assistant count fails until the allowance is lowered")
+    root = fresh()
+    (root / "tools/lint/assistant-switch-allowlist.txt").unlink()
+    code, out = run(root)
+    check(code == 1 and "[assistant-switch] tools/lint/assistant-switch-allowlist.txt is missing" in out, "a missing assistant allow-list fails")
 
     # --- workspace-manager ratchet
     root = fresh()

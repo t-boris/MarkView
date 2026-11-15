@@ -18,36 +18,25 @@ enum HandoffPrompt {
         + "## Clarifications are binding: use them and do not ask them again. Ask only about what the report leaves open, "
         + "and add every new answer from me to its ## Clarifications before you finish."
 
-    enum GoalBackend: String {
-        case claude, codex, cline, copilot, antigravity
-    }
-
     /// Establish a goal using the command or task model of the receiving assistant.
-    static func feature(_ path: String, backend: GoalBackend, done: DefinitionOfDone? = nil) -> String {
+    static func feature(_ path: String, tool: CLITool, done: DefinitionOfDone? = nil) -> String {
         var objective = "Implement what \(path) specifies. Read the whole folder first. Verify the implementation against the specification. \(featureRecords)"
         if let text = done?.goalText(), !text.isEmpty { objective += " " + text }
-        switch backend {
-        case .claude, .codex: return "/goal \(objective)"
-        case .copilot: return "/autopilot \(objective)"
-        case .antigravity: return objective + " Continue until the implementation is verified."
-        case .cline: return "Goal for this Cline task: \(objective) Continue until the implementation is verified."
-        }
+        return tool.provider.goalPrompt(objective, closing: "Continue until the implementation is verified.")
     }
 
     /// A goal of the person's own words (`markview_agent_send` with goal), in the receiving assistant's form.
-    static func goal(_ text: String, backend: GoalBackend) -> String {
-        switch backend {
-        case .claude, .codex: return "/goal \(text)"
-        case .copilot: return "/autopilot \(text)"
-        case .antigravity: return text + " Continue until it is done and verified."
-        case .cline: return "Goal for this Cline task: \(text) Continue until it is done and verified."
-        }
+    static func goal(_ text: String, tool: CLITool) -> String {
+        tool.provider.goalPrompt(text, closing: "Continue until it is done and verified.")
     }
 
-    /// Fix with AI for one bug report.
-    static func bug(_ path: String, claude: Bool) -> String {
-        claude
-            ? "/goal fix the bug described in \(path): reproduce it first, find the root cause, fix it and verify the fix. \(bugRecords)"
-            : "Fix the bug described in \(path). Read it first, reproduce the problem, find the root cause, fix it and verify the fix. \(bugRecords)"
+    /// Fix with AI for one bug report. An assistant that takes bug fixes as a goal (`AssistantProvider.fixesBugsAsGoal`) gets it
+    /// in its goal form; `tool` is nil for a terminal that runs no assistant.
+    static func bug(_ path: String, tool: CLITool?) -> String {
+        if let provider = tool?.provider, provider.fixesBugsAsGoal {
+            return provider.goalPrompt("fix the bug described in \(path): reproduce it first, find the root cause, fix it and verify the fix. \(bugRecords)",
+                                       closing: "Continue until the bug is fixed and verified.")
+        }
+        return "Fix the bug described in \(path). Read it first, reproduce the problem, find the root cause, fix it and verify the fix. \(bugRecords)"
     }
 }

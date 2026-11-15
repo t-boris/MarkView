@@ -1,14 +1,5 @@
 import Foundation
 
-enum CLITool: String {
-    case claude, codex, antigravity, cline, copilot
-    var usesACP: Bool { self == .copilot || self == .cline }
-    var displayName: String { rawValue }
-    var binaryName: String { rawValue }
-    var loginCommand: String { "login" }
-    func modelArgs(_ model: String?) -> [String] { [] }
-    func additionalFolderArgs(_ folders: [URL]) -> [String] { [] }
-}
 enum AIAssistantPreferences {
     static func backend(project: URL?) -> CLITool { .copilot }
     static func model(for tool: CLITool, project: URL?) -> String? { nil }
@@ -23,7 +14,6 @@ enum CLIToolLocator {
     static func searchDirectories() -> [String] { [] }
     static func subprocessPath(toolPath: String?) -> String { ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin" }
 }
-struct AIModelOption { let id: String; let name: String; let detail: String }
 actor SemanticDatabase {
     func addUsage(inputTokens: Int, outputTokens: Int, costCents: Double) {}
 }
@@ -40,4 +30,11 @@ enum AICallLog {
         let outcome: String
     }
     static func record(_ entry: Entry) {}
+}
+
+// The suite names the assistants by their stored identity; the app names none outside its providers.
+extension CLITool {
+    static var claude: CLITool { CLITool(rawValue: "claude")! }
+    static var codex: CLITool { CLITool(rawValue: "codex")! }
+    static var copilot: CLITool { CLITool(rawValue: "copilot")! }
 }
