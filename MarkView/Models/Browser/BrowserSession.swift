@@ -46,32 +46,6 @@ struct PageCapture {
 /// What "Save Page as…" writes.
 enum PageFormat: String { case markdown, pdf }
 
-/// What a preview tab shows while it looks for the project's web app.
-enum WebPreviewState: Equatable {
-    case searching
-    /// Several apps in the project: the user picks one.
-    case choose([WebAppTarget])
-    /// Waiting for the app's server; `started` once MarkView ran its dev script.
-    case starting(WebAppTarget, started: Bool)
-    case timedOut(WebAppTarget)
-    case portInUse(WebAppTarget, Int)
-    case noApp
-}
-
-/// Reads a dev server's terminal output for the first local address it prints.
-@MainActor
-final class DevServerWatch {
-    private var tail = ""
-    private(set) var url: URL?
-
-    func read(_ data: Data) {
-        guard url == nil else { return }
-        tail += String(decoding: data, as: UTF8.self)
-        if tail.count > 16_000 { tail = String(tail.suffix(8_000)) }
-        url = WebAppPreview.firstLocalURL(in: tail)
-    }
-}
-
 /// One browser tab: its web view and what the tab bar and the toolbar show. Links that
 /// ask for a new window open as new browser tabs; other schemes go to their apps.
 @MainActor
@@ -104,21 +78,15 @@ final class BrowserSession: NSObject, ObservableObject {
     private var promptTask: Task<Void, Never>?
     /// The terminal tab running the dev server this preview started, if any.
     var previewTerminalID: UUID?
-    var startWebApp: ((WebAppTarget) -> Void)?
-    var showTerminal: (() -> Void)?
     /// The user is choosing an element on the page (Pick Element).
     @Published private(set) var isPicking = false
-    /// A picked element with its screenshot: the workspace pastes it into the agent's input.
-    var onElementPicked: ((PickedElement, URL?) -> Void)?
+    /// The window of this tab: it opens links in new tabs, takes a picked element to the AI and runs Preview Web App's dev server.
+    weak var host: (any BrowserSessionHost)?
     /// The outcome of the last pick ("Pasted into Claude", an error), shown briefly.
     @Published var pickNotice: String?
     private(set) var isClosed = false
     /// The window's Preview Web App tab (Preview Web App reuses it).
     var isAppPreview = false
-    /// Context menu "Save … as Markdown".
-    var onSaveMarkdown: ((PageCapture.Mode) -> Void)?
-    /// `target="_blank"` links and `window.open`.
-    var onOpenInNewTab: ((URL) -> Void)?
     /// An agent drives this tab (`BrowserAgentExecutor`): page dialogs are answered at once and
     /// recorded in `agentDialogs` instead of stopping the page behind a modal alert.
     var agentControlled = false
@@ -191,7 +159,7 @@ final class BrowserSession: NSObject, ObservableObject {
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
         view.allowsMagnification = true
-        view.saveMarkdown = { [weak self] mode in self?.onSaveMarkdown?(mode) }
+        view.saveMarkdown = { [weak self] mode in self?.saveRequest = mode }
         view.savePDF = { [weak self] in self?.saveFormat = .pdf; self?.saveRequest = .page }
         observations = [
             view.observe(\.url, options: [.new]) { [weak self] view, _ in
@@ -360,7 +328,7 @@ final class BrowserSession: NSObject, ObservableObject {
                 "window.markviewPickHide && window.markviewPickHide();", arguments: [:], in: nil, contentWorld: .defaultClient)
             try? await Task.sleep(nanoseconds: 60_000_000)
             let screenshot = await snapshot(of: element)
-            onElementPicked?(element, screenshot)
+            host?.browserSession(self, picked: element, screenshot: screenshot)
         } catch {
             pickNotice = "The page changed before an element was chosen."
         }
@@ -501,7 +469,7 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
             return popup.webView
         }
         if let url = navigationAction.request.url {
-            if let onOpenInNewTab { onOpenInNewTab(url) } else { load(url) }
+            if let host { host.browserSession(self, openInNewTab: url) } else { load(url) }
         }
         return nil
     }

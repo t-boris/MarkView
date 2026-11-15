@@ -24,4 +24,6 @@ protocol ProjectProviding: AnyObject {
     func cacheDirectory(for url: URL) -> URL
     /// The file tree reads the folder again (a feature, a bug report or a research document was written).
     func refreshFileTree()
+    /// The project folder or linked folder that `url` is inside, nil for a file outside both.
+    func containerRoot(for url: URL) -> URL?
 }

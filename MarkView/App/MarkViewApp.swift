@@ -339,12 +339,12 @@ struct MarkViewApp: App {
                 .disabled(activeWorkspaceHasFolder != true)
 
                 Button("Browser") {
-                    activeWorkspace?.openBrowser(nil)
+                    activeWorkspace?.browser.open(nil)
                 }
                 .keyboardShortcut("5", modifiers: [.command])
 
                 Button("Preview Web App") {
-                    activeWorkspace?.previewWebApp()
+                    activeWorkspace?.browser.previewWebApp()
                 }
                 .keyboardShortcut("6", modifiers: [.command])
                 .disabled(activeWorkspaceHasFolder != true)

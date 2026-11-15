@@ -56,6 +56,7 @@ final class StubProject: ProjectProviding {
     func markdownFiles(in folder: URL) -> [URL] { [] }
     func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
     func refreshFileTree() { treeRefreshes += 1 }
+    func containerRoot(for url: URL) -> URL? { root }
 }
 
 // MARK: Terminals

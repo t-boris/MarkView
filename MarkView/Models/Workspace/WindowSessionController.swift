@@ -138,6 +138,8 @@ final class WindowSessionController {
                 workspace?.codeXRay.close()
                 // And the feature flow's: the GitHub setting is no longer watched and its tasks stop (AR-14 step 9).
                 workspace?.flow.close()
+                // And the browser's: the look for a web app and the wait for a dev server stop (AR-14 step 9).
+                workspace?.browser.close()
                 self?.remove(id)
             }
             .store(in: &entry.subscriptions)

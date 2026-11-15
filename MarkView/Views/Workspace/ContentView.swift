@@ -632,9 +632,9 @@ private struct WorkspaceWindow: View {
     private var browserMenu: some View {
         let selected: Bool = { if case .browser? = tabs.activeTab?.kind { return true } else { return false } }()
         return Menu {
-            Button("Preview Web App (⌘6)") { workspaceManager.previewWebApp() }
+            Button("Preview Web App (⌘6)") { workspaceManager.browser.previewWebApp() }
                 .disabled(fileTree.rootNode == nil)
-            Button("New Browser Tab (⌘5)") { workspaceManager.openBrowser(nil) }
+            Button("New Browser Tab (⌘5)") { workspaceManager.browser.open(nil) }
             Divider()
             Toggle("Open Terminal Links in MarkView", isOn: $openTerminalLinksInApp)
                 .help("Pages that Claude Code, Codex or dev servers open from MarkView's terminals show in the browser tab instead of the default browser (new terminals)")
@@ -808,7 +808,7 @@ private struct WorkspaceWindow: View {
         projectKey = workspaceManager.projectFolder.map(ProjectColor.projectKey(for:))
         // Agents driving MarkView see every window, also one with nothing open yet.
         workspaceManager.hostWindow = hostWindow
-        if hostWindow != nil { workspaceManager.registerBrowserControl() }
+        if hostWindow != nil { workspaceManager.browser.register() }
     }
 
     private func attachWindowSession() {
@@ -932,7 +932,7 @@ private struct WorkspaceWindow: View {
         case .search: chrome.showGlobalSearch = true
         case .files: activate(.files)
         case .openFile: openFile()
-        case .browser: _ = workspaceManager.openBrowser(nil)
+        case .browser: _ = workspaceManager.browser.open(nil)
         case .openFolder: openFolder()
         case .newProject: requests.newProject = NewProjectRequest()
         }

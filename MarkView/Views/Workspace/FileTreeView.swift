@@ -939,7 +939,7 @@ struct FileTreeView: View {
             } else {
                 if inProject { Button { workspaceManager.codeXRay.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") } }
                 if FileType.isHTML(url) {
-                    Button { workspaceManager.openHTMLInBrowser(url) } label: { Label("Open in Browser", systemImage: "safari") }
+                    Button { workspaceManager.browser.openHTML(url) } label: { Label("Open in Browser", systemImage: "safari") }
                 }
                 Button { workspaceManager.openDiscussion(about: url) } label: { Label("Discuss This File…", systemImage: "bubble.left.and.text.bubble.right") }
                 if FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {

@@ -221,7 +221,7 @@ struct TabBarView: View {
             }
             Divider()
             if tab.isFileBacked && FileType.isHTML(tab.url) {
-                Button("Open in Browser") { workspaceManager.openHTMLInBrowser(tab.url) }
+                Button("Open in Browser") { workspaceManager.browser.openHTML(tab.url) }
             }
             Button("Copy Path") {
                 NSPasteboard.general.clearContents()

@@ -162,6 +162,9 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     /// The terminals of this window: the AI panel's, the editor tabs', the AI terminals that come back across launches, and what the
     /// assistants are doing.
     private(set) lazy var terminals = AITerminalsController(host: self, project: project, tasks: taskBag)
+    /// The browser of this window: its tabs, what agents drive of them, Preview Web App and the picked page element (`AR-14` step 9).
+    private(set) lazy var browser = BrowserHost(tabs: tabs, layout: layout, chrome: chrome, project: project, terminals: terminals,
+                                                features: flow.features, deployments: deployments, discussions: discussions, window: self)
     /// Code explanations, code navigation, the X-Ray tabs and the AI actions on selected text (`AR-14` step 11).
     let codeXRay: CodeAndXRayCoordinator
     /// Team-shared operation definitions and the process registry for this workspace root.
@@ -259,7 +262,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         project.beginOpening(url)
         // Agents working in this folder can reach its browser tabs (BUG-027) and its project tools even from
         // outside its terminals; the browser tools check the terminal-links setting themselves.
-        registerBrowserControl()
+        browser.register()
         taskBag.cancelAll()
         flow.cancelWork()
         tabs.reset()
@@ -371,7 +374,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
     func restoreTerminal(in directory: URL) { openTerminal(in: directory) }
 
-    func restoreBrowser(_ url: URL) { _ = openBrowser(url, activate: false) }
+    func restoreBrowser(_ url: URL) { browser.open(url, activate: false) }
 
     // MARK: - Workspace metadata
 
@@ -964,53 +967,13 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
     func toggleAIConsole() { chrome.agentsVisible.toggle() }
 
-    // MARK: - Browser control
-
-    /// This window's id for agents driving its browser tab (`BrowserControlServer`).
-    let browserControlID = UUID()
+    // MARK: - Host window
 
     /// The window this workspace is shown in; set by its view. Control tools list, focus and name windows by it.
     weak var hostWindow: NSWindow?
 
     /// A window with nothing open: no folder, no tab. Agents may open a project in it; they never replace a project.
     var isBlank: Bool { rootNode == nil && openTabs.isEmpty }
-
-    /// Offer this window to agents (`BrowserControlServer`): its browser tabs, its project's features, and the
-    /// workspace itself for the control tools. Called when the window is shown, a folder opens or a terminal starts.
-    func registerBrowserControl() {
-        BrowserControlServer.register(browserControlID, .init(
-            workspace: { [weak self] in self },
-            root: { [weak self] in self?.project.root },
-            tabs: { [weak self] in self?.browserSessions ?? [] },
-            active: { [weak self] in
-                guard let self, self.openTabs.indices.contains(self.activeTabIndex),
-                      case .browser(let session) = self.openTabs[self.activeTabIndex].kind else { return nil }
-                return session
-            },
-            show: { [weak self] session in self?.showBrowser(session) },
-            open: { [weak self] url, name in
-                guard let self else { return BrowserSession(url: url) }
-                let session = self.openBrowser(url)
-                if let name { session.agentName = name }
-                return session
-            },
-            features: { [weak self] in self?.flow.features },
-            deployments: { [weak self] in self?.deployments },
-            discussions: { [weak self] in self?.discussions }))
-    }
-
-    /// The window's browser tabs, in tab order.
-    var browserSessions: [BrowserSession] {
-        openTabs.compactMap { if case .browser(let session) = $0.kind { return session }; return nil }
-    }
-
-    /// Bring a browser tab to the front.
-    func showBrowser(_ session: BrowserSession) {
-        guard let index = openTabs.firstIndex(where: { if case .browser(let s) = $0.kind { return s === session }; return false }) else { return }
-        layout.workspaceArea = .files
-        chrome.showCenter = true
-        activeTabIndex = index
-    }
 
     // MARK: - Terminal tabs
 
@@ -1022,47 +985,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         var tab = OpenTab(url: folder.appendingPathComponent(ProjectPaths.placeholderName("terminal-" + session.id.uuidString)),
                           content: "", originalContent: "")
         tab.kind = .terminal(session.id)
-        tabs.appendTab(tab, activate: activate)
-        return session
-    }
-
-    // MARK: - Browser and web app preview
-
-    /// A picked page element goes into the AI terminal's input line as text (page, selector,
-    /// screenshot path, HTML) and, for pasting by hand, onto the clipboard as image plus text.
-    func sendPickedElement(_ element: PickedElement, screenshot: URL?, from session: BrowserSession?) {
-        let message = BrowserElementPick.message(for: element, screenshot: screenshot)
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        if let screenshot, let image = NSImage(contentsOf: screenshot) { pasteboard.writeObjects([image]) }
-        pasteboard.setString(message, forType: .string)
-        let shot = screenshot == nil ? " (no screenshot: the element is off screen)" : ""
-        if let terminal = terminals.shown {
-            terminal.paste(message + "\n")
-            session?.pickNotice = "Sent \(element.tag) to the AI input\(shot)"
-        } else {
-            session?.pickNotice = "No AI terminal is open — \(element.tag) is on the clipboard\(shot)"
-        }
-    }
-
-    /// Open a browser tab (an empty one for nil), next to the files.
-    @discardableResult
-    func openBrowser(_ url: URL?, activate: Bool = true) -> BrowserSession {
-        let session = BrowserSession(url: url)
-        session.agentName = BrowserAgentTools.nextTabName(taken: browserSessions.map(\.agentName))
-        session.onOpenInNewTab = { [weak self] url in self?.openBrowser(url) }
-        session.onSaveMarkdown = { [weak session] mode in session?.saveRequest = mode }
-        session.onElementPicked = { [weak self, weak session] element, screenshot in
-            self?.sendPickedElement(element, screenshot: screenshot, from: session)
-        }
-        let base = rootNode?.url ?? FileManager.default.temporaryDirectory
-        var tab = OpenTab(url: base.appendingPathComponent(ProjectPaths.placeholderName("browser-" + session.id.uuidString)),
-                          content: "", originalContent: "")
-        tab.kind = .browser(session)
-        if activate {
-            layout.workspaceArea = .files
-            chrome.showCenter = true
-        }
         tabs.appendTab(tab, activate: activate)
         return session
     }
@@ -1303,158 +1225,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         tabs.appendTab(tab, activate: true)
     }
 
-    /// Show a local HTML file in a browser tab: the tab already showing it is reloaded, else a new
-    /// one opens. The page may read the project's files, so relative stylesheets and scripts load.
-    func openHTMLInBrowser(_ file: URL) {
-        let file = file.standardizedFileURL
-        guard FileType.isHTML(file), FileManager.default.fileExists(atPath: file.path) else { return }
-        layout.workspaceArea = .files
-        chrome.showCenter = true
-        for index in openTabs.indices {
-            if case .browser(let session) = openTabs[index].kind, session.url?.standardizedFileURL == file {
-                activeTabIndex = index
-                session.load(file)
-                return
-            }
-        }
-        let session = openBrowser(nil)
-        session.localReadRoot = project.containerRoot(for: file)
-        session.load(file)
-    }
-
-    /// A page a terminal program opened: shown in this window's browser, reusing a tab rather than
-    /// adding one — the tab already on the same server, else the active, preview or first browser tab.
-    func openInAppBrowser(_ url: URL) {
-        let candidates: [(index: Int, session: BrowserSession)] = openTabs.indices.compactMap { index in
-            if case .browser(let session) = openTabs[index].kind { return (index, session) }
-            return nil
-        }
-        let sameServer = { (session: BrowserSession) in
-            session.url?.host == url.host && session.url?.port == url.port && session.url?.scheme == url.scheme
-        }
-        let chosen = candidates.first { sameServer($0.session) }
-            ?? candidates.first { $0.index == activeTabIndex }
-            ?? candidates.first { $0.session.isAppPreview }
-            ?? candidates.first
-        layout.workspaceArea = .files
-        chrome.showCenter = true
-        if let chosen {
-            activeTabIndex = chosen.index
-            chosen.session.load(url)
-        } else {
-            openBrowser(url)
-        }
-    }
-
-    /// Preview Web App: the project's web app in a browser tab. A development server that
-    /// already answers is shown at once; otherwise the app's dev script runs in a terminal
-    /// tab and the tab shows the server as soon as it prints its address or a port answers.
-    func previewWebApp() {
-        if let index = openTabs.firstIndex(where: { tab in
-            if case .browser(let session) = tab.kind { return session.isAppPreview }
-            return false
-        }), case .browser(let session) = openTabs[index].kind {
-            // One preview tab per window: bring it back and look again.
-            activeTabIndex = index
-            layout.workspaceArea = .files
-            chrome.showCenter = true
-            findWebApp(for: session)
-            return
-        }
-        let session = openBrowser(nil)
-        findWebApp(for: session)
-    }
-
-    private func findWebApp(for session: BrowserSession) {
-        session.isAppPreview = true
-        session.preview = .searching
-        session.startWebApp = { [weak self, weak session] target in
-            guard let self, let session else { return }
-            self.startWebApp(target, in: session)
-        }
-        session.showTerminal = { [weak self, weak session] in
-            guard let self, let session else { return }
-            self.showPreviewTerminal(for: session)
-        }
-        guard let root = rootNode?.url else {
-            session.preview = .noApp
-            return
-        }
-        Task { @MainActor in
-            let targets = await Task.detached { WebAppPreview.targets(root: root) }.value
-            switch targets.count {
-            case 0:
-                if let url = await WebAppPreview.firstAnswering(WebAppPreview.commonPorts) {
-                    session.showPreview(url)
-                } else {
-                    session.preview = .noApp
-                }
-            case 1:
-                startWebApp(targets[0], in: session)
-            default:
-                session.preview = .choose(targets)
-            }
-        }
-    }
-
-    /// Show `target` in `session`: at once when its server answers, else after starting it.
-    func startWebApp(_ target: WebAppTarget, in session: BrowserSession) {
-        session.preview = .starting(target, started: false)
-        if target.isElectron { session.standInForElectron() }
-        Task { @MainActor in
-            if !target.reuseRunningServer, let occupied = await WebAppPreview.firstListening(target.ports) {
-                session.preview = .portInUse(target, occupied.port ?? 0)
-                return
-            }
-            if target.reuseRunningServer, let url = await WebAppPreview.firstAnswering(target.ports) {
-                session.showPreview(url)
-                return
-            }
-            let key = target.folder.standardizedFileURL.path
-            let terminal: TerminalSession
-            if target.reuseRunningServer, let existing = terminals.previewTerminal(forApp: key) {
-                terminal = existing
-            } else {
-                terminal = openTerminal(in: target.folder, startupCommand: target.command,
-                                        title: "Dev server", activate: false)
-                if target.reuseRunningServer { terminals.rememberPreviewTerminal(terminal, forApp: key) }
-                // A terminal tab starts its shell when its page is shown; this one starts now and
-                // keeps the output until the tab is opened.
-                terminal.start()
-            }
-            session.previewTerminalID = terminal.id
-            session.preview = .starting(target, started: true)
-            let watch = DevServerWatch()
-            terminal.onOutput = { [weak watch] data in watch?.read(data) }
-            defer { terminal.onOutput = nil }
-            let deadline = Date().addingTimeInterval(180)
-            var round = 0
-            while Date() < deadline {
-                guard !session.isClosed, case .starting = session.preview else { return }
-                if let url = watch.url, await WebAppPreview.firstAnswering([url.port ?? 80], timeout: 1) != nil {
-                    session.showPreview(url)
-                    return
-                }
-                if round % 3 == 0, let url = await WebAppPreview.firstAnswering(target.ports) {
-                    session.showPreview(url)
-                    return
-                }
-                round += 1
-                try? await Task.sleep(nanoseconds: 700_000_000)
-            }
-            if case .starting = session.preview { session.preview = .timedOut(target) }
-        }
-    }
-
-    private func showPreviewTerminal(for session: BrowserSession) {
-        guard let id = session.previewTerminalID,
-              let index = openTabs.firstIndex(where: { tab in
-                  if case .terminal(let terminal) = tab.kind { return terminal == id }
-                  return false
-              }) else { return }
-        activeTabIndex = index
-    }
-
     /// End every terminal of the window, and the watch over open files that runs while they do.
     private func stopAllTerminals() {
         terminals.stopAll()
@@ -1477,8 +1247,19 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
 /// What the terminals read of the window: the browser agents drive, and the editor (`AITerminalsController`).
 extension WorkspaceManager: AITerminalsHost {
+    var browserControlID: UUID { browser.controlID }
+    func registerBrowserControl() { browser.register() }
+    func openInAppBrowser(_ url: URL) { browser.openInAppBrowser(url) }
     func terminalStarted() { tabs.startWatchingOpenFiles() }
 }
+
+/// What the window's browser asks of the window (`BrowserHost`).
+extension WorkspaceManager: BrowserHostWindow {
+    var controlWorkspace: WorkspaceManager { self }
+}
+
+/// The dev server Preview Web App starts is one of the window's terminals, and a picked page element goes to the shown AI terminal.
+extension AITerminalsController: DevServerTerminals {}
 
 /// What the research maps and jobs read of the window's tabs and do to them and to files (`ResearchMapController`).
 extension WorkspaceManager: ResearchHost {

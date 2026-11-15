@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 198,
+  "suiteCount": 199,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1033,6 +1033,45 @@
         "tools/tests/feature-discovery-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+      ]
+    },
+    {
+      "name": "browser-host-tests",
+      "script": "tools/tests/browser-host-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AI/OutputLanguage.swift",
+        "MarkView/Models/AgentTools/BrowserAgentTools.swift",
+        "MarkView/Models/Appearance/AppTheme.swift",
+        "MarkView/Models/Appearance/BackdropRegistry.swift",
+        "MarkView/Models/Appearance/ProjectBackdrop.swift",
+        "MarkView/Models/Appearance/ThemeCatalog.swift",
+        "MarkView/Models/Appearance/ThemeDefinition.swift",
+        "MarkView/Models/Appearance/WelcomeBackdrop.swift",
+        "MarkView/Models/Book/PDFReader.swift",
+        "MarkView/Models/Browser/BrowserControlServer.swift",
+        "MarkView/Models/Browser/BrowserElementPick.swift",
+        "MarkView/Models/Browser/BrowserHost.swift",
+        "MarkView/Models/Browser/WebPreview.swift",
+        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
+        "MarkView/Models/Workspace/DocumentState.swift",
+        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
+        "MarkView/Models/Workspace/PanelLayout.swift",
+        "MarkView/Models/Workspace/ProjectProviding.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
+        "MarkView/Models/Workspace/TabClosing.swift",
+        "MarkView/Models/Workspace/TabsController.swift",
+        "MarkView/Models/Workspace/TaskBag.swift",
+        "MarkView/Models/Workspace/ToolRegistry.swift",
+        "MarkView/Models/Workspace/WebAppPreview.swift",
+        "MarkView/Models/Workspace/WindowChrome.swift",
+        "MarkView/Models/Workspace/WindowSession.swift",
+        "MarkView/Models/Workspace/WindowUIState.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/BrowserHostStubs.swift",
+        "tools/tests/BrowserHostTests.swift",
+        "tools/tests/browser-host-tests.sh"
       ]
     },
     {
@@ -3518,6 +3557,7 @@
         "MarkView/Models/Browser/BrowserPasswordScript.swift",
         "MarkView/Models/Browser/BrowserPasswords.swift",
         "MarkView/Models/Browser/BrowserSession.swift",
+        "MarkView/Models/Browser/WebPreview.swift",
         "MarkView/Models/Workspace/FrontMatter.swift",
         "MarkView/Models/Research/ResearchDocument.swift",
         "MarkView/Models/Terminal/TerminalBrowserBridge.swift",
