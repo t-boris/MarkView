@@ -20,7 +20,7 @@ func write(_ path: String, _ text: String) {
     try! text.write(to: url, atomically: true, encoding: .utf8)
 }
 
-let plan = try! PrototypeAI.Plan(structured: [
+let plan = try! PrototypePlan(structured: [
     "title": "Help desk", "summary": "", "assumptions": [], "gaps": [], "roles": ["Agent — answers tickets", "Admin: everything"],
     "entities": [], "styles": [], "themes": [], "defaultTheme": "",
     "screens": [

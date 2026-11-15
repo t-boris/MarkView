@@ -15,7 +15,7 @@
 1 MarkView/Models/Lifecycle/FeatureStore.swift
 1 MarkView/Models/Lifecycle/LifecycleLog.swift
 2 MarkView/Models/Lifecycle/SpecificationHandoff.swift
-3 MarkView/Models/Prototype/PrototypeAI.swift
+3 MarkView/Models/Prototype/PrototypeExport.swift
 1 MarkView/Models/Prototype/PrototypeHandoffRun.swift
 1 MarkView/Models/Research/ResearchMapImages.swift
 1 MarkView/Models/Research/ResearchMapJobs.swift

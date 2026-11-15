@@ -166,14 +166,14 @@ let planAnswer: [String: Any] = ["title": "Desk", "summary": "s", "assumptions":
      ["id": "tickets-list", "name": "Again", "route": "/again", "purpose": "p"],
      ["id": "../../etc", "name": "Evil", "route": "/e", "purpose": "p"],
      ["id": "", "name": "Дашборд", "route": "/d", "purpose": "p"]]]
-let plan = try PrototypeAI.Plan(structured: planAnswer)
+let plan = try PrototypePlan(structured: planAnswer)
 check(plan.screens.map(\.id) == ["tickets-list", "tickets-list-2", "etc", "screen-4"], "plan ids: safe, unique, never empty")
 check(plan.screens.allSatisfy { (try? PrototypeFiles.validate(path: "screens/\($0.id).js")) != nil }, "plan ids make valid screen paths")
 check(plan.json.contains("tickets-list-2"), "plan json carries the normalised ids")
 let many: [String: Any] = ["screens": (1...14).map { ["id": "s\($0)", "name": "S\($0)"] as [String: Any] }]
-check((try PrototypeAI.Plan(structured: many)).screens.count == 10, "plan is capped at ten screens")
+check((try PrototypePlan(structured: many)).screens.count == 10, "plan is capped at ten screens")
 var emptyPlanFails = false
-do { _ = try PrototypeAI.Plan(structured: ["screens": []]) } catch { emptyPlanFails = true }
+do { _ = try PrototypePlan(structured: ["screens": []]) } catch { emptyPlanFails = true }
 check(emptyPlanFails, "plan without screens is rejected")
 
 let parsed = PrototypeFiles.change(from: ["files": [["path": "a.html", "content": "x"]],
@@ -187,7 +187,7 @@ final class Lines: @unchecked Sendable {
     var logs: [String] = [], statuses: [String] = []
 }
 let lines = Lines()
-let tracker = PrototypeAI.ProgressTracker(root: URL(fileURLWithPath: "/proj"), emit: { event in
+let tracker = PrototypeProgressTracker(root: URL(fileURLWithPath: "/proj"), emit: { event in
     switch event {
     case .log(let t), .step(let t): lines.logs.append(t)
     case .status(let t): lines.statuses.append(t)
@@ -209,12 +209,12 @@ check(lines.logs.contains("Writing index.html"), "progress: file path split acro
 check(lines.logs.contains("Writing app.js"), "progress: second file")
 
 // Images sent with a request are named in the prompt, by project-relative path.
-let withImages = PrototypeAI.revisePrompt(instruction: "make it like this", pick: nil, siteRelative: "site", files: [],
+let withImages = PrototypePrompts.revisePrompt(instruction: "make it like this", pick: nil, siteRelative: "site", files: [],
     runtimeErrors: [], priorFailure: nil,
     attachments: [.init(path: ".dde/prototypes/x/attachments/a1.png", note: "image 1 from the reviewer")])
 check(withImages.contains(".dde/prototypes/x/attachments/a1.png: image 1 from the reviewer") && withImages.contains("Read tool"),
       "prompt lists the images and tells the assistant to open them")
-check(!PrototypeAI.revisePrompt(instruction: "x", pick: nil, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil)
+check(!PrototypePrompts.revisePrompt(instruction: "x", pick: nil, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil)
         .contains("Images the reviewer sent"), "no images, no image section")
 
 do {
@@ -236,24 +236,24 @@ do {
     let screen = PrototypeAI.PlannedScreen(id: "home", name: "Home", route: "/home", purpose: "p")
     let files = [PrototypeFiles.File(path: "app.js", content: "x")]
     let pinned: [(String, String, String)] = [
-        ("planSystem", PrototypeAI.planSystem(language: ""), "5e396efba058a77fb33e1a8bb28feb31569dc9ff1edcc9a98410095289d4809e"),
-        ("planSystem with language", PrototypeAI.planSystem(language: " Answer in French."), "e036ad8be91345ed6de6bd6c7c12d4c1b347d1cdec1a1cb2ad5dc9d2b63fbe79"),
-        ("planPrompt whole project", PrototypeAI.planPrompt(brief: "", sources: []), "fd70176cc8d68cf232da0df9f162179932ffba6cb13b7f9b01404975de9e9e90"),
-        ("planPrompt sources", PrototypeAI.planPrompt(brief: "Only tickets", sources: ["docs/a.md", "docs/b"]), "e30e91fc3a3ce128b2f507a0b2ffb392f1ae719b703eec58c4b69e75245bf263"),
-        ("dataSystem", PrototypeAI.dataSystem(language: ""), "0831ffa248985aa5ccec0515fee43ccc22c1b6a3c4ca31660920a99bd0400fee"),
-        ("shellSystem", PrototypeAI.shellSystem(language: ""), "8222f48f1287ffd53a754ab368d241ed1658ab087ab5296e815f2f6ebcda505e"),
-        ("stylesSystem", PrototypeAI.stylesSystem(language: ""), "1826c6bd4ce96575b11ba81605f33840b08ae65021905f22c395226f92b1a0ee"),
+        ("planSystem", PrototypePrompts.planSystem(language: ""), "5e396efba058a77fb33e1a8bb28feb31569dc9ff1edcc9a98410095289d4809e"),
+        ("planSystem with language", PrototypePrompts.planSystem(language: " Answer in French."), "e036ad8be91345ed6de6bd6c7c12d4c1b347d1cdec1a1cb2ad5dc9d2b63fbe79"),
+        ("planPrompt whole project", PrototypePrompts.planPrompt(brief: "", sources: []), "fd70176cc8d68cf232da0df9f162179932ffba6cb13b7f9b01404975de9e9e90"),
+        ("planPrompt sources", PrototypePrompts.planPrompt(brief: "Only tickets", sources: ["docs/a.md", "docs/b"]), "e30e91fc3a3ce128b2f507a0b2ffb392f1ae719b703eec58c4b69e75245bf263"),
+        ("dataSystem", PrototypePrompts.dataSystem(language: ""), "0831ffa248985aa5ccec0515fee43ccc22c1b6a3c4ca31660920a99bd0400fee"),
+        ("shellSystem", PrototypePrompts.shellSystem(language: ""), "8222f48f1287ffd53a754ab368d241ed1658ab087ab5296e815f2f6ebcda505e"),
+        ("stylesSystem", PrototypePrompts.stylesSystem(language: ""), "1826c6bd4ce96575b11ba81605f33840b08ae65021905f22c395226f92b1a0ee"),
         // Changed on purpose by BUG-053 (the sentence on what the callback of App.load returns) and BUG-062 (do not clear the element the
         // container is appended to).
-        ("screenSystem", PrototypeAI.screenSystem(language: ""), "329a4dbbdd88b30affd6cf6ffa0e74e9204788f5b7380308596d35f9774fffa7"),
+        ("screenSystem", PrototypePrompts.screenSystem(language: ""), "329a4dbbdd88b30affd6cf6ffa0e74e9204788f5b7380308596d35f9774fffa7"),
         // Changed on purpose by BUG-051: the `remaining` paragraph (a request for many files is revised file by file).
-        ("reviseSystem", PrototypeAI.reviseSystem(language: ""), "31abde9e8392f5063365002697bd0b3e5a3dbb15da99b00c5bf9edd944bf6023"),
-        ("foundationPrompt", PrototypeAI.foundationPrompt(plan: "{plan}", failure: "bad"), "97fed5ee5fa21774cd81a51a96520b245e334c98258563edc5dc71cfbe4a1e0e"),
-        ("screenPrompt", PrototypeAI.screenPrompt(plan: "{plan}", screen: screen, foundation: files, failure: "bad"), "f7fdd93d414cdeb3b3b13ad41ac08f939988dfb430620eb3ce11cacb1547f228"),
-        ("revisePrompt", PrototypeAI.revisePrompt(instruction: "do", pick: nil, siteRelative: ".dde/prototypes/x/site", files: files,
+        ("reviseSystem", PrototypePrompts.reviseSystem(language: ""), "31abde9e8392f5063365002697bd0b3e5a3dbb15da99b00c5bf9edd944bf6023"),
+        ("foundationPrompt", PrototypePrompts.foundationPrompt(plan: "{plan}", failure: "bad"), "97fed5ee5fa21774cd81a51a96520b245e334c98258563edc5dc71cfbe4a1e0e"),
+        ("screenPrompt", PrototypePrompts.screenPrompt(plan: "{plan}", screen: screen, foundation: files, failure: "bad"), "f7fdd93d414cdeb3b3b13ad41ac08f939988dfb430620eb3ce11cacb1547f228"),
+        ("revisePrompt", PrototypePrompts.revisePrompt(instruction: "do", pick: nil, siteRelative: ".dde/prototypes/x/site", files: files,
                                                   runtimeErrors: ["e"], priorFailure: "pf", attachments: [.init(path: "a.png", note: "n")]),
          "eb7e24aa369b6d4d2b7b4f9edd7459c26172314336f583a1a12460b7c69e0c0e"),
-        ("specSystem", PrototypeAI.specSystem, "286eaf7fb14e6cd7eafdc948900374470d1135d0459ddbbde101e0852e8c1e51"),
+        ("specSystem", PrototypePrompts.specSystem, "286eaf7fb14e6cd7eafdc948900374470d1135d0459ddbbde101e0852e8c1e51"),
     ]
     for (name, text, digest) in pinned { check(sha(text) == digest, "requirements-mode \(name) is unchanged") }
 
@@ -283,7 +283,7 @@ do {
     Assumptions recorded at the first build:
     - Tickets have one owner
     """
-    check(PrototypeAI.specPrompt(manifest: m, siteRelative: ".dde/prototypes/desk/site", language: "") == expectedSpec, "requirements-mode spec prompt is unchanged")
+    check(PrototypePrompts.specPrompt(manifest: m, siteRelative: ".dde/prototypes/desk/site", language: "") == expectedSpec, "requirements-mode spec prompt is unchanged")
     let expectedReadme = """
     # Desk — approved prototype (v2)
 
@@ -294,15 +294,15 @@ do {
     The prototype is the agreed behaviour and look. Implement the product to match it; where the prototype and SPEC.md differ, ask before choosing.
 
     """
-    check(PrototypeAI.readme(manifest: m) == expectedReadme, "requirements-mode README is unchanged")
+    check(PrototypeExport.readme(manifest: m) == expectedReadme, "requirements-mode README is unchanged")
 }
 
 // The plan schema is additive: gaps at the top, evidence per screen, both required so Codex's strict schema is the same.
 do {
-    let props = PrototypeAI.planSchema["properties"] as? [String: Any] ?? [:]
+    let props = PrototypeSchemas.planSchema["properties"] as? [String: Any] ?? [:]
     let screenItem = (props["screens"] as? [String: Any])?["items"] as? [String: Any] ?? [:]
     let screenProps = screenItem["properties"] as? [String: Any] ?? [:]
-    check(props["gaps"] != nil && (PrototypeAI.planSchema["required"] as? [String] ?? []).contains("gaps"), "plan schema has gaps")
+    check(props["gaps"] != nil && (PrototypeSchemas.planSchema["required"] as? [String] ?? []).contains("gaps"), "plan schema has gaps")
     check(screenProps["evidence"] != nil && (screenItem["required"] as? [String] ?? []).contains("evidence"), "plan schema has evidence per screen")
     check(props["assumptions"] != nil && screenProps["requirements"] != nil, "plan schema keeps the old keys")
     // The code-mode fields tell the planner of requirements mode to leave them empty.
@@ -318,31 +318,31 @@ do {
     let answer: [String: Any] = ["title": "Shop", "summary": "s", "assumptions": [], "gaps": ["Checkout posts to /api/orders (src/checkout.js).", "  "],
         "screens": [["id": "cart", "name": "Cart", "route": "/cart", "purpose": "p", "evidence": ["src/Cart.vue", " src/cart.css ", ""]],
                     ["id": "home", "name": "Home", "route": "/", "purpose": "p"]]]
-    let plan = try PrototypeAI.Plan(structured: answer, mode: .code)
+    let plan = try PrototypePlan(structured: answer, mode: .code)
     check(plan.gaps == ["Checkout posts to /api/orders (src/checkout.js)."], "plan keeps the non-empty gaps")
     check(plan.screens[0].evidence == ["src/Cart.vue", "src/cart.css"] && plan.screens[1].evidence.isEmpty, "plan keeps trimmed evidence per screen")
     // JSONSerialization writes "/" as "\/", so look for the words.
     check(plan.json.contains("Cart.vue") && plan.json.contains("\"evidence\"") && plan.json.contains("\"gaps\"") && plan.json.contains("orders"),
           "plan json carries evidence and gaps for the later runs")
-    let old = try PrototypeAI.Plan(structured: ["screens": [["id": "a", "name": "A"]]], mode: .code)
+    let old = try PrototypePlan(structured: ["screens": [["id": "a", "name": "A"]]], mode: .code)
     check(old.gaps.isEmpty, "a plan without gaps has none")
     // Requirements mode: the schema makes the planner fill `gaps` anyway; nothing of it may surface as a known gap.
-    let designed = try PrototypeAI.Plan(structured: answer)
+    let designed = try PrototypePlan(structured: answer)
     check(designed.gaps.isEmpty && designed.screens.count == 2, "requirements mode drops the planner's gaps")
     check(!designed.json.contains("orders") && designed.json.contains("\"gaps\""), "the requirements-mode plan json keeps the key for the writers, without the text")
     var tooMany = answer
     tooMany["screens"] = (1...11).map { ["id": "s\($0)", "name": "Screen \($0)"] as [String: Any] }
-    let cutDesigned = try PrototypeAI.Plan(structured: tooMany)
+    let cutDesigned = try PrototypePlan(structured: tooMany)
     check(cutDesigned.gaps.count == 1 && cutDesigned.gaps[0].contains("11 screens"), "requirements mode keeps the screen-cap gap only: \(cutDesigned.gaps)")
     let many: [String: Any] = ["screens": (1...12).map { ["id": "s\($0)", "name": "Screen \($0)"] as [String: Any] }]
-    let cut = try PrototypeAI.Plan(structured: many)
+    let cut = try PrototypePlan(structured: many)
     check(cut.screens.count == 10 && cut.gaps.count == 1 && cut.gaps[0].contains("12 screens") && cut.gaps[0].contains("Screen 11, Screen 12"),
           "a plan past the cap records the dropped screens as a gap")
 }
 
 // Code mode: the planner is told that the code is the reference and what it must return.
 do {
-    let system = PrototypeAI.codePlanSystem(language: " Answer in German.")
+    let system = PrototypePrompts.codePlanSystem(language: " Answer in German.")
     for phrase in ["reconstructs an EXISTING web interface", "`evidence`", "`gaps`", "`ipcRenderer`", "at most 40",
                    "Every screen maps to a real route", "do not add screens, controls or features the code does not have", "Answer in German."] {
         check(system.contains(phrase), "code plan system says: \(phrase)")
@@ -350,7 +350,7 @@ do {
     let inventory = PrototypeFiles.Inventory(entries: [.init(path: "web/src/App.tsx", bytes: 1200), .init(path: "web/src/app.css", bytes: 300)], omitted: 7)
     let scope = PrototypeAI.CodeScope(apps: [.init(path: "web", label: "web", isElectron: false),
                                              .init(path: "apps/desktop", label: "desktop", isElectron: true)])
-    let prompt = PrototypeAI.codePlanPrompt(brief: "", sources: ["web/src", "web/index.html"], scope: scope, inventory: inventory)
+    let prompt = PrototypePrompts.codePlanPrompt(brief: "", sources: ["web/src", "web/index.html"], scope: scope, inventory: inventory)
     for phrase in ["Reconstruct the existing web interface", "- web/src\n", "- web/index.html\n", "read them with your tools",
                    "Web applications detected", "- web (web) — web application",
                    "- apps/desktop (desktop) — Electron renderer: only the browser part is in scope; `window.electron`/`ipcRenderer` calls must be simulated and listed as gaps",
@@ -359,55 +359,55 @@ do {
         check(prompt.contains(phrase), "code plan prompt says: \(phrase)")
     }
     check(!prompt.contains("requirement"), "code plan prompt never calls the sources requirements")
-    let whole = PrototypeAI.codePlanPrompt(brief: "Only the cart", sources: [], scope: PrototypeAI.CodeScope(), inventory: PrototypeFiles.Inventory())
+    let whole = PrototypePrompts.codePlanPrompt(brief: "Only the cart", sources: [], scope: PrototypeAI.CodeScope(), inventory: PrototypeFiles.Inventory())
     check(whole.contains("the whole project folder: find the web interface in it yourself") && !whole.contains("Web applications detected")
           && whole.contains("No web-interface files") && whole.hasSuffix("Only the cart"), "code plan prompt: whole project, no hints, empty inventory, brief")
 
     // The foundation and each screen are pointed at the original sources.
-    let foundation = PrototypeAI.foundationPrompt(plan: "{plan}", failure: nil, mode: .code)
+    let foundation = PrototypePrompts.foundationPrompt(plan: "{plan}", failure: nil, mode: .code)
     check(foundation.hasPrefix("The plan of the prototype:\n{plan}") && foundation.contains("reproduce the original design tokens"),
           "code-mode foundation prompt keeps the plan and asks for the original tokens")
     let screen = PrototypeAI.PlannedScreen(id: "cart", name: "Cart", route: "/cart", purpose: "p", evidence: ["web/src/Cart.vue", "web/src/cart.css"])
-    let screenPrompt = PrototypeAI.screenPrompt(plan: "{plan}", screen: screen, foundation: [], failure: "bad", mode: .code)
+    let screenPrompt = PrototypePrompts.screenPrompt(plan: "{plan}", screen: screen, foundation: [], failure: "bad", mode: .code)
     check(screenPrompt.contains("- web/src/Cart.vue\n- web/src/cart.css\n") && screenPrompt.contains("CSS tokens")
           && screenPrompt.contains("no network request") && screenPrompt.hasSuffix("Your previous answer was not usable:\nbad"),
           "code-mode screen prompt lists the evidence and keeps the standalone rule and the failure")
-    let noEvidence = PrototypeAI.screenPrompt(plan: "{plan}", screen: PrototypeAI.PlannedScreen(id: "a", name: "A", route: "/a", purpose: ""),
+    let noEvidence = PrototypePrompts.screenPrompt(plan: "{plan}", screen: PrototypeAI.PlannedScreen(id: "a", name: "A", route: "/a", purpose: ""),
                                               foundation: [], failure: nil, mode: .code)
     check(noEvidence.contains("find its source files with your tools"), "code-mode screen prompt without evidence asks the writer to find the sources")
 
     // Revisions name the sources instead of the project's documents.
-    let revise = PrototypeAI.revisePrompt(instruction: "Bigger button", pick: nil, siteRelative: "site", files: [], runtimeErrors: [],
+    let revise = PrototypePrompts.revisePrompt(instruction: "Bigger button", pick: nil, siteRelative: "site", files: [], runtimeErrors: [],
                                           priorFailure: nil, mode: .code, sources: ["web/src"])
     check(revise.contains("reconstruction of the existing interface implemented in the project's source code in `web/src`")
           && !revise.contains("requirements come from the project's documents") && revise.hasSuffix("Reviewer's request:\nBigger button"),
           "code-mode revise prompt names the sources")
-    check(PrototypeAI.revisePrompt(instruction: "x", pick: nil, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil, mode: .code)
+    check(PrototypePrompts.revisePrompt(instruction: "x", pick: nil, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil, mode: .code)
             .contains("implemented in the project's own source code;"), "code-mode revise prompt without sources names the project")
 
     // The specification and the README disclose the reconstruction and its gaps.
     var m = PrototypeFiles.Manifest(title: "Shop", slug: "shop", brief: "", sources: ["web/src"], mode: .code,
                                     gaps: ["Checkout posts to /api/orders; the prototype confirms locally."])
     m.version = 1
-    let spec = PrototypeAI.specPrompt(manifest: m, siteRelative: "site", language: "")
+    let spec = PrototypePrompts.specPrompt(manifest: m, siteRelative: "site", language: "")
     for phrase in ["reconstruction of the existing interface implemented in these sources", "- web/src", "Source traceability",
                    "Reconstruction: sources, evidence, known gaps", "do not present it as verified reproduction",
                    "Known gaps recorded at the first build:\n- Checkout posts to /api/orders; the prototype confirms locally."] {
         check(spec.contains(phrase), "code-mode spec prompt says: \(phrase)")
     }
     check(!spec.contains("Requirements traceability"), "code-mode spec prompt traces to sources, not requirements")
-    check(PrototypeAI.codeSpecSystem.contains("never present simulated behaviour as a verified reproduction"), "code-mode spec system forbids fake verification")
-    let readme = PrototypeAI.readme(manifest: m)
+    check(PrototypePrompts.codeSpecSystem.contains("never present simulated behaviour as a verified reproduction"), "code-mode spec system forbids fake verification")
+    let readme = PrototypeExport.readme(manifest: m)
     check(readme.contains("reconstruction of the project's existing web interface in `web/src`") && readme.contains("Known reconstruction gaps")
           && readme.contains("- Checkout posts to /api/orders; the prototype confirms locally.\n"), "code-mode README discloses the reconstruction and its gaps")
     m.gaps = []
-    check(PrototypeAI.readme(manifest: m).contains("No reconstruction gaps were recorded"), "code-mode README says when no gaps were recorded")
+    check(PrototypeExport.readme(manifest: m).contains("No reconstruction gaps were recorded"), "code-mode README says when no gaps were recorded")
 }
 
 // Code mode progress lines read the code, not the requirements.
 do {
     let lines = Lines()
-    let tracker = PrototypeAI.ProgressTracker(root: URL(fileURLWithPath: "/proj"), reading: "the code", emit: { event in
+    let tracker = PrototypeProgressTracker(root: URL(fileURLWithPath: "/proj"), reading: "the code", emit: { event in
         if case .status(let t) = event { lines.statuses.append(t) }
     })
     tracker.handle(.read("/proj/web/src/App.tsx"))
@@ -640,22 +640,22 @@ do {
 
 // The plan schema and parsing carry the components of each screen.
 do {
-    let props = PrototypeAI.planSchema["properties"] as? [String: Any] ?? [:]
+    let props = PrototypeSchemas.planSchema["properties"] as? [String: Any] ?? [:]
     let screenItem = (props["screens"] as? [String: Any])?["items"] as? [String: Any] ?? [:]
     let screenProps = screenItem["properties"] as? [String: Any] ?? [:]
     check(screenProps["components"] != nil && (screenItem["required"] as? [String] ?? []).contains("components"), "plan schema has components per screen")
     let answer: [String: Any] = ["screens": [["id": "orders", "name": "Orders", "components": [" ./src/OrderList.vue", "src/OrderList.vue", "../x.vue", ""]],
                                              ["id": "home", "name": "Home"]]]
-    let plan = try PrototypeAI.Plan(structured: answer, mode: .code)
+    let plan = try PrototypePlan(structured: answer, mode: .code)
     check(plan.screens[0].components == ["src/OrderList.vue"] && plan.screens[1].components.isEmpty, "plan components are normalised and unique")
     check(plan.json.contains("\"components\"") && plan.json.contains("OrderList.vue") && !plan.json.contains("x.vue"), "plan json carries the normalised components")
-    check(try PrototypeAI.Plan(structured: answer).screens[0].components.isEmpty, "requirements mode has no components to link")
+    check(try PrototypePlan(structured: answer).screens[0].components.isEmpty, "requirements mode has no components to link")
 
     // A plan component without a source file is not linked: it is a gap, once, and the writers never see it (REQ-007).
     let ghosts: [String: Any] = ["gaps": ["Posts to /api"], "screens": [
         ["id": "orders", "name": "Orders", "components": ["src/OrderList.vue", "src/Ghost.vue"]],
         ["id": "cart", "name": "Cart", "components": ["src/Ghost.vue", "src/Cart.vue"]]]]
-    let checked = try PrototypeAI.Plan(structured: ghosts, mode: .code, sourceExists: { $0 != "src/Ghost.vue" })
+    let checked = try PrototypePlan(structured: ghosts, mode: .code, sourceExists: { $0 != "src/Ghost.vue" })
     check(checked.screens.map(\.components) == [["src/OrderList.vue"], ["src/Cart.vue"]], "components without a file are dropped from every screen")
     check(checked.gaps == ["Posts to /api", "Component src/Ghost.vue named by the plan was not found in the sources"], "one gap per missing component: \(checked.gaps)")
     check(!checked.json.contains("Ghost"), "the plan json the writers see does not name it")
@@ -664,8 +664,8 @@ do {
 // BUG-049: the shell is written in two parts, so no single answer has to carry index.html, app.js
 // and styles.css at once. Each part must know the other's contract and stay out of its files.
 do {
-    let shell = PrototypeAI.shellSystem(language: "")
-    let styles = PrototypeAI.stylesSystem(language: "")
+    let shell = PrototypePrompts.shellSystem(language: "")
+    let styles = PrototypePrompts.stylesSystem(language: "")
     check(shell.contains("exactly two files: index.html and app.js") && shell.contains("not styles.css"),
           "the shell part writes index.html and app.js only")
     check(styles.contains("exactly one file: styles.css") && styles.contains("Write only styles.css"),
@@ -682,36 +682,36 @@ do {
 
 // Code-mode prompts carry the marker rule; requirements mode stays pinned above.
 do {
-    check(PrototypeAI.codePlanSystem(language: "").contains("`components` (the component files among the evidence"), "code plan system asks for the components")
-    check(PrototypeAI.componentRule.contains("data-mv-component=\"<path>\"") && PrototypeAI.componentRule.contains("never invent a marker"),
+    check(PrototypePrompts.codePlanSystem(language: "").contains("`components` (the component files among the evidence"), "code plan system asks for the components")
+    check(PrototypePrompts.componentRule.contains("data-mv-component=\"<path>\"") && PrototypePrompts.componentRule.contains("never invent a marker"),
           "the marker rule names the attribute and forbids invented markers")
-    check(PrototypeAI.foundationPrompt(plan: "{plan}", failure: nil, mode: .code).contains(PrototypeAI.componentRule), "code-mode foundation prompt carries the marker rule")
-    check(!PrototypeAI.foundationPrompt(plan: "{plan}", failure: nil).contains("data-mv-component"), "requirements-mode foundation prompt has no marker rule")
+    check(PrototypePrompts.foundationPrompt(plan: "{plan}", failure: nil, mode: .code).contains(PrototypePrompts.componentRule), "code-mode foundation prompt carries the marker rule")
+    check(!PrototypePrompts.foundationPrompt(plan: "{plan}", failure: nil).contains("data-mv-component"), "requirements-mode foundation prompt has no marker rule")
     let screen = PrototypeAI.PlannedScreen(id: "orders", name: "Orders", route: "/orders", purpose: "p", evidence: ["src/Orders.vue"],
                                            components: ["src/Orders.vue", "src/Badge.vue"])
-    let prompt = PrototypeAI.screenPrompt(plan: "{plan}", screen: screen, foundation: [], failure: nil, mode: .code)
-    check(prompt.contains(PrototypeAI.componentRule) && prompt.contains("as the plan names them:\n- src/Orders.vue\n- src/Badge.vue\n"),
+    let prompt = PrototypePrompts.screenPrompt(plan: "{plan}", screen: screen, foundation: [], failure: nil, mode: .code)
+    check(prompt.contains(PrototypePrompts.componentRule) && prompt.contains("as the plan names them:\n- src/Orders.vue\n- src/Badge.vue\n"),
           "code-mode screen prompt carries the rule and the screen's components")
-    check(!PrototypeAI.screenPrompt(plan: "{plan}", screen: screen, foundation: [], failure: nil).contains("data-mv-component"), "requirements-mode screen prompt has no markers")
-    let system = PrototypeAI.componentSystem(language: " In French.")
+    check(!PrototypePrompts.screenPrompt(plan: "{plan}", screen: screen, foundation: [], failure: nil).contains("data-mv-component"), "requirements-mode screen prompt has no markers")
+    let system = PrototypePrompts.componentSystem(language: " In French.")
     for phrase in ["isolated view of a source component", "`../styles.css`", "does not call `App.start()`", "<main id=\"component\">",
                    "data-mv-component", "Do not edit other files", "In French."] {
         check(system.contains(phrase), "component system says: \(phrase)")
     }
-    let isolated = PrototypeAI.componentPrompt(plan: "{plan}", component: "src/Badge.vue", page: "components/src-badge-vue.html",
+    let isolated = PrototypePrompts.componentPrompt(plan: "{plan}", component: "src/Badge.vue", page: "components/src-badge-vue.html",
                                                screens: [screen], foundation: [.init(path: "app.js", content: "x")], failure: "bad")
     for phrase in ["{plan}", "=== app.js ===\nx", "component `src/Badge.vue` as `components/src-badge-vue.html`",
                    "- Orders: screens/orders.js\n", "Read the component's source file `src/Badge.vue`", "Your previous answer was not usable:\nbad"] {
         check(isolated.contains(phrase), "component prompt says: \(phrase)")
     }
-    check(PrototypeAI.componentPrompt(plan: "{plan}", component: "src/X.vue", page: "components/x.html", screens: [], foundation: [], failure: nil)
+    check(PrototypePrompts.componentPrompt(plan: "{plan}", component: "src/X.vue", page: "components/x.html", screens: [], foundation: [], failure: nil)
             .contains("No screen script names it"), "component prompt without screens sends the writer to the source")
     let pick = PrototypeAI.Pick(selector: "div", tag: "div", text: "t", html: "<div/>", screen: "#/orders", component: "src/Badge.vue")
-    let revise = PrototypeAI.revisePrompt(instruction: "x", pick: pick, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil, mode: .code)
+    let revise = PrototypePrompts.revisePrompt(instruction: "x", pick: pick, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil, mode: .code)
     check(revise.contains("html: <div/>\nsource component: src/Badge.vue (the element"), "revise prompt names the picked element's component")
     var plain = pick
     plain.component = nil
-    check(!PrototypeAI.revisePrompt(instruction: "x", pick: plain, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil)
+    check(!PrototypePrompts.revisePrompt(instruction: "x", pick: plain, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil)
             .contains("source component"), "no component, no component line")
 }
 
@@ -735,46 +735,46 @@ do {
     } catch { check(true, "a path outside the site is refused in memory") }
 
     // The files a first answer leaves in `remaining`: existing, not changed by the answer itself, once each, the prototype folder stripped.
-    let targets = PrototypeAI.sweepTargets(["a.js", " b.js ", "a.js", "p/site/c.css", "ghost.js", "../d.js", "e.js", 7] as [Any],
+    let targets = PrototypePrompts.sweepTargets(["a.js", " b.js ", "a.js", "p/site/c.css", "ghost.js", "../d.js", "e.js", 7] as [Any],
                                            siteRelative: "p/site", existing: ["a.js", "b.js", "c.css", "e.js"], touched: ["e.js"])
     check(targets == ["a.js", "b.js", "c.css"], "sweep targets: existing files once each, in order: \(targets)")
-    check(PrototypeAI.sweepTargets(nil, siteRelative: "p", existing: ["a"], touched: []).isEmpty
-          && PrototypeAI.sweepTargets("a.js", siteRelative: "p", existing: ["a.js"], touched: []).isEmpty, "no list, no targets")
+    check(PrototypePrompts.sweepTargets(nil, siteRelative: "p", existing: ["a"], touched: []).isEmpty
+          && PrototypePrompts.sweepTargets("a.js", siteRelative: "p", existing: ["a.js"], touched: []).isEmpty, "no list, no targets")
     let file = PrototypeFiles.File(path: "screens/x.js", content: "const t = 'Привет';")
-    let one = PrototypeAI.sweepPrompt(instruction: "Translate", siteRelative: "p/site", file: file, priorFailure: nil)
+    let one = PrototypePrompts.sweepPrompt(instruction: "Translate", siteRelative: "p/site", file: file, priorFailure: nil)
     check(one.contains("this run revises one file of it, `screens/x.js`") && one.contains("=== screens/x.js ===\nconst t = 'Привет';\n")
           && one.hasSuffix("Reviewer's request:\nTranslate") && !one.contains("could not be applied"), "sweep prompt names the file and carries it whole")
-    check(PrototypeAI.sweepPrompt(instruction: "T", siteRelative: "p", file: file, priorFailure: "x: bad").contains("Your previous answer could not be applied:\nx: bad"),
+    check(PrototypePrompts.sweepPrompt(instruction: "T", siteRelative: "p", file: file, priorFailure: "x: bad").contains("Your previous answer could not be applied:\nx: bad"),
           "sweep prompt carries the reason of a failed answer")
     // The reply to an empty answer is not the edits advice, and the default retry text is unchanged.
-    let empty = PrototypeAI.revisePrompt(instruction: "x", pick: nil, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: "no summary.", priorEmpty: true)
+    let empty = PrototypePrompts.revisePrompt(instruction: "x", pick: nil, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: "no summary.", priorEmpty: true)
     check(empty.contains("Your previous answer was empty: no summary.") && !empty.contains("`find` text"), "retry text of an empty answer")
-    check(PrototypeAI.reviseSchema["required"] as? [String] == ["summary", "screens", "files", "edits", "delete", "remaining"], "the schema requires remaining")
+    check(PrototypeSchemas.reviseSchema["required"] as? [String] == ["summary", "screens", "files", "edits", "delete", "remaining"], "the schema requires remaining")
 }
 
 // BUG-052: a prototype made from code keeps the labels of the original and is not translated.
 do {
-    let rule = PrototypeAI.sourceLanguageRule
-    check(PrototypeAI.languageNote(explicit: "", mode: .code) == rule, "code mode on Document language gets the keep-the-source-language rule")
-    check(PrototypeAI.languageNote(explicit: "", mode: .requirements).isEmpty, "requirements mode on Document language gets nothing")
+    let rule = PrototypePrompts.sourceLanguageRule
+    check(PrototypePrompts.languageNote(explicit: "", mode: .code) == rule, "code mode on Document language gets the keep-the-source-language rule")
+    check(PrototypePrompts.languageNote(explicit: "", mode: .requirements).isEmpty, "requirements mode on Document language gets nothing")
     // BUG-057: the global output language (Russian in Boris's settings) must not translate the labels of a reconstruction.
     let explicit = "\n\nWrite every label, text and message in the prototype in Russian."
-    check(PrototypeAI.languageNote(explicit: explicit, mode: .code) == rule, "an explicit output language does not replace the rule in code mode")
-    check(PrototypeAI.languageNote(explicit: explicit, mode: .requirements) == explicit, "an explicit output language still applies to a requirements prototype")
-    check(!PrototypeAI.languageNote(explicit: explicit, mode: .code).contains("Russian"), "the code-mode note never carries the chosen language")
+    check(PrototypePrompts.languageNote(explicit: explicit, mode: .code) == rule, "an explicit output language does not replace the rule in code mode")
+    check(PrototypePrompts.languageNote(explicit: explicit, mode: .requirements) == explicit, "an explicit output language still applies to a requirements prototype")
+    check(!PrototypePrompts.languageNote(explicit: explicit, mode: .code).contains("Russian"), "the code-mode note never carries the chosen language")
     check(rule.hasPrefix("\n\n") && rule.contains("never translate them") && rule.contains("`lang` attribute of index.html")
           && rule.contains("`summary`, `assumptions`, `gaps`") && rule.contains("asks for another language overrides"),
           "the rule says what to copy, the lang attribute, the English summaries and that the reviewer can override it")
     // It reaches every prompt that writes visible text or saved prose: plan, foundation, screens, components and revisions.
-    let note = PrototypeAI.languageNote(explicit: "", mode: .code)
+    let note = PrototypePrompts.languageNote(explicit: "", mode: .code)
     let prompts: [(String, String)] = [
-        ("code plan", PrototypeAI.codePlanSystem(language: note)), ("data", PrototypeAI.dataSystem(language: note)),
-        ("shell", PrototypeAI.shellSystem(language: note)), ("screen", PrototypeAI.screenSystem(language: note)),
-        ("component", PrototypeAI.componentSystem(language: note)), ("revise", PrototypeAI.reviseSystem(language: note)),
+        ("code plan", PrototypePrompts.codePlanSystem(language: note)), ("data", PrototypePrompts.dataSystem(language: note)),
+        ("shell", PrototypePrompts.shellSystem(language: note)), ("screen", PrototypePrompts.screenSystem(language: note)),
+        ("component", PrototypePrompts.componentSystem(language: note)), ("revise", PrototypePrompts.reviseSystem(language: note)),
     ]
     for (name, text) in prompts { check(text.hasSuffix(rule), "the \(name) prompt ends with the language rule") }
     // Without a note the prompts are what they were (the pinned digests above stay valid).
-    check(PrototypeAI.screenSystem(language: PrototypeAI.languageNote(explicit: "", mode: .requirements)) == PrototypeAI.screenSystem(language: ""),
+    check(PrototypePrompts.screenSystem(language: PrototypePrompts.languageNote(explicit: "", mode: .requirements)) == PrototypePrompts.screenSystem(language: ""),
           "a requirements prototype's prompts are unchanged")
 }
 
@@ -835,19 +835,19 @@ do {
     check(PrototypeAudit.script.contains("function collapsed(") && PrototypeAudit.script.contains("kind = 'clipped'"),
           "the script measures collapsed boxes and reports clipped screens")
     // The shell and host rules for widgets that size themselves with flex:1 or height:100%.
-    check(PrototypeAI.embeddedShellContract.contains("inside a box that has a definite height") && PrototypeAI.embeddedShellContract.contains("collapses to 0 px"),
+    check(PrototypePrompts.embeddedShellContract.contains("inside a box that has a definite height") && PrototypePrompts.embeddedShellContract.contains("collapses to 0 px"),
           "the embedded shell contract demands a definite height for the box that holds a widget")
-    let hostPrompt = PrototypeAI.screenPrompt(plan: "{}", screen: PrototypeAI.PlannedScreen(id: "desk", name: "Desk", route: "/", purpose: "", embedded: false),
+    let hostPrompt = PrototypePrompts.screenPrompt(plan: "{}", screen: PrototypeAI.PlannedScreen(id: "desk", name: "Desk", route: "/", purpose: "", embedded: false),
                                               foundation: [], failure: nil, mode: .code, hosted: [PrototypeAI.PlannedScreen(id: "w", name: "W", route: "/w", purpose: "", embedded: true)])
     check(hostPrompt.contains("Give every panel that receives a widget a definite height"), "the host prompt asks for panels with a definite height")
     // The screen prompt tells the writer what made the strikedesk Trade screen blank.
-    check(PrototypeAI.screenSystem(language: "").contains("never the container that `App.load` returned"), "the screen prompt carries the App.load rule")
-    check(PrototypeAI.screenSystem(language: "").contains("(`root.replaceChildren(...)`, `root.innerHTML = ...`)"), "the screen prompt names the calls that remove the loader (BUG-062)")
-    let notSplit = PrototypeAI.revisePrompt(instruction: "do", pick: nil, siteRelative: "p/site", files: [], runtimeErrors: [], priorFailure: nil, fanOut: false)
+    check(PrototypePrompts.screenSystem(language: "").contains("never the container that `App.load` returned"), "the screen prompt carries the App.load rule")
+    check(PrototypePrompts.screenSystem(language: "").contains("(`root.replaceChildren(...)`, `root.innerHTML = ...`)"), "the screen prompt names the calls that remove the loader (BUG-062)")
+    let notSplit = PrototypePrompts.revisePrompt(instruction: "do", pick: nil, siteRelative: "p/site", files: [], runtimeErrors: [], priorFailure: nil, fanOut: false)
     check(notSplit.contains("answered in this one run") && notSplit.contains("leave `remaining` empty")
           && notSplit.range(of: "answered in this one run")!.lowerBound < notSplit.range(of: "Reviewer's request:")!.lowerBound,
           "a request that cannot fan out is told to leave remaining empty, before the request (BUG-062)")
-    check(!PrototypeAI.revisePrompt(instruction: "do", pick: nil, siteRelative: "p/site", files: [], runtimeErrors: [], priorFailure: nil).contains("answered in this one run"),
+    check(!PrototypePrompts.revisePrompt(instruction: "do", pick: nil, siteRelative: "p/site", files: [], runtimeErrors: [], priorFailure: nil).contains("answered in this one run"),
           "a request that can fan out is not")
 }
 
@@ -858,7 +858,7 @@ do {
     check(screen.kind == "Screen" && screen.name == "Trade" && screen.detail == nil, "a screen target has a kind and a name")
     check(component.kind == "Component" && component.name == "Badge" && component.detail == "src/Badge.tsx", "a component target shows its source path")
     func prompt(_ target: PrototypeAI.Target?, mode: PrototypeFiles.Mode = .code) -> String {
-        PrototypeAI.revisePrompt(instruction: "Bigger", pick: nil, siteRelative: "docs/prototypes/x/site", files: [], runtimeErrors: [],
+        PrototypePrompts.revisePrompt(instruction: "Bigger", pick: nil, siteRelative: "docs/prototypes/x/site", files: [], runtimeErrors: [],
                                  priorFailure: nil, mode: mode, target: target)
     }
     let aimedScreen = prompt(screen)
@@ -874,7 +874,7 @@ do {
           && !prompt(PrototypeAI.Target.component(path: "src/Badge.tsx", label: "Badge", page: nil, screens: [])).contains("isolated view"),
           "without a page there is no isolated view; a requirements prototype has no source file to read")
     check(!prompt(nil).contains("aimed this request"), "no target, no scope paragraph: the request is about the whole prototype")
-    check(prompt(nil) == PrototypeAI.revisePrompt(instruction: "Bigger", pick: nil, siteRelative: "docs/prototypes/x/site", files: [], runtimeErrors: [], priorFailure: nil, mode: .code),
+    check(prompt(nil) == PrototypePrompts.revisePrompt(instruction: "Bigger", pick: nil, siteRelative: "docs/prototypes/x/site", files: [], runtimeErrors: [], priorFailure: nil, mode: .code),
           "the prompt without a target is what it was before targets existed")
 }
 
@@ -882,13 +882,13 @@ do {
 do {
     let screen = PrototypeAI.PlannedScreen(id: "orders", name: "Orders", route: "/orders", purpose: "", evidence: ["src/a.ts"], components: [], embedded: false, hosts: [])
     let update = PrototypeAI.ScreenUpdate(changed: ["src/a.ts"], removed: ["src/gone.ts"], current: "docs/prototypes/x/site/screens/orders.js")
-    let withUpdate = PrototypeAI.screenPrompt(plan: "{}", screen: screen, foundation: [], failure: nil, mode: .code, update: update)
+    let withUpdate = PrototypePrompts.screenPrompt(plan: "{}", screen: screen, foundation: [], failure: nil, mode: .code, update: update)
     check(withUpdate.contains("UPDATE of a screen that already exists") && withUpdate.contains("read them first:\n- src/a.ts\n")
           && withUpdate.contains("no longer exist; drop what depended only on them:\n- src/gone.ts\n")
           && withUpdate.contains("`docs/prototypes/x/site/screens/orders.js`") && withUpdate.contains("not a patch")
           && withUpdate.contains("define it inside this screen's script"), "the update note names the changed and removed files, the current screen and the data rule")
-    check(!PrototypeAI.screenPrompt(plan: "{}", screen: screen, foundation: [], failure: nil, mode: .code).contains("UPDATE of a screen"), "a first build has no update note")
-    check(!PrototypeAI.screenPrompt(plan: "{}", screen: screen, foundation: [], failure: nil, mode: .requirements, update: update).contains("UPDATE of a screen"),
+    check(!PrototypePrompts.screenPrompt(plan: "{}", screen: screen, foundation: [], failure: nil, mode: .code).contains("UPDATE of a screen"), "a first build has no update note")
+    check(!PrototypePrompts.screenPrompt(plan: "{}", screen: screen, foundation: [], failure: nil, mode: .requirements, update: update).contains("UPDATE of a screen"),
           "requirements mode has nothing to update from")
 }
 

@@ -118,11 +118,11 @@ final class PrototypeSession: ObservableObject, Identifiable {
         let ids = files.filter { $0.hasSuffix(".js") }.map { String($0.dropLast(3)) }
         let known = manifest.screens
         let ordered = ids.sorted { lhs, rhs in
-            let l = known.firstIndex { PrototypeAI.Plan.slug($0) == lhs } ?? Int.max
-            let r = known.firstIndex { PrototypeAI.Plan.slug($0) == rhs } ?? Int.max
+            let l = known.firstIndex { PrototypePlan.slug($0) == lhs } ?? Int.max
+            let r = known.firstIndex { PrototypePlan.slug($0) == rhs } ?? Int.max
             return l == r ? lhs < rhs : l < r
         }
-        return ordered.map { id in .screen(id: id, name: known.first { PrototypeAI.Plan.slug($0) == id } ?? id) }
+        return ordered.map { id in .screen(id: id, name: known.first { PrototypePlan.slug($0) == id } ?? id) }
     }
 
     /// The source components a request can be aimed at; empty unless the prototype records components (REQ-008).
@@ -157,7 +157,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
     var languageNote = ""
     /// What every build, sync, revision and fix round gets as its language part: `languageNote`, or for a prototype
     /// made from code the rule to keep the labels of the original (BUG-052).
-    var promptLanguage: String { PrototypeAI.languageNote(explicit: languageNote, mode: manifest.mode) }
+    var promptLanguage: String { PrototypePrompts.languageNote(explicit: languageNote, mode: manifest.mode) }
     /// Code mode: the detected web apps, as hints for the planner (the caller maps them from WebAppPreview).
     var codeScope = PrototypeAI.CodeScope()
 
@@ -659,7 +659,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 let folder = self.folder, manifest = self.manifest
                 let root = self.root
                 let zip = try await Task.detached(priority: .userInitiated) {
-                    try PrototypeAI.packageArchive(root: root, folder: folder, manifest: manifest, spec: spec)
+                    try PrototypeExport.packageArchive(root: root, folder: folder, manifest: manifest, spec: spec)
                 }.value
                 try AtomicFile.write(spec, to: folder.appendingPathComponent("SPEC.md"))
                 self.manifest.approved = true

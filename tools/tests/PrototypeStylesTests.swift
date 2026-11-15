@@ -248,28 +248,28 @@ do {
     check(themedPlan.themes == ["dark", "midnight", "tastytrade"] && themedPlan.defaultTheme == "tastytrade",
           "theme ids are trimmed and de-duplicated, the default is trimmed: \(themedPlan.themes) \(themedPlan.defaultTheme)")
     check(themedPlan.json.contains("\"defaultTheme\" : \"tastytrade\""), "the writers see the themes in the plan")
-    let themedRequirements = try PrototypeAI.Plan(structured: themed, mode: .requirements)
+    let themedRequirements = try PrototypePlan(structured: themed, mode: .requirements)
     check(themedRequirements.themes.isEmpty && themedRequirements.defaultTheme.isEmpty, "requirements mode ignores themes")
     check(plan.themes.isEmpty && plan.defaultTheme.isEmpty, "a plan without the fields has no themes")
-    let props = PrototypeAI.planSchema["properties"] as? [String: Any] ?? [:]
+    let props = PrototypeSchemas.planSchema["properties"] as? [String: Any] ?? [:]
     check(props["themes"] != nil && props["defaultTheme"] != nil, "the plan schema has themes and defaultTheme (required: the strict schema test above)")
 
-    let requirements = try PrototypeAI.Plan(structured: object, mode: .requirements)
+    let requirements = try PrototypePlan(structured: object, mode: .requirements)
     check(requirements.styles.isEmpty && requirements.screens.allSatisfy { !$0.embedded && $0.hosts.isEmpty }, "requirements mode ignores styles, widgets and hosts")
 
     let many = planObject((0..<45).map { screen("s\($0)") }, styles: [])
-    let code = try PrototypeAI.Plan(structured: many, mode: .code)
+    let code = try PrototypePlan(structured: many, mode: .code)
     check(code.screens.count == 40 && code.gaps.contains { $0.contains("only the first 40 are built") }, "code mode allows 40 screens and says what was cut")
-    let req = try PrototypeAI.Plan(structured: many, mode: .requirements)
+    let req = try PrototypePlan(structured: many, mode: .requirements)
     check(req.screens.count == 10 && req.gaps.contains { $0.contains("only the first 10 are built") }, "requirements mode still stops at 10")
 }
 
-func Plan(_ object: [String: Any]) throws -> PrototypeAI.Plan { try PrototypeAI.Plan(structured: object, mode: .code) }
+func Plan(_ object: [String: Any]) throws -> PrototypePlan { try PrototypePlan(structured: object, mode: .code) }
 
 // MARK: - Schema and prompts
 
 do {
-    let schema = PrototypeAI.planSchema
+    let schema = PrototypeSchemas.planSchema
     let top = schema["properties"] as? [String: Any] ?? [:]
     let required = Set(schema["required"] as? [String] ?? [])
     check(Set(top.keys) == required && required.contains("styles"), "every top-level property is required (strict schema), including styles")
@@ -278,18 +278,18 @@ do {
     check(Set(itemProperties.keys) == Set(items["required"] as? [String] ?? []) && itemProperties["embedded"] != nil && itemProperties["hosts"] != nil,
           "every screen property is required, including embedded and hosts")
 
-    check(PrototypeAI.originalStylesNote([]) == "", "no copied styles, no note")
-    let note = PrototypeAI.originalStylesNote(["src/theme/variables.css", "src/topbar.css"])
+    check(PrototypePrompts.originalStylesNote([]) == "", "no copied styles, no note")
+    let note = PrototypePrompts.originalStylesNote(["src/theme/variables.css", "src/topbar.css"])
     check(note.contains("already copied into the prototype unchanged") && note.contains("src/theme/variables.css, src/topbar.css")
           && note.contains("class names"), "the note names the copied files and asks for the original class names")
-    let foundation = PrototypeAI.foundationPrompt(plan: "{}", failure: nil, mode: .code, originalStyles: ["a.css"])
+    let foundation = PrototypePrompts.foundationPrompt(plan: "{}", failure: nil, mode: .code, originalStyles: ["a.css"])
     check(foundation.contains("already copied into the prototype unchanged"), "the code foundation prompt carries the note")
-    check(!PrototypeAI.foundationPrompt(plan: "{}", failure: nil, mode: .requirements, originalStyles: ["a.css"]).contains("already copied"),
+    check(!PrototypePrompts.foundationPrompt(plan: "{}", failure: nil, mode: .requirements, originalStyles: ["a.css"]).contains("already copied"),
           "requirements mode never does")
     let widget = PrototypeAI.PlannedScreen(id: "w", name: "W", route: "/widgets/w", purpose: "", evidence: ["src/w.tsx"], components: [], embedded: true)
-    let screenPrompt = PrototypeAI.screenPrompt(plan: "{}", screen: widget, foundation: [], failure: nil, mode: .code, originalStyles: ["a.css"])
+    let screenPrompt = PrototypePrompts.screenPrompt(plan: "{}", screen: widget, foundation: [], failure: nil, mode: .code, originalStyles: ["a.css"])
     check(screenPrompt.contains("already copied into the prototype unchanged") && screenPrompt.contains("- src/w.tsx"), "the code screen prompt carries the note and the evidence")
-    let system = PrototypeAI.codePlanSystem(language: "")
+    let system = PrototypePrompts.codePlanSystem(language: "")
     for phrase in ["`styles`", "`themes`", "`defaultTheme`", "at most 40", "`embedded` true", "`hosts` lists", "Never merge several widgets or modals into one entry",
                    "never plan one you have not read", "more than one front end", "name the other front end in `gaps`", "the route `/modals/<id>`",
                    "Put small confirmation and alert dialogs inside the screen"] {
