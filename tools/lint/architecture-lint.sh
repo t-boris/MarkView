@@ -42,6 +42,9 @@
 #   project-paths        a string literal that starts with `.dde` or `.markview-` outside ProjectPaths (CoreFiles.swift)
 #                        tools/lint/project-paths-allowlist.txt
 #   app-log              `NSLog(` and `Logger(subsystem:` outside AppLog (Packages/MarkViewCore AppLog.swift)  tools/lint/app-log-allowlist.txt
+#   unowned-task         (AR-19) a `Task { }`, `Task.detached`, `Timer`, or `.asyncAfter` that is not stored (TaskBag or a task property), not
+#                        awaited in place and not justified by a `// task: <why it needs no owner>` comment: work that nothing cancels
+#                        when its window, folder or tool tab closes. Classified by tools/lint/task-ownership.sh  tools/lint/unowned-task-allowlist.txt
 # A migration that reaches zero ends with an empty list (no lines), which means none allowed.
 #
 # Usage: tools/lint/architecture-lint.sh [--root <repo>] [--tighten]
@@ -59,14 +62,14 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-exec python3 - "$ROOT" "$TIGHTEN" <<'PY'
+exec python3 - "$ROOT" "$TIGHTEN" "$(cd "$(dirname "$0")" && pwd)" <<'PY'
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 
-root, tighten = Path(sys.argv[1]), sys.argv[2] == "1"
+root, tighten, lint_dir = Path(sys.argv[1]), sys.argv[2] == "1", Path(sys.argv[3])
 violations = []   # (rule, message)
 notes = []
 
@@ -291,6 +294,17 @@ ratchet("app-log", "app-log-allowlist.txt", "NSLog or Logger site(s)",
         "# `NSLog(` and `Logger(subsystem:` outside AppLog (AR-24). `<count> <path>`; a ratchet that only falls. Every message goes through a\n"
         "# category of AppLog (Packages/MarkViewCore, AppLog.swift), which keeps interpolated strings private. Add a category there instead of a\n"
         "# new Logger, and never log file contents, tokens, prompts or request headers.")
+
+ownership = subprocess.run([str(lint_dir / "task-ownership.sh"), "--root", str(root), "--counts"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+if ownership.returncode != 0:
+    violations.append(("unowned-task", f"tools/lint/task-ownership.sh failed: {ownership.stderr.strip()}"))
+else:
+    ratchet("unowned-task", "unowned-task-allowlist.txt", "unowned task site(s)",
+            {path: int(count) for count, path in (line.split(" ", 1) for line in ownership.stdout.splitlines() if line.strip())},
+            "# `Task { }`, `Task.detached`, `Timer` and `.asyncAfter` sites that no owner can cancel (AR-19): not stored in a TaskBag or a task\n"
+            "# property, not awaited in place, and without a `// task: <why it needs no owner>` comment. `<count> <path>`; a ratchet that only\n"
+            "# falls. Convert a site (the object that starts it owns a TaskBag, keys the task, cancels it on close and checks cancellation before\n"
+            "# it touches state), or justify it, then run tools/lint/architecture-lint.sh --tighten; tools/lint/task-ownership.sh --sites lists them.")
 
 # --- semantic-database-actor
 database = root / "MarkView" / "Models" / "Insight" / "SemanticDatabase.swift"
@@ -530,7 +544,7 @@ if manager_file.is_file():
             violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
 
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):
