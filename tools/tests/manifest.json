@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 186,
+  "suiteCount": 187,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2104,6 +2104,53 @@
         "MarkView/Models/Research/ResearchDocument.swift",
         "tools/tests/ResearchDocumentTests.swift",
         "tools/tests/research-document-tests.sh"
+      ]
+    },
+    {
+      "name": "research-map-controller-tests",
+      "script": "tools/tests/research-map-controller-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AI/AIAssistants.swift",
+        "MarkView/Models/AI/AICallLog.swift",
+        "MarkView/Models/AI/AIOperation.swift",
+        "MarkView/Models/AI/AgentProcesses.swift",
+        "MarkView/Models/AI/AssistantProviderRegistry.swift",
+        "MarkView/Models/AI/CLICompletion.swift",
+        "MarkView/Models/AI/DiagramAI.swift",
+        "MarkView/Models/AI/OutputLanguage.swift",
+        "MarkView/Models/Appearance/ProjectColor.swift",
+        "MarkView/Models/Architecture/ArchitectureModel.swift",
+        "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
+        "MarkView/Models/Architecture/CodeArchitecture.swift",
+        "MarkView/Models/Architecture/CodePathTags.swift",
+        "MarkView/Models/Insight/SemanticDatabase.swift",
+        "MarkView/Models/Insight/SemanticModels.swift",
+        "MarkView/Models/Insight/SemanticSchema.swift",
+        "MarkView/Models/Research/ResearchDocument.swift",
+        "MarkView/Models/Research/ResearchJobs.swift",
+        "MarkView/Models/Research/ResearchMapController.swift",
+        "MarkView/Models/Research/ResearchMapDocument.swift",
+        "MarkView/Models/Research/ResearchMapExport.swift",
+        "MarkView/Models/Research/ResearchMapImages.swift",
+        "MarkView/Models/Research/ResearchMapJobs.swift",
+        "MarkView/Models/Research/ResearchMapOutputJobs.swift",
+        "MarkView/Models/Research/ResearchMapReport.swift",
+        "MarkView/Models/Research/ResearchMapRun.swift",
+        "MarkView/Models/Research/ResearchMapTranslation.swift",
+        "MarkView/Models/Research/ResearchPrompt.swift",
+        "MarkView/Models/Workspace/FrontMatter.swift",
+        "MarkView/Models/Workspace/LinkedFolders.swift",
+        "MarkView/Models/Workspace/TaskBag.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "tools/tests/ProjectOperationAnyCodableStub.swift",
+        "tools/tests/ResearchMapControllerTests.swift",
+        "tools/tests/SemanticDatabaseTestSupport.swift"
       ]
     },
     {

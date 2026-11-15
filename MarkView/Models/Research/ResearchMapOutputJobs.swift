@@ -11,24 +11,24 @@ extension ResearchJobs {
     /// "markdown" saves it next to the map and opens it, "pdf" renders the same text to a PDF the person saves. The map is not
     /// changed. Returns a one-line reason when it cannot start.
     func reportMap(file: URL, kind: String, language: String) -> String? {
-        guard let workspace, let root = workspace.rootNode?.url else { return "No project is open." }
+        guard let host, let maps, let root = host.researchRoot else { return "No project is open." }
         if isRunning(on: file) { return "An AI job is already working on this map; export when it has finished." }
-        guard case .success(let map)? = workspace.researchMapText(file).map({ ResearchMap.parse($0) }), !map.nodes.isEmpty else {
+        guard case .success(let map)? = maps.text(of: file).map({ ResearchMap.parse($0) }), !map.nodes.isEmpty else {
             return "This file is not a readable research map."
         }
         let wanted = Self.cleanLanguage(language)
         let code = wanted.isEmpty ? "" : ResearchMapTranslation.languageCode(for: wanted)
         let mapName = file.lastPathComponent
         let pdf = kind == "pdf"
-        launch(kind: .mapReport, file: file, title: (pdf ? "PDF report: " : "Report: ") + Self.title(map.title)) { [weak workspace] job in
-            guard let workspace else { return nil }
+        launch(kind: .mapReport, file: file, title: (pdf ? "PDF report: " : "Report: ") + Self.title(map.title)) { [weak host, weak maps] job in
+            guard let host, let maps else { return nil }
             // The map as it is now, not as it was when the export was chosen.
-            guard case .success(let current)? = workspace.researchMapText(file).map({ ResearchMap.parse($0) }) else {
+            guard case .success(let current)? = maps.text(of: file).map({ ResearchMap.parse($0) }) else {
                 return "This file is not a readable research map."
             }
             do {
-                let draft = try await Self.writeReport(map: current, mapName: mapName, language: wanted, root: root, job: job, workspace: workspace)
-                let diagrams = try await Self.drawReportDiagrams(draft: draft, map: current, root: root, job: job, workspace: workspace)
+                let draft = try await Self.writeReport(map: current, mapName: mapName, language: wanted, root: root, job: job, host: host)
+                let diagrams = try await Self.drawReportDiagrams(draft: draft, map: current, root: root, job: job, host: host)
                 job.update("Putting the report together")
                 let assembled = ResearchMapReport.assemble(draft: draft, map: current, diagrams: diagrams, mapName: mapName, date: FeatureStore.today)
                 var notes: [String] = []
@@ -41,18 +41,18 @@ extension ResearchJobs {
                 let key = file.standardizedFileURL.path
                 if pdf {
                     let name = file.deletingPathExtension().lastPathComponent + (code.isEmpty ? "" : "-" + code) + ".pdf"
-                    guard workspace.researchMapPDFExporter?(assembled.markdown, name) == true else {
+                    guard maps.pdfExporter?(assembled.markdown, name) == true else {
                         return "The PDF could not be made: the editor page is not available. The Markdown report can still be exported."
                     }
-                    workspace.researchMapJobNotice[key] = (["Choose where to save the PDF."] + notes).joined(separator: " ")
+                    maps.jobNotice[key] = (["Choose where to save the PDF."] + notes).joined(separator: " ")
                     return nil
                 }
                 let reportFile = ResearchMap.reportURL(forMap: file, languageCode: code)
                 try Data(assembled.markdown.utf8).write(to: reportFile, options: .atomic)
-                workspace.refreshFileTree()
-                workspace.openFile(reportFile)
+                host.refreshFileTree()
+                host.openFile(reportFile)
                 let shown = reportFile.path.hasPrefix(root.path + "/") ? String(reportFile.path.dropFirst(root.path.count + 1)) : reportFile.lastPathComponent
-                workspace.researchMapJobNotice[key] = (["Report saved to \(shown)."] + notes).joined(separator: " ")
+                maps.jobNotice[key] = (["Report saved to \(shown)."] + notes).joined(separator: " ")
                 return nil
             } catch is CancellationError {
                 return "Export stopped. Nothing was written."
@@ -87,7 +87,7 @@ extension ResearchJobs {
     /// Asks for the report and checks it in code; a draft with problems goes back to the assistant with the problems listed
     /// (twice at most).
     private static func writeReport(map: ResearchMap, mapName: String, language: String, root: URL, job: JobHandle,
-                                    workspace: WorkspaceManager) async throws -> ResearchMapReport.Draft {
+                                    host: ResearchHost) async throws -> ResearchMapReport.Draft {
         let (system, user) = ResearchMapReport.prompt(map: map, mapName: mapName, language: language.isEmpty ? nil : language)
         func request(_ prompt: String, label: String) -> CLICompletion.Request {
             mapRequest(system: system, prompt: prompt, schema: ResearchMapReport.answerSchema, root: root, label: label)
@@ -117,7 +117,7 @@ extension ResearchJobs {
                 job.update("Rewriting the report (attempt \(context.attempt.number + 1))")
                 return request((context.error as? ReportRejected)?.prompt ?? user, label: "map-report:repair\(context.attempt.number)")
             },
-            onResult: { result in result.record(in: workspace.semanticDatabase) })
+            onResult: { result in result.record(in: host.semanticDatabase) })
         job.update("Writing the report")
         do {
             return try await writing.execute((), onActivity: thinking(job)).output.draft
@@ -129,7 +129,7 @@ extension ResearchJobs {
     /// Draws the diagrams the report asked for with the Graph Creator's generator, one after another. A diagram that cannot be
     /// drawn is left out of the report (the assembly says which).
     private static func drawReportDiagrams(draft: ResearchMapReport.Draft, map: ResearchMap, root: URL, job: JobHandle,
-                                           workspace: WorkspaceManager) async throws -> [String: String] {
+                                           host: ResearchHost) async throws -> [String: String] {
         var drawn: [String: String] = [:]
         for (index, request) in draft.diagrams.enumerated() {
             try Task.checkCancellation()
@@ -144,7 +144,7 @@ extension ResearchJobs {
                 let spec = try await DiagramAI.generate(prompt: prompt, root: root, label: "map-report-diagram:\(kind.rawValue)", system: DiagramAI.mapSystem,
                                                         expectedLanguage: language, maxNodes: Self.pageNodes,
                                                         onStage: { _ in },
-                                                        record: { result in Task { @MainActor in result.record(in: workspace.semanticDatabase) } })
+                                                        record: { result in Task { @MainActor in result.record(in: host.semanticDatabase) } })
                 // A wide left-to-right diagram is shrunk to the page width until its text cannot be read; a page is tall, so it runs downwards.
                 var onPage = spec
                 if onPage.nodes.count > 5 { onPage.direction = "TB" }
@@ -164,17 +164,17 @@ extension ResearchJobs {
     /// of the parsed map, so the structure cannot change. `mode` "copy" writes a new map next to this one and opens it;
     /// "replace" first saves a copy of this map, then rewrites it. Returns a one-line reason when it cannot start.
     func translateMap(file: URL, language: String, mode: String) -> String? {
-        guard let workspace, let root = workspace.rootNode?.url else { return "No project is open." }
+        guard let host, let maps, let root = host.researchRoot else { return "No project is open." }
         let wanted = Self.cleanLanguage(language)
         guard !wanted.isEmpty else { return "Choose a language." }
         guard mode == "copy" || mode == "replace" else { return "Choose what the translation does with this map." }
         if isRunning(on: file) { return "An AI job is already working on this map; translate when it has finished." }
-        guard let startText = workspace.researchMapText(file), case .success(let source) = ResearchMap.parse(startText), !source.nodes.isEmpty else {
+        guard let startText = maps.text(of: file), case .success(let source) = ResearchMap.parse(startText), !source.nodes.isEmpty else {
             return "This file is not a readable research map."
         }
         let code = ResearchMapTranslation.languageCode(for: wanted)
-        launch(kind: .mapTranslate, file: file, title: "Translate to \(wanted): " + Self.title(source.title)) { [weak workspace] job in
-            guard let workspace else { return nil }
+        launch(kind: .mapTranslate, file: file, title: "Translate to \(wanted): " + Self.title(source.title)) { [weak host, weak maps] job in
+            guard let host, let maps else { return nil }
             do {
                 var working = source
                 var translated = 0, kept = 0, diagramKept = 0
@@ -183,7 +183,7 @@ extension ResearchJobs {
                     try Task.checkCancellation()
                     let done = batches.prefix(index).reduce(0) { $0 + $1.count }
                     job.update("Translating nodes \(done + 1)–\(done + batch.count) of \(source.nodes.count)")
-                    let answer = try await Self.translateBatch(map: working, ids: batch, language: wanted, root: root, job: job, workspace: workspace)
+                    let answer = try await Self.translateBatch(map: working, ids: batch, language: wanted, root: root, job: job, host: host)
                     let applied = ResearchMapTranslation.apply(answer: answer, to: &working, ids: batch)
                     translated += applied.translatedCount
                     kept += applied.keptOriginal.count
@@ -201,25 +201,25 @@ extension ResearchJobs {
                     var copy = working
                     copy.id = ResearchDocument.id(forPath: target.path)
                     try Data(copy.markdown().utf8).write(to: target, options: .withoutOverwriting)
-                    workspace.refreshFileTree()
-                    workspace.researchMapJobNotice[target.standardizedFileURL.path] = notes.joined(separator: " ")
-                    workspace.openFile(target)
+                    host.refreshFileTree()
+                    maps.jobNotice[target.standardizedFileURL.path] = notes.joined(separator: " ")
+                    host.openFile(target)
                     return nil
                 }
                 // Replace: the map must be what the translation started from, or edits made meanwhile would be lost.
-                guard let nowText = workspace.researchMapText(file), nowText == startText else {
+                guard let nowText = maps.text(of: file), nowText == startText else {
                     return "The map changed while it was being translated, so nothing was replaced. Translate it again."
                 }
                 let backup = Self.freeFile(folder.appendingPathComponent(ResearchMapTranslation.backupFileName(for: file.lastPathComponent)), root: root)
                 try Data(nowText.utf8).write(to: backup, options: .withoutOverwriting)
-                let result = workspace.updateResearchMap(file) { $0 = working }
+                let result = maps.update(file) { $0 = working }
                 switch result {
                 case .rejected(let problem), .unreadable(let problem):
                     return "The translated map could not be saved: \(problem). The copy \(backup.lastPathComponent) holds the map as it was."
                 case .done:
-                    workspace.refreshFileTree()
+                    host.refreshFileTree()
                     notes.append("The map as it was is saved as \(backup.lastPathComponent).")
-                    workspace.researchMapJobNotice[file.standardizedFileURL.path] = notes.joined(separator: " ")
+                    maps.jobNotice[file.standardizedFileURL.path] = notes.joined(separator: " ")
                     return nil
                 }
             } catch is CancellationError {
@@ -234,13 +234,13 @@ extension ResearchJobs {
     /// One batch of nodes: asks, checks, and sends the nodes that failed back twice at most. What still fails is left to
     /// `ResearchMapTranslation.apply`, which keeps the original text of such a node.
     private static func translateBatch(map: ResearchMap, ids: [String], language: String, root: URL, job: JobHandle,
-                                       workspace: WorkspaceManager) async throws -> ResearchMapTranslation.Answer {
+                                       host: ResearchHost) async throws -> ResearchMapTranslation.Answer {
         var answer = ResearchMapTranslation.Answer(title: nil, question: nil, nodes: [])
         let (system, user) = ResearchMapTranslation.prompt(map: map, ids: ids, language: language)
         func request(_ prompt: String, label: String) -> CLICompletion.Request {
             mapRequest(system: system, prompt: prompt, schema: ResearchMapTranslation.schema, root: root, label: label)
         }
-        let record: (CLICompletion.Result) async -> Void = { result in result.record(in: workspace.semanticDatabase) }
+        let record: (CLICompletion.Result) async -> Void = { result in result.record(in: host.semanticDatabase) }
         // The first answer; a reply that cannot be read is asked for once more, and one that still cannot be read leaves the
         // repair rounds below to ask for every node.
         let first = AIOperation<Void, ResearchMapTranslation.Answer>(

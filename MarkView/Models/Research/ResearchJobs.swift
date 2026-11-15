@@ -22,7 +22,8 @@ enum ResearchSettings {
 }
 
 /// Research jobs of one window: new research, follow-ups, retries and comments, each a
-/// cancellable headless agent run (DEC-012) over the repository. Owned by `WorkspaceManager`.
+/// cancellable headless agent run (DEC-012) over the repository. Owned by `ResearchMapController`; every job's task is
+/// also in the window's `TaskBag`, so closing the folder or the window stops them.
 @MainActor
 final class ResearchJobs: ObservableObject {
     struct Job: Identifiable {
@@ -49,7 +50,16 @@ final class ResearchJobs: ObservableObject {
     @Published var message: String?
     @Published var followUp: FollowUpRequest?
 
-    weak var workspace: WorkspaceManager?
+    /// The window the jobs read the project and the open documents of, and the map files they write.
+    private(set) weak var host: ResearchHost?
+    private(set) weak var maps: ResearchMapController?
+    private let tasks: TaskBag
+
+    init(host: ResearchHost?, maps: ResearchMapController, tasks: TaskBag) {
+        self.host = host
+        self.maps = maps
+        self.tasks = tasks
+    }
 
     func isRunning(on file: URL) -> Bool {
         jobs.contains { $0.file.standardizedFileURL == file.standardizedFileURL }
@@ -68,20 +78,20 @@ final class ResearchJobs: ObservableObject {
 
     /// Opens the "Continue / deepen" sheet; unsaved edits must be saved first (DEC-014).
     func requestFollowUp(for file: URL) {
-        guard workspace?.saveBeforeResearch(file, action: "continuing the research") == true else { return }
+        guard host?.saveBeforeResearch(file, action: "continuing the research") == true else { return }
         followUp = FollowUpRequest(file: file)
     }
 
     /// Appends a follow-up (or, with `retry`, a retry of that incomplete section) to `file`.
     func followUp(_ file: URL, question: String, retry: ResearchDocument.Section?) {
-        guard let root = workspace?.rootNode?.url else { return }
-        guard workspace?.saveBeforeResearch(file, action: "continuing the research") == true else { return }
+        guard let root = host?.researchRoot else { return }
+        guard host?.saveBeforeResearch(file, action: "continuing the research") == true else { return }
         let label = retry.map { "Retry: \($0.name)" } ?? "Follow-up: " + Self.title(question)
         launch(kind: .followUp, file: file, title: label) { job in
             guard let current = try? String(contentsOf: file, encoding: .utf8) else { return "Could not read \(file.lastPathComponent)." }
             job.update("Listing the repository")
             let targets = FrontMatter.split(current).0.strings("targets")
-            let scope = await Task.detached { ResearchScope.files(root: root, always: targets) }.value
+            let scope = await ResearchScope.files(root: root, always: targets)
             let web = Self.web(root)
             let prompt = ResearchPrompt.followUp(document: current, question: question, retrying: retry?.text,
                                                  scope: scope, web: web.allowed)
@@ -105,7 +115,7 @@ final class ResearchJobs: ObservableObject {
             do { try Data(updated.utf8).write(to: file, options: .atomic) } catch {
                 return "Could not save the follow-up: \(error.localizedDescription)"
             }
-            self.workspace?.researchDocumentChanged(file, content: updated) { tabText in
+            self.host?.researchDocumentChanged(file, content: updated) { tabText in
                 ResearchDocument.appending(section, to: tabText, webQueries: run.webQueries)
             }
             return run.incomplete.map { "Follow-up saved as incomplete: \($0)" }
@@ -116,12 +126,12 @@ final class ResearchJobs: ObservableObject {
 
     /// The AI revises the smallest section containing `passage` according to `comment`.
     func comment(on passage: String, comment: String, in file: URL) {
-        guard let root = workspace?.rootNode?.url else { return }
+        guard let root = host?.researchRoot else { return }
         guard !isRunning(on: file) else {
             message = "Another research job is working on \(file.lastPathComponent); comment when it has finished."
             return
         }
-        guard workspace?.saveBeforeResearch(file, action: "revising it with your comment") == true else { return }
+        guard host?.saveBeforeResearch(file, action: "revising it with your comment") == true else { return }
         guard let current = try? String(contentsOf: file, encoding: .utf8),
               let range = ResearchDocument.enclosingSection(of: passage, in: current) else {
             message = "The selected text was not found under a heading of \(file.lastPathComponent); select text inside a section."
@@ -131,7 +141,7 @@ final class ResearchJobs: ObservableObject {
         launch(kind: .comment, file: file, title: "Comment: " + Self.title(comment)) { job in
             let web = Self.web(root)
             let targets = FrontMatter.split(current).0.strings("targets")
-            let scope = await Task.detached { ResearchScope.files(root: root, always: targets) }.value
+            let scope = await ResearchScope.files(root: root, always: targets)
             let prompt = ResearchPrompt.comment(document: current, section: original, passage: passage, comment: comment,
                                                 scope: scope, web: web.allowed)
             let outcome = await job.run(prompt: prompt, root: root, web: web.allowed)
@@ -150,7 +160,7 @@ final class ResearchJobs: ObservableObject {
             do { try Data(updated.utf8).write(to: file, options: .atomic) } catch {
                 return "Could not save the revision: \(error.localizedDescription)"
             }
-            self.workspace?.researchDocumentChanged(file, content: updated) { tabText in
+            self.host?.researchDocumentChanged(file, content: updated) { tabText in
                 tabText.range(of: original).flatMap { ResearchDocument.replacing($0, in: tabText, with: checked, webQueries: outcome.queries) }
             }
             return nil
@@ -164,11 +174,13 @@ final class ResearchJobs: ObservableObject {
         message = nil
         var job = Job(kind: kind, file: file, title: title)
         let handle = JobHandle(id: job.id, owner: self)
-        job.task = Task { [weak self] in
+        let task = Task { [weak self] in
             let result = await body(handle)
             self?.jobs.removeAll { $0.id == handle.id }
             if let result { self?.message = result }
         }
+        job.task = task
+        tasks.store(task, for: "research.job.\(job.id)")
         jobs.append(job)
     }
 
@@ -311,7 +323,7 @@ final class JobHandle {
                 if case .writing = activity { step = writing }
                 Task { @MainActor in self?.update(step) }
             })
-            result.record(in: owner?.workspace?.semanticDatabase)
+            result.record(in: owner?.host?.semanticDatabase)
             let snapshot = log.snapshot()
             let text = result.text.isEmpty ? snapshot.text : result.text
             // Refused web calls were never sent: they leave the lists, and the run lost web access (DEC-004).
@@ -393,7 +405,8 @@ enum ResearchScope {
 
     /// Explicit folder targets expand recursively into readable files, never directory
     /// paths. Resolve symlinks at the boundary so a target cannot read outside the workspace.
-    static func targetFiles(root: URL, targets: [URL]) -> [String] {
+    /// Runs off the main actor (the caller's task waits for it).
+    static func targetFiles(root: URL, targets: [URL]) async -> [String] {
         let base = root.resolvingSymlinksInPath().standardizedFileURL.path + "/"
         var paths = Set<String>()
         for target in targets {
@@ -401,7 +414,8 @@ enum ResearchScope {
             if (try? target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
                 guard let entries = FileManager.default.enumerator(at: target, includingPropertiesForKeys: [.isRegularFileKey],
                     options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { continue }
-                for case let file as URL in entries {
+                // `nextObject()`: an enumerator's iterator is unavailable in an async function.
+                while let file = entries.nextObject() as? URL {
                     guard file.resolvingSymlinksInPath().path.hasPrefix(base),
                           (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
                           isText(file), let path = ResearchJobs.relative(file, to: root) else { continue }
@@ -412,7 +426,8 @@ enum ResearchScope {
         return paths.sorted()
     }
 
-    static func files(root: URL, always: [String]) -> [String] {
+    /// The files a research reads, listed off the main actor (the caller's task waits for it).
+    static func files(root: URL, always: [String]) async -> [String] {
         var result = ArchitectureScanner.listFiles(root: root).filter { path in
             let name = (path as NSString).lastPathComponent
             if generatedNames.contains(name) || name.hasSuffix(".min.js") || name.hasSuffix(".min.css") || name.hasSuffix(".map")

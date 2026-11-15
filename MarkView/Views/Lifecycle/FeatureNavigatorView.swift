@@ -910,7 +910,7 @@ struct IntakeSheet: View {
                 return
             }
             dismiss()
-            workspaceManager.research.start(question: input, relativePath: outputPath.trimmingCharacters(in: .whitespaces),
+            workspaceManager.research.jobs.start(question: input, relativePath: outputPath.trimmingCharacters(in: .whitespaces),
                                             targets: targets, attachments: attachments)
             return
         }

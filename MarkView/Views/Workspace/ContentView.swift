@@ -721,7 +721,7 @@ struct ContentView: View {
             } else {
                 welcomeView.environment(\.palette, workspaceManager.theme.palette)
             }
-            ResearchBar(research: workspaceManager.research,
+            ResearchBar(research: workspaceManager.research.jobs,
                         root: workspaceManager.rootNode?.url,
                         activeFile: workspaceManager.activeTab.flatMap { $0.isFileBacked ? $0.url : nil },
                         activeContent: workspaceManager.activeTab?.content ?? "")

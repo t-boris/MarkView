@@ -461,7 +461,7 @@ struct EditorView: NSViewRepresentable {
                documentURL?.standardizedFileURL == lastLoadedDocumentURL,
                ResearchMap.isMap(lastLoadedContent), ResearchMap.isMap(markdown) {
                 lastLoadedContent = loadKey
-                bridge.setResearchMap(parent.workspaceManager.researchMapSnapshotJSON(text: markdown, file: tab.url),
+                bridge.setResearchMap(parent.workspaceManager.research.snapshotJSON(text: markdown, file: tab.url),
                                       documentID: tab.id, in: webView)
                 followResearchMapJobs()
                 return
@@ -498,11 +498,11 @@ struct EditorView: NSViewRepresentable {
         /// Follows the job list while a research map is on screen: the step the assistant is on changes
         /// without the file changing, and the map view shows it.
         func followResearchMapJobs() {
-            parent.workspaceManager.researchMapPDFExporter = { [weak self] markdown, fileName in
+            parent.workspaceManager.research.pdfExporter = { [weak self] markdown, fileName in
                 self?.exportResearchMapPDF(markdown, fileName: fileName) ?? false
             }
             guard researchMapJobsCancellable == nil else { return }
-            researchMapJobsCancellable = parent.workspaceManager.research.$jobs
+            researchMapJobsCancellable = parent.workspaceManager.research.jobs.$jobs
                 .throttle(for: .milliseconds(500), scheduler: DispatchQueue.main, latest: true)
                 .sink { [weak self] _ in
                     guard let self, let webView = self.webView, let id = self.lastLoadedTabID,
@@ -510,10 +510,10 @@ struct EditorView: NSViewRepresentable {
                           let current = self.parent.workspaceManager.openTabs.first(where: { $0.id == id }) else { return }
                     // The text of the map reaches the page when the file changes; this push is for the job's own
                     // progress (its step and start), so it is sent only when that changed.
-                    let info = self.parent.workspaceManager.research.mapJobInfo(for: current.url)
+                    let info = self.parent.workspaceManager.research.jobs.mapJobInfo(for: current.url)
                     guard self.lastPushedJob?.tab != id || self.lastPushedJob?.info != info else { return }
                     self.lastPushedJob = (id, info)
-                    self.bridge.setResearchMap(self.parent.workspaceManager.researchMapSnapshotJSON(text: current.content, file: current.url),
+                    self.bridge.setResearchMap(self.parent.workspaceManager.research.snapshotJSON(text: current.content, file: current.url),
                                                documentID: id, in: webView)
                 }
         }
@@ -873,10 +873,10 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             var carried = ""
             var handled = action
             if action == "attachImage" {
-                carried = await self.parent.workspaceManager.attachResearchMapImage(payload, documentID: documentID)
+                carried = await self.parent.workspaceManager.research.attachImage(payload, documentID: documentID)
                 handled = "snapshot"
             }
-            guard let reply = self.parent.workspaceManager.handleResearchMapAction(handled, payload: payload, documentID: documentID, carriedNotice: carried),
+            guard let reply = self.parent.workspaceManager.research.handleAction(handled, payload: payload, documentID: documentID, carriedNotice: carried),
                   let webView = self.webView else { return }
             // The tab now holds the new text: the page already has it, so the editor must not reload it (DEC-009).
             if let content = reply.content, EditorDocumentRouting.reportsShownDocument(documentID: documentID, shown: self.lastLoadedTabID) {
