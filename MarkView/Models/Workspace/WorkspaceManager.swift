@@ -4070,14 +4070,14 @@ class WorkspaceManager: ObservableObject {
 
     /// Connect a home assistant while preserving this window's work-computer root.
     @discardableResult
-    func openRemoteAITerminal(code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool, savedConnectionID: UUID? = nil) async throws -> TerminalSession {
+    func openRemoteAITerminal(code: String, provider: CLITool, model: String?, resume: Bool, savedConnectionID: UUID? = nil) async throws -> TerminalSession {
         guard let root = aiWorkspaceRoot ?? rootNode?.url else { throw RemoteFailure.invalid("Open the folder you want the home assistant to work in.") }
         let invitation = try RemoteInvitation(code: code)
         registerBrowserControl()
         let connection = try await RemoteTerminalConnection(invitation: invitation, root: root, browserWindowID: browserControlID, provider: provider, model: model, resume: resume, savedConnectionID: savedConnectionID)
         guard (aiWorkspaceRoot ?? rootNode?.url)?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else { connection.stop(); throw RemoteFailure.invalid("The open folder changed. Connect again for the new folder.") }
-        let session = TerminalSession(directory: root, profile: TerminalProfile(provider.tool),
-                                      title: "Home · " + provider.title)
+        let session = TerminalSession(directory: root, profile: TerminalProfile(provider),
+                                      title: "Home · " + provider.displayName)
         connection.onState = { [weak session] phase, text in
             session?.remoteConnectionState = .init(phase: phase, detail: text, lastSeen: phase == .online ? Date() : nil)
             if let savedConnectionID { RemoteConnectionsStore.shared.update(savedConnectionID, phase, text) }
@@ -4487,8 +4487,7 @@ class WorkspaceManager: ObservableObject {
     /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.
     /// `terminal`: the one to fix it in (an agent driving the window names it); else the usual choice.
     func fixBugWithAI(_ url: URL, in terminal: TerminalSession? = nil) {
-        let asGoal = terminal.map { $0.profile.tool?.provider.fixesBugsAsGoal ?? false }
-            ?? AIAssistantPreferences.backend(project: aiProject).provider.fixesBugsAsGoal
+        let tool: CLITool? = terminal != nil ? terminal?.profile.tool : AIAssistantPreferences.backend(project: aiProject)
         let key = features.bug(at: url)?.key
         // A bug the lifecycle does not let start (already fixed or closed) is not handed over: nothing could mark it.
         if let key, !features.lifecycle.canStartByHandoff(.bug, key) {
@@ -4496,7 +4495,7 @@ class WorkspaceManager: ObservableObject {
             return
         }
         let block = key.map { features.lifecycle.handoffBlock(.bug, [$0]) } ?? ""
-        let base = HandoffPrompt.bug(workspaceRelativePath(url), asGoal: asGoal)
+        let base = HandoffPrompt.bug(workspaceRelativePath(url), tool: tool)
         let prompt = block.isEmpty ? base : base + "\n\n" + block
         // The report is marked fixing only after the prompt went out: a hand-off that failed leaves it open (REQ-003).
         guard let session = sendToAssistant(submit: true, to: terminal, promptFor: { _ in prompt }), let key else { return }
@@ -4513,12 +4512,12 @@ class WorkspaceManager: ObservableObject {
         bugBatch.reconcile()
         let bugs = bugBatch.eligible
         guard bugs.count >= BugBasket.minimumBatch, !assistantIsBusy, features.root != nil else { return }
-        let asGoal = AIAssistantPreferences.backend(project: aiProject).provider.fixesBugsAsGoal
+        let tool = AIAssistantPreferences.backend(project: aiProject)
         var session: TerminalSession?
         let outcome = BatchStart.run(bugs, canStart: { bug in
             features.lifecycle.canStartByHandoff(.bug, bug.key)
         }, send: { startable in
-            let base = BatchFixPrompt.make(startable, asGoal: asGoal)
+            let base = BatchFixPrompt.make(startable, tool: tool)
             let block = features.lifecycle.handoffBlock(.bug, startable.map(\.key))
             session = sendToAssistant(block.isEmpty ? base : base + "\n\n" + block, submit: true)
             return session != nil

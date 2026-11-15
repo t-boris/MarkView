@@ -15,6 +15,8 @@ struct CodexProvider: AssistantProvider {
     let canSearchWeb = true
     var usage: (any AssistantUsageSupport)? { CodexUsage() }
     var activity: (any AssistantActivitySupport)? { CodexActivity() }
+    var completion: (any AssistantCompletionSupport)? { self }
+    var remote: (any AssistantRemoteSupport)? { self }
 
     func goalPrompt(_ objective: String, closing: String) -> String { "/goal \(objective)" }
 
@@ -120,6 +122,152 @@ struct CodexProvider: AssistantProvider {
     }
 
     let skillPath: String? = ".codex/skills/markview/SKILL.md"
+}
+
+// MARK: - One-shot run
+
+/// `codex exec --json` in its read-only sandbox; a schema answer comes back as the message text.
+extension CodexProvider: AssistantCompletionSupport {
+    func launch(_ request: CompletionLaunchRequest) throws -> CompletionLaunch {
+        var arguments = (request.allowWeb ? ["--search"] : []) + ["exec"]
+            + request.images.flatMap { ["-i", $0.path] } + ["--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
+                     "--json", "--color", "never", "-C", request.workDir.path]
+        arguments += modelArgs(request.model)
+        if let effort = request.effort { arguments += ["-c", "model_reasoning_effort=\(effort)"] }
+        var schemaFile: URL?
+        if let schema = request.jsonSchema {
+            let url = request.scratchDirectory().appendingPathComponent("schema-\(UUID().uuidString).json")
+            try Data(CompletionJSON.string(Self.strictSchema(schema)).utf8).write(to: url)
+            schemaFile = url
+            arguments += ["--output-schema", url.path]
+        }
+        arguments.append("-")  // read the prompt from stdin
+        // Codex has no system-prompt flag; the instructions lead the prompt.
+        var input = request.prompt
+        if let system = request.systemPrompt {
+            input = "<instructions>\n\(system)\n</instructions>\n\n\(request.prompt)"
+        }
+        return CompletionLaunch(arguments: arguments, input: input, schemaFile: schemaFile)
+    }
+
+    func makeParser() -> any CompletionStreamParser { CodexStreamParser() }
+
+    /// Codex (OpenAI structured outputs) accepts only strict schemas: every object
+    /// closes `additionalProperties` and lists all of its properties as required.
+    /// An open object with no declared properties cannot be expressed and becomes an
+    /// empty object — declare the keys you need in the schema itself.
+    static func strictSchema(_ schema: Any) -> Any {
+        if let array = schema as? [Any] { return array.map(strictSchema) }
+        guard var object = schema as? [String: Any] else { return schema }
+        for (key, value) in object where value is [String: Any] || value is [Any] {
+            object[key] = strictSchema(value)
+        }
+        if object["type"] as? String == "object" || object["properties"] != nil {
+            let properties = object["properties"] as? [String: Any] ?? [:]
+            object["properties"] = properties
+            object["additionalProperties"] = false
+            object["required"] = Array(properties.keys).sorted()
+        }
+        return object
+    }
+}
+
+/// Codex's `--json` events: items (commands, reasoning, web searches, the agent message) and turn results.
+private final class CodexStreamParser: CompletionStreamParser {
+    /// Last Codex "error" event; fatal only if no answer arrives.
+    private(set) var warning: String?
+
+    func handle(_ json: [String: Any], output: inout CompletionOutput, sink: CompletionSink) {
+        guard let type = json["type"] as? String else { return }
+        switch type {
+        case "item.started":
+            guard let item = json["item"] as? [String: Any] else { return }
+            if item["type"] as? String == "command_execution", let command = item["command"] as? String {
+                sink.onActivity?(.run(command))
+            } else if item["type"] as? String == "reasoning" {
+                sink.onActivity?(.thinking)
+            } else if item["type"] as? String == "web_search", let query = item["query"] as? String, !query.isEmpty {
+                sink.onActivity?(.webSearch(query))
+            }
+        case "item.completed":
+            if let item = json["item"] as? [String: Any], item["type"] as? String == "web_search",
+               let query = item["query"] as? String, !query.isEmpty {
+                sink.onActivity?(.webSearch(query))   // listeners de-duplicate the started/completed pair
+                return
+            }
+            guard let item = json["item"] as? [String: Any],
+                  item["type"] as? String == "agent_message",
+                  let text = item["text"] as? String else { return }
+            output.text = text
+            sink.onDelta?(text)
+        case "turn.completed":
+            if let usage = json["usage"] as? [String: Any] {
+                output.inputTokens = usage["input_tokens"] as? Int ?? 0
+                output.outputTokens = usage["output_tokens"] as? Int ?? 0
+            }
+        case "turn.failed":
+            let error = json["error"] as? [String: Any]
+            output.errorMessage = Self.readableError(error?["message"] as? String ?? "the turn failed")
+        case "error":
+            // Also used for non-fatal warnings (e.g. missing model metadata); only
+            // `turn.failed` ends the run. Kept to explain an empty answer.
+            warning = Self.readableError(json["message"] as? String ?? "unknown error")
+        default:
+            break
+        }
+    }
+
+    /// Codex passes API errors on as raw JSON (`{"type":"error","status":400,"error":{"message":…}}`).
+    /// Keep the message, and point model problems at the place to choose another model.
+    private static func readableError(_ raw: String) -> String {
+        var message = raw
+        if let data = raw.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let inner = (object["error"] as? [String: Any])?["message"] as? String {
+            message = inner
+        }
+        if message.localizedCaseInsensitiveContains("model") {
+            message += " Choose another Codex model in the toolbar's assistant menu (or DDE Settings)."
+        }
+        return message
+    }
+}
+
+// MARK: - Remote Work
+
+/// Codex hosted for a work Mac: its native sandbox stays read-only, every feature that could touch the home Mac is off, and
+/// the work-computer MCP server is required and pre-approved.
+extension CodexProvider: AssistantRemoteSupport {
+    func arguments(_ plan: AssistantRemotePlan) throws -> [String] {
+        var args = ["--no-daemon", "--dangerously-bypass-hook-trust", "--cd", plan.directory.path,
+                    "--sandbox", "read-only", "--ask-for-approval", "never"]
+        func override(_ key: String, _ value: String) { args += ["-c", key + "=" + value] }
+        for name in ["shell_tool", "view_image", "multi_agent", "apps", "plugins", "computer_use", "browser_use", "image_generation"] {
+            override("features." + name, "false")
+        }
+        override("features.hooks", "true")
+        override("features.non_prefixed_mcp_tool_names", "false")
+        override("features.skip_host_skill_discovery", "true")
+        let serverKey = "mcp_servers." + plan.serverName
+        override(serverKey + ".command", Self.remoteToml(plan.app))
+        override(serverKey + ".args", "[" + ["--remote-workspace-mcp", "--socket", plan.socket].map(Self.remoteToml).joined(separator: ",") + "]")
+        override(serverKey + ".tool_timeout_sec", "120")
+        override(serverKey + ".required", "true")
+        override(serverKey + ".default_tools_approval_mode", Self.remoteToml("approve"))
+        override("developer_instructions", Self.remoteToml(plan.instructions))
+        override("hooks.PreToolUse", "[{matcher=\".*\",hooks=[{type=\"command\",command=" + Self.remoteToml(plan.guardCommand) + ",timeout=5}]}]")
+        if plan.resume { args += ["resume", plan.resumeThreadID ?? "--last"] }
+        return args
+    }
+
+    /// Codex's saved thread keeps the developer messages of its first start: refresh them before resuming it.
+    var refreshesThreadInstructions: Bool { true }
+
+    private static func remoteToml(_ text: String) -> String {
+        // JSON string escaping is also valid for TOML basic strings.
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.withoutEscapingSlashes]
+        return String(data: try! encoder.encode(text), encoding: .utf8)!
+    }
 }
 
 // MARK: - Usage

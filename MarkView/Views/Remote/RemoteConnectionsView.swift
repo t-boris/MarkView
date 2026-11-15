@@ -10,7 +10,7 @@ struct RemoteConnectionsView: View {
     @ObservedObject private var relaySettings = RemoteRelaySettings.shared
     @State private var connectionName = ""
     @State private var connectionCode = ""
-    @State private var provider = RemoteProviderConfiguration.Provider.claude
+    @State private var provider = RemoteProviderConfiguration.defaultTool
     @State private var model = ""
     @State private var resume = true
     @State private var error: String?
@@ -50,7 +50,8 @@ struct RemoteConnectionsView: View {
         }
         .padding(20).frame(width: 680, height: 600)
         .onAppear {
-            if AIAssistantPreferences.backend(project: workspace.aiProject) == .codex { provider = .codex }
+            let backend = AIAssistantPreferences.backend(project: workspace.aiProject)
+            if backend.provider.remote != nil { provider = backend }
         }
     }
 
@@ -109,7 +110,7 @@ struct RemoteConnectionsView: View {
             SecureField("Connection code", text: $connectionCode).textFieldStyle(.roundedBorder)
             HStack {
                 Picker("Assistant", selection: $provider) {
-                    ForEach(RemoteProviderConfiguration.Provider.allCases) { Text($0.title).tag($0) }
+                    ForEach(RemoteProviderConfiguration.tools) { Text($0.displayName).tag($0) }
                 }.frame(width: 230)
                 TextField("Model (home default if empty)", text: $model).textFieldStyle(.roundedBorder)
             }

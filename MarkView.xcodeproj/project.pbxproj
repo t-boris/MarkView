@@ -474,6 +474,9 @@
 		431F415D09BA34C8E5383407 /* AssistantMCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46FF1586741486079728E57C /* AssistantMCP.swift */; };
 		9396AB387AE4434F1D182D9E /* AssistantLiveModelSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 981138F6713A19C1BC852E9B /* AssistantLiveModelSwitch.swift */; };
 		F305760817B31D8C26E57969 /* AssistantSessionLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40B65CF2FEDAE28837EA9E34 /* AssistantSessionLog.swift */; };
+		4D5CBBE44F455F4E8115F7C0 /* AssistantCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0730D4137E1CBDE1064F774B /* AssistantCompletion.swift */; };
+		BB6E1E461163983EAB5A6CBA /* AssistantRemote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD2C2EE028EB674A5C5F57F /* AssistantRemote.swift */; };
+		B6035B49606094068AB49C6D /* TerminalProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61FB7EE1BB94329885567434 /* TerminalProfile.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1062,6 +1065,9 @@
 		46FF1586741486079728E57C /* AssistantMCP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantMCP.swift; sourceTree = "<group>"; };
 		981138F6713A19C1BC852E9B /* AssistantLiveModelSwitch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantLiveModelSwitch.swift; sourceTree = "<group>"; };
 		40B65CF2FEDAE28837EA9E34 /* AssistantSessionLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantSessionLog.swift; sourceTree = "<group>"; };
+		0730D4137E1CBDE1064F774B /* AssistantCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantCompletion.swift; sourceTree = "<group>"; };
+		9CD2C2EE028EB674A5C5F57F /* AssistantRemote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantRemote.swift; sourceTree = "<group>"; };
+		61FB7EE1BB94329885567434 /* TerminalProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalProfile.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1497,6 +1503,7 @@
 				8D10759E6114CC3E831EE66D /* TerminalChildProcess.swift */,
 				A440251497E5756568B77B87 /* TerminalLink.swift */,
 				E5547BF6AD940A3322F4D1A0 /* TerminalSession.swift */,
+				61FB7EE1BB94329885567434 /* TerminalProfile.swift */,
 			);
 			path = Terminal;
 			sourceTree = "<group>";
@@ -2094,6 +2101,8 @@
 				46FF1586741486079728E57C /* AssistantMCP.swift */,
 				981138F6713A19C1BC852E9B /* AssistantLiveModelSwitch.swift */,
 				40B65CF2FEDAE28837EA9E34 /* AssistantSessionLog.swift */,
+				0730D4137E1CBDE1064F774B /* AssistantCompletion.swift */,
+				9CD2C2EE028EB674A5C5F57F /* AssistantRemote.swift */,
 			);
 			path = Providers;
 			sourceTree = "<group>";
@@ -2243,6 +2252,9 @@
 				47B282BD306263A5DE536089 /* ACPAssistant.swift in Sources */,
 				D4F3C35D9679DCE67FDD55E2 /* AIAssistantPickerView.swift in Sources */,
 				436C087D720363F0E8146706 /* AIAssistants.swift in Sources */,
+				B6035B49606094068AB49C6D /* TerminalProfile.swift in Sources */,
+				BB6E1E461163983EAB5A6CBA /* AssistantRemote.swift in Sources */,
+				4D5CBBE44F455F4E8115F7C0 /* AssistantCompletion.swift in Sources */,
 				F305760817B31D8C26E57969 /* AssistantSessionLog.swift in Sources */,
 				9396AB387AE4434F1D182D9E /* AssistantLiveModelSwitch.swift in Sources */,
 				431F415D09BA34C8E5383407 /* AssistantMCP.swift in Sources */,

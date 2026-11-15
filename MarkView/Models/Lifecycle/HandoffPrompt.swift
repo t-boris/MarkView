@@ -30,10 +30,13 @@ enum HandoffPrompt {
         tool.provider.goalPrompt(text, closing: "Continue until it is done and verified.")
     }
 
-    /// Fix with AI for one bug report; `asGoal` states it as a goal command (`AssistantProvider.fixesBugsAsGoal`).
-    static func bug(_ path: String, asGoal: Bool) -> String {
-        asGoal
-            ? "/goal fix the bug described in \(path): reproduce it first, find the root cause, fix it and verify the fix. \(bugRecords)"
-            : "Fix the bug described in \(path). Read it first, reproduce the problem, find the root cause, fix it and verify the fix. \(bugRecords)"
+    /// Fix with AI for one bug report. An assistant that takes bug fixes as a goal (`AssistantProvider.fixesBugsAsGoal`) gets it
+    /// in its goal form; `tool` is nil for a terminal that runs no assistant.
+    static func bug(_ path: String, tool: CLITool?) -> String {
+        if let provider = tool?.provider, provider.fixesBugsAsGoal {
+            return provider.goalPrompt("fix the bug described in \(path): reproduce it first, find the root cause, fix it and verify the fix. \(bugRecords)",
+                                       closing: "Continue until the bug is fixed and verified.")
+        }
+        return "Fix the bug described in \(path). Read it first, reproduce the problem, find the root cause, fix it and verify the fix. \(bugRecords)"
     }
 }

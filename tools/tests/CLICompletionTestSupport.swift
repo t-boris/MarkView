@@ -31,3 +31,10 @@ enum AICallLog {
     }
     static func record(_ entry: Entry) {}
 }
+
+// The suite names the assistants by their stored identity; the app names none outside its providers.
+extension CLITool {
+    static var claude: CLITool { CLITool(rawValue: "claude")! }
+    static var codex: CLITool { CLITool(rawValue: "codex")! }
+    static var copilot: CLITool { CLITool(rawValue: "copilot")! }
+}

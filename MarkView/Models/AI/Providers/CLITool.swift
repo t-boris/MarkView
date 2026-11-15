@@ -1,17 +1,21 @@
 import Foundation
 
-/// The identity of an assistant CLI. Everything an assistant does differently lives in its `AssistantProvider`
-/// (`provider`); this type is the key stored selections, terminal profiles and settings are made of.
-enum CLITool: String, CaseIterable {
-    case claude
-    case codex
-    /// Cline 3.x, driven over the Agent Client Protocol (`ACPAssistant`).
-    case cline
-    /// GitHub Copilot CLI 1.x, driven over the Agent Client Protocol (`ACPAssistant`).
-    case copilot
-    /// Google Antigravity CLI (`agy`), the successor of Gemini CLI. Terminals use its interactive mode, one-shot
-    /// requests its print mode with stream-json (`CLICompletion`).
-    case antigravity
+/// The identity of an assistant CLI: the key that stored selections, terminal profiles and settings are made of. It is the raw
+/// value of a provider registered in `AssistantProviders.list`; everything an assistant does differently lives in its
+/// `AssistantProvider` (`provider`). A new assistant needs no change here.
+struct CLITool: RawRepresentable, Hashable, Codable, CaseIterable, Sendable {
+    let rawValue: String
+
+    /// nil for a name no registered provider has (an old or foreign stored value).
+    init?(rawValue: String) {
+        guard AssistantProviderRegistry.provider(id: rawValue) != nil else { return nil }
+        self.rawValue = rawValue
+    }
+
+    init(_ provider: some AssistantProvider) { rawValue = provider.id }
+
+    /// Every registered assistant, in the order of `AssistantProviders.list`.
+    static var allCases: [CLITool] { AssistantProviderRegistry.all.map { CLITool($0) } }
 
     var displayName: String { provider.displayName }
 

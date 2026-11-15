@@ -20,7 +20,7 @@ for backend in [CLITool.claude, .codex, .cline, .copilot] {
     check("\(who): answers are binding and not asked again", p.contains("binding") && p.contains("do not ask them again"))
     check("\(who): new answers are written back", p.contains("back into the specification"))
     check("\(who): no open invitation to ask anything", !p.contains("ask any question if you are in doubt"))
-    let b = HandoffPrompt.bug("docs/bugs/BUG-011-x.md", asGoal: backend.provider.fixesBugsAsGoal)
+    let b = HandoffPrompt.bug("docs/bugs/BUG-011-x.md", tool: backend)
     check("\(who): bug prompt names the report", b.contains("docs/bugs/BUG-011-x.md"))
     check("\(who): bug prompt keeps reproduce / root cause / verify", b.contains("reproduce") && b.contains("root cause") && b.contains("verify"))
     check("\(who): bug clarifications are binding", b.contains("## Clarifications") && b.contains("do not ask them again"))
@@ -30,7 +30,7 @@ check("claude feature prompt is a /goal", HandoffPrompt.feature(path, tool: .cla
 check("codex feature prompt is a /goal", HandoffPrompt.feature(path, tool: .codex).hasPrefix("/goal "))
 check("copilot feature prompt is an autopilot objective", HandoffPrompt.feature(path, tool: .copilot).hasPrefix("/autopilot "))
 check("cline feature prompt sets a task goal", HandoffPrompt.feature(path, tool: .cline).hasPrefix("Goal for this Cline task:"))
-check("claude bug prompt is a /goal", HandoffPrompt.bug("x.md", asGoal: true).hasPrefix("/goal fix the bug"))
+check("claude bug prompt is a /goal", HandoffPrompt.bug("x.md", tool: .claude).hasPrefix("/goal fix the bug"))
 // A goal of the person's own words, for markview_agent_send.
 check("claude goal is /goal <text>", HandoffPrompt.goal("tests pass", tool: .claude) == "/goal tests pass")
 check("codex goal is /goal <text>", HandoffPrompt.goal("tests pass", tool: .codex) == "/goal tests pass")
@@ -40,3 +40,12 @@ check("cline goal is a task goal", HandoffPrompt.goal("tests pass", tool: .cline
 
 print(failures == 0 ? "All handoff prompt checks passed" : "\(failures) check(s) failed")
 exit(failures == 0 ? 0 : 1)
+
+// The suite names the assistants by their stored identity; the app names none outside its providers.
+extension CLITool {
+    static var claude: CLITool { CLITool(rawValue: "claude")! }
+    static var codex: CLITool { CLITool(rawValue: "codex")! }
+    static var cline: CLITool { CLITool(rawValue: "cline")! }
+    static var copilot: CLITool { CLITool(rawValue: "copilot")! }
+    static var antigravity: CLITool { CLITool(rawValue: "antigravity")! }
+}

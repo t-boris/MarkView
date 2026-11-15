@@ -80,8 +80,8 @@ enum RemoteRelayKeychain { static func account(for text: String) throws -> Strin
         defer { homeA.suspend(); homeB.suspend() }
         try await wait("Multiple saved hosts independently register and become available") { hostAReady && hostBReady }
         let windowA = UUID(), windowB = UUID()
-        let workA = try await RemoteTerminalConnection(invitation: first, root: a, browserWindowID: windowA, provider: .claude, model: nil, resume: true)
-        let workB = try await RemoteTerminalConnection(invitation: second, root: b, browserWindowID: windowB, provider: .codex, model: nil, resume: true)
+        let workA = try await RemoteTerminalConnection(invitation: first, root: a, browserWindowID: windowA, provider: CLITool(rawValue: "claude")!, model: nil, resume: true)
+        let workB = try await RemoteTerminalConnection(invitation: second, root: b, browserWindowID: windowB, provider: CLITool(rawValue: "codex")!, model: nil, resume: true)
         var outputA = "", outputB = "", exitedA = false
         workA.onOutput = { outputA += String(decoding: $0, as: UTF8.self) }
         workB.onOutput = { outputB += String(decoding: $0, as: UTF8.self) }

@@ -43,7 +43,7 @@ check("minimum batch is two", BugBasket.minimumBatch == 2)
 
 let batch = [bug("BUG-001", "open", feature: "search"), bug("BUG-007", "open")]
 for claude in [true, false] {
-    let prompt = BatchFixPrompt.make(batch, asGoal: claude)
+    let prompt = BatchFixPrompt.make(batch, tool: claude ? .claude : .codex)
     let name = claude ? "claude" : "generic"
     check("\(name): every path, id and title", batch.allSatisfy { prompt.contains($0.path) && prompt.contains($0.key) && prompt.contains($0.title) })
     check("\(name): feature when known", prompt.contains("feature search"))
@@ -59,9 +59,9 @@ for claude in [true, false] {
     check("\(name): other bugs untouched", prompt.contains("not in this list"))
     check("\(name): per-bug outcome", prompt.contains("outcome per bug"))
 }
-let claudePrompt = BatchFixPrompt.make(batch, asGoal: true)
+let claudePrompt = BatchFixPrompt.make(batch, tool: .claude)
 check("claude: one-line /goal", claudePrompt.hasPrefix("/goal ") && !claudePrompt.contains("\n"))
-check("generic: no /goal", !BatchFixPrompt.make(batch, asGoal: false).hasPrefix("/goal"))
+check("generic: no /goal", !BatchFixPrompt.make(batch, tool: .codex).hasPrefix("/goal"))
 
 // MARK: Suggest similar (REQ-006)
 
@@ -192,3 +192,9 @@ check("an active status is being fixed whatever it is called", BugBasket.isBeing
 
 print(failures == 0 ? "All bug basket checks passed" : "\(failures) check(s) failed")
 exit(failures == 0 ? 0 : 1)
+
+// The suite names the assistants by their stored identity; the app names none outside its providers.
+extension CLITool {
+    static var claude: CLITool { CLITool(rawValue: "claude")! }
+    static var codex: CLITool { CLITool(rawValue: "codex")! }
+}

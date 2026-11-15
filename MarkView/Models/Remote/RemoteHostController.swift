@@ -105,8 +105,7 @@ final class RemoteHostController: ObservableObject {
 
     private func openTerminal(_ payload: RemoteJSON) async throws {
         guard let providerName = payload["provider"].string,
-              let provider = RemoteProviderConfiguration.Provider(rawValue: providerName),
-              let tool = CLITool(rawValue: providerName), let requests, let channel,
+              let tool = RemoteProviderConfiguration.tool(named: providerName), let requests, let channel,
               let app = Bundle.main.executablePath else { throw RemoteFailure.invalid("Unsupported remote assistant.") }
         let context = payload["context"]
         let cwd = try context.requiredString("cwd", limit: 8192)
@@ -115,7 +114,7 @@ final class RemoteHostController: ObservableObject {
         guard UUID(uuidString: deviceID) != nil else { throw RemoteFailure.invalid("Invalid work-computer identity.") }
         let prepared = try await Task.detached { () async throws -> (URL, RemoteToolBridge, String) in
             guard let executable = await CLIToolLocator.resolveThorough(tool) else {
-                throw RemoteFailure.invalid("Install and sign in to \(provider.title) on the home computer, then reconnect.")
+                throw RemoteFailure.invalid("Install and sign in to \(tool.displayName) on the home computer, then reconnect.")
             }
             let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("MarkView/RemoteWorkspaces", isDirectory: true)
@@ -125,11 +124,11 @@ final class RemoteHostController: ObservableObject {
             do {
                 var resume = payload["resume"].bool == true && tool.provider.hasSession(in: root)
                 let threadID: String?
-                if provider == .codex, resume {
+                if resume, tool.provider.remote?.refreshesThreadInstructions == true {
                     threadID = try await RemoteCodexContext.prepare(executable: executable, directory: root, context: context)
                     resume = threadID != nil
                 } else { threadID = nil }
-                let command = try RemoteProviderConfiguration.command(provider: provider, executable: executable, app: app,
+                let command = try RemoteProviderConfiguration.command(tool: tool, executable: executable, app: app,
                     socket: bridge.path, context: context, directory: root, model: payload["model"].string,
                     resume: resume, resumeThreadID: threadID)
                 return (root, bridge, command)
@@ -137,7 +136,7 @@ final class RemoteHostController: ObservableObject {
         }.value
         guard isHosting, self.channel === channel else { prepared.1.stop(); throw RemoteFailure.disconnected }
         self.bridge = prepared.1
-        let terminal = TerminalSession(directory: prepared.0, profile: TerminalProfile(tool), title: "Remote · " + provider.title, operationCommand: prepared.2)
+        let terminal = TerminalSession(directory: prepared.0, profile: TerminalProfile(tool), title: "Remote · " + tool.displayName, operationCommand: prepared.2)
         self.terminal = terminal
         terminal.onOutput = { [weak self] data in
             self?.sendOutput(data, channel: channel)
@@ -145,7 +144,7 @@ final class RemoteHostController: ObservableObject {
         terminal.onExit = { [weak self] code in
             let drain = self?.outputTask
             Task { await drain?.value; try? await channel.send(RemoteMessage("exited", .int(Int(code)))) }
-            self?.setState(.offline, "\(provider.title) exited (\(code)). Reconnect to continue the saved connection.")
+            self?.setState(.offline, "\(tool.displayName) exited (\(code)). Reconnect to continue the saved connection.")
         }
         terminal.onLaunchFailure = { [weak self] _ in
             self?.setState(.reconnecting, "Could not start the home assistant.")
@@ -153,7 +152,7 @@ final class RemoteHostController: ObservableObject {
         }
         terminal.resizeForConnection(cols: payload["cols"].integer ?? 120, rows: payload["rows"].integer ?? 30)
         terminal.start()
-        setState(.online, "\(provider.title) connected to \(hostname) · \(cwd)")
+        setState(.online, "\(tool.displayName) connected to \(hostname) · \(cwd)")
         lastPeerMessage = Date()
     }
 

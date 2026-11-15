@@ -75,3 +75,8 @@ check("prompt stays on one line", !prompt.contains("\n"))
 check("prompt without a checklist is unchanged", HandoffPrompt.feature("docs/features/x", tool: .claude) == HandoffPrompt.feature("docs/features/x", tool: .claude, done: DefinitionOfDone(items: [])))
 
 exit(failures == 0 ? 0 : 1)
+
+// The suite names the assistants by their stored identity; the app names none outside its providers.
+extension CLITool {
+    static var claude: CLITool { CLITool(rawValue: "claude")! }
+}

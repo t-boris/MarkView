@@ -102,6 +102,17 @@ protocol AssistantProvider: Sendable {
     /// Present when the assistant's quota and usage are tracked (the Terminal tab's indicators).
     var usage: (any AssistantUsageSupport)? { get }
 
+    // MARK: One-shot runs
+
+    /// Present when the assistant answers a one-shot request by running its CLI once (`CLICompletion`); nil for the
+    /// assistants driven over ACP.
+    var completion: (any AssistantCompletionSupport)? { get }
+
+    // MARK: Remote Work
+
+    /// Present when the home Mac can host this assistant for a work Mac.
+    var remote: (any AssistantRemoteSupport)? { get }
+
     // MARK: Agent Client Protocol
 
     /// Present when the assistant is driven over the Agent Client Protocol rather than a one-shot CLI run.
@@ -110,13 +121,15 @@ protocol AssistantProvider: Sendable {
 
 extension AssistantProvider {
     /// The identity of this assistant for the rest of the app.
-    var tool: CLITool { CLITool(rawValue: id)! }
+    var tool: CLITool { CLITool(self) }
 
     var compactName: String { displayName }
     var versionArgs: [String] { ["--version"] }
     var modelFlag: String { "--model" }
     var defaultXRayModel: String { "" }
     var acp: (any AssistantACPSupport)? { nil }
+    var completion: (any AssistantCompletionSupport)? { nil }
+    var remote: (any AssistantRemoteSupport)? { nil }
     var updateArgs: [String] { [] }
     func hasSession(in directory: URL) -> Bool { true }
     func answeredModel(in directory: URL, since: Date) -> String? { nil }

@@ -340,3 +340,12 @@ while semaphore.wait(timeout: .now()) == .timedOut {
 
 print("\nPhase 5 summary: \(passed) passed, \(failed) failed")
 if failed > 0 { exit(1) }
+
+// The suite names the assistants by their stored identity; the app names none outside its providers.
+extension CLITool {
+    static var claude: CLITool { CLITool(rawValue: "claude")! }
+    static var codex: CLITool { CLITool(rawValue: "codex")! }
+    static var cline: CLITool { CLITool(rawValue: "cline")! }
+    static var copilot: CLITool { CLITool(rawValue: "copilot")! }
+    static var antigravity: CLITool { CLITool(rawValue: "antigravity")! }
+}

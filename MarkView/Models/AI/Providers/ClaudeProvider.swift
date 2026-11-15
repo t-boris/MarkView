@@ -19,6 +19,8 @@ struct ClaudeProvider: AssistantProvider {
     var liveModelSwitch: (any AssistantLiveModelSwitch)? { ClaudeSessionModel.liveSwitch }
     var usage: (any AssistantUsageSupport)? { ClaudeUsage() }
     var activity: (any AssistantActivitySupport)? { ClaudeActivity() }
+    var completion: (any AssistantCompletionSupport)? { self }
+    var remote: (any AssistantRemoteSupport)? { self }
 
     func goalPrompt(_ objective: String, closing: String) -> String { "/goal \(objective)" }
 
@@ -103,6 +105,132 @@ struct ClaudeProvider: AssistantProvider {
     }
 
     let skillPath: String? = ".claude/skills/markview/SKILL.md"
+}
+
+// MARK: - One-shot run
+
+/// `claude -p` with stream-json output: no tools unless the request reads files (read-only ones) or searches the web.
+extension ClaudeProvider: AssistantCompletionSupport {
+    func launch(_ request: CompletionLaunchRequest) throws -> CompletionLaunch {
+        var arguments = ["-p", "--safe-mode", "--no-session-persistence",
+                         "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+                         "--tools", ((request.readableFolder == nil ? [] : ["Read", "Grep", "Glob"])
+                                        + (request.allowWeb ? ["WebSearch", "WebFetch"] : [])).joined(separator: ",")]
+        // Headless runs cannot ask for permission: web tools must be pre-approved, or the
+        // CLI refuses every search (and fetches outside its built-in allowlist).
+        if request.allowWeb { arguments += ["--allowedTools", "WebSearch,WebFetch"] }
+        // The project's linked folders (Task 59) and any further folders are readable too.
+        if request.readableFolder != nil {
+            arguments += additionalFolderArgs((request.linkedFolders() + request.extraReadableFolders)
+                .filter { FileManager.default.fileExists(atPath: $0.path) })
+        }
+        arguments += modelArgs(request.model)
+        if let effort = request.effort { arguments += ["--effort", effort] }
+        if let system = request.systemPrompt {
+            arguments += ["--system-prompt", system]
+        }
+        if let schema = request.jsonSchema {
+            arguments += ["--json-schema", try CompletionJSON.string(schema)]
+        }
+        return CompletionLaunch(arguments: arguments, input: request.prompt, schemaFile: nil)
+    }
+
+    func makeParser() -> any CompletionStreamParser { ClaudeStreamParser() }
+}
+
+/// Claude's `stream-json` events: partial messages (text, thinking, tool input), tool use, and one final `result`.
+private final class ClaudeStreamParser: CompletionStreamParser {
+    /// Tool of the content block being streamed, so tool input is not counted as answer.
+    private var blockTool: String?
+    private var answerChars = 0
+    private var thinkingChars = 0
+    private var thinkingTicked = 0
+    private var streamedText = ""
+
+    func handle(_ json: [String: Any], output: inout CompletionOutput, sink: CompletionSink) {
+        guard let type = json["type"] as? String else { return }
+        switch type {
+        case "stream_event":
+            guard let event = json["event"] as? [String: Any] else { return }
+            if event["type"] as? String == "content_block_start" {
+                let block = event["content_block"] as? [String: Any]
+                blockTool = block?["type"] as? String == "tool_use" ? block?["name"] as? String : nil
+                if block?["type"] as? String == "thinking" { sink.onActivity?(.thinking) }
+                return
+            }
+            guard event["type"] as? String == "content_block_delta",
+                  let delta = event["delta"] as? [String: Any] else { return }
+            if delta["type"] as? String == "thinking_delta", let text = delta["thinking"] as? String {
+                // A long reasoning phase would look like a hang: report it every few thousand characters.
+                thinkingChars += text.count
+                if thinkingChars - thinkingTicked >= 1500 {
+                    thinkingTicked = thinkingChars
+                    sink.onActivity?(.thinking)
+                }
+            }
+            if delta["type"] as? String == "input_json_delta", let part = delta["partial_json"] as? String,
+               !["Read", "Grep", "Glob", "WebSearch", "WebFetch"].contains(blockTool ?? "") {
+                // Structured output arrives as the input of a final tool call.
+                answerChars += part.count
+                sink.onActivity?(.writing(answerChars))
+                sink.onActivity?(.answerDelta(part))
+            }
+            guard delta["type"] as? String == "text_delta", let text = delta["text"] as? String else { return }
+            streamedText += text
+            answerChars += text.count
+            sink.onActivity?(.writing(answerChars))
+            sink.onActivity?(.answerDelta(text))
+            sink.onDelta?(text)
+        case "assistant":
+            let content = (json["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
+            for block in content where block["type"] as? String == "tool_use" {
+                let input = block["input"] as? [String: Any] ?? [:]
+                switch block["name"] as? String {
+                case "Read": if let path = input["file_path"] as? String { sink.onActivity?(.read(path)) }
+                case "Grep", "Glob": sink.onActivity?(.search(input["pattern"] as? String ?? ""))
+                case "WebSearch": if let query = input["query"] as? String { sink.onActivity?(.webSearch(query)) }
+                case "WebFetch": if let url = input["url"] as? String { sink.onActivity?(.webFetch(url)) }
+                default: break
+                }
+            }
+        case "result":
+            output.text = json["result"] as? String ?? streamedText
+            output.structured = json["structured_output"]
+            for denial in json["permission_denials"] as? [[String: Any]] ?? [] {
+                let input = denial["tool_input"] as? [String: Any] ?? [:]
+                output.refused.append((denial["tool_name"] as? String ?? "tool",
+                                       input["query"] as? String ?? input["url"] as? String ?? input["file_path"] as? String ?? ""))
+            }
+            output.costUSD = json["total_cost_usd"] as? Double
+            if let usage = json["usage"] as? [String: Any] {
+                output.inputTokens = (usage["input_tokens"] as? Int ?? 0)
+                    + (usage["cache_read_input_tokens"] as? Int ?? 0)
+                    + (usage["cache_creation_input_tokens"] as? Int ?? 0)
+                output.outputTokens = usage["output_tokens"] as? Int ?? 0
+            }
+            if json["is_error"] as? Bool == true {
+                output.errorMessage = output.text.isEmpty ? "the run reported an error" : output.text
+            }
+        default:
+            break
+        }
+    }
+}
+
+// MARK: - Remote Work
+
+/// Claude Code hosted for a work Mac: only the work computer's MCP server, a hook that denies native home tools.
+extension ClaudeProvider: AssistantRemoteSupport {
+    func arguments(_ plan: AssistantRemotePlan) throws -> [String] {
+        let hooks: [String: Any] = ["PreToolUse": [["matcher": ".*", "hooks": [
+            ["type": "command", "command": plan.guardCommand, "timeout": 5] as [String: Any]]] as [String: Any]]]
+        let settings = try plan.writeJSON(["hooks": hooks], "claude-settings.json")
+        var args = ["--tools", "", "--strict-mcp-config", "--mcp-config", plan.mcpConfig.path,
+                    "--settings", settings.path, "--setting-sources", "", "--append-system-prompt", plan.instructions,
+                    "--allowedTools", plan.toolPrefix + "*", "--dangerously-skip-permissions"]
+        if plan.resume { args.insert("--continue", at: 0) }
+        return args
+    }
 }
 
 // MARK: - Usage

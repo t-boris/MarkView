@@ -95,3 +95,9 @@ check(!results.contains { $0.path?.hasSuffix(".env") == true }, "secret-like fil
 
 print(failures == 0 ? "All linked-folder checks passed." : "\(failures) linked-folder check(s) failed.")
 exit(failures == 0 ? 0 : 1)
+
+// The suite names the assistants by their stored identity; the app names none outside its providers.
+extension CLITool {
+    static var claude: CLITool { CLITool(rawValue: "claude")! }
+    static var codex: CLITool { CLITool(rawValue: "codex")! }
+}

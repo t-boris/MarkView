@@ -13,6 +13,7 @@ struct AntigravityProvider: AssistantProvider {
     let terminalIcon = "wand.and.stars"
     var usage: (any AssistantUsageSupport)? { AntigravityUsage() }
     var activity: (any AssistantActivitySupport)? { AntigravityActivity() }
+    var completion: (any AssistantCompletionSupport)? { self }
 
     func modelOptions() -> [AIModelOption] {
         // A few of `agy models`; any other id can be typed as a custom model name.
@@ -30,6 +31,82 @@ struct AntigravityProvider: AssistantProvider {
             remove: { ["mcp", "remove", $0.name] },
             add: { server, executable in ["mcp", "add", server.name, "--", executable, server.flag] },
             list: ["mcp", "list"], location: "agy mcp", reportsStdoutOnFailure: true))
+    }
+}
+
+// MARK: - One-shot run
+
+/// Print mode with NDJSON on stdin. The default permission mode cannot ask anyone, so writes are denied; `--sandbox`
+/// restricts its terminal. A schema answer arrives as `structured_output`.
+extension AntigravityProvider: AssistantCompletionSupport {
+    func launch(_ request: CompletionLaunchRequest) throws -> CompletionLaunch {
+        var arguments = ["--input-format", "stream-json", "--output-format", "stream-json", "--sandbox", "-p="]
+        arguments += modelArgs(request.model)
+        if let effort = request.effort { arguments += ["--effort", effort] }
+        if let schema = request.jsonSchema { arguments += ["--json-schema", try CompletionJSON.string(schema)] }
+        if request.readableFolder != nil {
+            arguments += request.extraReadableFolders.flatMap { ["--add-dir", $0.path] }
+        }
+        // No system-prompt flag: the instructions lead the prompt.
+        let text = request.systemPrompt.map { "<instructions>\n\($0)\n</instructions>\n\n\(request.prompt)" } ?? request.prompt
+        let input = try CompletionJSON.string(["event": "user", "message": ["content": text]]) + "\n"
+        return CompletionLaunch(arguments: arguments, input: input, schemaFile: nil)
+    }
+
+    func makeParser() -> any CompletionStreamParser { AntigravityStreamParser() }
+}
+
+/// `agy --output-format stream-json`: `step_update` events (answer text, tool steps) and one final `result`.
+private final class AntigravityStreamParser: CompletionStreamParser {
+    private var answerChars = 0
+    private var streamedText = ""
+
+    func handle(_ json: [String: Any], output: inout CompletionOutput, sink: CompletionSink) {
+        switch json["event"] as? String {
+        case "step_update":
+            guard let step = json["step_update"] as? [String: Any] else { return }
+            switch step["step_type"] as? String {
+            case "agent_response":
+                guard let text = step["text_delta"] as? String, !text.isEmpty else { return }
+                streamedText += text
+                answerChars += text.count
+                sink.onActivity?(.writing(answerChars))
+                sink.onDelta?(text)
+            case "tool":
+                guard step["state"] as? String == "ACTIVE", let info = step["tool_info"] as? [String: Any] else { return }
+                let parameters = info["parameters"] as? [String: Any] ?? [:]
+                let value = { (keys: [String]) -> String in
+                    keys.lazy.compactMap { parameters[$0] as? String }.first
+                        ?? parameters.values.compactMap { $0 as? String }.first ?? ""
+                }
+                switch step["tool_name"] as? String {
+                case "view_file", "list_dir": sink.onActivity?(.read(value(["AbsolutePath", "DirectoryPath", "Path"])))
+                case "grep_search", "find_by_name": sink.onActivity?(.search(value(["Query", "Pattern"])))
+                case "run_command": sink.onActivity?(.run(value(["CommandLine"])))
+                case "search_web": sink.onActivity?(.webSearch(value(["query", "Query"])))
+                case "read_url_content": sink.onActivity?(.webFetch(value(["Url", "URL"])))
+                default: break
+                }
+            default:
+                break
+            }
+        case "result":
+            guard let result = json["result"] as? [String: Any] else { return }
+            output.text = result["response"] as? String ?? streamedText
+            output.structured = result["structured_output"]
+            if let usage = result["usage"] as? [String: Any] {
+                output.inputTokens = (usage["input_tokens"] as? Int ?? 0) + (usage["cache_read_tokens"] as? Int ?? 0)
+                output.outputTokens = usage["output_tokens"] as? Int ?? 0
+            }
+            for denial in result["denied_actions"] as? [[String: Any]] ?? [] {
+                output.refused.append((denial["display_name"] as? String ?? "tool", denial["action"] as? String ?? ""))
+            }
+            if result["status"] as? String != "SUCCESS" {
+                output.errorMessage = result["error"] as? String ?? "the run ended with status \(result["status"] as? String ?? "unknown")"
+            }
+        default:
+            break
+        }
     }
 }
 
