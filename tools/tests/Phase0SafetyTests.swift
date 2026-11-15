@@ -92,7 +92,7 @@ func runPhase0Checks() async throws {
                 var tocImgCount = document.querySelectorAll('#toc-status img').length;
                 var tocText = (document.getElementById('toc-status') || {}).textContent || '';
 
-                var svgClean = window.mvKit.sanitizeMermaidSvg('<svg viewBox="0 0 10 10"><style>body{display:none}</style><script>evil()</script><rect width="10" height="10" onclick="evil()"/></svg>');
+                var svgClean = window.mvKit.sanitizeMermaidSvg('<svg id="s1" viewBox="0 0 10 10"><style>body{display:none} #s1 rect{fill:red}</style><script>evil()</script><rect width="10" height="10" onclick="evil()"/></svg>');
 
                 var savedPurify = window.DOMPurify;
                 var stripWhenMissing = '';
@@ -116,7 +116,7 @@ func runPhase0Checks() async throws {
                     badStyleStripped: badStyle.indexOf('fixed') < 0 && badStyle.indexOf('9999') < 0 && badStyle.indexOf('url(') < 0 && badStyle.indexOf('color:red') >= 0,
                     mathStyleKept: mathStyle.indexOf('height:1.5em') >= 0,
                     tocEscaped: tocImgCount === 0 && tocText.indexOf('SafeHeading') >= 0,
-                    svgSafe: svgClean.indexOf('<svg') >= 0 && svgClean.indexOf('<rect') >= 0 && svgClean.indexOf('<script') < 0 && svgClean.indexOf('<style') < 0 && svgClean.indexOf('onclick') < 0,
+                    svgSafe: svgClean.indexOf('<svg') >= 0 && svgClean.indexOf('<rect') >= 0 && svgClean.indexOf('<script') < 0 && svgClean.indexOf('onclick') < 0 && svgClean.indexOf('body{') < 0 && svgClean.indexOf('#s1 rect{fill') >= 0,
                     failClosed: stripWhenMissing.indexOf('sanitization-error') >= 0 && stripWhenMissing.indexOf('<img') < 0,
                     cdnStripped: window.stripCDNTags('<canvas data-chart=\'{"type":"bar"}\'></canvas><style>p{color:red}</style><script>evil()</script><img src=x onerror=alert(1)>')
                 });
@@ -140,7 +140,7 @@ func runPhase0Checks() async throws {
                   (mdObj["mathStyleKept"] as? Bool) == true)
             check("AR-01 (10.3): updateTOCStatus escapes heading HTML instead of injecting live DOM nodes",
                   (mdObj["tocEscaped"] as? Bool) == true)
-            check("AR-01 (10.3): mvKit.sanitizeMermaidSvg strips <script>, <style>, and event handlers from SVG",
+            check("AR-01 (10.3)/FU-20: mvKit.sanitizeMermaidSvg strips <script> and event handlers from SVG and keeps only the style rules that start at the SVG's own id",
                   (mdObj["svgSafe"] as? Bool) == true)
             let cdnStripped = (mdObj["cdnStripped"] as? String) ?? ""
             check("FU-13/AR-02: sanitizeMarkdownHTML fails closed without DOMPurify and stripCDNTags uses shared sanitizer",

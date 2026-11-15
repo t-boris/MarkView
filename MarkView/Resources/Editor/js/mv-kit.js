@@ -217,6 +217,15 @@
         }
     };
 
+    function isSafeDeclaration(property, value) {
+        var name = String(property || '').toLowerCase();
+        var text = String(value || '');
+        if (!name || !text) return false;
+        if (DANGEROUS_STYLE_PROPS.test(name)) return false;
+        if (name === 'position' && /^(?:fixed|sticky)\b/i.test(text)) return false;
+        return !DANGEROUS_STYLE_VALUES.test(text);
+    }
+
     function sanitizeStyleAttribute(rawStyle) {
         var kept = [];
         String(rawStyle || '').split(';').forEach(function(declaration) {
@@ -224,13 +233,81 @@
             if (at < 0) return;
             var property = declaration.slice(0, at).trim().toLowerCase();
             var value = declaration.slice(at + 1).trim();
-            if (!property || !value) return;
-            if (DANGEROUS_STYLE_PROPS.test(property)) return;
-            if (property === 'position' && /^(?:fixed|sticky)\b/i.test(value)) return;
-            if (DANGEROUS_STYLE_VALUES.test(value)) return;
-            kept.push(property + ':' + value);
+            if (isSafeDeclaration(property, value)) kept.push(property + ':' + value);
         });
         return kept.join(';');
+    }
+
+    // The browser's own CSS parser reads the stylesheet Mermaid writes into its SVG, in a document that has no browsing
+    // context (its sheets are parsed but never applied and never fetch anything), and only the serialised rules it reports
+    // back are checked and written out. A check on the raw text can be bypassed by CSS escapes (`f\69xed`), comments and
+    // splitting tricks; the serialised form carries none of them.
+    var cssParserDoc = null;
+    function cssParserDocument() {
+        if (!cssParserDoc) cssParserDoc = global.document.implementation.createHTMLDocument('');
+        return cssParserDoc;
+    }
+
+    // The comma-separated selectors of a rule, or null when the text cannot be split safely or uses a sibling combinator
+    // (`#id ~ p`, `#id + p`), which would reach elements outside the diagram.
+    function splitScopedSelectors(text) {
+        var parts = [], depth = 0, quote = '', start = 0;
+        for (var i = 0; i < text.length; i++) {
+            var ch = text.charAt(i);
+            if (quote) {
+                if (ch === '\\') i++;
+                else if (ch === quote) quote = '';
+            } else if (ch === '\\') {
+                i++;
+            } else if (ch === '"' || ch === "'") {
+                quote = ch;
+            } else if (ch === '(' || ch === '[') {
+                depth++;
+            } else if (ch === ')' || ch === ']') {
+                if (--depth < 0) return null;
+            } else if (depth === 0 && ch === ',') {
+                parts.push(text.slice(start, i));
+                start = i + 1;
+            } else if (depth === 0 && (ch === '+' || ch === '~')) {
+                return null;
+            }
+        }
+        if (depth !== 0 || quote) return null;
+        parts.push(text.slice(start));
+        return parts;
+    }
+
+    function safeDeclarations(source) {
+        var target = cssParserDocument().createElement('div').style;
+        for (var i = 0; i < source.length; i++) {
+            var property = source[i];
+            var value = source.getPropertyValue(property);
+            if (isSafeDeclaration(property, value)) target.setProperty(property, value, source.getPropertyPriority(property));
+        }
+        return target.cssText;
+    }
+
+    // Mermaid writes one <style> into every SVG and prefixes each of its rules with the SVG's own id. A stylesheet inside an
+    // inline SVG applies to the whole page, so only plain rules whose every selector starts at that id are kept; @import,
+    // @font-face, @media and the like (Mermaid 10 writes none) and every unsafe declaration are dropped.
+    function sanitizeScopedStylesheet(cssText, scopeId) {
+        var doc = cssParserDocument();
+        var style = doc.createElement('style');
+        style.textContent = String(cssText || '');
+        doc.head.appendChild(style);
+        var scope = new RegExp('^#' + global.CSS.escape(scopeId) + '(?![\\w-])');
+        var rules = [];
+        Array.prototype.forEach.call(style.sheet ? style.sheet.cssRules : [], function(rule) {
+            if (rule.type !== 1) return;
+            var selectors = splitScopedSelectors(rule.selectorText);
+            if (!selectors || !selectors.every(function(selector) { return scope.test(selector.trim()); })) return;
+            var body = safeDeclarations(rule.style);
+            var text = rule.selectorText + '{' + body + '}';
+            // A '<' could end the element's raw text when the markup is parsed again, so such a rule is dropped.
+            if (body && text.indexOf('<') < 0) rules.push(text);
+        });
+        style.remove();
+        return rules.join('\n');
     }
 
     function ensureDOMPurifyURIHook(purify) {
@@ -276,18 +353,32 @@
         return '<pre class="sanitization-error">' + escapeHtml(rawHTML) + '</pre>';
     }
 
+    // Mermaid (securityLevel 'strict') keeps its whole theme in a <style> inside the SVG, so this profile, and only this one,
+    // lets <style> through: its text is rebuilt rule by rule by sanitizeScopedStylesheet and the element is removed when
+    // nothing safe is left or when the SVG has no id to scope the rules to.
     function sanitizeMermaidSvg(rawSVG) {
         var purify = global.DOMPurify;
         if (purify && typeof purify.sanitize === 'function') {
             ensureDOMPurifyURIHook(purify);
-            return purify.sanitize(String(rawSVG || ''), {
+            var body = purify.sanitize(String(rawSVG || ''), {
                 USE_PROFILES: { svg: true, svgFilters: true, html: true },
                 ADD_TAGS: ['foreignObject'],
+                // Mermaid writes its node labels as HTML inside <foreignObject>; DOMPurify 3 keeps only <annotation-xml> as an
+                // HTML integration point by default and would empty every label.
+                HTML_INTEGRATION_POINTS: { 'foreignobject': true, 'annotation-xml': true },
                 ALLOW_DATA_ATTR: false,
                 ALLOW_UNKNOWN_PROTOCOLS: false,
-                FORBID_TAGS: COMMON_FORBID_TAGS,
-                FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseenter', 'onmouseleave', 'onfocus', 'onblur']
+                FORBID_TAGS: COMMON_FORBID_TAGS.filter(function(tag) { return tag !== 'style'; }),
+                FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseenter', 'onmouseleave', 'onfocus', 'onblur'],
+                RETURN_DOM: true
             });
+            var svg = body.querySelector('svg');
+            var scopeId = svg ? svg.getAttribute('id') : '';
+            Array.prototype.forEach.call(body.querySelectorAll('style'), function(style) {
+                var css = scopeId ? sanitizeScopedStylesheet(style.textContent, scopeId) : '';
+                if (css) style.textContent = css; else style.remove();
+            });
+            return body.innerHTML;
         }
         return '<pre class="sanitization-error">Sanitizer unavailable.</pre>';
     }

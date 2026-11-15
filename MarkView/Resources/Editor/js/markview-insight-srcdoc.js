@@ -514,16 +514,15 @@
                             } catch (_) { clone = el.cloneNode(true); }
                         } else if (el.tagName && el.tagName.toLowerCase() === 'svg') {
                             try {
-                                var serializer = new XMLSerializer();
-                                var svgStr = serializer.serializeToString(el);
                                 var box = el.viewBox && el.viewBox.baseVal;
                                 var w = (box && box.width) ? box.width : (el.getBoundingClientRect().width || 800);
                                 var h = (box && box.height) ? box.height : (el.getBoundingClientRect().height || 600);
                                 var holder = document.createElement('div');
                                 holder.style.cssText = 'width:' + (w * 2) + 'px; height:' + (h * 2) + 'px;';
-                                holder.innerHTML = svgStr;
-                                var ns = holder.querySelector('svg');
-                                if (ns) { ns.setAttribute('width', '100%'); ns.setAttribute('height', '100%'); ns.style.maxWidth = 'none'; ns.style.maxHeight = 'none'; }
+                                // A copy of the nodes already on the page: no markup is parsed again, so nothing new can enter (FU-25).
+                                var ns = el.cloneNode(true);
+                                ns.setAttribute('width', '100%'); ns.setAttribute('height', '100%'); ns.style.maxWidth = 'none'; ns.style.maxHeight = 'none';
+                                holder.appendChild(ns);
                                 clone = holder;
                             } catch (_) { clone = el.cloneNode(true); }
                         } else {

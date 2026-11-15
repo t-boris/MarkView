@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 174,
+  "suiteCount": 175,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -877,6 +877,18 @@
         "MarkView/Models/Workspace/ListSelection.swift",
         "tools/tests/ListSelectionTests.swift",
         "tools/tests/list-selection-tests.sh"
+      ]
+    },
+    {
+      "name": "mermaid-svg-tests",
+      "script": "tools/tests/mermaid-svg-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Resources/Editor/index.html",
+        "MarkView/Resources/Editor/js/markview-render.js",
+        "MarkView/Resources/Editor/js/mv-kit.js",
+        "tools/tests/MermaidSvgWebTests.swift",
+        "tools/tests/mermaid-svg-tests.sh"
       ]
     },
     {
