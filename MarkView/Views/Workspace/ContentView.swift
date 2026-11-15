@@ -274,7 +274,7 @@ private struct WorkspaceWindow: View {
                 ZStack(alignment: .bottomTrailing) {
                 if workspaceTransparency > 0 {
                     WorkspaceBackdrop(root: fileTree.rootNode?.url, backdrop: layout.welcomeBackdrop,
-                                      store: workspaceManager.features)
+                                      store: workspaceManager.flow.features)
                 }
                 HSplitView {
                     if chrome.showFileTree {
@@ -319,8 +319,8 @@ private struct WorkspaceWindow: View {
                 lastFilesTab = tab.id
                 layout.workspaceArea = .files
                 if case .file = tab.kind,
-                   let feature = workspaceManager.features.locate(tab.url)?.feature {
-                    workspaceManager.showFeatureContext(feature.slug)
+                   let feature = workspaceManager.flow.features.locate(tab.url)?.feature {
+                    workspaceManager.flow.showFeatureContext(feature.slug)
                 }
             case .architecture, .insight:
                 layout.workspaceArea = .projectMap
@@ -367,7 +367,7 @@ private struct WorkspaceWindow: View {
                                     set: { if !$0 { requests.doneRequest = nil } })) {
             if let url = requests.doneRequest {
                 DefinitionOfDoneSheet(root: workspaceManager.projectFolder, feature: url) { done in
-                    workspaceManager.startImplementation(url, done: done)
+                    workspaceManager.flow.startImplementation(url, done: done)
                 }
             }
         }
@@ -527,11 +527,11 @@ private struct WorkspaceWindow: View {
         .background(palette.bgSidebar)
         .overlay(alignment: .bottom) { Divider() }
         .sheet(isPresented: $showCycleTime, onDismiss: { requests.cycleTimeItem = nil }) {
-            CycleTimeSheet(store: workspaceManager.features, focus: requests.cycleTimeItem, open: { item in
+            CycleTimeSheet(store: workspaceManager.flow.features, focus: requests.cycleTimeItem, open: { item in
                 showCycleTime = false
                 if item.kind == .feature {
-                    workspaceManager.showFeature(item.issue, stage: .explore)
-                } else if let bug = workspaceManager.features.bugs.first(where: { $0.key == item.issue }) {
+                    workspaceManager.flow.showFeature(item.issue, stage: .explore)
+                } else if let bug = workspaceManager.flow.features.bugs.first(where: { $0.key == item.issue }) {
                     workspaceManager.openFile(bug.url)
                 }
             }, close: { showCycleTime = false })
@@ -634,9 +634,9 @@ private struct WorkspaceWindow: View {
     private var browserMenu: some View {
         let selected: Bool = { if case .browser? = tabs.activeTab?.kind { return true } else { return false } }()
         return Menu {
-            Button("Preview Web App (⌘6)") { workspaceManager.previewWebApp() }
+            Button("Preview Web App (⌘6)") { workspaceManager.browser.previewWebApp() }
                 .disabled(fileTree.rootNode == nil)
-            Button("New Browser Tab (⌘5)") { workspaceManager.openBrowser(nil) }
+            Button("New Browser Tab (⌘5)") { workspaceManager.browser.open(nil) }
             Divider()
             Toggle("Open Terminal Links in MarkView", isOn: $openTerminalLinksInApp)
                 .help("Pages that Claude Code, Codex or dev servers open from MarkView's terminals show in the browser tab instead of the default browser (new terminals)")
@@ -664,9 +664,9 @@ private struct WorkspaceWindow: View {
             if let url = tabs.activeTab?.url, tabs.activeTab?.isFileBacked == true {
                 Section("From the open document (\(url.lastPathComponent))") {
                     ForEach(IntakeKind.allCases) { kind in
-                        Button(kind.title + " from It…") { workspaceManager.startIntake(kind, fromDocument: url) }
+                        Button(kind.title + " from It…") { workspaceManager.flow.startIntake(kind, fromDocument: url) }
                     }
-                    Button("Implement It with AI") { workspaceManager.implementWithAI(url) }
+                    Button("Implement It with AI") { workspaceManager.flow.implementWithAI(url) }
                 }
             }
         } label: {
@@ -793,7 +793,7 @@ private struct WorkspaceWindow: View {
         case .work:
             layout.workspaceArea = .work
             layout.leftPanel = "issues"
-            workspaceManager.showFeatureContext(workspaceManager.features.active?.slug)
+            workspaceManager.flow.showFeatureContext(workspaceManager.flow.features.active?.slug)
         }
     }
 
@@ -810,7 +810,7 @@ private struct WorkspaceWindow: View {
         projectKey = workspaceManager.projectFolder.map(ProjectColor.projectKey(for:))
         // Agents driving MarkView see every window, also one with nothing open yet.
         workspaceManager.hostWindow = hostWindow
-        if hostWindow != nil { workspaceManager.registerBrowserControl() }
+        if hostWindow != nil { workspaceManager.browser.register() }
     }
 
     private func attachWindowSession() {
@@ -883,12 +883,12 @@ private struct WorkspaceWindow: View {
     private var welcomeView: some View {
         ProjectWelcomeScreen(root: fileTree.rootNode?.url,
                       isGitRepo: git.isGitRepo,
-                      store: workspaceManager.features,
+                      store: workspaceManager.flow.features,
                       backdrop: Binding(get: { layout.welcomeBackdrop },
                                         set: { layout.welcomeBackdrop = $0 }),
                       perform: performWelcomeAction) {
             if fileTree.rootNode != nil {
-                HandoffStartList(store: workspaceManager.features)
+                HandoffStartList(store: workspaceManager.flow.features)
                     .environmentObject(workspaceManager)
                     .frame(maxWidth: 700)
             } else {
@@ -927,14 +927,14 @@ private struct WorkspaceWindow: View {
             requests.intake = IntakeRequest(kind: .bug)
             layout.workspaceArea = .work
         case .understand: requests.intake = IntakeRequest(kind: .understand)
-        case .research: workspaceManager.newResearch()
+        case .research: workspaceManager.flow.newResearch()
         case .tool(let tool): workspaceManager.openTool(tool)
         case .tasks: activate(.work)
         case .xray: workspaceManager.codeXRay.openArchitecture()
         case .search: chrome.showGlobalSearch = true
         case .files: activate(.files)
         case .openFile: openFile()
-        case .browser: _ = workspaceManager.openBrowser(nil)
+        case .browser: _ = workspaceManager.browser.open(nil)
         case .openFolder: openFolder()
         case .newProject: requests.newProject = NewProjectRequest()
         }
@@ -1206,7 +1206,7 @@ private struct AIToolsMenuItems: View {
         Menu("Analysis") {
             Button("Constructive Critic") { workspaceManager.runAITool(named: "critic") }
             // Superseded by New Research, which saves a report (DEC-010).
-            Button("Deep Research…") { workspaceManager.newResearch() }
+            Button("Deep Research…") { workspaceManager.flow.newResearch() }
             Button("Codebase Audit") { workspaceManager.runAITool(named: "audit") }
             Button("Code Structure Map") { workspaceManager.runAITool(named: "codemap") }
             Button("Recursive Insight") { workspaceManager.insight.start() }

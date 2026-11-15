@@ -6,7 +6,7 @@ struct LeftPanelView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
 
     var body: some View {
-        LeftPanelContent(store: workspaceManager.features, layout: workspaceManager.layout)
+        LeftPanelContent(store: workspaceManager.flow.features, layout: workspaceManager.layout)
     }
 }
 
@@ -41,17 +41,17 @@ private struct LeftPanelContent: View {
                 if let slug = openFeature, store.feature(slug) != nil {
                     FeatureNavigatorView(store: store, onBack: { openFeature = nil })
                 } else {
-                    IssuesListView(store: store, batch: workspaceManager.bugBatch) { slug in
+                    IssuesListView(store: store, batch: workspaceManager.flow.bugBatch) { slug in
                         store.activeSlug = slug
                         openFeature = slug
-                        workspaceManager.showFeatureContext(slug)
+                        workspaceManager.flow.showFeatureContext(slug)
                         if let feature = store.feature(slug) {
                             workspaceManager.openFile(feature.overviewURL)
                         }
                     }
                 }
                 // The basket stays in view while features are opened and closed (REQ-001).
-                BugBasketView(batch: workspaceManager.bugBatch, assistant: store.assistant)
+                BugBasketView(batch: workspaceManager.flow.bugBatch, assistant: store.assistant)
             } else {
                 FileTreeView()
             }
@@ -178,7 +178,7 @@ struct IssuesListView: View {
 
     private func bugButton(_ bug: BugReport) -> some View {
         Button(action: {
-            workspaceManager.showFeatureContext(nil)
+            workspaceManager.flow.showFeatureContext(nil)
             workspaceManager.openFile(bug.url)
         }) {
             HStack(spacing: 5) {
@@ -347,7 +347,7 @@ struct IssueLinks: View {
         // Every linked issue, not the first few: the title gives way (it truncates), the numbers do not.
         HStack(spacing: 3) {
             ForEach(numbers, id: \.self) { number in
-                Button("#\(number)") { workspaceManager.openGitHubIssue(number) }
+                Button("#\(number)") { workspaceManager.flow.openGitHubIssue(number) }
                     .buttonStyle(.plain)
                     .uiFont(size: 9, weight: .medium, design: .monospaced)
                     .foregroundColor(palette.blue)
@@ -685,12 +685,12 @@ struct IntakeSheet: View {
     init(request: IntakeRequest, workspaceManager: WorkspaceManager) {
         self.request = request
         self.workspaceManager = workspaceManager
-        self.assistant = workspaceManager.features.assistant
+        self.assistant = workspaceManager.flow.features.assistant
         _text = State(initialValue: request.text)
         _attachments = State(initialValue: request.attachments)
         _linkedIssue = State(initialValue: request.linkedIssue)
         if request.kind == .research {
-            _targets = State(initialValue: request.targets ?? workspaceManager.researchDefaultTargets)
+            _targets = State(initialValue: request.targets ?? workspaceManager.flow.researchDefaultTargets)
             _outputPath = State(initialValue: Self.suggestedPath(for: request.text, root: workspaceManager.rootNode?.url))
         }
     }
@@ -729,11 +729,11 @@ struct IntakeSheet: View {
             if kind == .research, let root = workspaceManager.rootNode?.url {
                 ResearchIntakeOptions(root: root, targets: $targets, outputPath: $outputPath, outputPathEdited: $outputPathEdited)
             }
-            if kind == .feature || kind == .quickFeature || kind == .bug, workspaceManager.gitHub.isAvailable {
+            if kind == .feature || kind == .quickFeature || kind == .bug, workspaceManager.flow.gitHub.isAvailable {
                 HStack(spacing: 8) {
                     Button("From GitHub Issue…") {
                         picking = true
-                        if workspaceManager.gitHub.issues.isEmpty { workspaceManager.gitHub.refreshIssues() }
+                        if workspaceManager.flow.gitHub.issues.isEmpty { workspaceManager.flow.gitHub.refreshIssues() }
                     }
                     .popover(isPresented: $picking) { issuePicker }
                     if let linkedIssue {
@@ -790,7 +790,7 @@ struct IntakeSheet: View {
 
     /// The issue or pull request the sheet was opened from: its text becomes the material.
     private func loadRequestedSource() async {
-        guard let client = workspaceManager.gitHub.client else { return }
+        guard let client = workspaceManager.flow.gitHub.client else { return }
         if let number = request.loadIssue {
             loadingSource = true
             defer { loadingSource = false }
@@ -815,11 +815,11 @@ struct IntakeSheet: View {
     private var issuePicker: some View {
         VStack(alignment: .leading, spacing: 6) {
             TextField("Filter issues", text: $issueFilter).textFieldStyle(.roundedBorder)
-            let issues = workspaceManager.gitHub.issues.filter {
+            let issues = workspaceManager.flow.gitHub.issues.filter {
                 issueFilter.isEmpty || "#\($0.number) \($0.title)".localizedCaseInsensitiveContains(issueFilter)
             }
             if issues.isEmpty {
-                Text(workspaceManager.gitHub.loadingIssues ? "Loading…" : "No open issues").uiFont(.caption).foregroundColor(palette.textDim)
+                Text(workspaceManager.flow.gitHub.loadingIssues ? "Loading…" : "No open issues").uiFont(.caption).foregroundColor(palette.textDim)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -843,7 +843,7 @@ struct IntakeSheet: View {
     /// The issue's text and comments become the material; the result links to the issue.
     private func load(_ number: Int) {
         picking = false
-        guard let client = workspaceManager.gitHub.client else { return }
+        guard let client = workspaceManager.flow.gitHub.client else { return }
         Task {
             do {
                 let issue = try await client.issue(number)
@@ -871,7 +871,7 @@ struct IntakeSheet: View {
     }
 
     private var footnote: String {
-        let github = workspaceManager.gitHub.isAvailable
+        let github = workspaceManager.flow.gitHub.isAvailable
         switch kind {
         case .feature: return "Creates docs/features/<name>/ (overview, first requirements and questions, your text as a source)" + (github ? " and a GitHub issue." : ". Turn on the GitHub integration to also file an issue.")
         case .quickFeature: return "Creates a one-page feature specification with analysis and discussion, without question rounds" + (github ? " and a GitHub issue." : ".")
@@ -932,7 +932,7 @@ struct IntakeSheet: View {
                 return
             }
             dismiss()
-            workspaceManager.intakeFinished(kind, outcome: outcome)
+            workspaceManager.flow.intakeFinished(kind, outcome: outcome)
         }
     }
 }

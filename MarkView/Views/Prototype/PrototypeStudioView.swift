@@ -183,7 +183,7 @@ struct PrototypeStudioView: View {
             }
             .controlSize(.small).fixedSize()
             .help("Copy \(PrototypeReference.string(slug: session.slug)) — for an AI agent with access to this project; always resolves to the latest saved version")
-            Button { workspaceManager.openHTMLInBrowser(session.siteIndex) } label: {
+            Button { workspaceManager.browser.openHTML(session.siteIndex) } label: {
                 Image(systemName: "globe")
             }
             .buttonStyle(.plain).foregroundColor(palette.textDim).disabled(!session.hasSite)

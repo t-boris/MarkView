@@ -27,6 +27,8 @@ final class StubProjectContext: ProjectProviding {
     func relativePath(of url: URL) -> String { url.path }
     func markdownFiles(in folder: URL) -> [URL] { [] }
     func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
+    func refreshFileTree() {}
+    func containerRoot(for url: URL) -> URL? { root }
 }
 
 @MainActor

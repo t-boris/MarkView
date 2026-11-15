@@ -25,6 +25,8 @@ enum DocumentTranslatorChecks {
         func relativePath(of url: URL) -> String { url.path }
         func markdownFiles(in folder: URL) -> [URL] { [] }
         func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
+        func refreshFileTree() {}
+        func containerRoot(for url: URL) -> URL? { root }
     }
 
     /// The assistant of a check: what each call receives, and what it answers.

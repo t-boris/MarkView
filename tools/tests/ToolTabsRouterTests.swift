@@ -41,6 +41,8 @@ enum ToolTabsRouterChecks {
         }
         func markdownFiles(in folder: URL) -> [URL] { [] }
         func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
+        func refreshFileTree() {}
+        func containerRoot(for url: URL) -> URL? { root }
     }
 
     @MainActor
@@ -57,6 +59,7 @@ enum ToolTabsRouterChecks {
             prompts.append((prompt, submit))
             return nil
         }
+        func sendToAssistant(submit: Bool, to terminal: TerminalSession?, promptFor: (TerminalSession) -> String?) -> TerminalSession? { nil }
     }
 
     @MainActor
@@ -80,7 +83,7 @@ enum ToolTabsRouterChecks {
         let project: FakeProject
         let window = FakeWindow()
         let assistants = FakeAssistants()
-        let tabs = TabsController(dialogs: TabDialogs(askToSave: { _, _ in .cancel }, reportFailedSave: { _ in }, offerDefaultApp: { _, _ in false }))
+        let tabs = TabsController(dialogs: TabDialogs(askToSave: { _, _ in .cancel }, confirmSave: { _, _ in false }, reportFailedSave: { _ in }, offerDefaultApp: { _, _ in false }))
         let layout = PanelLayout(defaults: UserDefaults(suiteName: "tool-tabs-\(UUID().uuidString)")!)
         let chrome = WindowChrome(defaults: UserDefaults(suiteName: "tool-tabs-\(UUID().uuidString)")!)
         let requests = WindowRequests()

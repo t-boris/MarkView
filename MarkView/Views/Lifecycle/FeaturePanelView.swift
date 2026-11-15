@@ -863,11 +863,11 @@ struct BugPanelView: View {
                 FlowButtons {
                     if bug.readyToFix && bug.status == "open" {
                         SmallButton(title: "Confirm handoff", icon: "checkmark.circle", prominent: true) {
-                            workspaceManager.fixBugWithAI(bug.url)
+                            workspaceManager.flow.fixBugWithAI(bug.url)
                         }
                         .help("Confirm the AI's readiness proposal and hand this bug to implementation")
                     }
-                    SmallButton(title: "Fix with AI", icon: "hammer", prominent: true) { workspaceManager.fixBugWithAI(bug.url) }
+                    SmallButton(title: "Fix with AI", icon: "hammer", prominent: true) { workspaceManager.flow.fixBugWithAI(bug.url) }
                         .help("The report goes to the assistant in the Terminal tab: reproduce, find the root cause, fix, verify. Status becomes Fixing.")
                     SmallButton(title: "Investigate", icon: "magnifyingglass") { Task { await assistant.investigateBug(bug.url) } }
                         .disabled(busy)
@@ -1608,7 +1608,7 @@ struct BuildStageView: View {
             HStack {
                 Text("Hand the specification to the AI terminal to implement.").uiFont(size: 10).foregroundColor(palette.textDim)
                 Spacer()
-                SmallButton(title: "Implement with AI", icon: "hammer") { workspaceManager.implementWithAI(feature.folder) }
+                SmallButton(title: "Implement with AI", icon: "hammer") { workspaceManager.flow.implementWithAI(feature.folder) }
             }
             let unapproved = feature.activeRequirements.filter { ["draft", "review"].contains($0.status) }
             if !unapproved.isEmpty {

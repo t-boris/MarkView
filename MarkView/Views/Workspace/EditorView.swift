@@ -969,7 +969,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
     func bridge(_ bridge: WebViewBridge, didRequestFeatureAction action: String, text: String, question: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.runFeatureAction(action, text: text, question: question)
+            self.parent.workspaceManager.flow.runFeatureAction(action, text: text, question: question)
         }
     }
 

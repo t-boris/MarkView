@@ -34,6 +34,8 @@ enum FileOperationsChecks {
         func relativePath(of url: URL) -> String { url.path }
         func markdownFiles(in folder: URL) -> [URL] { [] }
         func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
+        func refreshFileTree() {}
+        func containerRoot(for url: URL) -> URL? { root }
     }
 
     /// The Trash of a check: a folder of its own that receives what the controller trashes, so no file reaches the person's Trash.

@@ -174,7 +174,7 @@ struct BrowserTabView: View {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let name = input.stringValue.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        let taken = workspaceManager.browserSessions.filter { $0 !== session }.map { $0.agentName.lowercased() }
+        let taken = workspaceManager.browser.sessions.filter { $0 !== session }.map { $0.agentName.lowercased() }
         session.agentName = taken.contains(name.lowercased()) ? name + " 2" : name
     }
 
@@ -332,7 +332,7 @@ struct BrowserTabView: View {
             Text("Which app should be previewed?").uiFont(size: 13, weight: .semibold).foregroundColor(palette.text)
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(targets, id: \.folder) { target in
-                    Button { session.startWebApp?(target) } label: {
+                    Button { session.host?.browserSession(session, startWebApp: target) } label: {
                         HStack {
                             Text(target.label).uiFont(size: 12, weight: .medium)
                             Spacer(minLength: 16)
@@ -354,22 +354,22 @@ struct BrowserTabView: View {
                 Text("An Electron app: only its web part runs here, Electron itself is not started.")
                     .uiFont(size: 11).foregroundColor(palette.textDim).multilineTextAlignment(.center)
             }
-            if started { Button("Show Terminal") { session.showTerminal?() } }
+            if started { Button("Show Terminal") { session.host?.browserSessionShowTerminal(session) } }
         case .timedOut(let target):
             Image(systemName: "exclamationmark.triangle").uiFont(size: 24).foregroundColor(palette.orange)
             Text("\(target.label) did not answer yet").uiFont(size: 13, weight: .semibold).foregroundColor(palette.text)
             Text("Check the dev server's terminal for errors, or type its address above.")
                 .uiFont(size: 11).foregroundColor(palette.textDim)
             HStack {
-                Button("Show Terminal") { session.showTerminal?() }
-                Button("Try Again") { session.startWebApp?(target) }
+                Button("Show Terminal") { session.host?.browserSessionShowTerminal(session) }
+                Button("Try Again") { session.host?.browserSession(session, startWebApp: target) }
             }
         case .portInUse(let target, let port):
             Image(systemName: "exclamationmark.triangle").uiFont(size: 24).foregroundColor(palette.orange)
             Text("Port \(port) is already in use").uiFont(size: 13, weight: .semibold).foregroundColor(palette.text)
             Text("Stop the other server or choose a free port, then try again.")
                 .uiFont(size: 11).foregroundColor(palette.textDim)
-            Button("Try Again") { session.startWebApp?(target) }
+            Button("Try Again") { session.host?.browserSession(session, startWebApp: target) }
         case .noApp:
             Image(systemName: "globe").uiFont(size: 26).foregroundColor(palette.textDim)
             Text("No web app found in this project").uiFont(size: 13, weight: .semibold).foregroundColor(palette.text)
@@ -384,7 +384,7 @@ struct BrowserTabView: View {
         Text(error).uiFont(size: 12).foregroundColor(palette.text).multilineTextAlignment(.center)
         HStack {
             Button("Retry") { session.reload() }
-            if session.previewTerminalID != nil { Button("Show Terminal") { session.showTerminal?() } }
+            if session.previewTerminalID != nil { Button("Show Terminal") { session.host?.browserSessionShowTerminal(session) } }
         }
     }
 
@@ -395,7 +395,7 @@ struct BrowserTabView: View {
         Text("localhost:5173 or any site. Selected text or the whole page can be saved as Markdown into the project.")
             .uiFont(size: 11).foregroundColor(palette.textDim).multilineTextAlignment(.center)
         if workspaceManager.rootNode != nil {
-            Button("Preview Web App") { workspaceManager.previewWebApp() }
+            Button("Preview Web App") { workspaceManager.browser.previewWebApp() }
         }
     }
 }

@@ -32,7 +32,7 @@ extension ControlToolRunner {
     /// Start `work` under `key` unless that step is already running. It returns once the assistant shows the step as
     /// running, or it ended.
     private static func start(_ target: Target, key: String, _ work: @escaping @MainActor (Job) async -> String) async throws -> Job {
-        let assistant = target.workspace.features.assistant
+        let assistant = target.workspace.flow.features.assistant
         if assistant.isRunning(key) || jobs[target.id]?[key]?.finished == nil && jobs[target.id]?[key] != nil {
             throw Invalid(message: "\(key) is already running. markview_flow_status { wait_s: 60 } waits for it.")
         }
@@ -61,7 +61,7 @@ extension ControlToolRunner {
         if finished {
             out = job.note
         } else {
-            let assistant = target.workspace.features.assistant
+            let assistant = target.workspace.flow.features.assistant
             let stage = assistant.actions[job.key]?.stage ?? "working"
             let seconds = Int(Date().timeIntervalSince(job.started))
             out = "\(job.key) is still running (\(stage), \(seconds) s). "
@@ -86,7 +86,7 @@ extension ControlToolRunner {
     }
 
     static func feature(_ args: [String: Any], in target: Target) throws -> Feature {
-        let store = target.workspace.features
+        let store = target.workspace.flow.features
         guard store.root != nil else { throw Invalid(message: "Window \(target.shortID) has no project open.") }
         let query = try ProjectAgentTools.text(args, "feature").lowercased()
         let all = store.features
@@ -124,13 +124,13 @@ extension ControlToolRunner {
     }
 
     private static func snapshot(_ target: Target, _ feature: Feature) -> ControlAgentTools.FlowSnapshot {
-        let assistant = target.workspace.features.assistant
+        let assistant = target.workspace.flow.features.assistant
         let requirements = feature.activeRequirements
         let issues = feature.planIssues
         return .init(slug: feature.slug, status: feature.status,
                      running: runningKeys(assistant, slug: feature.slug),
-                     openQuestions: feature.openQuestions.count, understood: feature.discoveryDone, pastExplore: target.workspace.features.isPastExplore(feature),
-                     implementationStarted: target.workspace.features.hasImplementationStarted(feature),
+                     openQuestions: feature.openQuestions.count, understood: feature.discoveryDone, pastExplore: target.workspace.flow.features.isPastExplore(feature),
+                     implementationStarted: target.workspace.flow.features.hasImplementationStarted(feature),
                      requirements: requirements.count, draftRequirements: requirements.filter { $0.status == "draft" }.count,
                      openFindings: openFindings(feature).count, planIssues: issues.count,
                      issuesFiled: issues.filter { $0.github != nil }.count, gitHubReady: assistant.gitHubClient() != nil)
@@ -151,13 +151,13 @@ extension ControlToolRunner {
 
     /// The feature as the agent needs to see it: where it stands, what is open, what to do next.
     static func describe(_ target: Target, _ slug: String) -> String {
-        guard let feature = target.workspace.features.feature(slug) else { return "Feature \(slug) is gone." }
+        guard let feature = target.workspace.flow.features.feature(slug) else { return "Feature \(slug) is gone." }
         let snap = snapshot(target, feature)
         var out = "\(feature.slug) — \(feature.title)\n"
         out += "Status: \(feature.status) · readiness \(feature.readiness)% · requirements \(snap.requirements) (\(snap.draftRequirements) draft)"
         out += " · findings open \(snap.openFindings) · plan \(snap.planIssues) issue(s), \(snap.issuesFiled) filed\n"
         if !snap.running.isEmpty {
-            let assistant = target.workspace.features.assistant
+            let assistant = target.workspace.flow.features.assistant
             let labels = snap.running.map { key -> String in
                 guard let action = assistant.actions[key] else { return key }
                 return "\(key) (\(action.stage), \(Int(Date().timeIntervalSince(action.started))) s)"
@@ -182,7 +182,7 @@ extension ControlToolRunner {
 
     static func flowStatus(_ target: Target, _ args: [String: Any]) async throws -> Reply {
         let workspace = target.workspace
-        let store = workspace.features
+        let store = workspace.flow.features
         guard store.root != nil else { throw Invalid(message: "Window \(target.shortID) has no project open. markview_open_project first.") }
         let slug = try ProjectAgentTools.text(args, "feature").isEmpty ? nil : feature(args, in: target).slug
         let waitSeconds = ControlAgentTools.seconds(args["wait_s"], default: 0)
@@ -206,22 +206,22 @@ extension ControlToolRunner {
 
     static func flowNew(_ target: Target, _ args: [String: Any]) async throws -> Reply {
         let workspace = target.workspace
-        guard workspace.features.root != nil else { throw Invalid(message: "Window \(target.shortID) has no project open. markview_open_project first.") }
+        guard workspace.flow.features.root != nil else { throw Invalid(message: "Window \(target.shortID) has no project open. markview_open_project first.") }
         let idea = try ProjectAgentTools.text(args, "idea", required: true)
         let quick = args["quick"] as? Bool == true
-        let assistant = workspace.features.assistant
+        let assistant = workspace.flow.features.assistant
         let kind: IntakeKind = quick ? .quickFeature : .feature
         let job = try await start(target, key: quick ? "intake:quick-feature" : "intake:feature") { job in
             let outcome = quick ? await assistant.newQuickFeature(from: idea, attachments: [])
                                 : await assistant.newFeature(from: idea, attachments: [])
             guard let outcome else { return "The assistant did not write the feature: \(assistant.error ?? "no answer.")" }
-            workspace.intakeFinished(kind, outcome: outcome)
+            workspace.flow.intakeFinished(kind, outcome: outcome)
             job.slug = outcome.feature
             return "Created feature \(outcome.feature ?? "?")."
         }
         let reply = await settle(target, job, seconds: ControlAgentTools.seconds(args["wait_s"]), slug: nil)
         // A finished intake made a feature: show where it stands.
-        if job.finished != nil, let slug = job.slug, workspace.features.feature(slug) != nil {
+        if job.finished != nil, let slug = job.slug, workspace.flow.features.feature(slug) != nil {
             return .init(text: reply.text + "\n\n" + describe(target, slug))
         }
         return reply
@@ -278,7 +278,7 @@ extension ControlToolRunner {
         }
         guard !given.isEmpty else { throw Invalid(message: "Give `answers` or `all`.\n\n" + describe(target, slug)) }
         let answers = open.compactMap { given[$0.id] }
-        let assistant = target.workspace.features.assistant
+        let assistant = target.workspace.flow.features.assistant
         let next = args["next"] as? Bool ?? true
         let job = try await start(target, key: "answer:" + slug) { _ in
             await assistant.answerBatch(slug, answers: answers, next: next)
@@ -295,7 +295,7 @@ extension ControlToolRunner {
         }
         let feature = try feature(args, in: target)
         let slug = feature.slug
-        let store = target.workspace.features
+        let store = target.workspace.flow.features
         let assistant = store.assistant
         let wait = ControlAgentTools.seconds(args["wait_s"])
         if step.needsPerson { try requirePerson(args, "“\(step.rawValue)”") }
@@ -387,13 +387,13 @@ extension ControlToolRunner {
     static func flowImplement(_ target: Target, _ args: [String: Any], caller: Caller) async throws -> Reply {
         try requirePerson(args, "Starting an implementation")
         let feature = try feature(args, in: target)
-        guard target.workspace.features.isPastExplore(feature) else {
+        guard target.workspace.flow.features.isPastExplore(feature) else {
             throw Invalid(message: "\(feature.slug) is still in Explore (\(feature.status)). Finish discovery and review it first.\n\n" + describe(target, feature.slug))
         }
         let workspace = target.workspace
         let session = try await workTerminal(target, args, caller: caller)
         let done = DefinitionOfDone.load(root: workspace.project.projectFolder)
-        workspace.startImplementation(feature.folder, done: done, in: session)
+        workspace.flow.startImplementation(feature.folder, done: done, in: session)
         lastSent[session.id] = Date()
         let id = ControlAgentTools.shortID(session.id.uuidString)
         var text = "Gave \(feature.slug) to \(session.profile.title) in terminal \(id) as a goal with the project's definition of done; it is pasted once the agent is ready.\n"
@@ -405,21 +405,21 @@ extension ControlToolRunner {
     static func flowFixBug(_ target: Target, _ args: [String: Any], caller: Caller) async throws -> Reply {
         try requirePerson(args, "Fixing a bug with an agent")
         let key = try ProjectAgentTools.text(args, "bug", required: true)
-        let store = target.workspace.features
+        let store = target.workspace.flow.features
         guard let bug = store.bugs.first(where: { $0.key.caseInsensitiveCompare(key) == .orderedSame }) else {
             var message = "No bug report “\(key)”."
             if !store.bugs.isEmpty { message += " Bugs: \(store.bugs.prefix(20).map(\.key).joined(separator: ", "))." }
             throw Invalid(message: message)
         }
         let session = try await workTerminal(target, args, caller: caller)
-        target.workspace.fixBugWithAI(bug.url, in: session)
+        target.workspace.flow.fixBugWithAI(bug.url, in: session)
         lastSent[session.id] = Date()
         let id = ControlAgentTools.shortID(session.id.uuidString)
         return .init(text: "Gave \(bug.key) (\(bug.title)) to \(session.profile.title) in terminal \(id); the report is marked fixing. Follow it with markview_agent_wait { terminal: \"\(id)\" }.")
     }
 
     static func flowStop(_ target: Target, _ args: [String: Any]) throws -> Reply {
-        let assistant = target.workspace.features.assistant
+        let assistant = target.workspace.flow.features.assistant
         let slug = try ProjectAgentTools.text(args, "feature").isEmpty ? nil : feature(args, in: target).slug
         let keys = runningKeys(assistant, slug: slug)
         guard !keys.isEmpty else {

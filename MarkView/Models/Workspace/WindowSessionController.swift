@@ -136,6 +136,10 @@ final class WindowSessionController {
                 workspace?.project.close()
                 // So do the code analysis, the X-Ray scans and the AI answers about code that it started (AR-14 step 11).
                 workspace?.codeXRay.close()
+                // And the feature flow's: the GitHub setting is no longer watched and its tasks stop (AR-14 step 9).
+                workspace?.flow.close()
+                // And the browser's: the look for a web app and the wait for a dev server stop (AR-14 step 9).
+                workspace?.browser.close()
                 // The answers and records the tools started (Discussions, UI Studio) stop too (AR-14 step 10).
                 workspace?.toolTabs.close()
                 self?.remove(id)

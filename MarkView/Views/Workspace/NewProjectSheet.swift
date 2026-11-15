@@ -208,7 +208,8 @@ struct NewProjectSheet: View {
     private func create() {
         Task {
             guard let slug = flow.draft?.slug, let url = await flow.create() else { return }
-            workspaceManager.openCreatedProject(url, specification: slug)
+            let features = workspaceManager.flow
+            workspaceManager.openFolder(url) { features.showCreatedProject(url, specification: slug) }
         }
     }
 
@@ -236,7 +237,7 @@ struct NewProjectSheet: View {
                     let publisher = GitHubPublisher(root: url) { [weak manager] slug in
                         // nil from activateGitHub is success: only a missing window is an error here.
                         guard let manager else { return "The window was closed." }
-                        return await manager.activateGitHub(expecting: slug, in: url)
+                        return await manager.flow.activateGitHub(expecting: slug, in: url)
                     }
                     self.publisher = publisher
                     Task { await publisher.prepare() }
@@ -579,7 +580,7 @@ struct GitHubPublishSheet: View {
         _publisher = StateObject(wrappedValue: GitHubPublisher(root: root) { [weak workspaceManager] slug in
             // nil from activateGitHub is success: only a missing window is an error here.
             guard let workspaceManager else { return "The window was closed." }
-            return await workspaceManager.activateGitHub(expecting: slug, in: root)
+            return await workspaceManager.flow.activateGitHub(expecting: slug, in: root)
         })
     }
 

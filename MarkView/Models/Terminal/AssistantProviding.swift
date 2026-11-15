@@ -28,4 +28,8 @@ protocol AssistantPrompting: AnyObject {
     /// Types `prompt` at the assistant's input line; `submit` presses Enter. Nil when no assistant could take it.
     @discardableResult
     func sendToAssistant(_ prompt: String, submit: Bool) -> TerminalSession?
+    /// Builds the prompt only after the receiving terminal is chosen (`terminal`, else the usual one); nil when no terminal could be
+    /// opened or `promptFor` gave none.
+    @discardableResult
+    func sendToAssistant(submit: Bool, to terminal: TerminalSession?, promptFor: (TerminalSession) -> String?) -> TerminalSession?
 }
