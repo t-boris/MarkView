@@ -227,7 +227,8 @@
         "MarkView/Models/Architecture/XRayContent.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/ChangeDiffTests.swift",
-        "tools/tests/change-diff-tests.sh"
+        "tools/tests/change-diff-tests.sh",
+        "MarkView/Models/AI/OutputLanguage.swift"
       ]
     },
     {

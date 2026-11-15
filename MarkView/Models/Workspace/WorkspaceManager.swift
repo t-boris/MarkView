@@ -587,7 +587,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         guard project.hasWorkspace else { return false }
         // A pull request's copy of a project file (MarkView's cache, opened from the PR
         // X-Ray) belongs to the open project: it must not turn it into a single-file workspace.
-        if codeXRay.architecture.prRelativePath(for: url) != nil { return true }
+        if codeXRay.architecture.review.prRelativePath(for: url) != nil { return true }
         return project.contains(url)
     }
 
@@ -1369,7 +1369,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     private func setUpGitHub(at root: URL) {
         gitHubRoot = root
         gitClient.onBranch = { [weak self] branch in self?.gitHub.branchChanged(branch) }
-        gitHub.onRepoChange = { [weak self] repo in self?.codeXRay.architecture.gitHubRepo = repo }
+        gitHub.onRepoChange = { [weak self] repo in self?.codeXRay.architecture.review.gitHubRepo = repo }
         gitHub.onPoll = { [weak self] client in self?.features.syncLifecycle(with: client) }
         if gitHubSettingObserver == nil {
             gitHubSettingObserver = NotificationCenter.default.addObserver(

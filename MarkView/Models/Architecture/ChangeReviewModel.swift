@@ -195,3 +195,34 @@ struct PRFileNotes: Encodable {
     /// The change removes the file: all of its lines (shown as it was).
     var deletedLines: Int?
 }
+
+extension PROverlay {
+    /// The review's findings and the analysis's checks as a task list, to paste into the AI terminal or the clipboard. Nil when
+    /// there is nothing to do.
+    func tasksText() -> String? {
+        var bugs: [String] = [], warnings: [String] = [], notes: [String] = []
+        for file in files {
+            for finding in file.findings ?? [] where finding.dismissed != true {
+                let line = "- [ ] \(file.path)\(finding.line > 0 ? ":\(finding.line)" : "") — \(finding.message)"
+                switch finding.severity {
+                case "bug": bugs.append(line)
+                case "warning": warnings.append(line)
+                default: notes.append(line)
+                }
+            }
+            if (file.findings ?? []).isEmpty, let verdict = file.verdict, verdict != "ok", let summary = file.summary {
+                let line = "- [ ] \(file.path) — \(summary)"
+                if verdict == "bug" { bugs.append(line) } else { warnings.append(line) }
+            }
+        }
+        var checks: [String] = []
+        if let analysis {
+            checks = analysis.checks.map { "- [ ] \($0.path)\($0.line > 0 ? ":\($0.line)" : "") — \($0.note)" }
+                + analysis.risks.map { "- [ ] Risk: \($0)" }
+        }
+        let sections = [("Bugs", bugs), ("Concerns", warnings), ("Notes", notes), ("To check", checks)].filter { !$0.1.isEmpty }
+        guard !sections.isEmpty else { return nil }
+        return "Tasks from the review of \(source.title). Check each one; fix it, or say why it is not a real problem.\n\n"
+            + sections.map { "## \($0.0)\n" + $0.1.joined(separator: "\n") }.joined(separator: "\n\n")
+    }
+}

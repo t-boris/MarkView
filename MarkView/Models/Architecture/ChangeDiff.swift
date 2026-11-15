@@ -284,4 +284,69 @@ enum ChangeDiff {
         }
         return out.joined(separator: "\n")
     }
+
+    /// What the code viewer shows of a change inside `file`: its logical changes placed at their current lines, the lines still
+    /// added, the points where text was removed, and whether the file moved on since the diff was read (`remapped`). `overlay`
+    /// carries the notes (see `ChangeReviewStore.withChangeNotes`); `focus` is set for a file opened from the Pull request X-Ray.
+    static func fileNotes(overlay: PROverlay, file: PRFileChange, diff: String, content: String, focus: Bool) -> PRFileNotes {
+        if file.deleted == true {
+            // The whole file goes: every change is about the old text, from its first line.
+            let lines = diff.split(separator: "\n", omittingEmptySubsequences: false)
+            let body = lines.drop { !$0.hasPrefix("@@") }   // skip the file header ("--- a/…")
+            let removedLines = body.filter { $0.hasPrefix("-") }.map(String.init)
+            let count = max(content.editorLines.count, 1)
+            let changes = (file.changes ?? []).map {
+                PRFileNotes.Change(title: $0.title, start: 1, end: count, kind: $0.kind ?? "removed", why: $0.why,
+                                   diff: Array(removedLines.prefix(60)))
+            }
+            return PRFileNotes(title: overlay.source.title, summary: file.changeSummary, explaining: file.explaining == true,
+                               explained: file.changeSummary != nil, additions: 0, deletions: file.deletions,
+                               changes: changes, added: [], removed: [], focus: focus,
+                               remapped: false, diffKey: String(ContentHash.of(diff).prefix(12)),
+                               reviewOutdated: overlay.reviewOutdated == true, deletedLines: count)
+        }
+        let map = ChangeDiff.lineMap(diff: diff, current: content)
+        // Walk the diff once: added runs, removal points, and each line's new-file position.
+        var added: [[Int]] = []
+        var removed: [[Int]] = []
+        var lines: [(position: Int, text: String)] = []
+        var newLine = 0
+        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("@@") {
+                if let plus = line.split(separator: " ").first(where: { $0.hasPrefix("+") }) {
+                    newLine = Int(plus.dropFirst().split(separator: ",").first ?? "0") ?? 0
+                }
+            } else if line.hasPrefix("+") {
+                if let last = added.last, last[1] == newLine - 1 { added[added.count - 1][1] = newLine } else { added.append([newLine, newLine]) }
+                lines.append((newLine, String(line)))
+                newLine += 1
+            } else if line.hasPrefix("-") {
+                let at = max(newLine, 1)
+                if let last = removed.last, last[0] == at { removed[removed.count - 1][1] += 1 } else { removed.append([at, 1]) }
+                lines.append((at, String(line)))
+            } else if !line.hasPrefix("\\") {
+                newLine += 1
+            }
+        }
+        let changes = (file.changes ?? []).map { note -> PRFileNotes.Change in
+            let own = lines.filter { $0.position >= note.start && $0.position <= note.end }.map(\.text)
+            let start = map.line(note.start)
+            return PRFileNotes.Change(title: note.title, start: start, end: max(start, map.line(note.end)),
+                                      kind: note.kind, why: note.why, diff: Array(own.prefix(60)))
+        }
+        // Added lines still in the file, at their current lines; removal points shifted along.
+        var current: [[Int]] = []
+        for range in added {
+            for position in range[0]...range[1] where map.exists(position) {
+                let line = map.line(position)
+                if let last = current.last, last[1] == line - 1 { current[current.count - 1][1] = line } else { current.append([line, line]) }
+            }
+        }
+        return PRFileNotes(title: overlay.source.title, summary: file.changeSummary, explaining: file.explaining == true,
+                           explained: file.changeSummary != nil, additions: file.additions, deletions: file.deletions,
+                           changes: changes, added: current, removed: removed.map { [map.line($0[0]), $0[1]] },
+                           focus: focus, remapped: !map.inSync,
+                           diffKey: String(ContentHash.of(diff).prefix(12)), reviewOutdated: overlay.reviewOutdated == true,
+                           deletedLines: nil)
+    }
 }
