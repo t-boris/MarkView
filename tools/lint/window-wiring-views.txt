@@ -1,0 +1,3 @@
+# Views that assign a closure or `self` to a part of the window's manager (AR-17). `<count> <path>`; a ratchet that only falls.
+# The model publishes what happened and the view subscribes, or the model is given its collaborator at construction.
+2 MarkView/Views/Workspace/EditorView.swift

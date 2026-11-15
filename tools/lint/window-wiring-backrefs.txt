@@ -1,0 +1,8 @@
+# Models that hold the window's whole WorkspaceManager, and back-references set after construction (`x.host = self`) (AR-17).
+# `<count> <path>`; a ratchet that only falls. A feature holds a narrow host protocol that WindowComposition passes at init;
+# run tools/lint/architecture-lint.sh --tighten after removing a site.
+1 MarkView/Models/AgentTools/ControlToolRunner.swift
+1 MarkView/Models/Browser/BrowserControlServer.swift
+2 MarkView/Models/Browser/BrowserHost.swift
+2 MarkView/Models/Workspace/WindowSessionController.swift
+2 MarkView/Models/Workspace/WorkspaceManager.swift

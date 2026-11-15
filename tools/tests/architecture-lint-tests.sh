@@ -36,6 +36,16 @@ SWIFT = {
     "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift": "// the one writer and the one place that names the folders\nlet n = Darwin.write(fd, base, count)\nlet t = try data.write(to: tmp)\nlet f = \".dde\"\nlet p = \".markview-\" + kind\n",
     "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift": "// the one place that makes a Logger\nlet l = Logger(subsystem: \"com.markview.app\", category: \"x\")\n",
     "MarkView/Models/Workspace/Export.swift": "// A comment about .write(to: is not a site\nfunc export() throws { try png.write(to: url) }\n",
+    # What the window-wiring rule lets through: closures that are given at construction (`let`, a value type's field), a private or static
+    # closure, a computed property, a narrow host protocol and a weak reference to it, and a view that only reads the manager.
+    "MarkView/Models/Workspace/Wired.swift": (
+        "@MainActor\nprotocol WiredHost: AnyObject {\n    var name: String { get }\n    func open(_ url: URL)\n}\n"
+        "final class Wired {\n    private weak var host: (any WiredHost)?\n    let onDone: () -> Void\n    private var retry: (() -> Void)?\n"
+        "    static var knob: (Int) -> Int = { $0 }\n    var doubled: (Int) -> Int { { $0 * 2 } }\n"
+        "    init(host: any WiredHost, onDone: @escaping () -> Void) { self.host = host; self.onDone = onDone }\n}\n"
+        "struct Dialogs {\n    var ask: (String) -> Bool\n}\n"
+    ),
+    "MarkView/Views/Workspace/Reader.swift": "struct Reader {\n    func f(manager: WorkspaceManager) { let n = manager.flow.features; manager.layout.area = .files; _ = n }\n}\n",
 }
 
 def write(root, relative, text):
@@ -92,6 +102,9 @@ def fixture():
     write(root, "tools/lint/file-size-allowlist.txt", "# no file is over the limit\n")
     write(root, "tools/lint/project-paths-allowlist.txt", "# none outside ProjectPaths\n")
     write(root, "tools/lint/app-log-allowlist.txt", "# none outside AppLog\n")
+    write(root, "tools/lint/window-wiring-hooks.txt", "# no model has a hook that another object assigns\n")
+    write(root, "tools/lint/window-wiring-backrefs.txt", "# no model holds the window's manager\n")
+    write(root, "tools/lint/window-wiring-views.txt", "# no view writes a hook into a model\n")
     return root
 
 def run(root, *args):
@@ -115,6 +128,9 @@ try:
           and "atomic-write: 1 in 1 file(s), 1 allowed" in out,
           "a clean tree passes and reports the ratchet numbers")
     check("Subprocess.swift" not in out and "AIOperation.swift" not in out, "Subprocess.swift and AIOperation.swift are the allowed homes, not counted")
+    check("window-wiring (hooks): 0 in 0 file(s), 0 allowed" in out and "window-wiring (back-references): 0 in 0 file(s), 0 allowed" in out
+          and "window-wiring (views): 0 in 0 file(s), 0 allowed" in out,
+          "a clean tree reports the three window-wiring counts: a let closure, a struct's closure, a private or static var, a computed property and a host protocol are not wiring")
     check("assistant-switch: 0 in 0 file(s), 0 allowed" in out,
           "the providers, strings, paths, member names and trailing comments do not count as naming an assistant")
 
@@ -291,6 +307,48 @@ try:
     check(code == 1 and "[app-log] MarkView/Models/Workspace/Noisy.swift: 2 NSLog or Logger site(s), 0 allowed (new sites)" in out,
           "a new NSLog or Logger(subsystem:) fails and is named, comments are not counted")
     check("AppLog.swift" not in out, "AppLog's own file is the allowed home, not counted")
+    # --- window-wiring (AR-17)
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Hooked.swift", (
+        "final class Hooked {\n    var onTimer: () -> Void = {}\n    var onBranch: ((String) -> Void)?\n    var openFile: (@MainActor (URL, Int?) -> Void)?\n}\n"
+        "protocol Link: AnyObject {\n    var onOutput: ((Data) -> Void)? { get set }\n}\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[window-wiring] MarkView/Models/Workspace/Hooked.swift: 4 closure wiring propert(ies)" in out and "0 allowed (new sites)" in out,
+          "a `var` of function type in a class, and a settable one in a protocol, fail and are counted per declaration")
+    write(root, "tools/lint/window-wiring-hooks.txt", "4 MarkView/Models/Workspace/Hooked.swift\n")
+    code, out = run(root)
+    check(code == 0 and "window-wiring (hooks): 4 in 1 file(s), 4 allowed" in out, "a listed hook passes while the count does not rise")
+    write(root, "MarkView/Models/Workspace/Hooked.swift", "final class Hooked {\n    let onTimer: () -> Void\n    init(onTimer: @escaping () -> Void) { self.onTimer = onTimer }\n}\n")
+    code, out = run(root)
+    check(code == 1 and "[window-wiring] MarkView/Models/Workspace/Hooked.swift: 0 closure wiring propert(ies)" in out and "the count fell" in out,
+          "a hook turned into an initializer parameter fails until the allowance is lowered")
+    code, out = run(root, "--tighten")
+    check(code == 0 and "Hooked.swift" not in (root / "tools/lint/window-wiring-hooks.txt").read_text(), "--tighten drops the converted hook from the list")
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Holder.swift", (
+        "final class Holder {\n    weak var workspace: WorkspaceManager?\n    let tabs: TabsController\n"
+        "    init(tabs: TabsController) { self.tabs = tabs }\n}\n"
+        "@MainActor\nprotocol NeedsWindow: AnyObject {\n    var controlWorkspace: WorkspaceManager { get }\n}\n"
+        "final class Maker {\n    func make(session: Session, task: Task?) {\n        session.host = self\n        task?.presenter = self\n    }\n}\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[window-wiring] MarkView/Models/Workspace/Holder.swift: 4 reference(s) to the window's WorkspaceManager" in out and "0 allowed (new sites)" in out,
+          "a property of type WorkspaceManager, a protocol that returns it and `x.host = self` after construction fail and are counted")
+    root = fresh()
+    write(root, "MarkView/Views/Workspace/Writer.swift", (
+        "struct Writer {\n    func f(workspaceManager: WorkspaceManager, window: NSWindow) {\n"
+        "        workspaceManager.research.pdfExporter = { [weak self] text, name in self?.export(text, name) ?? false }\n"
+        "        workspaceManager.insight.page = self\n        workspaceManager.hostWindow = window\n        let n = workspaceManager.flow.features\n    }\n}\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[window-wiring] MarkView/Views/Workspace/Writer.swift: 2 hook(s) a view writes into the window's models" in out and "0 allowed (new sites)" in out,
+          "a view that assigns a closure or itself to a part of the manager fails; storing a window or reading the manager does not count")
+    root = fresh()
+    (root / "tools/lint/window-wiring-hooks.txt").unlink()
+    code, out = run(root)
+    check(code == 1 and "[window-wiring] tools/lint/window-wiring-hooks.txt is missing" in out, "a missing window-wiring allow-list fails")
+
     # --- bridge-no-bypass
     root = fresh()
     write(root, "MarkView/Resources/Editor/js/mv-kit.js", "webkit.messageHandlers[name].postMessage(message);\n")
