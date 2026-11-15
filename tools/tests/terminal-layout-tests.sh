@@ -14,6 +14,6 @@ source = pathlib.Path('MarkView/Models/DocumentState.swift').read_text()
 (out / 'fixture').mkdir()
 PY
 swiftc -module-cache-path /private/tmp/markview-swift-cache -o "$out/terminal-layout-tests" \
-    MarkView/Models/AppFontScale.swift MarkView/Models/TerminalLink.swift \
+    MarkView/Models/AppFontScale.swift MarkView/Views/AppFontScaleView.swift MarkView/Models/TerminalLink.swift \
     MarkView/Models/Remote/RemoteConnectionState.swift MarkView/Models/TerminalSession.swift MarkView/Models/TerminalChildProcess.swift MarkView/Models/TerminalBrowserBridge.swift MarkView/Models/PTYWriter.swift "$out/FileType.swift" MarkView/Models/ArchiveSupport.swift "$out/main.swift"
 "$out/terminal-layout-tests" "${1:-$PWD/MarkView/Resources/Editor/terminal.html}" "$out/fixture"

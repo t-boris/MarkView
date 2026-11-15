@@ -264,13 +264,14 @@ struct TabBarView: View {
 /// What the ‹ › buttons need from the tab strip: whether there is more to see on either side, and a move by a page. It watches the
 /// `NSScrollView` SwiftUI made for the strip (found by `TabStripScrollHook`) and publishes a flag only when it changes, so scrolling
 /// does not redraw the bar on every tick. Main thread only.
+@MainActor
 final class TabStripScroller: ObservableObject {
     enum Side { case left, right }
 
     @Published private(set) var canScrollLeft = false
     @Published private(set) var canScrollRight = false
-    private weak var scrollView: NSScrollView?
-    private var observers: [NSObjectProtocol] = []
+    private nonisolated(unsafe) weak var scrollView: NSScrollView?
+    private nonisolated(unsafe) var observers: [NSObjectProtocol] = []
     /// Empty room after the last tab that does not count as something more to see: the right end is reached when only it is hidden.
     private let endInset: CGFloat
 
@@ -294,12 +295,14 @@ final class TabStripScroller: ObservableObject {
             watched.append((NSView.frameDidChangeNotification, document))
         }
         observers = watched.map { name, view in
-            NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) { [weak self] _ in self?.refresh() }
+            NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.refresh() }
+            }
         }
         refresh()
     }
 
-    func detach() {
+    nonisolated func detach() {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
         scrollView = nil
@@ -375,6 +378,7 @@ private struct TabStripScrollHook: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
+    @MainActor
     final class Coordinator {
         weak var view: NSView?
         var scroller: TabStripScroller?

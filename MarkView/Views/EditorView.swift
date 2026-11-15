@@ -19,7 +19,9 @@ struct EditorView: NSViewRepresentable {
         userController.add(bridge, name: "bridge")
 
         config.userContentController = userController
+        #if DEBUG
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        #endif
         // Data viewers read their file through `markview-data:` (only files open in a data tab).
         let dataFiles = DataFileSchemeHandler()
         dataFiles.isAllowed = { [weak workspaceManager] url in

@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import os
 
 // MARK: - Custom UTType for Markdown
 extension UTType {
@@ -12,17 +13,10 @@ extension UTType {
 class MarkViewApplication: NSApplication {
     /// URLs received via Apple Events before any UI is ready
     static var launchURLs: [URL] = []
+    private static let appLogger = Logger(subsystem: "com.markview.app", category: "app")
 
     private static func debugLog(_ msg: String) {
-        let line = "\(ISO8601DateFormatter().string(from: Date())) [NSApp] \(msg)\n"
-        let path = NSHomeDirectory() + "/markview_debug.log"
-        if let handle = FileHandle(forWritingAtPath: path) {
-            handle.seekToEndOfFile()
-            handle.write(Data(line.utf8))
-            handle.closeFile()
-        } else {
-            try? line.write(toFile: path, atomically: true, encoding: .utf8)
-        }
+        appLogger.debug("[NSApp] \(msg, privacy: .public)")
     }
 
     override init() {
@@ -101,16 +95,10 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
         AgentProcesses.terminateAll()
     }
 
+    private static let delegateLogger = Logger(subsystem: "com.markview.app", category: "app-delegate")
+
     func log(_ msg: String) {
-        let line = "\(ISO8601DateFormatter().string(from: Date())) [AppDelegate] \(msg)\n"
-        let path = NSHomeDirectory() + "/markview_debug.log"
-        if let handle = FileHandle(forWritingAtPath: path) {
-            handle.seekToEndOfFile()
-            handle.write(Data(line.utf8))
-            handle.closeFile()
-        } else {
-            try? line.write(toFile: path, atomically: true, encoding: .utf8)
-        }
+        Self.delegateLogger.debug("[AppDelegate] \(msg, privacy: .public)")
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -239,13 +227,9 @@ struct MarkViewApp: App {
                         Self.enqueueOpen(urls)
                     }
 
-                    appDelegate.log("ContentView onAppear: handler set, starting timer")
-                    // Poll for Finder Quick Action requests
-                    Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-                        Self.checkFinderOpenRequest { urls in
-                            Self.enqueueOpen(urls)
-                        }
-                    }
+                    appDelegate.log("ContentView onAppear: handler set, ensuring poll timer")
+                    // Poll for Finder Quick Action requests via a single app-wide timer (`AR-19`)
+                    Self.ensureFinderOpenPollTimer()
                 }
         } defaultValue: {
             UUID()
@@ -400,23 +384,22 @@ struct MarkViewApp: App {
 
     // MARK: - File Actions
 
+    private static let finderLogger = Logger(subsystem: "com.markview.app", category: "finder")
+
     /// Check if Finder Quick Action wrote a path for us to open
     private static func debugLogStatic(_ msg: String) {
-        let line = "\(ISO8601DateFormatter().string(from: Date())) [Static] \(msg)\n"
-        let path = NSHomeDirectory() + "/markview_debug.log"
-        if let handle = FileHandle(forWritingAtPath: path) {
-            handle.seekToEndOfFile()
-            handle.write(Data(line.utf8))
-            handle.closeFile()
-        } else {
-            try? line.write(toFile: path, atomically: true, encoding: .utf8)
-        }
+        finderLogger.debug("[Static] \(msg, privacy: .public)")
     }
 
     private static func checkFinderOpenRequest(handler: @escaping ([URL]) -> Void) {
-        let path = "/tmp/markview_open_path.txt"
+        // Use the per-user temporary directory and reject symlinks or foreign-owned files (AR-12).
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("markview_open_path.txt")
+        let path = fileURL.path
         let fm = FileManager.default
-        guard fm.fileExists(atPath: path),
+        var st = stat()
+        guard lstat(path, &st) == 0,
+              (st.st_mode & S_IFMT) == S_IFREG,
+              st.st_uid == getuid(),
               let content = try? String(contentsOfFile: path, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
               !content.isEmpty else { return }
 
@@ -424,7 +407,7 @@ struct MarkViewApp: App {
         try? fm.removeItem(atPath: path)
 
         let url = URL(fileURLWithPath: content)
-        debugLogStatic("checkFinderOpenRequest: found \(content), calling handler")
+        debugLogStatic("checkFinderOpenRequest: found \(url.lastPathComponent), calling handler")
         handler([url])
         debugLogStatic("checkFinderOpenRequest: handler called, notification posted")
     }
@@ -440,6 +423,23 @@ struct MarkViewApp: App {
                 activeWorkspace?.openFile(url)
             }
         }
+    }
+
+    /// Single shared timer polling for Finder Quick Action requests so opening additional windows does not stack timers (`AR-19`).
+    private static var finderOpenPollTimer: Timer?
+
+    static func ensureFinderOpenPollTimer() {
+        guard finderOpenPollTimer == nil else { return }
+        finderOpenPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            Self.checkFinderOpenRequest { urls in
+                Self.enqueueOpen(urls)
+            }
+        }
+    }
+
+    static func stopFinderOpenPollTimer() {
+        finderOpenPollTimer?.invalidate()
+        finderOpenPollTimer = nil
     }
 
     /// Pending folder URL for new window to pick up

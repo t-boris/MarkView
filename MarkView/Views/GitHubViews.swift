@@ -138,13 +138,6 @@ struct GitHubTextSheet: View {
 
 // MARK: - Git tab sections
 
-enum GitSection: String, CaseIterable {
-    case changes = "Changes"
-    case pullRequests = "PRs"
-    case issues = "Issues"
-    case actions = "Actions"
-}
-
 /// The section picker under the Git tab's branch header, with the repository picker when the
 /// folder is a fork (origin and upstream).
 struct GitHubSectionPicker: View {

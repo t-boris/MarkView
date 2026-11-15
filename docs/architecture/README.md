@@ -1,7 +1,7 @@
 # MarkView Architecture Documentation
 
-Reverse-engineered from the code at `main` `85b6f8d` (version 2.17.0, 2026-09-26). It is meant for
-engineers and AI agents who need to change MarkView safely. Every module doc cites `path:line`;
+Reverse-engineered from the code at `main` `85b6f8d` (version 2.17.0, 2026-09-26) and updated through version 6.26.0 (2026-11-15, full implementation of [architecture-review-2026-11.md](./architecture-review-2026-11.md)). It is meant for
+engineers and AI agents who need to change MarkView safely. Every module doc cites symbols and `path:line`;
 when code and docs disagree, the code wins. Update the affected doc in the same change.
 
 Project rules (build command, versioning, bridge-change rules) are in [`/CLAUDE.md`](../../CLAUDE.md).
@@ -20,7 +20,7 @@ Feature specs and bug reports produced *by* the app live in [`docs/features`](..
 | 6 | [Security model](./security.md) | Trust boundaries and known weaknesses |
 | 7 | [Concurrency](./concurrency.md) | Threading model, process rules, known main-thread hazards |
 | 8 | [Risks & tech debt](./risks-and-tech-debt.md) | Prioritised register of defects and debt found during the audit |
-| 9 | [Architecture and code review, November 2026](./architecture-review-2026-11.md) | Review of 6.25.0: findings AR-01..AR-49 with severity and effort, target structure, extensibility (registries and data files, no plugins), roadmap, decisions for the owner |
+| 9 | [Architecture and code review, November 2026](./architecture-review-2026-11.md) | Review of 6.25.0 and implementation in 6.26.0: findings AR-01..AR-49 with severity and effort, target structure, extensibility (registries and data files, no plugins), roadmap (Phases 0–7 & Continuous completed), owner decisions (DEC-001..DEC-010) |
 | 10 | [Operations runbook](./operations-runbook.md) | Build, run, debug a hang, logs, reset state, release |
 | 11 | [Glossary](./glossary.md) | Project vocabulary |
 

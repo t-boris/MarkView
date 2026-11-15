@@ -8,6 +8,7 @@ struct GraphCreatorSheet: View {
     var preselectedType: String = "architecture"
 
     @State private var selectedFiles: Set<String> = []
+    @State private var cachedFiles: [String] = []
     @State private var diagramType = "architecture"
     @State private var customPrompt = ""
     @FocusState private var promptFocused: Bool
@@ -46,7 +47,7 @@ struct GraphCreatorSheet: View {
 
                     ScrollView {
                         VStack(alignment: .leading, spacing: 2) {
-                            ForEach(availableFiles(), id: \.self) { file in
+                            ForEach(cachedFiles, id: \.self) { file in
                                 HStack(spacing: 6) {
                                     Image(systemName: selectedFiles.contains(file) ? "checkmark.square.fill" : "square")
                                         .uiFont(size: 11)
@@ -110,12 +111,14 @@ struct GraphCreatorSheet: View {
         .frame(width: 500, height: 550)
         .onAppear {
             diagramType = preselectedType
+            let loaded = availableFiles()
+            cachedFiles = loaded
             // Pre-select current file if one is open
             let wm = workspaceManager
             if wm.activeTabIndex >= 0, wm.activeTabIndex < wm.openTabs.count {
                 let currentFile = wm.openTabs[wm.activeTabIndex].url.lastPathComponent
                 // Only the open document by default: many documents blur the diagram's question.
-                selectedFiles = Set(availableFiles().filter { $0.hasSuffix(currentFile) })
+                selectedFiles = Set(loaded.filter { $0.hasSuffix(currentFile) })
             }
         }
     }
@@ -137,7 +140,7 @@ struct GraphCreatorSheet: View {
     }
 
     private func selectAll() {
-        selectedFiles = Set(availableFiles())
+        selectedFiles = Set(cachedFiles)
     }
 
     private func selectCurrentFile() {

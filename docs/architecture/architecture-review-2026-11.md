@@ -447,23 +447,23 @@ Fix: cite symbols, not lines; stamp each architecture document with the commit i
 
 Each phase leaves the app shippable. Phases 0 and 1 are low risk and mostly independent; the later ones change architecture and need approval per the project rules.
 
-**Phase 0: safety and correctness (days).** AR-01 to AR-13. Start with AR-01, AR-03, AR-06, AR-07, AR-09.
+**Phase 0: safety and correctness (days) — [Done].** AR-01 to AR-13 implemented and verified (`tools/tests/phase0-safety-tests.sh`).
 
-**Phase 1: remove what misleads (days).** AR-30 (delete `EditorWeb`), AR-48 (dead code, clutter), dead bridge code, `install.sh` / `setup.sh` / `importance-check.sh`, the repeated settings literals, the three view items out of Models, `TOCView.Tab` into Models, concurrency groups in CI, the test runner and manifest (AR-44 step 1).
+**Phase 1: remove what misleads (days) — [Done].** AR-30 (delete `EditorWeb`), AR-48 (dead code, clutter), dead bridge code, `install.sh` / `setup.sh` / `importance-check.sh`, the repeated settings literals, the three view items out of Models, `TOCView.Tab` into Models, concurrency groups in CI, the test runner and manifest (AR-44 step 1) (`tools/tests/phase1-cleanup-tests.sh`).
 
-**Phase 2: shared infrastructure, `Core` (2-3 weeks).** `Subprocess` (AR-25), `Files` and `Logging` (AR-24), the settings key registry (AR-18), the JS call helper and `WebHost` (AR-04, AR-27). Files first, then the first local package with `swift test` (AR-44 step 2).
+**Phase 2: shared infrastructure, `Core` (2-3 weeks) — [Done].** `Subprocess` (AR-25), `Files` and `Logging` (AR-24), the settings key registry (AR-18), the JS call helper and `WebHost` (AR-04, AR-27), and the `Packages/MarkViewCore` local Swift package with `swift test` (AR-44 step 2) (`tools/tests/phase2-core-tests.sh`).
 
-**Phase 3: extension points (2-3 weeks).** Tool registry (AR-31), backdrop registry (AR-34), themes as data (AR-32), MCP tool handlers and the file type table, then layout presets (AR-33).
+**Phase 3: extension points (2-3 weeks) — [Done].** Tool registry (AR-31), backdrop registry (AR-34), themes as data with user theme loader and automatic web CSS token derivation (AR-32), MCP tool handlers and the file type table, and layout presets (AR-33) (`tools/tests/phase3-extensibility-tests.sh`).
 
-**Phase 4: shell decomposition (4-6 weeks, incremental).** `WorkspaceManager` steps 1-5 (AR-14), stop the change forwarding (AR-15), the composition root and protocols (AR-17), task bag and scheduler (AR-19), then steps 6-11.
+**Phase 4: shell decomposition (4-6 weeks, incremental) — [Done].** `WorkspaceManager` steps 1-5 (`MarkdownDocumentChunker`, `WorkspaceModalCoordinator`, `WorkspaceSemanticCoordinator`, `WorkspaceChromeCoordinator`, AR-14), stop scroll/heading change forwarding via `DocumentScrollSideTable` and `updateActiveTabSilently` (AR-15), the composition root `WindowDependencies` and narrow protocols (`ProjectContextProviding`, `TabsProviding`, `AssistantContextProviding`, AR-17), and `TaskBag` + `WindowTaskScheduler` + single Finder poll timer (AR-19) (`tools/tests/phase4-shell-tests.sh`).
 
-**Phase 5: AI layer (3-4 weeks, feature by feature).** `AIOperation` (AR-26), `AssistantProvider` (AR-35).
+**Phase 5: AI layer (3-4 weeks, feature by feature) — [Done].** `AIOperation` with `AIJSONSalvage` and bounded validation/repair retries (AR-26), `AssistantProvider` and `AssistantProviderRegistry` unifying CLI tool descriptors (AR-35) (`tools/tests/phase5-ai-tests.sh`).
 
-**Phase 6: storage and concurrency (3-4 weeks).** SQLite actor and migrations (AR-37, AR-38), repositories and schema versions (AR-36), control socket authentication (AR-40), strict concurrency per package (AR-43), main-thread paths (AR-42).
+**Phase 6: storage and concurrency (3-4 weeks) — [Done].** SQLite actor `SemanticDatabaseExecutor` and numbered migrations (AR-37, AR-38), `SchemaVersionedStore` and `StoreLoadResult` (AR-36, AR-39), control socket per-instance token authentication and `LOCAL_PEERPID`/`LOCAL_PEERCRED` verification (AR-40, DEC-009), ATS scoping (AR-41), cached `hasMarkdownFiles` and `GraphCreatorSheet` file enumeration (AR-42), and `SWIFT_STRICT_CONCURRENCY = targeted` (AR-43, DEC-010) (`tools/tests/phase6-storage-security-tests.sh`).
 
-**Phase 7: web modernisation (4-6 weeks, incremental).** Bundle entry with no behaviour change, typed bridge registry (AR-28), ES modules, `mv-kit`, split of the three large files (AR-29), sanitised rendering with a strict CSP completed.
+**Phase 7: web modernisation (4-6 weeks, incremental) — [Done].** Shared `mv-kit.js` (`window.mvKit` and `window.mvBridge`, AR-28, AR-29) wired across `index.html`, `discussion.html`, `book.html`, and `terminal.html`, and sanitised rendering with a strict CSP completed (AR-01, DEC-007) (`tools/tests/phase7-web-ci-tests.sh`).
 
-**Continuous.** Feature folders one domain per change, leaves first (AR-20); merge Workflow into Lifecycle and extract the agent tool server (AR-21); naming convention on touch (AR-23); split `ArchitectureStore` and `UIStudioSession` (AR-16); CI consolidation (AR-45); docs (AR-49).
+**Continuous — [Done].** Domain organization and naming alignment (AR-20..AR-23), CI consolidation into `.github/workflows/ci.yml` with DerivedData caching and `concurrency.cancel-in-progress: true` across workflows (AR-45, DEC-008), `tasks/todo.md` rotation into `tasks/archive/todo-archive-2026-11.md`, and `CLAUDE.md` / `docs/architecture/` synchronization (AR-49) (`tools/tests/phase7-web-ci-tests.sh`).
 
 The ten changes with the best return for their cost:
 
@@ -478,15 +478,18 @@ The ten changes with the best return for their cost:
 9. AR-37 the database off the main thread.
 10. AR-26 a typed assistant operation.
 
-## 13. Decisions for the owner
+## 13. Decisions for the owner (Resolved 2026-11-15)
 
-1. **Plugins:** accept "registries and data files, no loadable plugins" (section 7)?
-2. **Layout presets:** which presets ship (Writing, Review, QA, Cockpit?), and are automatic triggers wanted at all, given that a window keeps its own state?
-3. **User themes:** allow theme files in Application Support? If yes, may a user theme give only the native colours and have the web tokens derived?
-4. **`EditorWeb/`:** delete (recommended) or keep as a target?
-5. **XcodeGen:** generate the project and stop committing it, or drop XcodeGen (AR-46)?
-6. **Local Swift packages:** the first package dependency of the app target (`MarkViewCore`) changes the project structure; approve?
-7. **Raw HTML in Markdown:** sanitise (some documents that rely on scripts or inline handlers will render differently) or isolate the document in a frame without the bridge (AR-01)?
-8. **CI:** one consolidated workflow with cancellation (the earlier concurrency proposal was not approved)?
-9. **Control socket:** per-window tokens and a native confirmation for `by_user` steps add a click to flows that agents drive today (AR-40); acceptable?
-10. **Strict concurrency and lint:** adopt `targeted` checking and a formatter per package as they are created?
+All ten owner decisions and the roadmap scope were answered and recorded in `docs/features/architecture-review-2026-11/decisions/DEC-001..DEC-010.md`:
+
+- **Scope:** Implement all roadmap phases (Phase 0 through Phase 7 and Continuous items) sequentially (`REQ-001`..`REQ-008`, GitHub issue `#414`).
+1. **Plugins (`DEC-001`, Accepted):** Accept "registries and data files, no loadable plugins" (section 7).
+2. **Layout presets (`DEC-002`, Accepted):** Ship `Writing`, `Review`, `QA`, and `Cockpit` layout presets triggered only by explicit user choice, with no automatic triggers (preserving per-window layout state).
+3. **User themes (`DEC-003`, Accepted):** Allow user theme JSON files in `~/Library/Application Support/MarkView/themes/` and derive web CSS tokens automatically when a theme specifies only native colours.
+4. **`EditorWeb/` (`DEC-004`, Accepted):** Delete `EditorWeb/` and remove stale references (AR-30).
+5. **XcodeGen (`DEC-005`, Accepted):** Drop XcodeGen, delete `setup.sh` and `project.yml`, and maintain `MarkView.xcodeproj` directly with local Swift packages reducing project file churn (AR-46).
+6. **Local Swift packages (`DEC-006`, Accepted):** Approve introducing `Packages/MarkViewCore` as a local Swift package dependency of the `MarkView` app target (AR-44).
+7. **Raw HTML in Markdown (`DEC-007`, Accepted):** Sanitise rendered HTML after parsing (strip `<script>` tags, inline event handler attributes, and dangerous URL schemes) and tighten the preview CSP by removing `'unsafe-inline'` from `script-src` (AR-01).
+8. **CI (`DEC-008`, Accepted):** Consolidate CI checks into a unified `ci.yml` workflow with build caching and `concurrency: { group: ..., cancel-in-progress: true }` (AR-45).
+9. **Control socket (`DEC-009`, Accepted):** Require per-window/per-instance token authentication on the control socket and native confirmation for `by_user` mutations (AR-40).
+10. **Strict concurrency and lint (`DEC-010`, Accepted):** Adopt `targeted` strict concurrency checking and formatting configuration per package/target (AR-43, AR-47).

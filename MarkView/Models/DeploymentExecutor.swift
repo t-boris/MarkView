@@ -98,7 +98,12 @@ enum ProcessRunner {
             }
         }
         var timedOut = false
-        let killer = DispatchWorkItem { timedOut = true; if process.isRunning { process.terminate() } }
+        let killer = DispatchWorkItem {
+            lock.lock()
+            timedOut = true
+            lock.unlock()
+            if process.isRunning { process.terminate() }
+        }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
         process.waitUntilExit()
         killer.cancel()
@@ -160,11 +165,20 @@ struct SSHExecutor: DeploymentExecutor {
     /// Extra ssh options. Empty in the app; a test points ssh at its own known_hosts and a private server.
     nonisolated(unsafe) static var extraOptions: [String] = []
 
+    /// Per-user mode-0700 directory for SSH ControlMaster sockets (AR-12).
+    private static func controlSocketDirectory() -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("mvssh", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+        return dir
+    }
+
     /// nil when the definition is not safe to use.
     static func arguments(for env: DeploymentEnvironment) -> [String]? {
         guard env.kind == .ssh, env.problems.isEmpty else { return nil }
+        let controlDir = controlSocketDirectory()
         var args = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=2",
-                    "-o", "ControlMaster=auto", "-o", "ControlPath=/tmp/mvssh-\(controlTag(env))-%C", "-o", "ControlPersist=60", "-o", "LogLevel=ERROR", "-p", String(env.port)]
+                    "-o", "ControlMaster=auto", "-o", "ControlPath=\(controlDir.path)/\(controlTag(env))-%C", "-o", "ControlPersist=60", "-o", "LogLevel=ERROR", "-p", String(env.port)]
         if !env.identityFile.isEmpty {
             let path = (env.identityFile as NSString).expandingTildeInPath
             args += ["-i", path, "-o", "IdentitiesOnly=yes"]

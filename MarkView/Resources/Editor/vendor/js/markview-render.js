@@ -74,6 +74,37 @@
             }
         }
 
+        // Sanitize rendered Markdown HTML before inserting into the page that owns the native bridge (AR-01 / DEC-007).
+        function sanitizeMarkdownHTML(rawHTML) {
+            if (typeof DOMPurify !== 'undefined' && DOMPurify.sanitize) {
+                return DOMPurify.sanitize(rawHTML, {
+                    USE_PROFILES: { html: true, svg: true, mathMl: true },
+                    ADD_TAGS: ['details', 'summary', 'input', 'annotation', 'semantics'],
+                    ADD_ATTR: ['target', 'checked', 'disabled', 'type', 'open', 'contenteditable', 'aria-hidden', 'style', 'class', 'id', 'title', 'alt', 'src', 'href', 'width', 'height', 'align', 'colspan', 'rowspan'],
+                    ALLOW_DATA_ATTR: true,
+                    ALLOW_UNKNOWN_PROTOCOLS: false,
+                    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|file|markview-doc|markview-wikilink|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+                    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'base', 'meta', 'link'],
+                    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseenter', 'onmouseleave', 'onfocus', 'onblur', 'onkeydown', 'onkeyup', 'onkeypress', 'onsubmit', 'onchange', 'oninput', 'onmousedown', 'onmouseup', 'oncontextmenu', 'ondblclick', 'ondrag', 'ondrop', 'onpaste', 'oncopy', 'oncut', 'onanimationstart', 'onanimationend', 'ontoggle']
+                });
+            }
+            return String(rawHTML || '')
+                .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
+                .replace(/<script\b[^>]*\/?>/gi, '')
+                .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, ' ')
+                .replace(/\b(href|src)\s*=\s*(['"])\s*(?:javascript|vbscript|data:text\/html):[^'"]*\2/gi, '$1="#"');
+        }
+        window.sanitizeMarkdownHTML = sanitizeMarkdownHTML;
+
+        function escapeFrontmatterHTML(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         function renderMarkdown() {
             if (state.isRendering) return;
             state.isRendering = true;
@@ -116,16 +147,17 @@
                     lines.forEach(line => {
                         const colonIdx = line.indexOf(':');
                         if (colonIdx > 0) {
-                            const key = line.substring(0, colonIdx).trim();
-                            let val = line.substring(colonIdx + 1).trim();
+                            const key = escapeFrontmatterHTML(line.substring(0, colonIdx).trim());
+                            const rawVal = line.substring(colonIdx + 1).trim();
+                            let val = escapeFrontmatterHTML(rawVal);
                             // Color-code some values
-                            if (val === 'active') val = '<span style="color:#4ec9b0">●</span> ' + val;
-                            else if (val === 'deprecated') val = '<span style="color:#f44747">●</span> ' + val;
-                            else if (val === 'high') val = '<span style="color:#4ec9b0">▲</span> ' + val;
-                            else if (val === 'low') val = '<span style="color:#ce9178">▼</span> ' + val;
+                            if (rawVal === 'active') val = '<span style="color:#4ec9b0">●</span> ' + val;
+                            else if (rawVal === 'deprecated') val = '<span style="color:#f44747">●</span> ' + val;
+                            else if (rawVal === 'high') val = '<span style="color:#4ec9b0">▲</span> ' + val;
+                            else if (rawVal === 'low') val = '<span style="color:#ce9178">▼</span> ' + val;
                             // Arrays
-                            if (val.startsWith('[') && val.endsWith(']')) {
-                                const items = val.slice(1,-1).split(',').map(s => s.trim()).filter(Boolean);
+                            if (rawVal.startsWith('[') && rawVal.endsWith(']')) {
+                                const items = rawVal.slice(1,-1).split(',').map(s => escapeFrontmatterHTML(s.trim())).filter(Boolean);
                                 val = items.map(i => '<span style="background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;font-size:10px;margin:1px;">' + i + '</span>').join(' ');
                             }
                             rows += '<tr><td style="padding:2px 8px;color:#808080;font-size:10px;white-space:nowrap;vertical-align:top;">' + key + '</td><td style="padding:2px 8px;font-size:10px;">' + val + '</td></tr>';
@@ -141,8 +173,8 @@
                     </details>`;
                 }
 
-                // Wrap in markdown-body class
-                html = fmPanel + '<div class="markdown-body">' + html + '</div>';
+                // Wrap in markdown-body class and sanitize before DOM insertion
+                html = sanitizeMarkdownHTML(fmPanel + '<div class="markdown-body">' + html + '</div>');
 
                 DOM.rendered.innerHTML = html;
 

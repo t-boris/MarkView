@@ -21,81 +21,40 @@ enum CLITool: String, CaseIterable {
     /// requests its print mode with stream-json (`CLICompletion`).
     case antigravity
 
-    var displayName: String {
-        switch self {
-        case .claude: return "Claude Code"
-        case .codex: return "Codex"
-        case .cline: return "Cline"
-        case .copilot: return "Copilot"
-        case .antigravity: return "Antigravity"
-        }
-    }
+    var displayName: String { provider.displayName }
+
+    /// Provider descriptor from `AssistantProviderRegistry` (`AR-35`).
+    var provider: any AssistantProvider { AssistantProviderRegistry.provider(for: self) }
 
     /// Driven over the Agent Client Protocol (`ACPAssistant`) rather than a one-shot CLI run.
-    var usesACP: Bool { self == .cline || self == .copilot }
+    var usesACP: Bool { provider.usesACP }
 
     /// Executable name as installed on disk.
-    var binaryName: String { self == .antigravity ? "agy" : rawValue }
+    var binaryName: String { provider.binaryName }
 
     /// UserDefaults key holding the user's explicit path override ("" = auto-detect).
-    var overrideKey: String { "settings.cli.\(rawValue)Path" }
+    var overrideKey: String { provider.overrideKey }
 
     /// Arguments that print the version without touching the network.
-    var versionArgs: [String] { ["--version"] }
+    var versionArgs: [String] { provider.versionArgs }
 
     /// Arguments that report login state without consuming tokens.
-    var authStatusArgs: [String] {
-        switch self {
-        case .claude: return ["auth", "status"]
-        case .codex: return ["login", "status"]
-        // No status command that works without a terminal; see `probeACP`.
-        case .cline, .copilot, .antigravity: return []
-        }
-    }
+    var authStatusArgs: [String] { provider.authStatusArgs }
 
     /// Command the user runs in Terminal to authenticate.
-    var loginCommand: String {
-        switch self {
-        case .claude: return "auth login"
-        case .codex: return "login"
-        case .cline: return "auth"
-        case .copilot: return "login"
-        // Antigravity signs in on first start; there is no login command.
-        case .antigravity: return ""
-        }
-    }
+    var loginCommand: String { provider.loginCommand }
 
     /// Arguments that let the interactive CLI in an AI terminal act without approval prompts:
     /// every assistant there always runs with full access (BUG-006).
-    var fullAccessArgs: [String] {
-        switch self {
-        case .claude: return ["--dangerously-skip-permissions"]
-        case .codex: return ["--dangerously-bypass-approvals-and-sandbox"]
-        case .cline: return ["--auto-approve", "true"]
-        case .copilot: return ["--allow-all"]
-        case .antigravity: return ["--dangerously-skip-permissions"]
-        }
-    }
+    var fullAccessArgs: [String] { provider.fullAccessArgs }
 
     /// Arguments, right after the executable, that continue the most recent session in the
     /// working folder without a picker (BUG-005). Empty when the CLI has no such option:
     /// Cline resumes a session only by its id.
-    var continueArgs: [String] {
-        switch self {
-        case .claude, .copilot, .antigravity: return ["--continue"]
-        case .codex: return ["resume", "--last"]
-        case .cline: return []
-        }
-    }
+    var continueArgs: [String] { provider.continueArgs }
 
     /// Arguments that select `model` for one run.
-    func modelArgs(_ model: String?) -> [String] {
-        guard let model else { return [] }
-        switch self {
-        case .claude, .copilot, .antigravity: return ["--model", model]
-        case .codex, .cline: return ["-m", model]
-        }
-    }
+    func modelArgs(_ model: String?) -> [String] { provider.modelArgs(model) }
 }
 
 // MARK: - Assistant & Model Preferences
@@ -217,6 +176,14 @@ enum AIAssistantPreferences {
     /// The default model for `tool` as stored ("" = the CLI's own default).
     static func defaultModelSetting(for tool: CLITool) -> String {
         UserDefaults.standard.string(forKey: modelKey(for: tool)) ?? ""
+    }
+
+    /// Compact state fingerprint for assistant/model/xray settings in `project`, used by observers
+    /// so unrelated `UserDefaults` writes (such as divider drags) do not trigger view refreshes (`AR-18`).
+    static func snapshot(project: URL?) -> String {
+        let tool = backend(project: project)
+        let choice = AssistantChoice(project: project)
+        return "\(tool.rawValue)|\(choice.model(for: tool))|\(choice.xrayModel(for: tool))"
     }
 
     /// A model a running assistant reported (the user switched inside its session, BUG-048): the next

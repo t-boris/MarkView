@@ -25,6 +25,10 @@ on:
       - '.github/workflows/remote-workspace.yml'
   workflow_dispatch:
 
+concurrency:
+  group: remote-workspace-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -68,7 +72,3 @@ jobs:
         run: |
           bash tools/tests/saved-remote-connections-tests.sh
           bash tools/tests/persistent-remote-session-tests.sh
-      - name: Build macOS application
-        run: >-
-          xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug
-          -derivedDataPath /tmp/MarkViewRemoteCI CODE_SIGNING_ALLOWED=NO build

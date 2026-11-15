@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!--
       CSP applies document-wide (meta-tag granularity). Existing modes (preview,
-      structured, WYSIWYG-save graph canvas) need:
-        - CDN scripts/styles from cdn.jsdelivr.net (D3, dagre, turndown, turndown-plugin-gfm)
+      structured, WYSIWYG-save graph canvas) use locally vendored scripts and styles:
+        - All scripts and styles under vendor/ (no external CDN hosts, AR-03)
         - Remote https <img> for user markdown image content
         - markview-doc: pictures a document refers to by a relative path (served by the app, BUG-061)
-      Widened script-src/style-src/img-src to allow these.
+      DOMPurify sanitizes rendered Markdown HTML before DOM insertion and inline handlers
+      are bound via listeners so script-src requires no 'unsafe-inline' (AR-01).
 
       Insight mode v2 isolates ALL LLM-rendered content inside an iframe
       (sandbox="allow-scripts", null-origin) with its own stricter CSP defined
@@ -19,12 +20,13 @@
       page never executes LLM-derived script. See task 5 / tech-spec Decisions
       2, 3, 5, 10, 11.
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self' markview-data:; img-src 'self' data: https: markview-doc:; object-src 'none'; base-uri 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' markview-data:; img-src 'self' data: https: markview-doc:; object-src 'none'; base-uri 'none'">
     <title>MarkView Editor</title>
 
     <!-- The window theme: tokens as CSS custom properties on <html>, applied before the first paint. -->
     <script src="vendor/js/markview-themes.js"></script>
-    <script>MarkViewThemes.applyFromDocument();</script>
+    <!-- Shared web primitives and typed bridge registry (AR-28, AR-29) -->
+    <script src="vendor/js/mv-kit.js"></script>
 
     <!-- KaTeX CSS -->
     <link rel="stylesheet" href="vendor/css/katex.min.css">
@@ -1342,49 +1344,49 @@
         <div class="find-bar" id="find-bar">
             <input type="text" id="find-input" placeholder="Find..." spellcheck="false">
             <span class="find-count" id="find-count"></span>
-            <button onclick="findPrev()" title="Previous (⇧Enter)">▲</button>
-            <button onclick="findNext()" title="Next (Enter)">▼</button>
-            <button id="find-case-btn" onclick="toggleFindCase()" title="Match Case" style="font-size: calc(11px * var(--ui-scale, 1));font-weight:bold;">Aa</button>
-            <button id="find-regex-btn" onclick="toggleFindRegex()" title="Use Regex" style="font-size: calc(11px * var(--ui-scale, 1));font-family:monospace;">.*</button>
-            <button onclick="closeFind()" title="Close (Esc)">✕</button>
+            <button data-mv-action="findPrev" title="Previous (⇧Enter)">▲</button>
+            <button data-mv-action="findNext" title="Next (Enter)">▼</button>
+            <button id="find-case-btn" data-mv-action="toggleFindCase" title="Match Case" style="font-size: calc(11px * var(--ui-scale, 1));font-weight:bold;">Aa</button>
+            <button id="find-regex-btn" data-mv-action="toggleFindRegex" title="Use Regex" style="font-size: calc(11px * var(--ui-scale, 1));font-family:monospace;">.*</button>
+            <button data-mv-action="closeFind" title="Close (Esc)">✕</button>
         </div>
 
         <!-- WYSIWYG Toolbar -->
         <div class="wysiwyg-toolbar" id="wysiwyg-toolbar">
-            <button onclick="fmtCmd('bold')" title="Bold (⌘B)"><b>B</b></button>
-            <button onclick="fmtCmd('italic')" title="Italic (⌘I)"><i>I</i></button>
+            <button data-mv-action="fmtCmd:bold" title="Bold (⌘B)"><b>B</b></button>
+            <button data-mv-action="fmtCmd:italic" title="Italic (⌘I)"><i>I</i></button>
             <div class="sep"></div>
-            <button onclick="fmtBlock('H1')" title="Heading 1" style="font-weight:800;font-size: calc(14px * var(--ui-scale, 1))">H1</button>
-            <button onclick="fmtBlock('H2')" title="Heading 2" style="font-weight:700;font-size: calc(12px * var(--ui-scale, 1))">H2</button>
+            <button data-mv-action="fmtBlock:H1" title="Heading 1" style="font-weight:800;font-size: calc(14px * var(--ui-scale, 1))">H1</button>
+            <button data-mv-action="fmtBlock:H2" title="Heading 2" style="font-weight:700;font-size: calc(12px * var(--ui-scale, 1))">H2</button>
             <div class="sep"></div>
-            <button onclick="fmtCmd('insertUnorderedList')" title="Bullet list">•&mdash;</button>
-            <button onclick="fmtLink()" title="Insert link (⌘K)">🔗</button>
+            <button data-mv-action="fmtCmd:insertUnorderedList" title="Bullet list">•&mdash;</button>
+            <button data-mv-action="fmtLink" title="Insert link (⌘K)">🔗</button>
             <div class="spacer"></div>
-            <button onclick="saveFile()" title="Save (⌘S)" style="font-size: calc(11px * var(--ui-scale, 1))">💾</button>
+            <button data-mv-action="saveFile" title="Save (⌘S)" style="font-size: calc(11px * var(--ui-scale, 1))">💾</button>
             <details class="editor-more">
-                <summary title="More editor actions" aria-label="More editor actions" onmousedown="event.preventDefault()">⋯</summary>
-                <div class="editor-more-menu" onmousedown="event.preventDefault()">
+                <summary title="More editor actions" aria-label="More editor actions" data-mv-prevent-mousedown="true">⋯</summary>
+                <div class="editor-more-menu" data-mv-prevent-mousedown="true">
                     <span class="menu-heading">Formatting</span>
-                    <button onclick="fmtCmd('strikeThrough')" title="Strikethrough"><s>S</s> Strike</button>
-                    <button onclick="fmtCmd('code')" title="Inline code">&lt;/&gt; Code</button>
-                    <button onclick="fmtBlock('H3')" title="Heading 3">H3 Heading</button>
-                    <button onclick="fmtCmd('insertOrderedList')" title="Numbered list">1. List</button>
-                    <button onclick="fmtCmd('formatBlock','blockquote')" title="Quote">❝ Quote</button>
-                    <button onclick="fmtCodeBlock()" title="Code block">{ } Block</button>
+                    <button data-mv-action="fmtCmd:strikeThrough" title="Strikethrough"><s>S</s> Strike</button>
+                    <button data-mv-action="fmtCmd:code" title="Inline code">&lt;/&gt; Code</button>
+                    <button data-mv-action="fmtBlock:H3" title="Heading 3">H3 Heading</button>
+                    <button data-mv-action="fmtCmd:insertOrderedList" title="Numbered list">1. List</button>
+                    <button data-mv-action="fmtCmd:formatBlock:blockquote" title="Quote">❝ Quote</button>
+                    <button data-mv-action="fmtCodeBlock" title="Code block">{ } Block</button>
                     <span class="menu-heading">Insert</span>
-                    <button onclick="fmtImage()" title="Insert image">▧ Image</button>
-                    <button onclick="fmtHR()" title="Horizontal rule">— Rule</button>
-                    <button onclick="fmtTable()" title="Insert table">▦ Table</button>
-                    <button onclick="fmtMermaid()" title="Insert a Mermaid diagram">◇ Diagram</button>
+                    <button data-mv-action="fmtImage" title="Insert image">▧ Image</button>
+                    <button data-mv-action="fmtHR" title="Horizontal rule">— Rule</button>
+                    <button data-mv-action="fmtTable" title="Insert table">▦ Table</button>
+                    <button data-mv-action="fmtMermaid" title="Insert a Mermaid diagram">◇ Diagram</button>
                     <span class="menu-heading">Document</span>
-                    <button onclick="refreshFile()" title="Reload file from disk (⌘R)">↻ Reload</button>
+                    <button data-mv-action="refreshFile" title="Reload file from disk (⌘R)">↻ Reload</button>
                     <span class="menu-heading">Selection</span>
-                    <button onclick="selectionAction('translate_ru')" title="Translate selection to Russian">RU Translate</button>
-                    <button onclick="selectionAction('translate_en')" title="Translate selection to English">EN Translate</button>
-                    <button onclick="selectionAction('explain')" title="Explain selection">? Explain</button>
+                    <button data-mv-action="selectionAction:translate_ru" title="Translate selection to Russian">RU Translate</button>
+                    <button data-mv-action="selectionAction:translate_en" title="Translate selection to English">EN Translate</button>
+                    <button data-mv-action="selectionAction:explain" title="Explain selection">? Explain</button>
                 </div>
             </details>
-            <span class="mode-label" id="mode-toggle" onclick="toggleModeWrapper ? toggleModeWrapper() : toggleMode()" title="Switch mode (⌘⇧P)">Source ↗</span>
+            <span class="mode-label" id="mode-toggle" data-mv-action="toggleMode" title="Switch mode (⌘⇧P)">Source ↗</span>
         </div>
 
         <div class="editor-content">
@@ -1510,54 +1512,53 @@
 
         <!-- Floating format toolbar — appears on text selection -->
         <div class="format-bar" id="format-bar">
-            <button onclick="fmtCmd('bold')" title="Bold (⌘B)"><b>B</b></button>
-            <button onclick="fmtCmd('italic')" title="Italic (⌘I)"><i>I</i></button>
-            <button onclick="fmtCmd('strikeThrough')" title="Strikethrough"><s>S</s></button>
-            <button onclick="fmtCmd('code')" title="Inline code">⟨⟩</button>
+            <button data-mv-action="fmtCmd:bold" title="Bold (⌘B)"><b>B</b></button>
+            <button data-mv-action="fmtCmd:italic" title="Italic (⌘I)"><i>I</i></button>
+            <button data-mv-action="fmtCmd:strikeThrough" title="Strikethrough"><s>S</s></button>
+            <button data-mv-action="fmtCmd:code" title="Inline code">⟨⟩</button>
             <div class="sep"></div>
-            <button onclick="fmtHeading()" title="Heading">H</button>
-            <button onclick="fmtCmd('insertUnorderedList')" title="Bullet list">•</button>
-            <button onclick="fmtCmd('insertOrderedList')" title="Numbered list">1.</button>
-            <button onclick="fmtLink()" title="Link">🔗</button>
-            <button onclick="fmtCmd('formatBlock', 'blockquote')" title="Quote">❝</button>
+            <button data-mv-action="fmtHeading" title="Heading">H</button>
+            <button data-mv-action="fmtCmd:insertUnorderedList" title="Bullet list">•</button>
+            <button data-mv-action="fmtCmd:insertOrderedList" title="Numbered list">1.</button>
+            <button data-mv-action="fmtLink" title="Link">🔗</button>
+            <button data-mv-action="fmtCmd:formatBlock:blockquote" title="Quote">❝</button>
             <div class="sep"></div>
-            <button onmousedown="event.preventDefault()" onclick="selectionAction('translate_ru')" title="Translate to Russian" style="font-size: calc(10px * var(--ui-scale, 1))">RU</button>
-            <button onmousedown="event.preventDefault()" onclick="selectionAction('translate_en')" title="Translate to English" style="font-size: calc(10px * var(--ui-scale, 1))">EN</button>
-            <button onmousedown="event.preventDefault()" onclick="selectionAction('explain')" title="Explain selection" style="font-size: calc(10px * var(--ui-scale, 1))">?</button>
+            <button data-mv-prevent-mousedown="true" data-mv-action="selectionAction:translate_ru" title="Translate to Russian" style="font-size: calc(10px * var(--ui-scale, 1))">RU</button>
+            <button data-mv-prevent-mousedown="true" data-mv-action="selectionAction:translate_en" title="Translate to English" style="font-size: calc(10px * var(--ui-scale, 1))">EN</button>
+            <button data-mv-prevent-mousedown="true" data-mv-action="selectionAction:explain" title="Explain selection" style="font-size: calc(10px * var(--ui-scale, 1))">?</button>
             <div class="sep"></div>
-            <button onmousedown="event.preventDefault()" onclick="showFeatureMenu()" title="Feature actions (AI): challenge, requirements, decisions…" style="font-size: calc(12px * var(--ui-scale, 1))">✦</button>
+            <button data-mv-prevent-mousedown="true" data-mv-action="showFeatureMenu" title="Feature actions (AI): challenge, requirements, decisions…" style="font-size: calc(12px * var(--ui-scale, 1))">✦</button>
         </div>
 
         <!-- Feature actions on the selection (results go to the Feature tab) -->
         <div class="feature-menu" id="feature-menu">
-            <input id="feature-ask" type="text" placeholder="Ask AI about the selection…" spellcheck="false"
-                   onkeydown="if (event.key === 'Enter') featureAction('ask'); if (event.key === 'Escape') hideFeatureMenu();">
-            <div class="feature-menu-item" id="feature-comment" style="display:none" onclick="featureAction('comment')"
+            <input id="feature-ask" type="text" placeholder="Ask AI about the selection…" spellcheck="false">
+            <div class="feature-menu-item" id="feature-comment" style="display:none" data-mv-action="featureAction:comment"
                  title="Research document: the AI reworks the section around the selection according to your comment">Revise With Comment</div>
             <div class="feature-menu-sep" id="feature-comment-sep" style="display:none"></div>
-            <div class="feature-menu-item" onclick="featureAction('challenge')">Challenge</div>
-            <div class="feature-menu-item" onclick="featureAction('expand')">Expand</div>
-            <div class="feature-menu-item" onclick="featureAction('research')">Research</div>
-            <div class="feature-menu-item" onclick="featureAction('edgeCases')">Find Edge Cases</div>
-            <div class="feature-menu-item" onclick="featureAction('contradictions')">Find Contradictions</div>
-            <div class="feature-menu-item" onclick="featureAction('related')">Find Related Documentation</div>
-            <div class="feature-menu-item" onclick="featureAction('explain')">Explain</div>
-            <div class="feature-menu-item" onclick="featureAction('diagram')">Generate Diagram</div>
+            <div class="feature-menu-item" data-mv-action="featureAction:challenge">Challenge</div>
+            <div class="feature-menu-item" data-mv-action="featureAction:expand">Expand</div>
+            <div class="feature-menu-item" data-mv-action="featureAction:research">Research</div>
+            <div class="feature-menu-item" data-mv-action="featureAction:edgeCases">Find Edge Cases</div>
+            <div class="feature-menu-item" data-mv-action="featureAction:contradictions">Find Contradictions</div>
+            <div class="feature-menu-item" data-mv-action="featureAction:related">Find Related Documentation</div>
+            <div class="feature-menu-item" data-mv-action="featureAction:explain">Explain</div>
+            <div class="feature-menu-item" data-mv-action="featureAction:diagram">Generate Diagram</div>
             <div class="feature-menu-sep"></div>
-            <div class="feature-menu-item" onclick="featureAction('requirement')">Turn Into Requirement</div>
-            <div class="feature-menu-item" onclick="featureAction('decision')">Create Decision</div>
-            <div class="feature-menu-item" onclick="featureAction('question')">Create Question</div>
+            <div class="feature-menu-item" data-mv-action="featureAction:requirement">Turn Into Requirement</div>
+            <div class="feature-menu-item" data-mv-action="featureAction:decision">Create Decision</div>
+            <div class="feature-menu-item" data-mv-action="featureAction:question">Create Question</div>
         </div>
 
         <!-- Selection action popup overlay -->
         <div class="action-popup" id="action-popup">
             <div class="action-popup-header">
                 <span class="action-popup-title" id="action-popup-title">Result</span>
-                <button class="action-popup-close" onclick="closeActionPopup()">✕</button>
+                <button class="action-popup-close" data-mv-action="closeActionPopup">✕</button>
             </div>
             <div class="action-popup-content" id="action-popup-content"></div>
         </div>
-        <div class="action-popup-backdrop" id="action-popup-backdrop" onclick="closeActionPopup()"></div>
+        <div class="action-popup-backdrop" id="action-popup-backdrop" data-mv-action="closeActionPopup"></div>
 
         <!-- Compact status bar -->
         <div class="editor-status">
@@ -1595,9 +1596,12 @@
     <!-- D3.js (bundled, no CDN) for the interactive mermaid canvas; ELK is loaded on first use -->
     <script src="vendor/js/d3.min.js"></script>
 
-    <!-- Turndown: HTML → Markdown (for WYSIWYG save) -->
-    <script src="https://cdn.jsdelivr.net/npm/turndown@7.1.3/dist/turndown.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/turndown-plugin-gfm@1.0.2/dist/turndown-plugin-gfm.min.js"></script>
+    <!-- DOMPurify: Markdown HTML sanitizer (AR-01) -->
+    <script src="vendor/js/dompurify.min.js"></script>
+
+    <!-- Turndown: HTML → Markdown (for WYSIWYG save, vendored locally per AR-03) -->
+    <script src="vendor/js/turndown.min.js"></script>
+    <script src="vendor/js/turndown-plugin-gfm.min.js"></script>
 
     <!-- Prism.js -->
     <script src="vendor/js/prism.min.js"></script>
@@ -1654,16 +1658,5 @@
     <script src="vendor/js/markview-research-map-layout.js"></script>
     <script src="vendor/js/markview-research-map.js"></script>
     <script src="vendor/js/markview-init.js"></script>
-    <script>
-        (function() {
-            const more = document.querySelector('.editor-more');
-            more.querySelector('.editor-more-menu').addEventListener('click', function(event) {
-                if (event.target.closest('button')) more.open = false;
-            });
-            document.addEventListener('click', function(event) {
-                if (!more.contains(event.target)) more.open = false;
-            });
-        })();
-    </script>
 </body>
 </html>

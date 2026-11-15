@@ -76,22 +76,32 @@
             wireStructEditing();
             const collapsed = collapsedStructPaths();
             DOM.rendered.innerHTML = html;
-            // Wire up toggle buttons
+            // Wire up toggle buttons and toolbar actions
             DOM.rendered.querySelectorAll('.struct-toggle').forEach(el => {
                 el.addEventListener('click', () => toggleStructNode(el));
+            });
+            DOM.rendered.querySelectorAll('[data-struct-action]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const action = btn.getAttribute('data-struct-action');
+                    if (action === 'foldAll') structFoldAll();
+                    else if (action === 'unfoldAll') structUnfoldAll();
+                    else if (action === 'format') structFormat();
+                    else if (action === 'minify') structMinify();
+                    else if (action === 'toggleMode') toggleStructMode();
+                });
             });
             restoreCollapsedStructPaths(collapsed);
         }
 
         function renderStructToolbar() {
             return '<div class="struct-toolbar">'
-                + '<button onclick="structFoldAll()">Fold All</button>'
-                + '<button onclick="structUnfoldAll()">Unfold All</button>'
-                + (state.fileType !== 'xml' ? '<button onclick="structFormat()">Format</button>' : '')
-                + (state.fileType !== 'xml' ? '<button onclick="structMinify()">Minify</button>' : '')
+                + '<button data-struct-action="foldAll">Fold All</button>'
+                + '<button data-struct-action="unfoldAll">Unfold All</button>'
+                + (state.fileType !== 'xml' ? '<button data-struct-action="format">Format</button>' : '')
+                + (state.fileType !== 'xml' ? '<button data-struct-action="minify">Minify</button>' : '')
                 + '<span class="spacer"></span>'
                 + (state.fileType !== 'xml' ? '<span class="struct-hint">Double-click a value or key to edit · hover a line for + and ×</span>' : '')
-                + '<button onclick="toggleStructMode()">' + (state.mode === 'structured' ? 'Source ↗' : 'Tree ↗') + '</button>'
+                + '<button data-struct-action="toggleMode">' + (state.mode === 'structured' ? 'Source ↗' : 'Tree ↗') + '</button>'
                 + '</div>';
         }
 

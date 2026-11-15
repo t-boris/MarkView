@@ -9,20 +9,13 @@
 # `shasum -a 256 <file>` of on-disk file in this directory.
 #
 # Mitigation posture for risk-accepted CVEs:
-#   Pre-v2 (current main / shipped today, before T5 iframe sandbox lands):
-#     - markdown-it default-escapes raw HTML (html: false)
-#     - KaTeX trust: false  → \htmlData / \includegraphics emission disabled
-#     - mermaid securityLevel: 'strict'  → DOMPurify-sanitised output, no
-#       click-to-eval, no html-in-labels
-#     The above three are the ACTIVE defense layer in the main-frame editor.
-#   Post-v2 (after T5 ships the per-iframe sandbox, see Decision 2):
-#     - All of the above PLUS sandbox="allow-scripts" on the rendering iframe,
-#       which strips same-origin and blocks document.cookie / localStorage /
-#       cross-frame DOM access from any sanitiser-bypass exploit.
-#   The risk-accepted CVE entries below assume BOTH layers are in force when
-#   the v2 path is exercised; pre-v2 they rely on the renderer-config layer
-#   only. Audit re-run on 2026-04-30 (round 1 fix): Mermeid CVE attribution
-#   corrected — see vendor row.
+#   - markdown-it runs with html: true and all rendered Markdown HTML is sanitised
+#     through vendored DOMPurify (plus fallback script/event/scheme stripping) under
+#     strict CSP (`script-src 'self' 'wasm-unsafe-eval'`)
+#   - KaTeX trust: false  → \htmlData / \includegraphics emission disabled
+#   - mermaid securityLevel: 'strict'  → DOMPurify-sanitised output, no
+#     click-to-eval, no html-in-labels
+#   - Insight iframes run in null-origin `sandbox="allow-scripts"` (no `allow-same-origin`)
 
 # === JavaScript libraries (vendor/js/) ===
 chart.js                        | 4.4.9   | bce154080959c574be0bb6b1a924ff32f08ebc6ff460c159171f51c53802c844 | https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js                                  | 2026-04-30 | clean
@@ -52,12 +45,23 @@ markdown-it-task-lists          | 2.1.1   | 4f3b23f41bb3787957da2602fbccc4df0d01
 markdown-it-container           | 4.0.0   | 5bda29f8cc0e613e04c4eb077a363cc86ab8a238f487b7792f2bdeb7a7b27ff4 | https://cdn.jsdelivr.net/npm/markdown-it-container@4.0.0/dist/markdown-it-container.min.js         | 2026-04-30 | clean
 js-yaml                         | 4.1.0   | 45dc3dd03dc07a06705a2c2989b8c7f709013f04bd5386e3279d4e447f07ebd7 | https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js                                     | 2026-04-30 | clean
 tailwindcss-browser             | 4.3.3   | a60c785630a06196808cbe79e6f7bdb4abcc8f4421a47b56f29338fc84805e3b | https://registry.npmjs.org/@tailwindcss/browser/-/browser-4.3.3.tgz (dist/index.global.js)         | 2026-11-03 | clean
+dompurify                       | 3.2.4   | 8eb41b658831fab175fad9bcd00fcb2d84e0ed3a25a55053d4ecd4444b8b43a0 | https://registry.npmjs.org/dompurify/-/dompurify-3.2.4.tgz (dist/purify.min.js)                    | 2026-11-15 | clean
+turndown                        | 7.1.3   | 905be1e076f1c6588575447cab2ba0c51d556c6a9a8d025b30c775520299fc20 | https://registry.npmjs.org/turndown/-/turndown-7.1.3.tgz (dist/turndown.js)                        | 2026-11-15 | clean
+turndown-plugin-gfm             | 1.0.2   | debbc22a5b156ff18667d2e8947f24607c7a261e888a992363d0be822e0bd0e7 | https://registry.npmjs.org/turndown-plugin-gfm/-/turndown-plugin-gfm-1.0.2.tgz                     | 2026-11-15 | clean
+d3                              | 7.9.0   | f2094bbf6141b359722c4fe454eb6c4b0f0e42cc10cc7af921fc158fceb86539 | https://registry.npmjs.org/d3/-/d3-7.9.0.tgz (dist/d3.min.js)                                      | 2026-11-15 | clean
+codemirror-bundle               | 6.x     | cb58cd4d9d8d2796a2a607316c5a3a1465d7a9873784b0dc6f8799d1e3272a17 | tools/web-vendor/codemirror-entry.js (@codemirror/*)                                               | 2026-11-15 | clean
+data-bundle                     | 1.0.0   | b7b6d9f1740f0c8ece0a2a861571324eead91d434a37d9589e124aa45b393588 | tools/web-vendor/data-entry.js (papaparse, xlsx, parquet-wasm)                                     | 2026-11-15 | clean
+xterm-bundle                    | 5.5.0   | b8f5fd1dab3fd6e7027cadd576bfba8fe13ce3e7f51478704e3e8e55ec8ad898 | tools/web-vendor/xterm-entry.js (@xterm/xterm, @xterm/addon-fit)                                   | 2026-11-15 | clean
+cytoscape                       | 3.30.2  | 5f3b5b529546d5af1fc5628590af033b74511a5b6f789f5f4682845863228b91 | https://registry.npmjs.org/cytoscape/-/cytoscape-3.30.2.tgz                                        | 2026-11-15 | clean
+cytoscape-elk                   | 2.2.0   | 25acbb9dea9b0dc6fef0e79b697547ee56e579f0e1c22ae4353131e72c7e140a | https://registry.npmjs.org/cytoscape-elk/-/cytoscape-elk-2.2.0.tgz                                 | 2026-11-15 | clean
+elkjs                           | 0.9.3   | 1222e44f953ce7746af23801e723708f8e6f436b8b377a6a5fc7552f34a307b3 | https://registry.npmjs.org/elkjs/-/elkjs-0.9.3.tgz (lib/elk.bundled.js)                            | 2026-11-15 | clean
 
 # === Stylesheets (vendor/css/) ===
 katex-css                       | 0.16.9  | 505d5f829022bb7b4f24dfee0aa1141cd7bba67afe411d1240335f820960b5c3 | https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css                                       | 2026-04-30 | tracks katex 0.16.9
 prismjs-okaidia-css             | 1.29.0  | cf31d510ed313a8566d08e9b4fdbf94a0a51b35718372bc4bc75d6ff5c8282a5 | https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-okaidia.min.css                           | 2026-04-30 | tracks prismjs 1.29.0
 prismjs-line-numbers-css        | 1.29.0  | c9ef019077f69475d4b6a675f14d0a237c6327562fecff25bdd281b7dc665493 | https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/line-numbers/prism-line-numbers.css            | 2026-04-30 | tracks prismjs 1.29.0
 prismjs-diff-highlight-css      | 1.29.0  | 5c5fb957dc98a603aa0eaa56ba67a0ab9bba28696c27d9e377c51436f1cdc572 | https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.css        | 2026-04-30 | tracks prismjs 1.29.0
+xterm-css                       | 5.5.0   | 854a7c0fb70e8b1a083c16797ab827299fb18744f5ad34f227b48337e33293c6 | https://registry.npmjs.org/@xterm/xterm/-/xterm-5.5.0.tgz (css/xterm.css)                          | 2026-11-15 | clean
 
 # === KaTeX webfonts (vendor/css/fonts/) — referenced by katex.min.css ===
 katex-font-AMS-Regular          | 0.16.9  | 0cdd387c9590a1a9f9794560022dbb59654a7d86f187aa0c81495ad42d3a7308 | https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_AMS-Regular.woff2                       | 2026-04-30 | tracks katex 0.16.9

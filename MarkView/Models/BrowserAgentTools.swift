@@ -404,8 +404,13 @@ enum BrowserAgentTools {
 
     /// This process's parent, grandparent… up to launchd.
     static func ancestorPIDs() -> [Int32] {
+        ancestorPIDs(startingAt: getppid())
+    }
+
+    /// Walks parent process IDs starting from `startPID` up to launchd (`AR-40`).
+    static func ancestorPIDs(startingAt startPID: Int32) -> [Int32] {
         var out: [Int32] = []
-        var pid = getppid()
+        var pid = startPID
         while pid > 1, out.count < 32 {
             out.append(pid)
             var info = kinfo_proc()
@@ -417,11 +422,70 @@ enum BrowserAgentTools {
         return out
     }
 
+    // MARK: - Control Socket Token & Peer Verification (`AR-40`, `DEC-009`)
+
+    static let controlTokenEnvKey = "MARKVIEW_CONTROL_TOKEN"
+
+    static func tokenPath(forSocket socketPath: String) -> String {
+        if socketPath.hasSuffix(".sock") {
+            return String(socketPath.dropLast(".sock".count)) + ".token"
+        }
+        return socketPath + ".token"
+    }
+
+    /// Generates a 256-bit cryptographically random hex token and writes it with `0600` permissions next to `socketPath` (`AR-40`).
+    @discardableResult
+    static func writeSocketToken(forSocket socketPath: String) -> String? {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return nil }
+        let token = bytes.map { String(format: "%02x", $0) }.joined()
+        let path = tokenPath(forSocket: socketPath)
+        unlink(path)
+        let fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        _ = fchmod(fd, 0o600)
+        guard writeAll(fd, Data(token.utf8)) else { return nil }
+        return token
+    }
+
+    /// Reads the per-instance token for `socketPath` when present and owned by `getuid()` (`AR-40`).
+    static func readSocketToken(forSocket socketPath: String) -> String? {
+        if let envToken = ProcessInfo.processInfo.environment[controlTokenEnvKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !envToken.isEmpty {
+            return envToken
+        }
+        let path = tokenPath(forSocket: socketPath)
+        var st = stat()
+        guard lstat(path, &st) == 0,
+              (st.st_mode & S_IFMT) == S_IFREG,
+              st.st_uid == getuid(),
+              let raw = try? String(contentsOfFile: path, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        return raw
+    }
+
+    /// Kernel-verified peer process ID (`LOCAL_PEERPID`) and user ID (`LOCAL_PEERCRED`) of an accepted Unix domain socket (`AR-40`).
+    static func peerCredentials(for clientFD: Int32) -> (pid: Int32?, uid: uid_t?) {
+        var peerPID: pid_t = 0
+        var pidLen = socklen_t(MemoryLayout<pid_t>.size)
+        let gotPID = getsockopt(clientFD, SOL_LOCAL, LOCAL_PEERPID, &peerPID, &pidLen) == 0 && peerPID > 0
+
+        var cred = xucred()
+        var credLen = socklen_t(MemoryLayout<xucred>.size)
+        let gotCred = getsockopt(clientFD, SOL_LOCAL, LOCAL_PEERCRED, &cred, &credLen) == 0 && cred.cr_version == XUCRED_VERSION
+        return (gotPID ? peerPID : nil, gotCred ? cred.cr_uid : nil)
+    }
+
     // MARK: - Socket client
 
     /// Send one request line to the app and read its reply line.
     static func request(socket path: String, payload: [String: Any], timeout: Int = 120) -> Reply {
-        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return .error("Bad request") }
+        var outbound = payload
+        if outbound["token"] == nil, let token = readSocketToken(forSocket: path) {
+            outbound["token"] = token
+        }
+        guard let body = try? JSONSerialization.data(withJSONObject: outbound) else { return .error("Bad request") }
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return .error("Cannot create a socket") }
         defer { close(fd) }

@@ -1205,10 +1205,20 @@ struct FileTreeView: View {
     }
 
     private func openTerminal(at folderURL: URL) {
-        let script = "tell application \"Terminal\"\nactivate\ndo script \"cd \(folderURL.path.replacingOccurrences(of: "\"", with: "\\\""))\"\nend tell"
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
+        // Open folder directly in Terminal.app via NSWorkspace (AR-11: no unquoted shell/AppleScript command string).
+        let terminalURL = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+        let config = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.open([folderURL], withApplicationAt: terminalURL, configuration: config) { _, error in
+            guard error != nil else { return }
+            let posixPath = "'" + folderURL.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+            let escapedCmd = ("cd -- " + posixPath)
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            let script = "tell application \"Terminal\"\nactivate\ndo script \"\(escapedCmd)\"\nend tell"
+            if let appleScript = NSAppleScript(source: script) {
+                var scriptError: NSDictionary?
+                appleScript.executeAndReturnError(&scriptError)
+            }
         }
     }
 

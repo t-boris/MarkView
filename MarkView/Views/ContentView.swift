@@ -1036,6 +1036,7 @@ struct AIToolbarMenu: View {
     @State private var availability: [CLITool: Bool] = [:]
     /// Bumped when any choice changes, so the menu shows the stored values.
     @State private var refresh = 0
+    @State private var seenSnapshot = ""
 
     private var choice: AssistantChoice { AssistantChoice(project: workspaceManager.aiProject) }
     private var tool: CLITool { choice.tool }
@@ -1116,7 +1117,14 @@ struct AIToolbarMenu: View {
         .help(unavailable ? "Assistant unavailable. Set its CLI path in Settings." :
               (workspaceManager.aiProject == nil ? "Default assistant and model" : "Assistant and model for this project")
               + " — the AI terminal, features and research. X-Ray model: \(xrayName). The menu also holds the AI tools.")
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in refresh += 1 }
+        .onAppear { seenSnapshot = AIAssistantPreferences.snapshot(project: workspaceManager.aiProject) }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            let next = AIAssistantPreferences.snapshot(project: workspaceManager.aiProject)
+            if next != seenSnapshot {
+                seenSnapshot = next
+                refresh += 1
+            }
+        }
         .task(id: tool) {
             let current = tool
             availability[current] = await CLIToolLocator.resolveThorough(current) != nil

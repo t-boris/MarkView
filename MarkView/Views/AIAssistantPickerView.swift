@@ -16,6 +16,7 @@ struct AIAssistantPickerView: View {
     /// Bumped when any choice changes (here, in the toolbar or in another window), so the picker
     /// shows the stored values.
     @State private var refresh = 0
+    @State private var seenSnapshot = ""
 
     private var choice: AssistantChoice { AssistantChoice(project: project) }
     private var backend: CLITool { choice.tool }
@@ -73,7 +74,14 @@ struct AIAssistantPickerView: View {
                 .uiFont(size: 9).foregroundColor(palette.textDim)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in refresh += 1 }
+        .onAppear { seenSnapshot = AIAssistantPreferences.snapshot(project: project) }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            let next = AIAssistantPreferences.snapshot(project: project)
+            if next != seenSnapshot {
+                seenSnapshot = next
+                refresh += 1
+            }
+        }
         .task { await loadOptions() }
     }
 

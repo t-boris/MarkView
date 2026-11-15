@@ -1,12 +1,14 @@
 #!/bin/bash
-# Bump the app version everywhere it is defined (project.yml + both build
-# configurations in MarkView.xcodeproj). Marketing version and build number stay equal.
+# Bump the app version in both build configurations of MarkView.xcodeproj.
+# Marketing version and build number stay equal.
 #   ./bump-version.sh patch|minor|major
 set -euo pipefail
 cd "$(dirname "$0")"
 
+PBX="MarkView.xcodeproj/project.pbxproj"
 part="${1:-}"
-current=$(sed -n 's/^    MARKETING_VERSION: "\(.*\)"$/\1/p' project.yml)
+current=$(grep -m1 'MARKETING_VERSION = ' "$PBX" | sed -E 's/.*MARKETING_VERSION = ([0-9.]+);.*/\1/')
+[ -n "$current" ] || { echo "error: MARKETING_VERSION not found in $PBX" >&2; exit 1; }
 IFS=. read -r major minor patch <<< "$current"
 case "$part" in
     major) major=$((major + 1)); minor=0; patch=0 ;;
@@ -16,9 +18,14 @@ case "$part" in
 esac
 next="$major.$minor.$patch"
 
-sed -i '' "s/^    MARKETING_VERSION: \".*\"$/    MARKETING_VERSION: \"$next\"/" project.yml
-sed -i '' "s/^    CURRENT_PROJECT_VERSION: \".*\"$/    CURRENT_PROJECT_VERSION: \"$next\"/" project.yml
 sed -i '' "s/MARKETING_VERSION = [0-9.]*;/MARKETING_VERSION = $next;/; s/CURRENT_PROJECT_VERSION = [0-9.]*;/CURRENT_PROJECT_VERSION = $next;/" \
-    MarkView.xcodeproj/project.pbxproj
+    "$PBX"
+
+marketing_count=$(grep -c "MARKETING_VERSION = $next;" "$PBX" || true)
+build_count=$(grep -c "CURRENT_PROJECT_VERSION = $next;" "$PBX" || true)
+if [ "$marketing_count" -lt 2 ] || [ "$build_count" -lt 2 ]; then
+    echo "error: version update in $PBX did not match both Debug and Release configurations" >&2
+    exit 1
+fi
 
 echo "$current -> $next"

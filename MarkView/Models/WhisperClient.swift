@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import AVFAudio
+import Security
 
 /// Voice input — records audio and turns it into text: with an OpenAI key by the Whisper API,
 /// without one by macOS's own recognition on this Mac (`OnDeviceSpeech`). Everything that dictates
@@ -17,7 +18,7 @@ class WhisperClient: ObservableObject {
 
     /// OpenAI when a key is set, else the built-in recognition.
     static var engine: Engine {
-        let key = UserDefaults.standard.string(forKey: apiKeyStorage) ?? ""
+        let key = loadAPIKey() ?? ""
         return key.isEmpty ? .onDevice : .openAI
     }
 
@@ -47,7 +48,56 @@ class WhisperClient: ObservableObject {
     static let maxRecordingDuration: TimeInterval = 600
 
     static let apiKeyStorage = "com.markview.dde.openai.apikey"
+    private static let keychainService = "com.markview.dde.openai"
+    private static let keychainAccount = "apikey"
     static let modelStorage = "settings.whisper.model"
+
+    /// Reads the OpenAI API key from Keychain, migrating any legacy UserDefaults entry on first access (AR-10).
+    nonisolated static func loadAPIKey() -> String? {
+        if let legacy = UserDefaults.standard.string(forKey: apiKeyStorage), !legacy.isEmpty {
+            _ = saveAPIKeyToKeychain(legacy)
+            UserDefaults.standard.removeObject(forKey: apiKeyStorage)
+            return legacy
+        }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data,
+              let key = String(data: data, encoding: .utf8), !key.isEmpty else {
+            return nil
+        }
+        return key
+    }
+
+    /// Saves the OpenAI API key to Keychain and removes any plaintext copy from UserDefaults (AR-10).
+    nonisolated static func saveAPIKey(_ key: String) {
+        UserDefaults.standard.removeObject(forKey: apiKeyStorage)
+        _ = saveAPIKeyToKeychain(key)
+    }
+
+    private nonisolated static func saveAPIKeyToKeychain(_ key: String) -> Bool {
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+        guard !key.isEmpty else { return true }
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecValueData as String: Data(key.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+    }
 
     /// Transcription models OpenAI accepts on /v1/audio/transcriptions.
     static let availableModels = ["whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe"]
@@ -60,12 +110,12 @@ class WhisperClient: ObservableObject {
     }
 
     var hasAPIKey: Bool {
-        guard let key = UserDefaults.standard.string(forKey: Self.apiKeyStorage) else { return false }
+        guard let key = Self.loadAPIKey() else { return false }
         return !key.isEmpty
     }
 
     private var apiKey: String? {
-        UserDefaults.standard.string(forKey: Self.apiKeyStorage)
+        Self.loadAPIKey()
     }
 
     /// Microphone authorization, for the Settings diagnostics panel.
@@ -334,7 +384,7 @@ class WhisperClient: ObservableObject {
                 return nil
             }
 
-            NSLog("[Whisper] Transcribed: \(text.prefix(100))")
+            NSLog("[Whisper] Transcribed \(text.count) characters")
             transcribedText = text
             return text
         } catch {

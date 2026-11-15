@@ -31,6 +31,10 @@ on:
       - 'tools/tests/qa-retention-tests.sh'
       - '.github/workflows/copilot-cockpit.yml'
 
+concurrency:
+  group: copilot-cockpit-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

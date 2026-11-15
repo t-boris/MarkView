@@ -24,6 +24,10 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -53,7 +57,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/MarkViewDerivedData
-          key: markview-${{ runner.os }}-${{ matrix.arch }}-${{ steps.xcode.outputs.version }}-${{ hashFiles('MarkView/**', 'MarkView.xcodeproj/**', 'project.yml') }}
+          key: markview-${{ runner.os }}-${{ matrix.arch }}-${{ steps.xcode.outputs.version }}-${{ hashFiles('MarkView/**', 'Packages/MarkViewCore/**', 'MarkView.xcodeproj/**') }}
           restore-keys: |
             markview-${{ runner.os }}-${{ matrix.arch }}-${{ steps.xcode.outputs.version }}-
 

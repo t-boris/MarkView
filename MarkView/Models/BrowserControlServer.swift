@@ -29,6 +29,18 @@ enum BrowserControlServer {
 
     private static var windows: [UUID: Window] = [:]
     private static var listening: String?
+    /// Per-instance control socket token generated on listen (`AR-40`, `DEC-009`).
+    nonisolated(unsafe) private(set) static var instanceToken: String?
+    /// Optional confirmation gate for `by_user: true` mutations over the control socket (`AR-40`, `DEC-009`).
+    /// When set, must return `true` to allow a `by_user: true` mutation to proceed.
+    static var byUserConfirmationGate: ((_ tool: String, _ arguments: [String: Any]) -> Bool)?
+
+    /// Verifies a control socket token against `expectedToken` (`AR-40`).
+    nonisolated static func verifyToken(_ provided: String?, expected: String?) -> Bool {
+        guard let expected, !expected.isEmpty else { return true }
+        guard let provided, !provided.isEmpty else { return false }
+        return provided == expected
+    }
 
     /// The socket path of this app process, listening once started.
     static var socketPath: String? {
@@ -87,6 +99,10 @@ enum BrowserControlServer {
             NSLog("[MarkView] browser control socket unavailable at \(path)")
             return false
         }
+        if let token = BrowserAgentTools.writeSocketToken(forSocket: path) {
+            instanceToken = token
+            setenv(BrowserAgentTools.controlTokenEnvKey, token, 1)
+        }
         let thread = Thread {
             while true {
                 let client = accept(fd, nil, nil)
@@ -106,7 +122,11 @@ enum BrowserControlServer {
             guard name.hasPrefix("mv-browser-"), name.hasSuffix(".sock"),
                   let pid = Int32(name.dropFirst("mv-browser-".count).dropLast(".sock".count)),
                   pid != ProcessInfo.processInfo.processIdentifier else { continue }
-            if kill(pid, 0) != 0 && errno == ESRCH { unlink((folder as NSString).appendingPathComponent(name)) }
+            if kill(pid, 0) != 0 && errno == ESRCH {
+                let sockPath = (folder as NSString).appendingPathComponent(name)
+                unlink(sockPath)
+                unlink(BrowserAgentTools.tokenPath(forSocket: sockPath))
+            }
         }
     }
 
@@ -114,13 +134,32 @@ enum BrowserControlServer {
     private nonisolated static func serve(_ client: Int32) {
         var noSigPipe: Int32 = 1
         setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        let peer = BrowserAgentTools.peerCredentials(for: client)
+        if let peerUID = peer.uid, peerUID != getuid() {
+            close(client)
+            return
+        }
         guard let line = BrowserAgentTools.readLine(client),
               let request = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else {
             close(client)
             return
         }
+        if !verifyToken(request["token"] as? String, expected: instanceToken) {
+            let errData = (try? JSONSerialization.data(withJSONObject: BrowserAgentTools.Reply.error("Control socket authentication failed: missing or invalid instance token.").json)) ?? Data()
+            _ = BrowserAgentTools.writeAll(client, errData + Data("\n".utf8))
+            close(client)
+            return
+        }
         let window = (request["window"] as? String).flatMap(UUID.init(uuidString:))
-        let pids = (request["pids"] as? [Int] ?? []).map(Int32.init)
+        let clientReportedPIDs = (request["pids"] as? [Int] ?? []).map(Int32.init)
+        // Prefer kernel-verified peer PID ancestry (`LOCAL_PEERPID`, AR-40) over unverified client-supplied PIDs.
+        let pids: [Int32]
+        if let peerPID = peer.pid {
+            let kernelAncestors = BrowserAgentTools.ancestorPIDs(startingAt: peerPID)
+            pids = kernelAncestors.isEmpty ? clientReportedPIDs : kernelAncestors
+        } else {
+            pids = clientReportedPIDs
+        }
         let cwd = request["cwd"] as? String ?? ""
         let declared = request["folderDeclared"] as? Bool ?? false
         // Older servers do not say; their folder counts.
@@ -180,6 +219,10 @@ enum BrowserControlServer {
                                  declared: Bool = false, cwdTrusted: Bool = true) async -> BrowserAgentTools.Reply {
         // The agent of a Cockpit step gets only the tools its controls allow, whichever family a tool belongs to.
         if let refusal = cockpitRefusal(tool, args, pids: pids) { return .error(refusal) }
+        // Native confirmation gate for `by_user: true` mutations (`AR-40`, `DEC-009`).
+        if args["by_user"] as? Bool == true, let gate = byUserConfirmationGate, !gate(tool, args) {
+            return .error("The user declined confirmation for \(tool) (by_user: true).")
+        }
         // The control tools name their window themselves (`window`), or take the caller's folder when it says one.
         if ControlAgentTools.names.contains(tool) {
             return await ControlToolRunner.run(tool, args, caller: .init(pids: pids, folder: declared || cwdTrusted ? cwd : ""))

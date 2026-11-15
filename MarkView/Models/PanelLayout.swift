@@ -1,6 +1,6 @@
 import Foundation
 
-enum WorkspaceArea: String, CaseIterable, Identifiable {
+enum WorkspaceArea: String, CaseIterable, Identifiable, Codable {
     case files = "Files"
     case projectMap = "Project Map"
     case work = "Work"
@@ -15,7 +15,7 @@ enum WorkspaceArea: String, CaseIterable, Identifiable {
     }
 }
 
-enum WorkSection: String, CaseIterable, Identifiable {
+enum WorkSection: String, CaseIterable, Identifiable, Codable {
     case features = "Tasks"
     case git = "Git"
     case terminal = "Terminal"
@@ -28,6 +28,45 @@ enum WorkSection: String, CaseIterable, Identifiable {
         case .terminal: return "terminal"
         }
     }
+}
+
+/// Legacy right-panel navigator tab selection kept in Models (`AR-22`).
+enum NavigatorTab: String, CaseIterable, Codable {
+    case contents = "Contents"
+    case search = "Search"
+    case git = "Git"
+    case terminal = "Terminal"
+    case feature = "Feature"
+
+    static let storageKey = "layout.navigatorTab"
+
+    /// What the tab is called. The raw values are stored in saved layouts and stay as they were.
+    var title: String {
+        switch self {
+        case .terminal: return "Agents"
+        case .feature: return "Tasks"
+        default: return rawValue
+        }
+    }
+}
+
+/// The stages of a feature (spec §5), kept in Models (`AR-22`).
+enum FeatureStage: String, CaseIterable, Codable {
+    case explore = "Explore", review = "Review", build = "Build"
+    static let storageKey = "feature.stage"
+
+    /// A stored stage; the former Resolve stage opens Review.
+    static func stored(_ raw: String?) -> FeatureStage {
+        raw == "Resolve" ? .review : raw.flatMap(FeatureStage.init) ?? .explore
+    }
+}
+
+/// Git tab sections kept in Models (`AR-22`).
+enum GitSection: String, CaseIterable, Codable {
+    case changes = "Changes"
+    case pullRequests = "PRs"
+    case issues = "Issues"
+    case actions = "Actions"
 }
 
 /// The tab or section each panel of one window shows. Every window owns one through its
@@ -43,8 +82,8 @@ final class PanelLayout: ObservableObject {
         didSet { remember(workSection.rawValue, Self.workSectionKey) }
     }
     /// Legacy right-panel selection kept for compatibility with saved layouts.
-    @Published var navigatorTab: TOCView.Tab {
-        didSet { remember(navigatorTab.rawValue, TOCView.Tab.storageKey) }
+    @Published var navigatorTab: NavigatorTab {
+        didSet { remember(navigatorTab.rawValue, NavigatorTab.storageKey) }
     }
     /// Left panel: "files" or "issues".
     @Published var leftPanel: String {
@@ -68,11 +107,26 @@ final class PanelLayout: ObservableObject {
         didSet { remember(welcomeBackdrop.rawValue, WelcomeBackdrop.storageKey) }
     }
 
+    /// Last layout preset explicitly selected by the user in this window (`AR-33`, `DEC-002`).
+    /// Never triggered automatically on tab or git changes.
+    @Published private(set) var activePresetID: String?
+
+    /// Explicitly applies `preset` to this window's panel layout (`AR-33`, `DEC-002`).
+    func apply(preset: LayoutPreset) {
+        workspaceArea = preset.workspaceArea
+        workSection = preset.workSection
+        navigatorTab = preset.navigatorTab
+        leftPanel = preset.leftPanel
+        activePresetID = preset.id
+        remember(preset.id, Self.layoutPresetKey)
+    }
+
     static let leftPanelKey = "layout.leftPanel"
     static let workspaceAreaKey = "layout.workspaceArea"
     static let workSectionKey = "layout.workSection"
     static let issuesFeatureKey = "layout.issuesFeature"
     static let gitSectionKey = "layout.gitSection"
+    static let layoutPresetKey = "layout.preset"
 
     private let defaults: UserDefaults
 
@@ -80,7 +134,7 @@ final class PanelLayout: ObservableObject {
         self.defaults = defaults
         workspaceArea = defaults.string(forKey: Self.workspaceAreaKey).flatMap(WorkspaceArea.init) ?? .files
         workSection = defaults.string(forKey: Self.workSectionKey).flatMap(WorkSection.init) ?? .features
-        let storedNavigator = defaults.string(forKey: TOCView.Tab.storageKey).flatMap(TOCView.Tab.init) ?? .contents
+        let storedNavigator = defaults.string(forKey: NavigatorTab.storageKey).flatMap(NavigatorTab.init) ?? .contents
         navigatorTab = [.terminal, .git, .search].contains(storedNavigator) ? .contents : storedNavigator
         leftPanel = defaults.string(forKey: Self.leftPanelKey) ?? "files"
         issuesFeature = defaults.string(forKey: Self.issuesFeatureKey) ?? ""

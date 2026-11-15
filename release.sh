@@ -23,7 +23,8 @@ for arg in "$@"; do
     esac
 done
 
-VERSION=$(grep -m1 'MARKETING_VERSION' project.yml | sed -E 's/.*"?MARKETING_VERSION"?: *"?([0-9.]+)"?.*/\1/')
+VERSION=$(grep -m1 'MARKETING_VERSION = ' MarkView.xcodeproj/project.pbxproj | sed -E 's/.*MARKETING_VERSION = ([0-9.]+);.*/\1/')
+[ -n "$VERSION" ] || { echo "No MARKETING_VERSION found in MarkView.xcodeproj/project.pbxproj"; exit 1; }
 IDENTITY=${SIGN_IDENTITY:-$(security find-identity -v -p codesigning | grep -m1 "Developer ID Application" | sed -E 's/.*"(.*)"/\1/')}
 [ -n "$IDENTITY" ] || { echo "No Developer ID Application identity found (set SIGN_IDENTITY)"; exit 1; }
 
