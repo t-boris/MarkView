@@ -16,8 +16,6 @@
 2 MarkView/Views/ProjectOps/ProjectOperationsView.swift
 1 MarkView/Views/Prototype/PrototypeHandoffDraftView.swift
 1 MarkView/Views/Prototype/PrototypeStudioView.swift
-1 MarkView/Views/Remote/RemoteConnectionsView.swift
-2 MarkView/Views/Terminal/TerminalView.swift
 1 MarkView/Views/UIStudio/UIStudioTrackingLine.swift
 3 MarkView/Views/UIStudio/UIStudioView.swift
 2 MarkView/Views/Workspace/ArchiveTabView.swift

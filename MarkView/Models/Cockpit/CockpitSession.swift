@@ -185,7 +185,7 @@ final class CockpitSession: ObservableObject {
               let approval = CockpitApproval(plan: reviewed, productionConfirmed: productionConfirmed), reviewed.steps.indices.contains(index) else { return }
         let plan = reviewed
         let recovering = recoveryRun
-        let attempt = CockpitAgentAttempt(workspace: workspace, root: root) { [weak self] progress in
+        let attempt = CockpitAgentAttempt(assistants: workspace.terminals, root: root) { [weak self] progress in
             guard let self else { throw CancellationError() }
             try await self.publishProgress(progress)
         }

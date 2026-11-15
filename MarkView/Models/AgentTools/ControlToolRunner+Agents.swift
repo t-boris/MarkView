@@ -12,7 +12,7 @@ extension ControlToolRunner {
     // MARK: - Terminals
 
     static func activity(of session: TerminalSession, in workspace: WorkspaceManager) -> AgentActivity? {
-        workspace.agentActivity.entries.first { $0.id == session.id }?.activity
+        workspace.terminals.activity.entries.first { $0.id == session.id }?.activity
     }
 
     /// What the terminal is doing, in a few words.
@@ -39,7 +39,7 @@ extension ControlToolRunner {
 
     /// The agent terminal the arguments name. `forInput`: it is going to be written to, so never the caller's own.
     static func terminal(_ target: Target, _ args: [String: Any], caller: Caller?, forInput: Bool) throws -> TerminalSession {
-        let sessions = target.workspace.aiTerminals.filter { $0.profile != .shell }
+        let sessions = target.workspace.terminals.sessions.filter { $0.profile != .shell }
         guard !sessions.isEmpty else {
             throw Invalid(message: "Window \(target.shortID) has no agent terminal. markview_agent_start opens one.")
         }
@@ -49,7 +49,7 @@ extension ControlToolRunner {
             list.map { "\(ControlAgentTools.shortID($0.id.uuidString)) · \($0.profile.rawValue) · \"\($0.title)\"" }.joined(separator: "\n")
         }
         let session: TerminalSession
-        switch ControlAgentTools.pickTerminal(query, among: infos, shown: target.workspace.activeAITerminalID?.uuidString) {
+        switch ControlAgentTools.pickTerminal(query, among: infos, shown: target.workspace.terminals.shownID?.uuidString) {
         case .one(let index): session = sessions[index]
         case .none: throw Invalid(message: "No agent terminal matches “\(query)”. Terminals:\n" + lines(sessions))
         case .many(let indices):
@@ -75,7 +75,7 @@ extension ControlToolRunner {
         }
         // The terminal starts when its page has loaded, which needs the panel on screen.
         workspace.showAIConsole()
-        guard let session = workspace.openAITerminal(TerminalProfile(tool), resuming: resume) else {
+        guard let session = workspace.terminals.openAITerminal(TerminalProfile(tool), resuming: resume) else {
             throw Invalid(message: "The terminal could not be opened.")
         }
         _ = await waitUntil(15) { session.isRunning }
@@ -113,12 +113,12 @@ extension ControlToolRunner {
             out += line + "\n"
         }
         out += "\nTerminals:\n"
-        let terminals = workspace.aiTerminals
+        let terminals = workspace.terminals.sessions
         if terminals.isEmpty {
             out += "  none (markview_agent_start opens one)\n"
         } else {
             for session in terminals {
-                let shown = session.id == workspace.activeAITerminalID ? " · shown" : ""
+                let shown = session.id == workspace.terminals.shownID ? " · shown" : ""
                 let id = ControlAgentTools.shortID(session.id.uuidString)
                 out += "  \(id) · \(session.profile.rawValue) · \"\(session.title)\" · \(state(of: session, in: workspace))\(shown)\n"
                 if let task = activity(of: session, in: workspace)?.task, !task.isEmpty { out += "      asked: \(task.prefix(160))\n" }

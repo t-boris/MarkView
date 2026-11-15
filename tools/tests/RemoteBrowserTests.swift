@@ -3,11 +3,10 @@ import WebKit
 
 // Minimal app dependencies; the production controller, executor, schemas and workspace run unchanged.
 enum CLITool: String { case claude, codex }
+@MainActor final class Terminals { var root: URL? }
 @MainActor final class WorkspaceManager {
     var hostWindow: NSWindow?
-    var aiWorkspaceRoot: URL?
-    var rootNode: Node?
-    struct Node { let url: URL }
+    let terminals = Terminals()
 }
 // The Cockpit gate in BrowserControlServer asks the project's workflow which bug statuses mean "fixing" and the deployments for names.
 struct ProjectWorkflow {
@@ -92,7 +91,7 @@ private func rawControlReply(_ path: String, _ request: [String: Any]) -> Browse
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let workspace = WorkspaceManager(), other = WorkspaceManager()
-        workspace.aiWorkspaceRoot = root; other.aiWorkspaceRoot = root
+        workspace.terminals.root = root; other.terminals.root = root
         let session = BrowserSession(), unrelated = BrowserSession()
         session.agentName = "WorkTab"; unrelated.agentName = "OtherWindow"
         let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled], backing: .buffered, defer: false)
@@ -175,10 +174,10 @@ private func rawControlReply(_ path: String, _ request: [String: Any]) -> Browse
         defaults.removeObject(forKey: "test.browser.enabled")
         let invalid = await BrowserControlServer.performRemoteBrowser("write_file", arguments: .object([:]), window: id, root: root, agent: .codex)
         check(invalid["isError"].bool == true, "The browser endpoint refuses project and filesystem tools")
-        workspace.aiWorkspaceRoot = root.appendingPathComponent("changed")
+        workspace.terminals.root = root.appendingPathComponent("changed")
         let changed = await call("browser_tabs")
         check(changed["isError"].bool == true, "Changing the connected project revokes browser access")
-        workspace.aiWorkspaceRoot = root
+        workspace.terminals.root = root
         BrowserControlServer.unregister(id)
         let closed = await call("browser_tabs")
         check(closed["isError"].bool == true && !text(closed).contains("OtherWindow"), "Closing the window never falls back to another project")

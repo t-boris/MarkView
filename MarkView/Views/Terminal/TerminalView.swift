@@ -178,7 +178,9 @@ struct TerminalStopButton: View {
 /// Shared terminal area: session tabs for assistant CLIs or a plain shell.
 struct AITerminalPanel: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @ObservedObject var terminals: AITerminalsController
+    /// A folder is open in the window (its terminal root may follow a moment later).
+    let folderOpen: Bool
     @Environment(\.appFontScale) private var fontScale
     /// This window's project choice when last seen ("tool|model"): the terminal follows only its own
     /// project's changes, never another window's (BUG-021).
@@ -190,9 +192,9 @@ struct AITerminalPanel: View {
             let compact = geometry.size.width < 420 * max(1, fontScale)
             VStack(spacing: 0) {
                 tabBar(compact: compact)
-                AgentActivityBanner(monitor: workspaceManager.agentActivity, terminalID: workspaceManager.aiTerminal?.id)
+                AgentActivityBanner(monitor: terminals.activity, terminalID: terminals.shown?.id)
                 Divider().background(palette.border)
-                if let session = workspaceManager.aiTerminal {
+                if let session = terminals.shown {
                     HStack(spacing: 7) {
                         Image(systemName: "exclamationmark.shield")
                         if session.isRemote {
@@ -211,7 +213,7 @@ struct AITerminalPanel: View {
                     .padding(.horizontal, 8).padding(.vertical, 4)
                     .background(palette.bgSidebar)
                 }
-                if let session = workspaceManager.aiTerminal {
+                if let session = terminals.shown {
                     TerminalHostView(session: session).id(session.id)
                 } else {
                     placeholder
@@ -220,38 +222,38 @@ struct AITerminalPanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(palette.bg)
-        .sheet(isPresented: $showRemoteConnections) { RemoteConnectionsView() }
+        .sheet(isPresented: $showRemoteConnections) { RemoteConnectionsView(terminals: terminals) }
         .onAppear {
-            workspaceManager.ensureAITerminal()
+            terminals.ensureAITerminal()
             // This panel exists only while its navigator tab is open, so a model picked in the
             // toolbar meanwhile never reached the observer below: apply it now (a no-op when the
             // shown terminal already runs the chosen model).
-            workspaceManager.aiModelChanged()
+            terminals.aiModelChanged()
             seenChoice = currentChoice()
         }
         // At launch the last folder reopens after the panel appeared.
-        .onChange(of: workspaceManager.aiWorkspaceRoot) { _ in
-            workspaceManager.ensureAITerminal()
+        .onChange(of: terminals.workspaceRoot) { _ in
+            terminals.ensureAITerminal()
             seenChoice = currentChoice()
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             let now = currentChoice()
             defer { seenChoice = now }
             guard let seen = seenChoice else { return }
-            if now.tool != seen.tool { workspaceManager.aiBackendChanged() }
-            else if now.model != seen.model { workspaceManager.aiModelChanged() }
+            if now.tool != seen.tool { terminals.aiBackendChanged() }
+            else if now.model != seen.model { terminals.aiModelChanged() }
         }
     }
 
     private func currentChoice() -> (tool: String, model: String) {
-        let project = workspaceManager.aiProject
+        let project = terminals.project
         let tool = AIAssistantPreferences.backend(project: project)
         return (tool.rawValue, AIAssistantPreferences.model(for: tool, project: project) ?? "")
     }
 
     private func tabBar(compact: Bool) -> some View {
         Group {
-            if workspaceManager.aiTerminals.count == 1, let session = workspaceManager.aiTerminals.first {
+            if terminals.sessions.count == 1, let session = terminals.sessions.first {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 6) {
                         terminalTab(session, compact: false).fixedSize(horizontal: true, vertical: false)
@@ -270,7 +272,7 @@ struct AITerminalPanel: View {
                 HStack(spacing: 6) {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 2) {
-                            ForEach(workspaceManager.aiTerminals) { session in
+                            ForEach(terminals.sessions) { session in
                                 terminalTab(session, compact: compact)
                             }
                         }
@@ -284,26 +286,26 @@ struct AITerminalPanel: View {
     }
 
     private func terminalTab(_ session: TerminalSession, compact: Bool) -> some View {
-        TerminalPanelTab(session: session, monitor: workspaceManager.agentActivity,
-                         compact: compact, isActive: session.id == workspaceManager.aiTerminal?.id,
-                         select: { workspaceManager.activeAITerminalID = session.id },
-                         close: { workspaceManager.closeAITerminal(session.id) })
+        TerminalPanelTab(session: session, monitor: terminals.activity,
+                         compact: compact, isActive: session.id == terminals.shown?.id,
+                         select: { terminals.shownID = session.id },
+                         close: { terminals.closeAITerminal(session.id) })
     }
 
     private func terminalControls(compact: Bool) -> some View {
         HStack(spacing: 6) {
             newTerminalMenu
-            if let session = workspaceManager.aiTerminal, session.profile != .shell, !session.isRemote {
-                AgentModelMenu(session: session, monitor: workspaceManager.agentActivity) { model in
-                    workspaceManager.switchModel(of: session, to: model)
+            if let session = terminals.shown, session.profile != .shell, !session.isRemote {
+                AgentModelMenu(session: session, monitor: terminals.activity) { model in
+                    terminals.switchModel(of: session, to: model)
                 }
             }
-            TerminalDictationButton(session: workspaceManager.aiTerminal)
-            if let session = workspaceManager.aiTerminal { TerminalStopButton(session: session, compact: compact) }
+            TerminalDictationButton(session: terminals.shown)
+            if let session = terminals.shown { TerminalStopButton(session: session, compact: compact) }
             TerminalRestartButton(help: "Start the shown terminal again (with the model chosen in the toolbar)", compact: compact) {
-                workspaceManager.restartAITerminal()
+                terminals.restartAITerminal()
             }
-            .disabled(workspaceManager.aiTerminal == nil || workspaceManager.aiTerminal?.isRemote == true)
+            .disabled(terminals.shown == nil || terminals.shown?.isRemote == true)
         }
         .fixedSize()
     }
@@ -311,7 +313,7 @@ struct AITerminalPanel: View {
     private var newTerminalMenu: some View {
         Menu {
             ForEach(TerminalProfile.allCases) { profile in
-                Button { workspaceManager.openAITerminal(profile) } label: { Label(profile.title, systemImage: profile.icon) }
+                Button { terminals.openAITerminal(profile) } label: { Label(profile.title, systemImage: profile.icon) }
             }
             Divider()
             Button { showRemoteConnections = true } label: { Label("Connect to Home…", systemImage: "network") }
@@ -328,7 +330,7 @@ struct AITerminalPanel: View {
         VStack(spacing: 10) {
             Spacer()
             Image(systemName: "terminal").uiFont(size: 26).foregroundColor(palette.textDim)
-            if workspaceManager.aiWorkspaceRoot == nil && workspaceManager.rootNode == nil {
+            if terminals.workspaceRoot == nil && !folderOpen {
                 Text("Open a folder to start a terminal").uiFont(size: 11).foregroundColor(palette.textDim)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -336,7 +338,7 @@ struct AITerminalPanel: View {
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 100 * min(fontScale, 1.5)))], spacing: 8) {
                     ForEach(TerminalProfile.allCases) { profile in
-                        Button { workspaceManager.openAITerminal(profile) } label: {
+                        Button { terminals.openAITerminal(profile) } label: {
                             Label(profile.title, systemImage: profile.icon).uiFont(size: 11)
                         }
                     }
@@ -396,229 +398,6 @@ private struct TerminalPanelTab: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: select)
         .onHover { hovering = $0 }
-    }
-}
-
-/// Buttons that hand a ready-made prompt to the assistant (`TerminalPrompt.all`).
-/// Click sends it; ⌥-click only types it, to edit before pressing Enter.
-private struct TerminalPromptBar: View {
-    @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
-    @Binding var expanded: Bool
-    @State private var pickingPullRequest = false
-    @State private var pickingGitHubActivity = false
-    @State private var activityTypeOnly = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Button { withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() } } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right").uiFont(size: 8, weight: .bold)
-                    Text("PROMPTS").uiFont(size: 9, weight: .bold)
-                    Spacer()
-                }
-                .foregroundColor(palette.textDim)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Click a prompt to send it to the assistant; ⌥-click to type it without sending")
-            if expanded {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 4)], alignment: .leading, spacing: 4) {
-                    ForEach(TerminalPrompt.all) { prompt in button(for: prompt) }
-                }
-            }
-        }
-        .padding(.horizontal, 8).padding(.vertical, 5)
-        .background(palette.bgSidebar)
-    }
-
-    private var activeFile: String? {
-        guard let tab = workspaceManager.activeTab, tab.isFileBacked else { return nil }
-        return workspaceManager.workspaceRelativePath(tab.url)
-    }
-
-    @ViewBuilder
-    private func button(for prompt: TerminalPrompt) -> some View {
-        let unavailable = prompt.input == .activeFile && activeFile == nil
-        let chip = Button {
-            if prompt.input == .pullRequest {
-                pickingPullRequest = true
-            } else if prompt.input == .githubActivity {
-                activityTypeOnly = NSEvent.modifierFlags.contains(.option)
-                pickingGitHubActivity = true
-            } else {
-                send(prompt, pullRequest: nil)
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: prompt.icon).uiFont(size: 9).frame(width: 12)
-                Text(prompt.title).uiFont(size: 10).lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .foregroundColor(unavailable ? palette.textDim.opacity(0.5) : palette.text)
-            .padding(.horizontal, 6).padding(.vertical, 4)
-            .background(RoundedRectangle(cornerRadius: 4).fill(palette.border.opacity(0.45)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(unavailable)
-        .help(unavailable ? prompt.help + " (open a file first)" : prompt.help)
-        if prompt.input == .pullRequest {
-            chip.popover(isPresented: $pickingPullRequest, arrowEdge: .bottom) {
-                PullRequestPicker(root: workspaceManager.aiWorkspaceRoot ?? workspaceManager.rootNode?.url) { choice in
-                    pickingPullRequest = false
-                    send(prompt, pullRequest: choice)
-                }
-            }
-        } else if prompt.input == .githubActivity {
-            chip.popover(isPresented: $pickingGitHubActivity, arrowEdge: .bottom) {
-                GitHubActivityPicker(typeOnly: activityTypeOnly) { window in
-                    pickingGitHubActivity = false
-                    let text = prompt.text(file: nil, pullRequest: nil, activityWindow: window)
-                    workspaceManager.sendToAssistant(text, submit: !activityTypeOnly)
-                }
-            }
-        } else {
-            chip
-        }
-    }
-
-    private func send(_ prompt: TerminalPrompt, pullRequest: String?) {
-        let typeOnly = NSEvent.modifierFlags.contains(.option)
-        workspaceManager.sendToAssistant(prompt.text(file: activeFile, pullRequest: pullRequest), submit: !typeOnly)
-    }
-}
-
-/// Preview the actual bounds before handing the synchronization request to the current agent.
-private struct GitHubActivityPicker: View {
-    @Environment(\.palette) private var palette
-    let typeOnly: Bool
-    let choose: (GitHubActivityWindow) -> Void
-    @State private var period: GitHubActivityPeriod = .weekdays
-    @State private var weekdays = 2
-    @State private var hours = 48
-    @State private var anchor: Date
-    @State private var customStart: Date
-    @State private var customEnd: Date
-
-    init(typeOnly: Bool, choose: @escaping (GitHubActivityWindow) -> Void) {
-        self.typeOnly = typeOnly
-        self.choose = choose
-        let now = Date()
-        _anchor = State(initialValue: now)
-        _customStart = State(initialValue: Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now)
-        _customEnd = State(initialValue: now)
-    }
-
-    private var window: GitHubActivityWindow? {
-        GitHubActivityWindow.make(period: period, count: period == .hours ? hours : weekdays,
-                                  customStart: customStart, customEnd: customEnd, now: anchor)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("GitHub → MarkView").uiFont(size: 12, weight: .semibold)
-            Picker("Period", selection: $period) {
-                ForEach(GitHubActivityPeriod.allCases) { value in
-                    Text(value.rawValue).tag(value)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            switch period {
-            case .weekdays:
-                Stepper("\(weekdays) weekdays (\(weekdays * 24) hours)", value: $weekdays, in: 1...30)
-                Text("Weekdays count as 24 hours; Saturday and Sunday extend the lookback. Monday 09:00 → Thursday 09:00 for two weekdays. No holiday calendar.")
-                    .uiFont(size: 10).foregroundColor(palette.textDim)
-            case .hours:
-                Stepper("Last \(hours) calendar hours", value: $hours, in: 1...720)
-            case .custom:
-                DatePicker("From", selection: $customStart, in: ...anchor, displayedComponents: [.date, .hourAndMinute])
-                DatePicker("Through", selection: $customEnd, in: ...anchor, displayedComponents: [.date, .hourAndMinute])
-            }
-            if let window {
-                Text("From: \(window.start.formatted(date: .abbreviated, time: .shortened))\nThrough: \(window.end.formatted(date: .abbreviated, time: .shortened))\nTimezone: \(TimeZone.current.identifier)")
-                    .uiFont(size: 11).textSelection(.enabled)
-                Text("Includes all GitHub activity within these dates, including weekends. Creates or updates local features and bugs, then reports priorities.")
-                    .uiFont(size: 10).foregroundColor(palette.textDim)
-            } else {
-                Text("Choose an end after the start, no later than now.")
-                    .uiFont(size: 10).foregroundColor(.red)
-            }
-            HStack {
-                Spacer()
-                Button(typeOnly ? "Insert prompt" : "Sync and report") {
-                    if let window { choose(window) }
-                }
-                .disabled(window == nil)
-            }
-        }
-        .padding(12)
-        .frame(width: 390)
-        .fixedSize(horizontal: false, vertical: true)
-    }
-}
-
-/// Which pull request to review: typed (number or URL), picked from the open ones, or the
-/// current branch's.
-private struct PullRequestPicker: View {
-    @Environment(\.palette) private var palette
-    let root: URL?
-    let choose: (String?) -> Void
-    @State private var typed = ""
-    @State private var open: [(number: Int, title: String)] = []
-    @State private var loading = true
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Review pull request").uiFont(size: 12, weight: .semibold)
-            HStack {
-                TextField("Number or URL", text: $typed).textFieldStyle(.roundedBorder).frame(width: 200)
-                    .onSubmit(submitTyped)
-                Button("Review", action: submitTyped).disabled(typed.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            Button("Current branch's pull request") { choose(nil) }
-            Divider()
-            if loading {
-                ProgressView().scaleEffect(0.6)
-            } else if open.isEmpty {
-                Text("No open pull requests found (gh).").uiFont(size: 10).foregroundColor(palette.textDim)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(open, id: \.number) { pr in
-                            Button { choose("pull request #\(pr.number)") } label: {
-                                HStack(spacing: 6) {
-                                    Text("#\(pr.number)").uiFont(size: 11, design: .monospaced).foregroundColor(palette.textDim)
-                                    Text(pr.title).uiFont(size: 11).lineLimit(1)
-                                    Spacer(minLength: 0)
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.vertical, 2)
-                        }
-                    }
-                }
-                .frame(maxHeight: 220)
-            }
-        }
-        .padding(12)
-        .frame(width: 320)
-        .task {
-            guard let root else { loading = false; return }
-            // The list needs `gh`, which only the opt-in GitHub integration may run.
-            let gitHub = GitHubSettings.enabled
-            open = await Task.detached { ArchitectureStore.openPullRequests(root: root, gitHub: gitHub) }.value
-            loading = false
-        }
-    }
-
-    private func submitTyped() {
-        let value = typed.trimmingCharacters(in: .whitespaces)
-        guard !value.isEmpty else { return }
-        let number = value.hasPrefix("#") ? String(value.dropFirst()) : value
-        choose(Int(number) != nil ? "pull request #\(number)" : "the pull request \(value)")
     }
 }
 

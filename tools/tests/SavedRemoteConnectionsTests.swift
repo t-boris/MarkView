@@ -9,11 +9,10 @@ import Foundation
 @MainActor final class RemoteTerminalConnection { func stop() {} }
 @MainActor final class TerminalSession { var connection: AnyObject? = RemoteTerminalConnection() }
 enum RemoteProviderConfiguration { enum Provider: String { case claude, codex } }
-@MainActor final class WorkspaceManager {
-    var aiWorkspaceRoot: URL?
-    var rootNode: Node?
+/// A window's terminals as the store sees them: a root folder, and a home assistant to open.
+@MainActor final class StubHost: RemoteAssistantHost {
+    var root: URL?
     var opens = 0
-    struct Node { var url: URL }
     func openRemoteAITerminal(code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool,
                               savedConnectionID: UUID? = nil) async throws -> TerminalSession { opens += 1; return TerminalSession() }
 }
@@ -38,9 +37,9 @@ enum RemoteProviderConfiguration { enum Provider: String { case claude, codex } 
         let root = URL(fileURLWithPath: "/tmp/mv-saved-project-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let workspace = WorkspaceManager(); workspace.aiWorkspaceRoot = root
+        let workspace = StubHost(); workspace.root = root
         let invitation = try RemoteInvitation(relay: URL(string: "http://127.0.0.1:16394")!, persistent: true)
-        try await store.connect(name: "Home Mac", code: invitation.code, provider: .codex, model: "test-model", resume: true, workspace: workspace)
+        try await store.connect(name: "Home Mac", code: invitation.code, provider: .codex, model: "test-model", resume: true, host: workspace)
         precondition(store.entries.count == 3 && workspace.opens == 1)
         let firstRoom = try RemoteInvitation(code: store.entries[0].code).room
         let secondRoom = try RemoteInvitation(code: store.entries[1].code).room
@@ -58,11 +57,11 @@ enum RemoteProviderConfiguration { enum Provider: String { case claude, codex } 
         try await Task.sleep(nanoseconds: 50_000_000)
         precondition(workspace.opens == 1, "Closing a terminal must not immediately reopen it")
         let reopened = RemoteConnectionsStore(keychain: keychain); await reopened.ready()
-        workspace.aiWorkspaceRoot = URL(fileURLWithPath: "/private" + root.path)
+        workspace.root = URL(fileURLWithPath: "/private" + root.path)
         reopened.attach(workspace)
         try await Task.sleep(nanoseconds: 50_000_000)
         precondition(workspace.opens == 2, "Reopening the app must restore the saved project connection across /tmp and /private/tmp aliases")
-        let wrong = WorkspaceManager(); wrong.aiWorkspaceRoot = URL(fileURLWithPath: "/tmp/wrong-project")
+        let wrong = StubHost(); wrong.root = URL(fileURLWithPath: "/tmp/wrong-project")
         reopened.attach(wrong)
         try await Task.sleep(nanoseconds: 50_000_000)
         precondition(wrong.opens == 0)

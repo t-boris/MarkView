@@ -38,7 +38,7 @@ struct ModuleExplorerView: View {
             .background(palette.bg)
             Divider().background(palette.border)
 
-            AITerminalPanel().environmentObject(workspaceManager)
+            AITerminalPanel(terminals: workspaceManager.terminals, folderOpen: workspaceManager.rootNode != nil)
         }
         .task(id: workspaceManager.semanticDatabase.map(ObjectIdentifier.init)) { await refreshCost() }
     }

@@ -391,11 +391,6 @@ class WorkspaceManager: ObservableObject {
     /// AI tool runs working in a headless agent (diagrams, code map, review, audit).
     let aiJobs = AIToolJobs()
 
-    func currentAssistantSelection() -> CLICompletion.Assistant? {
-        guard let terminal = assistantTerminal, let tool = terminal.profile.tool else { return nil }
-        return CLICompletion.Assistant.chosen(tool: tool, project: aiProject)
-    }
-
     // MARK: - Tool tabs
 
     /// What opening a tool does beyond showing its tab: wiring the tool's own store to the project, or building the tab of a tool that
@@ -590,29 +585,9 @@ class WorkspaceManager: ObservableObject {
     private(set) lazy var research = ResearchMapController(host: self, tasks: taskBag)
     /// This window's bug basket for batch Fix with AI (issue #31); a new folder empties it.
     private(set) lazy var bugBatch = BugBatch(store: features)
-    /// Where the AI terminal starts: the open folder, or a single file's folder.
-    @Published private(set) var aiWorkspaceRoot: URL? {
-        // After a relaunch the folder's AI terminals come back even while the panel is hidden.
-        didSet {
-            if aiWorkspaceRoot != nil, aiWorkspaceRoot != oldValue {
-                restoreAITerminals()
-                RemoteConnectionsStore.shared.attach(self)
-            }
-        }
-    }
-    /// The AI panel's terminals, in tab order: Claude Code, Codex or a plain shell each.
-    @Published private(set) var aiTerminals: [TerminalSession] = []
-    /// What the assistants in the AI terminals are doing (toolbar chip).
-    let agentActivity = AgentActivityMonitor()
-    /// The terminal shown in the AI panel.
-    @Published var activeAITerminalID: UUID? {
-        // Closing the workspace empties `aiTerminals` first, so it does not overwrite the saved set.
-        didSet { if !aiTerminals.isEmpty { saveAITerminals() } }
-    }
-    /// Terminals opened in folders, shown as editor tabs (keyed by tab id).
-    private var terminalTabs: [UUID: TerminalSession] = [:]
-    /// Dev server terminals started by Preview Web App, by app folder path.
-    private var previewTerminals: [String: UUID] = [:]
+    /// The terminals of this window: the AI panel's, the editor tabs', the AI terminals that come back across launches, and what the
+    /// assistants are doing.
+    private(set) lazy var terminals = AITerminalsController(host: self, tasks: taskBag)
     private var openFilesWatcher: Task<Void, Never>?
     /// Last seen modification dates of open files (to reload what the assistant changed).
     private var openFileDates: [URL: Date] = [:]
@@ -763,19 +738,11 @@ class WorkspaceManager: ObservableObject {
         let appDir = appSupport.appendingPathComponent("MarkView", isDirectory: true)
         try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
         recentFilesURL = appDir.appendingPathComponent("recentFiles.json")
-        qa.assistantSelection = { [weak self] in
-            guard let self, let terminal = self.assistantTerminal, let tool = terminal.profile.tool else { return nil }
-            // The shown agent decides which assistant answers; the model is the project's chosen one, not what that tab happens to run.
-            return CLICompletion.Assistant.chosen(tool: tool, project: self.aiProject)
-        }
-        agentActivity.terminals = { [weak self] in self?.aiTerminals ?? [] }
-        agentActivity.activeTerminalID = { [weak self] in self?.activeAITerminalID }
-        agentActivity.onClaudeModel = { [weak self] id, model in self?.claudeModelReported(model, terminalID: id) }
+        qa.assistants = terminals
         let sideTable = scrollState
         tabsStore.onTabsRemoved = { removedIDs in
             for id in removedIDs { sideTable.removeTab(id) }
         }
-        agentActivity.start()
 
         // Restore layout from UserDefaults
         let ud = UserDefaults.standard
@@ -946,7 +913,7 @@ class WorkspaceManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 100_000_000)
 
             insight.attachDatabase(db)
-            self.aiWorkspaceRoot = url
+            self.terminals.workspaceRoot = url
             Self.debugLog("initDDE: engines created")
 
             indexingProgress = "Connecting services..."
@@ -1184,7 +1151,7 @@ class WorkspaceManager: ObservableObject {
             case .github(let item): saved = .github(item)
             case .architecture(let scope): saved = .architecture(scope)
             case .terminal(let terminalID):
-                guard let terminal = terminalTabs[terminalID] else { continue }
+                guard let terminal = terminals.tabTerminal(terminalID) else { continue }
                 saved = .terminal(terminal.directory)
             case .browser(let session):
                 guard let url = session.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { continue }
@@ -1909,7 +1876,7 @@ class WorkspaceManager: ObservableObject {
             }
         case "prTasksToTerminal":
             // Typed at the assistant's prompt, not sent: check the list and press Enter.
-            if let text = architecture.prTasksText() { sendToAssistant(text, submit: false) }
+            if let text = architecture.prTasksText() { terminals.sendToAssistant(text, submit: false) }
         case "copyPRTasks":
             if let text = architecture.prTasksText() {
                 NSPasteboard.general.clearContents()
@@ -2151,7 +2118,7 @@ class WorkspaceManager: ObservableObject {
         semanticDatabase = nil
         insight.detachDatabase()
         stopAllTerminals()
-        aiWorkspaceRoot = nil
+        terminals.workspaceRoot = nil
     }
 
     /// Close the open folder and every tab, returning the window to the welcome
@@ -2231,7 +2198,7 @@ class WorkspaceManager: ObservableObject {
 
         releaseWorkspaceEngines()
 
-        aiWorkspaceRoot = parentDir
+        terminals.workspaceRoot = parentDir
         gitClient.setup(at: parentDir)
 
         // Build file tree showing just the parent dir
@@ -2319,7 +2286,7 @@ class WorkspaceManager: ObservableObject {
         let tab = openTabs[index]
         // A terminal tab: end its shell; there is nothing to save.
         if case .terminal(let id) = tab.kind {
-            closeTerminal(id)
+            terminals.closeTabTerminal(id)
             tabsStore.removeTab(at: index)
             return
         }
@@ -3124,100 +3091,10 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    // MARK: - Terminals
-
-    /// The terminal shown in the AI panel.
-    var aiTerminal: TerminalSession? {
-        aiTerminals.first { $0.id == activeAITerminalID } ?? aiTerminals.first
-    }
-
-    /// The command that starts `profile` in the shell with the model chosen for it, or nil
-    /// for a plain shell. Every assistant runs without permission prompts; Claude updates itself first.
-    /// `continuing` adds the assistant's option that picks up its last session in the folder.
-    /// `model` replaces the model chosen for the project: a Cockpit step runs with the model its plan names.
-    private func startupCommand(for profile: TerminalProfile, continuing: Bool = false, model: String? = nil) -> String? {
-        guard let tool = profile.tool else { return nil }
-        let path = CLIToolLocator.resolve(tool) ?? tool.binaryName
-        let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let linked = tool.additionalFolderArgs(linkedFolders.map(\.url)).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-        let run = ([quoted] + (continuing ? tool.continueArgs : []) + tool.modelArgs(model ?? chosenModel(for: profile))
-                   + tool.fullAccessArgs + linked + browserToolArgs(for: tool)).joined(separator: " ")
-        switch tool {
-        case .claude: return "\(quoted) update && \(run)"
-        case .codex, .cline, .copilot, .antigravity: return run
-        }
-    }
+    // MARK: - Browser control
 
     /// This window's id for agents driving its browser tab (`BrowserControlServer`).
     let browserControlID = UUID()
-
-    /// Shell-quoted arguments that give Claude Code and Codex the MCP server for this window's
-    /// browser tab (Task 80); none when terminal links do not open in MarkView.
-    private func browserToolArgs(for tool: CLITool) -> [String] {
-        registerBrowserControl()
-        guard BrowserControlServer.agentToolsEnabled(tool) else { return [] }
-        // The browser tools (when terminal links open in MarkView) and the project tools (features, bugs,
-        // prototypes), each a server of this same binary, both bound to this window.
-        var servers: [(name: String, codexName: String, command: String, args: [String])] = []
-        if TerminalBrowserBridge.isEnabled, let server = BrowserControlServer.mcpArguments(window: browserControlID) {
-            servers.append((BrowserAgentTools.serverName, "markview_browser", server.command, server.args))
-        }
-        if let server = BrowserControlServer.mcpArguments(window: browserControlID, flag: "--mcp-project") {
-            servers.append((ProjectAgentTools.serverName, ProjectAgentTools.serverName, server.command, server.args))
-        }
-        guard !servers.isEmpty else { return [] }
-        let shellQuote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-        switch tool {
-        case .claude:
-            let config: [String: Any] = ["mcpServers": Dictionary(uniqueKeysWithValues: servers.map { ($0.name, ["command": $0.command, "args": $0.args] as [String: Any]) })]
-            guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.withoutEscapingSlashes]),
-                  let json = String(data: data, encoding: .utf8) else { return [] }
-            return ["--mcp-config", shellQuote(json)]
-        case .codex:
-            let toml = { (text: String) in "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
-            return servers.flatMap { server in
-                ["-c", shellQuote("mcp_servers.\(server.codexName).command=" + toml(server.command)),
-                 "-c", shellQuote("mcp_servers.\(server.codexName).args=[" + server.args.map(toml).joined(separator: ",") + "]")]
-            }
-        case .copilot:
-            let config: [String: Any] = ["mcpServers": Dictionary(uniqueKeysWithValues: servers.map {
-                ($0.name, ["type": "local", "command": $0.command, "args": $0.args, "tools": ["*"]] as [String: Any]) })]
-            guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.withoutEscapingSlashes]),
-                  let json = String(data: data, encoding: .utf8) else { return [] }
-            return ["--additional-mcp-config", shellQuote(json)]
-        case .cline:
-            // Cline has no per-session option: its own settings must list the servers (BUG-026).
-            AgentBrowserRegistration.ensureCline(executable: servers[0].command)
-            return []
-        case .antigravity:
-            // Antigravity keeps its servers in its own configuration, added with `agy mcp add`.
-            AgentBrowserRegistration.ensureAntigravity(executable: servers[0].command)
-            return []
-        }
-    }
-
-    /// BUG-025: an organisation's Copilot policy may allow only listed MCP servers; Copilot then
-    /// prints `MCP server was blocked by policy: "markview-browser"` at every start. On that message
-    /// the server is turned off for Copilot on this Mac, and the terminal can restart without it.
-    private func watchForMCPPolicyBlock(_ session: TerminalSession) {
-        var recent = ""
-        session.onOutput = { [weak self, weak session] data in
-            recent = String((recent + String(decoding: data, as: UTF8.self)).suffix(4_000))
-            guard BrowserAgentTools.reportsPolicyBlock(recent) else { return }
-            recent = ""
-            DispatchQueue.main.async {
-                guard let self, let session, BrowserControlServer.agentToolsEnabled(.copilot) else { return }
-                UserDefaults.standard.set(false, forKey: BrowserControlServer.agentToolsKey(.copilot))
-                let alert = NSAlert()
-                alert.messageText = "Copilot's policy blocks MarkView's browser tools"
-                alert.informativeText = "Your organisation allows Copilot only the MCP servers it lists, so it refused \"\(BrowserAgentTools.serverName)\". MarkView no longer gives Copilot these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). Copilot itself keeps working."
-                alert.addButton(withTitle: "Restart Copilot Without Them")
-                alert.addButton(withTitle: "Later")
-                guard alert.runModal() == .alertFirstButtonReturn else { return }
-                self.relaunch(session, as: session.profile, continuing: true)
-            }
-        }
-    }
 
     /// The window this workspace is shown in; set by its view. Control tools list, focus and name windows by it.
     weak var hostWindow: NSWindow?
@@ -3260,263 +3137,6 @@ class WorkspaceManager: ObservableObject {
         layout.workspaceArea = .files
         showCenter = true
         activeTabIndex = index
-    }
-
-    /// The command that continues `profile`'s last session in `directory` (BUG-005), or nil to start
-    /// fresh: a shell, Cline (no "continue last" option), or Claude with no session there —
-    /// `claude --continue` then stops with "No conversation found" instead of starting one.
-    /// Codex and Copilot start a new session by themselves when there is none.
-    private func resumeCommand(for profile: TerminalProfile, in directory: URL) -> String? {
-        guard let tool = profile.tool, !tool.continueArgs.isEmpty else { return nil }
-        if tool == .claude, !AgentModelProbe.hasClaudeSession(cwd: directory) { return nil }
-        return startupCommand(for: profile, continuing: true)
-    }
-
-    /// "Claude Code · opus", "Codex 2 · gpt-5", "Shell" — unique among the open terminals.
-    private func terminalTitle(for profile: TerminalProfile, excluding session: TerminalSession? = nil) -> String {
-        let taken = Set(aiTerminals.filter { $0 !== session }.map(\.title))
-        var base = profile.title
-        var counter = 2
-        while taken.contains(where: { $0 == base || $0.hasPrefix(base + " · ") }) {
-            base = "\(profile.title) \(counter)"
-            counter += 1
-        }
-        guard let model = chosenModel(for: profile) else { return base }
-        return base + " · " + model
-    }
-
-    /// The model `profile` runs when started now: the project's choice for its assistant, nil for
-    /// a shell or the CLI's own default. The command, the tab title and `TerminalSession.model`
-    /// all come from this one answer.
-    private func chosenModel(for profile: TerminalProfile) -> String? {
-        guard let tool = profile.tool else { return nil }
-        return AIAssistantPreferences.model(for: tool, project: aiProject)
-    }
-
-    /// Start `session` again running `profile` with the model chosen for it now.
-    private func relaunch(_ session: TerminalSession, as profile: TerminalProfile, continuing: Bool = false) {
-        session.restart(profile: profile,
-                        startupCommand: startupCommand(for: profile, continuing: continuing),
-                        title: terminalTitle(for: profile, excluding: session),
-                        model: chosenModel(for: profile))
-    }
-
-    /// Open another terminal in the AI panel and show it.
-    /// `resuming` continues the assistant's last session in the folder (terminals restored after a relaunch).
-    /// `model` starts the assistant with that model instead of the one chosen for the project (a Cockpit step's own).
-    @discardableResult
-    func openAITerminal(_ profile: TerminalProfile, resuming: Bool = false, model: String? = nil) -> TerminalSession? {
-        guard let directory = aiWorkspaceRoot ?? rootNode?.url else { return nil }
-        let session = TerminalSession(directory: directory, profile: profile,
-                                      startupCommand: startupCommand(for: profile, model: model),
-                                      resumeCommand: resuming ? resumeCommand(for: profile, in: directory) : nil,
-                                      title: terminalTitle(for: profile),
-                                      model: model ?? chosenModel(for: profile))
-        session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
-        session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
-        session.browserWindowID = browserControlID
-        registerBrowserControl()
-        if profile.tool == .copilot { watchForMCPPolicyBlock(session) }
-        aiTerminals.append(session)
-        activeAITerminalID = session.id
-        startWatchingOpenFiles()
-        return session
-    }
-
-    /// Connect a home assistant while preserving this window's work-computer root.
-    @discardableResult
-    func openRemoteAITerminal(code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool, savedConnectionID: UUID? = nil) async throws -> TerminalSession {
-        guard let root = aiWorkspaceRoot ?? rootNode?.url else { throw RemoteFailure.invalid("Open the folder you want the home assistant to work in.") }
-        let invitation = try RemoteInvitation(code: code)
-        registerBrowserControl()
-        let connection = try await RemoteTerminalConnection(invitation: invitation, root: root, browserWindowID: browserControlID, provider: provider, model: model, resume: resume, savedConnectionID: savedConnectionID)
-        guard (aiWorkspaceRoot ?? rootNode?.url)?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else { connection.stop(); throw RemoteFailure.invalid("The open folder changed. Connect again for the new folder.") }
-        let session = TerminalSession(directory: root, profile: provider == .claude ? .claude : .codex,
-                                      title: "Home · " + provider.title)
-        connection.onState = { [weak session] phase, text in
-            session?.remoteConnectionState = .init(phase: phase, detail: text, lastSeen: phase == .online ? Date() : nil)
-            if let savedConnectionID { RemoteConnectionsStore.shared.update(savedConnectionID, phase, text) }
-        }
-        session.connection = connection
-        session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
-        session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
-        aiTerminals.append(session)
-        activeAITerminalID = session.id
-        showAIConsole()
-        return session
-    }
-
-    /// The first AI terminal (the toolbar's assistant) once a folder is open.
-    @discardableResult
-    func ensureAITerminal() -> TerminalSession? {
-        if let session = aiTerminal { return session }
-        restoreAITerminals()
-        return aiTerminal ?? openAITerminal(TerminalProfile(AIAssistantPreferences.backend(project: aiProject)))
-    }
-
-    // MARK: AI terminals across launches (BUG-005)
-
-    private static func aiTerminalsKey(_ directory: URL) -> String {
-        "aiTerminals." + String(ContentHash.of(directory.standardizedFileURL.path).prefix(12))
-    }
-
-    /// Remember the folder's AI terminals: what each runs, in tab order, and the shown one.
-    private func saveAITerminals() {
-        guard let directory = aiWorkspaceRoot ?? rootNode?.url else { return }
-        // Saved remote pairings are restored by RemoteConnectionsStore, never as local assistant profiles.
-        let local = aiTerminals.filter { !$0.isRemote }
-        let shown = local.firstIndex { $0.id == activeAITerminalID } ?? 0
-        UserDefaults.standard.set(["profiles": local.map(\.profile.rawValue), "shown": shown],
-                                  forKey: Self.aiTerminalsKey(directory))
-    }
-
-    /// Reopen the AI terminals the folder had when MarkView last ran, each assistant continuing
-    /// its last session there. Does nothing once a terminal is open or when none were saved.
-    private func restoreAITerminals() {
-        guard aiTerminals.isEmpty, let directory = aiWorkspaceRoot ?? rootNode?.url,
-              let saved = UserDefaults.standard.dictionary(forKey: Self.aiTerminalsKey(directory)),
-              let names = saved["profiles"] as? [String] else { return }
-        let sessions = names.compactMap(TerminalProfile.init(rawValue:)).compactMap { openAITerminal($0, resuming: true) }
-        let shown = saved["shown"] as? Int ?? 0
-        if sessions.indices.contains(shown) { activeAITerminalID = sessions[shown].id }
-    }
-
-    func closeAITerminal(_ id: UUID) {
-        guard let index = aiTerminals.firstIndex(where: { $0.id == id }) else { return }
-        aiTerminals.remove(at: index).terminate()
-        if activeAITerminalID == id {
-            activeAITerminalID = aiTerminals.isEmpty ? nil : aiTerminals[min(index, aiTerminals.count - 1)].id
-        }
-        saveAITerminals()
-    }
-
-    /// Start the shown terminal again, with the model chosen for its assistant now.
-    func restartAITerminal() {
-        guard let session = aiTerminal else { ensureAITerminal(); return }
-        guard !session.isRemote else { return }
-        relaunch(session, as: session.profile)
-    }
-
-    /// The toolbar's assistant changed: show a terminal running it — an open one, or the
-    /// shown assistant terminal restarted with it, or a new one next to a plain shell.
-    func aiBackendChanged() {
-        guard aiTerminal?.isRemote != true else { return }
-        let profile = TerminalProfile(AIAssistantPreferences.backend(project: aiProject))
-        if let existing = aiTerminals.first(where: { $0.profile == profile }) {
-            activeAITerminalID = existing.id
-            return
-        }
-        if let session = aiTerminal, session.profile != .shell {
-            relaunch(session, as: profile)
-            saveAITerminals()
-            objectWillChange.send()
-        } else if aiTerminal != nil {
-            openAITerminal(profile)
-        }
-    }
-
-    /// The model chosen for the shown terminal's assistant differs from the one it runs: the shown
-    /// terminal restarts with the chosen model and its tab is renamed; other terminals keep their
-    /// session. Safe to call at any time — it does nothing when the models match. The AI panel
-    /// calls it when the toolbar's model changes and when the panel opens, so a model picked
-    /// while the panel was hidden is applied too.
-    func aiModelChanged() {
-        guard let session = aiTerminal, session.profile != .shell, !session.isRemote,
-              session.model != chosenModel(for: session.profile) else { return }
-        // Only a model picked in MarkView after this assistant started applies to it. A model remembered
-        // from another session (the user switched with /model there, BUG-048) is the next start's, not a
-        // reason to interrupt this one.
-        guard let tool = session.profile.tool,
-              let picked = ModelPickLog.lastPick(tool: tool, project: aiProject), picked > session.launchedAt else { return }
-        relaunch(session, as: session.profile)
-        objectWillChange.send()
-    }
-
-    /// A Claude Code agent's own log names the model it runs now. When that is not what MarkView shows
-    /// (the user switched with `/model` inside the session), the agent's tab shows it, and it becomes
-    /// the model the project (and every project with no choice of its own) starts Claude Code with next
-    /// time. Nothing restarts: the conversation goes on.
-    private func claudeModelReported(_ model: String, terminalID: UUID) {
-        guard let session = aiTerminals.first(where: { $0.id == terminalID }),
-              session.profile == .claude, !session.isRemote, session.isRunning else { return }
-        let previous = session.observedModel
-        session.observedModel = model
-        let picked = session.pendingModelPick == model
-        if picked { session.pendingModelPick = nil }
-        guard model != session.model else { return }
-        // Started with the CLI's own default: the first reading is that default, not a choice,
-        // unless the Agents header asked for exactly this model.
-        if session.model == nil, previous == nil, !picked { return }
-        // A model pinned by id (--model claude-opus-4-1) and the family alias the log reports are the same.
-        if let pinned = session.model, ClaudeSessionModel.family(of: pinned) == model { return }
-        session.adoptRunningModel(model, title: ClaudeSessionModel.title(session.title, model: model))
-        AIAssistantPreferences.remember(model, for: .claude, project: aiProject)
-        objectWillChange.send()
-    }
-
-    /// The model switch in the Agents header. Claude Code switches live: `/model` is typed into the
-    /// running session, so nothing restarts and the conversation goes on; the session's log then
-    /// confirms it and `claudeModelReported` renames the tab and remembers the model. Another
-    /// assistant starts again with the model, and picks its conversation up where its CLI can resume.
-    func switchModel(of session: TerminalSession, to model: String) {
-        guard session.profile != .shell, !session.isRemote, !model.isEmpty else { return }
-        guard session.profile == .claude else {
-            guard let tool = session.profile.tool else { return }
-            AssistantChoice(project: aiProject).setModel(model, for: tool)
-            // The panel restarts the shown agent only when the project's own assistant changes its
-            // model; a Copilot tab beside a Claude project would stay as it was.
-            if session.model != chosenModel(for: session.profile) {
-                relaunch(session, as: session.profile, continuing: !tool.continueArgs.isEmpty)
-                objectWillChange.send()
-            }
-            return
-        }
-        // Only a family alias is typed, never free text. While the agent answers, the command would
-        // queue behind the answer or land in the wrong place; the menu is off then, this covers the race.
-        guard ClaudeSessionModel.families.contains(model), session.isRunning, !session.printed(within: 3) else {
-            NSSound.beep()
-            return
-        }
-        session.pendingModelPick = model
-        session.paste("/model \(model)", submit: true)
-    }
-
-    /// Send a prompt to an assistant (prompt buttons, AI Tools menu, graph edits,
-    /// documentation): the shown terminal when it runs one, else an open assistant
-    /// terminal, else a new one with the toolbar's assistant. Pasted as one block;
-    /// `submit` presses Enter.
-    /// Returns the terminal session the prompt went to.
-    @discardableResult
-    func sendToAssistant(_ prompt: String, submit: Bool = true) -> TerminalSession? {
-        sendToAssistant(submit: submit) { _ in prompt }
-    }
-
-    /// Build a backend-specific prompt only after choosing the actual receiving terminal.
-    /// `terminal`: the one to send to (an agent driving the window names it); else the usual choice.
-    @discardableResult
-    func sendToAssistant(submit: Bool = true, to terminal: TerminalSession? = nil, promptFor: (TerminalSession) -> String?) -> TerminalSession? {
-        showAIConsole()
-        restoreAITerminals()
-        guard let session = terminal ?? assistantTerminal ?? openAITerminal(TerminalProfile(AIAssistantPreferences.backend(project: aiProject))) else { return nil }
-        activeAITerminalID = session.id
-        guard let prompt = promptFor(session) else { return nil }
-        session.pasteWhenReady(prompt, submit: submit)
-        return session
-    }
-
-    /// The open assistant terminal a prompt goes to: the one shown, else one of the chosen
-    /// backend, else any assistant; nil when none is open (`sendToAssistant` then opens one).
-    var assistantTerminal: TerminalSession? {
-        if let shown = aiTerminal, shown.profile != .shell { return shown }
-        return aiTerminals.first(where: { $0.profile == TerminalProfile(AIAssistantPreferences.backend(project: aiProject)) })
-            ?? aiTerminals.first(where: { $0.profile != .shell })
-    }
-
-    /// The assistant terminal is working: it printed in the last few seconds (Claude Code's
-    /// spinner keeps printing while it runs). Batch Fix with AI waits for it (DEC-010).
-    var assistantIsBusy: Bool {
-        guard let session = assistantTerminal, session.isRunning else { return false }
-        return session.printed(within: 3)
     }
 
     // MARK: - GitHub
@@ -3712,7 +3332,7 @@ class WorkspaceManager: ObservableObject {
         let slug = features.features.first(where: { $0.folder.standardizedFileURL.path == target })?.slug
             ?? features.locate(url)?.feature.slug
         let block = slug.map { features.lifecycle.handoffBlock(.feature, [$0]) } ?? ""
-        guard let session = sendToAssistant(submit: true, to: terminal, promptFor: { session in
+        guard let session = terminals.sendToAssistant(submit: true, to: terminal, promptFor: { session in
             guard let backend = HandoffPrompt.GoalBackend(rawValue: session.profile.rawValue) else { return nil }
             let prompt = HandoffPrompt.feature(path, backend: backend, done: done)
             return block.isEmpty ? prompt : prompt + "\n\n" + block
@@ -3731,12 +3351,12 @@ class WorkspaceManager: ObservableObject {
     func resolveConflictsWithAI() {
         let files = gitClient.repoStatus.entries(in: .conflicts).map(\.path)
         guard !files.isEmpty else { return }
-        guard !assistantIsBusy else {
+        guard !terminals.assistantIsBusy else {
             gitClient.lastError = "The assistant is still working. Resolve the conflicts with it when it has finished."
             return
         }
         let prompt = ConflictPrompt.make(files: files, operation: gitClient.operationInProgress, branch: gitClient.branch)
-        sendToAssistant(prompt, submit: true)
+        terminals.sendToAssistant(prompt, submit: true)
     }
 
     /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.
@@ -3753,7 +3373,7 @@ class WorkspaceManager: ObservableObject {
         let base = HandoffPrompt.bug(workspaceRelativePath(url), claude: claude)
         let prompt = block.isEmpty ? base : base + "\n\n" + block
         // The report is marked fixing only after the prompt went out: a hand-off that failed leaves it open (REQ-003).
-        guard let session = sendToAssistant(submit: true, to: terminal, promptFor: { _ in prompt }), let key else { return }
+        guard let session = terminals.sendToAssistant(submit: true, to: terminal, promptFor: { _ in prompt }), let key else { return }
         features.lifecycle.startByHandoff(.bug, key, tool: session.profile.tool?.displayName ?? "AI assistant", actor: .human(features.lifecycleActor))
     }
 
@@ -3766,7 +3386,7 @@ class WorkspaceManager: ObservableObject {
     func fixBasketWithAI() {
         bugBatch.reconcile()
         let bugs = bugBatch.eligible
-        guard bugs.count >= BugBasket.minimumBatch, !assistantIsBusy, features.root != nil else { return }
+        guard bugs.count >= BugBasket.minimumBatch, !terminals.assistantIsBusy, features.root != nil else { return }
         let claude = AIAssistantPreferences.backend(project: aiProject) == .claude
         var session: TerminalSession?
         let outcome = BatchStart.run(bugs, canStart: { bug in
@@ -3774,7 +3394,7 @@ class WorkspaceManager: ObservableObject {
         }, send: { startable in
             let base = BatchFixPrompt.make(startable, claude: claude)
             let block = features.lifecycle.handoffBlock(.bug, startable.map(\.key))
-            session = sendToAssistant(block.isEmpty ? base : base + "\n\n" + block, submit: true)
+            session = terminals.sendToAssistant(block.isEmpty ? base : base + "\n\n" + block, submit: true)
             return session != nil
         }, start: { bug in
             let tool = session?.profile.tool?.displayName ?? "AI assistant"
@@ -3963,7 +3583,7 @@ class WorkspaceManager: ObservableObject {
             // Without the GitHub integration the branch is not checked out for the AI.
             prompt += "\n\nNote: this is pull request #\(number); its branch may not be the one checked out here."
         }
-        sendToAssistant(prompt, submit: true)
+        terminals.sendToAssistant(prompt, submit: true)
         return nil
     }
 
@@ -3986,7 +3606,7 @@ class WorkspaceManager: ObservableObject {
             prompt += "\n\nComments:\n" + comments.map { "- \($0.author?.login ?? "someone"): \($0.body)" }.joined(separator: "\n")
         }
         prompt += "\n\nYou are on branch \(branch). Investigate, implement the change, and summarise what you did."
-        sendToAssistant(prompt, submit: true)
+        terminals.sendToAssistant(prompt, submit: true)
         return nil
     }
 
@@ -3999,7 +3619,7 @@ class WorkspaceManager: ObservableObject {
                 prompt += "\nNote: the run was on branch \(run.headBranch); the working copy is on \(gitClient.branch)."
             }
             prompt += "\nFind the cause in this repository and fix it."
-            sendToAssistant(prompt, submit: true)
+            terminals.sendToAssistant(prompt, submit: true)
         }
     }
 
@@ -4007,17 +3627,11 @@ class WorkspaceManager: ObservableObject {
     @discardableResult
     func openTerminal(in folder: URL, startupCommand: String? = nil, title: String? = nil,
                       activate: Bool = true) -> TerminalSession {
-        let session = TerminalSession(directory: folder.standardizedFileURL, startupCommand: startupCommand, title: title)
-        session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
-        session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
-        session.browserWindowID = browserControlID
-        registerBrowserControl()
+        let session = terminals.makeTabTerminal(in: folder, startupCommand: startupCommand, title: title)
         var tab = OpenTab(url: folder.appendingPathComponent(".markview-terminal-" + session.id.uuidString),
                           content: "", originalContent: "")
         tab.kind = .terminal(session.id)
-        terminalTabs[session.id] = session
         tabsStore.appendTab(tab, activate: activate)
-        startWatchingOpenFiles()
         return session
     }
 
@@ -4032,7 +3646,7 @@ class WorkspaceManager: ObservableObject {
         if let screenshot, let image = NSImage(contentsOf: screenshot) { pasteboard.writeObjects([image]) }
         pasteboard.setString(message, forType: .string)
         let shot = screenshot == nil ? " (no screenshot: the element is off screen)" : ""
-        if let terminal = aiTerminal {
+        if let terminal = terminals.shown {
             terminal.paste(message + "\n")
             session?.pickNotice = "Sent \(element.tag) to the AI input\(shot)"
         } else {
@@ -4274,18 +3888,18 @@ class WorkspaceManager: ObservableObject {
     /// Deployments → "Ask AI to find where it runs": the assistant reads the project and proposes environments.
     func analyzeDeploymentsWithAI() {
         guard let root = rootNode?.url else { return }
-        guard !assistantIsBusy else { deployments.lastError = "The assistant is still working."; return }
+        guard !terminals.assistantIsBusy else { deployments.lastError = "The assistant is still working."; return }
         let prompt = DeploymentPrompt.analyze(project: root.lastPathComponent, existing: deployments.environments.map(\.name), hasMCP: true)
-        sendToAssistant(prompt, submit: true)
+        terminals.sendToAssistant(prompt, submit: true)
     }
 
     /// Deployments → "Ask the AI": a question about one environment goes to the assistant with what MarkView
     /// last saw (and the log being read); it looks with the markview_deployments tools.
     func askAboutDeployment(_ id: String, question: String, logTitle: String? = nil, log: String? = nil) {
         guard let env = deployments.environment(id) else { return }
-        guard !assistantIsBusy else { deployments.lastError = "The assistant is still working."; return }
+        guard !terminals.assistantIsBusy else { deployments.lastError = "The assistant is still working."; return }
         let prompt = DeploymentPrompt.ask(environment: env.name, id: env.id, question: question, report: deployments.report(for: id), logTitle: logTitle, log: log)
-        sendToAssistant(prompt, submit: true)
+        terminals.sendToAssistant(prompt, submit: true)
     }
 
     func openSavedPrototype(_ slug: String) {
@@ -4420,12 +4034,12 @@ class WorkspaceManager: ObservableObject {
             }
             let key = target.folder.standardizedFileURL.path
             let terminal: TerminalSession
-            if target.reuseRunningServer, let id = previewTerminals[key], let existing = terminalTabs[id] {
+            if target.reuseRunningServer, let existing = terminals.previewTerminal(forApp: key) {
                 terminal = existing
             } else {
                 terminal = openTerminal(in: target.folder, startupCommand: target.command,
                                         title: "Dev server", activate: false)
-                if target.reuseRunningServer { previewTerminals[key] = terminal.id }
+                if target.reuseRunningServer { terminals.rememberPreviewTerminal(terminal, forApp: key) }
                 // A terminal tab starts its shell when its page is shown; this one starts now and
                 // keeps the output until the tab is opened.
                 terminal.start()
@@ -4463,20 +4077,9 @@ class WorkspaceManager: ObservableObject {
         activeTabIndex = index
     }
 
-    func terminalSession(_ id: UUID) -> TerminalSession? { terminalTabs[id] }
-
-    /// A terminal tab was closed: end its shell.
-    func closeTerminal(_ id: UUID) {
-        terminalTabs.removeValue(forKey: id)?.terminate()
-        previewTerminals = previewTerminals.filter { $0.value != id }
-    }
-
+    /// End every terminal of the window, and the watch over open files that runs while they do.
     private func stopAllTerminals() {
-        aiTerminals.forEach { $0.terminate() }
-        aiTerminals = []
-        activeAITerminalID = nil
-        terminalTabs.values.forEach { $0.terminate() }
-        terminalTabs = [:]
+        terminals.stopAll()
         openFilesWatcher?.cancel()
         openFilesWatcher = nil
     }
@@ -4600,6 +4203,13 @@ class WorkspaceManager: ObservableObject {
 
         return nil
     }
+}
+
+/// What the terminals read of the window: its folder and project, the browser agents drive, and the editor (`AITerminalsController`).
+extension WorkspaceManager: AITerminalsHost {
+    var openFolderURL: URL? { rootNode?.url }
+    var linkedFolderURLs: [URL] { linkedFolders.map(\.url) }
+    func terminalStarted() { startWatchingOpenFiles() }
 }
 
 /// What the research maps and jobs read of the window and do to its tabs and files (`ResearchMapController`).

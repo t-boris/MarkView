@@ -17,10 +17,10 @@ final class QAModel: ObservableObject {
     /// When the assistant was asked to write the scenario; the sheet shows how long it has been working.
     @Published private(set) var generationStarted: Date?
     @Published private(set) var generationAssistant = ""
-    /// Supplied by this window: the shown assistant takes precedence over the project's fallback.
-    var assistantSelection: () -> CLICompletion.Assistant? = { nil }
+    /// This window's assistants: the shown assistant takes precedence over the project's fallback.
+    weak var assistants: (any AssistantProviding)?
     var selectedAssistant: CLICompletion.Assistant {
-        assistantSelection() ?? CLICompletion.Assistant.project(root)
+        assistants?.currentAssistant ?? CLICompletion.Assistant.project(root)
     }
     var assistantSummary: String {
         let assistant = selectedAssistant

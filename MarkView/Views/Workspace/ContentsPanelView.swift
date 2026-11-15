@@ -269,7 +269,7 @@ struct TabFactsPanel: View {
         switch tab.kind {
         case .terminal(let id):
             var rows: [(String, String)] = [("Tab", "Terminal")]
-            if let session = workspaceManager.terminalSession(id) {
+            if let session = workspaceManager.terminals.tabTerminal(id) {
                 rows.append(("Runs", session.profile == .shell ? "Shell" : session.profile.rawValue.capitalized))
                 rows.append(("Status", session.isRunning ? "Running" : "Exited" + (session.exitCode.map { " (code \($0))" } ?? "")))
                 rows.append(("Folder", session.directory.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")))

@@ -686,7 +686,7 @@ struct ContentView: View {
                         .allowsHitTesting(editorVisible)
                         .accessibilityHidden(!editorVisible)
                     if case .terminal(let id) = activeTab.kind,
-                       let session = workspaceManager.terminalSession(id) {
+                       let session = workspaceManager.terminals.tabTerminal(id) {
                         TerminalTabView(session: session)
                     } else if case .image = activeTab.kind {
                         ImageViewerView(url: activeTab.url)
@@ -1230,7 +1230,7 @@ private struct FloatingAgentsView: View {
                             })
                     Group {
                         if minimized {
-                            MinimizedAgentStatus(monitor: workspaceManager.agentActivity)
+                            MinimizedAgentStatus(monitor: workspaceManager.terminals.activity)
                         } else {
                             Color.clear
                         }

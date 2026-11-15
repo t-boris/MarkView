@@ -116,7 +116,7 @@ enum ControlToolRunner {
             let project = workspace.projectFolder?.path ?? "no project open"
             let marker = front ? " · in front" : ""
             out += "\n\(ControlAgentTools.shortID(entry.id.uuidString)) · \"\(title)\" · \(project)\(marker)\n"
-            let described = workspace.aiTerminals.map { "\($0.title) (\(state(of: $0, in: workspace)))" }
+            let described = workspace.terminals.sessions.map { "\($0.title) (\(state(of: $0, in: workspace)))" }
             out += "    agents: \(described.isEmpty ? "none" : described.joined(separator: ", "))\n"
             let running = runningSteps(workspace.features.assistant)
             if !running.isEmpty { out += "    running: \(running.joined(separator: ", "))\n" }

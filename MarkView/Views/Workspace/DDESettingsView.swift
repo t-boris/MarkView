@@ -239,7 +239,7 @@ struct DDESettingsView: View {
 
             GitHubSettingsSection()
 
-            RemoteSettingsSection()
+            RemoteSettingsSection(terminals: workspaceManager.terminals)
 
             GroupBox("Workflow templates") {
                 VStack(alignment: .leading, spacing: 6) {

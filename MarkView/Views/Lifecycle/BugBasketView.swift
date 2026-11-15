@@ -150,7 +150,7 @@ struct BugBasketView: View {
     private var footer: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
             let eligible = batch.eligible
-            let busy = workspaceManager.assistantIsBusy
+            let busy = workspaceManager.terminals.assistantIsBusy
             VStack(alignment: .leading, spacing: 4) {
                 if eligible.count == 1, let only = eligible.first {
                     HStack(spacing: 4) {

@@ -181,8 +181,8 @@ struct PrototypeHandoffDraftView: View {
                 .disabled(currentBrief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("Send to \(agent.title)") {
                     let text = currentBrief
-                    let terminal = workspaceManager.openAITerminal(agent)
-                    workspaceManager.sendToAssistant(submit: true, to: terminal) { _ in text }
+                    let terminal = workspaceManager.terminals.openAITerminal(agent)
+                    workspaceManager.terminals.sendToAssistant(submit: true, to: terminal) { _ in text }
                     onClose()
                 }
                 .disabled(currentBrief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || run.progress.running)

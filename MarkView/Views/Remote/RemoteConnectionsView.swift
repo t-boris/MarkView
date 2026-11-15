@@ -4,7 +4,7 @@ import AppKit
 struct RemoteConnectionsView: View {
     @Environment(\.palette) private var palette
     private enum ConnectionMode: Hashable { case work, home }
-    @EnvironmentObject var workspace: WorkspaceManager
+    @ObservedObject var terminals: AITerminalsController
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var connections = RemoteConnectionsStore.shared
     @ObservedObject private var relaySettings = RemoteRelaySettings.shared
@@ -50,7 +50,7 @@ struct RemoteConnectionsView: View {
         }
         .padding(20).frame(width: 680, height: 600)
         .onAppear {
-            if AIAssistantPreferences.backend(project: workspace.aiProject) == .codex { provider = .codex }
+            if AIAssistantPreferences.backend(project: terminals.project) == .codex { provider = .codex }
         }
     }
 
@@ -75,7 +75,7 @@ struct RemoteConnectionsView: View {
                         if state.phase == .offline, !entry.revoking {
                             Button("Reconnect") {
                                 Task {
-                                    do { try await connections.reconnect(entry, workspace: workspace) }
+                                    do { try await connections.reconnect(entry, host: terminals) }
                                     catch { self.error = error.localizedDescription }
                                 }
                             }
@@ -117,7 +117,7 @@ struct RemoteConnectionsView: View {
             Text("Files, Git, builds and commands run on this Mac as your user. The assistant receives file contents through your home computer and uses its existing login.")
                 .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             HStack {
-                Text(workspace.aiWorkspaceRoot?.path ?? workspace.rootNode?.url.path ?? "Open a folder first")
+                Text(terminals.root?.path ?? "Open a folder first")
                     .uiFont(.caption).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                 Spacer()
                 Button(connecting ? "Connecting…" : "Connect") {
@@ -126,12 +126,12 @@ struct RemoteConnectionsView: View {
                         defer { connecting = false }
                         do {
                             try await connections.connect(name: connectionName, code: connectionCode, provider: provider,
-                                model: model.isEmpty ? nil : model, resume: resume, workspace: workspace)
+                                model: model.isEmpty ? nil : model, resume: resume, host: terminals)
                             connectionCode = ""; connectionName = ""
                         } catch { self.error = error.localizedDescription }
                     }
                 }
-                .disabled(connections.isLoading || connecting || connectionCode.isEmpty || (workspace.aiWorkspaceRoot == nil && workspace.rootNode == nil))
+                .disabled(connections.isLoading || connecting || connectionCode.isEmpty || terminals.root == nil)
                 .keyboardShortcut(.defaultAction)
             }
             Spacer(minLength: 0)
@@ -172,6 +172,7 @@ struct RemoteConnectionsView: View {
 }
 
 struct RemoteSettingsSection: View {
+    let terminals: AITerminalsController
     @State private var showConnections = false
     var body: some View {
         GroupBox("Remote Assistants") {
@@ -182,6 +183,6 @@ struct RemoteSettingsSection: View {
                 Button("Connections…") { showConnections = true }
             }.padding(8)
         }
-        .sheet(isPresented: $showConnections) { RemoteConnectionsView() }
+        .sheet(isPresented: $showConnections) { RemoteConnectionsView(terminals: terminals) }
     }
 }
