@@ -180,6 +180,8 @@ enum DDEIndexerRunner {
         Task { @MainActor in
             do {
                 let db = try SemanticDatabase(workspacePath: url)
+                // A file the app must leave alone (newer schema, failed migration) gives an in-memory index: nothing to write.
+                guard db.dbPath != nil else { err("the index file is left untouched; nothing to index"); exit(1) }
                 try db.ensureProject(id: url.lastPathComponent, name: url.lastPathComponent, rootPath: url.path)
                 let linked = LinkedFolders.load(project: url)
                 if !linked.isEmpty { err("linked folders: " + linked.map(\.name).joined(separator: ", ")) }

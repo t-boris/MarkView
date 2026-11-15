@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 177,
+  "suiteCount": 181,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2039,6 +2039,20 @@
         "MarkView/Models/Remote/RemoteProtocol.swift",
         "MarkView/Models/Remote/RemoteRelaySettings.swift",
         "tools/tests/SavedRemoteConnectionsTests.swift"
+      ]
+    },
+    {
+      "name": "semantic-database-tests",
+      "script": "tools/tests/semantic-database-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Insight/SemanticDatabase.swift",
+        "MarkView/Models/Insight/SemanticSchema.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
+        "tools/tests/SemanticDatabaseTestSupport.swift",
+        "tools/tests/SemanticDatabaseTests.swift",
+        "tools/tests/fixtures/semantic-database/release-6.26-schema.sql",
+        "tools/tests/semantic-database-tests.sh"
       ]
     },
     {
