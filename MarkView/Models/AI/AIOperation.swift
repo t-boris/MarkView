@@ -60,6 +60,15 @@ enum AIJSONSalvage {
         return trimmed
     }
 
+    /// An answer as text: the structured answer as JSON when there is one, else the plain text.
+    static func answerText(_ result: CLICompletion.Result) -> String {
+        if let object = result.structured, JSONSerialization.isValidJSONObject(object),
+           let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) {
+            return String(decoding: data, as: UTF8.self)
+        }
+        return result.text
+    }
+
     /// Decode `Output` from `structured` (`JSONSerialization` object), or from `raw` text when `allowTextSalvage` is true.
     static func decode<Output: Decodable>(
         _ type: Output.Type,
@@ -94,10 +103,6 @@ enum AIJSONSalvage {
     }
 }
 
-/// Typed, cancellable, schema-validated AI operation runner (`AR-26`).
-///
-/// Centralises prompt construction, CLI invocation, JSON fence/brace salvage, `Decodable` parsing,
-/// domain validation, bounded repair retries, and activity stage reporting.
 /// Decodes an arbitrary JSON object into a Foundation dictionary for schema-validated CLI outputs (`AR-26`).
 struct AIRawJSONObject: Decodable, @unchecked Sendable {
     let dictionary: [String: Any]
@@ -152,83 +157,121 @@ struct AIRawJSONObject: Decodable, @unchecked Sendable {
     }
 }
 
-struct AIOperation<Input, Output: Decodable> {
-    typealias Runner = (CLICompletion.Request, (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result
+/// The runner every operation uses unless a test supplies another: one completion through the window's own assistant.
+enum AIAssistantRunner {
+    static func run(_ request: CLICompletion.Request, _ onDelta: (@Sendable (String) -> Void)?,
+                    _ onActivity: (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result {
+        try await CLICompletion.run(request, onDelta: onDelta, onActivity: onActivity)
+    }
+}
+
+/// Which attempt of an operation is being judged: the first is 1, `isLast` when no repair request follows a rejection.
+struct AIAttempt: Equatable, Sendable {
+    let number: Int
+    let isLast: Bool
+}
+
+/// What a repair request is built from: the request that was just answered, the answer and why it was not accepted.
+struct AIRepair<Input> {
+    let input: Input
+    /// The first request of the operation (the repair prompt of the default policy is always built on it, never on a repair).
+    let original: CLICompletion.Request
+    /// The request whose answer was rejected.
+    let request: CLICompletion.Request
+    let result: CLICompletion.Result
+    let error: Error
+    /// The rejected attempt.
+    let attempt: AIAttempt
+
+    /// The rejected answer as text for a repair prompt: the structured answer as JSON, else the plain text.
+    var previousAnswer: String { AIJSONSalvage.answerText(result) }
+}
+
+/// The one pipeline that asks the assistant: builds the request, runs it through `CLICompletion` (project assistant, model, call log,
+/// cancellation), interprets the answer (`parse`: plain text, a structured object or a decoded type), judges it (`validate`), and
+/// when it is rejected asks again with a repair request, at most `maxRepairAttempts` more times (`AR-26`).
+///
+/// A feature declares what is its own: the request (prompt, system prompt, schema, timeout, effort, label), what its answer
+/// becomes, what makes it unacceptable, and how the next request differs. Errors of the run itself (CLI missing, failed, timed out)
+/// and cancellation are never repaired: they end the operation at once.
+struct AIOperation<Input, Output> {
+    typealias Delta = @Sendable (String) -> Void
+    typealias Activity = @Sendable (CLICompletion.Activity) -> Void
+    typealias Runner = (CLICompletion.Request, Delta?, Activity?) async throws -> CLICompletion.Result
 
     let name: String
     let maxRepairAttempts: Int
-    let allowTextSalvage: Bool
     let buildRequest: (Input) -> CLICompletion.Request
-    let validate: ((Input, Output) throws -> Void)?
-    let repairPrompt: ((Input, String, Error) -> String)?
+    /// The answer as the feature's output; throws when the answer cannot be read. A rejection is repaired like a failed `validate`.
+    let parse: (Input, CLICompletion.Result, AIAttempt) async throws -> Output
+    /// Throws what is wrong with a readable answer.
+    let validate: ((Input, Output, AIAttempt) async throws -> Void)?
+    /// The request that follows a rejected answer; nil = the original request with the problem and the previous answer appended.
+    let repair: ((AIRepair<Input>) -> CLICompletion.Request)?
+    /// Called with every completed run, including one that is then rejected (usage accounting).
+    let onResult: ((CLICompletion.Result) async -> Void)?
     let runner: Runner
 
     init(
         name: String,
-        maxRepairAttempts: Int = 1,
-        allowTextSalvage: Bool = true,
+        maxRepairAttempts: Int = 0,
         buildRequest: @escaping (Input) -> CLICompletion.Request,
-        validate: ((Input, Output) throws -> Void)? = nil,
-        repairPrompt: ((Input, String, Error) -> String)? = nil,
-        runner: @escaping Runner = { req, onActivity in try await CLICompletion.run(req, onActivity: onActivity) }
+        parse: @escaping (Input, CLICompletion.Result, AIAttempt) async throws -> Output,
+        validate: ((Input, Output, AIAttempt) async throws -> Void)? = nil,
+        repair: ((AIRepair<Input>) -> CLICompletion.Request)? = nil,
+        onResult: ((CLICompletion.Result) async -> Void)? = nil,
+        runner: @escaping Runner = AIAssistantRunner.run
     ) {
         self.name = name
         self.maxRepairAttempts = max(0, maxRepairAttempts)
-        self.allowTextSalvage = allowTextSalvage
         self.buildRequest = buildRequest
+        self.parse = parse
         self.validate = validate
-        self.repairPrompt = repairPrompt
+        self.repair = repair
+        self.onResult = onResult
         self.runner = runner
     }
 
-    /// Execute the operation with JSON decoding and up to `maxRepairAttempts` repair retries.
+    /// Run the operation. `onDelta` and `onActivity` report the streaming answer and the assistant's activity of every attempt.
     func execute(
-        _ input: Input
+        _ input: Input,
+        onDelta: Delta? = nil,
+        onActivity: Activity? = nil
     ) async throws -> (output: Output, result: CLICompletion.Result) {
-        try Task.checkCancellation()
-
-        var currentRequest = buildRequest(input)
-        if currentRequest.label.isEmpty {
-            currentRequest.label = name
-        }
-
+        let original = Self.labelled(buildRequest(input), as: name)
+        var request = original
         var attempt = 0
         while true {
             try Task.checkCancellation()
-
-            let result = try await runner(currentRequest, nil)
-
-            try Task.checkCancellation()
-
+            let result = try await runner(request, onDelta, onActivity)
+            await onResult?(result)
+            let judged = AIAttempt(number: attempt + 1, isLast: attempt >= maxRepairAttempts)
             do {
-                let decoded = try AIJSONSalvage.decode(
-                    Output.self,
-                    from: result.text,
-                    structured: result.structured,
-                    operation: name,
-                    allowTextSalvage: allowTextSalvage
-                )
-                try validate?(input, decoded)
-                return (decoded, result)
+                let output = try await parse(input, result, judged)
+                try await validate?(input, output, judged)
+                return (output, result)
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
-                if attempt < maxRepairAttempts {
-                    attempt += 1
-                    let repairText: String
-                    if let customRepair = repairPrompt {
-                        repairText = customRepair(input, result.text, error)
-                    } else {
-                        repairText = Self.defaultRepairPrompt(
-                            originalPrompt: currentRequest.prompt,
-                            previousOutput: result.text,
-                            error: error
-                        )
-                    }
-                    currentRequest.prompt = repairText
-                    continue
-                }
-                throw error
+                guard !judged.isLast else { throw error }
+                let context = AIRepair(input: input, original: original, request: request, result: result, error: error, attempt: judged)
+                request = Self.labelled(repair?(context) ?? Self.defaultRepair(context), as: name)
+                attempt += 1
             }
         }
+    }
+
+    private static func labelled(_ request: CLICompletion.Request, as name: String) -> CLICompletion.Request {
+        var request = request
+        if request.label.isEmpty { request.label = name }
+        return request
+    }
+
+    /// The original request with the problem and the previous answer appended.
+    static func defaultRepair(_ context: AIRepair<Input>) -> CLICompletion.Request {
+        var next = context.original
+        next.prompt = defaultRepairPrompt(originalPrompt: context.original.prompt, previousOutput: context.previousAnswer, error: context.error)
+        return next
     }
 
     static func defaultRepairPrompt(originalPrompt: String, previousOutput: String, error: Error) -> String {
@@ -243,5 +286,60 @@ struct AIOperation<Input, Output: Decodable> {
 
         Return ONLY valid JSON matching the required schema with no markdown prose or commentary.
         """
+    }
+}
+
+extension AIOperation where Input == CLICompletion.Request {
+    /// An operation whose input is the request itself.
+    init(
+        name: String,
+        maxRepairAttempts: Int = 0,
+        parse: @escaping (CLICompletion.Result) async throws -> Output,
+        validate: ((Output, AIAttempt) async throws -> Void)? = nil,
+        repair: ((AIRepair<CLICompletion.Request>) -> CLICompletion.Request)? = nil,
+        onResult: ((CLICompletion.Result) async -> Void)? = nil,
+        runner: @escaping Runner = AIAssistantRunner.run
+    ) {
+        self.init(name: name, maxRepairAttempts: maxRepairAttempts, buildRequest: { $0 },
+                  parse: { _, result, _ in try await parse(result) },
+                  validate: validate.map { check in { _, output, attempt in try await check(output, attempt) } },
+                  repair: repair, onResult: onResult, runner: runner)
+    }
+}
+
+extension AIOperation where Input == CLICompletion.Request, Output == CLICompletion.Result {
+    /// One run, answered as it came: for a feature that reads `text`, `structured` and the usage itself.
+    static func run(name: String, runner: @escaping Runner = AIAssistantRunner.run) -> AIOperation {
+        AIOperation(name: name, parse: { $0 }, runner: runner)
+    }
+}
+
+extension AIOperation where Input == CLICompletion.Request, Output == String {
+    /// One run answered in plain text, as it is written.
+    static func text(name: String, runner: @escaping Runner = AIAssistantRunner.run) -> AIOperation {
+        AIOperation(name: name, parse: { $0.text }, runner: runner)
+    }
+}
+
+extension AIOperation where Output: Decodable {
+    /// The answer decoded as `Output` from the structured answer, or from the JSON in the text when `allowTextSalvage`.
+    init(
+        name: String,
+        maxRepairAttempts: Int = 1,
+        allowTextSalvage: Bool = true,
+        buildRequest: @escaping (Input) -> CLICompletion.Request,
+        validate: ((Input, Output) throws -> Void)? = nil,
+        repair: ((AIRepair<Input>) -> CLICompletion.Request)? = nil,
+        onResult: ((CLICompletion.Result) async -> Void)? = nil,
+        runner: @escaping Runner = AIAssistantRunner.run
+    ) {
+        self.init(
+            name: name, maxRepairAttempts: maxRepairAttempts, buildRequest: buildRequest,
+            parse: { _, result, _ in
+                try AIJSONSalvage.decode(Output.self, from: result.text, structured: result.structured,
+                                         operation: name, allowTextSalvage: allowTextSalvage)
+            },
+            validate: validate.map { check in { input, output, _ in try check(input, output) } },
+            repair: repair, onResult: onResult, runner: runner)
     }
 }

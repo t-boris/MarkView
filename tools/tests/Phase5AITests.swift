@@ -71,7 +71,7 @@ func runPhase5Tests() async {
                 throw AIOperationError.validationFailed(operation: "generate-diagram", reason: "nodeCount must be positive")
             }
         },
-        runner: { req, onActivity in
+        runner: { req, _, onActivity in
             attempts += 1
             onActivity?(.read("README.md"))
             if attempts == 1 {
@@ -107,7 +107,7 @@ func runPhase5Tests() async {
         buildRequest: { topic in
             CLICompletion.Request(project: nil, prompt: "Generate strict JSON for \(topic)")
         },
-        runner: { _, _ in
+        runner: { _, _, _ in
             CLICompletion.Result(
                 text: #"Here is your JSON: {"title": "Salvaged", "nodeCount": 2}"#,
                 structured: nil,
@@ -124,6 +124,159 @@ func runPhase5Tests() async {
         rejectedRawText = true
     } catch {}
     check(rejectedRawText, "FU-17: AIOperation with allowTextSalvage=false rejects raw text JSON when structured output is nil")
+
+    await runPipelineTests()
+}
+
+// MARK: - AR-26: the pipeline every feature runs through
+
+/// A run that is counted and answers from a script, in place of the assistant CLI.
+final class ScriptedRunner: @unchecked Sendable {
+    private let lock = NSLock()
+    private var answers: [Result<CLICompletion.Result, Error>]
+    private(set) var requests: [CLICompletion.Request] = []
+    var deltas: [String] = []
+
+    init(_ answers: [Result<CLICompletion.Result, Error>]) { self.answers = answers }
+
+    var calls: Int { lock.withLock { requests.count } }
+
+    func run(_ request: CLICompletion.Request, _ onDelta: (@Sendable (String) -> Void)?,
+             _ onActivity: (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result {
+        let next: Result<CLICompletion.Result, Error> = lock.withLock {
+            requests.append(request)
+            return answers.isEmpty ? .failure(CLICompletion.Failure.failed(.claude, "script ran out")) : answers.removeFirst()
+        }
+        onDelta?("part ")
+        onActivity?(.thinking)
+        return try next.get()
+    }
+}
+
+func answer(_ text: String = "", structured: Any? = nil, cost: Double? = nil) -> Result<CLICompletion.Result, Error> {
+    .success(CLICompletion.Result(text: text, structured: structured, inputTokens: 10, outputTokens: 5, costUSD: cost))
+}
+
+struct Rejected: LocalizedError {
+    let problems: [String]
+    var errorDescription: String? { problems.joined(separator: "; ") }
+}
+
+final class Seen<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [T] = []
+    func add(_ value: T) { lock.withLock { values.append(value) } }
+    var all: [T] { lock.withLock { values } }
+}
+
+@MainActor
+func runPipelineTests() async {
+    let base = CLICompletion.Request(project: nil, prompt: "Describe it")
+
+    // Plain text: the answer as written, the streaming callbacks of every attempt reach the caller, the label is the name.
+    let textScript = ScriptedRunner([answer("  The text.  ", cost: 0.5)])
+    let textOp = AIOperation<CLICompletion.Request, String>.text(name: "explain", runner: textScript.run)
+    let deltas = Seen<String>(), activities = Seen<String>()
+    let textRun = try? await textOp.execute(base, onDelta: { deltas.add($0) }, onActivity: { _ in activities.add("activity") })
+    check(textRun?.output == "  The text.  " && textRun?.result.costUSD == 0.5, "AR-26: text mode returns the answer untouched with the run's usage")
+    check(deltas.all == ["part "] && activities.all == ["activity"], "AR-26: streaming text and activity reach the caller")
+    check(textScript.requests.first?.label == "explain", "AR-26: a request without a label is labelled with the operation's name")
+    var labelled = base
+    labelled.label = "qa-step"
+    let keepScript = ScriptedRunner([answer("x")])
+    _ = try? await AIOperation<CLICompletion.Request, String>.text(name: "explain", runner: keepScript.run).execute(labelled)
+    check(keepScript.requests.first?.label == "qa-step", "AR-26: a label the feature set is kept")
+
+    // A single run is not repaired: a rejected answer is thrown at once, the run is not repeated.
+    let singleScript = ScriptedRunner([answer("no"), answer("yes")])
+    let single = AIOperation<CLICompletion.Request, String>(
+        name: "single",
+        parse: { result in
+            guard result.text == "yes" else { throw Rejected(problems: ["not yes"]) }
+            return result.text
+        }, runner: singleScript.run)
+    var singleError: Error?
+    do { _ = try await single.execute(base) } catch { singleError = error }
+    check(singleScript.calls == 1 && (singleError as? Rejected)?.problems == ["not yes"], "AR-26: with no repair attempts a rejected answer is thrown after one run")
+
+    // Structured answers: parse reads what the feature consumed; usage of every run is reported, also of the rejected one.
+    let usage = Seen<Int>()
+    let repairScript = ScriptedRunner([answer(structured: ["items": [String]()]), answer(structured: ["items": ["a", "b"]])])
+    let repairing = AIOperation<CLICompletion.Request, [String]>(
+        name: "list", maxRepairAttempts: 1,
+        parse: { result in (result.structured as? [String: Any])?["items"] as? [String] ?? [] },
+        validate: { items, _ in if items.isEmpty { throw Rejected(problems: ["the list is empty", "name at least one item"]) } },
+        repair: { context in
+            var next = context.original
+            next.label = "\(context.original.label):repair\(context.attempt.number)"
+            next.prompt = context.original.prompt + "\nProblems: " + ((context.error as? Rejected)?.problems.joined(separator: "; ") ?? "")
+                + "\nPrevious: " + context.previousAnswer
+            return next
+        },
+        onResult: { usage.add($0.inputTokens) },
+        runner: repairScript.run)
+    let repaired = try? await repairing.execute(base)
+    check(repaired?.output == ["a", "b"] && repairScript.calls == 2, "AR-26: a rejected structured answer is asked again once and the repaired one is returned")
+    check(repairScript.requests.last?.label == "list:repair1", "AR-26: the feature's repair request sets its own label")
+    check(repairScript.requests.last?.prompt.contains("Problems: the list is empty; name at least one item") == true
+          && repairScript.requests.last?.prompt.contains(#"{"items":[]}"#) == true,
+          "AR-26: the repair request carries the problems and the previous structured answer as JSON")
+    check(usage.all == [10, 10], "AR-26: usage is reported for every run, the rejected one included")
+
+    // Bounded: attempts end, the last problem is thrown, the validator is told which attempt is the last.
+    let boundedScript = ScriptedRunner([answer("1"), answer("2"), answer("3"), answer("4")])
+    let attemptsSeen = Seen<AIAttempt>()
+    let bounded = AIOperation<CLICompletion.Request, String>(
+        name: "bounded", maxRepairAttempts: 2,
+        parse: { $0.text },
+        validate: { text, attempt in
+            attemptsSeen.add(attempt)
+            throw Rejected(problems: ["rejected \(text)"])
+        }, runner: boundedScript.run)
+    var boundedError: Error?
+    do { _ = try await bounded.execute(base) } catch { boundedError = error }
+    check(boundedScript.calls == 3, "AR-26: maxRepairAttempts 2 means three runs, no more")
+    check((boundedError as? Rejected)?.problems == ["rejected 3"], "AR-26: the problem of the last attempt is the one thrown")
+    check(attemptsSeen.all == [AIAttempt(number: 1, isLast: false), AIAttempt(number: 2, isLast: false), AIAttempt(number: 3, isLast: true)],
+          "AR-26: the validator is told the attempt number and which one is the last")
+    check(boundedScript.requests[2].prompt.components(separatedBy: "Previous response:").count == 2
+          && boundedScript.requests[2].prompt.contains("rejected 2") && !boundedScript.requests[2].prompt.contains("rejected 1"),
+          "AR-26: the default repair is built on the original prompt and the last answer, it does not stack")
+
+    // Failures of the run itself are not repaired.
+    let failScript = ScriptedRunner([.failure(CLICompletion.Failure.timedOut(.claude, 30)), answer("never")])
+    let failing = AIOperation<CLICompletion.Request, String>(name: "failing", maxRepairAttempts: 3, parse: { $0.text }, runner: failScript.run)
+    var failure: Error?
+    do { _ = try await failing.execute(base) } catch { failure = error }
+    check(failScript.calls == 1, "AR-26: a timed-out or failed run is not repeated")
+    if case CLICompletion.Failure.timedOut? = failure { check(true, "AR-26: the run's own error reaches the caller unchanged") } else { check(false, "AR-26: the run's own error reaches the caller unchanged") }
+
+    // Cancellation: before the first run nothing starts; during a run or its judging nothing is repaired.
+    let idleScript = ScriptedRunner([answer("never")])
+    let idle = AIOperation<CLICompletion.Request, String>.text(name: "idle", runner: idleScript.run)
+    let beforeRun = Task { () -> Error? in
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        do { _ = try await idle.execute(base); return nil } catch { return error }
+    }
+    beforeRun.cancel()
+    let beforeError = await beforeRun.value
+    check(beforeError is CancellationError && idleScript.calls == 0, "AR-26: a cancelled task starts no run")
+    let cancelScript = ScriptedRunner([.failure(CancellationError()), answer("never")])
+    let cancelling = AIOperation<CLICompletion.Request, String>(name: "cancelling", maxRepairAttempts: 2, parse: { $0.text }, runner: cancelScript.run)
+    var cancelError: Error?
+    do { _ = try await cancelling.execute(base) } catch { cancelError = error }
+    check(cancelError is CancellationError && cancelScript.calls == 1, "AR-26: cancelling a run ends the operation without a repair")
+    let judgeScript = ScriptedRunner([answer("a"), answer("b")])
+    let judging = AIOperation<CLICompletion.Request, String>(
+        name: "judging", maxRepairAttempts: 2, parse: { _ in throw CancellationError() }, runner: judgeScript.run)
+    var judgeError: Error?
+    do { _ = try await judging.execute(base) } catch { judgeError = error }
+    check(judgeError is CancellationError && judgeScript.calls == 1, "AR-26: cancellation while judging an answer is not repaired")
+
+    // The raw mode hands the whole run over.
+    let rawScript = ScriptedRunner([answer("t", structured: ["k": 1], cost: 0.25)])
+    let raw = try? await AIOperation<CLICompletion.Request, CLICompletion.Result>.run(name: "raw", runner: rawScript.run).execute(base)
+    check(raw?.output.costUSD == 0.25 && (raw?.output.structured as? [String: Int])?["k"] == 1, "AR-26: raw mode returns the run with its structured answer and usage")
 }
 
 let semaphore = DispatchSemaphore(value: 0)

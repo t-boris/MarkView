@@ -820,15 +820,11 @@ final class ArchitectureStore: ObservableObject {
                     )
                 }
             },
-            runner: { [db] req, _ in
-                let result = try await CLICompletion.run(req, onActivity: progressHandler)
-                await MainActor.run { result.record(in: db) }
-                return result
-            }
+            onResult: { [db] result in await MainActor.run { result.record(in: db) } }
         )
 
         do {
-            let (decoded, _) = try await operation.execute(prepared)
+            let (decoded, _) = try await operation.execute(prepared, onActivity: progressHandler)
             let object = decoded.dictionary
             if let data = try? JSONSerialization.data(withJSONObject: object) {
                 try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
