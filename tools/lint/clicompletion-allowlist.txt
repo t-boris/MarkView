@@ -4,7 +4,4 @@
 1 MarkView/Models/Deployments/DeploymentAdvisor.swift
 1 MarkView/Models/Git/GitHubStore.swift
 2 MarkView/Models/ProjectOps/ProjectOperationDiscoveryService.swift
-3 MarkView/Models/QA/QAModel.swift
-1 MarkView/Models/QA/QARunAssistant.swift
-1 MarkView/Models/QA/QARunModel.swift
 3 MarkView/Models/Workspace/WorkspaceManager.swift

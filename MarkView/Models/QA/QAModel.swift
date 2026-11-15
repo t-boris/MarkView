@@ -348,8 +348,9 @@ final class QAModel: ObservableObject {
         let staged = try await Task.detached { try QAAttachments.stage(files, root: root, id: QAStore.newRunID(at: Date())) }.value
         defer { QAAttachments.discard(staged) }
         request.attachmentPaths = staged.paths
-        let response = try await CLICompletion.run(CLICompletion.Request(project: root, prompt: QADiscovery.prompt(request), systemPrompt: QADiscovery.system,
-            jsonSchema: QADiscovery.schema, readableFolder: root, timeout: nil, assistantOverride: assistant, images: staged.images, label: "qa-discuss"))
+        let response = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(CLICompletion.Request(project: root, prompt: QADiscovery.prompt(request), systemPrompt: QADiscovery.system,
+            jsonSchema: QADiscovery.schema, readableFolder: root, timeout: nil, assistantOverride: assistant, images: staged.images, label: "qa-discuss"),
+            name: "qa-discuss")
         try Task.checkCancellation()
         guard self.root == root else { throw CancellationError() }
         return try QADiscovery.parse(response.structured)
@@ -366,9 +367,9 @@ final class QAModel: ObservableObject {
         summaryTask = Task { [weak self] in
             defer { if self?.summaryToken == token { self?.summaryBusy = false } }
             do {
-                let response = try await CLICompletion.run(CLICompletion.Request(project: root, prompt: QASummary.prompt(scenario),
+                let response = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(CLICompletion.Request(project: root, prompt: QASummary.prompt(scenario),
                     systemPrompt: "You write accurate, concise QA scenario summaries.", jsonSchema: QASummary.schema, timeout: 120,
-                    assistantOverride: assistant, label: "qa-summary"))
+                    assistantOverride: assistant, label: "qa-summary"), name: "qa-summary")
                 try Task.checkCancellation()
                 let text = try QASummary.parse(response.structured)
                 guard let self, self.summaryToken == token, self.root == root, let current = self.current,
@@ -405,14 +406,12 @@ final class QAModel: ObservableObject {
                 let outcome = try await QAGenerator.generate(
                     request,
                     onAttempt: { attempt in Task { @MainActor in self?.setAttempt(attempt) } },
-                    complete: { prompt in
-                        let result = try await CLICompletion.run(
-                            CLICompletion.Request(project: root, prompt: prompt, systemPrompt: QAGeneration.systemPrompt(request.appKind),
-                                                  jsonSchema: QAGeneration.schema(for: request.appKind), readableFolder: root, timeout: nil, assistantOverride: assistant,
-                                                  images: images, label: "qa-generate"),
-                            onActivity: { activity in Task { @MainActor in self?.setActivity(activity) } })
-                        return QAGenerator.Answer(structured: result.structured, costUSD: result.costUSD)
-                    })
+                    prepare: { prompt in
+                        CLICompletion.Request(project: root, prompt: prompt, systemPrompt: QAGeneration.systemPrompt(request.appKind),
+                                              jsonSchema: QAGeneration.schema(for: request.appKind), readableFolder: root, timeout: nil, assistantOverride: assistant,
+                                              images: images, label: "qa-generate")
+                    },
+                    onActivity: { activity in Task { @MainActor in self?.setActivity(activity) } })
                 try Task.checkCancellation()
                 guard self?.root == root else { return }
                 self?.finishGeneration(outcome)

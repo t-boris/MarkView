@@ -1711,6 +1711,8 @@
         "MarkView/Models/QA/QAScenario.swift",
         "MarkView/Models/QA/QAStore.swift",
         "MarkView/Models/QA/QATriage.swift",
+        "MarkView/Models/AI/AIOperation.swift",
+        "tools/tests/AIOperationStub.swift",
         "tools/tests/QAAPIChecks.swift",
         "tools/tests/QANativeKeychainStub.swift"
       ]
@@ -1774,6 +1776,8 @@
         "MarkView/Models/QA/QAScenarioEdit.swift",
         "MarkView/Models/QA/QAStore.swift",
         "MarkView/Models/QA/QATriage.swift",
+        "MarkView/Models/AI/AIOperation.swift",
+        "tools/tests/AIOperationStub.swift",
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/QANativeChecks.swift",
         "tools/tests/QANativeKeychainStub.swift",
@@ -1848,6 +1852,8 @@
         "MarkView/Models/QA/QAScenarioEdit.swift",
         "MarkView/Models/QA/QAStore.swift",
         "MarkView/Models/QA/QATriage.swift",
+        "MarkView/Models/AI/AIOperation.swift",
+        "tools/tests/AIOperationStub.swift",
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/QAChecks.swift",
         "tools/tests/qa-tests.sh"
@@ -1891,6 +1897,8 @@
         "MarkView/Models/QA/QATriage.swift",
         "MarkView/Models/QA/QAWebActor.swift",
         "MarkView/Views/QA/QAWebWindow.swift",
+        "MarkView/Models/AI/AIOperation.swift",
+        "tools/tests/AIOperationStub.swift",
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/QANativeKeychainStub.swift",
         "tools/tests/QAWebFaultChecks.swift"
