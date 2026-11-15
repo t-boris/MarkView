@@ -81,7 +81,7 @@ final class WindowSessionController {
             loaded = true
             var windows = archive?.windows ?? []
             // One-time migration from versions that only remembered one folder.
-            if archive == nil, let path = UserDefaults.standard.string(forKey: ProjectContext.lastFolderKey) {
+            if archive == nil, let path = Settings.standard.stored(Setting.lastFolder) {
                 windows = [WorkspaceWindowState(id: UUID(), folder: URL(fileURLWithPath: path))]
             }
             order = windows.map(\.id)
@@ -140,6 +140,8 @@ final class WindowSessionController {
                 workspace?.flow.close()
                 // And the browser's: the look for a web app and the wait for a dev server stop (AR-14 step 9).
                 workspace?.browser.close()
+                // The answers and records the tools started (Discussions, UI Studio) stop too (AR-14 step 10).
+                workspace?.toolTabs.close()
                 self?.remove(id)
             }
             .store(in: &entry.subscriptions)

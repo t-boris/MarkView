@@ -31,8 +31,6 @@ final class ProjectContext: ObservableObject, ProjectProviding {
     @Published private(set) var semanticRefreshVersion = 0
 
     /// Folder reopened on the next launch; cleared by Close Folder.
-    static let lastFolderKey = "workspace.lastFolder"
-    static let recentProjectsKey = "workspace.recentProjects"
     /// How many recently opened folders are remembered and listed on the welcome screen.
     static let maxRecentProjects = 30
     static let maxRecentFiles = 20
@@ -54,7 +52,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
         self.recentFilesURL = recentFilesURL ?? Self.defaultRecentFilesURL
         let fileTree = WorkspaceFileTreeStore()
         self.fileTree = fileTree
-        recentProjects = UserDefaults.standard.stringArray(forKey: Self.recentProjectsKey) ?? []
+        recentProjects = Settings.standard.value(Setting.recentProjects)
         fileTree.shouldAutoRefresh = { [weak self] in self?.indexingProgress == nil }
         treeChanges = fileTree.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         loadRecentFiles()
@@ -178,7 +176,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
     /// A folder is chosen: it is remembered as the last folder and in the recents, and the previous tree is cleared so that the
     /// progress spinner shows.
     func beginOpening(_ url: URL) {
-        UserDefaults.standard.set(url.standardizedFileURL.path, forKey: Self.lastFolderKey)
+        Settings.standard.set(url.standardizedFileURL.path, for: Setting.lastFolder)
         var recent = recentProjects
         recent.removeAll { $0 == url.standardizedFileURL.path }
         recent.insert(url.standardizedFileURL.path, at: 0)
@@ -269,6 +267,24 @@ final class ProjectContext: ObservableObject, ProjectProviding {
         singleFileSetup?.cancel()
         singleFileSetup = nil
         database = nil
+    }
+
+    // MARK: - Document blocks
+
+    /// The block delta write in flight (`AR-37`): each delta waits for the one before it.
+    private var blockDeltaSave: Task<Void, Never>?
+
+    /// Writes the blocks the editor extracted from the document at `url` into the project's database. Deltas reach it in the order the
+    /// editor sent them, and one that arrives while there is no database is dropped.
+    func saveBlocks(_ delta: BlocksDelta, of url: URL) {
+        guard !delta.isEmpty, let db = database else { return }
+        let docId = documentId(for: url)
+        let upserts = delta.added + delta.changed, removed = delta.removed
+        let previous = blockDeltaSave
+        blockDeltaSave = Task {
+            await previous?.value
+            await db.applyBlockDelta(documentId: docId, upserts: upserts, removed: removed)
+        }
     }
 
     /// The folder closes: the index process, the tree, the links and the database go. The recents stay.
@@ -498,7 +514,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
 
     private func setRecentProjects(_ paths: [String]) {
         recentProjects = paths
-        UserDefaults.standard.set(paths, forKey: Self.recentProjectsKey)
+        Settings.standard.set(paths, for: Setting.recentProjects)
     }
 
     func addRecentFile(_ url: URL) {

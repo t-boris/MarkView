@@ -18,9 +18,14 @@ protocol AssistantProviding: AnyObject {
     func openAITerminal(_ profile: TerminalProfile, resuming: Bool, model: String?) -> TerminalSession?
     /// Bring the AI panel to the front.
     func showAIConsole()
-    /// The assistant terminal is working: it printed in the last few seconds.
+}
+
+/// The assistant's input line, for a tool that hands a question to the assistant in the Agents panel instead of asking it itself.
+@MainActor
+protocol AssistantPrompting: AnyObject {
+    /// Whether an assistant terminal is in the middle of an answer.
     var assistantIsBusy: Bool { get }
-    /// Types `prompt` into the assistant terminal, opening one when none is open; the terminal it went to, nil when none could be opened.
+    /// Types `prompt` at the assistant's input line; `submit` presses Enter. Nil when no assistant could take it.
     @discardableResult
     func sendToAssistant(_ prompt: String, submit: Bool) -> TerminalSession?
     /// Builds the prompt only after the receiving terminal is chosen (`terminal`, else the usual one); nil when no terminal could be

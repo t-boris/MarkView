@@ -7,20 +7,19 @@ import MarkViewCore
 /// Settings of New Research: the job timeout (global) and the per-repository web search
 /// opt-out (DEC-011, DEC-012).
 enum ResearchSettings {
-    static let timeoutKey = "research.timeoutMinutes"
-    static let defaultTimeoutMinutes = 20
+    static let defaultTimeoutMinutes = Setting.researchTimeoutMinutes.defaultValue
 
     static var timeoutMinutes: Int {
-        let stored = UserDefaults.standard.integer(forKey: timeoutKey)
+        let stored = Settings.standard.value(Setting.researchTimeoutMinutes)
         return stored > 0 ? stored : defaultTimeoutMinutes
     }
 
-    static func webDisabledKey(_ root: URL) -> String {
-        "research.webDisabled." + String(ContentHash.of(root.standardizedFileURL.path).prefix(12))
+    static func webDisabledKey(_ root: URL) -> SettingsKey<Bool> {
+        Setting.researchWebDisabled(project: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
     }
 
     static func isWebDisabled(_ root: URL) -> Bool {
-        UserDefaults.standard.bool(forKey: webDisabledKey(root))
+        Settings.standard.value(webDisabledKey(root))
     }
 }
 

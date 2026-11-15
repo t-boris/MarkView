@@ -28,9 +28,6 @@ struct CLITool: RawRepresentable, Hashable, Codable, CaseIterable, Sendable {
     /// Executable name as installed on disk.
     var binaryName: String { provider.binaryName }
 
-    /// UserDefaults key holding the user's explicit path override ("" = auto-detect).
-    var overrideKey: String { provider.overrideKey }
-
     /// Arguments that print the version without touching the network.
     var versionArgs: [String] { provider.versionArgs }
 

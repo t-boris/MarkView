@@ -1,5 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // Focused value so menu commands target the active window's WorkspaceManager
 struct FocusedWorkspaceKey: FocusedValueKey {
@@ -26,19 +29,18 @@ extension FocusedValues {
 /// The left pane's width. It has no ceiling of its own: the split view lets it grow until the
 /// centre and the terminal are at their minimum widths; `range` only bounds what is remembered.
 enum LeftPanelWidth {
-    static let key = "layout.leftPanelWidth"
     static let range: ClosedRange<CGFloat> = 180...6000
     static let standard: CGFloat = 220
 
     /// The width this window last had (or, for a window that has none yet, the last one any window left).
     static func saved(in state: WindowUIState) -> CGFloat {
-        let width = CGFloat(state.value(key, fallback: 0.0))
+        let width = CGFloat(state.value(Setting.leftPanelWidth))
         return width > 0 ? min(max(width, range.lowerBound), range.upperBound) : standard
     }
 
     static func save(_ width: CGFloat, in state: WindowUIState) {
         guard range.contains(width) else { return }
-        state.set(Double(width.rounded()), for: key, publishing: false)
+        state.set(Double(width.rounded()), for: Setting.leftPanelWidth, publishing: false)
     }
 }
 
@@ -94,19 +96,18 @@ private struct LeftPanelWidthKeeper: NSViewRepresentable {
 /// Restores the terminal column to a useful width after SwiftUI recreates the split view.
 /// The user can still drag the divider; that width becomes the next starting width.
 private enum RightPanelWidth {
-    static let key = "layout.rightPanelWidth"
     static let range: ClosedRange<CGFloat> = 320...1200
     static let standard: CGFloat = 500
 
     /// The width this window last had (or, for a window that has none yet, the last one any window left).
     static func saved(in state: WindowUIState) -> CGFloat {
-        let width = CGFloat(state.value(key, fallback: 0.0))
+        let width = CGFloat(state.value(Setting.rightPanelWidth))
         return width > 0 ? min(max(width, range.lowerBound), range.upperBound) : standard
     }
 
     static func save(_ width: CGFloat, in state: WindowUIState) {
         guard range.contains(width) else { return }
-        state.set(Double(width.rounded()), for: key, publishing: false)
+        state.set(Double(width.rounded()), for: Setting.rightPanelWidth, publishing: false)
     }
 }
 
@@ -194,8 +195,8 @@ struct ContentView: View {
 }
 
 extension View {
-    /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, folder tree, Git):
-    /// `@EnvironmentObject` for each.
+    /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, folder tree, Git,
+    /// the translation in progress): `@EnvironmentObject` for each.
     func observingParts(of workspace: WorkspaceManager) -> some View {
         environmentObject(workspace.tabs)
             .environmentObject(workspace.layout)
@@ -203,6 +204,7 @@ extension View {
             .environmentObject(workspace.requests)
             .environmentObject(workspace.project.fileTree)
             .environmentObject(workspace.gitClient)
+            .environmentObject(workspace.translator)
     }
 }
 
@@ -236,7 +238,7 @@ private struct WorkspaceWindow: View {
     @State private var sessionAttached = false
     @State private var restorationComplete = false
     @State private var lastFilesTab: UUID?
-    @AppStorage(TerminalBrowserBridge.enabledKey) private var openTerminalLinksInApp = true
+    @AppStorage(Setting.openTerminalLinksInApp) private var openTerminalLinksInApp: Bool
 
     var body: some View {
         WindowThemeHost(theme: workspaceManager.theme) { windowContent }
@@ -358,7 +360,7 @@ private struct WorkspaceWindow: View {
             )
         }
         .sheet(isPresented: $requests.showPrototypeCreator) {
-            PrototypeCreatorSheet(workspaceManager: workspaceManager, isPresented: $requests.showPrototypeCreator,
+            PrototypeCreatorSheet(workspaceManager: workspaceManager, prototypes: workspaceManager.toolTabs.prototypes, isPresented: $requests.showPrototypeCreator,
                                   mode: requests.prototypeCreatorMode)
         }
         .sheet(isPresented: Binding(get: { requests.doneRequest != nil },
@@ -497,7 +499,7 @@ private struct WorkspaceWindow: View {
                     toolButtons(.primary)
                     headerButton("square.on.square.dashed", help: "New Prototype…", width: controlWidth,
                                  selected: { if case .prototype? = tabs.activeTab?.kind { return true } else { return false } }()) {
-                        workspaceManager.openPrototypeCreator(mode: .requirements)
+                        workspaceManager.toolTabs.prototypes.openCreator(mode: .requirements)
                     }.disabled(fileTree.rootNode == nil)
                     browserMenu.frame(width: controlWidth, height: controlWidth)
                     toolButtons(.afterBrowser)
@@ -1139,7 +1141,7 @@ struct AIToolbarMenu: View {
               (workspaceManager.aiProject == nil ? "Default assistant and model" : "Assistant and model for this project")
               + " — the AI terminal, features and research. X-Ray model: \(xrayName). The menu also holds the AI tools.")
         .onAppear { seenSnapshot = AIAssistantPreferences.snapshot(project: workspaceManager.aiProject) }
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+        .onReceive(SettingsObserver.changes(of: AIAssistantPreferences.observedKeys)) { _ in
             let next = AIAssistantPreferences.snapshot(project: workspaceManager.aiProject)
             if next != seenSnapshot {
                 seenSnapshot = next
@@ -1184,18 +1186,18 @@ private struct AIToolsMenuItems: View {
             Button("Entity-Relationship") { workspaceManager.runAITool(named: "er") }
         }
         Menu("Prototype") {
-            Button("New Prototype…") { workspaceManager.openPrototypeCreator(mode: .requirements) }
+            Button("New Prototype…") { workspaceManager.toolTabs.prototypes.openCreator(mode: .requirements) }
                 .disabled(fileTree.rootNode == nil)
             // Existing code opens as the real application in UI Studio, not as a reconstruction (DEC-002, DEC-005).
             Button("UI Studio (Existing Code)") { workspaceManager.openTool(.uiStudio) }
                 .disabled(fileTree.rootNode == nil)
-            let saved = workspaceManager.savedPrototypes()
+            let saved = workspaceManager.toolTabs.prototypes.saved()
             Menu("Open Prototype (\(saved.count))") {
                 if saved.isEmpty {
                     Text("No prototypes in this project yet")
                 } else {
                     ForEach(saved) { prototype in
-                        Button(prototype.label) { workspaceManager.openSavedPrototype(prototype.slug) }
+                        Button(prototype.label) { workspaceManager.toolTabs.prototypes.openSaved(prototype.slug) }
                     }
                 }
             }
@@ -1232,12 +1234,12 @@ private struct FloatingAgentsView: View {
     }
 
     var body: some View {
-        let savedWidth = CGFloat(state.value("layout.agentsWidth", fallback: 650.0))
-        let savedHeight = CGFloat(state.value("layout.agentsHeight", fallback: 600.0))
+        let savedWidth = CGFloat(state.value(Setting.agentsWidth))
+        let savedHeight = CGFloat(state.value(Setting.agentsHeight))
         let baseWidth = min(max(280, savedWidth), available.width)
         let baseHeight = min(max(180, savedHeight), available.height)
-        let savedX = max(0, CGFloat(state.value("layout.agentsOffsetX", fallback: 0.0)))
-        let savedY = max(0, CGFloat(state.value("layout.agentsOffsetY", fallback: 0.0)))
+        let savedX = max(0, CGFloat(state.value(Setting.agentsOffsetX)))
+        let savedY = max(0, CGFloat(state.value(Setting.agentsOffsetY)))
         let baseX = min(savedX, max(0, available.width - baseWidth))
         let baseY = min(savedY, max(0, available.height - baseHeight))
         let normalWidth = min(available.width - baseX, max(min(280, available.width), baseWidth - resizeTranslation.width))
@@ -1268,8 +1270,8 @@ private struct FloatingAgentsView: View {
                             .onChanged { if !minimized && !maximized { resizeTranslation = $0.translation } }
                             .onEnded { value in
                                 guard !minimized && !maximized else { return }
-                                state.set(Double(min(available.width - baseX, max(min(280, available.width), baseWidth - value.translation.width))), for: "layout.agentsWidth")
-                                state.set(Double(min(available.height - baseY, max(min(180, available.height), baseHeight - value.translation.height))), for: "layout.agentsHeight")
+                                state.set(Double(min(available.width - baseX, max(min(280, available.width), baseWidth - value.translation.width))), for: Setting.agentsWidth)
+                                state.set(Double(min(available.height - baseY, max(min(180, available.height), baseHeight - value.translation.height))), for: Setting.agentsHeight)
                                 resizeTranslation = .zero
                             })
                     Group {
@@ -1286,8 +1288,8 @@ private struct FloatingAgentsView: View {
                             .onChanged { if !maximized { moveTranslation = $0.translation } }
                             .onEnded { value in
                                 guard !maximized else { return }
-                                state.set(Double(min(max(0, available.width - width), max(0, baseX - value.translation.width))), for: "layout.agentsOffsetX")
-                                state.set(Double(min(max(0, available.height - height), max(0, baseY - value.translation.height))), for: "layout.agentsOffsetY")
+                                state.set(Double(min(max(0, available.width - width), max(0, baseX - value.translation.width))), for: Setting.agentsOffsetX)
+                                state.set(Double(min(max(0, available.height - height), max(0, baseY - value.translation.height))), for: Setting.agentsOffsetY)
                                 moveTranslation = .zero
                             })
                         .simultaneousGesture(TapGesture(count: 2).onEnded {
@@ -1355,7 +1357,7 @@ private struct BrowserToolsToggle: View {
 
     init(tool: CLITool) {
         self.tool = tool
-        _enabled = AppStorage(wrappedValue: true, BrowserControlServer.agentToolsKey(tool))
+        _enabled = AppStorage(BrowserControlServer.agentToolsKey(tool))
     }
 
     var body: some View { Toggle(tool.displayName, isOn: $enabled) }

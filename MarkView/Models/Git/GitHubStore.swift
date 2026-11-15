@@ -1,32 +1,29 @@
 import Foundation
 import AppKit
 import UserNotifications
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
-/// Settings keys of the GitHub integration.
+/// The GitHub integration's settings, read where the integration decides (`Setting.gitHub*`).
 enum GitHubSettings {
     /// The integration is opt-in: off, MarkView never runs `gh` or polls GitHub.
-    static let enabledKey = "settings.github.enabled"
-    /// Seconds between checks of Actions while nothing runs (300 by default).
-    static let idleIntervalKey = "settings.github.idleInterval"
-    /// Seconds between checks while a run is active (30 by default).
-    static let activeIntervalKey = "settings.github.activeInterval"
-    /// macOS notification when a run on one of my branches finishes (on by default).
-    static let notifyKey = "settings.github.notifyRuns"
-    /// "Review" on a pull request starts the AI review at once (on by default).
-    static let autoReviewKey = "settings.github.autoReview"
+    static var enabled: Bool { Settings.standard.value(Setting.gitHubEnabled) }
 
-    static var enabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
-
+    /// Seconds between checks of Actions while nothing runs.
     static var idleInterval: TimeInterval {
-        let value = UserDefaults.standard.double(forKey: idleIntervalKey)
-        return value > 0 ? value : 300
+        let value = Settings.standard.value(Setting.gitHubIdleInterval)
+        return value > 0 ? value : Setting.gitHubIdleInterval.defaultValue
     }
+    /// Seconds between checks while a run is active.
     static var activeInterval: TimeInterval {
-        let value = UserDefaults.standard.double(forKey: activeIntervalKey)
-        return value > 0 ? value : 30
+        let value = Settings.standard.value(Setting.gitHubActiveInterval)
+        return value > 0 ? value : Setting.gitHubActiveInterval.defaultValue
     }
-    static var notify: Bool { UserDefaults.standard.object(forKey: notifyKey) as? Bool ?? true }
-    static var autoReview: Bool { UserDefaults.standard.object(forKey: autoReviewKey) as? Bool ?? true }
+    /// macOS notification when a run on one of my branches finishes.
+    static var notify: Bool { Settings.standard.value(Setting.gitHubNotifyRuns) }
+    /// "Review" on a pull request starts the AI review at once.
+    static var autoReview: Bool { Settings.standard.value(Setting.gitHubAutoReview) }
 }
 
 /// GitHub state of one window's folder: pull requests, issues and Actions of the selected

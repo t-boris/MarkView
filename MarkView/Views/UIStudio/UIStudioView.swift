@@ -1,6 +1,9 @@
 import AppKit
 import SwiftUI
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The tab of UI Studio (feature "MarkView UI Studio"): the project's real interface on the left, run by its development
 /// server with simulated dependencies; the inspector on the right holds the selected element with questions and changes,
@@ -9,12 +12,12 @@ struct UIStudioView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @WindowStorage("uiStudioInspectorWidth") private var inspectorWidth = 380.0
+    @WindowStorage(Setting.uiStudioInspectorWidth) private var inspectorWidth: Double
     @State private var dragStartWidth: Double?
     @State private var panel: Panel = .element
     @State private var draft = ""
     @FocusState private var draftFocused: Bool
-    @WindowStorage("uiStudioSelectionExpanded") private var selectionExpanded = true
+    @WindowStorage(Setting.uiStudioSelectionExpanded) private var selectionExpanded: Bool
     @State private var showingTrust = false
     @State private var effectiveScale = 1.0
     @State private var showLivePage = false

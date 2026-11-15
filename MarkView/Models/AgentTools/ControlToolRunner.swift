@@ -1,5 +1,8 @@
 import AppKit
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The app side of `ControlAgentTools`: an outside agent runs this MarkView. It lists the windows, opens a project in
 /// one, starts and prompts agents in the AI panel, and takes a feature through the Feature flow — each by calling what
@@ -137,7 +140,7 @@ enum ControlToolRunner {
     }
 
     private static func recentProjects() -> String {
-        let paths = UserDefaults.standard.stringArray(forKey: ProjectContext.recentProjectsKey) ?? []  // shared by all windows
+        let paths = Settings.standard.value(Setting.recentProjects)  // shared by all windows
         let open = Set(BrowserControlServer.liveWindows().compactMap { $0.workspace.project.projectFolder?.path })
         let lines = paths.filter { FileManager.default.fileExists(atPath: $0) }.map { $0 + (open.contains($0) ? "  (open)" : "") }
         return lines.isEmpty ? "No recent projects." : lines.joined(separator: "\n")

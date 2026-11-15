@@ -108,7 +108,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
     func dismissSelectionAction(_ id: UUID) { selectionActions.removeValue(forKey: id) }
 
     /// Handle selection actions: translate or explain selected text via the selected AI CLI.
-    /// Result is shown in a popup — see `translateDocument` for the whole-document
+    /// Result is shown in a popup — see `DocumentTranslator` for the whole-document
     /// path, which produces a translated copy in a new tab instead.
     func handleSelectionAction(action: String, text: String, completion: @escaping (String, String) -> Void) async {
         let (systemPrompt, title): (String, String) = {
@@ -193,7 +193,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
 
     private func explainDirectory(for url: URL) -> URL {
         // A pull request's copy of a project file keeps its notes with the project's.
-        if architecture.prRelativePath(for: url) != nil, let root = project.root {
+        if architecture.review.prRelativePath(for: url) != nil, let root = project.root {
             return ProjectPaths.explainCacheFolder(root)
         }
         return project.cacheDirectory(for: url).appendingPathComponent("explain", isDirectory: true)
@@ -205,7 +205,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
     /// Create or delete a user filter (from the Architecture tab or the code viewer).
     func createFilter(name: String, criterion: String) {
         ImportanceRater.addFilter(name: name, criterion: criterion)
-        allXRayStores.forEach { $0.filtersChanged() }
+        allXRayStores.forEach { $0.filters.filtersChanged() }
         codeExplain.filtersChanged()
     }
 
@@ -213,12 +213,12 @@ final class CodeAndXRayCoordinator: ObservableObject {
     func setTemporaryFilter(_ criterion: String) {
         let previous = temporaryFilter
         temporaryFilter = ImportanceRater.temporaryFilter(for: criterion)
-        allXRayStores.forEach { $0.temporaryFilter = temporaryFilter }
+        allXRayStores.forEach { $0.filters.temporaryFilter = temporaryFilter }
         if let previous {
-            architecture.forgetRatings(filterId: previous.id, db: project.database)
-            folderXRays.values.forEach { $0.forgetRatings(filterId: previous.id, db: nil) }
+            architecture.filters.forgetRatings(filterId: previous.id, db: project.database)
+            folderXRays.values.forEach { $0.filters.forgetRatings(filterId: previous.id, db: nil) }
         }
-        allXRayStores.forEach { $0.filtersChanged() }
+        allXRayStores.forEach { $0.filters.filtersChanged() }
         codeExplain.filtersChanged()
     }
 
@@ -228,7 +228,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
             return
         }
         ImportanceRater.removeFilter(id: id)
-        architecture.forgetRatings(filterId: id, db: project.database)
+        architecture.filters.forgetRatings(filterId: id, db: project.database)
         codeExplain.filtersChanged()
     }
 
@@ -236,7 +236,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
     /// (MarkView's cache) counts as that project path, so its notes, explanations and PR
     /// lens are all about the same file.
     private func codePath(for url: URL) -> String {
-        architecture.prRelativePath(for: url) ?? project.relativePath(of: url)
+        architecture.review.prRelativePath(for: url) ?? project.relativePath(of: url)
     }
 
     /// Load cached notes for a code file that just opened.
@@ -250,8 +250,8 @@ final class CodeAndXRayCoordinator: ObservableObject {
         let content = host?.openTabContent(for: url) ?? ""
         let path = codePath(for: url)
         return codeExplain.payloadJSON(path: path, content: content, filters: aiFilters,
-                                       pr: architecture.prFileNotes(path: path, content: content),
-                                       search: architecture.searchNotes(path: path))
+                                       pr: architecture.review.prFileNotes(path: path, content: content),
+                                       search: architecture.filters.searchNotes(path: path))
     }
 
     /// Start an explanation of a file's notes when it has none yet.
@@ -269,10 +269,10 @@ final class CodeAndXRayCoordinator: ObservableObject {
     func explainSymbol(name: String, path: String, line: Int) {
         guard project.root != nil, CodeNavigator.isNavigable(name) else { return }
         let criterion = "\(name) — \((path as NSString).lastPathComponent):\(line)"
-        architecture.searchSymbols[criterion] = XRaySearch.Symbol(name: name, path: path, line: line)
+        architecture.filters.searchSymbols[criterion] = XRaySearch.Symbol(name: name, path: path, line: line)
         setTemporaryFilter(criterion)
         openArchitecture()
-        if let id = temporaryFilter?.id { architecture.activate(filterId: id) }
+        if let id = temporaryFilter?.id { architecture.filters.activate(filterId: id) }
     }
 
     /// Requests from the code viewer's margin panel.
@@ -293,7 +293,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
         case "freshness":
             codeExplain.freshness(path: path, root: root, directory: explainDirectory(for: url))
         case "explainPR":
-            architecture.explainPRFile(path: path, root: root, db: db)
+            architecture.review.explainPRFile(path: path, root: root, db: db)
         case "createFilter":
             createFilter(name: payload["name"] as? String ?? "", criterion: payload["criterion"] as? String ?? "")
         case "tempFilter":
@@ -379,7 +379,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
             store.persistenceFile = base.appendingPathComponent(key + ".json")
             store.cacheDirectory = ProjectPaths.xrayCacheFolder(root)
         }
-        store.temporaryFilter = temporaryFilter
+        store.filters.temporaryFilter = temporaryFilter
         folderXRays[scope] = store
         return store
     }
@@ -418,21 +418,21 @@ final class CodeAndXRayCoordinator: ObservableObject {
         guard let root = project.root else { return }
         openXRayTab(scope: TabKind.pullRequestScope)
         if let source, !source.isEmpty {
-            architecture.refreshPRSources(root: root)
+            architecture.review.refreshPRSources(root: root)
             // A comparison with an earlier commit can span months of work: it is shown, and analysed when asked.
-            architecture.analyzeWhenLoaded = HistoricalBaseline.commitHash(fromSourceId: source) == nil
-            architecture.showPR(source, root: root, db: project.database)
+            architecture.review.analyzeWhenLoaded = HistoricalBaseline.commitHash(fromSourceId: source) == nil
+            architecture.review.showPR(source, root: root, db: project.database)
         } else {
             // Nothing chosen yet: everything on this branch vs main, uncommitted included.
-            architecture.selectDefaultSource = true
-            architecture.refreshPRSources(root: root)
+            architecture.review.selectDefaultSource = true
+            architecture.review.refreshPRSources(root: root)
         }
     }
 
     /// "Review" on a pull request: its PR X-Ray, with the AI review started once it loads
     /// (unless turned off in Settings).
     func reviewPullRequest(_ number: Int) {
-        architecture.reviewWhenLoaded = GitHubSettings.autoReview
+        architecture.review.reviewWhenLoaded = GitHubSettings.autoReview
         openPRXRay(source: "gh:\(number)")
     }
 
@@ -447,8 +447,8 @@ final class CodeAndXRayCoordinator: ObservableObject {
                             : "\(current) vs \(ref) (commits + uncommitted)"
         openXRayTab(scope: TabKind.pullRequestScope)
         // No AI run until asked: Analyze and Review are buttons in the view.
-        architecture.showComparison(id: (reverse ? "rev:" : "cmp:") + ref, title: title, root: root, db: project.database)
-        architecture.refreshPRSources(root: root)
+        architecture.review.showComparison(id: (reverse ? "rev:" : "cmp:") + ref, title: title, root: root, db: project.database)
+        architecture.review.refreshPRSources(root: root)
     }
 
     /// X-Ray from the file tree. A folder gets its own X-Ray tab — its own structure,
@@ -474,8 +474,8 @@ final class CodeAndXRayCoordinator: ObservableObject {
         setTemporaryFilter(text)
         openArchitecture()
         if let filter = temporaryFilter {
-            architecture.understand(filter: filter, root: root, db: project.database, attachments: attachments)
-            architecture.activate(filterId: filter.id)
+            architecture.filters.understand(filter: filter, root: root, db: project.database, attachments: attachments)
+            architecture.filters.activate(filterId: filter.id)
         }
     }
 
@@ -514,8 +514,8 @@ final class CodeAndXRayCoordinator: ObservableObject {
         case .askBook(let question):
             setTemporaryFilter(question)
             if let filter = temporaryFilter {
-                architecture.understand(filter: filter, root: root, db: db)
-                architecture.activate(filterId: filter.id)
+                architecture.filters.understand(filter: filter, root: root, db: db)
+                architecture.filters.activate(filterId: filter.id)
             }
         case .cancelAnalysis:
             architecture.cancelAnalysis()
@@ -524,63 +524,63 @@ final class CodeAndXRayCoordinator: ObservableObject {
         case .openPRXRay(let source):
             openPRXRay(source: source)
         case .analyzePR(let again):
-            architecture.analyzePR(root: root, db: db, fresh: again)
+            architecture.review.analyzePR(root: root, db: db, fresh: again)
         case .historyCommits(let day):
             // Comparison by date: the commits of the calendar day chosen in the PR X-Ray ("YYYY-MM-DD").
-            architecture.listHistory(day: day, root: root)
+            architecture.review.listHistory(day: day, root: root)
         case .compareWithCommit(let sha):
             // The comparison with a date opens in the comparison view, like a branch comparison, from the project's X-Ray
             // as well as from the PR X-Ray (BUG-110): it needs no pull request.
             if scope.isEmpty { openXRayTab(scope: TabKind.pullRequestScope) }
-            architecture.compareWithCommit(sha: sha, root: root, db: db)
+            architecture.review.compareWithCommit(sha: sha, root: root, db: db)
         case .prFileDiff(let path):
-            architecture.showFileDiff(path: path)
+            architecture.review.showFileDiff(path: path)
         case .explainPRFile(let path):
-            architecture.explainPRFile(path: path, root: root, db: db)
+            architecture.review.explainPRFile(path: path, root: root, db: db)
         case .askPR(let question, let path):
-            architecture.askPR(question: question, path: path, root: root, db: db)
+            architecture.review.askPR(question: question, path: path, root: root, db: db)
         case .filterSearch(let filter):
-            architecture.searchFilter(filterId: filter, root: root, db: db)
+            architecture.filters.searchFilter(filterId: filter, root: root, db: db)
         case .showPR(let source):
-            architecture.showPR(source, root: root)
+            architecture.review.showPR(source, root: root)
         case .reviewPR(let again):
             if again {
-                architecture.reviewAgain(root: root, db: db)
+                architecture.review.reviewAgain(root: root, db: db)
             } else {
-                architecture.reviewPR(root: root, db: db)
+                architecture.review.reviewPR(root: root, db: db)
             }
         case .prTasksToTerminal:
             // Typed at the assistant's prompt, not sent: check the list and press Enter.
-            if let text = architecture.prTasksText() { _ = host?.sendToAssistant(text, submit: false) }
+            if let text = architecture.review.prTasksText() { _ = host?.sendToAssistant(text, submit: false) }
         case .copyPRTasks:
-            if let text = architecture.prTasksText() {
+            if let text = architecture.review.prTasksText() {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)
             }
         case .refreshPRSources:
-            architecture.refreshPRSources(root: root)
+            architecture.review.refreshPRSources(root: root)
         case .prAction(let op, let body, let method):
             // op: approve | requestChanges | comment | merge | close; method: merge | squash | rebase.
             guard GitHubClient.mergeMethods.contains(method) else { return }
-            architecture.prAction(op, body: body, method: method, root: root)
+            architecture.review.prAction(op, body: body, method: method, root: root)
         case .prFindingFix(let finding):
-            fixInPullRequest(prompt: architecture.findingFixPrompt(path: finding.path, index: finding.index), architecture: architecture)
+            fixInPullRequest(prompt: architecture.review.findingFixPrompt(path: finding.path, index: finding.index), architecture: architecture)
         case .prFixAll:
-            fixInPullRequest(prompt: architecture.prTasksText(), architecture: architecture)
+            fixInPullRequest(prompt: architecture.review.prTasksText(), architecture: architecture)
         case .prFindingExplain(let finding):
-            architecture.explainFinding(path: finding.path, index: finding.index, db: db)
+            architecture.review.explainFinding(path: finding.path, index: finding.index, db: db)
         case .prFindingComment(let finding):
-            architecture.commentFinding(path: finding.path, index: finding.index, root: root)
+            architecture.review.commentFinding(path: finding.path, index: finding.index, root: root)
         case .prFindingIssue(let finding):
-            architecture.issueFromFinding(path: finding.path, index: finding.index, root: root)
+            architecture.review.issueFromFinding(path: finding.path, index: finding.index, root: root)
         case .prFindingDismiss(let finding):
-            architecture.dismissFinding(path: finding.path, index: finding.index)
+            architecture.review.dismissFinding(path: finding.path, index: finding.index)
         case .openURL(let url):
             NSWorkspace.shared.open(url)
         case .setComponent(let path, let component):
             architecture.setComponent(path: path, component: component, db: db)
         case .rateImportance(let view, let parent, let filter):
-            architecture.rateImportance(viewId: view, parentId: parent, filterId: filter, root: root, db: db)
+            architecture.filters.rateImportance(viewId: view, parentId: parent, filterId: filter, root: root, db: db)
         case .createFilter(let name, let criterion):
             createFilter(name: name, criterion: criterion)
         case .deleteFilter(let id):
@@ -590,7 +590,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
         case .saveSearchAnswer(let filterId):
             saveSearchAnswer(filterId: filterId, root: root, architecture: architecture)
         case .retryUnderstanding(let filter):
-            architecture.retryUnderstanding(filterId: filter, root: root, db: db)
+            architecture.filters.retryUnderstanding(filterId: filter, root: root, db: db)
         case .openUnderstandingSource(let filter, let sourceId):
             openUnderstandingSource(filterId: filter, sourceId: sourceId, root: root, architecture: architecture)
         case .explainEdge(let view, let source, let target, let kind, let label, let again):
@@ -634,16 +634,16 @@ final class CodeAndXRayCoordinator: ObservableObject {
         // From the PR X-Ray: the viewer opens on the change ("Pull request" lens), showing
         // a fetched pull request's own version of the file (which may not exist here).
         // From the ⚡ search's answer: the viewer opens on the search's places in the file.
-        if request.fromSearch { architecture.markSearchFocus(path: path) }
+        if request.fromSearch { architecture.filters.markSearchFocus(path: path) }
         if request.fromPR {
-            architecture.markPRFocus(path: path)
-            if let cached = architecture.prFileURL(path: path) {
+            architecture.review.markPRFocus(path: path)
+            if let cached = architecture.review.prFileURL(path: path) {
                 host?.openFile(cached, line: request.line, endLine: request.endLine)
                 return
             }
             tasks.store(Task { @MainActor [weak self] in
                 guard let self else { return }
-                if let prFile = await self.architecture.resolvePRFileURL(path: path) {
+                if let prFile = await self.architecture.review.resolvePRFileURL(path: path) {
                     guard !Task.isCancelled else { return }
                     self.host?.openFile(prFile, line: request.line, endLine: request.endLine)
                     return
@@ -675,7 +675,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
     /// Send a fix request to the pull request's branch; the error, if any, is shown in an alert.
     private func fixInPullRequest(prompt: String?, architecture: ArchitectureStore) {
         guard let prompt else { return }
-        let number = architecture.shownPRNumber
+        let number = architecture.review.shownPRNumber
         tasks.store(Task { [weak self] in
             if let error = await self?.host?.fixInPullRequest(number, prompt: prompt) {
                 let alert = NSAlert()
@@ -689,9 +689,9 @@ final class CodeAndXRayCoordinator: ObservableObject {
     /// Save an answer of the ⚡ search as a document of the project, and open it.
     private func saveSearchAnswer(filterId: String, root: URL, architecture: ArchitectureStore) {
         let author = host?.defaultAuthor ?? ""
-        if architecture.understandingAnswers[filterId] != nil {
+        if architecture.filters.understandingAnswers[filterId] != nil {
             tasks.store(Task { [weak self] in
-                if let file = await architecture.saveUnderstanding(filterId: filterId, root: root, author: author) {
+                if let file = await architecture.filters.saveUnderstanding(filterId: filterId, root: root, author: author) {
                     guard !Task.isCancelled else { return }
                     self?.host?.refreshFileTree()
                     self?.host?.openFile(file, line: nil, endLine: nil)
@@ -699,7 +699,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
             }, for: "saveUnderstanding")
             return
         }
-        if let file = architecture.saveSearchAnswer(filterId: filterId, root: root, author: author) {
+        if let file = architecture.filters.saveSearchAnswer(filterId: filterId, root: root, author: author) {
             host?.refreshFileTree()
             host?.openFile(file, line: nil, endLine: nil)
         }
@@ -707,7 +707,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
 
     /// A source of an "I need to understand" answer: a document of the project, a pull request or a commit.
     private func openUnderstandingSource(filterId: String, sourceId: String, root: URL, architecture: ArchitectureStore) {
-        guard let source = architecture.understandingSource(filterId: filterId, sourceId: sourceId) else { return }
+        guard let source = architecture.filters.understandingSource(filterId: filterId, sourceId: sourceId) else { return }
         if source.kind == .document {
             // Inside the X-Ray's folder, or (from a folder X-Ray) anywhere in the open project.
             if let path = UnderstandingAnswer.relativePath(source.path, root: root) {

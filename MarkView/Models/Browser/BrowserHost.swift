@@ -4,12 +4,17 @@ import Foundation
 import MarkViewCore
 #endif
 
-/// What the browser of a window needs of the window beyond its tabs, panels and project (`AR-14` step 9): the workspace the control
-/// tools act on, and a terminal tab for a dev server. `WorkspaceManager` conforms.
+/// What the browser of a window needs of the window beyond its tabs, panels and project (`AR-14` step 9): the workspace and the stores
+/// the control tools act on, and a terminal tab for a dev server. `WorkspaceManager` conforms. The stores are read when an agent asks, so
+/// a store a window has not needed yet is not made for the browser.
 @MainActor
 protocol BrowserHostWindow: AnyObject {
     /// The window's workspace, for the control tools (`ControlToolRunner`); the control server lists windows by it.
     var controlWorkspace: WorkspaceManager { get }
+    /// The project's feature workspaces, deployments and discussions that the control tools read and write.
+    var controlFeatures: FeatureStore { get }
+    var controlDeployments: DeploymentStore { get }
+    var controlDiscussions: DiscussionStore { get }
     /// Open a terminal in `folder` as an editor tab; `startupCommand` is typed once the shell is up.
     @discardableResult
     func openTerminal(in folder: URL, startupCommand: String?, title: String?, activate: Bool) -> TerminalSession
@@ -39,22 +44,16 @@ final class BrowserHost: BrowserSessionHost {
     private let chrome: WindowChrome
     private let project: any ProjectProviding
     private let terminals: any DevServerTerminals
-    private let features: FeatureStore
-    private let deployments: DeploymentStore
-    private let discussions: DiscussionStore
     private weak var window: (any BrowserHostWindow)?
     private let tasks = TaskBag()
 
     init(tabs: TabsController, layout: PanelLayout, chrome: WindowChrome, project: any ProjectProviding, terminals: any DevServerTerminals,
-         features: FeatureStore, deployments: DeploymentStore, discussions: DiscussionStore, window: any BrowserHostWindow) {
+         window: any BrowserHostWindow) {
         self.tabs = tabs
         self.layout = layout
         self.chrome = chrome
         self.project = project
         self.terminals = terminals
-        self.features = features
-        self.deployments = deployments
-        self.discussions = discussions
         self.window = window
     }
 
@@ -84,9 +83,9 @@ final class BrowserHost: BrowserSessionHost {
                 if let name { session.agentName = name }
                 return session
             },
-            features: { [weak self] in self?.features },
-            deployments: { [weak self] in self?.deployments },
-            discussions: { [weak self] in self?.discussions }))
+            features: { [weak self] in self?.window?.controlFeatures },
+            deployments: { [weak self] in self?.window?.controlDeployments },
+            discussions: { [weak self] in self?.window?.controlDiscussions }))
     }
 
     /// The window's browser tabs, in tab order.

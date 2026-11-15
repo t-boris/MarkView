@@ -31,7 +31,7 @@ struct OpenTab {
 }
 
 @MainActor
-final class StubTabs: TabsProviding {
+final class StubTabs: FeatureFlowTabs {
     var activeTab: OpenTab?
     var opened: [URL] = []
     var githubTabs: [(item: GitHubItem, root: URL)] = []
@@ -76,7 +76,7 @@ final class TerminalSession {
 
 /// The assistants of the window: what is sent to them is recorded; `sends` false stands for "no terminal could be opened".
 @MainActor
-final class StubAssistants: AssistantProviding {
+final class StubAssistants: AssistantProviding, AssistantPrompting {
     let session: TerminalSession
     var sends = true
     var assistantIsBusy = false

@@ -96,7 +96,7 @@ enum InsightArchiveExport {
     }
 
     /// Replaces `<button class="deep-dive" data-section-id="X" data-topic-index="Y" title="…">label</button>` with an anchor to the
-    /// child node's page. The pattern is the deterministic shape of `InsightSession.buildHTMLTemplate`; the escaped title and
+    /// child node's page. The pattern is the deterministic shape of `InsightHTMLTemplate.html`; the escaped title and
     /// label are copied unchanged, only the URL we control is spliced in.
     static func rewriteDeepDiveButtons(in html: String, parentNodeId: UUID, nodeChildMap: [UUID: [String: [Int: UUID]]],
                                        childHrefPrefix: String) -> String {

@@ -5,7 +5,6 @@
 2 MarkView/Views/Architecture/ProjectChangeReviewView.swift
 1 MarkView/Views/Browser/BrowserTabView.swift
 2 MarkView/Views/Deployments/DeploymentsView.swift
-1 MarkView/Views/Discussion/DiscussionsView.swift
 5 MarkView/Views/Git/GitHubViews.swift
 1 MarkView/Views/Lifecycle/BugBasketView.swift
 1 MarkView/Views/Lifecycle/CycleTimeViews.swift

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 enum WorkspaceArea: String, CaseIterable, Identifiable, Codable {
     case files = "Files"
@@ -38,8 +41,6 @@ enum NavigatorTab: String, CaseIterable, Codable {
     case terminal = "Terminal"
     case feature = "Feature"
 
-    static let storageKey = "layout.navigatorTab"
-
     /// What the tab is called. The raw values are stored in saved layouts and stay as they were.
     var title: String {
         switch self {
@@ -53,7 +54,6 @@ enum NavigatorTab: String, CaseIterable, Codable {
 /// The stages of a feature (spec §5), kept in Models (`AR-22`).
 enum FeatureStage: String, CaseIterable, Codable {
     case explore = "Explore", review = "Review", build = "Build"
-    static let storageKey = "feature.stage"
 
     /// A stored stage; the former Resolve stage opens Review.
     static func stored(_ raw: String?) -> FeatureStage {
@@ -76,59 +76,54 @@ enum GitSection: String, CaseIterable, Codable {
 @MainActor
 final class PanelLayout: ObservableObject {
     @Published var workspaceArea: WorkspaceArea {
-        didSet { remember(workspaceArea.rawValue, Self.workspaceAreaKey) }
+        didSet { remember(workspaceArea.rawValue, Setting.layoutWorkspaceArea) }
     }
     @Published var workSection: WorkSection {
-        didSet { remember(workSection.rawValue, Self.workSectionKey) }
+        didSet { remember(workSection.rawValue, Setting.layoutWorkSection) }
     }
     /// Legacy right-panel selection kept for compatibility with saved layouts.
     @Published var navigatorTab: NavigatorTab {
-        didSet { remember(navigatorTab.rawValue, NavigatorTab.storageKey) }
+        didSet { remember(navigatorTab.rawValue, Setting.layoutNavigatorTab) }
     }
     /// Left panel: "files" or "issues".
     @Published var leftPanel: String {
-        didSet { remember(leftPanel, Self.leftPanelKey) }
+        didSet { remember(leftPanel, Setting.layoutLeftPanel) }
     }
     /// The feature opened from the Issues list ("" = the list).
     @Published var issuesFeature: String {
-        didSet { remember(issuesFeature, Self.issuesFeatureKey) }
+        didSet { remember(issuesFeature, Setting.layoutIssuesFeature) }
     }
     /// Git tab: local changes or a GitHub section.
     @Published var gitSection: GitSection {
-        didSet { remember(gitSection.rawValue, Self.gitSectionKey) }
+        didSet { remember(gitSection.rawValue, Setting.layoutGitSection) }
     }
     /// Stage shown in the Feature tab.
     @Published var featureStage: FeatureStage {
-        didSet { remember(featureStage.rawValue, FeatureStage.storageKey) }
+        didSet { remember(featureStage.rawValue, Setting.featureStage) }
     }
 
     /// Background of this window's welcome screen (BUG-120). The stored value is only the starting choice of the next window.
     @Published var welcomeBackdrop: WelcomeBackdrop {
-        didSet { remember(welcomeBackdrop.rawValue, WelcomeBackdrop.storageKey) }
+        didSet { remember(welcomeBackdrop.rawValue, Setting.welcomeBackdrop) }
     }
 
-    static let leftPanelKey = "layout.leftPanel"
-    static let workspaceAreaKey = "layout.workspaceArea"
-    static let workSectionKey = "layout.workSection"
-    static let issuesFeatureKey = "layout.issuesFeature"
-    static let gitSectionKey = "layout.gitSection"
-
-    private let defaults: UserDefaults
+    private let settings: Settings
 
     init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        workspaceArea = defaults.string(forKey: Self.workspaceAreaKey).flatMap(WorkspaceArea.init) ?? .files
-        workSection = defaults.string(forKey: Self.workSectionKey).flatMap(WorkSection.init) ?? .features
-        let storedNavigator = defaults.string(forKey: NavigatorTab.storageKey).flatMap(NavigatorTab.init) ?? .contents
+        let settings = Settings(defaults)
+        self.settings = settings
+        workspaceArea = WorkspaceArea(rawValue: settings.value(Setting.layoutWorkspaceArea)) ?? .files
+        workSection = WorkSection(rawValue: settings.value(Setting.layoutWorkSection)) ?? .features
+        let storedNavigator = NavigatorTab(rawValue: settings.value(Setting.layoutNavigatorTab)) ?? .contents
         navigatorTab = [.terminal, .git, .search].contains(storedNavigator) ? .contents : storedNavigator
-        leftPanel = defaults.string(forKey: Self.leftPanelKey) ?? "files"
-        issuesFeature = defaults.string(forKey: Self.issuesFeatureKey) ?? ""
-        gitSection = defaults.string(forKey: Self.gitSectionKey).flatMap(GitSection.init) ?? .changes
-        featureStage = FeatureStage.stored(defaults.string(forKey: FeatureStage.storageKey))
-        welcomeBackdrop = WelcomeBackdrop.stored(defaults.string(forKey: WelcomeBackdrop.storageKey))
+        leftPanel = settings.value(Setting.layoutLeftPanel)
+        issuesFeature = settings.value(Setting.layoutIssuesFeature)
+        gitSection = GitSection(rawValue: settings.value(Setting.layoutGitSection)) ?? .changes
+        featureStage = FeatureStage.stored(settings.stored(Setting.featureStage))
+        welcomeBackdrop = WelcomeBackdrop.stored(settings.stored(Setting.welcomeBackdrop))
     }
 
-    private func remember(_ value: String, _ key: String) {
-        defaults.set(value, forKey: key)
+    private func remember(_ value: String, _ key: SettingsKey<String>) {
+        settings.set(value, for: key)
     }
 }

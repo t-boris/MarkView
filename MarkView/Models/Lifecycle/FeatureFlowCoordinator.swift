@@ -5,14 +5,28 @@ import Foundation
 import MarkViewCore
 #endif
 
+/// What the feature flow needs of the window's tabs (`AR-14` step 9): the tab the person looks at, a file shown, the tab of a GitHub item,
+/// and the open tabs taking what changed on disk. `WorkspaceManager` conforms.
+@MainActor
+protocol FeatureFlowTabs: AnyObject {
+    /// The tab the person is looking at; nil on the Welcome tab.
+    var activeTab: OpenTab? { get }
+    /// Shows `url` in a tab of the window.
+    func openFile(_ url: URL)
+    /// Shows the tab of a GitHub issue, pull request or workflow run of the project at `root`, or returns to it.
+    func showGitHubTab(_ item: GitHubItem, root: URL)
+    /// Open tabs take the text of files that changed on disk (after a branch switch, or what an assistant wrote).
+    func reloadChangedOpenFiles(all: Bool) async
+}
+
 /// The feature flow of one window (`AR-14` step 9): the feature workspaces and the folder's GitHub repository that feed it, the intake
 /// that starts a feature, a bug or a research, "Implement with AI" and "Fix with AI" with the hand-off that marks the issue, the batch of
 /// bugs, and what GitHub offers the AI (an issue to start on, a failed run, a pull request to check out). It owns the stores of that flow
 /// (`features`, `gitHub`, `bugBatch`) and what is wired between them and the folder's Git client. The status of an issue changes only
 /// through the lifecycle of `features` (`IssueLifecycleCoordinator`); this object decides when a hand-off counts as a start.
 ///
-/// The open project is read through `ProjectProviding`, the assistants are reached through `AssistantProviding` and the tabs through
-/// `TabsProviding`; the window's panels and sheet requests are the window's own state objects. Work it starts is in its own `TaskBag`:
+/// The open project is read through `ProjectProviding`, the assistants are reached through `AssistantProviding` and `AssistantPrompting` and the tabs through
+/// `FeatureFlowTabs`; the window's panels and sheet requests are the window's own state objects. Work it starts is in its own `TaskBag`:
 /// cancelled when the folder switches (`reset`) and when the window closes (`close`).
 @MainActor
 final class FeatureFlowCoordinator: ObservableObject {
@@ -24,8 +38,8 @@ final class FeatureFlowCoordinator: ObservableObject {
     private(set) lazy var bugBatch = BugBatch(store: features)
 
     private let project: any ProjectProviding
-    private let assistants: any AssistantProviding
-    private let tabs: any TabsProviding
+    private let assistants: any AssistantProviding & AssistantPrompting
+    private let tabs: any FeatureFlowTabs
     private let requests: WindowRequests
     private let layout: PanelLayout
     private let chrome: WindowChrome
@@ -33,13 +47,13 @@ final class FeatureFlowCoordinator: ObservableObject {
     private let research: ResearchMapController
     /// The coordinator's own one-off background work (`AR-19`).
     private let tasks = TaskBag()
-    private var cancellables: Set<AnyCancellable> = []
 
     /// Folder the GitHub integration works in (folders only, never a single file).
     private var gitHubRoot: URL?
-    private var gitHubWasEnabled = GitHubSettings.enabled
+    /// Watches the Settings switch (every window follows it).
+    private var gitHubSettingObserver: SettingsObserver?
 
-    init(project: any ProjectProviding, assistants: any AssistantProviding, tabs: any TabsProviding,
+    init(project: any ProjectProviding, assistants: any AssistantProviding & AssistantPrompting, tabs: any FeatureFlowTabs,
          requests: WindowRequests, layout: PanelLayout, chrome: WindowChrome, gitClient: GitClient, research: ResearchMapController) {
         self.project = project
         self.assistants = assistants
@@ -69,24 +83,17 @@ final class FeatureFlowCoordinator: ObservableObject {
         gitHubRoot = root
         gitClient.onBranch = { [weak self] branch in self?.gitHub.branchChanged(branch) }
         gitHub.onPoll = { [weak self] client in self?.features.syncLifecycle(with: client) }
-        if cancellables.isEmpty {
-            // The Settings switch is one for every window: any write to the defaults looks again at it.
-            NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] _ in
-                    MainActor.assumeIsolated {
-                        guard let self, GitHubSettings.enabled != self.gitHubWasEnabled else { return }
-                        self.gitHubSettingChanged()
-                    }
-                }
-                .store(in: &cancellables)
+        if gitHubSettingObserver == nil {
+            // The Settings switch is one for every window: a change of its value looks again at it.
+            gitHubSettingObserver = SettingsObserver([Setting.gitHubEnabled.erased]) { [weak self] in
+                MainActor.assumeIsolated { self?.gitHubSettingChanged() }
+            }
         }
         gitHubSettingChanged()
     }
 
     /// Start or stop the integration for the open folder, as the Settings switch says.
     private func gitHubSettingChanged() {
-        gitHubWasEnabled = GitHubSettings.enabled
         if GitHubSettings.enabled, let root = gitHubRoot {
             gitHub.setup(root: root)
             if !gitClient.branch.isEmpty { gitHub.branchChanged(gitClient.branch) }
@@ -111,7 +118,7 @@ final class FeatureFlowCoordinator: ObservableObject {
     /// The window closes: nothing started here keeps running and the Settings switch is no longer watched.
     func close() {
         tasks.cancelAll()
-        cancellables.removeAll()
+        gitHubSettingObserver = nil
     }
 
     // MARK: - Showing a feature
@@ -204,7 +211,7 @@ final class FeatureFlowCoordinator: ObservableObject {
                                                         linkedFiles: linkedFiles, missingFiles: checked.missing)
             for url in checked.available { self.tabs.openFile(url) }
             self.layout.workspaceArea = .files
-        }, for: "resumeHandoff")
+        }, for: "resumeHandoff:" + slug)
     }
 
     /// Which of a hand-off's linked files are regular files inside `root` (a link that resolves outside it, an absolute path or a
@@ -394,7 +401,7 @@ final class FeatureFlowCoordinator: ObservableObject {
         guard let root = project.root, root.standardizedFileURL == folder.standardizedFileURL else {
             return "This window does not show \(folder.lastPathComponent) any more. Open it and use File › Publish to GitHub… to finish."
         }
-        if !GitHubSettings.enabled { UserDefaults.standard.set(true, forKey: GitHubSettings.enabledKey) }
+        if !GitHubSettings.enabled { Settings.standard.set(true, for: Setting.gitHubEnabled) }
         // The remote was added after the folder opened: detect again.
         gitHub.reset()
         gitHubRoot = root

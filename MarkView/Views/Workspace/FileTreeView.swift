@@ -11,19 +11,23 @@ struct FileTreeView: View {
     @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
     @EnvironmentObject private var git: GitClient
     @EnvironmentObject private var requests: WindowRequests
+    @EnvironmentObject private var translator: DocumentTranslator
     /// The view and the filter choices of this window; they persist across restarts with its session (AC-5, DEC-008)
     /// and no other window follows them. The sort order persists in the file tree store.
-    @WindowStorage("fileBrowser.viewMode") private var storedMode = FileBrowserViewMode.list
-    @WindowStorage("fileBrowser.showHidden") private var storedShowHidden = false
-    @WindowStorage("fileBrowser.hideIgnored") private var storedHideIgnored = false
-    @WindowStorage("fileBrowser.category") private var storedCategory = FileBrowserCategory.all
+    @WindowStorage(Setting.fileBrowserViewMode) private var storedMode: String
+    @WindowStorage(Setting.fileBrowserShowHidden) private var storedShowHidden: Bool
+    @WindowStorage(Setting.fileBrowserHideIgnored) private var storedHideIgnored: Bool
+    @WindowStorage(Setting.fileBrowserCategory) private var storedCategory: String
     private var preferences: FileBrowserPreferences {
-        get { FileBrowserPreferences(mode: storedMode, showHidden: storedShowHidden, hideIgnored: storedHideIgnored, category: storedCategory) }
+        get {
+            FileBrowserPreferences(mode: FileBrowserViewMode(rawValue: storedMode) ?? .list, showHidden: storedShowHidden,
+                                   hideIgnored: storedHideIgnored, category: FileBrowserCategory(rawValue: storedCategory) ?? .all)
+        }
         nonmutating set {
-            storedMode = newValue.mode
+            storedMode = newValue.mode.rawValue
             storedShowHidden = newValue.showHidden
             storedHideIgnored = newValue.hideIgnored
-            storedCategory = newValue.category
+            storedCategory = newValue.category.rawValue
         }
     }
     private var preferencesBinding: Binding<FileBrowserPreferences> {
@@ -62,6 +66,8 @@ struct FileTreeView: View {
 
     private var mode: FileBrowserViewMode { preferences.mode }
     private var projectRootURL: URL? { fileTree.rootNode?.url }
+    /// What the window is working on in the background: a document being translated, else the folder being opened or indexed.
+    private var backgroundProgress: String? { translator.progress ?? workspaceManager.project.indexingProgress }
 
     // MARK: Model glue
 
@@ -294,11 +300,11 @@ struct FileTreeView: View {
 
             if projectRootURL != nil {
                 browserArea
-            } else if workspaceManager.project.indexingProgress != nil {
+            } else if let progress = backgroundProgress {
                 VStack(spacing: 12) {
                     Spacer()
                     ProgressView().scaleEffect(0.8)
-                    Text(workspaceManager.project.indexingProgress ?? "")
+                    Text(progress)
                         .uiFont(size: 11).foregroundColor(palette.blue)
                         .lineLimit(2).multilineTextAlignment(.center)
                     Spacer()
@@ -321,7 +327,7 @@ struct FileTreeView: View {
             }
 
             // Progress bar
-            if let progress = workspaceManager.project.indexingProgress {
+            if let progress = backgroundProgress {
                 Divider().background(palette.border)
                 HStack(spacing: 6) {
                     ProgressView().scaleEffect(0.4).frame(width: 12, height: 12)
@@ -887,7 +893,7 @@ struct FileTreeView: View {
                 }
                 Button { workspaceManager.codeXRay.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
                 Button { workspaceManager.insight.start(at: url) } label: { Label("Recursive Insight", systemImage: "sparkles") }
-                Button { workspaceManager.openDiscussion(about: url) } label: { Label("Discuss…", systemImage: "bubble.left.and.text.bubble.right") }
+                Button { workspaceManager.toolTabs.discussions.discuss(about: url) } label: { Label("Discuss…", systemImage: "bubble.left.and.text.bubble.right") }
                 Button { workspaceManager.flow.startResearch(fromFolder: url) } label: { Label("New Research from This Folder…", systemImage: "books.vertical") }
                 Divider()
             }
@@ -941,7 +947,7 @@ struct FileTreeView: View {
                 if FileType.isHTML(url) {
                     Button { workspaceManager.browser.openHTML(url) } label: { Label("Open in Browser", systemImage: "safari") }
                 }
-                Button { workspaceManager.openDiscussion(about: url) } label: { Label("Discuss This File…", systemImage: "bubble.left.and.text.bubble.right") }
+                Button { workspaceManager.toolTabs.discussions.discuss(about: url) } label: { Label("Discuss This File…", systemImage: "bubble.left.and.text.bubble.right") }
                 if FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {
                     Button { workspaceManager.insight.start(at: url) } label: { Label("Recursive Insight on This File", systemImage: "sparkles") }
                 }
@@ -1096,16 +1102,9 @@ struct FileTreeView: View {
         alert.addButton(withTitle: "Move to Trash")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        var errors: [String] = []
-        for url in urls {
-            tabs.closeTabs(under: url)
-            do { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } catch {
-                errors.append("Couldn't move “\(url.lastPathComponent)” to the Trash: \(error.localizedDescription)")
-            }
-        }
+        let errors = workspaceManager.fileOperations.trash(urls)
         selection.clear()
         listVersion += 1
-        workspaceManager.refreshFileTree()
         if !errors.isEmpty { showError(errors.joined(separator: "\n")) }
     }
 
@@ -1121,7 +1120,7 @@ struct FileTreeView: View {
         panel.prompt = "Move Here"
         panel.message = urls.count == 1 ? "Move “\(urls[0].lastPathComponent)” to:" : "Move \(urls.count) items to:"
         guard panel.runModal() == .OK, let folder = panel.url else { return }
-        let errors = workspaceManager.transfer(urls, into: folder, copy: false)
+        let errors = workspaceManager.fileOperations.transfer(urls, into: folder, copy: false)
         selection.clear()
         listVersion += 1
         if !errors.isEmpty { showError(errors.joined(separator: "\n")) }
@@ -1137,7 +1136,7 @@ struct FileTreeView: View {
         alert.addButton(withTitle: "Cancel")
         alert.window.initialFirstResponder = input
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        if let error = workspaceManager.rename(url, to: input.stringValue) { return showError(error) }
+        if let error = workspaceManager.fileOperations.rename(url, to: input.stringValue) { return showError(error) }
         selection.clear()
         listVersion += 1
     }
@@ -1242,24 +1241,13 @@ struct FileTreeView: View {
         alert.addButton(withTitle: "Create")
         alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn {
-            var name = input.stringValue.trimmingCharacters(in: .whitespaces)
-            if name.isEmpty { name = "untitled.md" }
-            guard isValidName(name) else { return showError("“\(name)” is not a valid file name.") }
-            let fileURL = folderURL.appendingPathComponent(name)
-            // Never replace an existing file.
-            guard !FileManager.default.fileExists(atPath: fileURL.path) else {
-                return showError("“\(name)” already exists in this folder.")
-            }
-            let template = name.hasSuffix(".md") ? "# \(name.replacingOccurrences(of: ".md", with: ""))\n\n" : ""
-            do {
-                try AtomicFile.write(template, to: fileURL)
-            } catch {
-                return showError("Couldn't create “\(name)”: \(error.localizedDescription)")
+            let fileURL: URL
+            do { fileURL = try workspaceManager.fileOperations.createFile(named: input.stringValue, in: folderURL) } catch {
+                return showError((error as? FileOperationError)?.message ?? error.localizedDescription)
             }
             if ignored { addToGitignore(fileURL, isDirectory: false) }
             if mode == .tree { expanded.insert(FileBrowser.key(folderURL)) }
             listVersion += 1
-            workspaceManager.refreshFileTree()
             workspaceManager.openFile(fileURL)
         }
     }
@@ -1282,8 +1270,6 @@ struct FileTreeView: View {
     /// as in Finder), copied when they come from elsewhere (e.g. Finder).
     private func drop(_ providers: [NSItemProvider], into folder: URL) -> Bool {
         let copyRequested = NSEvent.modifierFlags.contains(.option)
-        let roots = ([fileTree.rootNode?.url] + workspaceManager.project.linkedFolders.map(\.url))
-            .compactMap { $0?.standardizedFileURL.path }
         var urls: [URL] = []
         let group = DispatchGroup()
         for provider in providers where provider.canLoadObject(ofClass: URL.self) {
@@ -1297,18 +1283,12 @@ struct FileTreeView: View {
         }
         group.notify(queue: .main) {
             guard !urls.isEmpty else { return }
-            let inside = urls.allSatisfy { url in roots.contains { url.standardizedFileURL.path.hasPrefix($0 + "/") } }
-            let errors = workspaceManager.transfer(urls, into: folder, copy: copyRequested || !inside)
+            let errors = workspaceManager.fileOperations.drop(urls, into: folder, copyRequested: copyRequested)
             listVersion += 1
             dropTarget = nil
             if !errors.isEmpty { showError(errors.joined(separator: "\n")) }
         }
         return true
-    }
-
-    /// One path component: no slashes, not "." or "..".
-    private func isValidName(_ name: String) -> Bool {
-        !name.contains("/") && !name.contains(":") && name != "." && name != ".."
     }
 
     /// What an archive action in progress is doing ("Extracting photos.zip…").
@@ -1378,21 +1358,11 @@ struct FileTreeView: View {
         alert.addButton(withTitle: "Create")
         alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn {
-            let name = input.stringValue.trimmingCharacters(in: .whitespaces)
-            guard !name.isEmpty else { return }
-            guard isValidName(name) else { return showError("“\(name)” is not a valid folder name.") }
-            let folderURL = parentURL.appendingPathComponent(name)
-            guard !FileManager.default.fileExists(atPath: folderURL.path) else {
-                return showError("“\(name)” already exists in this folder.")
-            }
-            do {
-                try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: false)
-            } catch {
-                return showError("Couldn't create “\(name)”: \(error.localizedDescription)")
+            do { guard try workspaceManager.fileOperations.createFolder(named: input.stringValue, in: parentURL) != nil else { return } } catch {
+                return showError((error as? FileOperationError)?.message ?? error.localizedDescription)
             }
             if mode == .tree { expanded.insert(FileBrowser.key(parentURL)) }
             listVersion += 1
-            workspaceManager.refreshFileTree()
         }
     }
 }

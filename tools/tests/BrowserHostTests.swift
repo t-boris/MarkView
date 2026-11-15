@@ -98,9 +98,15 @@ func listen() -> Listener {
 @MainActor
 final class StubWindow: BrowserHostWindow {
     let workspace = WorkspaceManager()
+    let features = FeatureStore()
+    let deployments = DeploymentStore()
+    let discussions = DiscussionStore()
     var tabs: TabsController!
     var terminals: [TerminalSession] = []
     var controlWorkspace: WorkspaceManager { workspace }
+    var controlFeatures: FeatureStore { features }
+    var controlDeployments: DeploymentStore { deployments }
+    var controlDiscussions: DiscussionStore { discussions }
     func openTerminal(in folder: URL, startupCommand: String?, title: String?, activate: Bool) -> TerminalSession {
         let session = TerminalSession(directory: folder, startupCommand: startupCommand)
         terminals.append(session)
@@ -121,17 +127,13 @@ struct Rig {
     let chrome = WindowChrome(defaults: defaults())
     let terminals = StubTerminals()
     let window = StubWindow()
-    let features = FeatureStore()
-    let deployments = DeploymentStore()
-    let discussions = DiscussionStore()
     let browser: BrowserHost
 
     init(folder: URL = temporaryFolder(), open: Bool = true) {
         self.folder = folder
         if open { project.root = folder }
         window.tabs = tabs
-        browser = BrowserHost(tabs: tabs, layout: layout, chrome: chrome, project: project, terminals: terminals,
-                              features: features, deployments: deployments, discussions: discussions, window: window)
+        browser = BrowserHost(tabs: tabs, layout: layout, chrome: chrome, project: project, terminals: terminals, window: window)
     }
 
     /// The browser tabs, in order.
@@ -255,7 +257,7 @@ func control() async {
     rig.browser.register()
     guard let window = BrowserControlServer.registered[rig.browser.controlID] else { check(false, "the window is registered"); return }
     check(window.workspace() === rig.window.workspace && window.root() == rig.folder, "the control tools reach the window's workspace and folder")
-    check(window.features() === rig.features && window.deployments() === rig.deployments && window.discussions() === rig.discussions,
+    check(window.features() === rig.window.features && window.deployments() === rig.window.deployments && window.discussions() === rig.window.discussions,
           "and the stores of the window")
     check(window.tabs().isEmpty && window.active() == nil, "no browser tab, no active one")
     let opened = window.open(URL(string: "https://example.com/")!, "Jira")

@@ -72,6 +72,15 @@ enum TabsEvent {
     case insightClosed(InsightSession)
 }
 
+/// What a feature that works with the open documents needs from its window, and nothing more (`AR-14`, `AR-17`).
+@MainActor
+protocol TabsProviding: AnyObject {
+    /// The tab the person is looking at; nil on the Welcome tab.
+    var activeTab: OpenTab? { get }
+    /// Shows `url` in a tab of the window.
+    func openFile(_ url: URL)
+}
+
 /// Everything about the tabs a window has open (`AR-14` step 5): which ones, which is active, opening, saving, closing, reloading what
 /// changed on disk, and the scroll position and active heading of each document. Views that show tabs observe this object directly, so
 /// typing in the editor redraws what shows the tabs and nothing else (`AR-15`).

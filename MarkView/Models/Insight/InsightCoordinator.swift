@@ -266,7 +266,7 @@ final class InsightCoordinator {
                 crumbs.insert((current.id.uuidString, current.title), at: 0)
                 cursor = current.parentId.flatMap { session.nodes[$0] }
             }
-            let html = InsightSession.buildHTMLTemplate(
+            let html = InsightHTMLTemplate.html(
                 skeleton: skeleton, sectionStates: node.sectionStates, breadcrumbs: crumbs, libRefMode: .exportRelative, cache: cache
             )
             try? cache.writeNode(nodeId: id, html: html)

@@ -535,7 +535,7 @@ func branches() async {
 @MainActor
 func lifecycle() async {
     print("-- setup, reset and the Settings switch")
-    UserDefaults.standard.removeObject(forKey: GitHubSettings.enabledKey)
+    Settings.standard.remove(Setting.gitHubEnabled)
     let repo = GitHubRepo(slug: "o/r", remote: "origin", isUpstream: false)
     let rig = Rig()
     rig.flow.gitHub.reposFound = [repo]
@@ -550,25 +550,25 @@ func lifecycle() async {
     check(rig.flow.gitHub.onPoll != nil && rig.gitClient.onBranch != nil, "the lifecycle poll and the branch of the Git client are wired to GitHub")
 
     let before = rig.flow.gitHub.resets
-    UserDefaults.standard.set(true, forKey: GitHubSettings.enabledKey)
+    Settings.standard.set(true, for: Setting.gitHubEnabled)
     check(await waitUntil { rig.flow.gitHub.setups == [a] }, "turning the switch on sets GitHub up for the open folder")
     check(rig.flow.features.assistant.gitHubClient()?.repo.slug == "o/r", "and the assistant gets its client")
     rig.gitClient.onBranch?("topic")
     check(rig.flow.gitHub.branches == ["topic"], "the branch the Git client reports reaches GitHub")
 
-    UserDefaults.standard.set(false, forKey: GitHubSettings.enabledKey)
+    Settings.standard.set(false, for: Setting.gitHubEnabled)
     check(await waitUntil { rig.flow.gitHub.resets == before + 1 }, "turning it off resets GitHub")
 
     rig.flow.close()
     let resets = rig.flow.gitHub.resets
-    UserDefaults.standard.set(true, forKey: GitHubSettings.enabledKey)
+    Settings.standard.set(true, for: Setting.gitHubEnabled)
     await settle(0.3)
     check(rig.flow.gitHub.setups == [a] && rig.flow.gitHub.resets == resets, "a window that closed no longer follows the Settings switch")
 
     rig.flow.reset()
     check(rig.flow.features.resets == 1 && rig.flow.gitHub.resets == resets + 1 && rig.flow.features.root == nil,
           "closing the folder resets both stores")
-    UserDefaults.standard.removeObject(forKey: GitHubSettings.enabledKey)
+    Settings.standard.remove(Setting.gitHubEnabled)
 
     let other = Rig()
     other.flow.setUp(at: other.folder)
@@ -580,7 +580,7 @@ func lifecycle() async {
 @MainActor
 func activation() async {
     print("-- activate GitHub after a publish")
-    UserDefaults.standard.removeObject(forKey: GitHubSettings.enabledKey)
+    Settings.standard.remove(Setting.gitHubEnabled)
     let repo = GitHubRepo(slug: "o/r", remote: "origin", isUpstream: false)
     let rig = Rig()
     rig.flow.gitHub.reposFound = [repo]
@@ -588,7 +588,7 @@ func activation() async {
     let result = await rig.flow.activateGitHub(expecting: "O/R", in: rig.folder)
     check(result == nil && GitHubSettings.enabled, "it is turned on for every window and the repository is found, whatever its case")
     check(rig.flow.gitHub.setups == [rig.folder] && rig.flow.gitHub.resets >= 1, "after GitHub looked at the folder again")
-    UserDefaults.standard.removeObject(forKey: GitHubSettings.enabledKey)
+    Settings.standard.remove(Setting.gitHubEnabled)
 }
 
 @main
@@ -612,7 +612,7 @@ enum FeatureFlowCoordinatorChecks {
         await activation()
         for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
         UserDefaults.standard.removePersistentDomain(forName: defaultsSuite)
-        UserDefaults.standard.removeObject(forKey: GitHubSettings.enabledKey)
+        Settings.standard.remove(Setting.gitHubEnabled)
         print("Feature flow coordinator summary: \(passed) passed, \(failed) failed")
         exit(failed == 0 ? 0 : 1)
     }

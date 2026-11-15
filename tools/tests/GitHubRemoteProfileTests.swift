@@ -107,8 +107,8 @@ import Darwin
 
         // An explicit setting wins over the folder's marker.
         let chosen = home.appendingPathComponent("chosen-config")
-        UserDefaults.standard.set(chosen.path, forKey: GitHubProfile.configDirectoryKey)
+        Settings.standard.set(chosen.path, for: Setting.gitHubConfigDirectory)
         precondition(GitHubProfile.resolve(root: project, home: home).directory?.path == chosen.path)
-        UserDefaults.standard.removeObject(forKey: GitHubProfile.configDirectoryKey)
+        Settings.standard.remove(Setting.gitHubConfigDirectory)
     }
 }

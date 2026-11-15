@@ -50,16 +50,14 @@ class WhisperClient: ObservableObject {
     /// under Whisper's 25 MB upload limit. The recorder stops by itself at this length.
     static let maxRecordingDuration: TimeInterval = 600
 
-    static let apiKeyStorage = "com.markview.dde.openai.apikey"
     private static let keychainService = "com.markview.dde.openai"
     private static let keychainAccount = "apikey"
-    static let modelStorage = "settings.whisper.model"
 
     /// Reads the OpenAI API key from Keychain, migrating any legacy UserDefaults entry on first access (AR-10).
     nonisolated static func loadAPIKey() -> String? {
-        if let legacy = UserDefaults.standard.string(forKey: apiKeyStorage), !legacy.isEmpty {
+        if let legacy = Settings.standard.stored(Setting.legacyOpenAIKey), !legacy.isEmpty {
             if saveAPIKeyToKeychain(legacy) {
-                UserDefaults.standard.removeObject(forKey: apiKeyStorage)
+                Settings.standard.remove(Setting.legacyOpenAIKey)
             }
             return legacy
         }
@@ -82,7 +80,7 @@ class WhisperClient: ObservableObject {
     /// Saves the OpenAI API key to Keychain and removes any plaintext copy from UserDefaults only on success (AR-10, FU-09).
     nonisolated static func saveAPIKey(_ key: String) {
         if saveAPIKeyToKeychain(key) {
-            UserDefaults.standard.removeObject(forKey: apiKeyStorage)
+            Settings.standard.remove(Setting.legacyOpenAIKey)
         }
     }
 
@@ -116,11 +114,11 @@ class WhisperClient: ObservableObject {
 
     /// Transcription models OpenAI accepts on /v1/audio/transcriptions.
     static let availableModels = ["whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe"]
-    static let defaultModel = "whisper-1"
+    static let defaultModel = Setting.whisperModel.defaultValue
 
     /// Model used for transcription, configurable in DDE Settings.
     static var selectedModel: String {
-        let stored = UserDefaults.standard.string(forKey: modelStorage) ?? ""
+        let stored = Settings.standard.value(Setting.whisperModel)
         return availableModels.contains(stored) ? stored : defaultModel
     }
 

@@ -10,7 +10,6 @@ import MarkViewCore
 /// keyed by tool, so switching assistants keeps each one's model. Stored in local settings under
 /// the project's key (`ProjectColor.projectKey`), never in the project folder.
 struct ProjectAIChoice: Codable, Equatable {
-    static let defaultsKey = "project.ai"
     /// Posted when a project's choice changes; `object` is the project key.
     static let didChange = Notification.Name("ProjectAIChoiceDidChange")
 
@@ -22,7 +21,7 @@ struct ProjectAIChoice: Codable, Equatable {
 
     static func load(_ project: URL?) -> ProjectAIChoice? {
         guard let project,
-              let data = UserDefaults.standard.dictionary(forKey: defaultsKey)?[key(project)] as? Data else { return nil }
+              let data = Settings.standard.value(Setting.projectAI)[key(project)] as? Data else { return nil }
         return try? JSONDecoder().decode(ProjectAIChoice.self, from: data)
     }
 
@@ -30,9 +29,9 @@ struct ProjectAIChoice: Codable, Equatable {
     static func update(_ project: URL, _ change: (inout ProjectAIChoice) -> Void) {
         var choice = load(project) ?? ProjectAIChoice()
         change(&choice)
-        var all = UserDefaults.standard.dictionary(forKey: defaultsKey) ?? [:]
+        var all = Settings.standard.value(Setting.projectAI)
         all[key(project)] = try? JSONEncoder().encode(choice)
-        UserDefaults.standard.set(all, forKey: defaultsKey)
+        Settings.standard.set(all, for: Setting.projectAI)
         NotificationCenter.default.post(name: didChange, object: key(project))
     }
 }
@@ -68,7 +67,7 @@ struct AssistantChoice {
 
     func setTool(_ raw: String) {
         if let project { ProjectAIChoice.update(project) { $0.backend = raw } }
-        else { UserDefaults.standard.set(raw, forKey: AIAssistantPreferences.backendKey) }
+        else { Settings.standard.set(raw, for: Setting.aiBackend) }
     }
 
     func model(for tool: CLITool) -> String {
@@ -79,7 +78,7 @@ struct AssistantChoice {
     func setModel(_ id: String, for tool: CLITool) {
         ModelPickLog.record(tool: tool, project: project)
         if let project { ProjectAIChoice.update(project) { $0.models[tool.rawValue] = id } }
-        else { UserDefaults.standard.set(id, forKey: AIAssistantPreferences.modelKey(for: tool)) }
+        else { Settings.standard.set(id, for: Setting.cliModel(tool.rawValue)) }
     }
 
     func xrayModel(for tool: CLITool) -> String {
@@ -88,7 +87,7 @@ struct AssistantChoice {
 
     func setXRayModel(_ id: String, for tool: CLITool) {
         if let project { ProjectAIChoice.update(project) { $0.xrayModels[tool.rawValue] = id } }
-        else { UserDefaults.standard.set(id, forKey: AIAssistantPreferences.xrayModelKey(for: tool)) }
+        else { Settings.standard.set(id, for: Setting.xrayModel(tool.rawValue, fallback: AIAssistantPreferences.defaultXRayModel(for: tool))) }
     }
 }
 
@@ -98,13 +97,16 @@ struct AssistantChoice {
 /// `ProjectAIChoice`; what a project has not chosen comes from the defaults, which DDE Settings
 /// edits under the keys below. Every read names its project, so no window changes another.
 enum AIAssistantPreferences {
-    static let backendKey = "settings.ai.backend"
-
-    static func modelKey(for tool: CLITool) -> String { "settings.cli.\(tool.rawValue)Model" }
+    /// What the assistant, model and X-Ray model shown for a project depend on: the defaults, every tool's own models, and the
+    /// project choices. A view that shows them refreshes when one of these changes, and only then.
+    static var observedKeys: [AnySettingsKey] {
+        [Setting.aiBackend.erased, Setting.projectAI.erased]
+            + CLITool.allCases.flatMap { [Setting.cliModel($0.rawValue).erased, Setting.xrayModel($0.rawValue, fallback: defaultXRayModel(for: $0)).erased] }
+    }
 
     /// The default assistant, for projects without a choice of their own.
     static var defaultBackend: CLITool {
-        CLITool(rawValue: UserDefaults.standard.string(forKey: backendKey) ?? "") ?? AssistantProviderRegistry.defaultTool
+        CLITool(rawValue: Settings.standard.value(Setting.aiBackend)) ?? AssistantProviderRegistry.defaultTool
     }
 
     /// The assistant for `project`: its own choice, else the default.
@@ -114,11 +116,11 @@ enum AIAssistantPreferences {
 
     /// The default model for `tool` as stored ("" = the CLI's own default).
     static func defaultModelSetting(for tool: CLITool) -> String {
-        UserDefaults.standard.string(forKey: modelKey(for: tool)) ?? ""
+        Settings.standard.value(Setting.cliModel(tool.rawValue))
     }
 
-    /// Compact state fingerprint for assistant/model/xray settings in `project`, used by observers
-    /// so unrelated `UserDefaults` writes (such as divider drags) do not trigger view refreshes (`AR-18`).
+    /// Compact state fingerprint for assistant/model/xray settings in `project`: a view that was told one of `observedKeys`
+    /// changed compares it with the last one to see whether what it shows is different.
     static func snapshot(project: URL?) -> String {
         let tool = backend(project: project)
         let choice = AssistantChoice(project: project)
@@ -131,7 +133,7 @@ enum AIAssistantPreferences {
     /// MarkView, so it restarts nothing (`ModelPickLog`).
     static func remember(_ model: String, for tool: CLITool, project: URL?) {
         if let project { ProjectAIChoice.update(project) { $0.models[tool.rawValue] = model } }
-        else { UserDefaults.standard.set(model, forKey: modelKey(for: tool)) }
+        else { Settings.standard.set(model, for: Setting.cliModel(tool.rawValue)) }
     }
 
     /// The model `tool` runs for `project`, or nil to let the CLI use its own default.
@@ -145,11 +147,10 @@ enum AIAssistantPreferences {
 
     /// X-Ray has its own model: its answers are large and structured, so a fast model
     /// at low effort matters more there than raw capability.
-    static func xrayModelKey(for tool: CLITool) -> String { "settings.xray.\(tool.rawValue)Model" }
     static func defaultXRayModel(for tool: CLITool) -> String { tool.provider.defaultXRayModel }
     /// The default X-Ray model for `tool` as stored ("" = the assistant's model).
     static func defaultXRayModelSetting(for tool: CLITool) -> String {
-        UserDefaults.standard.string(forKey: xrayModelKey(for: tool)) ?? defaultXRayModel(for: tool)
+        Settings.standard.value(Setting.xrayModel(tool.rawValue, fallback: defaultXRayModel(for: tool)))
     }
 
     /// The X-Ray model `tool` runs for `project`; "" falls back to the assistant's model.
@@ -161,11 +162,7 @@ enum AIAssistantPreferences {
 
     /// Automatic code analysis of code projects, on unless turned off (DEC-001 of
     /// automatic-code-architecture). Off: only the local layers, no CLI agent is started.
-    static let autoAnalyzeKey = "xray.autoAnalyze"
-    static var autoAnalyze: Bool {
-        let defaults = UserDefaults.standard
-        return defaults.object(forKey: autoAnalyzeKey) == nil ? true : defaults.bool(forKey: autoAnalyzeKey)
-    }
+    static var autoAnalyze: Bool { Settings.standard.value(Setting.autoAnalyze) }
 
     /// Short label for the active selection, e.g. "Claude Code · opus".
     static func summary(tool: CLITool, model: String) -> String {
@@ -195,7 +192,7 @@ enum CLIToolLocator {
 
     /// Extra `PATH` entries the user configured in Settings (colon- or newline-separated).
     static var extraPathEntries: [String] {
-        (UserDefaults.standard.string(forKey: "settings.cli.extraPATH") ?? "")
+        Settings.standard.value(Setting.extraPATH)
             .components(separatedBy: CharacterSet(charactersIn: ":\n"))
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -203,14 +200,14 @@ enum CLIToolLocator {
 
     /// The user's explicit override, or nil when set to auto-detect.
     static func override(for tool: CLITool) -> String? {
-        let value = (UserDefaults.standard.string(forKey: tool.overrideKey) ?? "")
+        let value = Settings.standard.value(Setting.cliPath(tool.rawValue))
             .trimmingCharacters(in: .whitespaces)
         return value.isEmpty ? nil : value
     }
 
     static func setOverride(_ path: String?, for tool: CLITool) {
         let value = (path ?? "").trimmingCharacters(in: .whitespaces)
-        UserDefaults.standard.set(value, forKey: tool.overrideKey)
+        Settings.standard.set(value, for: Setting.cliPath(tool.rawValue))
     }
 
     /// Every `bin` directory belonging to an installed Node version, newest first.

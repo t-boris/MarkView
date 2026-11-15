@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 private struct AppFontScaleKey: EnvironmentKey {
     static let defaultValue: CGFloat = 1
@@ -15,7 +18,7 @@ extension EnvironmentValues {
 /// Reads the stored preference and publishes it to the window's view tree, together with a
 /// scaled default font for text and controls that have no explicit font.
 private struct AppFontScaleRoot: ViewModifier {
-    @AppStorage(AppFontScale.storageKey) private var percent = AppFontScale.defaultPercent
+    @AppStorage(Setting.fontScalePercent) private var percent: Int
 
     func body(content: Content) -> some View {
         let scale = AppFontScale.factor(percent: percent)

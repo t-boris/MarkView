@@ -58,7 +58,7 @@ struct Gate { var canPrepare: Bool; var approvedFingerprint: String? }
         }
     }
 }
-@MainActor final class WorkspaceManager {
+@MainActor final class WorkspaceManager: CockpitQAWindow {
     let qa = QAModel()
     var opened = false
     func openTool(_ id: ToolID) { if id == .qa { opened = true } }
