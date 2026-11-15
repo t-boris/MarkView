@@ -14,8 +14,8 @@ protocol WindowSessionHost: AnyObject {
     var windowFolder: URL? { get }
     /// The folder of the terminal tab `id`; nil once that terminal is gone.
     func terminalDirectory(for id: UUID) -> URL?
-    /// Opens `folder` and returns when its tree has loaded (or the open was given up).
-    func restoreFolder(_ folder: URL) async
+    /// Opens `url`; `completion` runs when its tree has loaded.
+    func openFolder(_ url: URL, completion: (() -> Void)?)
     func openTool(_ tool: ToolID)
     func openFile(_ url: URL)
     func openGitHubTab(_ item: GitHubItem)
@@ -81,7 +81,9 @@ enum WindowSessionSnapshotter {
         let fm = FileManager.default
         if let folder = state.folder, folder.isFileURL,
            (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-            await host.restoreFolder(folder)
+            await withCheckedContinuation { continuation in
+                host.openFolder(folder) { continuation.resume() }
+            }
             // A folder chosen meanwhile wins over the old session.
             guard host.windowFolder == folder else { return }
         }

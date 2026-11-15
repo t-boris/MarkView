@@ -360,7 +360,7 @@ private struct WorkspaceWindow: View {
             )
         }
         .sheet(isPresented: $requests.showPrototypeCreator) {
-            PrototypeCreatorSheet(workspaceManager: workspaceManager, isPresented: $requests.showPrototypeCreator,
+            PrototypeCreatorSheet(workspaceManager: workspaceManager, prototypes: workspaceManager.toolTabs.prototypes, isPresented: $requests.showPrototypeCreator,
                                   mode: requests.prototypeCreatorMode)
         }
         .sheet(isPresented: Binding(get: { requests.doneRequest != nil },
@@ -499,7 +499,7 @@ private struct WorkspaceWindow: View {
                     toolButtons(.primary)
                     headerButton("square.on.square.dashed", help: "New Prototype…", width: controlWidth,
                                  selected: { if case .prototype? = tabs.activeTab?.kind { return true } else { return false } }()) {
-                        workspaceManager.openPrototypeCreator(mode: .requirements)
+                        workspaceManager.toolTabs.prototypes.openCreator(mode: .requirements)
                     }.disabled(fileTree.rootNode == nil)
                     browserMenu.frame(width: controlWidth, height: controlWidth)
                     toolButtons(.afterBrowser)
@@ -1186,18 +1186,18 @@ private struct AIToolsMenuItems: View {
             Button("Entity-Relationship") { workspaceManager.runAITool(named: "er") }
         }
         Menu("Prototype") {
-            Button("New Prototype…") { workspaceManager.openPrototypeCreator(mode: .requirements) }
+            Button("New Prototype…") { workspaceManager.toolTabs.prototypes.openCreator(mode: .requirements) }
                 .disabled(fileTree.rootNode == nil)
             // Existing code opens as the real application in UI Studio, not as a reconstruction (DEC-002, DEC-005).
             Button("UI Studio (Existing Code)") { workspaceManager.openTool(.uiStudio) }
                 .disabled(fileTree.rootNode == nil)
-            let saved = workspaceManager.savedPrototypes()
+            let saved = workspaceManager.toolTabs.prototypes.saved()
             Menu("Open Prototype (\(saved.count))") {
                 if saved.isEmpty {
                     Text("No prototypes in this project yet")
                 } else {
                     ForEach(saved) { prototype in
-                        Button(prototype.label) { workspaceManager.openSavedPrototype(prototype.slug) }
+                        Button(prototype.label) { workspaceManager.toolTabs.prototypes.openSaved(prototype.slug) }
                     }
                 }
             }

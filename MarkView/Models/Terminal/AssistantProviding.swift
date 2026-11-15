@@ -19,3 +19,13 @@ protocol AssistantProviding: AnyObject {
     /// Bring the AI panel to the front.
     func showAIConsole()
 }
+
+/// The assistant's input line, for a tool that hands a question to the assistant in the Agents panel instead of asking it itself.
+@MainActor
+protocol AssistantPrompting: AnyObject {
+    /// Whether an assistant terminal is in the middle of an answer.
+    var assistantIsBusy: Bool { get }
+    /// Types `prompt` at the assistant's input line; `submit` presses Enter. Nil when no assistant could take it.
+    @discardableResult
+    func sendToAssistant(_ prompt: String, submit: Bool) -> TerminalSession?
+}

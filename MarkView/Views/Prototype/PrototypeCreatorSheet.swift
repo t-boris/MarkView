@@ -9,6 +9,7 @@ import SwiftUI
 struct PrototypeCreatorSheet: View {
     @Environment(\.palette) private var palette
     @ObservedObject var workspaceManager: WorkspaceManager
+    let prototypes: PrototypeStudioHost
     @EnvironmentObject private var tabs: TabsController
     @Binding var isPresented: Bool
     var mode: PrototypeFiles.Mode = .requirements
@@ -86,7 +87,7 @@ struct PrototypeCreatorSheet: View {
 
             TextField("Name (optional)", text: $title).textFieldStyle(.roundedBorder)
 
-            let saved = workspaceManager.savedPrototypes()
+            let saved = prototypes.saved()
             if !saved.isEmpty {
                 GroupBox("Open an earlier prototype") {
                     ScrollView {
@@ -94,7 +95,7 @@ struct PrototypeCreatorSheet: View {
                             ForEach(saved) { prototype in
                                 Button(prototype.label) {
                                     isPresented = false
-                                    workspaceManager.openSavedPrototype(prototype.slug)
+                                    prototypes.openSaved(prototype.slug)
                                 }
                                 .buttonStyle(.link)
                             }
@@ -110,8 +111,8 @@ struct PrototypeCreatorSheet: View {
                 Button("Cancel") { isPresented = false }.keyboardShortcut(.cancelAction)
                 Button("Build Prototype") {
                     isPresented = false
-                    workspaceManager.newPrototype(title: title.isEmpty ? defaultTitle : title, brief: brief, sources: sources,
-                                                  mode: mode, codeScope: PrototypeAI.CodeScope(apps: detected ?? []))
+                    prototypes.create(title: title.isEmpty ? defaultTitle : title, brief: brief, sources: sources,
+                                      mode: mode, codeScope: PrototypeAI.CodeScope(apps: detected ?? []))
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(isCode && !webInterfaceDetected)

@@ -454,3 +454,6 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
         previewTerminals = [:]
     }
 }
+
+/// The assistant's input line, for the tools that hand it a question (`DeploymentsHost`).
+extension AITerminalsController: AssistantPrompting {}
