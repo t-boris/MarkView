@@ -335,8 +335,6 @@ struct OpenTab: Identifiable {
     var isModified: Bool = false
     var kind: TabKind = .file
     var headings: [HeadingItem] = []
-    var activeHeadingId: String?
-    var scrollPosition: CGFloat = 0
     /// A text file shown with line-aligned Explain notes instead of its dedicated viewer.
     var notesView = false
     /// Bumped when a data tab's file changes on disk: its viewer reads it again (a log follows).

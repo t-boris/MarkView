@@ -228,6 +228,23 @@ try:
     check(code == 1 and "[no-private-escape] MarkView/Resources/Editor/js/markview-bad.js:2" in out and out.count("[no-private-escape]") == 1,
           "a private HTML escape in a page script fails with file and line")
 
+    # --- tabs-direct
+    root = fresh()
+    write(root, "MarkView/Views/Workspace/Reader.swift", "struct Reader {\n    // workspaceManager.activeTab in a comment does not count\n    @EnvironmentObject var tabs: TabsController\n    var url: URL? { tabs.activeTab?.url }\n    var tree: FileNode? { workspaceManager.tabs.activeTab == nil ? nil : workspaceManager.rootNode }\n}\n")
+    write(root, "MarkView/Models/Workspace/WorkspaceManager.swift", "final class WorkspaceManager {\n    func start() {\n        objectWillChange.send()\n        // tabs.objectWillChange in a comment does not count\n        tabs.events.sink { _ in }\n    }\n}\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0 and "tabs-direct" in out, "views that observe the tabs, a manual objectWillChange and a comment do not break tabs-direct")
+    write(root, "MarkView/Views/Workspace/Bad.swift", "struct Bad {\n    var count: Int { workspaceManager.openTabs.count }\n    var index: Int { manager.activeTabIndex }\n    var text: String? { wm?.lastSaveError }\n}\n")
+    write(root, "MarkView/Models/Workspace/WorkspaceManager.swift", "final class WorkspaceManager {\n    init() {\n        tabs.objectWillChange\n            .sink { [weak self] _ in self?.objectWillChange.send() }\n        gitClient.objectWillChange.sink { _ in }\n    }\n}\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[tabs-direct] MarkView/Views/Workspace/Bad.swift:2" in out and "[tabs-direct] MarkView/Views/Workspace/Bad.swift:3" in out
+          and "[tabs-direct] MarkView/Views/Workspace/Bad.swift:4" in out
+          and "[tabs-direct] MarkView/Models/Workspace/WorkspaceManager.swift:3" in out and "[tabs-direct] MarkView/Models/Workspace/WorkspaceManager.swift:5" in out
+          and out.count("[tabs-direct]") == 5,
+          "a view that reads the tabs through the manager and a manager that forwards a part's changes fail with file and line")
+
     # --- lists
     root = fresh()
     (root / "tools/lint/process-allowlist.txt").unlink()

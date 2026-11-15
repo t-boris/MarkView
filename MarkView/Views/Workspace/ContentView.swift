@@ -181,11 +181,37 @@ private struct RightPanelWidthKeeper: NSViewRepresentable {
     }
 }
 
+/// The window of one workspace. It owns the workspace and hands each part of it to the views below: a view that shows tabs, panels, the
+/// folder tree or Git state observes that part itself, so typing in the editor redraws what shows the tabs and nothing else (`AR-15`).
 struct ContentView: View {
-    @Environment(\.appFontScale) private var appFontScale
-    @Environment(\.openWindow) private var openWindow
     var windowSessionID = UUID()
     @StateObject private var workspaceManager = WorkspaceManager()
+
+    var body: some View {
+        WorkspaceWindow(windowSessionID: windowSessionID, workspaceManager: workspaceManager)
+            .observingParts(of: workspaceManager)
+    }
+}
+
+extension View {
+    /// Gives the views below the parts of `workspace` they redraw with (tabs, panels, folder tree, Git): `@EnvironmentObject` for each.
+    func observingParts(of workspace: WorkspaceManager) -> some View {
+        environmentObject(workspace.tabs)
+            .environmentObject(workspace.layout)
+            .environmentObject(workspace.fileTreeStore)
+            .environmentObject(workspace.gitClient)
+    }
+}
+
+private struct WorkspaceWindow: View {
+    @Environment(\.appFontScale) private var appFontScale
+    @Environment(\.openWindow) private var openWindow
+    let windowSessionID: UUID
+    @ObservedObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
+    @EnvironmentObject private var layout: PanelLayout
+    @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
+    @EnvironmentObject private var git: GitClient
     @StateObject private var changeReview = ProjectChangeReview()
     @State private var showFolderPicker = false
     /// Project Cycle Time summary, opened from the top bar (DEC-002, DEC-006).
@@ -220,7 +246,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             workspaceHeader
             if let projectKey { ProjectColorBand(color: projectColors.color(forKey: projectKey)) }
-            if let saveError = workspaceManager.lastSaveError {
+            if let saveError = tabs.lastSaveError {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(.orange)
@@ -229,7 +255,7 @@ struct ContentView: View {
                         .lineLimit(2)
                     Spacer(minLength: 8)
                     Button("Dismiss") {
-                        workspaceManager.lastSaveError = nil
+                        tabs.lastSaveError = nil
                     }
                     .buttonStyle(.borderless)
                 }
@@ -242,7 +268,7 @@ struct ContentView: View {
                 let terminalMinimum = min(500, max(300, geometry.size.width - 700))
                 ZStack(alignment: .bottomTrailing) {
                 if workspaceTransparency > 0 {
-                    WorkspaceBackdrop(root: workspaceManager.rootNode?.url, backdrop: workspaceManager.layout.welcomeBackdrop,
+                    WorkspaceBackdrop(root: fileTree.rootNode?.url, backdrop: layout.welcomeBackdrop,
                                       store: workspaceManager.features)
                 }
                 HSplitView {
@@ -280,25 +306,25 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .exportPDFRequested)) { notification in
             if notification.isFor(workspaceManager) { exportPDF() }
         }
-        .onChange(of: workspaceManager.activeTabIndex) { index in
-            guard workspaceManager.openTabs.indices.contains(index) else { return }
-            let tab = workspaceManager.openTabs[index]
+        .onChange(of: tabs.activeTabIndex) { index in
+            guard tabs.openTabs.indices.contains(index) else { return }
+            let tab = tabs.openTabs[index]
             switch tab.kind {
             case .file, .image, .pdf, .archive, .tool, .terminal, .browser, .data, .prototype, .uiStudio, .cockpit:
                 lastFilesTab = tab.id
-                workspaceManager.layout.workspaceArea = .files
+                layout.workspaceArea = .files
                 if case .file = tab.kind,
                    let feature = workspaceManager.features.locate(tab.url)?.feature {
                     workspaceManager.showFeatureContext(feature.slug)
                 }
             case .architecture, .insight:
-                workspaceManager.layout.workspaceArea = .projectMap
+                layout.workspaceArea = .projectMap
             case .github(let item):
-                workspaceManager.layout.workspaceArea = .files
+                layout.workspaceArea = .files
                 switch item {
-                case .issue: workspaceManager.layout.gitSection = .issues
-                case .pullRequest: workspaceManager.layout.gitSection = .pullRequests
-                case .run: workspaceManager.layout.gitSection = .actions
+                case .issue: layout.gitSection = .issues
+                case .pullRequest: layout.gitSection = .pullRequests
+                case .run: layout.gitSection = .actions
                 }
             }
             workspaceManager.showCenter = true
@@ -306,7 +332,7 @@ struct ContentView: View {
         // NOTE: Do NOT use .onOpenURL — it causes SwiftUI to intercept
         // folder URLs, preventing application:open: from receiving them.
         .focusedSceneValue(\.workspaceManager, workspaceManager)
-        .focusedSceneValue(\.workspaceHasFolder, workspaceManager.rootNode != nil)
+        .focusedSceneValue(\.workspaceHasFolder, fileTree.rootNode != nil)
         .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
                 workspaceManager.openFolder(url)
@@ -365,7 +391,7 @@ struct ContentView: View {
             NewProjectSheet(request: request, workspaceManager: workspaceManager)
         }
         .sheet(isPresented: $workspaceManager.gitHubPublishRequested) {
-            if let root = workspaceManager.rootNode?.url {
+            if let root = fileTree.rootNode?.url {
                 GitHubPublishSheet(root: root, workspaceManager: workspaceManager)
             } else {
                 VStack(spacing: 10) {
@@ -382,9 +408,9 @@ struct ContentView: View {
         })
         .navigationTitle(WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName))
         .background(WindowAccessor(window: $hostWindow))
-        .onChange(of: workspaceManager.rootNode?.url) { _ in updateWindowIdentity() }
-        .task(id: workspaceManager.rootNode?.url) {
-            await changeReview.open(workspaceManager.rootNode?.url)
+        .onChange(of: fileTree.rootNode?.url) { _ in updateWindowIdentity() }
+        .task(id: fileTree.rootNode?.url) {
+            await changeReview.open(fileTree.rootNode?.url)
             while !Task.isCancelled {
                 do { try await Task.sleep(nanoseconds: 120_000_000_000) }
                 catch { break }
@@ -459,16 +485,16 @@ struct ContentView: View {
                 Spacer(minLength: 4)
                 HStack(spacing: 1) {
                     headerButton("viewfinder", help: "X-Ray (⌘4)", width: controlWidth,
-                                 selected: workspaceManager.layout.workspaceArea == .projectMap) { activate(.projectMap) }
-                        .disabled(workspaceManager.rootNode == nil)
+                                 selected: layout.workspaceArea == .projectMap) { activate(.projectMap) }
+                        .disabled(fileTree.rootNode == nil)
                     headerButton("checklist", help: "Tasks", width: controlWidth,
-                                 selected: workspaceManager.layout.workspaceArea == .work) { activate(.work) }
-                        .disabled(workspaceManager.rootNode == nil)
+                                 selected: layout.workspaceArea == .work) { activate(.work) }
+                        .disabled(fileTree.rootNode == nil)
                     toolButtons(.primary)
                     headerButton("square.on.square.dashed", help: "New Prototype…", width: controlWidth,
-                                 selected: { if case .prototype? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                                 selected: { if case .prototype? = tabs.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openPrototypeCreator(mode: .requirements)
-                    }.disabled(workspaceManager.rootNode == nil)
+                    }.disabled(fileTree.rootNode == nil)
                     browserMenu.frame(width: controlWidth, height: controlWidth)
                     toolButtons(.afterBrowser)
                     headerButton("terminal", help: "Agents (⌘3)", width: controlWidth,
@@ -480,7 +506,7 @@ struct ContentView: View {
                     workspaceManager.showGlobalSearch = true
                 }
                 newMenu.frame(width: controlWidth, height: controlWidth)
-                AIToolbarMenu(workspaceManager: workspaceManager, compact: compact)
+                AIToolbarMenu(workspaceManager: workspaceManager, fileTree: fileTree, compact: compact)
                     .frame(maxWidth: compact ? controlWidth : 200)
                 headerButton("paintpalette", help: "Theme (⇧⌘T)", width: controlWidth) {
                     workspaceManager.theme.showsPicker.toggle()
@@ -546,9 +572,9 @@ struct ContentView: View {
     private enum TabMark { case closed, open, current }
 
     private func tabMark(_ matches: (TabKind) -> Bool) -> TabMark {
-        guard workspaceManager.openTabs.contains(where: { matches($0.kind) }) else { return .closed }
-        if let active = workspaceManager.activeTab, matches(active.kind),
-           workspaceManager.showCenter, workspaceManager.layout.workspaceArea == .files { return .current }
+        guard tabs.openTabs.contains(where: { matches($0.kind) }) else { return .closed }
+        if let active = tabs.activeTab, matches(active.kind),
+           workspaceManager.showCenter, layout.workspaceArea == .files { return .current }
         return .open
     }
 
@@ -564,7 +590,7 @@ struct ContentView: View {
         ForEach(ToolRegistry.shared.toolbarTools(slot)) { tool in
             tabButton(tool.icon, help: tool.help, width: toolbarIconWidth, matches: { $0.toolID == tool.id }) {
                 workspaceManager.openTool(tool.id)
-            }.disabled(workspaceManager.rootNode == nil)
+            }.disabled(fileTree.rootNode == nil)
         }
     }
 
@@ -572,7 +598,7 @@ struct ContentView: View {
     private var projectMenu: some View {
         Menu {
             Button("Project Cycle Time…") { showCycleTime = true }
-                .disabled(workspaceManager.rootNode == nil)
+                .disabled(fileTree.rootNode == nil)
             Button("DDE Settings…") { DDESettingsWindow.show(workspace: workspaceManager) }
         } label: {
             toolbarIcon("ellipsis", width: toolbarIconWidth)
@@ -585,10 +611,10 @@ struct ContentView: View {
     }
 
     private var browserMenu: some View {
-        let selected: Bool = { if case .browser? = workspaceManager.activeTab?.kind { return true } else { return false } }()
+        let selected: Bool = { if case .browser? = tabs.activeTab?.kind { return true } else { return false } }()
         return Menu {
             Button("Preview Web App (⌘6)") { workspaceManager.previewWebApp() }
-                .disabled(workspaceManager.rootNode == nil)
+                .disabled(fileTree.rootNode == nil)
             Button("New Browser Tab (⌘5)") { workspaceManager.openBrowser(nil) }
             Divider()
             Toggle("Open Terminal Links in MarkView", isOn: $openTerminalLinksInApp)
@@ -617,7 +643,7 @@ struct ContentView: View {
             ForEach(IntakeKind.allCases) { kind in
                 Button(kind.title + "…") { workspaceManager.intake = IntakeRequest(kind: kind) }
             }
-            if let url = workspaceManager.activeTab?.url, workspaceManager.activeTab?.isFileBacked == true {
+            if let url = tabs.activeTab?.url, tabs.activeTab?.isFileBacked == true {
                 Section("From the open document (\(url.lastPathComponent))") {
                     ForEach(IntakeKind.allCases) { kind in
                         Button(kind.title + " from It…") { workspaceManager.startIntake(kind, fromDocument: url) }
@@ -633,7 +659,7 @@ struct ContentView: View {
         .menuIndicator(.hidden)
         .help("New feature, new bug, or research something in the project")
         .accessibilityLabel("New project item")
-        .disabled(workspaceManager.rootNode == nil)
+        .disabled(fileTree.rootNode == nil)
     }
 
     @ViewBuilder
@@ -644,9 +670,9 @@ struct ContentView: View {
 
     private var rightPane: some View {
         VStack(spacing: 0) {
-            TOCView(layout: workspaceManager.layout)
+            TOCView(layout: layout)
                 .environmentObject(workspaceManager)
-            if workspaceManager.rootNode != nil {
+            if fileTree.rootNode != nil {
                 Divider()
                 ProjectChangeReviewBar(review: changeReview)
                     .environmentObject(workspaceManager)
@@ -668,11 +694,11 @@ struct ContentView: View {
                 SelectionActionBar().environmentObject(workspaceManager)
             }
             if let resume = workspaceManager.handoffResume,
-               workspaceManager.layout.workspaceArea == .files {
+               layout.workspaceArea == .files {
                 HandoffResumeBar(resume: resume).environmentObject(workspaceManager)
             }
-            if workspaceManager.openTabs.indices.contains(workspaceManager.activeTabIndex) {
-                let activeTab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
+            if tabs.openTabs.indices.contains(tabs.activeTabIndex) {
+                let activeTab = tabs.openTabs[tabs.activeTabIndex]
                 let editorVisible: Bool = {
                     switch activeTab.kind {
                     case .file, .data, .architecture, .insight: return true
@@ -722,9 +748,9 @@ struct ContentView: View {
                 welcomeView.environment(\.palette, workspaceManager.theme.palette)
             }
             ResearchBar(research: workspaceManager.research,
-                        root: workspaceManager.rootNode?.url,
-                        activeFile: workspaceManager.activeTab.flatMap { $0.isFileBacked ? $0.url : nil },
-                        activeContent: workspaceManager.activeTab?.content ?? "")
+                        root: fileTree.rootNode?.url,
+                        activeFile: tabs.activeTab.flatMap { $0.isFileBacked ? $0.url : nil },
+                        activeContent: tabs.activeTab?.content ?? "")
         }
     }
 
@@ -733,22 +759,22 @@ struct ContentView: View {
         switch area {
         case .files:
             if let id = lastFilesTab,
-               let index = workspaceManager.openTabs.firstIndex(where: { $0.id == id }) {
-                workspaceManager.activeTabIndex = index
-            } else if let index = workspaceManager.openTabs.firstIndex(where: { tab in
+               let index = tabs.openTabs.firstIndex(where: { $0.id == id }) {
+                tabs.activeTabIndex = index
+            } else if let index = tabs.openTabs.firstIndex(where: { tab in
                 switch tab.kind {
                 case .file, .image, .pdf, .archive, .tool, .terminal, .browser, .prototype, .uiStudio, .cockpit: return true
                 default: return false
                 }
             }) {
-                workspaceManager.activeTabIndex = index
+                tabs.activeTabIndex = index
             }
-            workspaceManager.layout.workspaceArea = .files
+            layout.workspaceArea = .files
         case .projectMap:
             workspaceManager.openArchitecture()
         case .work:
-            workspaceManager.layout.workspaceArea = .work
-            workspaceManager.layout.leftPanel = "issues"
+            layout.workspaceArea = .work
+            layout.leftPanel = "issues"
             workspaceManager.showFeatureContext(workspaceManager.features.active?.slug)
         }
     }
@@ -756,7 +782,7 @@ struct ContentView: View {
     /// Title, proxy icon and project color follow the workspace root: every way of opening,
     /// restoring or closing a folder changes `rootNode`.
     private func updateWindowIdentity() {
-        let root = workspaceManager.rootNode?.url
+        let root = fileTree.rootNode?.url
         workspaceFolderName = root.map(WindowTitle.folderName(of:))
         hostWindow?.titleVisibility = .hidden
         hostWindow?.titlebarAppearsTransparent = true
@@ -837,13 +863,13 @@ struct ContentView: View {
     /// The pinned welcome tab: action tiles over an animated backdrop (`WelcomeScreen`). What each tile does is
     /// decided here, with the same calls as the menus and the search commands.
     private var welcomeView: some View {
-        ProjectWelcomeScreen(root: workspaceManager.rootNode?.url,
-                      isGitRepo: workspaceManager.gitClient.isGitRepo,
+        ProjectWelcomeScreen(root: fileTree.rootNode?.url,
+                      isGitRepo: git.isGitRepo,
                       store: workspaceManager.features,
-                      backdrop: Binding(get: { workspaceManager.layout.welcomeBackdrop },
-                                        set: { workspaceManager.layout.welcomeBackdrop = $0 }),
+                      backdrop: Binding(get: { layout.welcomeBackdrop },
+                                        set: { layout.welcomeBackdrop = $0 }),
                       perform: performWelcomeAction) {
-            if workspaceManager.rootNode != nil {
+            if fileTree.rootNode != nil {
                 HandoffStartList(store: workspaceManager.features)
                     .environmentObject(workspaceManager)
                     .frame(maxWidth: 700)
@@ -875,13 +901,13 @@ struct ContentView: View {
         case .terminal: workspaceManager.showAIConsole()
         case .newFeature:
             workspaceManager.intake = IntakeRequest(kind: .feature)
-            workspaceManager.layout.workspaceArea = .work
+            layout.workspaceArea = .work
         case .quickFeature:
             workspaceManager.intake = IntakeRequest(kind: .quickFeature)
-            workspaceManager.layout.workspaceArea = .work
+            layout.workspaceArea = .work
         case .newBug:
             workspaceManager.intake = IntakeRequest(kind: .bug)
-            workspaceManager.layout.workspaceArea = .work
+            layout.workspaceArea = .work
         case .understand: workspaceManager.intake = IntakeRequest(kind: .understand)
         case .research: workspaceManager.newResearch()
         case .tool(let tool): workspaceManager.openTool(tool)
@@ -921,10 +947,10 @@ struct ContentView: View {
     }
 
     private func exportPDF() {
-        guard workspaceManager.activeTabIndex >= 0,
-              workspaceManager.activeTabIndex < workspaceManager.openTabs.count else { return }
+        guard tabs.activeTabIndex >= 0,
+              tabs.activeTabIndex < tabs.openTabs.count else { return }
 
-        let activeTab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
+        let activeTab = tabs.openTabs[tabs.activeTabIndex]
         let fileName = activeTab.url.deletingPathExtension().lastPathComponent + ".pdf"
         NotificationCenter.default.post(.performPDFExport, for: workspaceManager, object: fileName)
     }
@@ -1000,7 +1026,6 @@ private struct WindowAccessor: NSViewRepresentable {
 
 #Preview {
     ContentView()
-        .environmentObject(WorkspaceManager())
 }
 
 /// The one toolbar menu of the AI: the assistant CLI and its model for this window's project (BUG-021; other projects keep theirs), the model
@@ -1008,6 +1033,8 @@ private struct WindowAccessor: NSViewRepresentable {
 /// edits the defaults, as DDE Settings does. The bar shows the assistant and its model; the X-Ray model is named in the menu.
 struct AIToolbarMenu: View {
     let workspaceManager: WorkspaceManager
+    /// Passed in: toolbar content does not get the window's environment objects.
+    let fileTree: WorkspaceFileTreeStore
     var compact = false
     /// The models each tool offers, as loaded (Codex's list is read from disk, so off the main thread).
     @State private var catalog: [CLITool: [AIModelOption]] = [:]
@@ -1081,7 +1108,7 @@ struct AIToolbarMenu: View {
                 .pickerStyle(.inline)
                 Text("Used by X-Ray, operations discovery, filters and explanations.")
             }
-            AIToolsMenuItems(workspaceManager: workspaceManager)
+            AIToolsMenuItems(workspaceManager: workspaceManager, fileTree: fileTree)
         } label: {
             if compact {
                 Image(systemName: unavailable ? "exclamationmark.triangle" : "cpu")
@@ -1129,6 +1156,7 @@ extension AIToolbarMenu {
 private struct AIToolsMenuItems: View {
     // Passed in: toolbar content does not get the window's environment objects.
     @ObservedObject var workspaceManager: WorkspaceManager
+    @ObservedObject var fileTree: WorkspaceFileTreeStore
 
     var body: some View {
         Menu("Diagrams") {
@@ -1141,10 +1169,10 @@ private struct AIToolsMenuItems: View {
         }
         Menu("Prototype") {
             Button("New Prototype…") { workspaceManager.openPrototypeCreator(mode: .requirements) }
-                .disabled(workspaceManager.rootNode == nil)
+                .disabled(fileTree.rootNode == nil)
             // Existing code opens as the real application in UI Studio, not as a reconstruction (DEC-002, DEC-005).
             Button("UI Studio (Existing Code)") { workspaceManager.openTool(.uiStudio) }
-                .disabled(workspaceManager.rootNode == nil)
+                .disabled(fileTree.rootNode == nil)
             let saved = workspaceManager.savedPrototypes()
             Menu("Open Prototype (\(saved.count))") {
                 if saved.isEmpty {
@@ -1155,7 +1183,7 @@ private struct AIToolsMenuItems: View {
                     }
                 }
             }
-            .disabled(workspaceManager.rootNode == nil || saved.isEmpty)
+            .disabled(fileTree.rootNode == nil || saved.isEmpty)
         }
         Menu("Analysis") {
             Button("Constructive Critic") { workspaceManager.runAITool(named: "critic") }
@@ -1164,7 +1192,7 @@ private struct AIToolsMenuItems: View {
             Button("Codebase Audit") { workspaceManager.runAITool(named: "audit") }
             Button("Code Structure Map") { workspaceManager.runAITool(named: "codemap") }
             Button("Recursive Insight") { workspaceManager.startRecursiveInsight() }
-                .disabled(workspaceManager.rootNode == nil || !workspaceManager.hasMarkdownFiles)
+                .disabled(fileTree.rootNode == nil || !fileTree.hasMarkdownFiles)
         }
     }
 }

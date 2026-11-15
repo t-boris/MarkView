@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 185,
+  "suiteCount": 186,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1030,20 +1030,25 @@
       "tier": "gui",
       "sources": [
         "MarkView/Models/Appearance/AppTheme.swift",
-        "MarkView/Models/Workspace/BackgroundFileScans.swift",
-        "MarkView/Models/Workspace/DocumentState.swift",
-        "MarkView/Models/Workspace/ToolRegistry.swift",
-        "MarkView/Models/Lifecycle/FeatureIngest.swift",
-        "MarkView/Models/Book/PDFReader.swift",
-        "MarkView/Models/Workspace/TabClosing.swift",
         "MarkView/Models/Appearance/WindowTheme.swift",
-        "MarkView/Models/Workspace/WorkspaceManager.swift",
+        "MarkView/Models/Book/PDFReader.swift",
+        "MarkView/Models/Lifecycle/FeatureIngest.swift",
+        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
+        "MarkView/Models/Workspace/DocumentState.swift",
+        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
+        "MarkView/Models/Workspace/TabClosing.swift",
+        "MarkView/Models/Workspace/TabsController.swift",
+        "MarkView/Models/Workspace/TaskBag.swift",
+        "MarkView/Models/Workspace/ToolRegistry.swift",
         "MarkView/Views/Appearance/AppPalette.swift",
         "MarkView/Views/Book/PDFReaderView.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/PDFReaderRoutingTests.swift",
         "tools/tests/PDFReaderTests.swift",
         "tools/tests/PDFReaderViewTests.swift",
-        "tools/tests/TabClosingStoreTests.swift"
+        "tools/tests/TabClosingStoreTests.swift",
+        "tools/tests/TabsControllerStubs.swift"
       ]
     },
     {
@@ -2228,6 +2233,26 @@
       "sources": [
         "MarkView/Models/Workspace/TabClosing.swift",
         "tools/tests/TabClosingChecks.swift"
+      ]
+    },
+    {
+      "name": "tabs-controller-tests",
+      "script": "tools/tests/tabs-controller-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Book/PDFReader.swift",
+        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
+        "MarkView/Models/Workspace/DocumentState.swift",
+        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
+        "MarkView/Models/Workspace/TabClosing.swift",
+        "MarkView/Models/Workspace/TabsController.swift",
+        "MarkView/Models/Workspace/TaskBag.swift",
+        "MarkView/Models/Workspace/ToolRegistry.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/TabsControllerStubs.swift",
+        "tools/tests/TabsControllerTests.swift",
+        "tools/tests/tabs-controller-tests.sh"
       ]
     },
     {

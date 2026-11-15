@@ -404,6 +404,7 @@ private struct TerminalPanelTab: View {
 private struct TerminalPromptBar: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
     @Binding var expanded: Bool
     @State private var pickingPullRequest = false
     @State private var pickingGitHubActivity = false
@@ -433,7 +434,7 @@ private struct TerminalPromptBar: View {
     }
 
     private var activeFile: String? {
-        guard let tab = workspaceManager.activeTab, tab.isFileBacked else { return nil }
+        guard let tab = tabs.activeTab, tab.isFileBacked else { return nil }
         return workspaceManager.workspaceRelativePath(tab.url)
     }
 

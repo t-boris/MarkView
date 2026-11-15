@@ -77,7 +77,7 @@ final class SharedSearchModel: ObservableObject {
             }
         } else if url.pathExtension.lowercased() == "pdf" {
             workspaceManager.openFile(url)
-            if let page = result.page, case .pdf(let reader)? = workspaceManager.activeTab?.kind {
+            if let page = result.page, case .pdf(let reader)? = workspaceManager.tabs.activeTab?.kind {
                 reader.openPageWhenReady(page)
             }
         } else if result.scope == .content, let line = result.line, !FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {
@@ -124,6 +124,9 @@ final class SharedSearchModel: ObservableObject {
 struct SharedSearchView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
+    @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
+    @EnvironmentObject private var git: GitClient
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model = SharedSearchModel()
     @FocusState private var searchFocused: Bool
@@ -286,7 +289,7 @@ struct SharedSearchView: View {
                 DDESettingsWindow.show(workspace: manager)
             })
         ]
-        if manager.rootNode != nil {
+        if fileTree.rootNode != nil {
             commands += [
                 SearchCommand(id: "map", title: "Show Project Map", symbol: "viewfinder", detail: "⌘4", run: {
                     manager.openArchitecture()
@@ -310,21 +313,21 @@ struct SharedSearchView: View {
                     manager.openTool(.git)
                 })
             ]
-            if manager.gitClient.isGitRepo {
+            if git.isGitRepo {
                 commands += [
                     SearchCommand(id: "pull", title: "Git Pull", symbol: "arrow.down", detail: "Work · Git", run: {
-                        Task { await manager.gitClient.pull() }
+                        Task { await git.pull() }
                     }),
                     SearchCommand(id: "push", title: "Git Push", symbol: "arrow.up", detail: "Work · Git", run: {
-                        Task { await manager.gitClient.push() }
+                        Task { await git.push() }
                     })
                 ]
             }
         }
-        if manager.activeTab?.isFileBacked == true {
+        if tabs.activeTab?.isFileBacked == true {
             commands += [
                 SearchCommand(id: "save", title: "Save", symbol: "square.and.arrow.down", detail: "⌘S", run: {
-                    manager.saveActiveFile()
+                    tabs.saveActiveFile()
                 }),
                 SearchCommand(id: "pdf", title: "Export PDF…", symbol: "doc.richtext", detail: "⌘E", run: {
                     NotificationCenter.default.post(.exportPDFRequested, for: manager)

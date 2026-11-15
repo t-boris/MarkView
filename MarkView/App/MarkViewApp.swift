@@ -284,7 +284,7 @@ struct MarkViewApp: App {
 
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
-                    activeWorkspace?.saveActiveFile()
+                    activeWorkspace?.tabs.saveActiveFile()
                 }
                 .keyboardShortcut("s", modifiers: .command)
             }
@@ -562,6 +562,7 @@ enum DDESettingsWindow {
             rootView: DDESettingsView()
                 .environmentObject(workspace)
                 .environmentObject(workspace.windowUI)
+                .observingParts(of: workspace)
                 .appFontScaled()
                 .windowThemed(workspace.theme)
         )

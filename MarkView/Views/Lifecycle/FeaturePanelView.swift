@@ -8,6 +8,8 @@ struct FeaturePanelView: View {
     @ObservedObject var store: FeatureStore
     @ObservedObject var assistant: FeatureAssistant
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
+    @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
     /// This window's stage (BUG-004: not shared between windows).
     @ObservedObject var layout: PanelLayout
     private var stage: FeatureStage {
@@ -27,7 +29,7 @@ struct FeaturePanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if workspaceManager.rootNode == nil {
+            if fileTree.rootNode == nil {
                 panelEmpty("Open a folder to work on features.")
             } else if let bug = openBug {
                 // A bug report open in the editor: its investigation.
@@ -80,7 +82,7 @@ struct FeaturePanelView: View {
     }
 
     private var openObject: (feature: Feature, object: FeatureObject?)? {
-        workspaceManager.activeTab.flatMap { store.locate($0.url) }
+        tabs.activeTab.flatMap { store.locate($0.url) }
     }
 
     @ViewBuilder private var actionProgress: some View {
@@ -127,7 +129,7 @@ struct FeaturePanelView: View {
     }
 
     private var openBug: BugReport? {
-        workspaceManager.activeTab.flatMap { store.bug(at: $0.url) }
+        tabs.activeTab.flatMap { store.bug(at: $0.url) }
     }
 
     /// Requirements or decisions were deleted: offer a question round about what they settled.

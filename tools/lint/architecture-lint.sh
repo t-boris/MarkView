@@ -14,6 +14,9 @@
 #                        EditorWindowPrefs.swift, and no string `case "..."` in Bridge/WebViewBridge.swift (handlers are registered)
 #   no-private-escape    (AR-29) no private HTML escaping in Editor/js/*.js: every `&amp;` literal outside mv-kit.js (mvKit.escapeHtml and
 #                        escapeAttr are the one implementation) needs an `mvkit-exempt:` note within three lines above it
+#   tabs-direct          (AR-15) a view never reads the window's tabs (openTabs, activeTab, activeTabIndex, lastSaveError) through the
+#                        manager, and the manager never forwards a part's objectWillChange (tabs, file tree, layout, Git) into its own:
+#                        a view observes the part it shows, so typing redraws what shows the tabs and nothing else
 # Ratchets: a count that may fall and never rise. Today's sites are listed per file in an allow-list; a new site or a higher
 # count fails, and so does a lower count that the list does not yet say (run `--tighten`), so that the allowance never has slack.
 #   process              Process() outside Packages/MarkViewCore Subprocess.swift     tools/lint/process-allowlist.txt
@@ -248,8 +251,21 @@ if js_dir.is_dir():
             if "&amp;" in line and not any("mvkit-exempt:" in near for near in text_lines[max(0, index - 3):index + 1]):
                 violations.append(("no-private-escape", f"{rel(path)}:{index + 1}: escapes HTML itself; use window.mvKit.escapeHtml / escapeAttr"))
 
+# --- tabs-direct
+tab_read = re.compile(r"\b(?:workspaceManager|manager|workspace|wm)\??\.(?:openTabs|activeTab|activeTabIndex|lastSaveError)\b")
+for path in swift_files("MarkView/Views"):
+    for number, line in code_lines(path):
+        if tab_read.search(line):
+            violations.append(("tabs-direct", f"{rel(path)}:{number}: reads the window's tabs through the manager; take TabsController as an @EnvironmentObject so the view redraws with them"))
+forwarded = re.compile(r"\b(?:tabs|fileTreeStore|layout|gitClient)\.objectWillChange\b")
+manager_file = root / "MarkView" / "Models" / "Workspace" / "WorkspaceManager.swift"
+if manager_file.is_file():
+    for number, line in code_lines(manager_file):
+        if forwarded.search(line):
+            violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
+
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "bridge-no-bypass", "no-private-escape"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "bridge-no-bypass", "no-private-escape", "tabs-direct"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

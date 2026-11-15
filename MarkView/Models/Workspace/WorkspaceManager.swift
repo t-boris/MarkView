@@ -232,124 +232,6 @@ final class WorkspaceFileTreeStore: ObservableObject {
     }
 }
 
-/// Owns the open-tab session state for a workspace.
-@MainActor
-final class WorkspaceTabsStore: ObservableObject {
-    @Published var openTabs: [OpenTab] = []
-    @Published var activeTabIndex: Int = -1
-    /// True while updating side-table metadata (`scrollPosition`, `activeHeadingId`) so `WorkspaceManager`
-    /// does not broadcast `objectWillChange` across the entire window on scroll events (`AR-15`).
-    private(set) var isSilentTabMetadataUpdate = false
-    /// Invoked whenever one or more tabs leave `openTabs`, allowing per-tab side tables to prune entries (`FU-11`).
-    var onTabsRemoved: (([UUID]) -> Void)?
-
-    func reset() {
-        let removed = openTabs.map(\.id)
-        openTabs = []
-        activeTabIndex = -1
-        if !removed.isEmpty { onTabsRemoved?(removed) }
-    }
-
-    func firstIndex(of url: URL) -> Int? {
-        openTabs.firstIndex(where: { $0.url == url })
-    }
-
-    @discardableResult
-    func selectTab(matching url: URL) -> Int? {
-        guard let index = firstIndex(of: url) else { return nil }
-        activeTabIndex = index
-        return index
-    }
-
-    func appendTab(_ tab: OpenTab, activate: Bool = true) {
-        openTabs.append(tab)
-        if activate {
-            activeTabIndex = openTabs.count - 1
-        }
-    }
-
-    func updateTab(at index: Int, _ mutate: (inout OpenTab) -> Void) {
-        guard index >= 0 && index < openTabs.count else { return }
-        var tab = openTabs[index]
-        mutate(&tab)
-        openTabs[index] = tab
-    }
-
-    func updateActiveTab(_ mutate: (inout OpenTab) -> Void) {
-        updateTab(at: activeTabIndex, mutate)
-    }
-
-    /// Mutates the active tab without triggering `WorkspaceManager.objectWillChange` (`AR-15`).
-    func updateActiveTabSilently(_ mutate: (inout OpenTab) -> Void) {
-        guard activeTabIndex >= 0 && activeTabIndex < openTabs.count else { return }
-        isSilentTabMetadataUpdate = true
-        defer { isSilentTabMetadataUpdate = false }
-        var tab = openTabs[activeTabIndex]
-        mutate(&tab)
-        openTabs[activeTabIndex] = tab
-    }
-
-    func removeTab(at index: Int) {
-        guard index >= 0 && index < openTabs.count else { return }
-        let removedID = openTabs[index].id
-        openTabs.remove(at: index)
-        normalizeActiveTabIndex(preferred: activeTabIndex)
-        onTabsRemoved?([removedID])
-    }
-
-    /// Move a tab to `target` (the position it takes); the active tab stays active.
-    func moveTab(id: UUID, to target: Int) {
-        guard let from = openTabs.firstIndex(where: { $0.id == id }) else { return }
-        let activeID = openTabs.indices.contains(activeTabIndex) ? openTabs[activeTabIndex].id : nil
-        let tab = openTabs.remove(at: from)
-        let destination = min(max(0, target > from ? target - 1 : target), openTabs.count)
-        openTabs.insert(tab, at: destination)
-        if let activeID, let index = openTabs.firstIndex(where: { $0.id == activeID }) { activeTabIndex = index }
-    }
-
-    func keepOnlyTab(at index: Int) {
-        guard index >= 0 && index < openTabs.count else { return }
-        let kept = openTabs[index]
-        let removed = openTabs.enumerated().compactMap { $0.offset == index ? nil : $0.element.id }
-        openTabs = [kept]
-        activeTabIndex = 0
-        if !removed.isEmpty { onTabsRemoved?(removed) }
-    }
-
-    /// Keeps the tabs `isIncluded` accepts, in their order. The active tab stays active when it stays open; otherwise `TabClosing` picks
-    /// the neighbour (or the Welcome tab).
-    func keepTabs(where isIncluded: (OpenTab) -> Bool) {
-        let keep = openTabs.map(isIncluded)
-        let removed = zip(openTabs, keep).compactMap { $0.1 ? nil : $0.0.id }
-        let active = TabClosing.activeIndex(afterKeeping: keep, active: activeTabIndex)
-        openTabs = zip(openTabs, keep).filter(\.1).map(\.0)
-        activeTabIndex = active
-        if !removed.isEmpty { onTabsRemoved?(removed) }
-    }
-
-    func keepTabs(through index: Int) {
-        guard index >= 0 && index < openTabs.count else { return }
-        let removed = openTabs.dropFirst(index + 1).map(\.id)
-        openTabs = Array(openTabs.prefix(index + 1))
-        normalizeActiveTabIndex(preferred: activeTabIndex)
-        if !removed.isEmpty { onTabsRemoved?(removed) }
-    }
-
-    func normalizeActiveTabIndex(preferred: Int? = nil) {
-        let candidate = preferred ?? activeTabIndex
-
-        // -1 selects the pinned Welcome tab, including while other tabs are open.
-        if candidate == -1 { activeTabIndex = -1; return }
-
-        guard !openTabs.isEmpty else {
-            activeTabIndex = -1
-            return
-        }
-
-        activeTabIndex = min(max(candidate, 0), openTabs.count - 1)
-    }
-}
-
 enum WorkspaceAITool: String {
     case architecture
     case dataflow
@@ -373,8 +255,7 @@ enum WorkspaceAITool: String {
 
 /// Manages the workspace state including open files, tabs, and folder structure
 @MainActor
-class WorkspaceManager: ObservableObject {
-    @Published var recentFiles: [URL] = []
+class WorkspaceManager: ObservableObject, TabsProviding {
     /// Recently opened folders (standardized paths), most recent first.
     @Published private(set) var recentProjects: [String] =
         UserDefaults.standard.stringArray(forKey: WorkspaceManager.recentProjectsKey) ?? []
@@ -384,8 +265,8 @@ class WorkspaceManager: ObservableObject {
     let windowUI = WindowUIState()
     /// The theme of this window; a change here leaves every other window alone.
     let theme = WindowTheme()
-    /// Per-tab scroll position and active heading side table (`AR-15`).
-    let scrollState = DocumentScrollSideTable()
+    /// The tabs of this window. Views that show them observe this object, not the manager (`AR-15`).
+    let tabs = TabsController()
     /// Keyed cancellable background task bag owned by this window (`AR-19`).
     let taskBag = TaskBag()
     /// AI tool runs working in a headless agent (diagrams, code map, review, audit).
@@ -447,7 +328,7 @@ class WorkspaceManager: ObservableObject {
             plain.kind = .tool(id)
             tab = plain
         }
-        tabsStore.appendTab(tab, activate: true)
+        tabs.appendTab(tab, activate: true)
         opener.opened(self, tab)
     }
 
@@ -573,7 +454,8 @@ class WorkspaceManager: ObservableObject {
         for tab in openTabs where tab.isModified { if case .file = tab.kind { result[tab.url.path] = tab.content } }
         return result
     }
-    @Published var gitClient = GitClient()
+    /// The Git state of this window. Views that show it observe this object, not the manager (`AR-15`).
+    let gitClient = GitClient()
     /// Where the project runs and how each place is doing (the Deployments tab).
     let deployments = DeploymentStore()
     /// The state of the Workflow tab: the draft being edited survives a switch to another tab.
@@ -619,9 +501,6 @@ class WorkspaceManager: ObservableObject {
     private var terminalTabs: [UUID: TerminalSession] = [:]
     /// Dev server terminals started by Preview Web App, by app folder path.
     private var previewTerminals: [String: UUID] = [:]
-    private var openFilesWatcher: Task<Void, Never>?
-    /// Last seen modification dates of open files (to reload what the assistant changed).
-    private var openFileDates: [URL: Date] = [:]
     /// Project architecture (Architecture tab).
     let architecture = ArchitectureStore()
     /// Team-shared operation definitions and the process registry for this workspace root.
@@ -649,19 +528,9 @@ class WorkspaceManager: ObservableObject {
     @Published var analyzedFiles: Int = 0
     @Published var semanticRefreshVersion: Int = 0
     @Published var pendingGraphCreatorType: String?
-    private let fileTreeStore = WorkspaceFileTreeStore()
-    private let tabsStore = WorkspaceTabsStore()
+    /// The folder tree of this window. Views that show it observe this object, not the manager (`AR-15`).
+    let fileTreeStore = WorkspaceFileTreeStore()
     private var cancellables: Set<AnyCancellable> = []
-    private var recentFilesURL: URL
-
-    /// Closure wired by `EditorView.Coordinator` on insight tab routing. Called by
-    /// `closeTab` STEP 1 of the ordered insight cleanup (Decision 11 §4) — invokes
-    /// `bridge.releaseInsightBlobs(into: webView)` synchronously so any blob URLs
-    /// the iframe materialised for vendored libs are revoked BEFORE
-    /// `session.cancel()` allows new Combine emissions. `nil` if no insight tab has
-    /// been routed yet, or if the WebView has been deallocated; either case is safe
-    /// — WebView teardown on tab close GCs the blobs as a fallback.
-    var releaseInsightBlobsHook: (() -> Void)?
 
     var rootNode: FileNode? {
         get { fileTreeStore.rootNode }
@@ -756,27 +625,19 @@ class WorkspaceManager: ObservableObject {
         if let root = rootNode?.url, semanticDatabase != nil { runStructuralIndex(at: root) }
     }
 
-    var openTabs: [OpenTab] {
-        get { tabsStore.openTabs }
-        set { tabsStore.openTabs = newValue }
-    }
+    /// The tabs of this window for the code that is not a view. A view that shows tabs observes `tabs` itself: reading them
+    /// through the manager would not redraw it (`AR-15`).
+    var openTabs: [OpenTab] { tabs.openTabs }
 
     var activeTabIndex: Int {
-        get { tabsStore.activeTabIndex }
-        set { tabsStore.activeTabIndex = newValue }
+        get { tabs.activeTabIndex }
+        set { tabs.activeTabIndex = newValue }
     }
 
-    var activeTab: OpenTab? {
-        guard activeTabIndex >= 0 && activeTabIndex < openTabs.count else { return nil }
-        return openTabs[activeTabIndex]
-    }
+    var activeTab: OpenTab? { tabs.activeTab }
 
     init() {
         Self.debugLog("WorkspaceManager init START")
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let appDir = appSupport.appendingPathComponent("MarkView", isDirectory: true)
-        try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
-        recentFilesURL = appDir.appendingPathComponent("recentFiles.json")
         research.workspace = self
         qa.assistantSelection = { [weak self] in
             guard let self, let terminal = self.assistantTerminal, let tool = terminal.profile.tool else { return nil }
@@ -786,10 +647,6 @@ class WorkspaceManager: ObservableObject {
         agentActivity.terminals = { [weak self] in self?.aiTerminals ?? [] }
         agentActivity.activeTerminalID = { [weak self] in self?.activeAITerminalID }
         agentActivity.onClaudeModel = { [weak self] id, model in self?.claudeModelReported(model, terminalID: id) }
-        let sideTable = scrollState
-        tabsStore.onTabsRemoved = { removedIDs in
-            for id in removedIDs { sideTable.removeTab(id) }
-        }
         agentActivity.start()
 
         // Restore layout from UserDefaults
@@ -798,7 +655,6 @@ class WorkspaceManager: ObservableObject {
             showTOC = ud.bool(forKey: "layout.showTOC.v3")
         }
 
-        loadRecentFiles()
         fileTreeStore.shouldAutoRefresh = { [weak self] in
             self?.indexingProgress == nil
         }
@@ -806,26 +662,21 @@ class WorkspaceManager: ObservableObject {
             guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating, NSApp.isActive else { return }
             Task { await self.gitClient.refreshStatus() }
         }
-        fileTreeStore.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-            .store(in: &cancellables)
-        tabsStore.objectWillChange
-            .sink { [weak self] _ in
-                guard let self, !self.tabsStore.isSilentTabMetadataUpdate else { return }
-                self.objectWillChange.send()
-            }
-            .store(in: &cancellables)
-        layout.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-            .store(in: &cancellables)
-        // The file tree shows each file's Git state: it redraws when the repository status changes.
-        gitClient.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
+        tabs.events
+            .sink { [weak self] event in
+                guard let self else { return }
+                switch event {
+                case .saved(let url):
+                    // A file saved inside the project is a change the automatic code analysis refreshes
+                    // from (REQ-002), at once rather than after the change watcher's latency.
+                    if let root = self.rootNode?.url.standardizedFileURL.path, url.standardizedFileURL.path.hasPrefix(root + "/") {
+                        self.architecture.noteProjectChanged()
+                    }
+                case .reloadedFromDisk:
+                    self.refreshFileTree()
+                case .terminalClosed(let id):
+                    self.closeTerminal(id)
+                }
             }
             .store(in: &cancellables)
         // Edits made outside MarkView (an agent, a terminal) change the status: look again when the
@@ -874,9 +725,8 @@ class WorkspaceManager: ObservableObject {
         // outside its terminals; the browser tools check the terminal-links setting themselves.
         registerBrowserControl()
         taskBag.cancelAll()
-        scrollState.reset()
         fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
-        tabsStore.reset()
+        tabs.reset()
         architecture.reset()
         folderXRays = [:]
         codeNav.reset()
@@ -910,7 +760,6 @@ class WorkspaceManager: ObservableObject {
             guard !Task.isCancelled else { return }
 
             self.fileTreeStore.startWatchingCurrentRoot()
-            addRecentFile(url)
             Self.debugLog("File watcher started, calling initDDEWorkspaceAsync...")
 
             await initDDEWorkspaceAsync(at: url)
@@ -1084,31 +933,6 @@ class WorkspaceManager: ObservableObject {
         fileTreeStore.isExcluded(url)
     }
 
-    /// Handle files created/modified by Claude Code — auto-open and refresh tree
-    /// Open or refresh a file — if already open, reload content from disk.
-    /// Insight tabs are skipped on the refresh branch: their placeholder URL
-    /// is never written to disk, so reading it back would corrupt the in-memory
-    /// session. We still allow the tab to be activated by index match.
-    func openOrRefreshFile(_ url: URL) {
-        layout.workspaceArea = .files
-        if let index = tabsStore.firstIndex(of: url) {
-            if !openTabs[index].isFileBacked {
-                tabsStore.activeTabIndex = index
-                return
-            }
-            if let content = try? String(contentsOf: url, encoding: .utf8) {
-                tabsStore.updateTab(at: index) { tab in
-                    tab.content = content
-                    tab.originalContent = content
-                    tab.isModified = false
-                }
-                tabsStore.activeTabIndex = index
-            }
-        } else {
-            openFile(url)
-        }
-    }
-
     /// Canonical document id for `url` in the current workspace — path relative to
     /// the workspace root (folder root, or the parent dir for a single-file
     /// workspace). Must be used by EVERY docId producer so same-named files in
@@ -1144,92 +968,7 @@ class WorkspaceManager: ObservableObject {
             showFeatureContext(feature.slug)
         }
 
-        // Check if file is already open
-        if tabsStore.selectTab(matching: url) != nil {
-            return
-        }
-
-        if FileType.from(url: url) == .pdf {
-            var tab = OpenTab(url: url, content: "", originalContent: "")
-            tab.kind = .pdf(PDFReaderController())
-            tabsStore.appendTab(tab)
-            addRecentFile(url)
-            return
-        }
-
-        // Archives: the archive view lists them; nothing is unpacked until a file is clicked.
-        if Archive.isArchive(url) {
-            var tab = OpenTab(url: url, content: "", originalContent: "")
-            tab.kind = .archive
-            tabsStore.appendTab(tab)
-            addRecentFile(url)
-            return
-        }
-
-        // Data files: the page's viewers read them (they may be binary or very large).
-        if FileType.isData(url) {
-            var tab = OpenTab(url: url, content: "", originalContent: "")
-            tab.kind = .data
-            tabsStore.appendTab(tab)
-            openFileDates[url] = BackgroundFileScans.modificationDate(of: url)
-            addRecentFile(url)
-            startWatchingOpenFiles()
-            return
-        }
-
-        // Images: the image viewer reads the file itself.
-        if FileType.isImage(url) {
-            var tab = OpenTab(url: url, content: "", originalContent: "")
-            tab.kind = .image
-            tabsStore.appendTab(tab)
-            addRecentFile(url)
-            return
-        }
-
-        Task { await openTextFile(url) }
-    }
-
-    /// The image viewer's arrows and slideshow: the image tab of `url` shows `target` instead.
-    func showImage(_ target: URL, replacing url: URL) {
-        guard let index = tabsStore.firstIndex(of: url), case .image = openTabs[index].kind else { return }
-        tabsStore.updateTab(at: index) { $0.url = target }
-    }
-
-    /// The image viewer's "Source" (SVG): replace the image tab with the file as text.
-    func openImageAsText(_ url: URL) {
-        if let index = tabsStore.firstIndex(of: url), case .image = openTabs[index].kind {
-            tabsStore.removeTab(at: index)
-        }
-        Task { await openTextFile(url) }
-    }
-
-    private func openTextFile(_ url: URL) async {
-        guard tabsStore.selectTab(matching: url) == nil else { return }
-        let openingRoot = rootNode?.url
-        do {
-            let content = try await Task.detached(priority: .userInitiated) { try FileType.readText(at: url) }.value
-            guard rootNode?.url == openingRoot, tabsStore.selectTab(matching: url) == nil else { return }
-            var tab = OpenTab(url: url, content: content, originalContent: content)
-
-            // Extract headings from markdown
-            if url.pathExtension.lowercased() == "md" {
-                tab.headings = extractHeadings(from: content)
-            }
-
-            tabsStore.appendTab(tab)
-            addRecentFile(url)
-        } catch {
-            showTextReadError(error, url: url)
-        }
-    }
-
-    private func showTextReadError(_ error: Error, url: URL) {
-        let alert = NSAlert()
-        alert.messageText = "Cannot show \(url.lastPathComponent) as text"
-        alert.informativeText = error.localizedDescription
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Open in Default App")
-        if alert.runModal() == .alertSecondButtonReturn { NSWorkspace.shared.open(url) }
+        tabs.openDocument(url)
     }
 
     // MARK: - Window session
@@ -1243,7 +982,7 @@ class WorkspaceManager: ObservableObject {
             switch tab.kind {
             case .file:
                 let draft = tab.isModified ? WorkspaceDraft(content: tab.content, original: tab.originalContent) : nil
-                let currentScroll = scrollState.scrollPosition(for: tab.id, fallback: tab.scrollPosition)
+                let currentScroll = tabs.scroll.scrollPosition(for: tab.id)
                 saved = .file(url: tab.url, draft: draft, notes: tab.notesView, scroll: Double(currentScroll))
             case .image: saved = .image(tab.url)
             case .pdf: saved = .pdf(tab.url)
@@ -1295,25 +1034,24 @@ class WorkspaceManager: ObservableObject {
             switch saved {
             case .file(let url, let draft, let notes, let scroll):
                 guard url.isFileURL else { continue }
-                if fm.fileExists(atPath: url.path) { await openTextFile(url) }
+                if fm.fileExists(atPath: url.path) { await tabs.openTextFile(url) }
                 if openTabs.count == before, let draft {
                     // A removed file must not take the unsaved editor text with it.
                     var tab = OpenTab(url: url, content: draft.content, originalContent: draft.original)
-                    tab.headings = extractHeadings(from: draft.content)
-                    tabsStore.appendTab(tab)
+                    tab.headings = TabsController.headings(in: draft.content)
+                    tabs.appendTab(tab)
                 }
                 guard openTabs.count > before else { continue }
                 let restoredScroll: CGFloat = scroll.isFinite ? CGFloat(max(0, scroll)) : 0
-                tabsStore.updateTab(at: before) { tab in
+                tabs.updateTab(at: before) { tab in
                     if let draft {
                         tab.content = draft.content
                         tab.isModified = draft.content != tab.originalContent
-                        tab.headings = extractHeadings(from: draft.content)
+                        tab.headings = TabsController.headings(in: draft.content)
                     }
                     tab.notesView = notes
-                    tab.scrollPosition = restoredScroll
                 }
-                scrollState.setScrollPosition(restoredScroll, for: openTabs[before].id)
+                tabs.scroll.setScrollPosition(restoredScroll, for: openTabs[before].id)
             case .tool(let tool):
                 if ToolRegistry.shared.isRestorable(tool) { openTool(tool) }
             case .image(let url), .pdf(let url), .data(let url), .archive(let url):
@@ -1325,7 +1063,7 @@ class WorkspaceManager: ObservableObject {
                     var tab = OpenTab(url: root.appendingPathComponent(".markview-restored-xray-" + String(ContentHash.of(scope).prefix(12))),
                                       content: "", originalContent: "")
                     tab.kind = .architecture(scope: scope)
-                    tabsStore.appendTab(tab)
+                    tabs.appendTab(tab)
                     if let context = xrayContext(scope) {
                         xrayStore(for: scope).restoreCached(root: context.root, db: context.db)
                     }
@@ -1409,7 +1147,7 @@ class WorkspaceManager: ObservableObject {
             if case .insight(let session) = tab.kind { Task { await session.cancel() } }
         }
         let keep = openTabs.enumerated().filter { $0.element.isFileBacked }.map(\.offset)
-        for index in openTabs.indices.reversed() where !keep.contains(index) { tabsStore.removeTab(at: index) }
+        for index in openTabs.indices.reversed() where !keep.contains(index) { tabs.removeTab(at: index) }
         releaseWorkspaceEngines()
         architecture.reset()
         folderXRays = [:]
@@ -1539,18 +1277,18 @@ class WorkspaceManager: ObservableObject {
                 Task {
                     do {
                         let text = try await Task.detached(priority: .userInitiated) { try FileType.readText(at: url) }.value
-                        guard activeTab?.url == url, let index = tabsStore.firstIndex(of: url) else { return }
-                        tabsStore.updateTab(at: index) { tab in
+                        guard activeTab?.url == url, let index = tabs.firstIndex(of: url) else { return }
+                        tabs.updateTab(at: index) { tab in
                             tab.content = text
                             tab.originalContent = text
                             tab.notesView = true
                         }
                         if explain { explainIfNeeded(url) }
-                    } catch { showTextReadError(error, url: url) }
+                    } catch { tabs.showReadError(error, url: url) }
                 }
-            } else { tabsStore.updateActiveTab { $0.notesView = false } }
+            } else { tabs.updateActiveTab { $0.notesView = false } }
         } else if tab.isFileBacked {
-            tabsStore.updateActiveTab { $0.notesView = show }
+            tabs.updateActiveTab { $0.notesView = show }
             if show && explain { explainIfNeeded(tab.url) }
         }
     }
@@ -1699,31 +1437,26 @@ class WorkspaceManager: ObservableObject {
             return false
         }
         if let index = openTabs.firstIndex(where: isThisTab) {
-            tabsStore.activeTabIndex = index
+            tabs.activeTabIndex = index
         } else {
             let marker = scope.isEmpty ? ".markview-architecture"
                 : scope == TabKind.pullRequestScope ? ".markview-pr-xray"
                 : ".markview-architecture-" + String(ContentHash.of(scope).prefix(12))
             var tab = OpenTab(url: root.appendingPathComponent(marker), content: "", originalContent: "")
             tab.kind = .architecture(scope: scope)
-            tabsStore.appendTab(tab)
+            tabs.appendTab(tab)
         }
         xrayStore(for: scope).open(root: context.root, db: context.db)
     }
 
     // MARK: - Moving and copying files
 
-    /// Drag and drop in the tab bar: `id` goes before the tab at `index` (or last).
-    func moveTab(_ id: UUID, to index: Int) {
-        tabsStore.moveTab(id: id, to: index)
-    }
-
     /// Move (or copy) files and folders into `folder`, as the file tree's drag and drop
     /// does (see `FileTransfer`). Tabs of moved files follow them. Returns the errors.
     @discardableResult
     func transfer(_ sources: [URL], into folder: URL, copy: Bool) -> [String] {
         let result = FileTransfer.perform(sources, into: folder, copy: copy)
-        followMoves(result.moved)
+        tabs.follow(moved: result.moved)
         refreshFileTree()
         return result.errors
     }
@@ -1731,21 +1464,9 @@ class WorkspaceManager: ObservableObject {
     /// Rename a file or folder in place; its open tabs follow. Returns the error, if any.
     func rename(_ url: URL, to name: String) -> String? {
         let result = FileTransfer.rename(url, to: name)
-        followMoves(result.moved)
+        tabs.follow(moved: result.moved)
         refreshFileTree()
         return result.errors.first
-    }
-
-    /// Open tabs of moved files (or files inside moved folders) point at their new place.
-    private func followMoves(_ moved: [(URL, URL)]) {
-        for (source, destination) in moved {
-            for index in openTabs.indices {
-                let path = openTabs[index].url.standardizedFileURL.path
-                guard path == source.path || path.hasPrefix(source.path + "/") else { continue }
-                let moved = URL(fileURLWithPath: destination.path + path.dropFirst(source.path.count))
-                tabsStore.updateTab(at: index) { $0.url = moved }
-            }
-        }
     }
 
     /// The PR X-Ray tab: the project's X-Ray seen through one change — what it touches,
@@ -1804,7 +1525,7 @@ class WorkspaceManager: ObservableObject {
             if FileType.isData(url) {
                 openFile(url)
             } else {
-                await openTextFile(url)
+                await tabs.openTextFile(url)
             }
             guard activeTab?.url == url else { return }
             setNotesView(true, explain: true)
@@ -2249,7 +1970,7 @@ class WorkspaceManager: ObservableObject {
                 return false
             }
         }
-        guard resolveUnsavedChanges(at: Array(openTabs.indices), before: "closing the folder") else { return false }
+        guard tabs.resolveUnsavedChanges(at: Array(openTabs.indices), before: "closing the folder") else { return false }
 
         Self.debugLog("closeFolder: \(rootNode?.url.path ?? "(no folder)")")
         UserDefaults.standard.removeObject(forKey: Self.lastFolderKey)
@@ -2264,9 +1985,8 @@ class WorkspaceManager: ObservableObject {
         structuralIndexer?.terminate()
         structuralIndexer = nil
         taskBag.cancelAll()
-        scrollState.reset()
 
-        tabsStore.reset()
+        tabs.reset()
         fileTreeStore.reset()
         linkedFolders = []
         releaseWorkspaceEngines()
@@ -2384,176 +2104,6 @@ class WorkspaceManager: ObservableObject {
         return String(hash, radix: 16)
     }
 
-    /// Close a tab at the given index
-    func closeTab(at index: Int) {
-        guard index >= 0 && index < openTabs.count else { return }
-
-        // Recursive Insight tabs (Decision 11 §4): execute the EXACT 4-step
-        // ordered async close so race-prone state never ships into a different
-        // step. Order is enforced by acceptance criteria — do not reorder.
-        // Step 1: parent JS revokes any session blob URLs synchronously BEFORE
-        //         the session is cancelled, so no Combine subscription can
-        //         emit a chunk that would re-create a blob after revocation.
-        // Step 2: `await session.cancel()` awaits the activeTask's natural
-        //         exit (parallel Phase-2 section tasks observe Task.isCancelled
-        //         and unwind cooperatively, plus any in-flight ZIP exporter
-        //         Process is terminated via its onCancel hook).
-        // Step 3: `try? session.cache.cleanup()` removes the on-disk session
-        //         dir; ENOENT (already gone) is the success state.
-        // Step 4: `tabsStore.removeTab(at:)` drops the strong reference held
-        //         by OpenTab, releasing the session for ARC.
-        // Skip the dirty-save prompt — insight tabs are ephemeral and never
-        // carry isModified == true in the file-save sense.
-        let tab = openTabs[index]
-        // A terminal tab: end its shell; there is nothing to save.
-        if case .terminal(let id) = tab.kind {
-            closeTerminal(id)
-            tabsStore.removeTab(at: index)
-            return
-        }
-        if case .browser(let session) = tab.kind {
-            session.close()
-            tabsStore.removeTab(at: index)
-            return
-        }
-        if case .uiStudio(let session) = tab.kind {
-            Task { await session.close() }
-            tabsStore.removeTab(at: index)
-            return
-        }
-        if case .cockpit(let session) = tab.kind {
-            session.cancel()
-            tabsStore.removeTab(at: index)
-            return
-        }
-        if case .insight(let session) = tab.kind {
-            let releaseHook = self.releaseInsightBlobsHook
-            let sessionId = session.id
-            Task { @MainActor in
-                // Step 1 — parent JS releases blob URLs. The hook is wired by
-                // EditorView.Coordinator on insight routing. If absent (initial
-                // route lost the webView reference, etc.) the WebView teardown
-                // on tab removal still GCs the blobs — skipping this step is
-                // safe but suboptimal.
-                releaseHook?()
-                // Step 2 — await activeTask + parallel section tasks + any
-                // in-flight ZIP exporter Process (cooperative cancellation).
-                await session.cancel()
-                // Step 3 — DO NOT cleanup cache. The cache lives at
-                // `<workspace>/.markview-insight/` and persists across tab
-                // close so that re-opening the insight on the same folder
-                // reuses the cached HTML instead of re-running the LLM.
-                // (Previous behaviour deleted the cache here, which forced
-                // a full Phase 1 + Phase 2 regeneration on every reopen.)
-                // Step 4 — drop the OpenTab → release session reference. The
-                // captured `index` may be stale if other tabs were closed in
-                // the meantime (the await above can take real time when Phase 2
-                // is mid-stream), so re-resolve by sessionId before removing.
-                if let liveIndex = self.openTabs.firstIndex(where: {
-                    if case .insight(let s) = $0.kind { return s.id == sessionId }
-                    return false
-                }) {
-                    self.tabsStore.removeTab(at: liveIndex)
-                }
-            }
-            return
-        }
-
-        if openTabs[index].isModified {
-            let alert = NSAlert()
-            alert.messageText = "Save changes?"
-            alert.informativeText = "Do you want to save changes to \(openTabs[index].displayName)?"
-            alert.addButton(withTitle: "Save")
-            alert.addButton(withTitle: "Don't Save")
-            alert.addButton(withTitle: "Cancel")
-
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                saveFile(at: index)
-            } else if response == .alertThirdButtonReturn {
-                return
-            }
-        }
-
-        tabsStore.removeTab(at: index)
-    }
-
-    /// Close every tab showing `url` or something inside it — the item was moved to the Trash,
-    /// so nothing is saved: the user chose to let it go.
-    func closeTabs(under url: URL) {
-        let base = url.standardizedFileURL.path
-        for index in openTabs.indices.reversed() {
-            let tab = openTabs[index]
-            switch tab.kind {
-            case .file, .image, .pdf, .archive:
-                let path = tab.url.standardizedFileURL.path
-                if path == base || path.hasPrefix(base + "/") { tabsStore.removeTab(at: index) }
-            default:
-                continue
-            }
-        }
-    }
-
-    /// Close all tabs except the one at the given index
-    func closeOtherTabs(except index: Int) {
-        for (i, tab) in openTabs.enumerated() where i != index { if case .cockpit(let session) = tab.kind { session.cancel() } }
-        tabsStore.keepOnlyTab(at: index)
-    }
-
-    /// Close all tabs to the right of the given index
-    func closeTabsToRight(of index: Int) {
-        for (i, tab) in openTabs.enumerated() where i > index { if case .cockpit(let session) = tab.kind { session.cancel() } }
-        tabsStore.keepTabs(through: index)
-    }
-
-    /// Close every tab that shows a file and keep the tool tabs (Git, Workflow, X-Ray, QA, ...). Unsaved changes are asked about first,
-    /// once for all the documents; nothing closes when the person cancels or a save fails.
-    func closeDocuments() {
-        let documents = openTabs.indices.filter { openTabs[$0].isDocument }
-        guard !documents.isEmpty, resolveUnsavedChanges(at: documents, before: "closing the documents") else { return }
-        tabsStore.keepTabs { !$0.isDocument }
-    }
-
-    /// Asks what to do with the unsaved changes of the tabs at `indices` before they close; `closing` finishes the question
-    /// ("Save changes to ... before closing the folder?"). True when closing is safe: nothing was unsaved, everything was saved, or the person chose
-    /// not to save. False when they cancelled or a save failed, so nothing is closed over unsaved work.
-    private func resolveUnsavedChanges(at indices: [Int], before closing: String) -> Bool {
-        let unsaved = indices.filter { openTabs.indices.contains($0) && openTabs[$0].isModified }
-        guard !unsaved.isEmpty else { return true }
-        let alert = NSAlert()
-        alert.messageText = unsaved.count == 1
-            ? "Save changes to \(openTabs[unsaved[0]].displayName) before \(closing)?"
-            : "Save changes to \(unsaved.count) documents before \(closing)?"
-        alert.informativeText = "Your changes will be lost if you don't save them."
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Don't Save")
-        alert.addButton(withTitle: "Cancel")
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            unsaved.forEach { saveFile(at: $0) }
-            // saveFile only logs write errors — never close over unsaved work.
-            if let failed = unsaved.compactMap({ openTabs.indices.contains($0) ? openTabs[$0] : nil }).first(where: { $0.isModified }) {
-                let error = NSAlert()
-                error.messageText = "Couldn't save \(failed.displayName)"
-                error.informativeText = "Nothing was closed, so no changes are lost."
-                error.runModal()
-                return false
-            }
-            return true
-        case .alertSecondButtonReturn:
-            return true
-        default:
-            return false
-        }
-    }
-
-    /// Close all tabs
-    func closeAllTabs() {
-        for tab in openTabs { if case .cockpit(let session) = tab.kind { session.cancel() } }
-        closeUIStudioSessions()
-        tabsStore.reset()
-    }
-
     /// A file the file tree should show ("Reveal in File Tree"); the tree browses its
     /// folder, highlights it and clears the request.
     @Published var fileTreeRevealRequest: URL?
@@ -2562,26 +2112,6 @@ class WorkspaceManager: ObservableObject {
     func revealInFileTree(url: URL) {
         showFileTree = true
         fileTreeRevealRequest = url.standardizedFileURL
-    }
-
-    /// Save the active tab's file.
-    /// Insight tabs are ephemeral (Decision 10 §7 / Task 7): the placeholder URL
-    /// `.insight-<uuid>` must NEVER be written to disk. Cmd+S on an insight tab
-    /// is a no-op here — the insight player has its own Save flow that calls
-    /// `didRequestInsightSave` (NSSavePanel + sanitized filename + node body only).
-    func saveActiveFile() {
-        guard activeTabIndex >= 0 && activeTabIndex < openTabs.count else { return }
-        if !openTabs[activeTabIndex].isFileBacked { return }
-        saveFile(at: activeTabIndex)
-    }
-
-    /// Save the tab the editor page asked to save (`documentID`), which is not always the selected tab: the
-    /// page names the document it shows, and only that tab's file is written (BUG-031). A page that names no
-    /// document saves the selected tab, as before.
-    func saveEditorDocument(documentID: UUID?) {
-        guard let index = editorTabIndex(documentID: documentID, event: "save"),
-              openTabs[index].isFileBacked else { return }
-        saveFile(at: index)
     }
 
     /// Handle selection actions: translate or explain selected text via the selected AI CLI.
@@ -2731,14 +2261,14 @@ class WorkspaceManager: ObservableObject {
 
         let translatedTab = OpenTab(url: newURL, content: banner(0), originalContent: "")
         let tabId = translatedTab.id
-        tabsStore.appendTab(translatedTab)
+        tabs.appendTab(translatedTab)
 
         /// Re-resolve the tab by id on every write: the awaits below take real
         /// time and the user may open or close tabs meanwhile, which would make
         /// a captured index point at somebody else's document.
         func writeToTab(_ content: String) {
             guard let index = openTabs.firstIndex(where: { $0.id == tabId }) else { return }
-            tabsStore.updateTab(at: index) { tab in
+            tabs.updateTab(at: index) { tab in
                 tab.content = content
                 tab.isModified = true
             }
@@ -2965,7 +2495,7 @@ class WorkspaceManager: ObservableObject {
             originalContent: "",
             kind: .insight(session)
         )
-        tabsStore.appendTab(tab, activate: true)
+        tabs.appendTab(tab, activate: true)
 
         // 8. Kick off the root summary stream. We do NOT await — the UI must
         //    stay responsive while SSE chunks land.
@@ -3525,114 +3055,6 @@ class WorkspaceManager: ObservableObject {
         return collapsed
     }
 
-    @Published var lastSaveError: String?
-
-    /// Save a file at the given index.
-    /// Defense-in-depth: insight tabs are guarded here too — even if a future
-    /// caller forgets the kind-check, the placeholder URL never reaches `write(to:)`.
-    private func saveFile(at index: Int) {
-        guard index >= 0 && index < openTabs.count else { return }
-
-        let tab = openTabs[index]
-        if !tab.isFileBacked { return }
-        do {
-            try AtomicFile.write(Data(tab.content.utf8), to: tab.url, permissions: nil)
-            lastSaveError = nil
-            tabsStore.updateTab(at: index) { mutableTab in
-                mutableTab.isModified = false
-                mutableTab.originalContent = tab.content // new baseline
-            }
-            // A file saved inside the project is a change the automatic code analysis refreshes
-            // from (REQ-002), at once rather than after the change watcher's latency.
-            if let root = rootNode?.url.standardizedFileURL.path, tab.url.standardizedFileURL.path.hasPrefix(root + "/") {
-                architecture.noteProjectChanged()
-            }
-        } catch {
-            lastSaveError = "Could not save “\(tab.displayName)”: \(error.localizedDescription)"
-            NSLog("Error saving file: \(error)")
-        }
-    }
-
-    /// Index of the tab a message from the editor page belongs to (see `EditorDocumentRouting`), or nil when
-    /// the message must be dropped. Logs when the page's document is not the selected tab: that is the state
-    /// that once let one file's text be saved over another (BUG-031).
-    private func editorTabIndex(documentID: UUID?, event: String) -> Int? {
-        guard let index = EditorDocumentRouting.targetIndex(documentID: documentID, tabIDs: openTabs.map(\.id),
-                                                            activeIndex: activeTabIndex) else {
-            if documentID != nil { Self.debugLog("[Editor] \(event) dropped: the tab it belongs to is closed") }
-            return nil
-        }
-        if documentID != nil, index != activeTabIndex {
-            let active = openTabs.indices.contains(activeTabIndex) ? openTabs[activeTabIndex].displayName : "none"
-            Self.debugLog("[Editor] \(event) for \(openTabs[index].displayName) while \(active) is selected")
-        }
-        return index
-    }
-
-    /// Update the content of the tab the editor page is showing (`documentID`); a page that names no document
-    /// updates the selected tab, as before.
-    /// Insight tabs own their content via `InsightSession`; the JS bridge must
-    /// not write back into `tab.content` because (a) it would race with the SSE
-    /// stream, and (b) `isModified` would flip true and prime an unwanted Cmd+S
-    /// write to the placeholder URL.
-    func updateTabContent(_ content: String, documentID: UUID?) {
-        guard let index = editorTabIndex(documentID: documentID, event: "content update") else { return }
-        tabsStore.updateTab(at: index) { tab in
-            if !tab.isFileBacked { return }
-            tab.content = content
-            tab.isModified = (content != tab.originalContent)
-        }
-    }
-
-    /// Update the headings for the active tab
-    func updateActiveTabHeadings(_ headings: [HeadingItem]) {
-        tabsStore.updateActiveTab { tab in
-            tab.headings = headings
-        }
-    }
-
-    /// Persist scroll state from the editor for the active tab without broadcasting `WorkspaceManager.objectWillChange` (`AR-15`).
-    func updateActiveTabScrollPosition(_ position: CGFloat) {
-        if let tab = activeTab {
-            scrollState.setScrollPosition(position, for: tab.id)
-        }
-        tabsStore.updateActiveTabSilently { tab in
-            tab.scrollPosition = position
-        }
-    }
-
-    /// Update the active heading for the active tab via `DocumentScrollSideTable` without broadcasting `WorkspaceManager.objectWillChange` (`AR-15`).
-    func updateActiveHeading(_ headingId: String) {
-        if let tab = activeTab {
-            scrollState.setActiveHeading(headingId, for: tab.id)
-        }
-        tabsStore.updateActiveTabSilently { tab in
-            tab.activeHeadingId = headingId
-        }
-    }
-
-    /// Reload the active tab from disk and return the fresh content for the editor.
-    /// Insight tabs are skipped: their URL is a placeholder that never exists on disk
-    /// (see `startRecursiveInsight`). Reading it back would either fail (today) or,
-    /// worse, clobber `tab.content` with stale data if a stray write ever produced
-    /// the file. Returning nil leaves the insight player's state untouched.
-    func reloadActiveTabFromDisk() -> String? {
-        let idx = activeTabIndex
-        guard idx >= 0 && idx < openTabs.count else { return nil }
-        if !openTabs[idx].isFileBacked { return nil }
-
-        let url = openTabs[idx].url
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-
-        tabsStore.updateTab(at: idx) { tab in
-            tab.content = content
-            tab.originalContent = content
-            tab.isModified = false
-        }
-
-        return content
-    }
-
     func refreshFileTree() {
         Self.debugLog("refreshFileTree() called")
         fileTreeStore.refresh()
@@ -3675,57 +3097,6 @@ class WorkspaceManager: ObservableObject {
         editDiagram(instruction: instruction, currentMermaid: currentMermaid)
     }
 
-    // MARK: - Recent Files
-
-    private func loadRecentFiles() {
-        guard let data = try? Data(contentsOf: recentFilesURL) else { return }
-        do {
-            let urls = try JSONDecoder().decode([String].self, from: data)
-            recentFiles = urls.compactMap { URL(fileURLWithPath: $0) }
-        } catch {
-            NSLog("Error loading recent files: \(error)")
-        }
-    }
-
-    private func addRecentFile(_ url: URL) {
-        recentFiles.removeAll { $0 == url }
-        recentFiles.insert(url, at: 0)
-        if recentFiles.count > 20 {
-            recentFiles = Array(recentFiles.prefix(20))
-        }
-        saveRecentFiles()
-    }
-
-    private func saveRecentFiles() {
-        let paths = recentFiles.map { $0.path }
-        if let data = try? JSONEncoder().encode(paths) {
-            try? data.write(to: recentFilesURL)
-        }
-    }
-
-    // MARK: - Markdown Parsing
-
-    /// Extract headings from markdown content
-    private func extractHeadings(from markdown: String) -> [HeadingItem] {
-        var headings: [HeadingItem] = []
-        let lines = markdown.components(separatedBy: .newlines)
-
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("#") {
-                let level = trimmed.prefix(while: { $0 == "#" }).count
-                let text = trimmed.dropFirst(level).trimmingCharacters(in: .whitespaces)
-
-                if level >= 1 && level <= 6 && !text.isEmpty {
-                    let id = UUID().uuidString
-                    headings.append(HeadingItem(id: id, level: level, text: String(text)))
-                }
-            }
-        }
-
-        return headings
-    }
-
     // MARK: - DDE Block Handling
 
     /// Handle block delta from JS extraction — wrapped in safety guard.
@@ -3751,7 +3122,7 @@ class WorkspaceManager: ObservableObject {
         tab.blocks.append(contentsOf: delta.added)
         tab.blocks.sort { $0.position < $1.position }
 
-        tabsStore.updateTab(at: tabIndex) { currentTab in
+        tabs.updateTab(at: tabIndex) { currentTab in
             currentTab = tab
         }
 
@@ -3851,7 +3222,7 @@ class WorkspaceManager: ObservableObject {
 
     /// Cursor moved to a different block
     func handleCursorBlockChange(_ blockId: String) {
-        tabsStore.updateActiveTab { tab in
+        tabs.updateActiveTab { tab in
             tab.activeBlockId = blockId
         }
     }
@@ -4088,7 +3459,7 @@ class WorkspaceManager: ObservableObject {
         if profile.tool == .copilot { watchForMCPPolicyBlock(session) }
         aiTerminals.append(session)
         activeAITerminalID = session.id
-        startWatchingOpenFiles()
+        tabs.startWatchingOpenFiles()
         return session
     }
 
@@ -4423,7 +3794,7 @@ class WorkspaceManager: ObservableObject {
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return false }
-        saveFile(at: index)
+        tabs.saveFile(at: index)
         return !openTabs[index].isModified
     }
 
@@ -4438,7 +3809,7 @@ class WorkspaceManager: ObservableObject {
             alert.addButton(withTitle: "Save")
             alert.addButton(withTitle: "Cancel")
             guard alert.runModal() == .alertFirstButtonReturn else { return false }
-            saveFile(at: index)
+            tabs.saveFile(at: index)
             if openTabs[index].isModified { return false }
         }
         return true
@@ -4450,13 +3821,13 @@ class WorkspaceManager: ObservableObject {
         refreshFileTree()
         guard let index = openTabs.firstIndex(where: { $0.url.standardizedFileURL == file.standardizedFileURL && $0.isFileBacked }) else { return }
         if !openTabs[index].isModified {
-            tabsStore.updateTab(at: index) { tab in
+            tabs.updateTab(at: index) { tab in
                 tab.content = content
                 tab.originalContent = content
                 tab.isModified = false
             }
         } else if let edited = applyToEdited(openTabs[index].content) {
-            tabsStore.updateTab(at: index) { tab in
+            tabs.updateTab(at: index) { tab in
                 tab.content = edited
                 tab.originalContent = content
                 tab.isModified = edited != content
@@ -4667,10 +4038,10 @@ class WorkspaceManager: ObservableObject {
         }
         showCenter = true
         let url = root.appendingPathComponent(item.marker)
-        if tabsStore.selectTab(matching: url) != nil { return }
+        if tabs.selectTab(matching: url) != nil { return }
         var tab = OpenTab(url: url, content: "", originalContent: "")
         tab.kind = .github(item)
-        tabsStore.appendTab(tab)
+        tabs.appendTab(tab)
     }
 
     /// "Review" on a pull request: its PR X-Ray, with the AI review started once it loads
@@ -4713,7 +4084,7 @@ class WorkspaceManager: ObservableObject {
     /// The working copy now holds another branch's files: show them in the tree and open tabs.
     private func branchChanged() {
         refreshFileTree()
-        Task { await reloadChangedOpenFiles(all: true) }
+        Task { await tabs.reloadChangedOpenFiles(all: true) }
     }
 
     /// The branch a pull request comes from, when it is the one checked out.
@@ -4785,8 +4156,8 @@ class WorkspaceManager: ObservableObject {
                           content: "", originalContent: "")
         tab.kind = .terminal(session.id)
         terminalTabs[session.id] = session
-        tabsStore.appendTab(tab, activate: activate)
-        startWatchingOpenFiles()
+        tabs.appendTab(tab, activate: activate)
+        tabs.startWatchingOpenFiles()
         return session
     }
 
@@ -4827,7 +4198,7 @@ class WorkspaceManager: ObservableObject {
             layout.workspaceArea = .files
             showCenter = true
         }
-        tabsStore.appendTab(tab, activate: activate)
+        tabs.appendTab(tab, activate: activate)
         return session
     }
 
@@ -4855,14 +4226,6 @@ class WorkspaceManager: ObservableObject {
         var tab = OpenTab(url: tool.sentinelURL(in: root, suffix: session.id.uuidString), content: "", originalContent: "")
         tab.kind = .uiStudio(session)
         return tab
-    }
-
-    /// Ends every UI Studio session of this window (closing the window or the folder): development servers a session
-    /// started are stopped; servers that were already running are left alone (REQ-006).
-    func closeUIStudioSessions() {
-        for tab in openTabs {
-            if case .uiStudio(let session) = tab.kind { Task { await session.close() } }
-        }
     }
 
     // MARK: - Prototype Studio
@@ -5077,7 +4440,7 @@ class WorkspaceManager: ObservableObject {
         tab.kind = .prototype(session)
         layout.workspaceArea = .files
         showCenter = true
-        tabsStore.appendTab(tab, activate: true)
+        tabs.appendTab(tab, activate: true)
     }
 
     /// Show a local HTML file in a browser tab: the tab already showing it is reloaded, else a new
@@ -5246,80 +4609,7 @@ class WorkspaceManager: ObservableObject {
         activeAITerminalID = nil
         terminalTabs.values.forEach { $0.terminate() }
         terminalTabs = [:]
-        openFilesWatcher?.cancel()
-        openFilesWatcher = nil
-    }
-
-    /// While terminals run, reload open files an assistant (or a command) changed on disk —
-    /// only tabs without unsaved edits, so nothing typed here is lost. The loop checks every two seconds; the disk is read
-    /// off the main thread and one check ends before the next begins (`AR-42`).
-    private func startWatchingOpenFiles() {
-        guard openFilesWatcher == nil else { return }
-        openFilesWatcher = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                guard let self, !Task.isCancelled else { return }
-                await self.reloadChangedOpenFiles()
-            }
-        }
-    }
-
-    /// `all` reloads every unmodified tab whose file differs, not only files newer than last seen
-    /// (a branch switch can restore older modification dates).
-    private func reloadChangedOpenFiles(all: Bool = false) async {
-        var files: [BackgroundFileScans.OpenFile] = []
-        for tab in openTabs {
-            if case .data = tab.kind {
-                // Data tabs: the viewer reads the file again (a followed log scrolls to the new end).
-                files.append(.init(url: tab.url, kind: .data, seen: openFileDates[tab.url], loaded: ""))
-            } else if tab.isFileBacked && !tab.isModified {
-                files.append(.init(url: tab.url, kind: .text, seen: openFileDates[tab.url], loaded: tab.originalContent))
-            }
-        }
-        guard !files.isEmpty else { return }
-        let readings = await Task.detached(priority: .utility) { BackgroundFileScans.read(files, all: all) }.value
-
-        var changed = false
-        for reading in readings {
-            let url = reading.file.url
-            openFileDates[url] = reading.date
-            guard let index = tabsStore.firstIndex(of: url) else { continue }
-            if reading.file.kind == .data {
-                guard reading.isNewer, case .data = openTabs[index].kind else { continue }
-                tabsStore.updateTab(at: index) { $0.dataRevision += 1 }
-                if openTabs[index].notesView {
-                    refreshDataNotes(url, revision: openTabs[index].dataRevision)
-                }
-            } else if let text = reading.changedText {
-                // The tab was edited, or reloaded by a faster check, while the file was being read: leave it.
-                guard openTabs[index].isFileBacked, !openTabs[index].isModified,
-                      openTabs[index].originalContent == reading.file.loaded else { continue }
-                tabsStore.updateTab(at: index) { tab in
-                    tab.content = text
-                    tab.originalContent = text
-                    tab.isModified = false
-                }
-                changed = true
-            }
-        }
-        if changed { refreshFileTree() }
-    }
-
-    /// Keep a data file's textual Explain source in step with the viewer's reloads.
-    private func refreshDataNotes(_ url: URL, revision: Int) {
-        Task {
-            let text = try? await Task.detached(priority: .utility) { try FileType.readText(at: url) }.value
-            guard let index = tabsStore.firstIndex(of: url), case .data = openTabs[index].kind,
-                  openTabs[index].notesView, openTabs[index].dataRevision == revision else { return }
-            tabsStore.updateTab(at: index) { tab in
-                if let text {
-                    tab.content = text
-                    tab.originalContent = text
-                } else {
-                    tab.notesView = false
-                }
-            }
-        }
+        tabs.stopWatchingOpenFiles()
     }
 
     /// The open document, whole: the terminal writer delivers pastes of any length (BUG-002).
@@ -5430,7 +4720,7 @@ extension WorkspaceManager {
         guard updated != text else {
             // The tab may still show older text than the disk (see above): bring it up to date without a write.
             if let index = researchMapTab(file), openTabs[index].content != text, !openTabs[index].isModified {
-                tabsStore.updateTab(at: index) { tab in tab.content = text; tab.originalContent = text }
+                tabs.updateTab(at: index) { tab in tab.content = text; tab.originalContent = text }
             }
             return .done(text)
         }
@@ -5440,7 +4730,7 @@ extension WorkspaceManager {
             return .rejected("The map could not be saved: \(error.localizedDescription)")
         }
         if let index = researchMapTab(file) {
-            tabsStore.updateTab(at: index) { tab in
+            tabs.updateTab(at: index) { tab in
                 tab.content = updated
                 tab.originalContent = updated
                 tab.isModified = false
@@ -5473,11 +4763,11 @@ extension WorkspaceManager {
     func handleResearchMapAction(_ action: String, payload: [String: Any], documentID: UUID?, carriedNotice: String = "") -> ResearchMapReply? {
         // The action name comes from the page: it is logged only as plain letters.
         let loggedAction = String(action.filter { $0.isLetter }.prefix(24))
-        guard let index = editorTabIndex(documentID: documentID, event: "research map \(loggedAction)"),
+        guard let index = tabs.editorTabIndex(documentID: documentID, event: "research map \(loggedAction)"),
               openTabs[index].isFileBacked else { return nil }
         let file = openTabs[index].url
         // Edits saved in another editor appear in the map: the watcher reloads the tab (DEC-006).
-        startWatchingOpenFiles()
+        tabs.startWatchingOpenFiles()
         settleInterruptedResearchMap(file, stopping: action == "cancel")
 
         func string(_ key: String) -> String { (payload[key] as? String) ?? "" }
@@ -5587,7 +4877,7 @@ extension WorkspaceManager {
     /// off the main thread, then set on the node through the map's single writer. Returns a one-line reason when it
     /// fails, or an empty text.
     func attachResearchMapImage(_ payload: [String: Any], documentID: UUID?) async -> String {
-        guard let index = editorTabIndex(documentID: documentID, event: "research map attachImage"),
+        guard let index = tabs.editorTabIndex(documentID: documentID, event: "research map attachImage"),
               openTabs[index].isFileBacked else { return "" }
         let file = openTabs[index].url
         let id = (payload["id"] as? String) ?? ""

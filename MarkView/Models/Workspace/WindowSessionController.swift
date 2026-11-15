@@ -114,7 +114,8 @@ final class WindowSessionController {
             window.center()
         }
 
-        workspace.objectWillChange.merge(with: workspace.layout.objectWillChange, workspace.theme.objectWillChange, workspace.windowUI.objectWillChange)
+        workspace.objectWillChange.merge(with: workspace.tabs.objectWillChange, workspace.fileTreeStore.objectWillChange, workspace.layout.objectWillChange,
+                                         workspace.theme.objectWillChange, workspace.windowUI.objectWillChange)
             .sink { [weak self] _ in self?.scheduleSave() }
             .store(in: &entry.subscriptions)
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification,
@@ -127,8 +128,8 @@ final class WindowSessionController {
         NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)
             .filter { ($0.object as? NSWindow) === window }
             .sink { [weak self, weak workspace] _ in
-                // UI Studio sessions stop the development servers they started (REQ-006).
-                workspace?.closeUIStudioSessions()
+                // UI Studio sessions stop the development servers they started (REQ-006); the tabs' background work ends.
+                workspace?.tabs.shutdown()
                 self?.remove(id)
             }
             .store(in: &entry.subscriptions)
@@ -203,7 +204,7 @@ final class WindowSessionController {
         NSLog("[WindowSession] Autosave refused: windowSessions.json was written by a newer MarkView and is left untouched.")
         let workspace = NSApp.orderedWindows.lazy.compactMap { window in self.entries.values.first { $0.window === window }?.workspace }.first
             ?? entries.values.lazy.compactMap(\.workspace).first
-        workspace?.lastSaveError = "The saved windows were written by a newer MarkView and are left untouched. Windows you open now will not be remembered."
+        workspace?.tabs.lastSaveError = "The saved windows were written by a newer MarkView and are left untouched. Windows you open now will not be remembered."
     }
 
     /// Never fails and never holds up the quit: see `WindowSessionStorage.saveAtQuit`.

@@ -15,6 +15,11 @@ final class TaskBag {
         keyedTasks[key] = AnyCancellable { task.cancel() }
     }
 
+    /// Cancel and remove the task stored under `key`, if any.
+    func cancel(key: String) {
+        keyedTasks.removeValue(forKey: key)?.cancel()
+    }
+
     /// Cancel and remove all tracked tasks.
     func cancelAll() {
         for (_, cancellable) in keyedTasks {
