@@ -95,7 +95,7 @@ final class BookPDFExportModel: ObservableObject {
                     for (index, chapter) in prepared.html.enumerated() {
                         try Task.checkCancellation()
                         try await BookPDFAssistant.rewriteChapter(renderer: renderer, id: chapter.id, html: chapter.text, language: options.language,
-                            reduction: options.reduction, project: project, usage: { $0.record(in: database) }) { message, fraction in
+                            reduction: options.reduction, project: project, usage: { [database] in $0.record(in: database) }) { message, fraction in
                                 status = "Chapter \(index + 1) of \(transformationCount) · " + message
                                 progress = 0.1 + 0.55 * (Double(index) + fraction) / Double(transformationCount)
                             }
@@ -108,8 +108,14 @@ final class BookPDFExportModel: ObservableObject {
                         systemPrompt: "Translate this book title into \(options.language). Preserve proper names and identifiers. Return JSON with only the text field; do not add commentary.",
                         jsonSchema: BookPDFTransform.schema)
                     request.label = "pdf-book:cover-title"; request.effort = "low"
-                    let result = try await CLICompletion.run(request); result.record(in: database)
-                    guard let title = (result.structured as? [String: Any])?["text"] as? String, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw BookPDFError.invalid("The book title could not be translated.") }
+                    let (title, _) = try await AIOperation<CLICompletion.Request, String>(
+                        name: "pdf-book:cover-title",
+                        parse: { result in
+                            guard let title = (result.structured as? [String: Any])?["text"] as? String,
+                                  !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw BookPDFError.invalid("The book title could not be translated.") }
+                            return title
+                        },
+                        onResult: { [database] result in result.record(in: database) }).execute(request)
                     renderedOptions.title = title
                 }
                 let finalWords = try await renderer.proseWords()
@@ -140,8 +146,13 @@ final class BookPDFExportModel: ObservableObject {
         let schema: [String: Any] = ["type":"object", "properties":["contents":["type":"string"], "book":["type":"string"], "edition":["type":"string"]], "required":["contents","book","edition"]]
         var request = CLICompletion.Request(project: project, prompt: "Translate these three book labels into \(options.language): contents = Contents; book = Collected writings; edition = A reader’s edition. Return JSON only.", jsonSchema: schema)
         request.label = "pdf-book:labels"; request.effort = "low"
-        let result = try await CLICompletion.run(request); result.record(in: database)
-        guard let labels = result.structured as? [String: String], ["contents","book","edition"].allSatisfy({ !(labels[$0] ?? "").isEmpty }) else { throw BookPDFError.invalid("Book labels could not be translated.") }
+        let (labels, _) = try await AIOperation<CLICompletion.Request, [String: String]>(
+            name: "pdf-book:labels",
+            parse: { result in
+                guard let labels = result.structured as? [String: String], ["contents","book","edition"].allSatisfy({ !(labels[$0] ?? "").isEmpty }) else { throw BookPDFError.invalid("Book labels could not be translated.") }
+                return labels
+            },
+            onResult: { [database] result in result.record(in: database) }).execute(request)
         return labels
     }
 }

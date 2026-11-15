@@ -119,6 +119,7 @@
         "MarkView/Models/Workspace/LinkedFolders.swift",
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Resources/Editor/book.html",
+        "MarkView/Models/AI/AIOperation.swift",
         "tools/tests/BookPDFLiveChecks.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"

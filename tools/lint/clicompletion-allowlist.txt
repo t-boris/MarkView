@@ -1,7 +1,5 @@
 # CLICompletion.run calls outside Models/AI/AIOperation.swift (AR-26). `<count> <path>`; a ratchet that only falls.
 # Run tools/lint/architecture-lint.sh --tighten after removing a call; the goal is an empty list.
-1 MarkView/Models/Book/BookPDFAssistant.swift
-2 MarkView/Models/Book/BookPDFExportModel.swift
 2 MarkView/Models/Cockpit/CockpitSession.swift
 1 MarkView/Models/Deployments/DeploymentAdvisor.swift
 1 MarkView/Models/Git/GitHubStore.swift
