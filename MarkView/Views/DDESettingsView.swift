@@ -81,7 +81,6 @@ struct DDESettingsView: View {
                             .textFieldStyle(.roundedBorder)
                         Button("Save & Verify") {
                             EmbeddingClient.saveKey(openaiKey)
-                            workspaceManager.embeddingClient.updateAPIKey(openaiKey)
                             verifyOpenAIKey(openaiKey)
                         }.disabled(openaiKey.isEmpty)
                     }

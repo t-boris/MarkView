@@ -8,24 +8,7 @@ struct TOCView: View {
     @ObservedObject var layout: PanelLayout
     var showTabs = true
 
-    enum Tab: String, CaseIterable {
-        case contents = "Contents"
-        case search = "Search"
-        case git = "Git"
-        case terminal = "Terminal"
-        case feature = "Feature"
-
-        static let storageKey = "layout.navigatorTab"
-
-        /// What the tab is called. The raw values are stored in saved layouts and stay as they were.
-        var title: String {
-            switch self {
-            case .terminal: return "Agents"
-            case .feature: return "Tasks"
-            default: return rawValue
-            }
-        }
-    }
+    typealias Tab = NavigatorTab
 
     var body: some View {
         Group {

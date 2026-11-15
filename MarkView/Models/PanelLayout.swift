@@ -30,6 +30,26 @@ enum WorkSection: String, CaseIterable, Identifiable {
     }
 }
 
+/// Legacy right-panel navigator tab selection kept in Models (`AR-22`).
+enum NavigatorTab: String, CaseIterable {
+    case contents = "Contents"
+    case search = "Search"
+    case git = "Git"
+    case terminal = "Terminal"
+    case feature = "Feature"
+
+    static let storageKey = "layout.navigatorTab"
+
+    /// What the tab is called. The raw values are stored in saved layouts and stay as they were.
+    var title: String {
+        switch self {
+        case .terminal: return "Agents"
+        case .feature: return "Tasks"
+        default: return rawValue
+        }
+    }
+}
+
 /// The tab or section each panel of one window shows. Every window owns one through its
 /// WorkspaceManager, so switching a tab in one window leaves the others alone (BUG-004).
 /// A change is written to UserDefaults only as the starting value for the next window and for
@@ -43,8 +63,8 @@ final class PanelLayout: ObservableObject {
         didSet { remember(workSection.rawValue, Self.workSectionKey) }
     }
     /// Legacy right-panel selection kept for compatibility with saved layouts.
-    @Published var navigatorTab: TOCView.Tab {
-        didSet { remember(navigatorTab.rawValue, TOCView.Tab.storageKey) }
+    @Published var navigatorTab: NavigatorTab {
+        didSet { remember(navigatorTab.rawValue, NavigatorTab.storageKey) }
     }
     /// Left panel: "files" or "issues".
     @Published var leftPanel: String {
@@ -80,7 +100,7 @@ final class PanelLayout: ObservableObject {
         self.defaults = defaults
         workspaceArea = defaults.string(forKey: Self.workspaceAreaKey).flatMap(WorkspaceArea.init) ?? .files
         workSection = defaults.string(forKey: Self.workSectionKey).flatMap(WorkSection.init) ?? .features
-        let storedNavigator = defaults.string(forKey: TOCView.Tab.storageKey).flatMap(TOCView.Tab.init) ?? .contents
+        let storedNavigator = defaults.string(forKey: NavigatorTab.storageKey).flatMap(NavigatorTab.init) ?? .contents
         navigatorTab = [.terminal, .git, .search].contains(storedNavigator) ? .contents : storedNavigator
         leftPanel = defaults.string(forKey: Self.leftPanelKey) ?? "files"
         issuesFeature = defaults.string(forKey: Self.issuesFeatureKey) ?? ""

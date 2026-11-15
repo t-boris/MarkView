@@ -458,8 +458,6 @@ class WorkspaceManager: ObservableObject {
         for tab in openTabs where tab.isModified { if case .file = tab.kind { result[tab.url.path] = tab.content } }
         return result
     }
-    @Published var incrementalCompiler: IncrementalCompiler?
-    @Published var embeddingClient = EmbeddingClient()
     @Published var gitClient = GitClient()
     /// Where the project runs and how each place is doing (the Deployments tab).
     let deployments = DeploymentStore()
@@ -841,7 +839,6 @@ class WorkspaceManager: ObservableObject {
             Self.debugLog("initDDE: creating engines...")
             try? await Task.sleep(nanoseconds: 100_000_000)
 
-            self.incrementalCompiler = IncrementalCompiler(workspacePath: url, database: db)
             self.graphRAG = GraphRAG(db: db)
             self.aiWorkspaceRoot = url
             Self.debugLog("initDDE: engines created")
@@ -2127,7 +2124,6 @@ class WorkspaceManager: ObservableObject {
         cockpitSession?.closeProject()
         cockpitSession = nil
         semanticDatabase = nil
-        incrementalCompiler = nil
         graphRAG = nil
         stopAllTerminals()
         aiWorkspaceRoot = nil
@@ -2213,7 +2209,6 @@ class WorkspaceManager: ObservableObject {
             let projectId = fileName
             try db.ensureProject(id: projectId, name: fileName, rootPath: parentDir.path)
             self.semanticDatabase = db
-            self.incrementalCompiler = IncrementalCompiler(workspacePath: parentDir, database: db)
             self.graphRAG = GraphRAG(db: db)
             self.aiWorkspaceRoot = parentDir
             gitClient.setup(at: parentDir)
@@ -3865,11 +3860,11 @@ class WorkspaceManager: ObservableObject {
             }
             for id in delta.removed {
                 try? db.deleteBlock(id: id)
+                try? db.deleteClaimsForBlock(id)
+                try? db.deleteRelationsForBlock(id)
+                try? db.deleteDiagnosticsForBlock(id)
             }
         }
-
-        // Feed delta to incremental compiler
-        incrementalCompiler?.compileDelta(delta, forFile: tab.url)
     }
 
     // MARK: - Background Folder Analysis

@@ -8,7 +8,9 @@ set -euo pipefail
 if [ "${CI:-}" = "true" ] && [ "${MARKVIEW_BUILD_COCKPIT_RUNTIME:-0}" != "1" ]; then
     destination="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Cockpit"
     if [ -d "$destination" ]; then /usr/bin/find "$destination" -depth -delete; fi
+    if [ -n "${DERIVED_FILE_DIR:-}" ]; then mkdir -p "$DERIVED_FILE_DIR" && touch "$DERIVED_FILE_DIR/cockpit-runtime.stamp"; fi
     echo "Cockpit runtime is checked separately in CI"
     exit 0
 fi
 "$SRCROOT/tools/cockpit-temporal/scripts/build-runtime.sh"
+if [ -n "${DERIVED_FILE_DIR:-}" ]; then mkdir -p "$DERIVED_FILE_DIR" && touch "$DERIVED_FILE_DIR/cockpit-runtime.stamp"; fi

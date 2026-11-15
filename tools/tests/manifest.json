@@ -1,0 +1,2481 @@
+{
+  "schema": 1,
+  "suiteCount": 168,
+  "suites": [
+    {
+      "name": "acp-continuation-tests",
+      "script": "tools/tests/acp-continuation-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ACPAssistant.swift",
+        "MarkView/Models/AgentProcesses.swift",
+        "MarkView/Models/CLICompletion.swift",
+        "tools/tests/ACPContinuationTests.swift",
+        "tools/tests/CLICompletionTestSupport.swift"
+      ]
+    },
+    {
+      "name": "agent-activity-tests",
+      "script": "tools/tests/agent-activity-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AgentActivity.swift",
+        "tools/tests/AgentActivityTests.swift",
+        "tools/tests/agent-activity-tests.sh"
+      ]
+    },
+    {
+      "name": "agent-processes-tests",
+      "script": "tools/tests/agent-processes-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AgentProcesses.swift",
+        "tools/tests/AgentProcessesTests.swift",
+        "tools/tests/agent-processes-tests.sh"
+      ]
+    },
+    {
+      "name": "agent-usage-tests",
+      "script": "tools/tests/agent-usage-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AgentUsage.swift",
+        "MarkView/Models/AgentUsageLogs.swift",
+        "tools/tests/AgentUsageTests.swift",
+        "tools/tests/agent-usage-tests.sh"
+      ]
+    },
+    {
+      "name": "all-files-explain-tests",
+      "script": "tools/tests/all-files-explain-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ArchiveSupport.swift",
+        "MarkView/Models/CodeExplainer.swift",
+        "MarkView/Models/DocumentState.swift",
+        "MarkView/Models/FileNode.swift",
+        "tools/tests/AllFilesExplainTests.swift"
+      ]
+    },
+    {
+      "name": "app-font-scale-tests",
+      "script": "tools/tests/app-font-scale-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AppFontScale.swift",
+        "tools/tests/AppFontScaleTests.swift",
+        "tools/tests/app-font-scale-tests.sh"
+      ]
+    },
+    {
+      "name": "archive-tests",
+      "script": "tools/tests/archive-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ArchiveSupport.swift",
+        "tools/tests/ArchiveTests.swift",
+        "tools/tests/archive-tests.sh"
+      ]
+    },
+    {
+      "name": "auto-analysis-scheduler-tests",
+      "script": "tools/tests/auto-analysis-scheduler-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AutoAnalysisScheduler.swift",
+        "tools/tests/AutoAnalysisSchedulerTests.swift",
+        "tools/tests/auto-analysis-scheduler-tests.sh"
+      ]
+    },
+    {
+      "name": "book-pdf-live",
+      "script": "tools/tests/book-pdf-live.sh",
+      "tier": "live",
+      "sources": [
+        "MarkView/Bridge/BookPDFRenderer.swift",
+        "MarkView/Models/AIAssistants.swift",
+        "MarkView/Models/AICallLog.swift",
+        "MarkView/Models/AgentProcesses.swift",
+        "MarkView/Models/BookPDFAssistant.swift",
+        "MarkView/Models/BookPDFSource.swift",
+        "MarkView/Models/BookPDFTransform.swift",
+        "MarkView/Models/CLICompletion.swift",
+        "MarkView/Models/LinkedFolders.swift",
+        "MarkView/Models/ProjectColor.swift",
+        "MarkView/Resources/Editor/book.html",
+        "tools/tests/BookPDFLiveChecks.swift"
+      ]
+    },
+    {
+      "name": "book-pdf-tests",
+      "script": "tools/tests/book-pdf-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Bridge/BookPDFRenderer.swift",
+        "MarkView/Models/BookPDFSource.swift",
+        "MarkView/Models/BookPDFTransform.swift",
+        "MarkView/Resources/Editor/book.html",
+        "tools/tests/BookPDFTests.swift"
+      ]
+    },
+    {
+      "name": "book-xray-tests",
+      "script": "tools/tests/book-xray-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/BookAnnotator.swift",
+        "MarkView/Models/BookBuilder.swift",
+        "MarkView/Models/OutputLanguage.swift",
+        "MarkView/Models/WikiLinkResolver.swift",
+        "MarkView/Models/XRayContent.swift",
+        "tools/tests/BookXRayTests.swift",
+        "tools/tests/book-xray-tests.sh"
+      ]
+    },
+    {
+      "name": "browser-agent-tools-tests",
+      "script": "tools/tests/browser-agent-tools-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/BrowserAgentTools.swift",
+        "tools/tests/BrowserAgentToolsTests.swift",
+        "tools/tests/browser-agent-tools-tests.sh"
+      ]
+    },
+    {
+      "name": "browser-element-pick-tests",
+      "script": "tools/tests/browser-element-pick-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/BrowserElementPick.swift",
+        "tools/tests/BrowserElementPickTests.swift",
+        "tools/tests/browser-element-pick-tests.sh"
+      ]
+    },
+    {
+      "name": "browser-frame-tests",
+      "script": "tools/tests/browser-frame-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/BrowserControlServer.swift",
+        "MarkView/Views/QAWebWindow.swift",
+        "tools/tests/BrowserFrameChecks.swift"
+      ]
+    },
+    {
+      "name": "browser-passwords-tests",
+      "script": "tools/tests/browser-passwords-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/BrowserDownloads.swift",
+        "MarkView/Models/BrowserPasswords.swift",
+        "tools/tests/BrowserPasswordsTests.swift",
+        "tools/tests/browser-passwords-tests.sh"
+      ]
+    },
+    {
+      "name": "browser-popup-tests",
+      "script": "tools/tests/browser-popup-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Views/BrowserPopup.swift",
+        "tools/tests/BrowserPopupTests.swift",
+        "tools/tests/browser-popup-tests.sh"
+      ]
+    },
+    {
+      "name": "bug-basket-tests",
+      "script": "tools/tests/bug-basket-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/BugBasket.swift",
+        "MarkView/Models/DefinitionOfDone.swift",
+        "MarkView/Models/HandoffPrompt.swift",
+        "MarkView/Models/IssueListing.swift",
+        "tools/tests/BugBasketTests.swift",
+        "tools/tests/bug-basket-tests.sh"
+      ]
+    },
+    {
+      "name": "bug-validity-tests",
+      "script": "tools/tests/bug-validity-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/BugValidity.swift",
+        "MarkView/Models/FrontMatter.swift",
+        "tools/tests/BugValidityTests.swift",
+        "tools/tests/bug-validity-tests.sh"
+      ]
+    },
+    {
+      "name": "claude-session-model-tests",
+      "script": "tools/tests/claude-session-model-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ClaudeSessionModel.swift",
+        "tools/tests/ClaudeSessionModelTests.swift",
+        "tools/tests/claude-session-model-tests.sh"
+      ]
+    },
+    {
+      "name": "cli-completion-timeout-tests",
+      "script": "tools/tests/cli-completion-timeout-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ACPAssistant.swift",
+        "MarkView/Models/AgentProcesses.swift",
+        "MarkView/Models/CLICompletion.swift",
+        "tools/tests/CLICompletionTestSupport.swift",
+        "tools/tests/CLICompletionTimeoutTests.swift"
+      ]
+    },
+    {
+      "name": "cloud-services-tests",
+      "script": "tools/tests/cloud-services-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CloudServices.swift",
+        "MarkView/Models/CommandPolicy.swift",
+        "MarkView/Models/DeploymentModels.swift",
+        "tools/tests/CloudServicesTests.swift",
+        "tools/tests/cloud-services-tests.sh"
+      ]
+    },
+    {
+      "name": "cockpit-agent-registry-tests",
+      "script": "tools/tests/cockpit-agent-registry-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CockpitAgentRegistry.swift",
+        "MarkView/Models/CockpitHostBridge.swift",
+        "MarkView/Models/CockpitPlan.swift",
+        "MarkView/Models/CockpitStepPolicy.swift",
+        "MarkView/Models/CockpitSupervisor.swift",
+        "tools/tests/CockpitAgentRegistryChecks.swift"
+      ]
+    },
+    {
+      "name": "cockpit-build-phase-tests",
+      "script": "tools/tests/cockpit-build-phase-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "tools/cockpit-temporal/scripts/build-runtime-phase.sh",
+        "tools/cockpit-temporal/scripts/build-runtime.sh"
+      ]
+    },
+    {
+      "name": "cockpit-child-tests",
+      "script": "tools/tests/cockpit-child-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AgentProcesses.swift",
+        "MarkView/Models/CockpitChild.swift",
+        "tools/tests/CockpitChildChecks.swift"
+      ]
+    },
+    {
+      "name": "cockpit-host-bridge-tests",
+      "script": "tools/tests/cockpit-host-bridge-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CockpitHostBridge.swift",
+        "MarkView/Models/CockpitPlan.swift",
+        "tools/tests/CockpitHostBridgeChecks.swift"
+      ]
+    },
+    {
+      "name": "cockpit-instruments-tests",
+      "script": "tools/tests/cockpit-instruments-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CockpitHostBridge.swift",
+        "MarkView/Models/CockpitInstruments.swift",
+        "MarkView/Models/CockpitPlan.swift",
+        "MarkView/Models/CockpitRun.swift",
+        "MarkView/Models/CockpitSupervisor.swift",
+        "tools/tests/CockpitInstrumentsChecks.swift",
+        "tools/tests/cockpit-instruments-tests.sh"
+      ]
+    },
+    {
+      "name": "cockpit-plan-tests",
+      "script": "tools/tests/cockpit-plan-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CockpitPlan.swift",
+        "tools/tests/CockpitPlanChecks.swift"
+      ]
+    },
+    {
+      "name": "cockpit-planning-tests",
+      "script": "tools/tests/cockpit-planning-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CockpitPlan.swift",
+        "MarkView/Models/CockpitPlanning.swift",
+        "tools/tests/CockpitPlanningChecks.swift"
+      ]
+    },
+    {
+      "name": "cockpit-policy-tests",
+      "script": "tools/tests/cockpit-policy-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CockpitAgentRegistry.swift",
+        "MarkView/Models/CockpitHostBridge.swift",
+        "MarkView/Models/CockpitPlan.swift",
+        "MarkView/Models/CockpitStepAudit.swift",
+        "MarkView/Models/CockpitStepMeter.swift",
+        "MarkView/Models/CockpitStepPolicy.swift",
+        "MarkView/Models/CockpitSupervisor.swift",
+        "tools/tests/CockpitPolicyChecks.swift",
+        "tools/tests/IssueChecksSupport.swift",
+        "tools/tests/cockpit-policy-tests.sh"
+      ]
+    },
+    {
+      "name": "cockpit-qa-attempt-tests",
+      "script": "tools/tests/cockpit-qa-attempt-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CockpitPlan.swift",
+        "MarkView/Models/CockpitQAAttempt.swift",
+        "tools/tests/CockpitQAAttemptChecks.swift"
+      ]
+    },
+    {
+      "name": "cockpit-run-tests",
+      "script": "tools/tests/cockpit-run-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CockpitHostBridge.swift",
+        "MarkView/Models/CockpitPlan.swift",
+        "MarkView/Models/CockpitRun.swift",
+        "MarkView/Models/CockpitRunStore.swift",
+        "MarkView/Models/CockpitSupervisor.swift",
+        "tools/tests/CockpitRunChecks.swift"
+      ]
+    },
+    {
+      "name": "cockpit-runtime-integration-tests",
+      "script": "tools/tests/cockpit-runtime-integration-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AgentProcesses.swift",
+        "MarkView/Models/CockpitChild.swift",
+        "MarkView/Models/CockpitExecution.swift",
+        "MarkView/Models/CockpitHostBridge.swift",
+        "MarkView/Models/CockpitPlan.swift",
+        "MarkView/Models/CockpitRun.swift",
+        "MarkView/Models/CockpitRunStore.swift",
+        "MarkView/Models/CockpitRuntime.swift",
+        "MarkView/Models/CockpitStepMeter.swift",
+        "MarkView/Models/CockpitSupervisor.swift",
+        "MarkView/Models/DeploymentExecutor.swift",
+        "tools/tests/CockpitRuntimeChecks.swift"
+      ]
+    },
+    {
+      "name": "code-architecture-tests",
+      "script": "tools/tests/code-architecture-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ArchitectureModel.swift",
+        "MarkView/Models/AutoAnalysisScheduler.swift",
+        "MarkView/Models/CodeArchitecture.swift",
+        "MarkView/Models/CodePathTags.swift",
+        "MarkView/Models/DiagramAI.swift",
+        "tools/tests/CodeArchitectureTestSupport.swift",
+        "tools/tests/CodeArchitectureTests.swift",
+        "tools/tests/CodeArchitectureWebTests.swift",
+        "tools/tests/DiagramCLIStub.swift"
+      ]
+    },
+    {
+      "name": "command-policy-tests",
+      "script": "tools/tests/command-policy-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CommandPolicy.swift",
+        "tools/tests/CommandPolicyTests.swift",
+        "tools/tests/command-policy-tests.sh"
+      ]
+    },
+    {
+      "name": "conflict-prompt-tests",
+      "script": "tools/tests/conflict-prompt-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ConflictPrompt.swift",
+        "tools/tests/ConflictPromptTests.swift",
+        "tools/tests/conflict-prompt-tests.sh"
+      ]
+    },
+    {
+      "name": "control-agent-tools-tests",
+      "script": "tools/tests/control-agent-tools-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/BrowserAgentTools.swift",
+        "MarkView/Models/ControlAgentTools.swift",
+        "MarkView/Models/DeploymentAgentTools.swift",
+        "MarkView/Models/DiscussionAgentTools.swift",
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/IssueLifecycle.swift",
+        "MarkView/Models/IssueLifecycleContext.swift",
+        "MarkView/Models/IssueListing.swift",
+        "MarkView/Models/IssueTransitionLog.swift",
+        "MarkView/Models/ProjectAgentTools.swift",
+        "MarkView/Models/ProjectWorkflow.swift",
+        "MarkView/Models/WorkflowDescription.swift",
+        "MarkView/Models/WorkflowEvents.swift",
+        "tools/tests/ControlAgentToolsTests.swift",
+        "tools/tests/control-agent-tools-tests.sh"
+      ]
+    },
+    {
+      "name": "cycle-time-tests",
+      "script": "tools/tests/cycle-time-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CycleTime.swift",
+        "MarkView/Models/CycleTimeReport.swift",
+        "MarkView/Models/DefinitionOfDone.swift",
+        "MarkView/Models/EvidenceTimings.swift",
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/IssueLifecycle.swift",
+        "MarkView/Models/IssueListing.swift",
+        "MarkView/Models/IssueTransitionLog.swift",
+        "MarkView/Models/ProjectWorkflow.swift",
+        "MarkView/Models/WorkflowDiagramLayout.swift",
+        "MarkView/Models/WorkflowDone.swift",
+        "MarkView/Models/WorkflowFlow.swift",
+        "MarkView/Models/WorkflowTransitionStory.swift",
+        "tools/tests/CycleTimeChecks.swift",
+        "tools/tests/IssueChecksSupport.swift",
+        "tools/tests/cycle-time-tests.sh"
+      ]
+    },
+    {
+      "name": "data-viewers-tests",
+      "script": "tools/tests/data-viewers-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "tools/tests/DataViewersTests.swift",
+        "tools/tests/data-viewers-tests.sh"
+      ]
+    },
+    {
+      "name": "database-explorer-tests",
+      "script": "tools/tests/database-explorer-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CloudServices.swift",
+        "MarkView/Models/CommandPolicy.swift",
+        "MarkView/Models/DatabaseExplorer.swift",
+        "MarkView/Models/DatabaseKeychain.swift",
+        "MarkView/Models/DeploymentDiscovery.swift",
+        "MarkView/Models/DeploymentExecutor.swift",
+        "MarkView/Models/DeploymentLogs.swift",
+        "MarkView/Models/DeploymentModels.swift",
+        "MarkView/Models/DeploymentStore.swift",
+        "MarkView/Models/ProviderHints.swift",
+        "MarkView/Models/SystemProbe.swift",
+        "tools/tests/DatabaseExplorerTests.swift",
+        "tools/tests/database-explorer-tests.sh"
+      ]
+    },
+    {
+      "name": "definition-of-done-tests",
+      "script": "tools/tests/definition-of-done-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/DefinitionOfDone.swift",
+        "MarkView/Models/HandoffPrompt.swift",
+        "tools/tests/DefinitionOfDoneTests.swift",
+        "tools/tests/definition-of-done-tests.sh"
+      ]
+    },
+    {
+      "name": "deployment-discovery-tests",
+      "script": "tools/tests/deployment-discovery-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CommandPolicy.swift",
+        "MarkView/Models/DeploymentDiscovery.swift",
+        "MarkView/Models/DeploymentModels.swift",
+        "MarkView/Models/ProviderHints.swift",
+        "tools/tests/DeploymentDiscoveryTests.swift",
+        "tools/tests/deployment-discovery-tests.sh"
+      ]
+    },
+    {
+      "name": "deployment-executor-tests",
+      "script": "tools/tests/deployment-executor-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CommandPolicy.swift",
+        "MarkView/Models/DeploymentExecutor.swift",
+        "MarkView/Models/DeploymentModels.swift",
+        "tools/tests/DeploymentExecutorTests.swift",
+        "tools/tests/deployment-executor-tests.sh"
+      ]
+    },
+    {
+      "name": "deployment-logs-tests",
+      "script": "tools/tests/deployment-logs-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CommandPolicy.swift",
+        "MarkView/Models/DeploymentLogs.swift",
+        "MarkView/Models/DeploymentModels.swift",
+        "MarkView/Models/SystemProbe.swift",
+        "tools/tests/DeploymentLogsTests.swift",
+        "tools/tests/deployment-logs-tests.sh"
+      ]
+    },
+    {
+      "name": "deployment-prompt-tests",
+      "script": "tools/tests/deployment-prompt-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/DeploymentPrompt.swift",
+        "tools/tests/DeploymentPromptTests.swift",
+        "tools/tests/deployment-prompt-tests.sh"
+      ]
+    },
+    {
+      "name": "deployment-ssh-tests",
+      "script": "tools/tests/deployment-ssh-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CommandPolicy.swift",
+        "MarkView/Models/DeploymentExecutor.swift",
+        "MarkView/Models/DeploymentModels.swift",
+        "MarkView/Models/SystemProbe.swift",
+        "tools/tests/DeploymentSSHTests.swift",
+        "tools/tests/deployment-ssh-tests.sh"
+      ]
+    },
+    {
+      "name": "deployment-store-tests",
+      "script": "tools/tests/deployment-store-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CloudServices.swift",
+        "MarkView/Models/CommandPolicy.swift",
+        "MarkView/Models/DatabaseExplorer.swift",
+        "MarkView/Models/DatabaseKeychain.swift",
+        "MarkView/Models/DeploymentDiscovery.swift",
+        "MarkView/Models/DeploymentExecutor.swift",
+        "MarkView/Models/DeploymentLogs.swift",
+        "MarkView/Models/DeploymentModels.swift",
+        "MarkView/Models/DeploymentStore.swift",
+        "MarkView/Models/ProviderHints.swift",
+        "MarkView/Models/SystemProbe.swift",
+        "tools/tests/DeploymentStoreTests.swift",
+        "tools/tests/deployment-store-tests.sh"
+      ]
+    },
+    {
+      "name": "diagram-tests",
+      "script": "tools/tests/diagram-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/DiagramAI.swift",
+        "tools/tests/DiagramAITests.swift",
+        "tools/tests/DiagramArchStub.swift",
+        "tools/tests/DiagramCLIStub.swift",
+        "tools/tests/diagram-tests.sh"
+      ]
+    },
+    {
+      "name": "dictation-insertion-tests",
+      "script": "tools/tests/dictation-insertion-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Views/DictationViews.swift",
+        "tools/tests/DictationInsertionTests.swift",
+        "tools/tests/dictation-insertion-tests.sh"
+      ]
+    },
+    {
+      "name": "dictation-language-tests",
+      "script": "tools/tests/dictation-language-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/OnDeviceSpeech.swift",
+        "tools/tests/DictationLanguageTests.swift",
+        "tools/tests/dictation-language-tests.sh"
+      ]
+    },
+    {
+      "name": "discussion-tests",
+      "script": "tools/tests/discussion-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Discussion.swift",
+        "MarkView/Models/DiscussionPrompt.swift",
+        "tools/tests/DiscussionTests.swift",
+        "tools/tests/discussion-tests.sh"
+      ]
+    },
+    {
+      "name": "document-files-tests",
+      "script": "tools/tests/document-files-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Bridge/DocumentFileSchemeHandler.swift",
+        "MarkView/Models/DocumentFiles.swift",
+        "MarkView/Resources/Editor/vendor/js/markview-document-files.js",
+        "tools/tests/DocumentFileSchemeHandlerTests.swift",
+        "tools/tests/DocumentFilesPageTests.swift",
+        "tools/tests/DocumentFilesTests.swift",
+        "tools/tests/document-files.test.js"
+      ]
+    },
+    {
+      "name": "editor-diagrams-tests",
+      "script": "tools/tests/editor-diagrams-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "tools/tests/EditorDiagramsWebTests.swift",
+        "tools/tests/editor-diagrams-tests.sh"
+      ]
+    },
+    {
+      "name": "editor-document-routing-tests",
+      "script": "tools/tests/editor-document-routing-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/EditorDocumentRouting.swift",
+        "tools/tests/EditorDocumentIdWebTests.swift",
+        "tools/tests/EditorDocumentRoutingTests.swift",
+        "tools/tests/editor-document-routing-tests.sh"
+      ]
+    },
+    {
+      "name": "feature-discovery-tests",
+      "script": "tools/tests/feature-discovery-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/BugValidity.swift",
+        "MarkView/Models/FeatureModels.swift",
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/IssueLifecycle.swift",
+        "MarkView/Models/IssueListing.swift",
+        "MarkView/Models/ProjectWorkflow.swift",
+        "tools/tests/FeatureDiscoveryTests.swift",
+        "tools/tests/feature-discovery-tests.sh"
+      ]
+    },
+    {
+      "name": "feature-review-gate-tests",
+      "script": "tools/tests/feature-review-gate-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/FeatureReviewGate.swift",
+        "tools/tests/FeatureReviewGateChecks.swift"
+      ]
+    },
+    {
+      "name": "file-browser-tests",
+      "script": "tools/tests/file-browser-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/ArchiveSupport.swift",
+        "MarkView/Models/DocumentState.swift",
+        "MarkView/Models/FileBrowserModel.swift",
+        "MarkView/Models/FileNode.swift",
+        "MarkView/Models/WindowUIState.swift",
+        "tools/tests/FileBrowserTests.swift",
+        "tools/tests/file-browser-tests.sh"
+      ]
+    },
+    {
+      "name": "file-info-tests",
+      "script": "tools/tests/file-info-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/FileInfo.swift",
+        "tools/tests/FileInfoTests.swift",
+        "tools/tests/file-info-tests.sh"
+      ]
+    },
+    {
+      "name": "git-status-tests",
+      "script": "tools/tests/git-status-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/GitStatusModel.swift",
+        "tools/tests/GitStatusTests.swift",
+        "tools/tests/git-status-tests.sh"
+      ]
+    },
+    {
+      "name": "github-activity-prompt-tests",
+      "script": "tools/tests/github-activity-prompt-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AIPrompts.swift",
+        "MarkView/Models/OutputLanguage.swift",
+        "tools/tests/GitHubActivityPromptTests.swift"
+      ]
+    },
+    {
+      "name": "github-command-tests",
+      "script": "tools/tests/github-command-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/EvidenceTimings.swift",
+        "MarkView/Models/GitHubClient.swift",
+        "MarkView/Models/LifecycleCapture.swift",
+        "tools/tests/GitHubCommandTests.swift"
+      ]
+    },
+    {
+      "name": "github-remote-profile-tests",
+      "script": "tools/tests/github-remote-profile-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/EvidenceTimings.swift",
+        "MarkView/Models/GitHubClient.swift",
+        "MarkView/Models/LifecycleCapture.swift",
+        "tools/tests/CLIToolLocatorStub.swift",
+        "tools/tests/GitHubRemoteProfileTests.swift",
+        "tools/tests/github-remote-profile-tests.sh"
+      ]
+    },
+    {
+      "name": "handoff-prompt-tests",
+      "script": "tools/tests/handoff-prompt-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/DefinitionOfDone.swift",
+        "MarkView/Models/HandoffPrompt.swift",
+        "tools/tests/HandoffPromptTests.swift",
+        "tools/tests/handoff-prompt-tests.sh"
+      ]
+    },
+    {
+      "name": "historical-baseline-tests",
+      "script": "tools/tests/historical-baseline-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/HistoricalBaseline.swift",
+        "tools/tests/HistoricalBaselineTests.swift",
+        "tools/tests/historical-baseline-tests.sh"
+      ]
+    },
+    {
+      "name": "image-attachments-tests",
+      "script": "tools/tests/image-attachments-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/ImageAttachments.swift",
+        "tools/tests/ImageAttachmentsTests.swift",
+        "tools/tests/image-attachments-tests.sh"
+      ]
+    },
+    {
+      "name": "image-siblings-tests",
+      "script": "tools/tests/image-siblings-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ImageSiblings.swift",
+        "tools/tests/ImageSiblingsTests.swift",
+        "tools/tests/image-siblings-tests.sh"
+      ]
+    },
+    {
+      "name": "intake-clipboard-tests",
+      "script": "tools/tests/intake-clipboard-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AppFontScale.swift",
+        "MarkView/Models/AppTheme.swift",
+        "MarkView/Models/WindowTheme.swift",
+        "MarkView/Views/AppFontScaleView.swift",
+        "MarkView/Views/AppPalette.swift",
+        "MarkView/Views/IntakeTextEditor.swift",
+        "tools/tests/IntakeClipboardTests.swift"
+      ]
+    },
+    {
+      "name": "issue-lifecycle-tests",
+      "script": "tools/tests/issue-lifecycle-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/IssueCompletion.swift",
+        "MarkView/Models/IssueEvidenceCollector.swift",
+        "MarkView/Models/IssueGitHubSync.swift",
+        "MarkView/Models/IssueLifecycle.swift",
+        "MarkView/Models/IssueLifecycleContext.swift",
+        "MarkView/Models/IssueLifecycleDisplay.swift",
+        "MarkView/Models/IssueLifecycleEvidence.swift",
+        "MarkView/Models/IssueListing.swift",
+        "MarkView/Models/IssueReconciler.swift",
+        "MarkView/Models/IssueSync.swift",
+        "MarkView/Models/IssueTransitionLog.swift",
+        "MarkView/Models/MarkdownIssueStatusStore.swift",
+        "MarkView/Models/ProjectWorkflow.swift",
+        "MarkView/Models/ProjectWorkflowStore.swift",
+        "MarkView/Models/WorkflowDescription.swift",
+        "MarkView/Models/WorkflowEvents.swift",
+        "MarkView/Models/WorkflowFlow.swift",
+        "MarkView/Models/WorkflowProposal.swift",
+        "MarkView/Models/WorkflowTemplate.swift",
+        "tools/tests/IssueChecksSupport.swift",
+        "tools/tests/IssueCollectorChecks.swift",
+        "tools/tests/IssueLogSupport.swift",
+        "tools/tests/issue-lifecycle-tests.sh"
+      ]
+    },
+    {
+      "name": "issue-listing-tests",
+      "script": "tools/tests/issue-listing-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/IssueListing.swift",
+        "tools/tests/IssueListingTests.swift",
+        "tools/tests/issue-listing-tests.sh"
+      ]
+    },
+    {
+      "name": "issue-sync-tests",
+      "script": "tools/tests/issue-sync-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/IssueListing.swift",
+        "MarkView/Models/IssueSync.swift",
+        "tools/tests/IssueSyncTests.swift",
+        "tools/tests/issue-sync-tests.sh"
+      ]
+    },
+    {
+      "name": "linked-folders-tests",
+      "script": "tools/tests/linked-folders-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ArchiveSupport.swift",
+        "MarkView/Models/LinkedFolders.swift",
+        "MarkView/Models/ProjectColor.swift",
+        "MarkView/Models/ProjectSearch.swift",
+        "tools/tests/LinkedFoldersTests.swift",
+        "tools/tests/linked-folders-tests.sh"
+      ]
+    },
+    {
+      "name": "list-selection-tests",
+      "script": "tools/tests/list-selection-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/FileTransfer.swift",
+        "MarkView/Models/ListSelection.swift",
+        "tools/tests/ListSelectionTests.swift",
+        "tools/tests/list-selection-tests.sh"
+      ]
+    },
+    {
+      "name": "new-project-tests",
+      "script": "tools/tests/new-project-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/EvidenceTimings.swift",
+        "MarkView/Models/GitHubClient.swift",
+        "MarkView/Models/LifecycleCapture.swift",
+        "MarkView/Models/NewProject.swift",
+        "tools/tests/CLIToolLocatorStub.swift",
+        "tools/tests/NewProjectTests.swift",
+        "tools/tests/new-project-tests.sh"
+      ]
+    },
+    {
+      "name": "pdf-export-tests",
+      "script": "tools/tests/pdf-export-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Bridge/BookPDFRenderer.swift",
+        "MarkView/Bridge/DocumentFileSchemeHandler.swift",
+        "MarkView/Bridge/PDFExporter.swift",
+        "MarkView/Models/BookPDFSource.swift",
+        "MarkView/Models/DocumentFiles.swift",
+        "MarkView/Resources/Editor/book.html",
+        "tools/tests/PDFExportTests.swift",
+        "tools/tests/pdf-export-tests.sh"
+      ]
+    },
+    {
+      "name": "pdf-reader-tests",
+      "script": "tools/tests/pdf-reader-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/AppTheme.swift",
+        "MarkView/Models/DocumentState.swift",
+        "MarkView/Models/FeatureIngest.swift",
+        "MarkView/Models/PDFReader.swift",
+        "MarkView/Models/TabClosing.swift",
+        "MarkView/Models/WindowTheme.swift",
+        "MarkView/Models/WorkspaceManager.swift",
+        "MarkView/Views/AppPalette.swift",
+        "MarkView/Views/PDFReaderView.swift",
+        "tools/tests/PDFReaderRoutingTests.swift",
+        "tools/tests/PDFReaderTests.swift",
+        "tools/tests/PDFReaderViewTests.swift",
+        "tools/tests/TabClosingStoreTests.swift"
+      ]
+    },
+    {
+      "name": "persistent-remote-session-tests",
+      "script": "tools/tests/persistent-remote-session-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AgentProcesses.swift",
+        "MarkView/Models/BrowserAgentTools.swift",
+        "MarkView/Models/PTYWriter.swift",
+        "MarkView/Models/Remote/RemoteChannel.swift",
+        "MarkView/Models/Remote/RemoteCommand.swift",
+        "MarkView/Models/Remote/RemoteConnectionState.swift",
+        "MarkView/Models/Remote/RemoteFraming.swift",
+        "MarkView/Models/Remote/RemoteHostController.swift",
+        "MarkView/Models/Remote/RemoteProtocol.swift",
+        "MarkView/Models/Remote/RemoteProviderConfiguration.swift",
+        "MarkView/Models/Remote/RemoteTerminalConnection.swift",
+        "MarkView/Models/Remote/RemoteToolBridge.swift",
+        "MarkView/Models/Remote/RemoteToolRequests.swift",
+        "MarkView/Models/Remote/RemoteWorkspace.swift",
+        "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
+        "tools/tests/PersistentRemoteSessionTests.swift",
+        "tools/tests/persistent-remote-relay.mjs"
+      ]
+    },
+    {
+      "name": "phase0-safety-tests",
+      "script": "tools/tests/phase0-safety-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "tools/tests/Phase0SafetyTests.swift"
+      ]
+    },
+    {
+      "name": "phase1-cleanup-tests",
+      "script": "tools/tests/phase1-cleanup-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "tools/tests/Phase1CleanupTests.swift"
+      ]
+    },
+    {
+      "name": "project-agent-tools-tests",
+      "script": "tools/tests/project-agent-tools-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/BrowserAgentTools.swift",
+        "MarkView/Models/DeploymentAgentTools.swift",
+        "MarkView/Models/DiscussionAgentTools.swift",
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/IssueLifecycle.swift",
+        "MarkView/Models/IssueLifecycleContext.swift",
+        "MarkView/Models/IssueListing.swift",
+        "MarkView/Models/IssueTransitionLog.swift",
+        "MarkView/Models/ProjectAgentTools.swift",
+        "MarkView/Models/ProjectWorkflow.swift",
+        "MarkView/Models/WorkflowDescription.swift",
+        "MarkView/Models/WorkflowEvents.swift",
+        "tools/tests/ProjectAgentToolsTests.swift",
+        "tools/tests/project-agent-tools-tests.sh"
+      ]
+    },
+    {
+      "name": "project-ai-choice-tests",
+      "script": "tools/tests/project-ai-choice-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AIAssistants.swift",
+        "MarkView/Models/AICallLog.swift",
+        "MarkView/Models/AgentProcesses.swift",
+        "MarkView/Models/CLICompletion.swift",
+        "MarkView/Models/LinkedFolders.swift",
+        "MarkView/Models/ProjectColor.swift",
+        "tools/tests/ProjectAIChoiceTests.swift",
+        "tools/tests/project-ai-choice-tests.sh"
+      ]
+    },
+    {
+      "name": "project-backdrop-tests",
+      "script": "tools/tests/project-backdrop-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/ProjectBackdrop.swift",
+        "MarkView/Models/WelcomeBackdrop.swift",
+        "tools/tests/ProjectBackdropChecks.swift"
+      ]
+    },
+    {
+      "name": "project-change-review-layout-tests",
+      "script": "tools/tests/project-change-review-layout-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AppTheme.swift",
+        "MarkView/Models/ChangeExplanation.swift",
+        "MarkView/Models/OutputLanguage.swift",
+        "MarkView/Models/TextDiff.swift",
+        "MarkView/Models/WindowTheme.swift",
+        "MarkView/Views/AppPalette.swift",
+        "MarkView/Views/ProjectChangeReviewView.swift",
+        "tools/tests/ProjectChangeReviewLayoutTests.swift",
+        "tools/tests/project-change-review-layout-tests.sh"
+      ]
+    },
+    {
+      "name": "project-change-tests",
+      "script": "tools/tests/project-change-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ArchiveSupport.swift",
+        "MarkView/Models/ProjectChangeReview.swift",
+        "MarkView/Models/ProjectSearch.swift",
+        "tools/tests/ProjectChangeTests.swift",
+        "tools/tests/project-change-tests.sh"
+      ]
+    },
+    {
+      "name": "project-color-tests",
+      "script": "tools/tests/project-color-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ProjectColor.swift",
+        "tools/tests/ProjectColorTests.swift",
+        "tools/tests/project-color-tests.sh"
+      ]
+    },
+    {
+      "name": "project-operation-discovery-tests",
+      "script": "tools/tests/project-operation-discovery-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ProjectOperationDiscovery.swift"
+      ]
+    },
+    {
+      "name": "project-operation-merge-tests",
+      "script": "tools/tests/project-operation-merge-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ProjectOperation.swift",
+        "tools/tests/ProjectOperationAnyCodableStub.swift",
+        "tools/tests/ProjectOperationMergeTests.swift",
+        "tools/tests/project-operation-merge-tests.sh"
+      ]
+    },
+    {
+      "name": "project-operation-primary-tests",
+      "script": "tools/tests/project-operation-primary-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ProjectOperation.swift",
+        "tools/tests/ProjectOperationAnyCodableStub.swift",
+        "tools/tests/ProjectOperationPrimaryTests.swift",
+        "tools/tests/project-operation-primary-tests.sh"
+      ]
+    },
+    {
+      "name": "project-search-tests",
+      "script": "tools/tests/project-search-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ArchiveSupport.swift",
+        "MarkView/Models/ProjectSearch.swift",
+        "tools/tests/ProjectSearchTests.swift",
+        "tools/tests/project-search-tests.sh"
+      ]
+    },
+    {
+      "name": "prototype-audit-check",
+      "script": "tools/tests/prototype-audit-check.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/PrototypeAudit.swift"
+      ]
+    },
+    {
+      "name": "prototype-baseline-tests",
+      "script": "tools/tests/prototype-baseline-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/PrototypeBaseline.swift",
+        "MarkView/Models/PrototypeFiles.swift",
+        "MarkView/Models/PrototypeHandoff.swift",
+        "MarkView/Models/PrototypeHandoffDraft.swift",
+        "MarkView/Models/PrototypeShellStructure.swift",
+        "MarkView/Models/PrototypeStyles.swift",
+        "MarkView/Models/PrototypeTailwind.swift",
+        "MarkView/Models/PrototypeThemes.swift",
+        "tools/tests/PrototypeBaselineTests.swift"
+      ]
+    },
+    {
+      "name": "prototype-deadline-tests",
+      "script": "tools/tests/prototype-deadline-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/PrototypeAI.swift",
+        "MarkView/Models/PrototypeAudit.swift",
+        "MarkView/Models/PrototypeBaseline.swift",
+        "MarkView/Models/PrototypeEmbedded.swift",
+        "MarkView/Models/PrototypeFiles.swift",
+        "MarkView/Models/PrototypeHandoff.swift",
+        "MarkView/Models/PrototypeHandoffDraft.swift",
+        "MarkView/Models/PrototypeRuntime.swift",
+        "MarkView/Models/PrototypeShellStructure.swift",
+        "MarkView/Models/PrototypeStyles.swift",
+        "MarkView/Models/PrototypeTailwind.swift",
+        "MarkView/Models/PrototypeThemes.swift",
+        "tools/tests/PrototypeDeadlineFixture.swift",
+        "tools/tests/PrototypeDeadlineTests.swift"
+      ]
+    },
+    {
+      "name": "prototype-embedded-tests",
+      "script": "tools/tests/prototype-embedded-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/PrototypeAI.swift",
+        "MarkView/Models/PrototypeAudit.swift",
+        "MarkView/Models/PrototypeBaseline.swift",
+        "MarkView/Models/PrototypeEmbedded.swift",
+        "MarkView/Models/PrototypeFiles.swift",
+        "MarkView/Models/PrototypeHandoff.swift",
+        "MarkView/Models/PrototypeHandoffDraft.swift",
+        "MarkView/Models/PrototypeRuntime.swift",
+        "MarkView/Models/PrototypeShellStructure.swift",
+        "MarkView/Models/PrototypeStyles.swift",
+        "MarkView/Models/PrototypeTailwind.swift",
+        "MarkView/Models/PrototypeThemes.swift",
+        "tools/tests/PrototypeCLIStub.swift",
+        "tools/tests/PrototypeEmbeddedTests.swift",
+        "tools/tests/prototype-embedded-tests.sh"
+      ]
+    },
+    {
+      "name": "prototype-fidelity-tests",
+      "script": "tools/tests/prototype-fidelity-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/PrototypeFidelity.swift",
+        "tools/tests/PrototypeFidelityTests.swift",
+        "tools/tests/prototype-fidelity-tests.sh"
+      ]
+    },
+    {
+      "name": "prototype-fixround-tests",
+      "script": "tools/tests/prototype-fixround-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/PrototypeAudit.swift",
+        "tools/tests/PrototypeFixRoundTests.swift",
+        "tools/tests/prototype-fixround-tests.sh"
+      ]
+    },
+    {
+      "name": "prototype-handoff-draft-tests",
+      "script": "tools/tests/prototype-handoff-draft-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/PrototypeBaseline.swift",
+        "MarkView/Models/PrototypeFiles.swift",
+        "MarkView/Models/PrototypeHandoff.swift",
+        "MarkView/Models/PrototypeHandoffDraft.swift",
+        "MarkView/Models/PrototypeShellStructure.swift",
+        "MarkView/Models/PrototypeStyles.swift",
+        "MarkView/Models/PrototypeTailwind.swift",
+        "MarkView/Models/PrototypeThemes.swift",
+        "tools/tests/PrototypeHandoffDraftTests.swift",
+        "tools/tests/prototype-handoff-draft-tests.sh"
+      ]
+    },
+    {
+      "name": "prototype-handoff-live-run",
+      "script": "tools/tests/prototype-handoff-live-run.sh",
+      "tier": "live",
+      "sources": [
+        "MarkView/Bridge/PrototypeSchemeHandler.swift",
+        "MarkView/Bridge/PrototypeScreenshots.swift",
+        "MarkView/Models/ImageAttachments.swift",
+        "MarkView/Models/PrototypeAI.swift",
+        "MarkView/Models/PrototypeAudit.swift",
+        "MarkView/Models/PrototypeBaseline.swift",
+        "MarkView/Models/PrototypeEmbedded.swift",
+        "MarkView/Models/PrototypeFiles.swift",
+        "MarkView/Models/PrototypeHandoff.swift",
+        "MarkView/Models/PrototypeHandoffDraft.swift",
+        "MarkView/Models/PrototypeImages.swift",
+        "MarkView/Models/PrototypeRuntime.swift",
+        "MarkView/Models/PrototypeShellStructure.swift",
+        "MarkView/Models/PrototypeStyles.swift",
+        "MarkView/Models/PrototypeTailwind.swift",
+        "MarkView/Models/PrototypeThemes.swift",
+        "tools/tests/PrototypeCLIStub.swift",
+        "tools/tests/PrototypeHandoffLiveRun.swift",
+        "tools/tests/prototype-handoff-live-run.sh"
+      ]
+    },
+    {
+      "name": "prototype-images-tests",
+      "script": "tools/tests/prototype-images-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/ImageAttachments.swift",
+        "MarkView/Models/PrototypeImages.swift",
+        "tools/tests/PrototypeImagesTests.swift",
+        "tools/tests/prototype-images-tests.sh"
+      ]
+    },
+    {
+      "name": "prototype-live-run",
+      "script": "tools/tests/prototype-live-run.sh",
+      "tier": "live",
+      "sources": [
+        "MarkView/Models/PrototypeAI.swift",
+        "MarkView/Models/PrototypeAudit.swift",
+        "MarkView/Models/PrototypeBaseline.swift",
+        "MarkView/Models/PrototypeEmbedded.swift",
+        "MarkView/Models/PrototypeFiles.swift",
+        "MarkView/Models/PrototypeHandoff.swift",
+        "MarkView/Models/PrototypeHandoffDraft.swift",
+        "MarkView/Models/PrototypeRuntime.swift",
+        "MarkView/Models/PrototypeShellStructure.swift",
+        "MarkView/Models/PrototypeStyles.swift",
+        "MarkView/Models/PrototypeTailwind.swift",
+        "MarkView/Models/PrototypeThemes.swift",
+        "tools/tests/PrototypeCLIStub.swift",
+        "tools/tests/PrototypeLiveRun.swift",
+        "tools/tests/prototype-live-run.sh"
+      ]
+    },
+    {
+      "name": "prototype-reference-tests",
+      "script": "tools/tests/prototype-reference-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/PrototypeFiles.swift",
+        "MarkView/Models/PrototypeReference.swift",
+        "tools/tests/PrototypeReferenceTests.swift",
+        "tools/tests/prototype-reference-tests.sh"
+      ]
+    },
+    {
+      "name": "prototype-runtime-tests",
+      "script": "tools/tests/prototype-runtime-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Bridge/PrototypeSchemeHandler.swift",
+        "MarkView/Models/PrototypeAI.swift",
+        "MarkView/Models/PrototypeAudit.swift",
+        "MarkView/Models/PrototypeBaseline.swift",
+        "MarkView/Models/PrototypeEmbedded.swift",
+        "MarkView/Models/PrototypeFiles.swift",
+        "MarkView/Models/PrototypeHandoff.swift",
+        "MarkView/Models/PrototypeHandoffDraft.swift",
+        "MarkView/Models/PrototypeRuntime.swift",
+        "MarkView/Models/PrototypeShellStructure.swift",
+        "MarkView/Models/PrototypeStyles.swift",
+        "MarkView/Models/PrototypeTailwind.swift",
+        "MarkView/Models/PrototypeThemes.swift",
+        "MarkView/Views/PrototypeStudioView.swift",
+        "tools/tests/PrototypeCLIStub.swift",
+        "tools/tests/PrototypeRuntimeTests.swift",
+        "tools/tests/prototype-runtime-tests.sh"
+      ]
+    },
+    {
+      "name": "prototype-scheme-tests",
+      "script": "tools/tests/prototype-scheme-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Bridge/PrototypeSchemeHandler.swift",
+        "MarkView/Views/PrototypeStudioView.swift",
+        "tools/tests/PrototypeSchemeTests.swift",
+        "tools/tests/prototype-scheme-tests.sh"
+      ]
+    },
+    {
+      "name": "prototype-shell-structure-tests",
+      "script": "tools/tests/prototype-shell-structure-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/PrototypeAI.swift",
+        "MarkView/Models/PrototypeAudit.swift",
+        "MarkView/Models/PrototypeBaseline.swift",
+        "MarkView/Models/PrototypeEmbedded.swift",
+        "MarkView/Models/PrototypeFiles.swift",
+        "MarkView/Models/PrototypeHandoff.swift",
+        "MarkView/Models/PrototypeHandoffDraft.swift",
+        "MarkView/Models/PrototypeRuntime.swift",
+        "MarkView/Models/PrototypeShellStructure.swift",
+        "MarkView/Models/PrototypeStyles.swift",
+        "MarkView/Models/PrototypeTailwind.swift",
+        "MarkView/Models/PrototypeThemes.swift",
+        "tools/tests/PrototypeCLIStub.swift",
+        "tools/tests/PrototypeShellStructureTests.swift",
+        "tools/tests/prototype-shell-structure-tests.sh"
+      ]
+    },
+    {
+      "name": "prototype-styles-tests",
+      "script": "tools/tests/prototype-styles-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/PrototypeAI.swift",
+        "MarkView/Models/PrototypeAudit.swift",
+        "MarkView/Models/PrototypeBaseline.swift",
+        "MarkView/Models/PrototypeEmbedded.swift",
+        "MarkView/Models/PrototypeFiles.swift",
+        "MarkView/Models/PrototypeHandoff.swift",
+        "MarkView/Models/PrototypeHandoffDraft.swift",
+        "MarkView/Models/PrototypeRuntime.swift",
+        "MarkView/Models/PrototypeShellStructure.swift",
+        "MarkView/Models/PrototypeStyles.swift",
+        "MarkView/Models/PrototypeTailwind.swift",
+        "MarkView/Models/PrototypeThemes.swift",
+        "tools/tests/PrototypeCLIStub.swift",
+        "tools/tests/PrototypeStylesTests.swift",
+        "tools/tests/prototype-styles-tests.sh"
+      ]
+    },
+    {
+      "name": "prototype-tailwind-render-tests",
+      "script": "tools/tests/prototype-tailwind-render-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Bridge/PrototypeSchemeHandler.swift",
+        "MarkView/Models/PrototypeFiles.swift",
+        "MarkView/Models/PrototypeStyles.swift",
+        "MarkView/Models/PrototypeTailwind.swift",
+        "MarkView/Models/PrototypeThemes.swift",
+        "tools/tests/PrototypeTailwindRenderTests.swift",
+        "tools/tests/prototype-tailwind-render-tests.sh"
+      ]
+    },
+    {
+      "name": "prototype-tailwind-tests",
+      "script": "tools/tests/prototype-tailwind-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/PrototypeAI.swift",
+        "MarkView/Models/PrototypeAudit.swift",
+        "MarkView/Models/PrototypeBaseline.swift",
+        "MarkView/Models/PrototypeEmbedded.swift",
+        "MarkView/Models/PrototypeFiles.swift",
+        "MarkView/Models/PrototypeHandoff.swift",
+        "MarkView/Models/PrototypeHandoffDraft.swift",
+        "MarkView/Models/PrototypeRuntime.swift",
+        "MarkView/Models/PrototypeShellStructure.swift",
+        "MarkView/Models/PrototypeStyles.swift",
+        "MarkView/Models/PrototypeTailwind.swift",
+        "MarkView/Models/PrototypeThemes.swift",
+        "tools/tests/PrototypeCLIStub.swift",
+        "tools/tests/PrototypeTailwindTests.swift",
+        "tools/tests/prototype-tailwind-tests.sh"
+      ]
+    },
+    {
+      "name": "prototype-tests",
+      "script": "tools/tests/prototype-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/PrototypeAI.swift",
+        "MarkView/Models/PrototypeAudit.swift",
+        "MarkView/Models/PrototypeBaseline.swift",
+        "MarkView/Models/PrototypeEmbedded.swift",
+        "MarkView/Models/PrototypeFiles.swift",
+        "MarkView/Models/PrototypeHandoff.swift",
+        "MarkView/Models/PrototypeHandoffDraft.swift",
+        "MarkView/Models/PrototypeRuntime.swift",
+        "MarkView/Models/PrototypeShellStructure.swift",
+        "MarkView/Models/PrototypeStyles.swift",
+        "MarkView/Models/PrototypeTailwind.swift",
+        "MarkView/Models/PrototypeThemes.swift",
+        "tools/tests/PrototypeCLIStub.swift",
+        "tools/tests/PrototypeTests.swift",
+        "tools/tests/prototype-tests.sh"
+      ]
+    },
+    {
+      "name": "prototype-themes-tests",
+      "script": "tools/tests/prototype-themes-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/PrototypeFiles.swift",
+        "MarkView/Models/PrototypeThemes.swift",
+        "tools/tests/PrototypeThemesTests.swift"
+      ]
+    },
+    {
+      "name": "pty-writer-tests",
+      "script": "tools/tests/pty-writer-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/PTYWriter.swift",
+        "tools/tests/PTYWriterTests.swift",
+        "tools/tests/pty-writer-tests.sh"
+      ]
+    },
+    {
+      "name": "pull-request-history-tests",
+      "script": "tools/tests/pull-request-history-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/PullRequestHistory.swift",
+        "tools/tests/PullRequestHistoryTests.swift",
+        "tools/tests/pull-request-history-tests.sh"
+      ]
+    },
+    {
+      "name": "qa-api-tests",
+      "script": "tools/tests/qa-api-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/QAAPI.swift",
+        "MarkView/Models/QAAPIActor.swift",
+        "MarkView/Models/QAAPIClient.swift",
+        "MarkView/Models/QAActions.swift",
+        "MarkView/Models/QACredentials.swift",
+        "MarkView/Models/QAEffort.swift",
+        "MarkView/Models/QAGate.swift",
+        "MarkView/Models/QAGeneration.swift",
+        "MarkView/Models/QAGenerator.swift",
+        "MarkView/Models/QAInputMark.swift",
+        "MarkView/Models/QALanguage.swift",
+        "MarkView/Models/QAPageEvidence.swift",
+        "MarkView/Models/QAPlan.swift",
+        "MarkView/Models/QARun.swift",
+        "MarkView/Models/QARunner.swift",
+        "MarkView/Models/QAScenario.swift",
+        "MarkView/Models/QAStore.swift",
+        "MarkView/Models/QATriage.swift",
+        "tools/tests/QAAPIChecks.swift",
+        "tools/tests/QANativeKeychainStub.swift"
+      ]
+    },
+    {
+      "name": "qa-bugs-tests",
+      "script": "tools/tests/qa-bugs-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/BugReportWriter.swift",
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/QAAPI.swift",
+        "MarkView/Models/QABugFiler.swift",
+        "MarkView/Models/QABugs.swift",
+        "MarkView/Models/QAEffort.swift",
+        "MarkView/Models/QARun.swift",
+        "MarkView/Models/QAScenario.swift",
+        "MarkView/Models/QATriage.swift",
+        "tools/tests/IssueChecksSupport.swift",
+        "tools/tests/QABugsChecks.swift",
+        "tools/tests/qa-bugs-tests.sh"
+      ]
+    },
+    {
+      "name": "qa-evidence-web-tests",
+      "script": "tools/tests/qa-evidence-web-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/QAPageEvidence.swift",
+        "tools/tests/QAEvidenceWebHarness.swift",
+        "tools/tests/qa-evidence-web-tests.sh"
+      ]
+    },
+    {
+      "name": "qa-native-tests",
+      "script": "tools/tests/qa-native-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/QAAPI.swift",
+        "MarkView/Models/QAActions.swift",
+        "MarkView/Models/QAAttachments.swift",
+        "MarkView/Models/QACredentials.swift",
+        "MarkView/Models/QAEffort.swift",
+        "MarkView/Models/QAGate.swift",
+        "MarkView/Models/QAGeneration.swift",
+        "MarkView/Models/QAGenerator.swift",
+        "MarkView/Models/QAGraphLayout.swift",
+        "MarkView/Models/QAInputMark.swift",
+        "MarkView/Models/QALanguage.swift",
+        "MarkView/Models/QANativeAccessibility.swift",
+        "MarkView/Models/QANativeActor.swift",
+        "MarkView/Models/QANativeCapture.swift",
+        "MarkView/Models/QANativeFactory.swift",
+        "MarkView/Models/QANativeTree.swift",
+        "MarkView/Models/QAPageEvidence.swift",
+        "MarkView/Models/QAPlan.swift",
+        "MarkView/Models/QARun.swift",
+        "MarkView/Models/QARunner.swift",
+        "MarkView/Models/QAScenario.swift",
+        "MarkView/Models/QAScenarioEdit.swift",
+        "MarkView/Models/QAStore.swift",
+        "MarkView/Models/QATriage.swift",
+        "tools/tests/IssueChecksSupport.swift",
+        "tools/tests/QANativeChecks.swift",
+        "tools/tests/QANativeKeychainStub.swift",
+        "tools/tests/qa-native-tests.sh"
+      ]
+    },
+    {
+      "name": "qa-retention-tests",
+      "script": "tools/tests/qa-retention-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/BugReportWriter.swift",
+        "MarkView/Models/CockpitPlan.swift",
+        "MarkView/Models/CockpitResults.swift",
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/QAAPI.swift",
+        "MarkView/Models/QABugFiler.swift",
+        "MarkView/Models/QABugs.swift",
+        "MarkView/Models/QAEffort.swift",
+        "MarkView/Models/QARun.swift",
+        "MarkView/Models/QARunCleanup.swift",
+        "MarkView/Models/QARunRetention.swift",
+        "MarkView/Models/QAScenario.swift",
+        "MarkView/Models/QAStore.swift",
+        "MarkView/Models/QATriage.swift",
+        "tools/tests/IssueChecksSupport.swift",
+        "tools/tests/QARetentionChecks.swift",
+        "tools/tests/qa-retention-tests.sh"
+      ]
+    },
+    {
+      "name": "qa-review-tests",
+      "script": "tools/tests/qa-review-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/QAAPI.swift",
+        "MarkView/Models/QAEffort.swift",
+        "MarkView/Models/QAPageEvidence.swift",
+        "MarkView/Models/QAReview.swift",
+        "MarkView/Models/QAScenario.swift",
+        "MarkView/Models/QATriage.swift",
+        "tools/tests/IssueChecksSupport.swift",
+        "tools/tests/QAReviewChecks.swift",
+        "tools/tests/qa-evidence-web-tests.sh",
+        "tools/tests/qa-review-tests.sh"
+      ]
+    },
+    {
+      "name": "qa-tests",
+      "script": "tools/tests/qa-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CockpitPlan.swift",
+        "MarkView/Models/CockpitQAReview.swift",
+        "MarkView/Models/QAAPI.swift",
+        "MarkView/Models/QAActions.swift",
+        "MarkView/Models/QAAttachments.swift",
+        "MarkView/Models/QACredentials.swift",
+        "MarkView/Models/QAEffort.swift",
+        "MarkView/Models/QAGate.swift",
+        "MarkView/Models/QAGeneration.swift",
+        "MarkView/Models/QAGenerator.swift",
+        "MarkView/Models/QAGraphLayout.swift",
+        "MarkView/Models/QAInputMark.swift",
+        "MarkView/Models/QALanguage.swift",
+        "MarkView/Models/QAPageEvidence.swift",
+        "MarkView/Models/QAPlan.swift",
+        "MarkView/Models/QARun.swift",
+        "MarkView/Models/QARunner.swift",
+        "MarkView/Models/QAScenario.swift",
+        "MarkView/Models/QAScenarioEdit.swift",
+        "MarkView/Models/QAStore.swift",
+        "MarkView/Models/QATriage.swift",
+        "tools/tests/IssueChecksSupport.swift",
+        "tools/tests/QAChecks.swift",
+        "tools/tests/qa-tests.sh"
+      ]
+    },
+    {
+      "name": "qa-video-tests",
+      "script": "tools/tests/qa-video-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/QAFrameComposer.swift",
+        "MarkView/Models/QAInputMark.swift",
+        "MarkView/Models/QAVideoWriter.swift",
+        "tools/tests/QAVideoChecks.swift",
+        "tools/tests/qa-video-tests.sh"
+      ]
+    },
+    {
+      "name": "qa-web-fault-tests",
+      "script": "tools/tests/qa-web-fault-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/QAAPI.swift",
+        "MarkView/Models/QAActions.swift",
+        "MarkView/Models/QAAttachments.swift",
+        "MarkView/Models/QACredentials.swift",
+        "MarkView/Models/QAEffort.swift",
+        "MarkView/Models/QAGate.swift",
+        "MarkView/Models/QAGeneration.swift",
+        "MarkView/Models/QAGenerator.swift",
+        "MarkView/Models/QAGraphLayout.swift",
+        "MarkView/Models/QAInputMark.swift",
+        "MarkView/Models/QALanguage.swift",
+        "MarkView/Models/QAPageEvidence.swift",
+        "MarkView/Models/QAPlan.swift",
+        "MarkView/Models/QARun.swift",
+        "MarkView/Models/QARunner.swift",
+        "MarkView/Models/QAScenario.swift",
+        "MarkView/Models/QAScenarioEdit.swift",
+        "MarkView/Models/QAStore.swift",
+        "MarkView/Models/QATriage.swift",
+        "MarkView/Models/QAWebActor.swift",
+        "MarkView/Views/QAWebWindow.swift",
+        "tools/tests/IssueChecksSupport.swift",
+        "tools/tests/QANativeKeychainStub.swift",
+        "tools/tests/QAWebFaultChecks.swift"
+      ]
+    },
+    {
+      "name": "qa-web-window-tests",
+      "script": "tools/tests/qa-web-window-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Views/QAWebWindow.swift",
+        "tools/tests/QAWebWindowChecks.swift"
+      ]
+    },
+    {
+      "name": "recording-level-tests",
+      "script": "tools/tests/recording-level-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/RecordingLevel.swift",
+        "tools/tests/RecordingLevelTests.swift",
+        "tools/tests/recording-level-tests.sh"
+      ]
+    },
+    {
+      "name": "remote-browser-tests",
+      "script": "tools/tests/remote-browser-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/AgentProcesses.swift",
+        "MarkView/Models/BrowserAgentTools.swift",
+        "MarkView/Models/BrowserControlServer.swift",
+        "MarkView/Models/CockpitAgentRegistry.swift",
+        "MarkView/Models/CockpitHostBridge.swift",
+        "MarkView/Models/CockpitPlan.swift",
+        "MarkView/Models/CockpitStepPolicy.swift",
+        "MarkView/Models/CockpitSupervisor.swift",
+        "MarkView/Models/PTYWriter.swift",
+        "MarkView/Models/Remote/RemoteCommand.swift",
+        "MarkView/Models/Remote/RemoteProtocol.swift",
+        "MarkView/Models/Remote/RemoteWorkspace.swift",
+        "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
+        "tools/tests/RemoteBrowserTests.swift"
+      ]
+    },
+    {
+      "name": "remote-codex-context-tests",
+      "script": "tools/tests/remote-codex-context-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AgentProcesses.swift",
+        "MarkView/Models/BrowserAgentTools.swift",
+        "MarkView/Models/PTYWriter.swift",
+        "MarkView/Models/Remote/RemoteCodexContext.swift",
+        "MarkView/Models/Remote/RemoteCommand.swift",
+        "MarkView/Models/Remote/RemoteProtocol.swift",
+        "MarkView/Models/Remote/RemoteProviderConfiguration.swift",
+        "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
+        "tools/tests/RemoteCodexContextTests.swift"
+      ]
+    },
+    {
+      "name": "remote-relay-settings-tests",
+      "script": "tools/tests/remote-relay-settings-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Remote/RemoteProtocol.swift",
+        "MarkView/Models/Remote/RemoteRelaySettings.swift",
+        "tools/tests/RemoteRelaySettingsTests.swift"
+      ]
+    },
+    {
+      "name": "remote-workspace-live",
+      "script": "tools/tests/remote-workspace-live.sh",
+      "tier": "live",
+      "sources": [
+        "MarkView/Models/AgentProcesses.swift",
+        "MarkView/Models/BrowserAgentTools.swift",
+        "MarkView/Models/PTYWriter.swift",
+        "MarkView/Models/Remote/RemoteChannel.swift",
+        "MarkView/Models/Remote/RemoteCodexContext.swift",
+        "MarkView/Models/Remote/RemoteCommand.swift",
+        "MarkView/Models/Remote/RemoteFraming.swift",
+        "MarkView/Models/Remote/RemoteProtocol.swift",
+        "MarkView/Models/Remote/RemoteProviderConfiguration.swift",
+        "MarkView/Models/Remote/RemoteToolBridge.swift",
+        "MarkView/Models/Remote/RemoteToolRequests.swift",
+        "MarkView/Models/Remote/RemoteWorkspace.swift",
+        "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
+        "tools/tests/RemoteProviderLiveChecks.swift"
+      ]
+    },
+    {
+      "name": "remote-workspace-tests",
+      "script": "tools/tests/remote-workspace-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AgentProcesses.swift",
+        "MarkView/Models/BrowserAgentTools.swift",
+        "MarkView/Models/PTYWriter.swift",
+        "MarkView/Models/Remote/RemoteChannel.swift",
+        "MarkView/Models/Remote/RemoteCommand.swift",
+        "MarkView/Models/Remote/RemoteFraming.swift",
+        "MarkView/Models/Remote/RemoteProtocol.swift",
+        "MarkView/Models/Remote/RemoteProviderConfiguration.swift",
+        "MarkView/Models/Remote/RemoteToolBridge.swift",
+        "MarkView/Models/Remote/RemoteToolRequests.swift",
+        "MarkView/Models/Remote/RemoteWorkspace.swift",
+        "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
+        "tools/tests/RemoteChannelTests.swift",
+        "tools/tests/RemoteWorkspaceTests.swift",
+        "tools/tests/remote-browser-tests.sh",
+        "tools/tests/remote-codex-context-tests.sh",
+        "tools/tests/remote-relay-settings-tests.sh",
+        "tools/tests/terminal-child-tests.sh"
+      ]
+    },
+    {
+      "name": "research-document-tests",
+      "script": "tools/tests/research-document-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/ResearchDocument.swift",
+        "tools/tests/ResearchDocumentTests.swift",
+        "tools/tests/research-document-tests.sh"
+      ]
+    },
+    {
+      "name": "research-map-document-tests",
+      "script": "tools/tests/research-map-document-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/ResearchDocument.swift",
+        "MarkView/Models/ResearchMapDocument.swift",
+        "tools/tests/ResearchMapDocumentTests.swift",
+        "tools/tests/research-map-document-tests.sh"
+      ]
+    },
+    {
+      "name": "research-map-export-tests",
+      "script": "tools/tests/research-map-export-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/ResearchDocument.swift",
+        "MarkView/Models/ResearchMapDocument.swift",
+        "MarkView/Models/ResearchMapExport.swift",
+        "tools/tests/ResearchMapExportTests.swift",
+        "tools/tests/research-map-export-tests.sh"
+      ]
+    },
+    {
+      "name": "research-map-images-tests",
+      "script": "tools/tests/research-map-images-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/ResearchMapImages.swift",
+        "tools/tests/ResearchMapImagesTests.swift",
+        "tools/tests/research-map-images-tests.sh"
+      ]
+    },
+    {
+      "name": "research-map-layout-tests",
+      "script": "tools/tests/research-map-layout-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "tools/tests/research-map-layout-tests.sh",
+        "tools/tests/research-map-layout.test.js"
+      ]
+    },
+    {
+      "name": "research-map-report-tests",
+      "script": "tools/tests/research-map-report-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/ResearchDocument.swift",
+        "MarkView/Models/ResearchMapDocument.swift",
+        "MarkView/Models/ResearchMapExport.swift",
+        "MarkView/Models/ResearchMapReport.swift",
+        "tools/tests/ResearchMapReportTests.swift",
+        "tools/tests/research-map-report-tests.sh"
+      ]
+    },
+    {
+      "name": "research-map-run-tests",
+      "script": "tools/tests/research-map-run-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/ResearchDocument.swift",
+        "MarkView/Models/ResearchMapDocument.swift",
+        "MarkView/Models/ResearchMapRun.swift",
+        "tools/tests/ResearchMapRunTests.swift",
+        "tools/tests/research-map-run-tests.sh"
+      ]
+    },
+    {
+      "name": "research-map-translation-tests",
+      "script": "tools/tests/research-map-translation-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/ResearchDocument.swift",
+        "MarkView/Models/ResearchMapDocument.swift",
+        "MarkView/Models/ResearchMapTranslation.swift",
+        "tools/tests/ResearchMapTranslationTests.swift",
+        "tools/tests/research-map-translation-tests.sh"
+      ]
+    },
+    {
+      "name": "research-map-web-tests",
+      "script": "tools/tests/research-map-web-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "tools/tests/ResearchMapWebTests.swift",
+        "tools/tests/research-map-web-tests.sh"
+      ]
+    },
+    {
+      "name": "saved-remote-connections-tests",
+      "script": "tools/tests/saved-remote-connections-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Remote/RemoteChannel.swift",
+        "MarkView/Models/Remote/RemoteConnectionState.swift",
+        "MarkView/Models/Remote/RemoteConnectionsStore.swift",
+        "MarkView/Models/Remote/RemoteFraming.swift",
+        "MarkView/Models/Remote/RemoteProtocol.swift",
+        "MarkView/Models/Remote/RemoteRelaySettings.swift",
+        "tools/tests/SavedRemoteConnectionsTests.swift"
+      ]
+    },
+    {
+      "name": "structure-outline-tests",
+      "script": "tools/tests/structure-outline-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/StructureOutline.swift",
+        "tools/tests/StructureOutlineTests.swift",
+        "tools/tests/structure-outline-tests.sh"
+      ]
+    },
+    {
+      "name": "structure-reveal-tests",
+      "script": "tools/tests/structure-reveal-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Resources/Editor/vendor/js/markview-structured.js",
+        "tools/tests/StructureRevealTests.swift",
+        "tools/tests/structure-reveal-tests.sh"
+      ]
+    },
+    {
+      "name": "system-probe-tests",
+      "script": "tools/tests/system-probe-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/CommandPolicy.swift",
+        "MarkView/Models/DeploymentModels.swift",
+        "MarkView/Models/SystemProbe.swift",
+        "tools/tests/SystemProbeTests.swift",
+        "tools/tests/system-probe-tests.sh"
+      ]
+    },
+    {
+      "name": "tab-closing-tests",
+      "script": "tools/tests/tab-closing-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/TabClosing.swift",
+        "tools/tests/TabClosingChecks.swift"
+      ]
+    },
+    {
+      "name": "terminal-child-tests",
+      "script": "tools/tests/terminal-child-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/TerminalChildProcess.swift",
+        "tools/tests/TerminalChildProcessTests.swift"
+      ]
+    },
+    {
+      "name": "terminal-layout-tests",
+      "script": "tools/tests/terminal-layout-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/AppFontScale.swift",
+        "MarkView/Models/ArchiveSupport.swift",
+        "MarkView/Models/DocumentState.swift",
+        "MarkView/Models/PTYWriter.swift",
+        "MarkView/Models/Remote/RemoteConnectionState.swift",
+        "MarkView/Models/TerminalBrowserBridge.swift",
+        "MarkView/Models/TerminalChildProcess.swift",
+        "MarkView/Models/TerminalLink.swift",
+        "MarkView/Models/TerminalSession.swift",
+        "MarkView/Resources/Editor/terminal.html",
+        "MarkView/Views/AppFontScaleView.swift",
+        "tools/tests/TerminalLayoutTests.swift"
+      ]
+    },
+    {
+      "name": "terminal-link-tests",
+      "script": "tools/tests/terminal-link-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/AppFontScale.swift",
+        "MarkView/Models/ArchiveSupport.swift",
+        "MarkView/Models/DocumentState.swift",
+        "MarkView/Models/PTYWriter.swift",
+        "MarkView/Models/Remote/RemoteConnectionState.swift",
+        "MarkView/Models/TerminalBrowserBridge.swift",
+        "MarkView/Models/TerminalChildProcess.swift",
+        "MarkView/Models/TerminalLink.swift",
+        "MarkView/Models/TerminalSession.swift",
+        "MarkView/Resources/Editor/index.html",
+        "MarkView/Resources/Editor/terminal.html",
+        "MarkView/Views/AppFontScaleView.swift",
+        "tools/tests/EditorLineLinkTests.swift",
+        "tools/tests/TerminalLinkTests.swift"
+      ]
+    },
+    {
+      "name": "text-diff-tests",
+      "script": "tools/tests/text-diff-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ChangeExplanation.swift",
+        "MarkView/Models/OutputLanguage.swift",
+        "MarkView/Models/TextDiff.swift",
+        "tools/tests/TextDiffChecks.swift",
+        "tools/tests/text-diff-tests.sh"
+      ]
+    },
+    {
+      "name": "theme-model-tests",
+      "script": "tools/tests/theme-model-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/AppTheme.swift",
+        "tools/tests/ThemeModelTests.swift",
+        "tools/tests/theme-model-tests.sh"
+      ]
+    },
+    {
+      "name": "theme-web-tests",
+      "script": "tools/tests/theme-web-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "tools/tests/ThemeWebTests.swift",
+        "tools/tests/theme-web-tests.sh"
+      ]
+    },
+    {
+      "name": "transcription-failure-tests",
+      "script": "tools/tests/transcription-failure-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/WhisperClient.swift",
+        "tools/tests/TranscriptionFailureTests.swift",
+        "tools/tests/transcription-failure-tests.sh"
+      ]
+    },
+    {
+      "name": "ui-studio-gateway-tests",
+      "script": "tools/tests/ui-studio-gateway-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/UIStudioGateway.swift",
+        "MarkView/Models/UIStudioGatewayStreams.swift",
+        "tools/tests/UIStudioGatewayTests.swift",
+        "tools/tests/ui-studio-gateway-tests.sh"
+      ]
+    },
+    {
+      "name": "ui-studio-live-run",
+      "script": "tools/tests/ui-studio-live-run.sh",
+      "tier": "live",
+      "sources": [
+        "MarkView/Models/ACPAssistant.swift",
+        "MarkView/Models/AIAssistants.swift",
+        "MarkView/Models/AICallLog.swift",
+        "MarkView/Models/AgentProcesses.swift",
+        "MarkView/Models/BrowserElementPick.swift",
+        "MarkView/Models/BugReportWriter.swift",
+        "MarkView/Models/CLICompletion.swift",
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/ImageAttachments.swift",
+        "MarkView/Models/IssueLifecycle.swift",
+        "MarkView/Models/IssueListing.swift",
+        "MarkView/Models/IssueTransitionLog.swift",
+        "MarkView/Models/LinkedFolders.swift",
+        "MarkView/Models/ProjectColor.swift",
+        "MarkView/Models/ProjectWorkflow.swift",
+        "MarkView/Models/UIStudioAgents.swift",
+        "MarkView/Models/UIStudioAuthMock.swift",
+        "MarkView/Models/UIStudioBridge.swift",
+        "MarkView/Models/UIStudioChanges.swift",
+        "MarkView/Models/UIStudioChannels.swift",
+        "MarkView/Models/UIStudioConnections.swift",
+        "MarkView/Models/UIStudioContext.swift",
+        "MarkView/Models/UIStudioDataFix.swift",
+        "MarkView/Models/UIStudioEnvironmentMap.swift",
+        "MarkView/Models/UIStudioEnvironmentMapper.swift",
+        "MarkView/Models/UIStudioEvidence.swift",
+        "MarkView/Models/UIStudioGateway.swift",
+        "MarkView/Models/UIStudioGatewayStreams.swift",
+        "MarkView/Models/UIStudioGraphQL.swift",
+        "MarkView/Models/UIStudioJSON.swift",
+        "MarkView/Models/UIStudioLog.swift",
+        "MarkView/Models/UIStudioModels.swift",
+        "MarkView/Models/UIStudioPolicy.swift",
+        "MarkView/Models/UIStudioPreparation.swift",
+        "MarkView/Models/UIStudioPrompts.swift",
+        "MarkView/Models/UIStudioRealtimePrompts.swift",
+        "MarkView/Models/UIStudioRedaction.swift",
+        "MarkView/Models/UIStudioRepair.swift",
+        "MarkView/Models/UIStudioReview.swift",
+        "MarkView/Models/UIStudioScreens.swift",
+        "MarkView/Models/UIStudioSelection.swift",
+        "MarkView/Models/UIStudioServer.swift",
+        "MarkView/Models/UIStudioSession.swift",
+        "MarkView/Models/UIStudioSimulation.swift",
+        "MarkView/Models/UIStudioStore.swift",
+        "MarkView/Models/UIStudioTracking.swift",
+        "MarkView/Models/WebAppPreview.swift",
+        "MarkView/Resources/Editor/vendor/js/markview-ui-studio.js",
+        "MarkView/Views/UIStudioPreviewHost.swift",
+        "MarkView/ai-calls.js",
+        "tools/tests/UIStudioLiveRun.swift",
+        "tools/tests/UIStudioLiveStubs.swift",
+        "tools/tests/ui-studio-live-run.sh"
+      ]
+    },
+    {
+      "name": "ui-studio-node-tests",
+      "script": "tools/tests/ui-studio-node-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Resources/Editor/vendor/js/markview-ui-studio-node.cjs",
+        "tools/tests/ui-studio-node-tests.sh",
+        "tools/tests/ui-studio-node.test.js"
+      ]
+    },
+    {
+      "name": "ui-studio-session-tests",
+      "script": "tools/tests/ui-studio-session-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/BrowserElementPick.swift",
+        "MarkView/Models/BugReportWriter.swift",
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/ImageAttachments.swift",
+        "MarkView/Models/IssueLifecycle.swift",
+        "MarkView/Models/IssueListing.swift",
+        "MarkView/Models/IssueTransitionLog.swift",
+        "MarkView/Models/ProjectWorkflow.swift",
+        "MarkView/Models/UIStudioAgents.swift",
+        "MarkView/Models/UIStudioAuthMock.swift",
+        "MarkView/Models/UIStudioBridge.swift",
+        "MarkView/Models/UIStudioChanges.swift",
+        "MarkView/Models/UIStudioChannels.swift",
+        "MarkView/Models/UIStudioConnections.swift",
+        "MarkView/Models/UIStudioContext.swift",
+        "MarkView/Models/UIStudioDataFix.swift",
+        "MarkView/Models/UIStudioEnvironmentMap.swift",
+        "MarkView/Models/UIStudioEnvironmentMapper.swift",
+        "MarkView/Models/UIStudioEvidence.swift",
+        "MarkView/Models/UIStudioGateway.swift",
+        "MarkView/Models/UIStudioGatewayStreams.swift",
+        "MarkView/Models/UIStudioGraphQL.swift",
+        "MarkView/Models/UIStudioJSON.swift",
+        "MarkView/Models/UIStudioLog.swift",
+        "MarkView/Models/UIStudioModels.swift",
+        "MarkView/Models/UIStudioPolicy.swift",
+        "MarkView/Models/UIStudioPreparation.swift",
+        "MarkView/Models/UIStudioPrompts.swift",
+        "MarkView/Models/UIStudioRealtimePrompts.swift",
+        "MarkView/Models/UIStudioRedaction.swift",
+        "MarkView/Models/UIStudioRepair.swift",
+        "MarkView/Models/UIStudioReview.swift",
+        "MarkView/Models/UIStudioScreens.swift",
+        "MarkView/Models/UIStudioSelection.swift",
+        "MarkView/Models/UIStudioServer.swift",
+        "MarkView/Models/UIStudioSession.swift",
+        "MarkView/Models/UIStudioSimulation.swift",
+        "MarkView/Models/UIStudioStore.swift",
+        "MarkView/Models/UIStudioTracking.swift",
+        "MarkView/Models/WebAppPreview.swift",
+        "MarkView/Resources/Editor/vendor/js/markview-ui-studio.js",
+        "MarkView/Views/UIStudioPreviewHost.swift",
+        "tools/tests/UIStudioAuthHarness.swift",
+        "tools/tests/UIStudioSessionHarness.swift",
+        "tools/tests/UIStudioSessionStubs.swift",
+        "tools/tests/ui-studio-session-tests.sh"
+      ]
+    },
+    {
+      "name": "ui-studio-tests",
+      "script": "tools/tests/ui-studio-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/BrowserElementPick.swift",
+        "MarkView/Models/BugReportWriter.swift",
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/UIStudioAuthMock.swift",
+        "MarkView/Models/UIStudioBridge.swift",
+        "MarkView/Models/UIStudioChanges.swift",
+        "MarkView/Models/UIStudioChannels.swift",
+        "MarkView/Models/UIStudioConnections.swift",
+        "MarkView/Models/UIStudioContext.swift",
+        "MarkView/Models/UIStudioDataFix.swift",
+        "MarkView/Models/UIStudioEnvironmentMap.swift",
+        "MarkView/Models/UIStudioEnvironmentMapper.swift",
+        "MarkView/Models/UIStudioEvidence.swift",
+        "MarkView/Models/UIStudioGateway.swift",
+        "MarkView/Models/UIStudioGatewayStreams.swift",
+        "MarkView/Models/UIStudioGraphQL.swift",
+        "MarkView/Models/UIStudioJSON.swift",
+        "MarkView/Models/UIStudioLog.swift",
+        "MarkView/Models/UIStudioModels.swift",
+        "MarkView/Models/UIStudioPolicy.swift",
+        "MarkView/Models/UIStudioPreparation.swift",
+        "MarkView/Models/UIStudioPrompts.swift",
+        "MarkView/Models/UIStudioRealtimePrompts.swift",
+        "MarkView/Models/UIStudioRedaction.swift",
+        "MarkView/Models/UIStudioRepair.swift",
+        "MarkView/Models/UIStudioReview.swift",
+        "MarkView/Models/UIStudioScreens.swift",
+        "MarkView/Models/UIStudioSelection.swift",
+        "MarkView/Models/UIStudioServer.swift",
+        "MarkView/Models/UIStudioSimulation.swift",
+        "MarkView/Models/UIStudioStore.swift",
+        "MarkView/Models/UIStudioTracking.swift",
+        "tools/tests/UIStudioAuthTests.swift",
+        "tools/tests/UIStudioEnvelopeTests.swift",
+        "tools/tests/UIStudioRepairTests.swift",
+        "tools/tests/UIStudioScreensTests.swift",
+        "tools/tests/UIStudioTests.swift",
+        "tools/tests/ui-studio-tests.sh"
+      ]
+    },
+    {
+      "name": "ui-studio-web-tests",
+      "script": "tools/tests/ui-studio-web-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/UIStudioAuthMock.swift",
+        "MarkView/Models/UIStudioBridge.swift",
+        "MarkView/Models/UIStudioChanges.swift",
+        "MarkView/Models/UIStudioChannels.swift",
+        "MarkView/Models/UIStudioConnections.swift",
+        "MarkView/Models/UIStudioEnvironmentMap.swift",
+        "MarkView/Models/UIStudioGateway.swift",
+        "MarkView/Models/UIStudioGatewayStreams.swift",
+        "MarkView/Models/UIStudioGraphQL.swift",
+        "MarkView/Models/UIStudioJSON.swift",
+        "MarkView/Models/UIStudioModels.swift",
+        "MarkView/Models/UIStudioPolicy.swift",
+        "MarkView/Models/UIStudioRedaction.swift",
+        "MarkView/Models/UIStudioSelection.swift",
+        "MarkView/Models/UIStudioSimulation.swift",
+        "MarkView/Resources/Editor/vendor/js/markview-ui-studio.js",
+        "MarkView/Views/UIStudioPreviewHost.swift",
+        "tools/tests/UIStudioWebHarness.swift",
+        "tools/tests/ui-studio-web-tests.sh"
+      ]
+    },
+    {
+      "name": "understanding-answer-tests",
+      "script": "tools/tests/understanding-answer-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/UnderstandingAnswer.swift",
+        "tools/tests/UnderstandingAnswerTests.swift"
+      ]
+    },
+    {
+      "name": "web-preview-tests",
+      "script": "tools/tests/web-preview-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/BrowserDownloads.swift",
+        "MarkView/Models/BrowserElementPick.swift",
+        "MarkView/Models/BrowserPagePDF.swift",
+        "MarkView/Models/BrowserPasswordScript.swift",
+        "MarkView/Models/BrowserPasswords.swift",
+        "MarkView/Models/BrowserSession.swift",
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/ResearchDocument.swift",
+        "MarkView/Models/TerminalBrowserBridge.swift",
+        "MarkView/Models/WebAppPreview.swift",
+        "MarkView/Models/WebClip.swift",
+        "MarkView/Views/BrowserPopup.swift",
+        "tools/tests/WebPreviewTests.swift",
+        "tools/tests/web-preview-tests.sh"
+      ]
+    },
+    {
+      "name": "welcome-screen-tests",
+      "script": "tools/tests/welcome-screen-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/AppFontScale.swift",
+        "MarkView/Models/AppTheme.swift",
+        "MarkView/Models/ProjectBackdrop.swift",
+        "MarkView/Models/WelcomeActions.swift",
+        "MarkView/Models/WelcomeBackdrop.swift",
+        "MarkView/Models/WindowTheme.swift",
+        "MarkView/Views/AppFontScaleView.swift",
+        "MarkView/Views/AppPalette.swift",
+        "MarkView/Views/AtmosphereBackdropLayers.swift",
+        "MarkView/Views/BackdropLayerBuilders.swift",
+        "MarkView/Views/DevBackdropLayers.swift",
+        "MarkView/Views/ProjectBackdropLayers.swift",
+        "MarkView/Views/WelcomeBackdropView.swift",
+        "MarkView/Views/WelcomeView.swift",
+        "tools/tests/WelcomeScreenTests.swift",
+        "tools/tests/welcome-screen-tests.sh"
+      ]
+    },
+    {
+      "name": "window-session-tests",
+      "script": "tools/tests/window-session-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/AppTheme.swift",
+        "MarkView/Models/DocumentState.swift",
+        "MarkView/Models/WindowSession.swift",
+        "MarkView/Models/WindowUIState.swift",
+        "tools/tests/WindowSessionTests.swift"
+      ]
+    },
+    {
+      "name": "window-theme-tests",
+      "script": "tools/tests/window-theme-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/AppFontScale.swift",
+        "MarkView/Models/AppTheme.swift",
+        "MarkView/Models/WindowTheme.swift",
+        "MarkView/Views/AppFontScaleView.swift",
+        "MarkView/Views/AppPalette.swift",
+        "MarkView/Views/ThemePickerView.swift",
+        "tools/tests/WindowThemeTests.swift",
+        "tools/tests/window-theme-tests.sh"
+      ]
+    },
+    {
+      "name": "window-title-tests",
+      "script": "tools/tests/window-title-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/WindowTitle.swift",
+        "tools/tests/WindowTitleTests.swift",
+        "tools/tests/window-title-tests.sh"
+      ]
+    },
+    {
+      "name": "window-ui-state-tests",
+      "script": "tools/tests/window-ui-state-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/EditorWindowPrefs.swift",
+        "MarkView/Models/ExcludedFolders.swift",
+        "MarkView/Models/WindowUIState.swift",
+        "MarkView/Views/WindowStorage.swift",
+        "tools/tests/WindowUIStateTests.swift",
+        "tools/tests/window-ui-state-tests.sh"
+      ]
+    },
+    {
+      "name": "workflow-diagram-tests",
+      "script": "tools/tests/workflow-diagram-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/IssueLifecycle.swift",
+        "MarkView/Models/IssueListing.swift",
+        "MarkView/Models/ProjectWorkflow.swift",
+        "MarkView/Models/WorkflowDiagramLayout.swift",
+        "MarkView/Models/WorkflowFlow.swift",
+        "MarkView/Models/WorkflowTransitionStory.swift",
+        "tools/tests/WorkflowDiagramChecks.swift",
+        "tools/tests/workflow-diagram-tests.sh"
+      ]
+    },
+    {
+      "name": "workflow-done-tests",
+      "script": "tools/tests/workflow-done-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/DefinitionOfDone.swift",
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/IssueLifecycle.swift",
+        "MarkView/Models/IssueListing.swift",
+        "MarkView/Models/ProjectWorkflow.swift",
+        "MarkView/Models/WorkflowDone.swift",
+        "tools/tests/WorkflowDoneChecks.swift",
+        "tools/tests/workflow-done-tests.sh"
+      ]
+    },
+    {
+      "name": "workflow-editor-layout-tests",
+      "script": "tools/tests/workflow-editor-layout-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/AppTheme.swift",
+        "MarkView/Models/DefinitionOfDone.swift",
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/IssueLifecycle.swift",
+        "MarkView/Models/IssueLifecycleDisplay.swift",
+        "MarkView/Models/IssueLifecycleEvidence.swift",
+        "MarkView/Models/IssueListing.swift",
+        "MarkView/Models/IssueTransitionLog.swift",
+        "MarkView/Models/ProjectWorkflow.swift",
+        "MarkView/Models/ProjectWorkflowStore.swift",
+        "MarkView/Models/WindowTheme.swift",
+        "MarkView/Models/WorkflowDescription.swift",
+        "MarkView/Models/WorkflowDiagramLayout.swift",
+        "MarkView/Models/WorkflowDone.swift",
+        "MarkView/Models/WorkflowEditorModel.swift",
+        "MarkView/Models/WorkflowEvents.swift",
+        "MarkView/Models/WorkflowFlow.swift",
+        "MarkView/Models/WorkflowProposal.swift",
+        "MarkView/Models/WorkflowTemplate.swift",
+        "MarkView/Models/WorkflowTemplateLibrary.swift",
+        "MarkView/Models/WorkflowTransitionStory.swift",
+        "MarkView/Views/AppPalette.swift",
+        "MarkView/Views/WorkflowDiagramView.swift",
+        "MarkView/Views/WorkflowDonePanel.swift",
+        "MarkView/Views/WorkflowFlowPicker.swift",
+        "MarkView/Views/WorkflowProcessControls.swift",
+        "MarkView/Views/WorkflowProposalBanner.swift",
+        "MarkView/Views/WorkflowTabView.swift",
+        "MarkView/Views/WorkflowTemplatesSettings.swift",
+        "tools/tests/WorkflowEditorLayoutTests.swift",
+        "tools/tests/workflow-editor-layout-tests.sh"
+      ]
+    },
+    {
+      "name": "workflow-flow-tests",
+      "script": "tools/tests/workflow-flow-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/DefinitionOfDone.swift",
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/IssueLifecycle.swift",
+        "MarkView/Models/IssueListing.swift",
+        "MarkView/Models/ProjectWorkflow.swift",
+        "MarkView/Models/WorkflowDiagramLayout.swift",
+        "MarkView/Models/WorkflowDone.swift",
+        "MarkView/Models/WorkflowFlow.swift",
+        "MarkView/Models/WorkflowTransitionStory.swift",
+        "tools/tests/WorkflowFlowChecks.swift",
+        "tools/tests/workflow-flow-tests.sh"
+      ]
+    },
+    {
+      "name": "workflow-story-tests",
+      "script": "tools/tests/workflow-story-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/IssueLifecycle.swift",
+        "MarkView/Models/IssueListing.swift",
+        "MarkView/Models/ProjectWorkflow.swift",
+        "MarkView/Models/WorkflowDiagramLayout.swift",
+        "MarkView/Models/WorkflowTransitionStory.swift",
+        "tools/tests/WorkflowStoryChecks.swift",
+        "tools/tests/workflow-story-tests.sh"
+      ]
+    },
+    {
+      "name": "workflow-template-tests",
+      "script": "tools/tests/workflow-template-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/DefinitionOfDone.swift",
+        "MarkView/Models/FeatureVocabulary.swift",
+        "MarkView/Models/IssueLifecycle.swift",
+        "MarkView/Models/IssueListing.swift",
+        "MarkView/Models/ProjectWorkflow.swift",
+        "MarkView/Models/WorkflowDiagramLayout.swift",
+        "MarkView/Models/WorkflowDone.swift",
+        "MarkView/Models/WorkflowFlow.swift",
+        "MarkView/Models/WorkflowTemplate.swift",
+        "MarkView/Models/WorkflowTransitionStory.swift",
+        "tools/tests/WorkflowTemplateChecks.swift",
+        "tools/tests/workflow-template-tests.sh"
+      ]
+    },
+    {
+      "name": "workspace-redesign-tests",
+      "script": "tools/tests/workspace-redesign-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ArchiveSupport.swift",
+        "MarkView/Models/FrontMatter.swift",
+        "MarkView/Models/LinkedFolders.swift",
+        "MarkView/Models/ProjectChangeReview.swift",
+        "MarkView/Models/ProjectColor.swift",
+        "MarkView/Models/ProjectSearch.swift",
+        "MarkView/Models/SpecificationHandoff.swift",
+        "tools/tests/WorkspaceRedesignTests.swift"
+      ]
+    },
+    {
+      "name": "xray-comparison-web-tests",
+      "script": "tools/tests/xray-comparison-web-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "tools/tests/XRayComparisonWebTests.swift",
+        "tools/tests/xray-comparison-web-tests.sh"
+      ]
+    },
+    {
+      "name": "xray-content-tests",
+      "script": "tools/tests/xray-content-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/XRayContent.swift",
+        "tools/tests/XRayContentTests.swift"
+      ]
+    },
+    {
+      "name": "xray-layout-web-tests",
+      "script": "tools/tests/xray-layout-web-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "tools/tests/XRayLayoutWebTests.swift",
+        "tools/tests/xray-layout-web-tests.sh"
+      ]
+    }
+  ]
+}

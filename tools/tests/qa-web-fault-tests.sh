@@ -6,7 +6,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 M=MarkView/Models
 swiftc -parse-as-library -o "$out/qa-web-fault" \
-  "$M/QAWebActor.swift" "$M/QAWebWindow.swift" \
+  "$M/QAWebActor.swift" "MarkView/Views/QAWebWindow.swift" \
   "$M/QAAPI.swift" "$M/QAScenario.swift" "$M/QARun.swift" "$M/QAStore.swift" \
   "$M/QAGeneration.swift" "$M/QAGenerator.swift" "$M/QAPlan.swift" "$M/QAGate.swift" \
   "$M/QAEffort.swift" "$M/QATriage.swift" "$M/QAInputMark.swift" "$M/QAActions.swift" "$M/QARunner.swift" \
