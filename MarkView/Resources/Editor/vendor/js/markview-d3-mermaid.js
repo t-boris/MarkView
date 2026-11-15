@@ -188,10 +188,10 @@
                         event.pageY-container.getBoundingClientRect().top,
                         `<div class="popup-title">${esc(l.srcNode.label)} → ${esc(l.tgtNode.label)}</div>
                          <div class="popup-type">${esc(l.label||'depends on')}</div>
-                         ${l.evidence?`<div class="popup-actions"><button class="popup-btn" onclick="openDiagramSource('${esc(l.evidence).replace(/'/g,'')}')">Evidence: ${esc(l.evidence)}</button></div>`:''}
+                         ${l.evidence?`<div class="popup-actions"><button class="popup-btn" data-open-source="${esc(l.evidence)}">Evidence: ${esc(l.evidence)}</button></div>`:''}
                          <div class="popup-actions">
                            <input class="popup-input" id="edge-prompt-${container.id}" placeholder="Ask AI to change..." />
-                           <button class="popup-btn" onclick="aiEditGraph('${container.id}','Change relationship between ${l.srcNode.label} and ${l.tgtNode.label}: '+document.getElementById('edge-prompt-${container.id}').value)">AI Edit</button>
+                           <button class="popup-btn" data-ai-edit="${esc(container.id)}" data-ai-input="edge-prompt-${esc(container.id)}" data-ai-prefix="${esc('Change relationship between ' + l.srcNode.label + ' and ' + l.tgtNode.label + ': ')}">AI Edit</button>
                          </div>`);
                 });
             });
@@ -244,11 +244,11 @@
                         `<div class="popup-title">${esc(n.label)}</div>
                          <div class="popup-type">[${esc(n.type)}] ${n.group?'• '+esc(n.group):''}</div>
                          ${n.note?`<div class="popup-type">${esc(n.note)}</div>`:''}
-                         ${n.source?`<div class="popup-actions"><button class="popup-btn" onclick="openDiagramSource('${esc(n.source).replace(/'/g,'')}')">Open ${esc(n.source)}</button></div>`:''}
+                         ${n.source?`<div class="popup-actions"><button class="popup-btn" data-open-source="${esc(n.source)}">Open ${esc(n.source)}</button></div>`:''}
                          <div class="popup-actions">
                            <input class="popup-input" id="node-prompt-${container.id}" placeholder="Ask AI: remove, replace, modify..." />
-                           <button class="popup-btn" onclick="aiEditGraph('${container.id}','Regarding ${n.label}: '+document.getElementById('node-prompt-${container.id}').value)">AI Edit</button>
-                           <button class="popup-btn danger" onclick="aiEditGraph('${container.id}','Remove ${n.label} from the diagram and adjust connections')">Delete</button>
+                           <button class="popup-btn" data-ai-edit="${esc(container.id)}" data-ai-input="node-prompt-${esc(container.id)}" data-ai-prefix="${esc('Regarding ' + n.label + ': ')}">AI Edit</button>
+                           <button class="popup-btn danger" data-ai-edit="${esc(container.id)}" data-ai-fixed="${esc('Remove ' + n.label + ' from the diagram and adjust connections')}">Delete</button>
                          </div>`);
                 });
             });
@@ -275,7 +275,11 @@
             const btnStyle = `padding:2px 6px;border:1px solid ${MarkViewThemes.token('--border-color')};background:${MarkViewThemes.token('--bg-secondary')};color:${textColor};border-radius:3px;font-size:calc(9px * var(--ui-scale, 1));cursor:pointer;`;
 
             // "All" filter
-            filterBar.innerHTML = `<button style="${btnStyle}" onclick="filterCanvasGroup('${container.id}','all')">All</button>`;
+            const allBtn = document.createElement('button');
+            allBtn.style.cssText = btnStyle;
+            allBtn.textContent = 'All';
+            allBtn.addEventListener('click', () => filterCanvasGroup(container.id, 'all'));
+            filterBar.appendChild(allBtn);
 
             // Group filter buttons
             uniqueGroups.forEach(gName => {
@@ -315,6 +319,22 @@
 
         function showPopup(popup, x, y, html) {
             popup.innerHTML = html;
+            popup.querySelectorAll('[data-open-source]').forEach(btn => {
+                btn.addEventListener('click', () => openDiagramSource(btn.getAttribute('data-open-source')));
+            });
+            popup.querySelectorAll('[data-ai-edit]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const cid = btn.getAttribute('data-ai-edit');
+                    const fixed = btn.getAttribute('data-ai-fixed');
+                    if (fixed) {
+                        aiEditGraph(cid, fixed);
+                    } else {
+                        const inputEl = document.getElementById(btn.getAttribute('data-ai-input'));
+                        const prefix = btn.getAttribute('data-ai-prefix') || '';
+                        aiEditGraph(cid, prefix + (inputEl ? inputEl.value : ''));
+                    }
+                });
+            });
             popup.style.display = 'block';
             popup.style.left = Math.min(x, popup.parentElement.clientWidth - 200) + 'px';
             popup.style.top = Math.min(y, popup.parentElement.clientHeight - 150) + 'px';
@@ -474,9 +494,3 @@
                 });
             }
         } catch (_) {}
-
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', init);
-        } else {
-            init();
-        }

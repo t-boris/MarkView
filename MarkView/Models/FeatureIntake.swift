@@ -329,7 +329,11 @@ extension FeatureAssistant {
                       let number = url.split(separator: "/").last {
                 issueRef = "#\(number)"
                 front.set("issue", "#\(number)")
-                try? front.join(body: "# \(title)\n\n" + report).write(to: file, atomically: true, encoding: .utf8)
+                do {
+                    try front.join(body: "# \(title)\n\n" + report).write(to: file, atomically: true, encoding: .utf8)
+                } catch {
+                    self.error = "GitHub issue #\(number) was created, but saving the link into the bug report failed: \(error.localizedDescription)"
+                }
             }
         }
         store.reloadSync()

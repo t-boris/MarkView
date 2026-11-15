@@ -84,7 +84,13 @@
             // Override image rendering for responsive sizing
             md.renderer.rules.image = function (tokens, idx, options, env, renderer) {
                 const token = tokens[idx];
-                return '<img src="' + token.attrGet('src') + '" alt="' + token.content + '" title="' + (token.attrGet('title') || '') + '" style="max-width: 100%; height: auto; border-radius: 6px;">';
+                const esc = md.utils && md.utils.escapeHtml ? md.utils.escapeHtml : function(s) {
+                    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                };
+                const src = esc(token.attrGet('src') || '');
+                const alt = esc(token.content || '');
+                const title = esc(token.attrGet('title') || '');
+                return '<img src="' + src + '" alt="' + alt + '" title="' + title + '" style="max-width: 100%; height: auto; border-radius: 6px;">';
             };
         } catch (e) {
             console.warn('markdown-it initialization failed:', e);

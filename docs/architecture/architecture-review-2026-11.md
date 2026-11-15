@@ -447,7 +447,7 @@ Fix: cite symbols, not lines; stamp each architecture document with the commit i
 
 Each phase leaves the app shippable. Phases 0 and 1 are low risk and mostly independent; the later ones change architecture and need approval per the project rules.
 
-**Phase 0: safety and correctness (days).** AR-01 to AR-13. Start with AR-01, AR-03, AR-06, AR-07, AR-09.
+**Phase 0: safety and correctness (days) — [Done].** AR-01 to AR-13 implemented and verified (`tools/tests/phase0-safety-tests.sh`).
 
 **Phase 1: remove what misleads (days).** AR-30 (delete `EditorWeb`), AR-48 (dead code, clutter), dead bridge code, `install.sh` / `setup.sh` / `importance-check.sh`, the repeated settings literals, the three view items out of Models, `TOCView.Tab` into Models, concurrency groups in CI, the test runner and manifest (AR-44 step 1).
 
@@ -478,15 +478,18 @@ The ten changes with the best return for their cost:
 9. AR-37 the database off the main thread.
 10. AR-26 a typed assistant operation.
 
-## 13. Decisions for the owner
+## 13. Decisions for the owner (Resolved 2026-11-15)
 
-1. **Plugins:** accept "registries and data files, no loadable plugins" (section 7)?
-2. **Layout presets:** which presets ship (Writing, Review, QA, Cockpit?), and are automatic triggers wanted at all, given that a window keeps its own state?
-3. **User themes:** allow theme files in Application Support? If yes, may a user theme give only the native colours and have the web tokens derived?
-4. **`EditorWeb/`:** delete (recommended) or keep as a target?
-5. **XcodeGen:** generate the project and stop committing it, or drop XcodeGen (AR-46)?
-6. **Local Swift packages:** the first package dependency of the app target (`MarkViewCore`) changes the project structure; approve?
-7. **Raw HTML in Markdown:** sanitise (some documents that rely on scripts or inline handlers will render differently) or isolate the document in a frame without the bridge (AR-01)?
-8. **CI:** one consolidated workflow with cancellation (the earlier concurrency proposal was not approved)?
-9. **Control socket:** per-window tokens and a native confirmation for `by_user` steps add a click to flows that agents drive today (AR-40); acceptable?
-10. **Strict concurrency and lint:** adopt `targeted` checking and a formatter per package as they are created?
+All ten owner decisions and the roadmap scope were answered and recorded in `docs/features/architecture-review-2026-11/decisions/DEC-001..DEC-010.md`:
+
+- **Scope:** Implement all roadmap phases (Phase 0 through Phase 7 and Continuous items) sequentially (`REQ-001`..`REQ-008`, GitHub issue `#414`).
+1. **Plugins (`DEC-001`, Accepted):** Accept "registries and data files, no loadable plugins" (section 7).
+2. **Layout presets (`DEC-002`, Accepted):** Ship `Writing`, `Review`, `QA`, and `Cockpit` layout presets triggered only by explicit user choice, with no automatic triggers (preserving per-window layout state).
+3. **User themes (`DEC-003`, Accepted):** Allow user theme JSON files in `~/Library/Application Support/MarkView/themes/` and derive web CSS tokens automatically when a theme specifies only native colours.
+4. **`EditorWeb/` (`DEC-004`, Accepted):** Delete `EditorWeb/` and remove stale references (AR-30).
+5. **XcodeGen (`DEC-005`, Accepted):** Drop XcodeGen, delete `setup.sh` and `project.yml`, and maintain `MarkView.xcodeproj` directly with local Swift packages reducing project file churn (AR-46).
+6. **Local Swift packages (`DEC-006`, Accepted):** Approve introducing `Packages/MarkViewCore` as a local Swift package dependency of the `MarkView` app target (AR-44).
+7. **Raw HTML in Markdown (`DEC-007`, Accepted):** Sanitise rendered HTML after parsing (strip `<script>` tags, inline event handler attributes, and dangerous URL schemes) and tighten the preview CSP by removing `'unsafe-inline'` from `script-src` (AR-01).
+8. **CI (`DEC-008`, Accepted):** Consolidate CI checks into a unified `ci.yml` workflow with build caching and `concurrency: { group: ..., cancel-in-progress: true }` (AR-45).
+9. **Control socket (`DEC-009`, Accepted):** Require per-window/per-instance token authentication on the control socket and native confirmation for `by_user` mutations (AR-40).
+10. **Strict concurrency and lint (`DEC-010`, Accepted):** Adopt `targeted` strict concurrency checking and formatting configuration per package/target (AR-43, AR-47).

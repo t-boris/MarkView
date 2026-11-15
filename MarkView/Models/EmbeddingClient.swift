@@ -120,11 +120,10 @@ class EmbeddingClient {
         }
     }
 
-    // MARK: - Key Storage
+    // MARK: - Key Storage (delegates to Keychain via WhisperClient, AR-10)
 
-    private static let storageKey = "com.markview.dde.openai.apikey"
-    static func loadKey() -> String? { UserDefaults.standard.string(forKey: storageKey) }
-    static func saveKey(_ key: String) { UserDefaults.standard.set(key, forKey: storageKey) }
+    static func loadKey() -> String? { WhisperClient.loadAPIKey() }
+    static func saveKey(_ key: String) { WhisperClient.saveAPIKey(key) }
 }
 
 enum EmbeddingError: Error, LocalizedError {

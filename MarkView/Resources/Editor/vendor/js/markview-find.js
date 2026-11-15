@@ -140,12 +140,15 @@
 
         // Called from Swift when AI result is ready
         window.showSelectionResult = function(title, markdownContent) {
-            // Render markdown to HTML using markdown-it
+            // Render markdown to HTML using markdown-it, then sanitize (AR-01)
             let html;
             if (typeof md !== 'undefined') {
                 html = md.render(markdownContent);
             } else {
-                html = '<pre>' + markdownContent.replace(/</g, '&lt;') + '</pre>';
+                html = '<pre>' + String(markdownContent || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
+            }
+            if (typeof window.sanitizeMarkdownHTML === 'function') {
+                html = window.sanitizeMarkdownHTML(html);
             }
             showActionPopup(title, html);
             // Apply syntax highlighting

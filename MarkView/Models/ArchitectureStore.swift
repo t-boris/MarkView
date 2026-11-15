@@ -2888,7 +2888,8 @@ final class ArchitectureStore: ObservableObject {
     /// The change's version of `path`, written to MarkView's cache so the viewer shows the
     /// code under review (not the working copy): a fetched pull request's head, or — for a
     /// file the change removes — the version before it. Nil when the working copy is it.
-    func prFileURL(path: String) -> URL? {
+    /// Runs `git show` off the main actor with a 15-second timeout (AR-06).
+    func resolvePRFileURL(path: String) async -> URL? {
         guard let root = prRoot, !path.split(separator: "/").contains("..") else { return nil }
         let commit: String
         let cache: URL
@@ -2903,10 +2904,32 @@ final class ArchitectureStore: ObservableObject {
         }
         let file = cache.appendingPathComponent(path)
         if FileManager.default.fileExists(atPath: file.path) { return file }
-        guard let text = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "show", "\(commit):\(path)"]) else { return nil }
+        let rootPath = root.path
+        let spec = "\(commit):\(path)"
+        let fetched: String? = await Task.detached(priority: .userInitiated) {
+            let result = await ProcessRunner.run(executable: "/usr/bin/env", arguments: ["git", "-C", rootPath, "show", spec], stdin: nil, timeout: 15)
+            guard result.succeeded, !result.timedOut else { return nil }
+            return result.stdout
+        }.value
+        guard let text = fetched else { return nil }
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil else { return nil }
         return file
+    }
+
+    /// Synchronous cache lookup for an already-materialized PR file URL (use `resolvePRFileURL` to fetch off the main actor).
+    func prFileURL(path: String) -> URL? {
+        guard let root = prRoot, !path.split(separator: "/").contains("..") else { return nil }
+        let cache: URL
+        if prOverlay?.files.first(where: { $0.path == path })?.deleted == true, let base = prBase {
+            cache = Self.prCacheRoot(root: root, label: "base-" + base.prefix(10))
+        } else if let checkout = prCheckout {
+            cache = Self.prCacheRoot(root: root, label: "PR-\(checkout.number)-\(checkout.head.prefix(10))")
+        } else {
+            return nil
+        }
+        let file = cache.appendingPathComponent(path)
+        return FileManager.default.fileExists(atPath: file.path) ? file : nil
     }
 
     /// Project-relative path of a file shown from the change's cache (see `prFileURL`), else nil.

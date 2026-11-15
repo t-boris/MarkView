@@ -23,4 +23,11 @@ cp node_modules/cytoscape-elk/dist/cytoscape-elk.js "$OUT/cytoscape-elk.js"
 # Tailwind v4 in the browser, for prototypes made from the code of a Tailwind app (BUG-063); written into the prototype, never loaded from a CDN.
 cp node_modules/@tailwindcss/browser/dist/index.global.js "$OUT/tailwind-browser.js"
 
-ls -la "$OUT"/data.bundle.js "$OUT"/xterm.bundle.js "$OUT"/codemirror.bundle.js "$OUT"/cytoscape.min.js "$OUT"/elk.bundled.js "$OUT"/cytoscape-elk.js "$OUT"/tailwind-browser.js
+# Turndown + GFM plugin (AR-03: vendored locally, never loaded from a CDN) and DOMPurify (AR-01: Markdown HTML sanitization).
+npx esbuild node_modules/turndown/dist/turndown.js --minify --target=safari15 \
+    --legal-comments=eof --outfile="$OUT/turndown.min.js"
+npx esbuild node_modules/turndown-plugin-gfm/dist/turndown-plugin-gfm.js --minify --target=safari15 \
+    --legal-comments=eof --outfile="$OUT/turndown-plugin-gfm.min.js"
+cp node_modules/dompurify/dist/purify.min.js "$OUT/dompurify.min.js"
+
+ls -la "$OUT"/data.bundle.js "$OUT"/xterm.bundle.js "$OUT"/codemirror.bundle.js "$OUT"/cytoscape.min.js "$OUT"/elk.bundled.js "$OUT"/cytoscape-elk.js "$OUT"/tailwind-browser.js "$OUT"/turndown.min.js "$OUT"/turndown-plugin-gfm.min.js "$OUT"/dompurify.min.js

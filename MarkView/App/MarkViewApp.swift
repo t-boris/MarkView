@@ -414,9 +414,14 @@ struct MarkViewApp: App {
     }
 
     private static func checkFinderOpenRequest(handler: @escaping ([URL]) -> Void) {
-        let path = "/tmp/markview_open_path.txt"
+        // Use the per-user temporary directory and reject symlinks or foreign-owned files (AR-12).
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("markview_open_path.txt")
+        let path = fileURL.path
         let fm = FileManager.default
-        guard fm.fileExists(atPath: path),
+        var st = stat()
+        guard lstat(path, &st) == 0,
+              (st.st_mode & S_IFMT) == S_IFREG,
+              st.st_uid == getuid(),
               let content = try? String(contentsOfFile: path, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
               !content.isEmpty else { return }
 
@@ -424,7 +429,7 @@ struct MarkViewApp: App {
         try? fm.removeItem(atPath: path)
 
         let url = URL(fileURLWithPath: content)
-        debugLogStatic("checkFinderOpenRequest: found \(content), calling handler")
+        debugLogStatic("checkFinderOpenRequest: found \(url.lastPathComponent), calling handler")
         handler([url])
         debugLogStatic("checkFinderOpenRequest: handler called, notification posted")
     }

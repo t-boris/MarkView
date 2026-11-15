@@ -142,9 +142,11 @@ enum SystemProbe {
             return "state=$(docker inspect -f '{{.State.Status}}' \(target) 2>&1 | head -1); if [ \"$state\" = running ]; then chk \(id) ok running; else chk \(id) fail \"$state\"; fi"
         case .port:
             let parts = check.target.split(separator: ":").map(String.init)
-            let host = parts.count > 1 ? parts[0] : "localhost"
-            let port = parts.last ?? ""
-            return "if bash -c \(quoted("exec 3<>/dev/tcp/\(host)/\(port)")) 2>/dev/null || nc -z -w 3 \(quoted(host)) \(quoted(port)) 2>/dev/null; then chk \(id) ok listening; else chk \(id) fail closed; fi"
+            let rawHost = parts.count > 1 ? parts[0] : "localhost"
+            let rawPort = parts.last ?? ""
+            let safeHost = rawHost.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }) && !rawHost.isEmpty ? rawHost : "localhost"
+            let safePort = (Int(rawPort).flatMap { (1...65535).contains($0) ? String($0) : nil }) ?? "0"
+            return "if bash -c \(quoted("exec 3<>/dev/tcp/\(safeHost)/\(safePort)")) 2>/dev/null || nc -z -w 3 \(quoted(safeHost)) \(quoted(safePort)) 2>/dev/null; then chk \(id) ok listening; else chk \(id) fail closed; fi"
         case .http:
             let wanted = quoted(check.expect)
             return "code=$(curl -s -o /dev/null -m 8 -w '%{http_code}' \(target) 2>/dev/null); want=\(wanted); case \"$code\" in 000|'') chk \(id) fail 'no answer';; *) if [ -z \"$want\" ]; then case \"$code\" in 2*|3*) chk \(id) ok \"$code\";; *) chk \(id) fail \"$code\";; esac; else case \"$want\" in *x) pre=${want%xx}; case \"$code\" in $pre*) chk \(id) ok \"$code\";; *) chk \(id) fail \"$code\";; esac;; *) if [ \"$code\" = \"$want\" ]; then chk \(id) ok \"$code\"; else chk \(id) fail \"$code\"; fi;; esac; fi;; esac"

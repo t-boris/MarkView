@@ -163,43 +163,23 @@
         // and an inline iframe-side message dispatch script.
         // ---------------------------------------------------------------------------
         async function buildInsightSrcdoc(skeleton, libBlobURLs, katexCSSInline) {
-            // CSP per task spec / Decision 10.
-            // 'self' allows the iframe to load <script src="vendor/js/..."> from
-            // its file:// origin (with sandbox allow-same-origin set on the
-            // iframe element by the parent).
-            const csp = "default-src 'none'; script-src 'self' 'unsafe-inline' blob: data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+            // CSP per task spec / Decision 10 (null-origin iframe, AR-02).
+            const csp = "default-src 'none'; script-src 'unsafe-inline' blob: data:; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; font-src data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
             const title = escapeForHTMLText(skeleton && skeleton.title ? skeleton.title : 'Insight');
 
-            // Lib <script src="blob:..."> tags — the blob URL approach. Note
-            // WebKit blocks cross-origin blob loads in null-origin sandboxed
-            // iframes, so libs may end up undefined inside the iframe; that
-            // disables mermaid/Chart rendering, but the iframe IIFE itself
-            // still runs and the section HTML still renders as text/tables.
-            // The previous inline-`<script>SRC</script>` attempt produced a
-            // ~1MB srcdoc that broke iframe parsing entirely (no IIFE run,
-            // no `insightIframeReady` fired, all chunks stuck in pending
-            // buffer — rendering nothing). Diagram rendering is a separate
-            // concern; tracked as TODO.
-            // Iframe runs with sandbox="allow-scripts allow-same-origin", so
-            // it inherits parent's file:// origin and can load relative
-            // <script src="vendor/js/..."> directly. Direct paths avoid
-            // WebKit's null-origin block on cross-origin blob: URLs (which
-            // is why mermaid/Chart/Prism stayed undefined with blob: URLs).
-            const LIB_PATHS = {
-                prism:        'vendor/js/prism.min.js',
-                mermaid:      'vendor/js/mermaid.min.js',
-                chart:        'vendor/js/chart-4.4.9.min.js',
-                katex:        'vendor/js/katex.min.js',
-                'katex-auto': 'vendor/js/auto-render.min.js',
-            };
+            // Inline required vendored libraries from state.insightLibBytes with </script>
+            // escaped as <\/script> so the null-origin sandbox="allow-scripts" iframe
+            // executes them without needing allow-same-origin (AR-02).
             const libOrder = ['prism', 'mermaid', 'chart', 'katex', 'katex-auto'];
             const libsNeeded = computeRequiredLibs(skeleton);
             let libScripts = '';
             for (const libName of libOrder) {
                 if (!libsNeeded.has(libName)) continue;
-                const path = LIB_PATHS[libName];
-                if (!path) continue;
-                libScripts += '<script src="' + escapeForHTMLAttribute(path) + '"></script>\n';
+                const src = state.insightLibBytes && state.insightLibBytes.get(libName);
+                if (typeof src === 'string' && src.length > 0) {
+                    const safeSrc = src.replace(/<\/(script)/gi, '<\\/$1');
+                    libScripts += '<script>' + safeSrc + '</script>\n';
+                }
             }
 
             // KaTeX CSS (only if math required and we successfully inlined).

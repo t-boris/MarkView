@@ -424,6 +424,9 @@ private final class Invocation: @unchecked Sendable {
                 guard let self, self.process.isRunning else { return }
                 self.timedOut = true
                 self.process.terminate()
+                self.queue.asyncAfter(deadline: .now() + 2) {
+                    if self.process.isRunning { _ = kill(self.process.processIdentifier, SIGKILL) }
+                }
             }
         }
     }

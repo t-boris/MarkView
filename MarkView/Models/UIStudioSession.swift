@@ -308,7 +308,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsMagnification = false
+        #if DEBUG
         if #available(macOS 13.3, *) { webView.isInspectable = true }
+        #endif
         applyTheme()
 
         history = StudioStore.loadHistory(root)
@@ -3081,16 +3083,32 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         }
     }
 
-    /// Writes an undo conflict into its files with conflict markers, so it can be resolved in the editor.
+    /// Writes an undo conflict into its files with conflict markers, so it can be resolved in the editor (AR-13).
     func resolveUndoConflictInEditor(_ id: String) {
         guard let conflicts = undoConflicts[id] else { return }
+        var failed: [StudioUndoConflict] = []
+        var firstError: String?
         for conflict in conflicts where conflict.merged.contains("<<<<<<<") {
-            guard let url = StudioChanges.validatedURL(conflict.path, root: root) else { continue }
-            try? conflict.merged.write(to: url, atomically: true, encoding: .utf8)
-            openFile(url)
+            guard let url = StudioChanges.validatedURL(conflict.path, root: root) else {
+                failed.append(conflict)
+                if firstError == nil { firstError = "Invalid conflict path: \(conflict.path)" }
+                continue
+            }
+            do {
+                try conflict.merged.write(to: url, atomically: true, encoding: .utf8)
+                openFile(url)
+            } catch {
+                failed.append(conflict)
+                if firstError == nil { firstError = error.localizedDescription }
+            }
         }
-        undoConflicts[id] = nil
-        notice = "The conflict markers are in the files; resolve them in the editor."
+        if failed.isEmpty {
+            undoConflicts[id] = nil
+            notice = "The conflict markers are in the files; resolve them in the editor."
+        } else {
+            undoConflicts[id] = failed
+            notice = "Could not write conflict markers to \(failed.map(\.path).joined(separator: ", ")): \(firstError ?? "write failed")."
+        }
     }
 
     private func append(_ operation: StudioOperation) {

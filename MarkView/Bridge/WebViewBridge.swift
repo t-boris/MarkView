@@ -67,6 +67,19 @@ enum AnyCodable: Codable {
     }
 }
 
+/// Shared helper for constructing safe Swift-to-JavaScript function calls with JSON-encoded arguments (AR-04).
+enum JS {
+    static func call(_ functionName: String, args: [Any] = []) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: args, options: []),
+              let arrayJSON = String(data: data, encoding: .utf8),
+              arrayJSON.first == "[", arrayJSON.last == "]" else {
+            return nil
+        }
+        let inner = arrayJSON.dropFirst().dropLast()
+        return "\(functionName)(\(inner))"
+    }
+}
+
 /// Central bridge for JS-Swift communication
 class WebViewBridge: NSObject, WKScriptMessageHandler {
     weak var delegate: WebViewBridgeDelegate?
@@ -77,7 +90,7 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         // Safety wrapper — any crash in message handling must not kill the app
         guard let dict = message.body as? [String: Any],
               let messageType = dict["type"] as? String else {
-            Self.logInsightDiag("userContentController: malformed body=\(String(describing: message.body).prefix(120))")
+            Self.logInsightDiag("userContentController: malformed body (non-dictionary)")
             return
         }
 
@@ -177,7 +190,7 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
                 let stack = (dict["stack"] as? String) ?? ""
                 Self.logInsightDiag("JS \(where_): \(msg) at \(src):\(line):\(col)\n  stack: \(stack.prefix(800))")
             } else {
-                Self.logInsightDiag("JS error (malformed payload): \(String(describing: payload).prefix(400))")
+                Self.logInsightDiag("JS error (malformed payload)")
             }
             return
         default:
@@ -523,26 +536,13 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     // JS literal `true`/`false` (NEVER `1`/`0`). Skeleton serialised via
     // `JSONEncoder` then injected verbatim (already valid JSON literal).
 
-    /// Diagnostic logger that bypasses macOS unified-log privacy redaction.
-    /// Appends to /tmp/markview-insight-diag.log directly — guarantees visibility
-    /// regardless of NSLog/os_log filtering, redaction, or process attribution.
+    /// Diagnostic logger for Insight bridge events (AR-09: never writes to world-readable /tmp files
+    /// and never logs document or section contents).
     static func logInsightDiag(_ message: String) {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let line = "[\(timestamp)] [InsightDiag] \(message)\n"
-        if let data = line.data(using: .utf8) {
-            let path = "/tmp/markview-insight-diag.log"
-            if FileManager.default.fileExists(atPath: path) {
-                if let handle = try? FileHandle(forWritingTo: URL(fileURLWithPath: path)) {
-                    defer { try? handle.close() }
-                    _ = try? handle.seekToEnd()
-                    try? handle.write(contentsOf: data)
-                }
-            } else {
-                try? data.write(to: URL(fileURLWithPath: path))
-            }
-            FileHandle.standardError.write(data)
-        }
-        NSLog("%{public}@", line)
+        try? FileManager.default.removeItem(atPath: "/tmp/markview-insight-diag.log")
+        #if DEBUG
+        NSLog("[InsightDiag] %@", message)
+        #endif
     }
 
     /// Phase-1 paint: tell parent JS to (re)build the iframe srcdoc placeholder
@@ -579,12 +579,11 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         // `window.loadInsightSkeleton` is `async function` → returns a Promise.
         // void() wrapper avoids "unsupported type" error from evaluateJavaScript.
         let js = "void window.loadInsightSkeleton(\(jsonString), \(sidLit), \(nidLit), \(breadcrumbJSON))"
-        Self.logInsightDiag("eval: \(js.prefix(300))")
+        Self.logInsightDiag("eval loadInsightSkeleton (bytes=\(js.utf8.count))")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
                 NSLog("[Insight] Error in loadInsightSkeleton: \(error)")
-                Self.logInsightDiag("eval failed for loadInsightSkeleton: error=\(error.localizedDescription); fullError=\(String(describing: error))")
-                Self.logInsightDiag("failed JS source for loadInsightSkeleton: \(js.prefix(300))")
+                Self.logInsightDiag("eval failed for loadInsightSkeleton: error=\(error.localizedDescription)")
             }
         }
     }
@@ -594,20 +593,16 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     /// is sandboxed null-origin, so postMessage is the only inbound channel).
     /// Calls `window.updateInsightSection('<sessionId>', '<sectionId>', '<htmlChunk>')`.
     func updateInsightSection(sessionId: String, sectionId: String, htmlChunk: String, into webView: WKWebView) {
-        guard let sidLit = encodeStringForJS(sessionId),
-              let secIdLit = encodeStringForJS(sectionId),
-              let chunkLit = encodeStringForJS(htmlChunk) else {
+        guard let js = JS.call("window.updateInsightSection", args: [sessionId, sectionId, htmlChunk]) else {
             NSLog("[Insight] Error in updateInsightSection: failed to encode payload")
             Self.logInsightDiag("updateInsightSection: failed to encode payload")
             return
         }
-        let js = "window.updateInsightSection(\(sidLit), \(secIdLit), \(chunkLit))"
-        Self.logInsightDiag("eval: \(js.prefix(300))")
+        Self.logInsightDiag("eval updateInsightSection (chunkBytes=\(htmlChunk.utf8.count))")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
                 NSLog("[Insight] Error in updateInsightSection: \(error)")
-                Self.logInsightDiag("eval failed for updateInsightSection: error=\(error.localizedDescription); fullError=\(String(describing: error))")
-                Self.logInsightDiag("failed JS source for updateInsightSection: \(js.prefix(300))")
+                Self.logInsightDiag("eval failed for updateInsightSection: error=\(error.localizedDescription)")
             }
         }
     }
@@ -626,12 +621,11 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         }
         let retryableLit = retryable ? "true" : "false"
         let js = "window.setInsightError(\(sidLit), \(msgLit), \(retryableLit))"
-        Self.logInsightDiag("eval: \(js.prefix(300))")
+        Self.logInsightDiag("eval setInsightError (msgBytes=\(message.utf8.count))")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
                 NSLog("[Insight] Error in setInsightError: \(error)")
-                Self.logInsightDiag("eval failed for setInsightError: error=\(error.localizedDescription); fullError=\(String(describing: error))")
-                Self.logInsightDiag("failed JS source for setInsightError: \(js.prefix(300))")
+                Self.logInsightDiag("eval failed for setInsightError: error=\(error.localizedDescription)")
             }
         }
     }
@@ -641,20 +635,16 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     /// uses for status-bar tinting (`phase-1`, `phase-2`, `ready`, etc.).
     /// Calls `window.setInsightStatus('<sessionId>', '<message>', '<phase>')`.
     func setInsightStatus(sessionId: String, message: String, phase: String, into webView: WKWebView) {
-        guard let sidLit = encodeStringForJS(sessionId),
-              let msgLit = encodeStringForJS(message),
-              let phaseLit = encodeStringForJS(phase) else {
+        guard let js = JS.call("window.setInsightStatus", args: [sessionId, message, phase]) else {
             NSLog("[Insight] Error in setInsightStatus: failed to encode payload")
             Self.logInsightDiag("setInsightStatus: failed to encode payload")
             return
         }
-        let js = "window.setInsightStatus(\(sidLit), \(msgLit), \(phaseLit))"
-        Self.logInsightDiag("eval: \(js.prefix(300))")
+        Self.logInsightDiag("eval setInsightStatus (phase=\(phase))")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
                 NSLog("[Insight] Error in setInsightStatus: \(error)")
-                Self.logInsightDiag("eval failed for setInsightStatus: error=\(error.localizedDescription); fullError=\(String(describing: error))")
-                Self.logInsightDiag("failed JS source for setInsightStatus: \(js.prefix(300))")
+                Self.logInsightDiag("eval failed for setInsightStatus: error=\(error.localizedDescription)")
             }
         }
     }
@@ -666,21 +656,20 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     /// Calls `window.releaseInsightBlobs()`.
     func releaseInsightBlobs(into webView: WKWebView) {
         let js = "window.releaseInsightBlobs()"
-        Self.logInsightDiag("eval: \(js.prefix(300))")
+        Self.logInsightDiag("eval releaseInsightBlobs")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
                 NSLog("[Insight] Error in releaseInsightBlobs: \(error)")
-                Self.logInsightDiag("eval failed for releaseInsightBlobs: error=\(error.localizedDescription); fullError=\(String(describing: error))")
-                Self.logInsightDiag("failed JS source for releaseInsightBlobs: \(js.prefix(300))")
+                Self.logInsightDiag("eval failed for releaseInsightBlobs: error=\(error.localizedDescription)")
             }
         }
     }
 
-    /// Set the document base URL for resolving relative image/link paths
+    /// Set the document base URL for resolving relative image/link paths (AR-04: JSON-encoded argument)
     func setDocumentBase(_ directoryURL: URL, in webView: WKWebView) {
         var base = directoryURL.absoluteString
         if !base.hasSuffix("/") { base += "/" }
-        let js = "window.setDocumentBase('\(base)')"
+        guard let js = JS.call("window.setDocumentBase", args: [base]) else { return }
 
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
@@ -701,9 +690,9 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         }
     }
 
-    /// Scroll to a specific heading
+    /// Scroll to a specific heading (AR-04: JSON-encoded argument)
     func scrollToHeading(_ headingId: String, in webView: WKWebView) {
-        let js = "window.scrollToHeading('\(headingId)')"
+        guard let js = JS.call("window.scrollToHeading", args: [headingId]) else { return }
 
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {

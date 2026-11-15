@@ -119,17 +119,10 @@
                 console.warn('[insight] iframe element missing');
                 return;
             }
-            // sandbox: allow-scripts AND allow-same-origin. The latter is
-            // required so vendored libs (mermaid, Chart.js, KaTeX, Prism)
-            // load via blob:/data: URLs created in the parent — without
-            // allow-same-origin the iframe is null-origin and WebKit blocks
-            // those cross-origin script fetches, leaving libs undefined and
-            // diagrams un-rendered. allow-same-origin re-enables that path
-            // but trades away the "iframe runs in unique origin" XSS
-            // mitigation. We compensate by stripping ALL <script>…</script>
-            // and on*= attributes from LLM output via stripCDNTags before
-            // the chunk reaches the iframe.
-            state.insightIframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+            // Null-origin sandbox (AR-02): allow-scripts only, never allow-same-origin,
+            // so the iframe has an opaque origin and cannot reach parent globals or the
+            // native bridge. Required libraries are inlined safely in buildInsightSrcdoc.
+            state.insightIframe.setAttribute('sandbox', 'allow-scripts');
             state.insightIframe.srcdoc = srcdoc;
             try {
                 sendToSwift('jsError', {

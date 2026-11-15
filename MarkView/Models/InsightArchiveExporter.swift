@@ -79,14 +79,13 @@ struct InsightArchiveExporter {
         // `tmpURL.path` and `"."` are passed verbatim to `zip`; shell
         // metacharacters in the user-chosen destination filename cannot escape
         // into command interpretation.
-        process.arguments = ["-r", tmpURL.path, "."]
+        process.arguments = ["-r", "-q", tmpURL.path, "."]
         process.currentDirectoryURL = stagingURL
 
         let stderrPipe = Pipe()
         process.standardError = stderrPipe
-        // Discard stdout (zip's progress output is non-essential for this use
-        // case; we surface only stderr in error paths).
-        process.standardOutput = Pipe()
+        // Discard stdout via /dev/null and pass -q so zip never fills a pipe buffer (AR-07).
+        process.standardOutput = FileHandle.nullDevice
 
         // Cancellation hook: if the parent Task is cancelled (e.g. closeTab
         // fires during export), send SIGTERM to the zip process and clean up

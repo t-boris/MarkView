@@ -1784,10 +1784,32 @@ class WorkspaceManager: ObservableObject {
             if payload["fromSearch"] as? Bool == true { architecture.markSearchFocus(path: path) }
             if payload["fromPR"] as? Bool == true {
                 architecture.markPRFocus(path: path)
-                if let prFile = architecture.prFileURL(path: path) {
-                    openFile(prFile, line: payload["line"] as? Int, endLine: payload["endLine"] as? Int)
+                let line = payload["line"] as? Int
+                let endLine = payload["endLine"] as? Int
+                let findText = payload["find"] as? String
+                if let cached = architecture.prFileURL(path: path) {
+                    openFile(cached, line: line, endLine: endLine)
                     return
                 }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if let prFile = await self.architecture.resolvePRFileURL(path: path) {
+                        self.openFile(prFile, line: line, endLine: endLine)
+                        return
+                    }
+                    guard FileManager.default.fileExists(atPath: url.path) else { return }
+                    if FileType.isOpenable(url) {
+                        self.openFile(url, line: line, endLine: endLine)
+                        if let text = findText, !text.isEmpty, FileType.from(url: url) == .markdown {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                                NotificationCenter.default.post(.scrollToText, for: self, object: String(text.prefix(80)))
+                            }
+                        }
+                    } else {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                }
+                return
             }
             guard FileManager.default.fileExists(atPath: url.path) else { return }
             if FileType.isOpenable(url) {
@@ -3606,6 +3628,8 @@ class WorkspaceManager: ObservableObject {
         return collapsed
     }
 
+    @Published var lastSaveError: String?
+
     /// Save a file at the given index.
     /// Defense-in-depth: insight tabs are guarded here too — even if a future
     /// caller forgets the kind-check, the placeholder URL never reaches `write(to:)`.
@@ -3616,6 +3640,7 @@ class WorkspaceManager: ObservableObject {
         if !tab.isFileBacked { return }
         do {
             try tab.content.write(to: tab.url, atomically: true, encoding: .utf8)
+            lastSaveError = nil
             tabsStore.updateTab(at: index) { mutableTab in
                 mutableTab.isModified = false
                 mutableTab.originalContent = tab.content // new baseline
@@ -3626,7 +3651,13 @@ class WorkspaceManager: ObservableObject {
                 architecture.noteProjectChanged()
             }
         } catch {
+            lastSaveError = "Could not save “\(tab.displayName)”: \(error.localizedDescription)"
             NSLog("Error saving file: \(error)")
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Could not save “\(tab.displayName)”"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
         }
     }
 

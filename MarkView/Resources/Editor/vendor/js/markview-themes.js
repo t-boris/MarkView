@@ -442,4 +442,7 @@
                   color: { parse: parse, hex: hex, luminance: luminance, contrast: contrast, mix: mix, rgba: rgba, adjusted: adjusted, readableText: readableText } };
     root.MarkViewThemes = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
+    if (root.document && root.document.documentElement) {
+        try { applyFromDocument(); } catch (e) {}
+    }
 })(typeof window !== 'undefined' ? window : globalThis);
