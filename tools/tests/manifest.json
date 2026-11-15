@@ -629,6 +629,7 @@
       "script": "tools/tests/diagram-tests.sh",
       "tier": "pure",
       "sources": [
+        "MarkView/Models/AI/AIOperation.swift",
         "MarkView/Models/AI/DiagramAI.swift",
         "tools/tests/DiagramAITests.swift",
         "tools/tests/DiagramArchStub.swift",

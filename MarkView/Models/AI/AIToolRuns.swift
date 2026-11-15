@@ -139,18 +139,22 @@ extension WorkspaceManager {
         request.effort = effort
         request.timeout = 900
         request.label = label
-        let result = try await CLICompletion.run(request, onDelta: { _ in handle.stage("Writing") }, onActivity: { activity in
+        let operation = AIOperation<CLICompletion.Request, String>(
+            name: label,
+            parse: { result in
+                let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { throw DiagramAI.Failure.unusable(["the assistant returned no text"]) }
+                return text
+            },
+            onResult: { [jobRecorder] in jobRecorder($0) })
+        return try await operation.execute(request, onDelta: { _ in handle.stage("Writing") }, onActivity: { activity in
             switch activity {
             case .read: handle.stage("Reading project files")
             case .search: handle.stage("Searching the code")
             case .thinking: handle.stage("Thinking")
             default: break
             }
-        })
-        jobRecorder(result)
-        let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { throw DiagramAI.Failure.unusable(["the assistant returned no text"]) }
-        return text
+        }).output
     }
 
     private static let writerSystem = """
@@ -272,13 +276,18 @@ extension WorkspaceManager {
             planRequest.effort = "medium"
             planRequest.timeout = 600
             planRequest.label = "audit:plan"
-            let planResult = try await CLICompletion.run(planRequest)
-            jobRecorder(planResult)
-            guard let object = planResult.structured, JSONSerialization.isValidJSONObject(object),
-                  let data = try? JSONSerialization.data(withJSONObject: object),
-                  let plan = try? JSONDecoder().decode(AuditPlan.self, from: data), !plan.documents.isEmpty else {
-                throw DiagramAI.Failure.unusable(["the assistant did not return a document plan"])
-            }
+            // The plan is the structured answer only: prose with a JSON object in it is not a plan.
+            let planning = AIOperation<CLICompletion.Request, AuditPlan>(
+                name: "audit:plan",
+                parse: { result in
+                    guard let plan = try? AIJSONSalvage.decode(AuditPlan.self, from: result.text, structured: result.structured, allowTextSalvage: false),
+                          !plan.documents.isEmpty else {
+                        throw DiagramAI.Failure.unusable(["the assistant did not return a document plan"])
+                    }
+                    return plan
+                },
+                onResult: { jobRecorder($0) })
+            let (plan, _) = try await planning.execute(planRequest)
             try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
             let outline = plan.documents.map { "- \($0.file): \($0.title)" }.joined(separator: "\n")
             var index: URL?
