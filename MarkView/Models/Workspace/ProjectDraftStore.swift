@@ -40,13 +40,15 @@ final class ProjectDraftStore: ObservableObject {
         }
     }
 
+    nonisolated private static let fileStore = SchemaVersionedStore<ProjectDraft>()
+
+    /// A draft whose file cannot be read stays on disk as it is (and is logged); it is not listed.
     nonisolated private static func load(_ folder: URL) -> [ProjectDraft] {
         let dirs = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return dirs.compactMap { dir in
-            guard let data = try? Data(contentsOf: dir.appendingPathComponent("draft.json")) else { return nil }
-            return try? decoder.decode(ProjectDraft.self, from: data)
+        return dirs.compactMap { dir -> ProjectDraft? in
+            let result = fileStore.load(from: dir.appendingPathComponent("draft.json"))
+            result.logProblem("ProjectDraftStore")
+            return result.value
         }
         .sorted { $0.updated > $1.updated }
     }
@@ -58,13 +60,10 @@ final class ProjectDraftStore: ObservableObject {
         if let index = drafts.firstIndex(where: { $0.id == draft.id }) { drafts[index] = draft } else { drafts.insert(draft, at: 0) }
         let url = directory(draft.id).appendingPathComponent("draft.json")
         let workspace = workspace(draft.id)
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(draft)
+        let saved = draft
         try await Task.detached {
             try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
-            try data.write(to: url, options: .atomic)
+            try Self.fileStore.save(saved, to: url)
         }.value
     }
 

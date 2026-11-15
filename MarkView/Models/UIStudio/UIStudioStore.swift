@@ -71,10 +71,23 @@ enum StudioStore {
     /// The scenario a session ended on, so that the next one opens on it and the data asked for is still there (BUG-087). It is the
     /// person's own state, kept with the session data (never committed), not with the team's scenarios.
     private struct ActiveScenario: Codable { var id: String }
-    static func loadActiveScenarioID(_ root: URL) -> String? { load(ActiveScenario.self, from: activeScenarioURL(root))?.id }
-    static func saveActiveScenarioID(_ id: String, root: URL) {
+
+    /// Reads a file of `.dde/studio/` (the session's own data, never committed). A file that cannot be read is logged and left as it
+    /// is; the next save copies it to a backup first (`SchemaVersionedStore`).
+    private static func loadLocal<T: Codable>(_ type: T.Type, from url: URL) -> T? {
+        let result = SchemaVersionedStore<T>().load(from: url)
+        result.logProblem("UIStudio")
+        return result.value
+    }
+
+    private static func saveLocal<T: Codable>(_ value: T, to url: URL, root: URL) throws {
         prepareLocalFolder(root)
-        try? save(ActiveScenario(id: id), to: activeScenarioURL(root))
+        try SchemaVersionedStore<T>().save(value, to: url)
+    }
+
+    static func loadActiveScenarioID(_ root: URL) -> String? { loadLocal(ActiveScenario.self, from: activeScenarioURL(root))?.id }
+    static func saveActiveScenarioID(_ id: String, root: URL) {
+        try? saveLocal(ActiveScenario(id: id), to: activeScenarioURL(root), root: root)
     }
 
     static func loadScreenBook(_ root: URL, appFolder: String) -> StudioScreenBook? {
@@ -111,16 +124,14 @@ enum StudioStore {
         try? FileManager.default.removeItem(at: scenariosFolder(root).appendingPathComponent(safeID(id) + ".json"))
     }
 
-    static func loadHistory(_ root: URL) -> [StudioOperation] { load([StudioOperation].self, from: historyURL(root)) ?? [] }
+    static func loadHistory(_ root: URL) -> [StudioOperation] { loadLocal([StudioOperation].self, from: historyURL(root)) ?? [] }
     static func saveHistory(_ history: [StudioOperation], root: URL) throws {
-        prepareLocalFolder(root)
-        try save(history, to: historyURL(root))
+        try saveLocal(history, to: historyURL(root), root: root)
     }
 
-    static func loadCaptures(_ root: URL) -> [StudioCapture] { load([StudioCapture].self, from: capturesURL(root)) ?? [] }
+    static func loadCaptures(_ root: URL) -> [StudioCapture] { loadLocal([StudioCapture].self, from: capturesURL(root)) ?? [] }
     static func saveCaptures(_ captures: [StudioCapture], root: URL) throws {
-        prepareLocalFolder(root)
-        try save(captures, to: capturesURL(root))
+        try saveLocal(captures, to: capturesURL(root), root: root)
     }
 
     static func loadPackages(_ root: URL) -> [StudioPackage] {

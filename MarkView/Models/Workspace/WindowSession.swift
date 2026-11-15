@@ -93,7 +93,7 @@ actor WindowSessionStorage {
 
     init(url: URL) {
         self.url = url
-        self.store = SchemaVersionedStore<WindowSessionArchive>(currentSchemaVersion: 1, backupCorruptedOnSave: true)
+        self.store = SchemaVersionedStore<WindowSessionArchive>(currentSchemaVersion: 1)
     }
 
     func load() -> WindowSessionArchive? {

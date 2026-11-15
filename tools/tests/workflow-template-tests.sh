@@ -10,5 +10,5 @@ trap 'rm -rf "$out"' EXIT
 M=MarkView/Models
 cp tools/tests/WorkflowTemplateChecks.swift "$out/main.swift"
 swiftc -O -o "$out/template" "$M/Lifecycle/FeatureVocabulary.swift" "$M/Lifecycle/IssueListing.swift" "$M/Lifecycle/ProjectWorkflow.swift" "$M/Lifecycle/IssueLifecycle.swift" \
-    "$M/Lifecycle/DefinitionOfDone.swift" "$M/Lifecycle/WorkflowDone.swift" "$M/Lifecycle/WorkflowDiagramLayout.swift" "$M/Lifecycle/WorkflowTransitionStory.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$out/main.swift"
+    "$M/Lifecycle/DefinitionOfDone.swift" MarkView/Models/Workspace/SchemaVersionedStore.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift "$M/Lifecycle/WorkflowDone.swift" "$M/Lifecycle/WorkflowDiagramLayout.swift" "$M/Lifecycle/WorkflowTransitionStory.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$out/main.swift"
 "$out/template"

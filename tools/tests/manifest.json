@@ -199,6 +199,8 @@
       "sources": [
         "MarkView/Models/Lifecycle/BugBasket.swift",
         "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Lifecycle/HandoffPrompt.swift",
         "MarkView/Models/Lifecycle/IssueListing.swift",
         "tools/tests/BugBasketTests.swift",
@@ -365,8 +367,11 @@
         "MarkView/Models/Cockpit/CockpitPlan.swift",
         "MarkView/Models/Cockpit/CockpitRun.swift",
         "MarkView/Models/Cockpit/CockpitRunStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
+        "tools/tests/StoreTestSupport.swift",
         "tools/tests/CockpitRunChecks.swift"
       ]
     },
@@ -382,6 +387,8 @@
         "MarkView/Models/Cockpit/CockpitPlan.swift",
         "MarkView/Models/Cockpit/CockpitRun.swift",
         "MarkView/Models/Cockpit/CockpitRunStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Cockpit/CockpitRuntime.swift",
         "MarkView/Models/Cockpit/CockpitStepMeter.swift",
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
@@ -457,6 +464,8 @@
         "MarkView/Models/Lifecycle/CycleTime.swift",
         "MarkView/Models/Lifecycle/CycleTimeReport.swift",
         "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Lifecycle/EvidenceTimings.swift",
         "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
         "MarkView/Models/Lifecycle/IssueLifecycle.swift",
@@ -467,6 +476,7 @@
         "MarkView/Models/Lifecycle/WorkflowDone.swift",
         "MarkView/Models/Lifecycle/WorkflowFlow.swift",
         "MarkView/Models/Lifecycle/WorkflowTransitionStory.swift",
+        "tools/tests/StoreTestSupport.swift",
         "tools/tests/CycleTimeChecks.swift",
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/cycle-time-tests.sh"
@@ -495,6 +505,8 @@
         "MarkView/Models/Deployments/DeploymentLogs.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
         "MarkView/Models/Deployments/DeploymentStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/AI/ProviderHints.swift",
         "MarkView/Models/AI/SystemProbe.swift",
         "tools/tests/DatabaseExplorerTests.swift",
@@ -507,7 +519,10 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Lifecycle/HandoffPrompt.swift",
+        "tools/tests/StoreTestSupport.swift",
         "tools/tests/DefinitionOfDoneTests.swift",
         "tools/tests/definition-of-done-tests.sh"
       ]
@@ -587,8 +602,11 @@
         "MarkView/Models/Deployments/DeploymentLogs.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
         "MarkView/Models/Deployments/DeploymentStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/AI/ProviderHints.swift",
         "MarkView/Models/AI/SystemProbe.swift",
+        "tools/tests/StoreTestSupport.swift",
         "tools/tests/DeploymentStoreTests.swift",
         "tools/tests/deployment-store-tests.sh"
       ]
@@ -631,7 +649,10 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Discussion/Discussion.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Discussion/DiscussionPrompt.swift",
+        "tools/tests/StoreTestSupport.swift",
         "tools/tests/DiscussionTests.swift",
         "tools/tests/discussion-tests.sh"
       ]
@@ -783,6 +804,8 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Lifecycle/HandoffPrompt.swift",
         "tools/tests/HandoffPromptTests.swift",
         "tools/tests/handoff-prompt-tests.sh"
@@ -837,6 +860,7 @@
       "script": "tools/tests/issue-lifecycle-tests.sh",
       "tier": "pure",
       "sources": [
+        "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
         "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
         "MarkView/Models/Workspace/FrontMatter.swift",
         "MarkView/Models/Lifecycle/IssueCompletion.swift",
@@ -853,12 +877,15 @@
         "MarkView/Models/Lifecycle/MarkdownIssueStatusStore.swift",
         "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
         "MarkView/Models/Lifecycle/ProjectWorkflowStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Lifecycle/WorkflowDescription.swift",
         "MarkView/Models/Lifecycle/WorkflowEvents.swift",
         "MarkView/Models/Lifecycle/WorkflowFlow.swift",
         "MarkView/Models/Lifecycle/WorkflowProposal.swift",
         "MarkView/Models/Lifecycle/WorkflowTemplate.swift",
         "tools/tests/IssueChecksSupport.swift",
+        "tools/tests/StoreTestSupport.swift",
         "tools/tests/IssueCollectorChecks.swift",
         "tools/tests/IssueLogSupport.swift",
         "tools/tests/issue-lifecycle-tests.sh"
@@ -930,6 +957,10 @@
         "MarkView/Models/Git/GitHubClient.swift",
         "MarkView/Models/Lifecycle/LifecycleCapture.swift",
         "MarkView/Models/Workspace/NewProject.swift",
+        "MarkView/Models/Workspace/ProjectDraftStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
+        "tools/tests/StoreTestSupport.swift",
         "tools/tests/CLIToolLocatorStub.swift",
         "tools/tests/NewProjectTests.swift",
         "tools/tests/new-project-tests.sh"
@@ -1102,6 +1133,7 @@
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
         "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/StoreTestSupport.swift",
         "tools/tests/Phase6StorageSecurityTests.swift"
       ]
     },
@@ -1613,6 +1645,8 @@
         "MarkView/Models/QA/QARunner.swift",
         "MarkView/Models/QA/QAScenario.swift",
         "MarkView/Models/QA/QAStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/QA/QATriage.swift",
         "tools/tests/QAAPIChecks.swift",
         "tools/tests/QANativeKeychainStub.swift"
@@ -1676,6 +1710,8 @@
         "MarkView/Models/QA/QAScenario.swift",
         "MarkView/Models/QA/QAScenarioEdit.swift",
         "MarkView/Models/QA/QAStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/QA/QATriage.swift",
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/QANativeChecks.swift",
@@ -1691,6 +1727,8 @@
         "MarkView/Models/Lifecycle/BugReportWriter.swift",
         "MarkView/Models/Cockpit/CockpitPlan.swift",
         "MarkView/Models/Cockpit/CockpitResults.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
         "MarkView/Models/Workspace/FrontMatter.swift",
         "MarkView/Models/QA/QAAPI.swift",
@@ -1703,6 +1741,7 @@
         "MarkView/Models/QA/QAScenario.swift",
         "MarkView/Models/QA/QAStore.swift",
         "MarkView/Models/QA/QATriage.swift",
+        "tools/tests/StoreTestSupport.swift",
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/QARetentionChecks.swift",
         "tools/tests/qa-retention-tests.sh"
@@ -1750,7 +1789,10 @@
         "MarkView/Models/QA/QAScenario.swift",
         "MarkView/Models/QA/QAScenarioEdit.swift",
         "MarkView/Models/QA/QAStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/QA/QATriage.swift",
+        "tools/tests/StoreTestSupport.swift",
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/QAChecks.swift",
         "tools/tests/qa-tests.sh"
@@ -1791,6 +1833,8 @@
         "MarkView/Models/QA/QAScenario.swift",
         "MarkView/Models/QA/QAScenarioEdit.swift",
         "MarkView/Models/QA/QAStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/QA/QATriage.swift",
         "MarkView/Models/QA/QAWebActor.swift",
         "MarkView/Views/QA/QAWebWindow.swift",
@@ -2236,6 +2280,8 @@
         "MarkView/Models/UIStudio/UIStudioSession.swift",
         "MarkView/Models/UIStudio/UIStudioSimulation.swift",
         "MarkView/Models/UIStudio/UIStudioStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/UIStudio/UIStudioTracking.swift",
         "MarkView/Models/Workspace/WebAppPreview.swift",
         "MarkView/Resources/Editor/js/markview-ui-studio.js",
@@ -2299,6 +2345,8 @@
         "MarkView/Models/UIStudio/UIStudioSession.swift",
         "MarkView/Models/UIStudio/UIStudioSimulation.swift",
         "MarkView/Models/UIStudio/UIStudioStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/UIStudio/UIStudioTracking.swift",
         "MarkView/Models/Workspace/WebAppPreview.swift",
         "MarkView/Resources/Editor/js/markview-ui-studio.js",
@@ -2345,7 +2393,10 @@
         "MarkView/Models/UIStudio/UIStudioServer.swift",
         "MarkView/Models/UIStudio/UIStudioSimulation.swift",
         "MarkView/Models/UIStudio/UIStudioStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/UIStudio/UIStudioTracking.swift",
+        "tools/tests/StoreTestSupport.swift",
         "tools/tests/UIStudioAuthTests.swift",
         "tools/tests/UIStudioEnvelopeTests.swift",
         "tools/tests/UIStudioRepairTests.swift",
@@ -2522,6 +2573,8 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
         "MarkView/Models/Lifecycle/IssueLifecycle.swift",
         "MarkView/Models/Lifecycle/IssueListing.swift",
@@ -2538,6 +2591,8 @@
       "sources": [
         "MarkView/Models/Appearance/AppTheme.swift",
         "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
         "MarkView/Models/Lifecycle/IssueLifecycle.swift",
         "MarkView/Models/Lifecycle/IssueLifecycleDisplay.swift",
@@ -2575,6 +2630,8 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
         "MarkView/Models/Lifecycle/IssueLifecycle.swift",
         "MarkView/Models/Lifecycle/IssueListing.swift",
@@ -2608,6 +2665,8 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
         "MarkView/Models/Lifecycle/IssueLifecycle.swift",
         "MarkView/Models/Lifecycle/IssueListing.swift",

@@ -98,6 +98,7 @@ final class DeploymentStore: ObservableObject {
 
     // MARK: Files
 
+    private static let fileStore = SchemaVersionedStore<DeploymentsFile>()
     private var folder: URL? { root?.appendingPathComponent(".dde", isDirectory: true) }
     private var file: URL? { folder?.appendingPathComponent("deployments.json") }
     private var logFile: URL? { folder?.appendingPathComponent("deployments-log.jsonl") }
@@ -107,18 +108,20 @@ final class DeploymentStore: ObservableObject {
         autoTask?.cancel()
         root = url
         environments = []; states = [:]; suggestions = []; log = []; selected = nil; hasScanned = false
-        guard let file, let data = try? Data(contentsOf: file), let decoded = DeploymentsFile.decode(data) else { loadLog(); return }
+        defer { loadLog() }
+        guard let file else { return }
+        // A file that cannot be read leaves the list empty and the file as it is: the next save copies it to a backup first.
+        let result = Self.fileStore.load(from: file)
+        lastError = result.problem
+        guard let decoded = result.value else { return }
         environments = decoded.environments
         selected = environments.first?.id
-        loadLog()
     }
 
     private func save() {
-        guard let folder, let file else { return }
-        do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try DeploymentsFile(environments: environments).encoded().write(to: file, options: .atomic)
-        } catch { lastError = "Could not save the environments: \(error.localizedDescription)" }
+        guard let file else { return }
+        do { try Self.fileStore.save(DeploymentsFile(environments: environments), to: file) }
+        catch { lastError = "Could not save the environments: \(error.localizedDescription)" }
     }
 
     private func loadLog() {

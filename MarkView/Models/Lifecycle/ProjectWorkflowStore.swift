@@ -179,7 +179,7 @@ final class ProjectWorkflowStore: @unchecked Sendable {
 
     /// Reads the Definition of Done and the guides of a project folder, for `adopted`.
     static func existingSettings(in root: URL) -> (definition: Data?, guide: String?) {
-        let definition = try? Data(contentsOf: root.appendingPathComponent(".dde/definition-of-done.json"))
+        let definition = DefinitionOfDone.policyData(root: root)
         let guides = ["AGENTS.md", "CLAUDE.md"].compactMap { name -> String? in
             guard let text = try? String(contentsOf: root.appendingPathComponent(name), encoding: .utf8), text.utf8.count <= 1_000_000 else { return nil }
             return text
@@ -229,17 +229,18 @@ final class ProjectWorkflowStore: @unchecked Sendable {
     /// Writes what a save owes the items it takes a status or a variant from, before the workflow file changes.
     func savePending(_ plan: PendingReplacements) throws {
         lock.lock(); defer { lock.unlock() }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try encoder.encode(plan).write(to: pendingURL, options: .atomic)
+        try Self.pendingStore.save(plan, to: pendingURL)
     }
 
-    /// The plan an interrupted save left, nil when there is none or the file cannot be read (it is then left as it is).
+    private static let pendingStore = SchemaVersionedStore<PendingReplacements>()
+
+    /// The plan an interrupted save left, nil when there is none or the file cannot be read (it is then left as it is, and a later
+    /// plan copies it to a backup before replacing it).
     func pending() -> PendingReplacements? {
         lock.lock(); defer { lock.unlock() }
-        guard let data = try? Data(contentsOf: pendingURL) else { return nil }
-        return try? JSONDecoder().decode(PendingReplacements.self, from: data)
+        let result = Self.pendingStore.load(from: pendingURL)
+        result.logProblem("ProjectWorkflowStore")
+        return result.value
     }
 
     func clearPending() {

@@ -66,6 +66,8 @@ struct DefinitionOfDone: Codable, Equatable {
 
     // MARK: - Storage
 
+    private static let store = SchemaVersionedStore<DefinitionOfDone>()
+
     static func url(root: URL) -> URL {
         root.appendingPathComponent(".dde", isDirectory: true).appendingPathComponent(fileName)
     }
@@ -77,12 +79,24 @@ struct DefinitionOfDone: Codable, Equatable {
         loadIfPresent(root: root) ?? .standard
     }
 
-    /// The project's own checklist; nil when it has none or it cannot be read, so that a caller can tell a choice the person made
-    /// from the standard one.
+    /// The project's own checklist; nil when it has none or it cannot be used, so that a caller can tell a choice the person made
+    /// from the standard one. A file that cannot be read is logged and left as it is; saving a checklist copies it to a backup first.
     static func loadIfPresent(root: URL?) -> DefinitionOfDone? {
-        guard let root, let data = try? Data(contentsOf: url(root: root)),
-              let saved = try? JSONDecoder().decode(DefinitionOfDone.self, from: data) else { return nil }
-        return merged(saved)
+        guard let root else { return nil }
+        let result = store.load(from: url(root: root))
+        result.logProblem("DefinitionOfDone")
+        return result.value.map(merged)
+    }
+
+    /// The checklist as the JSON object the delivery-policy readers (`ProjectDeliveryPolicy`, `ReleaseRequirement`) parse: nil when
+    /// the project has no checklist file. A file this app cannot read still counts as one the project declared, with no item set, so
+    /// those readers apply their defaults.
+    static func policyData(root: URL) -> Data? {
+        switch store.load(from: url(root: root)) {
+        case .loaded(let saved, _): return try? JSONEncoder().encode(saved)
+        case .missing: return nil
+        case .newerSchema, .corrupted: return Data("{}".utf8)
+        }
     }
 
     static func merged(_ saved: DefinitionOfDone) -> DefinitionOfDone {
@@ -102,11 +116,7 @@ struct DefinitionOfDone: Codable, Equatable {
     }
 
     func save(root: URL) throws {
-        let folder = Self.url(root: root).deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(self).write(to: Self.url(root: root), options: .atomic)
+        try Self.store.save(self, to: Self.url(root: root))
     }
 
     // MARK: - The goal text

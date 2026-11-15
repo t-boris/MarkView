@@ -3649,14 +3649,13 @@ class WorkspaceManager: ObservableObject {
 
     // MARK: - Recent Files
 
+    private static let recentFilesStore = SchemaVersionedStore<[String]>()
+
     private func loadRecentFiles() {
-        guard let data = try? Data(contentsOf: recentFilesURL) else { return }
-        do {
-            let urls = try JSONDecoder().decode([String].self, from: data)
-            recentFiles = urls.compactMap { URL(fileURLWithPath: $0) }
-        } catch {
-            NSLog("Error loading recent files: \(error)")
-        }
+        let result = Self.recentFilesStore.load(from: recentFilesURL)
+        result.logProblem("RecentFiles")
+        guard let paths = result.value else { return }
+        recentFiles = paths.compactMap { URL(fileURLWithPath: $0) }
     }
 
     private func addRecentFile(_ url: URL) {
@@ -3669,10 +3668,8 @@ class WorkspaceManager: ObservableObject {
     }
 
     private func saveRecentFiles() {
-        let paths = recentFiles.map { $0.path }
-        if let data = try? JSONEncoder().encode(paths) {
-            try? data.write(to: recentFilesURL)
-        }
+        do { try Self.recentFilesStore.save(recentFiles.map { $0.path }, to: recentFilesURL) }
+        catch { NSLog("[RecentFiles] Could not save the recent files: %@", error.localizedDescription) }
     }
 
     // MARK: - Markdown Parsing

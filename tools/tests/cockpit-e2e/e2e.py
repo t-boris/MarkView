@@ -43,7 +43,8 @@ class Context:
         found = []
         for path in sorted(glob.glob(os.path.join(self.fx, ".dde/cockpit/runs/*.json"))):
             with open(path) as f:
-                found.append(json.load(f))
+                # A run file is a schema-versioned store: the run is the envelope's "data".
+                found.append(json.load(f)["data"])
         return found
 
     def agent_log(self):

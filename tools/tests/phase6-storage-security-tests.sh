@@ -13,6 +13,6 @@ swiftc -lsqlite3 -o "$out/phase6-tests" \
     "$ROOT"/Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     "$ROOT/MarkView/Models/AgentTools/BrowserAgentTools.swift" \
     "$ROOT/MarkView/Models/Workspace/SchemaVersionedStore.swift" \
-    "$out/main.swift"
+    tools/tests/StoreTestSupport.swift "$out/main.swift"
 
 "$out/phase6-tests"

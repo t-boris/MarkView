@@ -170,21 +170,32 @@ enum QAStore {
 
     // MARK: Runs
 
+    /// Runs are the machine's own data in `.dde/qa/`: an enveloped, schema-versioned file, unlike the scenarios in `.markview/qa/` that
+    /// a team commits and edits by hand.
+    private static let runStore = SchemaVersionedStore<QARunRecord>()
+
     static func saveRun(_ run: QARunRecord, root: URL) throws {
         guard safeID(run.id) == run.id else { throw QAStoreError.badID(run.id) }
         prepareLocalFolder(root)
-        try save(run, to: runURL(root, runID: run.id))
+        try runStore.save(run, to: runURL(root, runID: run.id))
     }
 
+    /// The run, or nil when there is none or its file cannot be read (logged and left as it is; a save copies it to a backup first).
     static func loadRun(_ root: URL, runID: String) -> QARunRecord? {
         guard safeID(runID) == runID else { return nil }
-        return load(QARunRecord.self, from: runURL(root, runID: runID))
+        return readRun(at: runURL(root, runID: runID))
     }
 
     /// The runs on this Mac, newest first.
     static func loadRuns(_ root: URL) -> [QARunRecord] {
         let folders = (try? FileManager.default.contentsOfDirectory(at: runsFolder(root), includingPropertiesForKeys: nil)) ?? []
-        return folders.compactMap { load(QARunRecord.self, from: $0.appendingPathComponent("run.json")) }.sorted { $0.startedAt > $1.startedAt }
+        return folders.compactMap { readRun(at: $0.appendingPathComponent("run.json")) }.sorted { $0.startedAt > $1.startedAt }
+    }
+
+    private static func readRun(at url: URL) -> QARunRecord? {
+        let result = runStore.load(from: url)
+        result.logProblem("QA")
+        return result.value
     }
 
     // MARK: Deleting runs (Q-010)

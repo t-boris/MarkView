@@ -15,7 +15,7 @@ cp tools/tests/UIStudioLiveRun.swift "$out/main.swift"
 swiftc -o "$out/ui-studio-live-run" \
   MarkView/Models/UIStudio/UIStudioJSON.swift MarkView/Models/UIStudio/UIStudioModels.swift MarkView/Models/UIStudio/UIStudioSimulation.swift MarkView/Models/UIStudio/UIStudioAuthMock.swift \
   MarkView/Models/UIStudio/UIStudioRedaction.swift MarkView/Models/UIStudio/UIStudioLog.swift MarkView/Models/UIStudio/UIStudioPreparation.swift MarkView/Models/UIStudio/UIStudioBridge.swift \
-  MarkView/Models/UIStudio/UIStudioChanges.swift MarkView/Models/UIStudio/UIStudioStore.swift MarkView/Models/UIStudio/UIStudioEvidence.swift \
+  MarkView/Models/UIStudio/UIStudioChanges.swift MarkView/Models/UIStudio/UIStudioStore.swift MarkView/Models/Workspace/SchemaVersionedStore.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/UIStudio/UIStudioEvidence.swift \
   MarkView/Models/UIStudio/UIStudioPrompts.swift MarkView/Models/UIStudio/UIStudioContext.swift MarkView/Models/UIStudio/UIStudioSelection.swift MarkView/Models/UIStudio/UIStudioPolicy.swift \
   MarkView/Models/UIStudio/UIStudioGateway.swift MarkView/Models/UIStudio/UIStudioServer.swift MarkView/Models/UIStudio/UIStudioConnections.swift MarkView/Models/UIStudio/UIStudioAgents.swift \
   MarkView/Models/UIStudio/UIStudioSession.swift MarkView/Models/Browser/BrowserElementPick.swift MarkView/Models/Workspace/WebAppPreview.swift \

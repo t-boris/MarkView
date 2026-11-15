@@ -205,6 +205,16 @@ struct GitHubConnectionRecord: Codable, Equatable {
     var slug: String { owner + "/" + name }
 
     static let relativePath = ".dde/github-connection.json"
+
+    private static let store = SchemaVersionedStore<GitHubConnectionRecord>()
+
+    static func url(root: URL) -> URL { root.appendingPathComponent(relativePath) }
+
+    /// What the project's record holds. A record that cannot be read is never taken for "no record": it may stand for a repository
+    /// that exists, so the caller must stop and show `problem` rather than create another one.
+    static func load(root: URL) -> StoreLoadResult<GitHubConnectionRecord> { store.load(from: url(root: root)) }
+
+    func save(root: URL) throws { try Self.store.save(self, to: Self.url(root: root)) }
 }
 
 /// Checks on git's answers during publication.
