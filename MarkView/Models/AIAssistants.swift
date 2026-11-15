@@ -219,6 +219,14 @@ enum AIAssistantPreferences {
         UserDefaults.standard.string(forKey: modelKey(for: tool)) ?? ""
     }
 
+    /// Compact state fingerprint for assistant/model/xray settings in `project`, used by observers
+    /// so unrelated `UserDefaults` writes (such as divider drags) do not trigger view refreshes (`AR-18`).
+    static func snapshot(project: URL?) -> String {
+        let tool = backend(project: project)
+        let choice = AssistantChoice(project: project)
+        return "\(tool.rawValue)|\(choice.model(for: tool))|\(choice.xrayModel(for: tool))"
+    }
+
     /// A model a running assistant reported (the user switched inside its session, BUG-048): the next
     /// start in `project` uses it. Only that project: a switch in one window must not change what another
     /// project shows or starts with, so the default moves only when no project is open. Not a pick in

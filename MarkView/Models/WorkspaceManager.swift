@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Combine
 import UniformTypeIdentifiers
+import os
 
 /// Owns file-tree state, exclusion rules, and file-system watching for the active workspace.
 @MainActor
@@ -187,16 +188,10 @@ final class WorkspaceFileTreeStore: ObservableObject {
         }
     }
 
+    private nonisolated static let fileTreeLogger = Logger(subsystem: "com.markview.app", category: "file-tree")
+
     private nonisolated static func log(_ msg: String) {
-        let line = "\(ISO8601DateFormatter().string(from: Date())) [FileTree] \(msg)\n"
-        let path = NSHomeDirectory() + "/markview_debug.log"
-        if let handle = FileHandle(forWritingAtPath: path) {
-            handle.seekToEndOfFile()
-            handle.write(Data(line.utf8))
-            handle.closeFile()
-        } else {
-            try? line.write(toFile: path, atomically: true, encoding: .utf8)
-        }
+        fileTreeLogger.debug("[FileTree] \(msg, privacy: .public)")
     }
 
     private func rootModificationDate(for url: URL) -> Date? {
@@ -719,18 +714,11 @@ class WorkspaceManager: ObservableObject {
         Self.debugLog("WorkspaceManager init DONE")
     }
 
-    /// Open a folder and set it as the root node
-    /// Write debug log to /tmp/markview_debug.log
-    static func debugLog(_ msg: String) {
-        let line = "\(ISO8601DateFormatter().string(from: Date())) \(msg)\n"
-        let path = NSHomeDirectory() + "/markview_debug.log"
-        if let handle = FileHandle(forWritingAtPath: path) {
-            handle.seekToEndOfFile()
-            handle.write(Data(line.utf8))
-            handle.closeFile()
-        } else {
-            try? line.write(toFile: path, atomically: true, encoding: .utf8)
-        }
+    private nonisolated static let workspaceLogger = Logger(subsystem: "com.markview.app", category: "workspace")
+
+    /// Write workspace diagnostic message to the unified system log (`AR-24`, `AR-42`).
+    nonisolated static func debugLog(_ msg: String) {
+        workspaceLogger.debug("\(msg, privacy: .public)")
     }
 
     /// Folder reopened on the next launch; cleared by Close Folder.
@@ -3915,13 +3903,7 @@ class WorkspaceManager: ObservableObject {
         }
 
         proc.terminationHandler = { [weak self] p in
-            // terminationHandler runs off the main actor → log via a direct file
-            // write (debugLog is @MainActor) so we can confirm the handler fired
-            // even before hopping back to the main actor for the UI refresh.
-            let line = "\(ISO8601DateFormatter().string(from: Date())) structural index process exited code=\(p.terminationStatus)\n"
-            if let h = FileHandle(forWritingAtPath: NSHomeDirectory() + "/markview_debug.log") {
-                h.seekToEndOfFile(); h.write(Data(line.utf8)); h.closeFile()
-            }
+            WorkspaceManager.workspaceLogger.debug("structural index process exited code=\(p.terminationStatus, privacy: .public)")
             Task { @MainActor in
                 WorkspaceManager.runningIndexers.removeAll { $0 === p }
                 guard let self = self else { return }
@@ -5854,9 +5836,10 @@ extension WorkspaceManager {
             path = String(text[..<match.lowerBound])
         }
         guard !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else { return "Only files inside the project can be opened." }
-        let url = root.appendingPathComponent(path).standardizedFileURL
+        let base = root.standardizedFileURL.resolvingSymlinksInPath()
+        let url = base.appendingPathComponent(path).standardizedFileURL.resolvingSymlinksInPath()
         var isDirectory: ObjCBool = false
-        guard url.path.hasPrefix(root.path + "/"), FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+        guard url.path.hasPrefix(base.path + "/"), FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
               !isDirectory.boolValue else { return "The file \(path) does not exist in the project." }
         openFile(url, line: line, endLine: endLine)
         return nil

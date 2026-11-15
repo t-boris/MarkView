@@ -628,8 +628,8 @@ enum PrototypeFiles {
     /// the sources (REQ-007).
     static func isSourceFile(root: URL, path: String) -> Bool {
         guard let path = componentPath(path) else { return false }
-        let base = root.standardizedFileURL
-        let url = base.appendingPathComponent(path).standardizedFileURL
+        let base = root.standardizedFileURL.resolvingSymlinksInPath()
+        let url = base.appendingPathComponent(path).standardizedFileURL.resolvingSymlinksInPath()
         guard url.path.hasPrefix(base.path + "/") else { return false }
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && !isDirectory.boolValue

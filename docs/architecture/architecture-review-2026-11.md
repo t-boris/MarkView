@@ -451,7 +451,7 @@ Each phase leaves the app shippable. Phases 0 and 1 are low risk and mostly inde
 
 **Phase 1: remove what misleads (days) — [Done].** AR-30 (delete `EditorWeb`), AR-48 (dead code, clutter), dead bridge code, `install.sh` / `setup.sh` / `importance-check.sh`, the repeated settings literals, the three view items out of Models, `TOCView.Tab` into Models, concurrency groups in CI, the test runner and manifest (AR-44 step 1) (`tools/tests/phase1-cleanup-tests.sh`).
 
-**Phase 2: shared infrastructure, `Core` (2-3 weeks).** `Subprocess` (AR-25), `Files` and `Logging` (AR-24), the settings key registry (AR-18), the JS call helper and `WebHost` (AR-04, AR-27). Files first, then the first local package with `swift test` (AR-44 step 2).
+**Phase 2: shared infrastructure, `Core` (2-3 weeks) — [Done].** `Subprocess` (AR-25), `Files` and `Logging` (AR-24), the settings key registry (AR-18), the JS call helper and `WebHost` (AR-04, AR-27), and the `Packages/MarkViewCore` local Swift package with `swift test` (AR-44 step 2) (`tools/tests/phase2-core-tests.sh`).
 
 **Phase 3: extension points (2-3 weeks).** Tool registry (AR-31), backdrop registry (AR-34), themes as data (AR-32), MCP tool handlers and the file type table, then layout presets (AR-33).
 

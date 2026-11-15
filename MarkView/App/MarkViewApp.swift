@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import os
 
 // MARK: - Custom UTType for Markdown
 extension UTType {
@@ -12,17 +13,10 @@ extension UTType {
 class MarkViewApplication: NSApplication {
     /// URLs received via Apple Events before any UI is ready
     static var launchURLs: [URL] = []
+    private static let appLogger = Logger(subsystem: "com.markview.app", category: "app")
 
     private static func debugLog(_ msg: String) {
-        let line = "\(ISO8601DateFormatter().string(from: Date())) [NSApp] \(msg)\n"
-        let path = NSHomeDirectory() + "/markview_debug.log"
-        if let handle = FileHandle(forWritingAtPath: path) {
-            handle.seekToEndOfFile()
-            handle.write(Data(line.utf8))
-            handle.closeFile()
-        } else {
-            try? line.write(toFile: path, atomically: true, encoding: .utf8)
-        }
+        appLogger.debug("[NSApp] \(msg, privacy: .public)")
     }
 
     override init() {
@@ -101,16 +95,10 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
         AgentProcesses.terminateAll()
     }
 
+    private static let delegateLogger = Logger(subsystem: "com.markview.app", category: "app-delegate")
+
     func log(_ msg: String) {
-        let line = "\(ISO8601DateFormatter().string(from: Date())) [AppDelegate] \(msg)\n"
-        let path = NSHomeDirectory() + "/markview_debug.log"
-        if let handle = FileHandle(forWritingAtPath: path) {
-            handle.seekToEndOfFile()
-            handle.write(Data(line.utf8))
-            handle.closeFile()
-        } else {
-            try? line.write(toFile: path, atomically: true, encoding: .utf8)
-        }
+        Self.delegateLogger.debug("[AppDelegate] \(msg, privacy: .public)")
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -400,17 +388,11 @@ struct MarkViewApp: App {
 
     // MARK: - File Actions
 
+    private static let finderLogger = Logger(subsystem: "com.markview.app", category: "finder")
+
     /// Check if Finder Quick Action wrote a path for us to open
     private static func debugLogStatic(_ msg: String) {
-        let line = "\(ISO8601DateFormatter().string(from: Date())) [Static] \(msg)\n"
-        let path = NSHomeDirectory() + "/markview_debug.log"
-        if let handle = FileHandle(forWritingAtPath: path) {
-            handle.seekToEndOfFile()
-            handle.write(Data(line.utf8))
-            handle.closeFile()
-        } else {
-            try? line.write(toFile: path, atomically: true, encoding: .utf8)
-        }
+        finderLogger.debug("[Static] \(msg, privacy: .public)")
     }
 
     private static func checkFinderOpenRequest(handler: @escaping ([URL]) -> Void) {

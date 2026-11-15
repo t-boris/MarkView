@@ -22,6 +22,10 @@
 		07044898F5427AD51A50B41F /* AIToolRuns.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFB /* AIToolRuns.swift */; };
 		07044898F5427AD51A50B420 /* AIToolJobsBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFC /* AIToolJobsBanner.swift */; };
 		07044898F5427AD51A50B421 /* AppFontScaleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFD /* AppFontScaleView.swift */; };
+		07044898F5427AD51A50B422 /* Subprocess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFE /* Subprocess.swift */; };
+		07044898F5427AD51A50B423 /* CoreFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFF /* CoreFiles.swift */; };
+		07044898F5427AD51A50B424 /* SettingsRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD00 /* SettingsRegistry.swift */; };
+		07044898F5427AD51A50B425 /* WebHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD01 /* WebHost.swift */; };
 		0785042AA6A1CE426EA201AD /* UIStudioAgents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C130B3890F584C0D4CCD2D4 /* UIStudioAgents.swift */; };
 		07AA9E8BD7921C0FE49408F8 /* PrototypeShellStructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC27A7ECE02BDB6EE3D62893 /* PrototypeShellStructure.swift */; };
 		082A811D6B13DF6C68B7F418 /* XRaySearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E10D6ADB4ADB8D0AE4BC89E /* XRaySearch.swift */; };
@@ -798,6 +802,10 @@
 		A6E0167483A13431C669BCFB /* AIToolRuns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIToolRuns.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BCFC /* AIToolJobsBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIToolJobsBanner.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BCFD /* AppFontScaleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFontScaleView.swift; sourceTree = "<group>"; };
+		A6E0167483A13431C669BCFE /* Subprocess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Subprocess.swift; sourceTree = "<group>"; };
+		A6E0167483A13431C669BCFF /* CoreFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreFiles.swift; sourceTree = "<group>"; };
+		A6E0167483A13431C669BD00 /* SettingsRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRegistry.swift; sourceTree = "<group>"; };
+		A6E0167483A13431C669BD01 /* WebHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebHost.swift; sourceTree = "<group>"; };
 		A8AEF205A13BAE60E2DC57A7 /* ImportanceRater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportanceRater.swift; sourceTree = "<group>"; };
 		AA0B17502A10EDBEA695CFD4 /* BrowserControlServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserControlServer.swift; sourceTree = "<group>"; };
 		AA2CA37BE6C93E0C73995455 /* markview-research-map-layout.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map-layout.js"; sourceTree = "<group>"; };
@@ -1508,11 +1516,23 @@
 				F21E96FB5400057E1B7290BB /* MarkViewDebug.entitlements */,
 				FBC1F0FD85C20C85C60FB39B /* App */,
 				FDDA5D16CE226A85C4EC1EC5 /* Bridge */,
+				A6E0167483A13431C669BD02 /* Core */,
 				64955AAAF582A77E3212EF93 /* Models */,
 				A4294BCB4C93DBA2B086BE26 /* Resources */,
 				6A2FEDD268AD8F78F008FAB0 /* Views */,
 			);
 			path = MarkView;
+			sourceTree = "<group>";
+		};
+		A6E0167483A13431C669BD02 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				A6E0167483A13431C669BCFE /* Subprocess.swift */,
+				A6E0167483A13431C669BCFF /* CoreFiles.swift */,
+				A6E0167483A13431C669BD00 /* SettingsRegistry.swift */,
+				A6E0167483A13431C669BD01 /* WebHost.swift */,
+			);
+			path = Core;
 			sourceTree = "<group>";
 		};
 		CAA4BC6FC508C8DB00F9FE7E /* Remote */ = {
@@ -1768,6 +1788,10 @@
 				07044898F5427AD51A50B41F /* AIToolRuns.swift in Sources */,
 				07044898F5427AD51A50B420 /* AIToolJobsBanner.swift in Sources */,
 				07044898F5427AD51A50B421 /* AppFontScaleView.swift in Sources */,
+				07044898F5427AD51A50B422 /* Subprocess.swift in Sources */,
+				07044898F5427AD51A50B423 /* CoreFiles.swift in Sources */,
+				07044898F5427AD51A50B424 /* SettingsRegistry.swift in Sources */,
+				07044898F5427AD51A50B425 /* WebHost.swift in Sources */,
 				4D698ACA5087AA8BD07F2A04 /* AgentActivity.swift in Sources */,
 				2C960A38A358C2B2CCAA2E23 /* AgentActivityChip.swift in Sources */,
 				6ADDB1842B093A3BB70A4DB4 /* AgentActivityMonitor.swift in Sources */,

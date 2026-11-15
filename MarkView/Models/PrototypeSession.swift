@@ -178,8 +178,9 @@ final class PrototypeSession: ObservableObject, Identifiable {
 
     /// The source file of a component, when it exists in the project (an "Open source" target).
     func sourceURL(of path: String) -> URL? {
-        let url = root.appendingPathComponent(path).standardizedFileURL
-        guard url.path.hasPrefix(root.path + "/"), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let base = root.standardizedFileURL.resolvingSymlinksInPath()
+        let url = base.appendingPathComponent(path).standardizedFileURL.resolvingSymlinksInPath()
+        guard url.path.hasPrefix(base.path + "/"), FileManager.default.fileExists(atPath: url.path) else { return nil }
         return url
     }
 
