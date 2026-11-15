@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 199,
+  "suiteCount": 200,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -228,6 +228,31 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/ChangeDiffTests.swift",
         "tools/tests/change-diff-tests.sh"
+      ]
+    },
+    {
+      "name": "change-source-tests",
+      "script": "tools/tests/change-source-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/AI/OutputLanguage.swift",
+        "MarkView/Models/Architecture/ChangeReviewModel.swift",
+        "MarkView/Models/Architecture/ChangeSource.swift",
+        "MarkView/Models/Architecture/CodeExplainer.swift",
+        "MarkView/Models/Architecture/HistoricalBaseline.swift",
+        "MarkView/Models/Git/GitHubClient.swift",
+        "MarkView/Models/Lifecycle/EvidenceTimings.swift",
+        "MarkView/Models/Lifecycle/LifecycleCapture.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "tools/tests/CLIToolLocatorStub.swift",
+        "tools/tests/ChangeSourceTests.swift",
+        "tools/tests/change-source-tests.sh"
       ]
     },
     {

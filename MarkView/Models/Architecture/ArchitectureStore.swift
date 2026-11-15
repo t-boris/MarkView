@@ -2521,11 +2521,11 @@ final class ArchitectureStore: ObservableObject {
             // Pull requests on GitHub need `gh`: only the opt-in integration may run it. The switch
             // is read here, on the main actor, once per refresh.
             let gitHub = GitHubSettings.enabled
-            let sources = await Task.detached { Self.listPRSources(root: root, repo: repo, gitHub: gitHub) }.value
+            let sources = await Task.detached { ChangeSource.list(root: root, repo: repo, gitHub: gitHub) }.value
             // Comparisons the person asked for (a branch against this one, a commit of an earlier day) are not in
             // the list git builds.
             let comparisons = prSources.filter {
-                (Self.comparison($0.id) != nil || HistoricalBaseline.commitHash(fromSourceId: $0.id) != nil) && !sources.contains($0)
+                (ChangeSource.comparison($0.id) != nil || HistoricalBaseline.commitHash(fromSourceId: $0.id) != nil) && !sources.contains($0)
             }
             prSources = sources + comparisons
             revision += 1
@@ -2536,104 +2536,6 @@ final class ArchitectureStore: ObservableObject {
                 }
             }
         }
-    }
-
-    /// The changes the PR X-Ray can show: this checkout against its base (git only), then the
-    /// repository's pull requests when the GitHub integration is on (`gitHub`).
-    nonisolated private static func listPRSources(root: URL, repo: GitHubRepo?, gitHub: Bool) -> [PRSource] {
-        guard ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "rev-parse", "--is-inside-work-tree"]) != nil else {
-            return []
-        }
-        // Two kinds of change: this checkout (what a pull request from here would contain:
-        // commits since the base plus uncommitted and new files), or a pull request on
-        // GitHub, fetched and read at its own head.
-        var sources: [PRSource] = []
-        if let base = baseBranch(root: root) {
-            let current = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "rev-parse", "--abbrev-ref", "HEAD"])?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let baseName = base.replacingOccurrences(of: "origin/", with: "")
-            // Name both sides: this branch against the base it would be merged into.
-            let subject = current.isEmpty || current == "HEAD" ? "All changes" : "\(current): all changes"
-            sources.append(PRSource(id: "local", title: "\(subject) vs \(baseName) (commits + uncommitted)"))
-        }
-        // Every open pull request, then the 30 most recently merged or closed ones (two
-        // queries: with one, old open ones fall outside the limit behind recent merges).
-        // With the integration off `runGH` asks nothing and the list has no GitHub entries.
-        var prs: [[String: Any]] = []
-        for (state, limit) in [("open", "50"), ("closed", "30")] {
-            if let json = runGH(["pr", "list", "--state", state, "--limit", limit, "--json", "number,title,state"], root: root, repo: repo, gitHub: gitHub),
-               let data = json.data(using: .utf8),
-               let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-                prs += list
-            }
-        }
-        do {
-            for pr in prs {
-                guard let number = pr["number"] as? Int else { continue }
-                let state = (pr["state"] as? String ?? "").lowercased()
-                sources.append(PRSource(id: "gh:\(number)",
-                                        title: "#\(number) \(pr["title"] as? String ?? "")" + (state == "open" || state.isEmpty ? "" : " (\(state))")))
-            }
-        }
-        return sources
-    }
-
-    /// Open pull requests of the repository at `root` (`gh`), newest first; empty without `gh`
-    /// and while the GitHub integration is off (`gitHub`, read on the main actor by the caller).
-    nonisolated static func openPullRequests(root: URL, gitHub: Bool) -> [(number: Int, title: String)] {
-        guard let json = runGH(["pr", "list", "--state", "open", "--limit", "50", "--json", "number,title"], root: root, gitHub: gitHub),
-              let list = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]] else { return [] }
-        return list.compactMap { pr in
-            (pr["number"] as? Int).map { ($0, pr["title"] as? String ?? "") }
-        }
-    }
-
-    nonisolated private static func baseBranch(root: URL) -> String? {
-        if let head = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !head.isEmpty { return head }
-        for candidate in ["main", "master", "origin/main", "origin/master"] {
-            if ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "rev-parse", "--verify", "--quiet", candidate]) != nil {
-                return candidate
-            }
-        }
-        return nil
-    }
-
-    /// `gh` for the PR X-Ray, through `GitHubClient`'s runner (the AI CLIs' PATH, pipes drained
-    /// while it runs, terminated after `timeout` seconds). The only place this file starts `gh`.
-    /// GitHub is opt-in: `gitHub` is `GitHubSettings.enabled`, read on the main actor by the
-    /// caller of each operation; while it is false `gh` is not started and nil comes back, as
-    /// when `gh` is missing or fails.
-    nonisolated private static func runGH(_ arguments: [String], root: URL, repo: GitHubRepo? = nil, gitHub: Bool,
-                                          timeout: TimeInterval = 20) -> String? {
-        // Pull requests of the repository chosen in the Git tab (origin or upstream).
-        var arguments = arguments
-        if arguments.first == "pr", arguments.count >= 2, let repo {
-            arguments.insert(contentsOf: ["-R", repo.slug], at: 2)
-        }
-        return GitHubClient.output(arguments, in: root, enabled: gitHub, timeout: timeout)
-    }
-
-    /// A comparison the person chose: `cmp:<ref>` is this checkout (commits and uncommitted changes) against
-    /// `<ref>`; `rev:<ref>` is what `<ref>` has that this checkout does not, read without checking it out.
-    nonisolated static func comparison(_ id: String) -> (reverse: Bool, ref: String)? {
-        for (prefix, reverse) in [("cmp:", false), ("rev:", true)] where id.hasPrefix(prefix) {
-            let ref = String(id.dropFirst(prefix.count))
-            return ref.isEmpty || ref.hasPrefix("-") ? nil : (reverse, ref)
-        }
-        return nil
-    }
-
-    nonisolated private static func commit(of ref: String, root: URL) -> String? {
-        ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "rev-parse", "--verify", "--quiet", ref + "^{commit}"])?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    nonisolated private static func mergeBase(with ref: String, root: URL) -> String? {
-        guard commit(of: ref, root: root) != nil,
-              let base = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "merge-base", ref, "HEAD"])?
-                  .trimmingCharacters(in: .whitespacesAndNewlines), !base.isEmpty else { return nil }
-        return base
     }
 
     /// Show a branch comparison in the PR view; `title` is what the source picker shows.
@@ -2661,7 +2563,7 @@ final class ArchitectureStore: ObservableObject {
         Task {
             let commits = await Task.detached {
                 HistoricalBaseline.commits(on: day, calendar: calendar) {
-                    ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path] + $0)
+                    ChangeSource.git($0, in: root)
                 }
             }.value
             guard request == historyRequest else { return }
@@ -2681,7 +2583,7 @@ final class ArchitectureStore: ObservableObject {
         let calendar = Calendar.autoupdatingCurrent
         Task {
             let commit = await Task.detached { () -> HistoricalBaseline.Commit? in
-                ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path] + arguments)
+                ChangeSource.git(arguments, in: root)
                     .flatMap { HistoricalBaseline.parse($0).first }
             }.value
             guard let commit, commit.sha == sha else {
@@ -2695,69 +2597,6 @@ final class ArchitectureStore: ObservableObject {
         }
     }
 
-    /// The change as a unified diff. Git serves the local checkout and branch comparisons; a
-    /// pull request needs `gh`, which runs only while the GitHub integration is on (`gitHub`).
-    nonisolated private static func diff(for source: PRSource, root: URL, repo: GitHubRepo?, gitHub: Bool) -> String? {
-        if let sha = HistoricalBaseline.commitHash(fromSourceId: source.id) {
-            // The chosen commit is the baseline itself, not its merge base with HEAD: it may sit on another
-            // branch. The other side is the working copy: committed work, uncommitted changes and new files.
-            guard commit(of: sha, root: root) != nil, let arguments = HistoricalBaseline.diffArguments(since: sha),
-                  let tracked = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path] + arguments)
-            else { return nil }
-            return tracked + untrackedDiff(root: root)
-        }
-        if let chosen = comparison(source.id) {
-            guard let base = mergeBase(with: chosen.ref, root: root) else { return nil }
-            if chosen.reverse {
-                return ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "diff", base, chosen.ref, "--no-color", "-U3"])
-            }
-            guard let tracked = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "diff", base, "--no-color", "-U3"]) else { return nil }
-            return tracked + untrackedDiff(root: root)
-        }
-        switch source.id {
-        case "local":
-            guard let base = baseBranch(root: root),
-                  let mergeBase = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "merge-base", base, "HEAD"])?
-                      .trimmingCharacters(in: .whitespacesAndNewlines), !mergeBase.isEmpty,
-                  let tracked = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "diff", mergeBase, "--no-color", "-U3"])
-            else { return nil }
-            return tracked + untrackedDiff(root: root)
-        default:
-            guard source.id.hasPrefix("gh:") else { return nil }
-            let number = String(source.id.dropFirst(3))
-            if let checkout = fetchPR(number: number, root: root, repo: repo, gitHub: gitHub),
-               let diff = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "diff", checkout.mergeBase, checkout.head, "--no-color", "-U3"]) {
-                return diff
-            }
-            // Not fetchable (offline, no access): GitHub's diff; files are then the local ones.
-            return runGH(["pr", "diff", number, "--color", "never"], root: root, repo: repo, gitHub: gitHub, timeout: 60)
-        }
-    }
-
-    /// Fetch pull request `number` (`pull/<n>/head`) and its base branch, unless already here.
-    /// Nil while the GitHub integration is off (`gitHub`): the lookup needs `gh`.
-    nonisolated static func fetchPR(number: String, root: URL, repo: GitHubRepo?, gitHub: Bool) -> PRCheckout? {
-        guard let json = runGH(["pr", "view", number, "--json", "headRefOid,baseRefName"], root: root, repo: repo, gitHub: gitHub),
-              let info = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
-              let head = info["headRefOid"] as? String, let baseName = info["baseRefName"] as? String else { return nil }
-        func git(_ arguments: [String]) -> String? {
-            // Never wait for a password prompt that cannot be answered.
-            ArchitectureScanner.runTool("/usr/bin/env", ["GIT_TERMINAL_PROMPT=0", "git", "-C", root.path] + arguments)
-        }
-        // The remote of the repository the pull request belongs to (a name, or a URL for a
-        // fork's parent without an `upstream` remote).
-        let remote = repo?.remote ?? "origin"
-        if git(["cat-file", "-e", head + "^{commit}"]) == nil {
-            _ = git(["fetch", "--no-tags", "--quiet", remote, "pull/\(number)/head"])
-            guard git(["cat-file", "-e", head + "^{commit}"]) != nil else { return nil }
-        }
-        _ = git(["fetch", "--no-tags", "--quiet", remote, baseName])
-        let baseRef = remote.contains("/") ? "FETCH_HEAD" : remote + "/" + baseName
-        guard let mergeBase = git(["merge-base", baseRef, head])?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !mergeBase.isEmpty else { return nil }
-        return PRCheckout(number: number, head: head, mergeBase: mergeBase)
-    }
-
     /// The change's version of `path`, written to MarkView's cache so the viewer shows the
     /// code under review (not the working copy): a fetched pull request's head, or — for a
     /// file the change removes — the version before it. Nil when the working copy is it.
@@ -2768,27 +2607,14 @@ final class ArchitectureStore: ObservableObject {
         let cache: URL
         if prOverlay?.files.first(where: { $0.path == path })?.deleted == true, let base = prBase {
             commit = base
-            cache = Self.prCacheRoot(root: root, label: "base-" + base.prefix(10))
+            cache = ChangeSource.cacheRoot(root: root, label: "base-" + base.prefix(10))
         } else if let checkout = prCheckout {
             commit = checkout.head
-            cache = Self.prCacheRoot(root: root, label: "PR-\(checkout.number)-\(checkout.head.prefix(10))")
+            cache = ChangeSource.cacheRoot(root: root, label: "PR-\(checkout.number)-\(checkout.head.prefix(10))")
         } else {
             return nil
         }
-        let file = cache.appendingPathComponent(path)
-        if FileManager.default.fileExists(atPath: file.path) { return file }
-        let rootPath = root.path
-        let spec = "\(commit):\(path)"
-        let fetched: String? = await Task.detached(priority: .userInitiated) {
-            let result = await Subprocess.run(SubprocessSpec(
-                executable: "/usr/bin/env", arguments: ["git", "-C", rootPath, "show", spec], timeout: 15, maxOutputBytes: 2 * 1024 * 1024))
-            guard result.succeeded, !result.timedOut else { return nil }
-            return result.stdout
-        }.value
-        guard let text = fetched else { return nil }
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard (try? AtomicFile.write(text, to: file)) != nil else { return nil }
-        return file
+        return await ChangeSource.materialize(path: path, at: commit, into: cache, root: root)
     }
 
     /// Synchronous cache lookup for an already-materialized PR file URL (use `resolvePRFileURL` to fetch off the main actor).
@@ -2796,9 +2622,9 @@ final class ArchitectureStore: ObservableObject {
         guard let root = prRoot, !path.split(separator: "/").contains("..") else { return nil }
         let cache: URL
         if prOverlay?.files.first(where: { $0.path == path })?.deleted == true, let base = prBase {
-            cache = Self.prCacheRoot(root: root, label: "base-" + base.prefix(10))
+            cache = ChangeSource.cacheRoot(root: root, label: "base-" + base.prefix(10))
         } else if let checkout = prCheckout {
-            cache = Self.prCacheRoot(root: root, label: "PR-\(checkout.number)-\(checkout.head.prefix(10))")
+            cache = ChangeSource.cacheRoot(root: root, label: "PR-\(checkout.number)-\(checkout.head.prefix(10))")
         } else {
             return nil
         }
@@ -2814,40 +2640,10 @@ final class ArchitectureStore: ObservableObject {
         if let base = prBase { labels.append("base-" + base.prefix(10)) }
         let path = url.standardizedFileURL.path
         for label in labels {
-            let base = Self.prCacheRoot(root: root, label: label).standardizedFileURL.path + "/"
+            let base = ChangeSource.cacheRoot(root: root, label: label).standardizedFileURL.path + "/"
             if path.hasPrefix(base) { return String(path.dropFirst(base.count)) }
         }
         return nil
-    }
-
-    nonisolated private static func prCacheRoot(root: URL, label: String) -> URL {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let repo = String(ContentHash.of(root.standardizedFileURL.path).prefix(12))
-        return caches.appendingPathComponent("MarkView/pull-requests/\(repo)/\(label)", isDirectory: true)
-    }
-
-    /// Where this checkout's changes start: the merge base of the base branch and HEAD.
-    nonisolated private static func localMergeBase(root: URL) -> String? {
-        guard let base = baseBranch(root: root),
-              let mergeBase = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "merge-base", base, "HEAD"])?
-                .trimmingCharacters(in: .whitespacesAndNewlines), !mergeBase.isEmpty else { return nil }
-        return mergeBase
-    }
-
-    /// New files git does not track yet, as additions (text files up to 512 KB, at most 200).
-    nonisolated private static func untrackedDiff(root: URL) -> String {
-        guard let list = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "ls-files", "--others", "--exclude-standard"])
-        else { return "" }
-        var out = ""
-        for path in list.split(separator: "\n").prefix(200).map(String.init) {
-            let url = root.appendingPathComponent(path)
-            guard let data = try? Data(contentsOf: url), data.count <= 512 * 1024, !data.contains(0),
-                  let text = String(data: data, encoding: .utf8), !text.isEmpty else { continue }
-            let lines = text.editorLines
-            out += "diff --git a/\(path) b/\(path)\nnew file mode 100644\n--- /dev/null\n+++ b/\(path)\n@@ -0,0 +1,\(lines.count) @@\n"
-            out += lines.map { "+" + $0 }.joined(separator: "\n") + "\n"
-        }
-        return out
     }
 
     /// Show which files a change touches (no AI).
@@ -2890,23 +2686,7 @@ final class ArchitectureStore: ObservableObject {
         // A reload keeps the repository the pull request came from.
         let repo = prOverlay?.source.id == source.id && prRepo != nil ? prRepo : gitHubRepo
         let gitHub = GitHubSettings.enabled
-        let (diff, checkout, base) = await Task.detached { () -> (String?, PRCheckout?, String?) in
-            var checkout = source.id.hasPrefix("gh:") ? Self.fetchPR(number: String(source.id.dropFirst(3)), root: root, repo: repo, gitHub: gitHub) : nil
-            var base = checkout?.mergeBase ?? (source.id == "local" ? Self.localMergeBase(root: root) : nil)
-            // A historical baseline is the commit itself; removed files open as they were in it.
-            if let sha = HistoricalBaseline.commitHash(fromSourceId: source.id), Self.commit(of: sha, root: root) != nil {
-                base = sha
-            }
-            if let chosen = Self.comparison(source.id), let mergeBase = Self.mergeBase(with: chosen.ref, root: root) {
-                base = mergeBase
-                // Another branch's changes are read from that branch, not from the working copy.
-                if chosen.reverse, let head = Self.commit(of: chosen.ref, root: root) {
-                    let label = "branch-" + chosen.ref.map { $0.isLetter || $0.isNumber || $0 == "-" ? String($0) : "_" }.joined()
-                    checkout = PRCheckout(number: label, head: head, mergeBase: mergeBase)
-                }
-            }
-            return (Self.diff(for: source, root: root, repo: repo, gitHub: gitHub), checkout, base)
-        }.value
+        let (diff, checkout, base) = await Task.detached { ChangeSource.read(source, root: root, repo: repo, gitHub: gitHub) }.value
         guard token == prLoadToken else { return false }
         guard let diff else {
             error = HistoricalBaseline.commitHash(fromSourceId: source.id) != nil
@@ -3273,7 +3053,7 @@ final class ArchitectureStore: ObservableObject {
             setStatus("Analysing \(source.title)…")
             let repo = prRepo ?? gitHubRepo
             let gitHub = GitHubSettings.enabled
-            let diff = await Task.detached { Self.diff(for: source, root: root, repo: repo, gitHub: gitHub) }.value ?? ""
+            let diff = await Task.detached { ChangeSource.diff(for: source, root: root, repo: repo, gitHub: gitHub) }.value ?? ""
             // Which component each changed file belongs to, from the X-Ray.
             let fileNodes = Dictionary((current?.view("modules")?.nodes ?? []).filter { $0.kind == "file" }
                 .compactMap { node in node.path.map { ($0, node) } }, uniquingKeysWith: { a, _ in a })
@@ -3388,7 +3168,7 @@ final class ArchitectureStore: ObservableObject {
             setStatus("Reviewing \(source.title)…")
             let repo = prRepo ?? gitHubRepo
             let gitHub = GitHubSettings.enabled
-            let diff = await Task.detached { Self.diff(for: source, root: root, repo: repo, gitHub: gitHub) }.value ?? ""
+            let diff = await Task.detached { ChangeSource.diff(for: source, root: root, repo: repo, gitHub: gitHub) }.value ?? ""
             let key = SHA256.hash(data: Data(diff.utf8)).map { String(format: "%02x", $0) }.joined()
             reviewKey = (key, db)
             if !fresh, let cached = await db?.loadArchitectureReview(key: key),

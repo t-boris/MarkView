@@ -321,6 +321,7 @@
 		AB772A1CF9E16E47D4B8E23B /* GitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5CB38E9CF1EB846033B0A8 /* GitView.swift */; };
 		ABAF5DAC540027464649560A /* ProjectChangeReviewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8930513F5E47FE846434F86D /* ProjectChangeReviewModel.swift */; };
 		ACC4EC4EED2064E5A42D8B93 /* ArchitectureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A4D926B6E77144DA360543F /* ArchitectureStore.swift */; };
+		CC040EEDBE1D899D1CE0810B /* ChangeSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D463840F256163AB414C09D0 /* ChangeSource.swift */; };
 		264465EC6A74D4C147CFD5D3 /* ChangeDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADE081C518141989A6900227 /* ChangeDiff.swift */; };
 		3A993557374111460A125A73 /* ChangeReviewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B61AEFBC284DC7A8097B46AD /* ChangeReviewModel.swift */; };
 		3F05808A1EC2557CCFC1A3A0 /* XRayCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3ECF56CDA8B6B63BCF15EA8 /* XRayCommand.swift */; };
@@ -857,6 +858,7 @@
 		9948C896E8CDF0E775CA331E /* CockpitLeverPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitLeverPanel.swift; sourceTree = "<group>"; };
 		9A1BAC4896C73C835E150997 /* BrowserElementPick.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserElementPick.swift; sourceTree = "<group>"; };
 		9A4D926B6E77144DA360543F /* ArchitectureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureStore.swift; sourceTree = "<group>"; };
+		D463840F256163AB414C09D0 /* ChangeSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeSource.swift; sourceTree = "<group>"; };
 		ADE081C518141989A6900227 /* ChangeDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeDiff.swift; sourceTree = "<group>"; };
 		B61AEFBC284DC7A8097B46AD /* ChangeReviewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeReviewModel.swift; sourceTree = "<group>"; };
 		B3ECF56CDA8B6B63BCF15EA8 /* XRayCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayCommand.swift; sourceTree = "<group>"; };
@@ -1257,6 +1259,7 @@
 				B6B0748CACE05B758D369F89 /* ArchitectureModel.swift */,
 				9BD5813E43B8EA8DD4CE8C0F /* ArchitectureScanner.swift */,
 				9A4D926B6E77144DA360543F /* ArchitectureStore.swift */,
+				D463840F256163AB414C09D0 /* ChangeSource.swift */,
 				ADE081C518141989A6900227 /* ChangeDiff.swift */,
 				B61AEFBC284DC7A8097B46AD /* ChangeReviewModel.swift */,
 				B3ECF56CDA8B6B63BCF15EA8 /* XRayCommand.swift */,
@@ -2400,6 +2403,7 @@
 				66A2E7B7F4FDF6FD2B44C822 /* ArchitectureModel.swift in Sources */,
 				CC06E828F3E074262772D431 /* ArchitectureScanner.swift in Sources */,
 				ACC4EC4EED2064E5A42D8B93 /* ArchitectureStore.swift in Sources */,
+				CC040EEDBE1D899D1CE0810B /* ChangeSource.swift in Sources */,
 				264465EC6A74D4C147CFD5D3 /* ChangeDiff.swift in Sources */,
 				3A993557374111460A125A73 /* ChangeReviewModel.swift in Sources */,
 				3F05808A1EC2557CCFC1A3A0 /* XRayCommand.swift in Sources */,
