@@ -27,7 +27,7 @@ class SemanticDatabase {
             let workspaceId = ProjectPaths.projectCacheIdentifier(for: workspacePath)
             ddeDir = appSupport.appendingPathComponent("MarkView/Projects/\(workspaceId)")
             try fm.createDirectory(at: ddeDir, withIntermediateDirectories: true)
-            NSLog("[SemanticDB] Sandbox fallback: \(ddeDir.path)")
+            AppLog.index.notice("Sandbox fallback: \(ddeDir.path)")
         }
 
         let dbURL = ddeDir.appendingPathComponent(dbName)
@@ -54,7 +54,7 @@ class SemanticDatabase {
                 throw SemanticDBError.openFailed(String(cString: sqlite3_errmsg(fresh)))
             }
             self.db = reopened
-            NSLog("[SemanticDB] Old docId scheme detected — recreated fresh database")
+            AppLog.index.notice("Old docId scheme detected — recreated fresh database")
         }
 
         try setPragmas()
@@ -1085,7 +1085,7 @@ class SemanticDatabase {
         // Reset usage stats
         try execute("UPDATE usage_stats SET total_input_tokens=0, total_output_tokens=0, total_jobs=0, total_cost_cents=0 WHERE id=1")
 
-        NSLog("[DDE] Database + cache fully cleared")
+        AppLog.workspace.notice("Database + cache fully cleared")
     }
 
     // MARK: - Usage Stats (persisted across sessions)

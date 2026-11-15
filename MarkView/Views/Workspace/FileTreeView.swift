@@ -1211,7 +1211,7 @@ struct FileTreeView: View {
         let config = NSWorkspace.OpenConfiguration()
         NSWorkspace.shared.open([folderURL], withApplicationAt: terminalURL, configuration: config) { _, error in
             if let error {
-                NSLog("[FileTreeView] Failed to open Terminal at %@: %@", folderURL.path, error.localizedDescription)
+                AppLog.fileTree.error("Failed to open Terminal at \(folderURL.path): \(error.localizedDescription)")
             }
         }
     }

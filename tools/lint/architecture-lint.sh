@@ -15,6 +15,7 @@
 #   atomic-write         `.write(to:` / `.write(toFile:` outside AtomicFile (CoreFiles.swift)  tools/lint/atomic-write-allowlist.txt
 #   project-paths        a string literal that starts with `.dde` or `.markview-` outside ProjectPaths (CoreFiles.swift)
 #                        tools/lint/project-paths-allowlist.txt
+#   app-log              `NSLog(` and `Logger(subsystem:` outside AppLog (Packages/MarkViewCore AppLog.swift)  tools/lint/app-log-allowlist.txt
 # A migration that reaches zero ends with an empty list (no lines), which means none allowed.
 #
 # Usage: tools/lint/architecture-lint.sh [--root <repo>] [--tighten]
@@ -225,8 +226,15 @@ ratchet("project-paths", "project-paths-allowlist.txt", "path literal(s)",
         "# test per path. Add a location there instead of writing the literal. Prose that merely mentions `.dde/` in a longer sentence is not a\n"
         "# path and is not counted.")
 
+ratchet("app-log", "app-log-allowlist.txt", "NSLog or Logger site(s)",
+        count_sites(app_swift + package_swift, re.compile(r"(?<![A-Za-z0-9_.])NSLog\(|(?<![A-Za-z0-9_])Logger\(subsystem:"),
+                    exclude=lambda p: "/Tests/" in rel(p) or "/.build/" in rel(p) or rel(p) == "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift"),
+        "# `NSLog(` and `Logger(subsystem:` outside AppLog (AR-24). `<count> <path>`; a ratchet that only falls. Every message goes through a\n"
+        "# category of AppLog (Packages/MarkViewCore, AppLog.swift), which keeps interpolated strings private. Add a category there instead of a\n"
+        "# new Logger, and never log file contents, tokens, prompts or request headers.")
+
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "process", "clicompletion", "workspace-manager", "atomic-write", "project-paths"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "process", "clicompletion", "workspace-manager", "atomic-write", "project-paths", "app-log"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

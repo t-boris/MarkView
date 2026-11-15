@@ -29,6 +29,7 @@ SWIFT = {
     "MarkView/Views/Workspace/Tab.swift": "struct Tab {\n    @EnvironmentObject var workspace: WorkspaceManager\n    @ObservedObject var other: WorkspaceManager\n    @EnvironmentObject var theme: Theme\n}\n",
     "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift": "let process = Process()\n",
     "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift": "// the one writer and the one place that names the folders\nlet n = Darwin.write(fd, base, count)\nlet t = try data.write(to: tmp)\nlet f = \".dde\"\nlet p = \".markview-\" + kind\n",
+    "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift": "// the one place that makes a Logger\nlet l = Logger(subsystem: \"com.markview.app\", category: \"x\")\n",
     "MarkView/Models/Workspace/Export.swift": "// A comment about .write(to: is not a site\nfunc export() throws { try png.write(to: url) }\n",
 }
 
@@ -83,6 +84,7 @@ def fixture():
     write(root, "tools/lint/workspace-manager-views.txt", "1 MarkView/Views/Workspace/Tab.swift\n")
     write(root, "tools/lint/atomic-write-allowlist.txt", "1 MarkView/Models/Workspace/Export.swift\n")
     write(root, "tools/lint/project-paths-allowlist.txt", "# none outside ProjectPaths\n")
+    write(root, "tools/lint/app-log-allowlist.txt", "# none outside AppLog\n")
     return root
 
 def run(root, *args):
@@ -226,6 +228,15 @@ try:
     project(root, app_swift(root))
     code, out = run(root)
     check(code == 0, "prose that mentions .dde/ inside a longer sentence is not a path literal")
+
+    # --- app-log ratchet
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Noisy.swift", "func f() { NSLog(\"Could not save: %@\", name) }\nlet l = Logger(subsystem: \"com.markview.app\", category: \"y\")\n// NSLog( in a comment does not count\nlet ok = AppLog.workspace\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[app-log] MarkView/Models/Workspace/Noisy.swift: 2 NSLog or Logger site(s), 0 allowed (new sites)" in out,
+          "a new NSLog or Logger(subsystem:) fails and is named, comments are not counted")
+    check("AppLog.swift" not in out, "AppLog's own file is the allowed home, not counted")
 
     # --- lists
     root = fresh()

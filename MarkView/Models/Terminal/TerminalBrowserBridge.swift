@@ -92,7 +92,7 @@ enum TerminalBrowserBridge {
                 try write(text, to: support.zsh.appendingPathComponent(name), executable: false)
             }
         } catch {
-            NSLog("[MarkView] terminal browser bridge unavailable: \(error.localizedDescription)")
+            AppLog.browser.error("terminal browser bridge unavailable: \(error.localizedDescription)")
             return nil
         }
         watch(support.spool)

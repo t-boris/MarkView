@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import WebKit
 import XCTest
 @testable import MarkViewCore
@@ -406,6 +407,28 @@ final class MarkViewCoreTests: XCTestCase {
         XCTAssertFalse(ProjectPaths.containsStrictly(root.appendingPathComponent("link/x.md"), root: root), "a symlink that leaves the root")
         try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("home"), withDestinationURL: root)
         XCTAssertFalse(ProjectPaths.containsStrictly(root.appendingPathComponent("home"), root: root), "a symlink to the root itself")
+    }
+
+    /// What AppLog promises (AR-24): a message reaches the unified log under the app's subsystem and its category, a dynamic string
+    /// in it is stored as `<private>`, and the static text and the numbers stay readable. Read back from this process's own log.
+    func testAppLogKeepsInterpolatedStringsPrivate() throws {
+        let secret = "SECRET-\(UUID().uuidString)"
+        let started = Date().addingTimeInterval(-1)
+        AppLog.store.error("probe failed: \(secret) after \(7) tries")
+
+        let store: OSLogStore
+        do { store = try OSLogStore(scope: .currentProcessIdentifier) } catch { throw XCTSkip("The process log store is not readable here: \(error)") }
+        var found: OSLogEntryLog?
+        for _ in 0..<6 where found == nil {
+            let entries = try store.getEntries(at: store.position(date: started),
+                                               matching: NSPredicate(format: "subsystem == %@", AppLog.subsystem))
+            found = entries.compactMap { $0 as? OSLogEntryLog }.first { $0.composedMessage.hasPrefix("probe ") }
+            if found == nil { Thread.sleep(forTimeInterval: 0.3) }
+        }
+        let entry = try XCTUnwrap(found, "the message did not reach the unified log")
+        XCTAssertEqual(entry.category, "store")
+        XCTAssertEqual(entry.composedMessage, "probe failed: <private> after 7 tries")
+        XCTAssertFalse(entry.composedMessage.contains(secret))
     }
 
     func testWeakScriptMessageHandlerDoesNotRetainTarget() {

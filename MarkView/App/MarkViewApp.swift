@@ -1,6 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import os
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // MARK: - Custom UTType for Markdown
 extension UTType {
@@ -13,10 +16,8 @@ extension UTType {
 class MarkViewApplication: NSApplication {
     /// URLs received via Apple Events before any UI is ready
     static var launchURLs: [URL] = []
-    private static let appLogger = Logger(subsystem: "com.markview.app", category: "app")
-
     private static func debugLog(_ msg: String) {
-        appLogger.debug("[NSApp] \(msg, privacy: .public)")
+        AppLog.app.debug("[NSApp] \(msg)")
     }
 
     override init() {
@@ -91,10 +92,9 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
         AgentProcesses.terminateAll()
     }
 
-    private static let delegateLogger = Logger(subsystem: "com.markview.app", category: "app-delegate")
 
     func log(_ msg: String) {
-        Self.delegateLogger.debug("[AppDelegate] \(msg, privacy: .public)")
+        AppLog.appDelegate.debug("[AppDelegate] \(msg)")
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -380,11 +380,9 @@ struct MarkViewApp: App {
 
     // MARK: - File Actions
 
-    private static let finderLogger = Logger(subsystem: "com.markview.app", category: "finder")
-
     /// Check if Finder Quick Action wrote a path for us to open
     private static func debugLogStatic(_ msg: String) {
-        finderLogger.debug("[Static] \(msg, privacy: .public)")
+        AppLog.finder.debug("[Static] \(msg)")
     }
 
     private static func checkFinderOpenRequest(handler: @escaping ([URL]) -> Void) {

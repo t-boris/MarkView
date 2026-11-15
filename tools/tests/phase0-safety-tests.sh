@@ -9,6 +9,7 @@ trap 'rm -rf "$out"' EXIT
 cp tools/tests/Phase0SafetyTests.swift "$out/main.swift"
 swiftc -target arm64-apple-macosx13.0 \
     MarkView/Models/Workspace/EditorPage.swift \
+    Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift \
     "$out/main.swift" \
     -o "$out/phase0-safety-tests"
 

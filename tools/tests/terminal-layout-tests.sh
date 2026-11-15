@@ -15,5 +15,5 @@ source = pathlib.Path('MarkView/Models/Workspace/DocumentState.swift').read_text
 PY
 swiftc -module-cache-path /private/tmp/markview-swift-cache -o "$out/terminal-layout-tests" \
     MarkView/Models/Appearance/AppFontScale.swift MarkView/Views/Appearance/AppFontScaleView.swift MarkView/Models/Terminal/TerminalLink.swift \
-    MarkView/Models/Remote/RemoteConnectionState.swift MarkView/Models/Terminal/TerminalSession.swift MarkView/Models/Terminal/TerminalChildProcess.swift MarkView/Models/Terminal/TerminalBrowserBridge.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/Terminal/PTYWriter.swift "$out/FileType.swift" MarkView/Models/Workspace/ArchiveSupport.swift "$out/main.swift"
+    MarkView/Models/Remote/RemoteConnectionState.swift MarkView/Models/Terminal/TerminalSession.swift MarkView/Models/Terminal/TerminalChildProcess.swift MarkView/Models/Terminal/TerminalBrowserBridge.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/Terminal/PTYWriter.swift "$out/FileType.swift" MarkView/Models/Workspace/ArchiveSupport.swift "$out/main.swift"
 "$out/terminal-layout-tests" "${1:-$PWD/MarkView/Resources/Editor/terminal.html}" "$out/fixture"

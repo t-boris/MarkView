@@ -44,7 +44,7 @@ enum StoreLoadResult<T> {
 
     /// Logs `problem` once per call, tagged with the store that read the file; does nothing when the file was read or is not there.
     func logProblem(_ owner: String) {
-        if let problem { NSLog("[%@] %@", owner, problem) }
+        if let problem { AppLog.store.error("\(owner): \(problem)") }
     }
 
     /// The loaded value, or the failure as a thrown error: for callers that must fail closed (a missing file is an error too).

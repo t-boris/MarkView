@@ -81,7 +81,7 @@ enum AgentBrowserRegistration {
             for server in servers where !(text.contains(server.name) && text.contains(executable)) {
                 _ = await CLIToolLocator.run(agy, ["mcp", "remove", server.name], timeout: 30)
                 let result = await CLIToolLocator.run(agy, ["mcp", "add", server.name, "--", executable, server.flag], timeout: 30)
-                NSLog("[MarkView] Antigravity \(server.label) tools: \(result.exitCode == 0 ? "registered" : "not registered")")
+                AppLog.browser.notice("Antigravity \(server.label) tools: \(result.exitCode == 0 ? "registered" : "not registered")")
             }
         }
     }
@@ -105,7 +105,7 @@ enum AgentBrowserRegistration {
                     continue
                 }
                 let outcome = addServer(clineEntry(executable: executable, flag: server.flag), to: clineConfig, agent: "Cline", name: server.name)
-                NSLog("[MarkView] Cline \(server.label) tools: \(outcome.ok ? "registered" : "not registered: " + outcome.detail)")
+                AppLog.browser.notice("Cline \(server.label) tools: \(outcome.ok ? "registered" : "not registered: " + outcome.detail)")
             }
         }
     }

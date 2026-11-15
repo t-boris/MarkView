@@ -85,7 +85,7 @@ enum BrowserControlServer {
         do {
             opened = try PrivateSocket.open(at: path)
         } catch {
-            NSLog("[MarkView] browser control socket unavailable at \(path): \(error)")
+            AppLog.browser.error("browser control socket unavailable at \(path): \(error)")
             return false
         }
         listener = opened

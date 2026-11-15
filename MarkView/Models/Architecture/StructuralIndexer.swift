@@ -39,7 +39,7 @@ class StructuralIndexer: @unchecked Sendable {
             let deleted = Set(storedMeta.keys).subtracting(scan.seenDocIds)
             if deleted.isEmpty {
                 progress?("Index up to date")
-                NSLog("[StructuralIndexer] Skipping — already indexed, no changes")
+                AppLog.index.notice("Skipping — already indexed, no changes")
                 return
             }
         }
@@ -48,7 +48,7 @@ class StructuralIndexer: @unchecked Sendable {
         await writeModules(scan.modules)
         await writeChangedDocs(scan.changedDocs)
         progress?("Indexing complete")
-        NSLog("[StructuralIndexer] Indexed \(scan.changedDocs.count) changed of \(scan.seenDocIds.count) files")
+        AppLog.index.notice("Indexed \(scan.changedDocs.count) changed of \(scan.seenDocIds.count) files")
     }
 
     // MARK: - Single-pass scan
@@ -270,7 +270,7 @@ class StructuralIndexer: @unchecked Sendable {
                 modules.sort { $0.level < $1.level }
 
                 self.progress?("Writing \(changedDocs.count) files to index...")
-                NSLog("[StructuralIndexer] Scanned \(fileCount) files, \(changedDocs.count) changed")
+                AppLog.index.notice("Scanned \(fileCount) files, \(changedDocs.count) changed")
                 continuation.resume(returning: ScanResult(modules: modules, changedDocs: changedDocs, seenDocIds: seenDocIds))
             }
         }
@@ -323,7 +323,7 @@ class StructuralIndexer: @unchecked Sendable {
             }
         }
 
-        NSLog("[StructuralIndexer] Wrote \(docs.count) changed documents")
+        AppLog.index.notice("Wrote \(docs.count) changed documents")
     }
 
     // MARK: - Helpers
