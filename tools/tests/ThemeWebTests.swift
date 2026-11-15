@@ -133,7 +133,10 @@ let looks: [Look] = [
     Look(id: "graphite", dark: true, background: "#202124", panel: "#2a2c30", text: "#e8eaed", accent: "#b39ddb", classic: false),
     Look(id: "tokyo-night", dark: true, background: "#1a1b26", panel: "#202233", text: "#d5daf0", accent: "#b49aff", classic: false),
     Look(id: "carbon-red", dark: true, background: "#171719", panel: "#212124", text: "#ede8e6", accent: "#ff6b81", classic: false),
+    Look(id: "nord", dark: true, background: "#2e3440", panel: "#353c4a", text: "#e5e9f0", accent: "#88c0d0", classic: false),
+    Look(id: "forest", dark: true, background: "#1e2a22", panel: "#26352b", text: "#ddd8c0", accent: "#a7c080", classic: false),
     Look(id: "paper", dark: false, background: "#fffcf5", panel: "#f2ede3", text: "#292724", accent: "#315e9b", classic: false),
+    Look(id: "daylight", dark: false, background: "#f7f9fc", panel: "#e8edf4", text: "#1f2933", accent: "#0f766e", classic: false),
 ]
 let presets = looks.filter { !$0.classic }
 

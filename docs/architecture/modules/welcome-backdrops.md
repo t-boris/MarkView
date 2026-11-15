@@ -1,8 +1,8 @@
 # Welcome backgrounds
 
-The welcome tab offers nine vector animations: Matrix Rain, Aurora, Bug Swarm,
-Network, Orbit, Device Lab, Circuit Flow, Code Garden and Launch. Shuffle picks
-one on appearance. Off removes the backdrop. By Project derives a scene from
+The welcome tab offers thirteen vector animations: Matrix Rain, Aurora, Bug Swarm,
+Network, Orbit, Device Lab, Circuit Flow, Code Garden, Launch, Git Flow,
+Typewriter, Deep Sea and Warp. Shuffle picks one on appearance. Off removes the backdrop. By Project derives a scene from
 local evidence, with a stable composition for that project's root path.
 
 ## Rendering
@@ -11,8 +11,14 @@ local evidence, with a stable composition for that project's root path.
 `BackdropLayerBuilders.swift` builds the four original scenes;
 `ProjectBackdropLayers.swift` adds orbital ellipses and planets, phone wireframes
 with scanning light, chip traces with moving packets, anchored leaves and glowing
-buds, and rockets with exhaust and a star field. All movement is Core Animation;
-there is no SwiftUI frame timer or display link.
+buds, and rockets with exhaust and a star field. `DevBackdropLayers.swift` adds
+a scrolling commit graph (Git Flow) and a page of Markdown lines typed out by a
+blinking caret (Typewriter, drawn as bars: no document text is involved);
+`AtmosphereBackdropLayers.swift` adds an underwater scene with waves, light rays,
+bubbles and jellyfish (Deep Sea) and a slow hyperspace field of streaks (Warp).
+All movement is Core Animation; there is no SwiftUI frame timer or display link.
+By Project keeps its six rules and never picks the four newer scenes; they are
+manual choices and part of Shuffle.
 
 `WelcomeBackdropView` owns the layer tree, debounces resizing, rebuilds on theme
 or scale changes and respects Reduce Motion. Its NSView never handles hit tests.

@@ -444,6 +444,8 @@
 		D473D076B8CDB69362293780 /* QAModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3323DFCCDF2491C10061C8C /* QAModel.swift */; };
 		D4F3C35D9679DCE67FDD55E2 /* AIAssistantPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45DC630D21D2720ADBA52066 /* AIAssistantPickerView.swift */; };
 		D56B85D51681C3986887D30B /* ProjectBackdropLayers.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9DF671C11798DAD675BD4A1 /* ProjectBackdropLayers.swift */; };
+		EEFE853C635C092646B6117C /* AtmosphereBackdropLayers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC839EAD0FC34FAD9D03E5D /* AtmosphereBackdropLayers.swift */; };
+		0A01A9259E2AC7E186833B71 /* DevBackdropLayers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B265080686BDFF0E1F19DEF2 /* DevBackdropLayers.swift */; };
 		D5F25BB6BA178A77A79E3E55 /* KaTeX_AMS-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 3E5D9ED683199ECEC005CAE0 /* KaTeX_AMS-Regular.woff2 */; };
 		D65DC6A2790B1DD0BECA74BB /* SemanticModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234669AA71D7061108B72B97 /* SemanticModels.swift */; };
 		D664BF3E1626441B84C4E70D /* UIStudioGateway.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3441FC520D23442EBB84DD6 /* UIStudioGateway.swift */; };
@@ -975,6 +977,8 @@
 		C8129CD4E329CC3065FA3E44 /* KaTeX_Script-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Script-Regular.woff2"; sourceTree = "<group>"; };
 		C8E8A27F4B312FDE7DAA2EE1 /* ResearchMapReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchMapReport.swift; sourceTree = "<group>"; };
 		C9DF671C11798DAD675BD4A1 /* ProjectBackdropLayers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBackdropLayers.swift; sourceTree = "<group>"; };
+		2DC839EAD0FC34FAD9D03E5D /* AtmosphereBackdropLayers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AtmosphereBackdropLayers.swift; sourceTree = "<group>"; };
+		B265080686BDFF0E1F19DEF2 /* DevBackdropLayers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevBackdropLayers.swift; sourceTree = "<group>"; };
 		C9F34EA5D75C7F75E473333E /* NewProjectFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProjectFlow.swift; sourceTree = "<group>"; };
 		CA7B7306EDD4435E3DCEBAAC /* AgentUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsage.swift; sourceTree = "<group>"; };
 		CBCBDE4DDD0932A3FC8963D1 /* PrototypeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeSession.swift; sourceTree = "<group>"; };
@@ -1535,6 +1539,8 @@
 				3F11B5789897E966C65CC52B /* PanelTabButton.swift */,
 				1B30371E56B62E99A84BE234 /* PDFReaderView.swift */,
 				C9DF671C11798DAD675BD4A1 /* ProjectBackdropLayers.swift */,
+				2DC839EAD0FC34FAD9D03E5D /* AtmosphereBackdropLayers.swift */,
+				B265080686BDFF0E1F19DEF2 /* DevBackdropLayers.swift */,
 				49F34A3A95ECF49AFECC200E /* ProjectChangeReviewView.swift */,
 				ECE2007A33F690F2F444E2AA /* ProjectColorViews.swift */,
 				912140EE22AFCD2CE3BDFE87 /* ProjectOperationsView.swift */,
@@ -2181,6 +2187,8 @@
 				1024E357E18DFF4E233DC275 /* ProjectAgentTools.swift in Sources */,
 				C5D230483D49D5FBD8D6A0AE /* ProjectBackdrop.swift in Sources */,
 				D56B85D51681C3986887D30B /* ProjectBackdropLayers.swift in Sources */,
+				EEFE853C635C092646B6117C /* AtmosphereBackdropLayers.swift in Sources */,
+				0A01A9259E2AC7E186833B71 /* DevBackdropLayers.swift in Sources */,
 				A24B49057B4B87E4278B429F /* ProjectBootstrap.swift in Sources */,
 				D40D607EDA753D4E0873C3A8 /* ProjectChangeReview.swift in Sources */,
 				ABAF5DAC540027464649560A /* ProjectChangeReviewModel.swift in Sources */,
@@ -2441,7 +2449,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.24.2;
+				CURRENT_PROJECT_VERSION = 6.25.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -2456,7 +2464,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.24.2;
+				MARKETING_VERSION = 6.25.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -2520,7 +2528,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.24.2;
+				CURRENT_PROJECT_VERSION = 6.25.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -2541,7 +2549,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.24.2;
+				MARKETING_VERSION = 6.25.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

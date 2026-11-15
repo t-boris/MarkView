@@ -5,7 +5,7 @@ import CoreGraphics
 /// Only the choice and the scenes live here, as plain values: `WelcomeBackdropView` turns a scene into Core Animation layers.
 /// All scene coordinates follow the layer tree: the origin is the bottom left corner and y grows upwards.
 enum WelcomeBackdrop: String, CaseIterable, Identifiable {
-    case matrix, aurora, bugs, network, orbit, blueprint, circuit, garden, launch, project, shuffle, off
+    case matrix, aurora, bugs, network, orbit, blueprint, circuit, garden, launch, gitflow, typewriter, deepsea, warp, project, shuffle, off
 
     var id: String { rawValue }
 
@@ -13,7 +13,7 @@ enum WelcomeBackdrop: String, CaseIterable, Identifiable {
     static let storageKey = "welcomeBackdrop"
     static let defaultChoice = WelcomeBackdrop.matrix
     /// What Shuffle picks from.
-    static let animated: [WelcomeBackdrop] = [.matrix, .aurora, .bugs, .network, .orbit, .blueprint, .circuit, .garden, .launch]
+    static let animated: [WelcomeBackdrop] = [.matrix, .aurora, .bugs, .network, .orbit, .blueprint, .circuit, .garden, .launch, .gitflow, .typewriter, .deepsea, .warp]
 
     var title: String {
         switch self {
@@ -26,6 +26,10 @@ enum WelcomeBackdrop: String, CaseIterable, Identifiable {
         case .circuit: return "Circuit Flow"
         case .garden: return "Code Garden"
         case .launch: return "Launch"
+        case .gitflow: return "Git Flow"
+        case .typewriter: return "Typewriter"
+        case .deepsea: return "Deep Sea"
+        case .warp: return "Warp"
         case .project: return "By Project"
         case .shuffle: return "Shuffle"
         case .off: return "Off"
@@ -43,6 +47,10 @@ enum WelcomeBackdrop: String, CaseIterable, Identifiable {
         case .circuit: return "cpu"
         case .garden: return "leaf"
         case .launch: return "paperplane"
+        case .gitflow: return "arrow.triangle.branch"
+        case .typewriter: return "text.cursor"
+        case .deepsea: return "water.waves"
+        case .warp: return "moon.stars"
         case .project: return "folder.badge.gearshape"
         case .shuffle: return "shuffle"
         case .off: return "circle.slash"

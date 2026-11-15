@@ -2,7 +2,7 @@
  * MarkView window themes for the web pages (editor, discussion, terminal).
  *
  * One file holds the appearance tokens: classic-dark and classic-light (the look before themes,
- * kept value for value, DEC-004) and the presets, including Tokyo Night and Carbon Red. Swift sends
+ * kept value for value, DEC-004) and the presets (Darcula ... Paper, Nord, Forest and Daylight). Swift sends
  * only an appearance id and the accent the window uses; this file turns them into CSS custom properties on
  * <html>, plus data-preset (the id), data-theme (dark | light, the mode that older selectors still read) and
  * data-accent. Swift rewrites those three attributes in the page text so the first paint is already right
@@ -213,6 +213,38 @@
                     cyan: '#8dcbd0', white: '#ede8e6', brightBlack: '#a99b9d', brightRed: '#ffb1b7', brightGreen: '#c1dfa9',
                     brightYellow: '#f4e1b7', brightBlue: '#bdd4f4', brightMagenta: '#e0bee9', brightCyan: '#b2e3e5', brightWhite: '#fff7f1' } },
 
+        'nord': { base: { bg: '#2E3440', panel: '#353C4A', text: '#E5E9F0', accent: '#88C0D0' },
+            mode: 'dark',
+            t: { tertiary: '#3f4759', textSecondary: '#b1bbce', textTertiary: '#a3aec4', border: '#4c566a',
+                 borderLight: '#3e4759', secondary: '#8fbcbb', danger: '#eb939c', success: '#a3be8c',
+                 warning: '#e0a082', hover: '#4c566a', h2: '#88c0d0', h3: '#ebcb8b', codeBg: '#3b4252',
+                 preBg: '#262b35', preBorder: '#3b4252', preText: '#d8dee9' },
+            syn: { comment: '#a3aec4', punct: '#b8c2d6', property: '#8fbcbb', number: '#c9a6c4', string: '#a3be8c',
+                   operator: '#9db8d6', func: '#88c0d0', keyword: '#9db8d6', regex: '#ebcb8b' },
+            struct: { key: '#88c0d0', string: '#a3be8c', number: '#c9a6c4', boolean: '#9db8d6', null: '#a3aec4',
+                      bracket: '#a9b4c9', tag: '#8fbcbb', attrName: '#ebcb8b', attrValue: '#a3be8c',
+                      comment: '#a3aec4', count: '#a3aec4' },
+            term: { black: '#434c5e', red: '#eb939c', green: '#a3be8c', yellow: '#ebcb8b', blue: '#9db8d6',
+                    magenta: '#c9a6c4', cyan: '#8fbcbb', white: '#e5e9f0', brightBlack: '#a3aec4',
+                    brightRed: '#efa3aa', brightGreen: '#bbd2a6', brightYellow: '#f2daaa', brightBlue: '#b7cce4',
+                    brightMagenta: '#dbc0d6', brightCyan: '#a9d0cf', brightWhite: '#ffffff' } },
+
+        'forest': { base: { bg: '#1E2A22', panel: '#26352B', text: '#DDD8C0', accent: '#A7C080' },
+            mode: 'dark',
+            t: { tertiary: '#334436', textSecondary: '#a9b49a', textTertiary: '#9ca88e', border: '#3f5446',
+                 borderLight: '#304237', secondary: '#7fbbb3', danger: '#f0898b', success: '#9ccc8b',
+                 warning: '#e69875', hover: '#3a4d40', h2: '#a7c080', h3: '#dbbc7f', codeBg: '#2f4035',
+                 preBg: '#18221b', preBorder: '#33463a', preText: '#ddd8c0' },
+            syn: { comment: '#8fa086', punct: '#b5bfa6', property: '#7fbbb3', number: '#d699b6', string: '#a7c080',
+                   operator: '#e69875', func: '#dbbc7f', keyword: '#f0898b', regex: '#83c092' },
+            struct: { key: '#dbbc7f', string: '#a7c080', number: '#d699b6', boolean: '#e69875', null: '#8fa086',
+                      bracket: '#a9b49a', tag: '#f0898b', attrName: '#7fbbb3', attrValue: '#a7c080',
+                      comment: '#8fa086', count: '#9ca88e' },
+            term: { black: '#3a4d40', red: '#f0898b', green: '#9ccc8b', yellow: '#dbbc7f', blue: '#7fbbb3',
+                    magenta: '#d699b6', cyan: '#83c092', white: '#ddd8c0', brightBlack: '#8fa086',
+                    brightRed: '#f6a9aa', brightGreen: '#b4dba7', brightYellow: '#e8d1a2', brightBlue: '#a0d0c9',
+                    brightMagenta: '#e3b6cc', brightCyan: '#a2d3af', brightWhite: '#fbf6e3' } },
+
         'paper': { base: { bg: '#FFFCF5', panel: '#F2EDE3', text: '#292724', accent: '#315E9B' },
             mode: 'light',
             t: { tertiary: '#e8e1d3', textSecondary: '#655f55', textTertiary: '#6c655a', border: '#d6cebe', borderLight: '#e6dfd0',
@@ -224,7 +256,23 @@
                       tag: '#b03a2e', attrName: '#9c4a00', attrValue: '#1f6f3a', comment: '#6e675b', count: '#6c655a' },
             term: { black: '#292724', red: '#b3261e', green: '#287030', yellow: '#7f6400', blue: '#315e9b', magenta: '#7b3fa0',
                     cyan: '#00707e', white: '#8a8478', brightBlack: '#6c655a', brightRed: '#d0342b', brightGreen: '#2a7e34',
-                    brightYellow: '#946f00', brightBlue: '#3d74c0', brightMagenta: '#9650c0', brightCyan: '#07808f', brightWhite: '#a59e90' } }
+                    brightYellow: '#946f00', brightBlue: '#3d74c0', brightMagenta: '#9650c0', brightCyan: '#07808f', brightWhite: '#a59e90' } },
+
+        'daylight': { base: { bg: '#F7F9FC', panel: '#E8EDF4', text: '#1F2933', accent: '#0F766E' },
+            mode: 'light',
+            t: { tertiary: '#dce3ed', textSecondary: '#52606f', textTertiary: '#5a6879', border: '#c5cfdc',
+                 borderLight: '#dae1eb', secondary: '#0b6a86', danger: '#b3261e', success: '#17713a',
+                 warning: '#9a4f00', hover: '#d3dce8', h2: '#0b5a78', h3: '#0f766e', codeBg: '#e3e9f1',
+                 preBg: '#eef2f8', preBorder: '#c5cfdc', preText: '#1f2933' },
+            syn: { comment: '#5e6b7b', punct: '#4a5565', property: '#b3261e', number: '#9a4f00', string: '#17713a',
+                   operator: '#3f4a59', func: '#1d5fbf', keyword: '#7a3fb0', regex: '#755800' },
+            struct: { key: '#1d5fbf', string: '#17713a', number: '#9a4f00', boolean: '#7a3fb0', null: '#5e6b7b',
+                      bracket: '#52606f', tag: '#b3261e', attrName: '#9a4f00', attrValue: '#17713a',
+                      comment: '#5e6b7b', count: '#5a6879' },
+            term: { black: '#1f2933', red: '#b3261e', green: '#17713a', yellow: '#755800', blue: '#1d5fbf',
+                    magenta: '#7a3fb0', cyan: '#0b6a86', white: '#8a97a8', brightBlack: '#5a6879',
+                    brightRed: '#c93428', brightGreen: '#1e7f44', brightYellow: '#8a6600', brightBlue: '#2f6fd0',
+                    brightMagenta: '#8e50c4', brightCyan: '#0f7a99', brightWhite: '#a9b4c2' } }
     };
 
     const IDS = Object.keys(THEMES);
