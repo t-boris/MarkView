@@ -73,7 +73,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         .qa: ToolOpener(prepare: { workspace, root in
             workspace.hostWindow?.makeKeyAndOrderFront(nil)
             workspace.qa.attach(root: root)
-            if workspace.qa.run.bugFiler == nil { workspace.qa.run.bugFiler = QABugFiler(sink: QAFeatureStoreBugSink(store: workspace.features)) }
+            if workspace.qa.run.bugFiler == nil { workspace.qa.run.bugFiler = QABugFiler(sink: QAFeatureStoreBugSink(store: workspace.flow.features)) }
             workspace.qa.archive.bugFiler = workspace.qa.run.bugFiler
         }),
         .uiStudio: ToolOpener(
@@ -126,18 +126,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         chrome.showDocumentOnly()
     }
 
-    /// Keep the selected task visible beside its documents in the right column.
-    func showFeatureContext(_ slug: String?) {
-        if let slug {
-            features.activeSlug = slug
-            layout.issuesFeature = slug
-        }
-        layout.navigatorTab = .feature
-        chrome.showTOC = true
-        chrome.terminalVisible = true
-    }
-
-
     func presentPDFBook(_ urls: [URL]? = nil) {
         let sources: [URL]
         if let urls { sources = urls }
@@ -165,14 +153,12 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
     private var discussionTask: Task<Void, Never>?
     /// Answers to questions about an environment, read from state and logs by the project's own assistant.
     let deploymentAdvisor = DeploymentAdvisor()
-    /// Pull requests, issues and Actions of the folder's GitHub repository.
-    let gitHub = GitHubStore()
-    /// Feature workspaces of the folder (docs/features/<slug>/…).
-    let features = FeatureStore()
     /// Research of this window: the maps, and the jobs for new research, follow-ups and comments (docs/research/).
     private(set) lazy var research = ResearchMapController(host: self, project: project, tasks: taskBag)
-    /// This window's bug basket for batch Fix with AI (issue #31); a new folder empties it.
-    private(set) lazy var bugBatch = BugBatch(store: features)
+    /// The feature flow: the feature workspaces and the GitHub repository of the folder, intake, "Implement with AI" and "Fix with AI",
+    /// and the bug basket (`AR-14` step 9).
+    private(set) lazy var flow = FeatureFlowCoordinator(project: project, assistants: terminals, tabs: self, requests: requests, layout: layout,
+                                                        chrome: chrome, gitClient: gitClient, research: research)
     /// The terminals of this window: the AI panel's, the editor tabs', the AI terminals that come back across launches, and what the
     /// assistants are doing.
     private(set) lazy var terminals = AITerminalsController(host: self, project: project, tasks: taskBag)
@@ -202,11 +188,22 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
     var activeTab: OpenTab? { tabs.activeTab }
 
+    func showGitHubTab(_ item: GitHubItem, root: URL) { tabs.showGitHubTab(item, root: root) }
+
+    /// `WindowSessionHost`: a restored session shows the GitHub tab again.
+    func openGitHubTab(_ item: GitHubItem) { flow.openGitHubTab(item) }
+
+    func reloadChangedOpenFiles(all: Bool) async { await tabs.reloadChangedOpenFiles(all: all) }
+
     init() {
         Self.debugLog("WorkspaceManager init START")
         codeXRay = CodeAndXRayCoordinator(project: project)
         codeXRay.host = self
         qa.assistants = terminals
+        // The X-Ray of this window follows the repository the GitHub integration works with (the PR X-Ray reads it).
+        flow.gitHub.$selectedRepo
+            .sink { [weak self] repo in self?.codeXRay.architecture.gitHubRepo = repo }
+            .store(in: &cancellables)
 
         project.fileTree.onTimer = { [weak self] in
             guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating, NSApp.isActive else { return }
@@ -264,6 +261,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         // outside its terminals; the browser tools check the terminal-links setting themselves.
         registerBrowserControl()
         taskBag.cancelAll()
+        flow.cancelWork()
         tabs.reset()
         codeXRay.reset()
         Self.debugLog("openFolder START: \(url.path)")
@@ -313,8 +311,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             try? await Task.sleep(nanoseconds: 100_000_000)
 
             gitClient.setup(at: url)
-            setUpGitHub(at: url)
-            setUpFeatures(at: url)
+            flow.setUp(at: url)
             deployments.setRoot(url)
             discussions.setRoot(url)
             Self.debugLog("initDDE: git setup done")
@@ -341,8 +338,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         if isMD && !project.rootOpenedAsFolder && !isFileInCurrentWorkspace(url) {
             initSingleFileWorkspace(fileURL: url)
         }
-        if let feature = features.locate(url)?.feature {
-            showFeatureContext(feature.slug)
+        if let feature = flow.features.locate(url)?.feature {
+            flow.showFeatureContext(feature.slug)
         }
 
         tabs.openDocument(url)
@@ -641,9 +638,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         codeXRay.reset()
         projectOperations = nil
         gitClient.reset()
-        gitHubRoot = nil
-        gitHub.reset()
-        features.reset()
+        flow.reset()
         deployments.setRoot(nil)
         discussions.setRoot(nil)
         requests.pendingGraphCreatorType = nil
@@ -969,38 +964,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
 
     func toggleAIConsole() { chrome.agentsVisible.toggle() }
 
-    func resumeHandoff(slug: String, title: String, linkedFiles: [String]) {
-        guard let root = features.root else { return }
-        Task {
-            let checked = await Task.detached { () -> (available: [URL], missing: [String]) in
-                let base = root.resolvingSymlinksInPath().standardizedFileURL.path + "/"
-                var available: [URL] = []
-                var missing: [String] = []
-                for path in linkedFiles {
-                    let parts = path.split(separator: "/", omittingEmptySubsequences: false)
-                    guard !path.hasPrefix("/"), !parts.isEmpty,
-                          parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
-                        missing.append(path)
-                        continue
-                    }
-                    let url = root.appendingPathComponent(path).resolvingSymlinksInPath().standardizedFileURL
-                    guard url.path.hasPrefix(base),
-                          (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
-                        missing.append(path)
-                        continue
-                    }
-                    available.append(url)
-                }
-                return (available, missing)
-            }.value
-            guard features.root == root else { return }
-            requests.handoffResume = HandoffResume(slug: slug, title: title,
-                                          linkedFiles: linkedFiles, missingFiles: checked.missing)
-            for url in checked.available { openFile(url) }
-            layout.workspaceArea = .files
-        }
-    }
-
     // MARK: - Browser control
 
     /// This window's id for agents driving its browser tab (`BrowserControlServer`).
@@ -1031,7 +994,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
                 if let name { session.agentName = name }
                 return session
             },
-            features: { [weak self] in self?.features },
+            features: { [weak self] in self?.flow.features },
             deployments: { [weak self] in self?.deployments },
             discussions: { [weak self] in self?.discussions }))
     }
@@ -1049,460 +1012,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
         activeTabIndex = index
     }
 
-    // MARK: - GitHub
-
-    /// Open GitHub issue #n: its tab when the GitHub integration is on, else the issue page in
-    /// the browser (repository from the `origin` remote; nothing is sent to GitHub by the app).
-    func openGitHubIssue(_ number: Int) {
-        if let slug = gitHub.selectedRepo?.slug {
-            openGitHubTab(.issue(number: number, repo: slug, title: "#\(number)"))
-            return
-        }
-        guard let root = rootNode?.url else { return }
-        Task {
-            let remote = await GitHubClient.execute(["remote", "get-url", "origin"], in: root, git: true)
-            guard let slug = GitHubClient.slug(fromRemoteURL: remote.stdout.trimmingCharacters(in: .whitespacesAndNewlines)),
-                  let url = URL(string: "https://github.com/\(slug)/issues/\(number)") else { return }
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-
-
-    /// The project a new-project flow created: open it with its specification in front — the
-    /// Issues list on it and the overview in the editor (DEC-023).
-    func openCreatedProject(_ url: URL, specification slug: String) {
-        openFolder(url) { [weak self] in
-            guard let self else { return }
-            self.features.activeSlug = slug
-            self.layout.leftPanel = "issues"
-            self.layout.issuesFeature = slug
-            self.layout.featureStage = .explore
-            self.chrome.showTOC = true
-            self.chrome.showFileTree = true
-            self.layout.navigatorTab = .feature
-            self.openFile(url.appendingPathComponent(FeatureStore.folderName).appendingPathComponent(slug).appendingPathComponent("overview.md"))
-        }
-    }
-
-    /// Turn MarkView's GitHub integration on (a Settings switch for every window, DEC-020) and
-    /// look for `slug` in this folder again. Nil when found, else why not.
-    func activateGitHub(expecting slug: String, in folder: URL) async -> String? {
-        // Right after bootstrap the folder may still be opening in this window.
-        for _ in 0..<40 where rootNode?.url.standardizedFileURL != folder.standardizedFileURL {
-            try? await Task.sleep(nanoseconds: 250_000_000)
-        }
-        guard let root = rootNode?.url, root.standardizedFileURL == folder.standardizedFileURL else {
-            return "This window does not show \(folder.lastPathComponent) any more. Open it and use File › Publish to GitHub… to finish."
-        }
-        if !GitHubSettings.enabled { UserDefaults.standard.set(true, forKey: GitHubSettings.enabledKey) }
-        // The remote was added after the folder opened: detect again.
-        gitHub.reset()
-        gitHubRoot = root
-        gitHubSettingChanged()
-        for _ in 0..<40 {
-            if gitHub.repos.contains(where: { $0.slug.lowercased() == slug.lowercased() }) { return nil }
-            try? await Task.sleep(nanoseconds: 250_000_000)
-        }
-        return gitHub.lastError ?? "MarkView did not find \(slug) among this folder's remotes."
-    }
-
-    /// "New Feature / New Bug from #n": the issue's text and comments as the material, linked.
-    func startIntake(_ kind: IntakeKind, fromIssue number: Int) {
-        // The sheet opens at once and loads the issue itself (with a spinner).
-        requests.intake = IntakeRequest(kind: kind, linkedIssue: number, loadIssue: number)
-    }
-
-    /// "New … from this pull request": its description as the material (a new issue is filed).
-    func startIntake(_ kind: IntakeKind, fromPullRequest pr: GHPullRequest) {
-        requests.intake = IntakeRequest(kind: kind, text: "Pull request #\(pr.number): \(pr.title) (\(pr.headRefName) → \(pr.baseRefName))",
-                               loadPullRequest: pr.number)
-    }
-
-    /// "New … from this document": the document is the material (attached, so the AI reads it whole).
-    func startIntake(_ kind: IntakeKind, fromDocument url: URL) {
-        let path = project.relativePath(of: url)
-        let lead: String
-        switch kind {
-        case .feature, .quickFeature: lead = "Build a feature from the document \(path) (attached)."
-        case .bug: lead = "The document \(path) (attached) describes a problem to analyze as a bug."
-        case .understand: lead = "What implements \(path) in this project, and how do the documented parts work in the code?"
-        case .research: lead = "Review \(path): "
-        }
-        switch kind {
-        case .understand: requests.intake = IntakeRequest(kind: kind, text: lead)
-        case .research: requests.intake = IntakeRequest(kind: kind, text: lead, targets: [url])
-        default: requests.intake = IntakeRequest(kind: kind, text: lead, attachments: [url])
-        }
-    }
-
-    /// New Research (replaces the Deep Research AI tool, DEC-010): the intake sheet, with the open
-    /// document as its first target.
-    func newResearch() {
-        requests.intake = IntakeRequest(kind: .research)
-    }
-
-    func startResearch(fromFolder folder: URL) {
-        requests.intake = IntakeRequest(kind: .research, text: "Review the documents in \(project.relativePath(of: folder)) and its subfolders: ", targets: [folder])
-    }
-
-    /// Documents a new research starts with (DEC-009): the open document when it is a file in the folder.
-    var researchDefaultTargets: [URL] {
-        guard let root = rootNode?.url, let tab = activeTab, tab.isFileBacked,
-              ResearchJobs.relative(tab.url, to: root) != nil else { return [] }
-        return [tab.url]
-    }
-
-    /// Before a research job reads `file`: unsaved edits in its tab are saved, or the user
-    /// cancels (DEC-014). True when the file on disk is current.
-    func saveBeforeResearch(_ file: URL, action: String) -> Bool {
-        guard let index = openTabs.firstIndex(where: { $0.url.standardizedFileURL == file.standardizedFileURL && $0.isFileBacked }),
-              openTabs[index].isModified else { return true }
-        let alert = NSAlert()
-        alert.messageText = "Save changes to \(openTabs[index].displayName) before \(action)?"
-        alert.informativeText = "The AI works on the document as it is saved on disk."
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return false }
-        tabs.saveFile(at: index)
-        return !openTabs[index].isModified
-    }
-
-    /// A handoff is a disk snapshot; save all modified tabs in that feature first.
-    func saveBeforeHandoff(_ folder: URL) -> Bool {
-        let prefix = folder.standardizedFileURL.path + "/"
-        for index in openTabs.indices where openTabs[index].isFileBacked && openTabs[index].isModified &&
-            openTabs[index].url.standardizedFileURL.path.hasPrefix(prefix) {
-            let alert = NSAlert()
-            alert.messageText = "Save changes to \(openTabs[index].displayName) before handoff?"
-            alert.informativeText = "The handoff captures files as saved on disk."
-            alert.addButton(withTitle: "Save")
-            alert.addButton(withTitle: "Cancel")
-            guard alert.runModal() == .alertFirstButtonReturn else { return false }
-            tabs.saveFile(at: index)
-            if openTabs[index].isModified { return false }
-        }
-        return true
-    }
-
-    /// A research job rewrote `file` on disk: its tab shows the new text; a tab with unsaved
-    /// edits gets the same change applied by `applyToEdited` so nothing typed is lost.
-    func researchDocumentChanged(_ file: URL, content: String, applyToEdited: (String) -> String?) {
-        refreshFileTree()
-        guard let index = openTabs.firstIndex(where: { $0.url.standardizedFileURL == file.standardizedFileURL && $0.isFileBacked }) else { return }
-        if !openTabs[index].isModified {
-            tabs.updateTab(at: index) { tab in
-                tab.content = content
-                tab.originalContent = content
-                tab.isModified = false
-            }
-        } else if let edited = applyToEdited(openTabs[index].content) {
-            tabs.updateTab(at: index) { tab in
-                tab.content = edited
-                tab.originalContent = content
-                tab.isModified = edited != content
-            }
-        } else {
-            research.jobs.message = "\(file.lastPathComponent) was updated on disk, but its tab has unsaved edits that conflict; reload it to see the AI's change."
-        }
-    }
-
-    /// Implement with AI: in a project the person first sees the definition of done for this run (and may
-    /// change it); without a project folder the standard one is used at once.
-    func implementWithAI(_ url: URL) {
-        if projectFolder != nil { requests.doneRequest = url } else { startImplementation(url, done: .standard) }
-    }
-
-    /// Hand a document to the AI to implement, establishing a goal in the receiving assistant. The goal
-    /// carries the definition of done. The feature is recorded as "implementation started" with the CLI
-    /// that got it.
-    func startImplementation(_ url: URL, done: DefinitionOfDone, in terminal: TerminalSession? = nil) {
-        let path = project.relativePath(of: url)
-        let target = url.standardizedFileURL.path
-        let slug = features.features.first(where: { $0.folder.standardizedFileURL.path == target })?.slug
-            ?? features.locate(url)?.feature.slug
-        let block = slug.map { features.lifecycle.handoffBlock(.feature, [$0]) } ?? ""
-        guard let session = terminals.sendToAssistant(submit: true, to: terminal, promptFor: { session in
-            guard let tool = session.profile.tool else { return nil }
-            let prompt = HandoffPrompt.feature(path, tool: tool, done: done)
-            return block.isEmpty ? prompt : prompt + "\n\n" + block
-        }) else { return }
-        guard let slug else { return }
-        // Handed to the assistant: the feature is being implemented (BUG-008). The hand-off that went out is the start
-        // evidence; a hand-off that failed above left the status alone.
-        features.markImplementing(slug, handoff: session.profile.tool?.displayName ?? "AI assistant")
-        if let tool = session.profile.tool {
-            features.recordImplementationStarted(slug, tool: tool, directory: session.directory, runningSince: session.runningSince)
-        }
-    }
-
-    /// Hand the conflicted files to the assistant (Git tab → Conflicts → Resolve with AI). It resolves and
-    /// stages them; committing, pushing and aborting stay with the person.
-    func resolveConflictsWithAI() {
-        let files = gitClient.repoStatus.entries(in: .conflicts).map(\.path)
-        guard !files.isEmpty else { return }
-        guard !terminals.assistantIsBusy else {
-            gitClient.lastError = "The assistant is still working. Resolve the conflicts with it when it has finished."
-            return
-        }
-        let prompt = ConflictPrompt.make(files: files, operation: gitClient.operationInProgress, branch: gitClient.branch)
-        terminals.sendToAssistant(prompt, submit: true)
-    }
-
-    /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.
-    /// `terminal`: the one to fix it in (an agent driving the window names it); else the usual choice.
-    func fixBugWithAI(_ url: URL, in terminal: TerminalSession? = nil) {
-        let tool: CLITool? = terminal != nil ? terminal?.profile.tool : AIAssistantPreferences.backend(project: aiProject)
-        let key = features.bug(at: url)?.key
-        // A bug the lifecycle does not let start (already fixed or closed) is not handed over: nothing could mark it.
-        if let key, !features.lifecycle.canStartByHandoff(.bug, key) {
-            features.lastError = "\(key) is \(features.lifecycle.storedStatus(.bug, key) ?? "not open") and cannot be handed to the assistant to fix. Reopen it first."
-            return
-        }
-        let block = key.map { features.lifecycle.handoffBlock(.bug, [$0]) } ?? ""
-        let base = HandoffPrompt.bug(project.relativePath(of: url), tool: tool)
-        let prompt = block.isEmpty ? base : base + "\n\n" + block
-        // The report is marked fixing only after the prompt went out: a hand-off that failed leaves it open (REQ-003).
-        guard let session = terminals.sendToAssistant(submit: true, to: terminal, promptFor: { _ in prompt }), let key else { return }
-        features.lifecycle.startByHandoff(.bug, key, tool: session.profile.tool?.displayName ?? "AI assistant", actor: .human(features.lifecycleActor))
-    }
-
-    /// Batch Fix with AI (issue #31): the basket's open bugs go to the assistant in one prompt —
-    /// one branch made by the AI, one commit and one outcome per bug. A bug the lifecycle does
-    /// not let start is left out of the prompt; once the prompt went out, each bug in it is marked
-    /// `fixing` (the hand-off is the start evidence) and the basket is emptied. When too few bugs
-    /// can start, or the prompt cannot be sent, nothing is marked and the basket is kept
-    /// (BUG-032). The app runs no git itself (DEC-002).
-    func fixBasketWithAI() {
-        bugBatch.reconcile()
-        let bugs = bugBatch.eligible
-        guard bugs.count >= BugBasket.minimumBatch, !terminals.assistantIsBusy, features.root != nil else { return }
-        let tool = AIAssistantPreferences.backend(project: aiProject)
-        var session: TerminalSession?
-        let outcome = BatchStart.run(bugs, canStart: { bug in
-            features.lifecycle.canStartByHandoff(.bug, bug.key)
-        }, send: { startable in
-            let base = BatchFixPrompt.make(startable, tool: tool)
-            let block = features.lifecycle.handoffBlock(.bug, startable.map(\.key))
-            session = terminals.sendToAssistant(block.isEmpty ? base : base + "\n\n" + block, submit: true)
-            return session != nil
-        }, start: { bug in
-            let tool = session?.profile.tool?.displayName ?? "AI assistant"
-            let result = features.lifecycle.startByHandoff(.bug, bug.key, tool: tool, actor: .human(features.lifecycleActor), surface: false)
-            return result.reachedStatus
-        })
-        if case .started = outcome { bugBatch.clear() }
-        bugBatch.notice = BatchStart.notice(outcome)
-    }
-
-    /// An intake finished: open what it made, and for a feature show its workspace.
-    func intakeFinished(_ kind: IntakeKind, outcome: FeatureAssistant.IntakeOutcome) {
-        if let slug = outcome.feature {
-            showFeature(slug, stage: kind == .quickFeature ? .build : .explore)
-        } else if kind == .bug {
-            // The report opens in the editor; its questions are answered in the Feature tab.
-            chrome.showTOC = true
-            layout.navigatorTab = .feature
-        }
-        refreshFileTree()
-        if let file = outcome.file { openFile(file) }
-    }
-
-
-    /// Opens feature `slug` in the Feature panel at `stage`, with its documents beside it.
-    func showFeature(_ slug: String, stage: FeatureStage) {
-        features.activeSlug = slug
-        layout.leftPanel = "issues"
-        layout.issuesFeature = slug
-        layout.featureStage = stage
-        chrome.showTOC = true
-        chrome.showFileTree = true
-        layout.navigatorTab = .feature
-    }
-
-    /// A feature was written by the app itself (the prototype hand-off): open it at its Build stage, ready for "Implement with AI", with
-    /// its overview in the editor. Nothing starts by itself.
-    func featureWritten(_ slug: String, overview: URL) {
-        showFeature(slug, stage: .build)
-        refreshFileTree()
-        openFile(overview)
-    }
-
-    /// A contextual action on text selected in the editor: the answer (or the created
-    /// requirement / decision / question) appears in the right panel's Feature tab.
-    func runFeatureAction(_ name: String, text: String, question: String) {
-        // A comment on a research document: the AI revises that section (DEC-017).
-        if name == "comment" {
-            guard let url = activeTab?.url, activeTab?.isFileBacked == true, rootNode != nil else { return }
-            research.jobs.comment(on: text, comment: question, in: url)
-            return
-        }
-        guard let action = FeatureAction(rawValue: name) else { return }
-        guard rootNode != nil else { return }
-        let url = activeTab?.url
-        let located = url.flatMap { features.locate($0) }
-        let slug = located?.feature.slug ?? features.active?.slug
-        let document = url.map { features.relativePath($0) }
-        chrome.showTOC = true
-        layout.navigatorTab = .feature
-        Task { await features.assistant.perform(action, selection: text, document: document, question: question, feature: slug) }
-    }
-
-    /// Feature workspaces of a folder, with the AI's access to the index and GitHub.
-    private func setUpFeatures(at root: URL) {
-        let newFolder = features.root != root
-        features.setup(root: root)
-        if newFolder { bugBatch.reset() }
-        features.assistant.project = project
-        features.assistant.gitHubClient = { [weak self] in self?.gitHub.client }
-    }
-
-    /// Folder the GitHub integration works in (folders only, never a single file).
-    private var gitHubRoot: URL?
-
-    /// Watches the Settings switch (every window follows it).
-    private var gitHubSettingObserver: NSObjectProtocol?
-    private var gitHubWasEnabled = GitHubSettings.enabled
-
-    /// Find the folder's GitHub repository and follow the current branch's CI — only when
-    /// the integration is turned on in Settings (MarkView stays a plain viewer otherwise).
-    private func setUpGitHub(at root: URL) {
-        gitHubRoot = root
-        gitClient.onBranch = { [weak self] branch in self?.gitHub.branchChanged(branch) }
-        gitHub.onRepoChange = { [weak self] repo in self?.codeXRay.architecture.gitHubRepo = repo }
-        gitHub.onPoll = { [weak self] client in self?.features.syncLifecycle(with: client) }
-        if gitHubSettingObserver == nil {
-            gitHubSettingObserver = NotificationCenter.default.addObserver(
-                forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, GitHubSettings.enabled != self.gitHubWasEnabled else { return }
-                    self.gitHubSettingChanged()
-                }
-            }
-        }
-        gitHubSettingChanged()
-    }
-
-    /// Start or stop the integration for the open folder, as the Settings switch says.
-    private func gitHubSettingChanged() {
-        gitHubWasEnabled = GitHubSettings.enabled
-        if GitHubSettings.enabled, let root = gitHubRoot {
-            gitHub.setup(root: root)
-            if !gitClient.branch.isEmpty { gitHub.branchChanged(gitClient.branch) }
-        } else {
-            gitHub.reset()
-        }
-    }
-
-    /// Open (or switch to) the editor tab of a workflow run or an issue.
-    func openGitHubTab(_ item: GitHubItem) {
-        guard let root = rootNode?.url ?? gitHub.root else { return }
-        layout.workspaceArea = .files
-        layout.workSection = .git
-        switch item {
-        case .issue: layout.gitSection = .issues
-        case .pullRequest: layout.gitSection = .pullRequests
-        case .run: layout.gitSection = .actions
-        }
-        chrome.showCenter = true
-        let url = root.appendingPathComponent(item.marker)
-        if tabs.selectTab(matching: url) != nil { return }
-        var tab = OpenTab(url: url, content: "", originalContent: "")
-        tab.kind = .github(item)
-        tabs.appendTab(tab)
-    }
-
-    /// Work on a pull request's code: check its branch out, refusing when the working tree
-    /// has changes (nothing is stashed or overwritten). Returns an error to show.
-    func checkoutPullRequest(_ number: Int) async -> String? {
-        guard let root = gitClient.workingDirectory ?? rootNode?.url else { return "No folder open." }
-        // Tracked changes only: untracked files (like MarkView's own .dde) do not block a
-        // checkout, and git itself refuses one that would overwrite them.
-        let status = await GitHubClient.execute(["status", "--porcelain", "--untracked-files=no"], in: root, git: true)
-        if !status.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "The working tree has uncommitted changes. Commit or discard them before checking out PR #\(number)."
-        }
-        let error = await gitHub.perform("Checkout #\(number)") { try await $0.checkout(number) }
-        await gitClient.refresh()
-        refreshFileTree()
-        return error
-    }
-
-    /// Check out a branch from the branch menu. Returns an error to show.
-    func switchBranch(_ name: String) async -> String? {
-        let error = await gitClient.switchBranch(name)
-        branchChanged()
-        return error
-    }
-
-    /// Create a branch from the branch menu and check it out. Returns an error to show.
-    func createBranch(_ name: String, from base: String?) async -> String? {
-        let error = await gitClient.createBranch(name, from: base)
-        branchChanged()
-        return error
-    }
-
-    /// The working copy now holds another branch's files: show them in the tree and open tabs.
-    private func branchChanged() {
-        refreshFileTree()
-        Task { await tabs.reloadChangedOpenFiles(all: true) }
-    }
-
-    /// The branch a pull request comes from, when it is the one checked out.
-    private func isCheckedOut(_ number: Int) async -> Bool {
-        guard let client = gitHub.client, let pr = try? await client.pullRequest(number) else { return false }
-        return pr.headRefName == gitClient.branch
-    }
-
-    /// Send a fix request for a pull request's code to the AI terminal, after checking its
-    /// branch out when needed. Returns an error to show.
-    func fixInPullRequest(_ number: Int?, prompt: String) async -> String? {
-        var prompt = prompt
-        if let number, gitHub.client != nil {
-            if !(await isCheckedOut(number)), let error = await checkoutPullRequest(number) { return error }
-        } else if let number {
-            // Without the GitHub integration the branch is not checked out for the AI.
-            prompt += "\n\nNote: this is pull request #\(number); its branch may not be the one checked out here."
-        }
-        terminals.sendToAssistant(prompt, submit: true)
-        return nil
-    }
-
-    /// "Start with AI" on an issue: a branch for it, then the issue to the AI terminal.
-    func startIssueWithAI(_ issue: GHIssue) async -> String? {
-        guard let root = gitClient.workingDirectory ?? rootNode?.url else { return "No folder open." }
-        let slug = String(issue.title.lowercased().map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
-            .split(separator: "-").prefix(6).joined(separator: "-")
-        let branch = "issue-\(issue.number)" + (slug.isEmpty ? "" : "-" + slug)
-        let exists = await GitHubClient.execute(["rev-parse", "--verify", "--quiet", branch], in: root, git: true)
-        let result = await GitHubClient.execute(exists.status == 0 ? ["switch", branch] : ["switch", "-c", branch], in: root, git: true)
-        if result.status != 0 {
-            return "Could not switch to \(branch): " + result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        await gitClient.refresh()
-        var prompt = "Work on GitHub issue #\(issue.number) of \(gitHub.selectedRepo?.slug ?? "this repository"): \(issue.title)\n\n"
-        prompt += (issue.body ?? "").isEmpty ? "(no description)" : issue.body!
-        let comments = (issue.comments ?? []).suffix(10)
-        if !comments.isEmpty {
-            prompt += "\n\nComments:\n" + comments.map { "- \($0.author?.login ?? "someone"): \($0.body)" }.joined(separator: "\n")
-        }
-        prompt += "\n\nYou are on branch \(branch). Investigate, implement the change, and summarise what you did."
-        terminals.sendToAssistant(prompt, submit: true)
-        return nil
-    }
-
-    /// "Fix with AI" on a failed run: its failed steps' logs to the AI terminal.
-    func fixRunWithAI(_ model: GitHubRunModel) {
-        Task {
-            await model.loadFailedLogs()
-            var prompt = model.failureText()
-            if let run = model.run, run.headBranch != gitClient.branch {
-                prompt += "\nNote: the run was on branch \(run.headBranch); the working copy is on \(gitClient.branch)."
-            }
-            prompt += "\nFind the cause in this repository and fix it."
-            terminals.sendToAssistant(prompt, submit: true)
-        }
-    }
+    // MARK: - Terminal tabs
 
     /// Open a terminal in `folder` as an editor tab; `startupCommand` is typed once the shell is up.
     @discardableResult
@@ -1576,8 +1086,8 @@ class WorkspaceManager: ObservableObject, TabsProviding, WindowSessionHost {
             Task { await db.addUsage(inputTokens: input, outputTokens: output, costCents: cost * 100) }
         }
         session.openFile = { [weak self] url in self?.openFile(url) }
-        session.featureStore = { [weak self] in self?.features }
-        session.onFeatureExported = { [weak self] slug in self?.showFeatureContext(slug) }
+        session.featureStore = { [weak self] in self?.flow.features }
+        session.onFeatureExported = { [weak self] slug in self?.flow.showFeatureContext(slug) }
         var tab = OpenTab(url: tool.sentinelURL(in: root, suffix: session.id.uuidString), content: "", originalContent: "")
         tab.kind = .uiStudio(session)
         return tab
@@ -1994,6 +1504,15 @@ extension WorkspaceManager: ResearchHost {
     }
 
     func researchWatchOpenFiles() { tabs.startWatchingOpenFiles() }
+
+    func saveBeforeResearch(_ file: URL, action: String) -> Bool { tabs.saveBeforeReading(file, action: action) }
+
+    func researchDocumentChanged(_ file: URL, content: String, applyToEdited: (String) -> String?) {
+        refreshFileTree()
+        if !tabs.fileRewritten(file, content: content, applyToEdited: applyToEdited) {
+            research.jobs.message = "\(file.lastPathComponent) was updated on disk, but its tab has unsaved edits that conflict; reload it to see the AI's change."
+        }
+    }
 }
 
 /// What Recursive Insight reads of the window and does to its tabs (`InsightCoordinator`).
@@ -2042,7 +1561,7 @@ extension WorkspaceManager: CodeXRayHost {
     var activeTabKind: TabKind? { tabs.activeTab?.kind }
     var activeTabURL: URL? { tabs.activeTab?.url }
     var gitBranch: String { gitClient.branch }
-    var defaultAuthor: String { features.defaultOwner }
+    var defaultAuthor: String { flow.features.defaultOwner }
 
     func openTabContent(for url: URL) -> String? { tabs.content(ofOpen: url) }
 
@@ -2051,6 +1570,8 @@ extension WorkspaceManager: CodeXRayHost {
     }
 
     func startRecursiveInsight(at target: URL?, title: String?) { insight.start(at: target, title: title) }
+
+    func fixInPullRequest(_ number: Int?, prompt: String) async -> String? { await flow.fixInPullRequest(number, prompt: prompt) }
 
     func sendToAssistant(_ prompt: String, submit: Bool) -> TerminalSession? { terminals.sendToAssistant(prompt, submit: submit) }
 

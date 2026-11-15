@@ -13,6 +13,7 @@ enum PDFReaderRoutingTests {
         let file = URL(fileURLWithPath: "/tmp/Read only.PDF")
         let tabs = TabsController(dialogs: TabDialogs(
             askToSave: { _, _ in preconditionFailure("A PDF tab never asks about unsaved changes") },
+            confirmSave: { _, _ in preconditionFailure("A PDF tab never asks about unsaved changes") },
             reportFailedSave: { _ in preconditionFailure("A PDF tab never saves") },
             offerDefaultApp: { _, _ in preconditionFailure("A PDF is not read as text") }))
         tabs.openDocument(file)

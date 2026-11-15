@@ -32,10 +32,17 @@ enum TabsControllerChecks {
         var asked: [String] = []
         var failedSaves: [String] = []
         var offered: [URL] = []
+        /// The answers to "Save or Cancel" before an AI job reads the disk (true saves), and what was asked.
+        var confirmations: [Bool] = []
+        var confirmed: [String] = []
         lazy var dialogs = TabDialogs(
             askToSave: { [unowned self] message, _ in
                 asked.append(message)
                 return answers.isEmpty ? .cancel : answers.removeFirst()
+            },
+            confirmSave: { [unowned self] message, _ in
+                confirmed.append(message)
+                return confirmations.isEmpty ? false : confirmations.removeFirst()
             },
             reportFailedSave: { [unowned self] name in failedSaves.append(name) },
             offerDefaultApp: { [unowned self] url, _ in offered.append(url); return false })
@@ -54,11 +61,12 @@ enum TabsControllerChecks {
         await closingASessionTabIsTheWindowsToFinish()
         await tabKindsOpenWithoutTextLoad()
         await xrayTabsAndOpenText()
+        await githubTabsAndSavingBeforeAJobReadsTheDisk()
         if failures > 0 {
             FileHandle.standardError.write(Data("\(failures) check(s) failed\n".utf8))
             exit(1)
         }
-        print("TabsController: open, edit, save, reload, close prompts, Close Documents, disk changes, moves, scroll table, redraws and X-Ray tabs passed")
+        print("TabsController: open, edit, save, reload, close prompts, Close Documents, disk changes, moves, scroll table, redraws, X-Ray and GitHub tabs, save before an AI job passed")
     }
 
     @MainActor
@@ -403,6 +411,72 @@ enum TabsControllerChecks {
             check(tabs.content(ofOpen: note) == "# Note\n\nunsaved\n", "an open file's text includes what is not saved yet")
             check(tabs.content(ofOpen: dir.appendingPathComponent("../" + dir.lastPathComponent + "/note.md")) == "# Note\n\nunsaved\n", "the file is found by its standardized path")
             check(tabs.content(ofOpen: dir.appendingPathComponent("other.md")) == nil, "a file that is not open has no text")
+            tabs.shutdown()
+        }
+    }
+    @MainActor
+    static func githubTabsAndSavingBeforeAJobReadsTheDisk() async {
+        await folder { dir in
+            let script = Script()
+            let tabs = TabsController(dialogs: script.dialogs)
+
+            // The tab of a GitHub item: one per item, found again by it.
+            let issue = GitHubItem.issue(number: 7, repo: "owner/repo", title: "#7")
+            tabs.showGitHubTab(issue, root: dir)
+            check(tabs.openTabs.count == 1 && tabs.activeTabIndex == 0, "a GitHub issue opens in a tab that shows")
+            if case .github(let item) = tabs.openTabs[0].kind { check(item == issue, "the tab carries the issue") } else { check(false, "the tab is a GitHub tab") }
+            tabs.showGitHubTab(.run(id: 9, repo: "owner/repo", title: "run"), root: dir)
+            tabs.activeTabIndex = 0
+            tabs.showGitHubTab(.run(id: 9, repo: "owner/repo", title: "run"), root: dir)
+            check(tabs.openTabs.count == 2 && tabs.activeTabIndex == 1, "showing an item again selects its tab instead of adding one")
+            tabs.reset()
+
+            // Before a research job reads a file: the person saves, or cancels.
+            let file = dir.appendingPathComponent("report.md")
+            try? "one\n".write(to: file, atomically: true, encoding: .utf8)
+            await tabs.openTextFile(file)
+            check(tabs.saveBeforeReading(file, action: "continuing the research") && script.confirmed.isEmpty, "a document with no unsaved edits is read as it is, with no question")
+            check(tabs.saveBeforeReading(dir.appendingPathComponent("not-open.md"), action: "x") && script.confirmed.isEmpty, "a file that is not open is read as it is")
+            tabs.updateTabContent("two\n", documentID: tabs.openTabs[0].id)
+            script.confirmations = [false]
+            check(!tabs.saveBeforeReading(file, action: "continuing the research"), "Cancel stops the job")
+            check(script.confirmed == ["Save changes to report.md before continuing the research?"] && (try? String(contentsOf: file)) == "one\n" && tabs.openTabs[0].isModified,
+                  "Cancel asks about that document and writes nothing")
+            script.confirmations = [true]
+            check(tabs.saveBeforeReading(file, action: "continuing the research"), "Save lets the job go on")
+            check((try? String(contentsOf: file)) == "two\n" && !tabs.openTabs[0].isModified, "Save writes the edits first, so the disk is current")
+
+            // A handoff is a snapshot of the folder: every modified document inside it is saved first.
+            let feature = dir.appendingPathComponent("docs/features/f1")
+            try? FileManager.default.createDirectory(at: feature, withIntermediateDirectories: true)
+            let inside = feature.appendingPathComponent("overview.md"), outside = dir.appendingPathComponent("elsewhere.md")
+            try? "a\n".write(to: inside, atomically: true, encoding: .utf8)
+            try? "b\n".write(to: outside, atomically: true, encoding: .utf8)
+            await tabs.openTextFile(inside)
+            await tabs.openTextFile(outside)
+            for tab in tabs.openTabs where tab.url == inside || tab.url == outside { tabs.updateTabContent("changed\n", documentID: tab.id) }
+            script.confirmed = []
+            script.confirmations = [false]
+            check(!tabs.saveBeforeHandoff(under: feature) && script.confirmed == ["Save changes to overview.md before handoff?"],
+                  "Cancel stops the handoff after one question about the one document inside the folder")
+            script.confirmations = [true]
+            check(tabs.saveBeforeHandoff(under: feature), "Save lets the handoff go on")
+            check((try? String(contentsOf: inside)) == "changed\n" && (try? String(contentsOf: outside)) == "b\n",
+                  "only the documents inside the folder are written")
+
+            // A job rewrote a file: a clean tab shows the new text; edits are kept by merging, or the conflict is reported.
+            let clean = dir.appendingPathComponent("clean.md")
+            try? "old\n".write(to: clean, atomically: true, encoding: .utf8)
+            await tabs.openTextFile(clean)
+            let cleanIndex = tabs.openTabs.count - 1
+            check(tabs.fileRewritten(clean, content: "new\n", applyToEdited: { _ in nil }) && tabs.openTabs[cleanIndex].content == "new\n"
+                  && !tabs.openTabs[cleanIndex].isModified, "a clean tab shows what the job wrote")
+            tabs.updateTabContent("new\ntyped\n", documentID: tabs.openTabs[cleanIndex].id)
+            check(tabs.fileRewritten(clean, content: "newer\n", applyToEdited: { $0 + "+merged" }) && tabs.openTabs[cleanIndex].content == "new\ntyped\n+merged"
+                  && tabs.openTabs[cleanIndex].originalContent == "newer\n" && tabs.openTabs[cleanIndex].isModified, "unsaved edits take the change applied to them")
+            check(!tabs.fileRewritten(clean, content: "newest\n", applyToEdited: { _ in nil }) && tabs.openTabs[cleanIndex].content == "new\ntyped\n+merged",
+                  "edits that conflict stay as typed and the conflict is reported")
+            check(tabs.fileRewritten(dir.appendingPathComponent("closed.md"), content: "x", applyToEdited: { _ in nil }), "a file with no tab needs nothing")
             tabs.shutdown()
         }
     }

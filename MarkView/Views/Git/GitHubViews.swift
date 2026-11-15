@@ -347,7 +347,7 @@ struct GitHubPullRequestsView: View {
                     Button(action: {
                         working = (pr.number, "Checking out…")
                         Task {
-                            let error = await workspaceManager.checkoutPullRequest(pr.number)
+                            let error = await workspaceManager.flow.checkoutPullRequest(pr.number)
                             working = nil
                             showError("Checkout #\(pr.number)", error)
                         }
@@ -369,7 +369,7 @@ struct GitHubPullRequestsView: View {
     /// The pull request in its own tab: description, comments, reviews, checks, reply box.
     private func openTab(_ pr: GHPullRequest) {
         guard let repo = gitHub.selectedRepo?.slug else { return }
-        workspaceManager.openGitHubTab(.pullRequest(number: pr.number, repo: repo, title: "#\(pr.number) \(pr.title)"))
+        workspaceManager.flow.openGitHubTab(.pullRequest(number: pr.number, repo: repo, title: "#\(pr.number) \(pr.title)"))
     }
 
     private func menu(_ pr: GHPullRequest) -> some View {
@@ -378,8 +378,8 @@ struct GitHubPullRequestsView: View {
             Button("Open on GitHub") { openInBrowser(pr.url) }
             Button("Copy Link") { copyToPasteboard(pr.url) }
             Divider()
-            Button("New Feature from This PR…") { workspaceManager.startIntake(.feature, fromPullRequest: pr) }
-            Button("New Bug from This PR…") { workspaceManager.startIntake(.bug, fromPullRequest: pr) }
+            Button("New Feature from This PR…") { workspaceManager.flow.startIntake(.feature, fromPullRequest: pr) }
+            Button("New Bug from This PR…") { workspaceManager.flow.startIntake(.bug, fromPullRequest: pr) }
             if pr.state.uppercased() == "OPEN" {
                 Divider()
                 Button("Approve…") { textAction = TextAction(pr: pr, kind: "approve") }
@@ -576,12 +576,12 @@ struct GitHubIssuesView: View {
             ForEach(issues) { issue in
                 Button(action: {
                     guard let repo = gitHub.selectedRepo?.slug else { return }
-                    workspaceManager.openGitHubTab(.issue(number: issue.number, repo: repo, title: "#\(issue.number) \(issue.title)"))
+                    workspaceManager.flow.openGitHubTab(.issue(number: issue.number, repo: repo, title: "#\(issue.number) \(issue.title)"))
                 }) { row(issue) }
                 .buttonStyle(.plain)
                 .contextMenu {
-                    Button("New Feature from #\(issue.number)…") { workspaceManager.startIntake(.feature, fromIssue: issue.number) }
-                    Button("New Bug from #\(issue.number)…") { workspaceManager.startIntake(.bug, fromIssue: issue.number) }
+                    Button("New Feature from #\(issue.number)…") { workspaceManager.flow.startIntake(.feature, fromIssue: issue.number) }
+                    Button("New Bug from #\(issue.number)…") { workspaceManager.flow.startIntake(.bug, fromIssue: issue.number) }
                     Button("Open on GitHub") { openInBrowser(issue.url) }
                 }
                 Divider().background(palette.border)
@@ -723,7 +723,7 @@ struct GitHubActionsView: View {
                             ForEach(list) { run in
                                 Button(action: {
                                     guard let repo = gitHub.selectedRepo?.slug else { return }
-                                    workspaceManager.openGitHubTab(.run(id: run.databaseId, repo: repo, title: "⚙ \(run.workflowName) #\(run.number)"))
+                                    workspaceManager.flow.openGitHubTab(.run(id: run.databaseId, repo: repo, title: "⚙ \(run.workflowName) #\(run.number)"))
                                 }) { row(run) }
                                 .buttonStyle(.plain)
                                 Divider().background(palette.border)
@@ -908,15 +908,15 @@ struct GitHubTabView: View {
         Group {
             switch item {
             case .run(let id, let repo, _):
-                if let model = workspaceManager.gitHub.runModel(id, repo: repo) {
+                if let model = workspaceManager.flow.gitHub.runModel(id, repo: repo) {
                     GitHubRunView(model: model)
                 } else { unavailable }
             case .issue(let number, let repo, _):
-                if let model = workspaceManager.gitHub.issueModel(number, repo: repo) {
-                    GitHubIssueView(model: model, gitHub: workspaceManager.gitHub)
+                if let model = workspaceManager.flow.gitHub.issueModel(number, repo: repo) {
+                    GitHubIssueView(model: model, gitHub: workspaceManager.flow.gitHub)
                 } else { unavailable }
             case .pullRequest(let number, let repo, _):
-                if let model = workspaceManager.gitHub.pullRequestModel(number, repo: repo) {
+                if let model = workspaceManager.flow.gitHub.pullRequestModel(number, repo: repo) {
                     GitHubPullRequestView(model: model)
                 } else { unavailable }
             }
@@ -991,7 +991,7 @@ struct GitHubRunView: View {
                             Button(action: { model.explainFailure(db: workspaceManager.semanticDatabase) }) {
                                 Label("Explain Failure", systemImage: "sparkles")
                             }.disabled(model.explaining)
-                            Button(action: { workspaceManager.fixRunWithAI(model) }) {
+                            Button(action: { workspaceManager.flow.fixRunWithAI(model) }) {
                                 Label("Fix with AI", systemImage: "sparkles")
                             }.help("Send the failed steps' logs to the AI terminal")
                         }
@@ -1197,8 +1197,8 @@ struct GitHubIssueView: View {
                     .help("Create a branch for the issue and hand it to the AI terminal")
                     .disabled(starting)
                 Menu("New from It") {
-                    Button("New Feature from #\(issue.number)…") { workspaceManager.startIntake(.feature, fromIssue: issue.number) }
-                    Button("New Bug from #\(issue.number)…") { workspaceManager.startIntake(.bug, fromIssue: issue.number) }
+                    Button("New Feature from #\(issue.number)…") { workspaceManager.flow.startIntake(.feature, fromIssue: issue.number) }
+                    Button("New Bug from #\(issue.number)…") { workspaceManager.flow.startIntake(.bug, fromIssue: issue.number) }
                 }
                 .menuStyle(.borderlessButton).fixedSize()
                 Button("Edit") { editing = true }
@@ -1274,7 +1274,7 @@ struct GitHubIssueView: View {
         guard let issue = model.issue else { return }
         starting = true
         Task {
-            let error = await workspaceManager.startIssueWithAI(issue)
+            let error = await workspaceManager.flow.startIssueWithAI(issue)
             starting = false
             showError("Start with AI", error)
         }
@@ -1512,8 +1512,8 @@ struct GitHubSettingsSection: View {
     }
 
     private var repositoryText: String {
-        if let repo = workspaceManager.gitHub.selectedRepo {
-            return repo.slug + (workspaceManager.gitHub.repos.count > 1 ? " (+ \(workspaceManager.gitHub.repos.count - 1) more)" : "")
+        if let repo = workspaceManager.flow.gitHub.selectedRepo {
+            return repo.slug + (workspaceManager.flow.gitHub.repos.count > 1 ? " (+ \(workspaceManager.flow.gitHub.repos.count - 1) more)" : "")
         }
         return workspaceManager.rootNode == nil ? "Open a folder with a GitHub remote." : "This folder has no GitHub remote."
     }
@@ -1737,7 +1737,7 @@ struct GitHubPullRequestView: View {
                     Button {
                         checkingOut = true
                         Task {
-                            let error = await workspaceManager.checkoutPullRequest(pr.number)
+                            let error = await workspaceManager.flow.checkoutPullRequest(pr.number)
                             checkingOut = false
                             showError("Checkout #\(pr.number)", error)
                         }

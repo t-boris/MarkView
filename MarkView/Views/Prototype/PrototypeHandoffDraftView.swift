@@ -188,8 +188,8 @@ struct PrototypeHandoffDraftView: View {
                 .disabled(currentBrief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || run.progress.running)
                 Button(run.creating ? "Creating…" : "Create feature") {
                     Task {
-                        if let created = await run.create(into: workspaceManager.features) {
-                            workspaceManager.featureWritten(created.slug, overview: created.overview)
+                        if let created = await run.create(into: workspaceManager.flow.features) {
+                            workspaceManager.flow.featureWritten(created.slug, overview: created.overview)
                             onClose()
                         }
                     }

@@ -39,12 +39,9 @@ final class GitHubStore: ObservableObject {
         didSet {
             guard oldValue != selectedRepo else { return }
             clearRepoState()
-            onRepoChange?(selectedRepo)
             if selectedRepo != nil { refreshAll() }
         }
     }
-    /// Told the repository GitHub requests go to (the PR X-Ray of the same window follows it).
-    var onRepoChange: ((GitHubRepo?) -> Void)?
     /// Told on every poll (and when polling starts), for other state that follows GitHub.
     var onPoll: ((GitHubClient) -> Void)?
     @Published var lastError: String?

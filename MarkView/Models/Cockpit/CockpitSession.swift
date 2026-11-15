@@ -411,12 +411,12 @@ final class CockpitSession: ObservableObject {
 
     func openBug(_ key: String) {
         guard let workspace, let tabs else { return }
-        if let bug = workspace.features.bugs.first(where: { $0.key == key }) { tabs.openFile(bug.url); return }
-        workspace.features.reload()
+        if let bug = workspace.flow.features.bugs.first(where: { $0.key == key }) { tabs.openFile(bug.url); return }
+        workspace.flow.features.reload()
         Task { [weak self, weak workspace, weak tabs] in
             for _ in 0..<100 {
                 guard let workspace, let tabs else { return }
-                if let bug = workspace.features.bugs.first(where: { $0.key == key }) { tabs.openFile(bug.url); return }
+                if let bug = workspace.flow.features.bugs.first(where: { $0.key == key }) { tabs.openFile(bug.url); return }
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
             self?.error = "The linked bug is no longer available: \(key)"

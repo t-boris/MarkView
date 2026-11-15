@@ -18,4 +18,13 @@ protocol AssistantProviding: AnyObject {
     func openAITerminal(_ profile: TerminalProfile, resuming: Bool, model: String?) -> TerminalSession?
     /// Bring the AI panel to the front.
     func showAIConsole()
+    /// The assistant terminal is working: it printed in the last few seconds.
+    var assistantIsBusy: Bool { get }
+    /// Types `prompt` into the assistant terminal, opening one when none is open; the terminal it went to, nil when none could be opened.
+    @discardableResult
+    func sendToAssistant(_ prompt: String, submit: Bool) -> TerminalSession?
+    /// Builds the prompt only after the receiving terminal is chosen (`terminal`, else the usual one); nil when no terminal could be
+    /// opened or `promptFor` gave none.
+    @discardableResult
+    func sendToAssistant(submit: Bool, to terminal: TerminalSession?, promptFor: (TerminalSession) -> String?) -> TerminalSession?
 }

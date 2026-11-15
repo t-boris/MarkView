@@ -888,7 +888,7 @@ struct FileTreeView: View {
                 Button { workspaceManager.codeXRay.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
                 Button { workspaceManager.insight.start(at: url) } label: { Label("Recursive Insight", systemImage: "sparkles") }
                 Button { workspaceManager.openDiscussion(about: url) } label: { Label("Discuss…", systemImage: "bubble.left.and.text.bubble.right") }
-                Button { workspaceManager.startResearch(fromFolder: url) } label: { Label("New Research from This Folder…", systemImage: "books.vertical") }
+                Button { workspaceManager.flow.startResearch(fromFolder: url) } label: { Label("New Research from This Folder…", systemImage: "books.vertical") }
                 Divider()
             }
             Button("New File...") { createNewFile(in: url) }
@@ -947,10 +947,10 @@ struct FileTreeView: View {
                 }
                 Menu("New from This Document") {
                     ForEach(IntakeKind.allCases) { kind in
-                        Button(kind.title + "…") { workspaceManager.startIntake(kind, fromDocument: url) }
+                        Button(kind.title + "…") { workspaceManager.flow.startIntake(kind, fromDocument: url) }
                     }
                 }
-                Button { workspaceManager.implementWithAI(url) } label: { Label("Implement with AI", systemImage: "hammer") }
+                Button { workspaceManager.flow.implementWithAI(url) } label: { Label("Implement with AI", systemImage: "hammer") }
                 Button { workspaceManager.presentPDFBook([url]) } label: { Label("Export PDF Book…", systemImage: "book.closed") }
             }
             Divider()

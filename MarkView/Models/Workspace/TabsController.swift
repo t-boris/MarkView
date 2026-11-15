@@ -15,6 +15,8 @@ enum UnsavedChangesAnswer {
 struct TabDialogs {
     /// Save, Don't Save or Cancel, for the message and detail given.
     var askToSave: @MainActor (_ message: String, _ detail: String) -> UnsavedChangesAnswer
+    /// Save or Cancel, before an AI job that reads the document from disk; true to save.
+    var confirmSave: @MainActor (_ message: String, _ detail: String) -> Bool
     /// A save failed while tabs were closing: nothing was closed.
     var reportFailedSave: @MainActor (_ name: String) -> Void
     /// A file cannot be shown as text; true when the person wants it opened in the app the system picks.
@@ -33,6 +35,14 @@ struct TabDialogs {
             case .alertSecondButtonReturn: return .discard
             default: return .cancel
             }
+        },
+        confirmSave: { message, detail in
+            let alert = NSAlert()
+            alert.messageText = message
+            alert.informativeText = detail
+            alert.addButton(withTitle: "Save")
+            alert.addButton(withTitle: "Cancel")
+            return alert.runModal() == .alertFirstButtonReturn
         },
         reportFailedSave: { name in
             let alert = NSAlert()
@@ -60,15 +70,6 @@ enum TabsEvent {
     case terminalClosed(UUID)
     /// The person closed an Insight tab; ending its session in the ordered cleanup (Decision 11 §4) and then dropping the tab are the window's.
     case insightClosed(InsightSession)
-}
-
-/// What a feature that works with the open documents needs from its window, and nothing more (`AR-14`, `AR-17`).
-@MainActor
-protocol TabsProviding: AnyObject {
-    /// The tab the person is looking at; nil on the Welcome tab.
-    var activeTab: OpenTab? { get }
-    /// Shows `url` in a tab of the window.
-    func openFile(_ url: URL)
 }
 
 /// Everything about the tabs a window has open (`AR-14` step 5): which ones, which is active, opening, saving, closing, reloading what
@@ -252,6 +253,16 @@ final class TabsController: ObservableObject {
             tab.kind = .architecture(scope: scope)
             appendTab(tab)
         }
+    }
+
+    /// Brings the tab of a GitHub issue, pull request or workflow run of the project at `root` to the front, opening it when it is not
+    /// there yet.
+    func showGitHubTab(_ item: GitHubItem, root: URL) {
+        let url = root.appendingPathComponent(item.marker)
+        if selectTab(matching: url) != nil { return }
+        var tab = OpenTab(url: url, content: "", originalContent: "")
+        tab.kind = .github(item)
+        appendTab(tab)
     }
 
     /// The text the open tab for `url` holds, unsaved edits included; nil when the file is not open.
@@ -554,6 +565,56 @@ final class TabsController: ObservableObject {
         case .cancel:
             return false
         }
+    }
+
+    // MARK: - Before an AI job reads the disk
+
+    /// Before a research job reads `file`: unsaved edits in its tab are saved, or the person cancels (DEC-014). True when the file on
+    /// disk is current.
+    func saveBeforeReading(_ file: URL, action: String) -> Bool {
+        guard let index = openTabs.firstIndex(where: { $0.url.standardizedFileURL == file.standardizedFileURL && $0.isFileBacked }),
+              openTabs[index].isModified else { return true }
+        guard dialogs.confirmSave("Save changes to \(openTabs[index].displayName) before \(action)?",
+                                  "The AI works on the document as it is saved on disk.") else { return false }
+        saveFile(at: index)
+        return !openTabs[index].isModified
+    }
+
+    /// A handoff is a disk snapshot: every modified tab of a file inside `folder` is saved first, one question per document. True when
+    /// nothing is left unsaved.
+    func saveBeforeHandoff(under folder: URL) -> Bool {
+        let prefix = folder.standardizedFileURL.path + "/"
+        for index in openTabs.indices where openTabs[index].isFileBacked && openTabs[index].isModified &&
+            openTabs[index].url.standardizedFileURL.path.hasPrefix(prefix) {
+            guard dialogs.confirmSave("Save changes to \(openTabs[index].displayName) before handoff?",
+                                      "The handoff captures files as saved on disk.") else { return false }
+            saveFile(at: index)
+            if openTabs[index].isModified { return false }
+        }
+        return true
+    }
+
+    /// A job rewrote `file` on disk: its tab shows the new text; a tab with unsaved edits gets the same change applied by `applyToEdited`
+    /// so nothing typed is lost. False when the tab has unsaved edits that conflict with the change.
+    @discardableResult
+    func fileRewritten(_ file: URL, content: String, applyToEdited: (String) -> String?) -> Bool {
+        guard let index = openTabs.firstIndex(where: { $0.url.standardizedFileURL == file.standardizedFileURL && $0.isFileBacked }) else { return true }
+        if !openTabs[index].isModified {
+            updateTab(at: index) { tab in
+                tab.content = content
+                tab.originalContent = content
+                tab.isModified = false
+            }
+        } else if let edited = applyToEdited(openTabs[index].content) {
+            updateTab(at: index) { tab in
+                tab.content = edited
+                tab.originalContent = content
+                tab.isModified = edited != content
+            }
+        } else {
+            return false
+        }
+        return true
     }
 
     /// Open tabs of moved files (or files inside moved folders) point at their new place.

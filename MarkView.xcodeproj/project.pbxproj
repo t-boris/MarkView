@@ -27,6 +27,7 @@
 		07044898F5427AD51A50B427 /* DocumentScrollSideTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */; };
 		07044898F5427AD51A50B430 /* TaskBag.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD10 /* TaskBag.swift */; };
 		98C5629E8EC7EF49B7CC3471 /* TabsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FB7907ACA21EEA149AD8958 /* TabsController.swift */; };
+		7A614B6045649601D738F5AC /* TabsProviding.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3425A5AFB9DAE2E448F2DC0 /* TabsProviding.swift */; };
 		4618C98597316124EAB34D9F /* FinderOpenRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */; };
 		C041BCC7EAEF6931AECB3CE1 /* WindowSessionSnapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */; };
 		C8154BE60D692E4B2E5DEA64 /* WindowRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */; };
@@ -429,6 +430,7 @@
 		E7C64C54C097AC4FB51EC55F /* DeploymentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 847DBF92043DDF1F0644B95D /* DeploymentStore.swift */; };
 		EB315F16B4603811DE1E360A /* UIStudioStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4290F1912EB67F6DD7EB9033 /* UIStudioStore.swift */; };
 		EB58444FAD0EC3A066EA5D96 /* BugBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C501ACCB7ED2B026E7B473E /* BugBatch.swift */; };
+		3B9FDCCEF80CBBF1C86F4AA9 /* FeatureFlowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 696888538866AF51CA1996D3 /* FeatureFlowCoordinator.swift */; };
 		EBBC3870E229854BEDFFFEAB /* ResearchMapJobs.swift in Sources */ = {isa = PBXBuildFile; fileRef = B487E652BEE66C9746620C91 /* ResearchMapJobs.swift */; };
 		29E867D20A88583C99BDBB20 /* ResearchMapController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FE12382779BEA3E066F70AC /* ResearchMapController.swift */; };
 		EBC18992AE03BE7A9FF77909 /* WorkflowTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 713A7BA330E95450C16AA739 /* WorkflowTemplate.swift */; };
@@ -861,6 +863,7 @@
 		9C0F0778AC373BF137EF446E /* QARun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QARun.swift; sourceTree = "<group>"; };
 		9C2274FA0138402D44C1B4ED /* NewProject.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProject.swift; sourceTree = "<group>"; };
 		9C501ACCB7ED2B026E7B473E /* BugBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugBatch.swift; sourceTree = "<group>"; };
+		696888538866AF51CA1996D3 /* FeatureFlowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlowCoordinator.swift; sourceTree = "<group>"; };
 		9D0228F8BD26A840109C0420 /* UIStudioSession+Screens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIStudioSession+Screens.swift"; sourceTree = "<group>"; };
 		9DFB18E00AEC2AEE73280110 /* markview-mdext.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-mdext.js"; sourceTree = "<group>"; };
 		9E66DDC9C3E486A4C1201D62 /* prism-typescript.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-typescript.min.js"; sourceTree = "<group>"; };
@@ -884,6 +887,7 @@
 		A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentScrollSideTable.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD10 /* TaskBag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskBag.swift; sourceTree = "<group>"; };
 		8FB7907ACA21EEA149AD8958 /* TabsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabsController.swift; sourceTree = "<group>"; };
+		D3425A5AFB9DAE2E448F2DC0 /* TabsProviding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabsProviding.swift; sourceTree = "<group>"; };
 		6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderOpenRequests.swift; sourceTree = "<group>"; };
 		6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSessionSnapshotter.swift; sourceTree = "<group>"; };
 		2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRequests.swift; sourceTree = "<group>"; };
@@ -1403,6 +1407,7 @@
 			children = (
 				208F3A1A41768480AD365DC2 /* BugBasket.swift */,
 				9C501ACCB7ED2B026E7B473E /* BugBatch.swift */,
+				696888538866AF51CA1996D3 /* FeatureFlowCoordinator.swift */,
 				4B9B7C71F9506E1F39D08A0F /* BugReportWriter.swift */,
 				FD9CDC3A061835FA482444D4 /* BugValidity.swift */,
 				386B925AB44F77CD7331E15E /* CycleTime.swift */,
@@ -1650,6 +1655,7 @@
 				75282A5DF053FCD311C2528B /* TabClosing.swift */,
 				A6E0167483A13431C669BD10 /* TaskBag.swift */,
 				8FB7907ACA21EEA149AD8958 /* TabsController.swift */,
+				D3425A5AFB9DAE2E448F2DC0 /* TabsProviding.swift */,
 				6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */,
 				6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */,
 				2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */,
@@ -2358,6 +2364,7 @@
 				07044898F5427AD51A50B427 /* DocumentScrollSideTable.swift in Sources */,
 				07044898F5427AD51A50B430 /* TaskBag.swift in Sources */,
 				98C5629E8EC7EF49B7CC3471 /* TabsController.swift in Sources */,
+				7A614B6045649601D738F5AC /* TabsProviding.swift in Sources */,
 				4618C98597316124EAB34D9F /* FinderOpenRequests.swift in Sources */,
 				C041BCC7EAEF6931AECB3CE1 /* WindowSessionSnapshotter.swift in Sources */,
 				C8154BE60D692E4B2E5DEA64 /* WindowRequests.swift in Sources */,
@@ -2417,6 +2424,7 @@
 				8C30E46A7399E5C9B7C06CEF /* BugBasket.swift in Sources */,
 				FDEC1C9110BC9238829B7A22 /* BugBasketView.swift in Sources */,
 				EB58444FAD0EC3A066EA5D96 /* BugBatch.swift in Sources */,
+				3B9FDCCEF80CBBF1C86F4AA9 /* FeatureFlowCoordinator.swift in Sources */,
 				5CAE8E69834D69CFCD886C56 /* BugReportWriter.swift in Sources */,
 				DC55330FB0996F5C23062435 /* BugValidity.swift in Sources */,
 				83B0C087FC9FE19D379FA53E /* CLICompletion.swift in Sources */,
