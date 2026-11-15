@@ -1,6 +1,9 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// An editor tab showing an image (any format ImageIO / NSImage reads: PNG, JPEG, GIF,
 /// HEIC, WebP, TIFF, BMP, ICO, SVG, RAW…). Wheel or pinch zooms around the cursor,
@@ -15,7 +18,7 @@ struct ImageViewerView: View {
     /// The folder's images, for the arrows and the slideshow.
     @State private var siblings: [URL] = []
     @State private var playing = false
-    @WindowStorage("imageSlideshowSeconds") private var interval = 4.0
+    @WindowStorage(Setting.imageSlideshowSeconds) private var interval: Double
 
     private var previous: URL? { ImageSiblings.neighbour(of: url, in: siblings, step: -1, wrap: false) }
     private var next: URL? { ImageSiblings.neighbour(of: url, in: siblings, step: 1, wrap: false) }

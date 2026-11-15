@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // The usage indicators (DEC-006 of ai-agent-usage-quota-tracker-codex-claude-code): one compact chip per
 // agent in the workspace top bar (flexible-files-views-and-visible-agent-usage, AC-6, AC-7), the details in
@@ -40,11 +43,14 @@ struct AgentUsageBar: View {
         }
         .onAppear { tracker.indicatorAppeared() }
         .onDisappear { tracker.indicatorDisappeared() }
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+        .onReceive(SettingsObserver.changes(of: Self.observedKeys)) { _ in
             let now = Self.hiddenAgents()
             if now != hidden { hidden = now }
         }
     }
+
+    /// The settings that hide an agent's indicator.
+    private static var observedKeys: [AnySettingsKey] { CLITool.usageTracked.map { Setting.usageHidden($0.rawValue).erased } }
 
     private static func hiddenAgents() -> Set<CLITool> { Set(CLITool.usageTracked.filter(AgentUsageTracker.isHidden)) }
 

@@ -1,6 +1,5 @@
 import Foundation
 import OSLog
-import WebKit
 import XCTest
 @testable import MarkViewCore
 
@@ -49,12 +48,12 @@ final class MarkViewCoreTests: XCTestCase {
         let toolURL = tempDir.appendingPathComponent("mv-custom-tool")
         try AtomicFile.write("#!/bin/sh\necho extra-path-ok\n", to: toolURL, permissions: 0o755)
 
-        let defaults = UserDefaults.standard
-        let previous = defaults.object(forKey: Subprocess.extraPATHDefaultsKey)
-        defaults.set(tempDir.path, forKey: Subprocess.extraPATHDefaultsKey)
+        let settings = Settings.standard
+        let previous = settings.stored(Setting.extraPATH)
+        settings.set(tempDir.path, for: Setting.extraPATH)
         defer {
-            if let previous { defaults.set(previous, forKey: Subprocess.extraPATHDefaultsKey) }
-            else { defaults.removeObject(forKey: Subprocess.extraPATHDefaultsKey) }
+            if let previous { settings.set(previous, for: Setting.extraPATH) }
+            else { settings.remove(Setting.extraPATH) }
         }
 
         let resolved = Subprocess.resolveExecutable("mv-custom-tool")
@@ -429,19 +428,5 @@ final class MarkViewCoreTests: XCTestCase {
         XCTAssertEqual(entry.category, "store")
         XCTAssertEqual(entry.composedMessage, "probe failed: <private> after 7 tries")
         XCTAssertFalse(entry.composedMessage.contains(secret))
-    }
-
-    func testWeakScriptMessageHandlerDoesNotRetainTarget() {
-        final class DummyHandler: NSObject, WKScriptMessageHandler {
-            func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {}
-        }
-        weak var weakTarget: DummyHandler?
-        autoreleasepool {
-            let target = DummyHandler()
-            weakTarget = target
-            let proxy = WeakScriptMessageHandler(target)
-            _ = proxy.target
-        }
-        XCTAssertNil(weakTarget)
     }
 }

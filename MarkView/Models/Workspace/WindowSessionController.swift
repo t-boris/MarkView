@@ -81,7 +81,7 @@ final class WindowSessionController {
             loaded = true
             var windows = archive?.windows ?? []
             // One-time migration from versions that only remembered one folder.
-            if archive == nil, let path = UserDefaults.standard.string(forKey: ProjectContext.lastFolderKey) {
+            if archive == nil, let path = Settings.standard.stored(Setting.lastFolder) {
                 windows = [WorkspaceWindowState(id: UUID(), folder: URL(fileURLWithPath: path))]
             }
             order = windows.map(\.id)

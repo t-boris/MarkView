@@ -1,14 +1,14 @@
 import Foundation
 import Speech
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Dictation without an OpenAI key: macOS's own speech recognition, run on this Mac
 /// (`requiresOnDeviceRecognition`), so the audio never leaves it. `WhisperClient` uses it whenever
 /// no OpenAI key is set. macOS recognizes one language per request and cannot detect it, so the
 /// language is chosen here (DDE Settings) or follows the system's languages.
 enum OnDeviceSpeech {
-    /// The dictation language chosen in DDE Settings, as a BCP 47 identifier; "" = follow the system.
-    static let languageStorage = "settings.dictation.locale"
-
     // MARK: - Permission
 
     /// Speech Recognition access, asked for separately from the microphone.
@@ -30,7 +30,7 @@ enum OnDeviceSpeech {
     /// The language dictation uses now: the stored choice, else the first system language macOS can
     /// recognize on this Mac. A failure says what to install or choose.
     static func resolveLanguage() -> Result<String, TranscriptionFailure> {
-        let stored = UserDefaults.standard.string(forKey: languageStorage) ?? ""
+        let stored = Settings.standard.value(Setting.dictationLanguage)
         let preferred = Locale.preferredLanguages
         let candidates = DictationLanguage.candidates(
             stored: stored, preferred: preferred,

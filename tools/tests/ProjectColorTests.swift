@@ -55,10 +55,10 @@ let defaults = UserDefaults(suiteName: suite)!
 defer { defaults.removePersistentDomain(forName: suite) }
 MainActor.assumeIsolated {
     // Colors saved before DEC-014 (automatic and chosen alike) are dropped once.
-    defaults.set([key: "teal"], forKey: ProjectColorStore.defaultsKey)
+    defaults.set([key: "teal"], forKey: Setting.projectColors.name)
     let migrated = ProjectColorStore(defaults: defaults)
     check("old saved colors are dropped", String(migrated.assignments.isEmpty), "true")
-    check("migration runs once", String(defaults.bool(forKey: ProjectColorStore.byNameMigrationKey)), "true")
+    check("migration runs once", String(Settings(defaults).value(Setting.projectColorsByName)), "true")
 
     let store = ProjectColorStore(defaults: defaults)
     check("reading does not persist", String(store.assignments.isEmpty), "true")
@@ -72,7 +72,7 @@ MainActor.assumeIsolated {
     check("choice survives a relaunch", relaunched.color(forKey: key).id, chosen.id)
     relaunched.set(ProjectColor.automatic(forKey: key), forKey: key)
     check("choosing the automatic color clears the choice", String(relaunched.assignments[key] == nil), "true")
-    defaults.set([key: "no-such-color"], forKey: ProjectColorStore.defaultsKey)
+    defaults.set([key: "no-such-color"], forKey: Setting.projectColors.name)
     let damaged = ProjectColorStore(defaults: defaults)
     check("unknown stored id falls back to automatic", damaged.color(forKey: key).id, ProjectColor.automatic(forKey: key).id)
 }

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Which panels of one window are shown (`AR-14` step 6). Every window owns one, so opening the file tree in one window leaves the
 /// others alone; the views that draw the panels observe it themselves, so a panel opening redraws the window frame and not what
@@ -8,13 +11,11 @@ import Foundation
 /// widths); the window keeps its own choice in its saved session.
 @MainActor
 final class WindowChrome: ObservableObject {
-    static let contentsKey = "layout.showTOC.v3"
-
     /// The left panel. Every window starts with it closed, so a new window shows the center panel only.
     @Published var showFileTree = false
     /// The Contents column of the right panel.
     @Published var showTOC = false {
-        didSet { defaults.set(showTOC, forKey: Self.contentsKey) }
+        didSet { settings.set(showTOC, for: Setting.showTOC) }
     }
     /// The window is narrower than its full layout: panels give up the room they can.
     @Published var compactLayout = false
@@ -25,11 +26,11 @@ final class WindowChrome: ObservableObject {
     @Published var agentsVisible = false
     @Published var showGlobalSearch = false
 
-    private let defaults: UserDefaults
+    private let settings: Settings
 
     init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        if defaults.object(forKey: Self.contentsKey) != nil { showTOC = defaults.bool(forKey: Self.contentsKey) }
+        settings = Settings(defaults)
+        if let saved = settings.stored(Setting.showTOC) { showTOC = saved }
     }
 
     /// A toggle never hides the last panel: a window always shows something.

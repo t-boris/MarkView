@@ -199,6 +199,7 @@
 		637D1F81F39D39142035E3B4 /* UIStudioChannels.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFDE3E1FD4F69D4D75576057 /* UIStudioChannels.swift */; };
 		642DFB3CA2C30513BBD38856 /* BookPDFSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35B1419B5CA931083661B6F3 /* BookPDFSource.swift */; };
 		64B4A8A6A3ABBCCE19B5CC79 /* WindowTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9373C4D827475F2C25EDED31 /* WindowTheme.swift */; };
+		FB5E4F4A75D1EADE2672602F /* WebThemeArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = F70948286EA786FC3EC3AEA9 /* WebThemeArguments.swift */; };
 		655AEBF582AECF54E3EECC62 /* InsightArchiveExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75FC7940299CE6E834BFE230 /* InsightArchiveExporter.swift */; };
 		33498F066AF0DD78CD8E8E0A /* InsightArchiveExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEFA16A271E1D66691670683 /* InsightArchiveExport.swift */; };
 		808EBA468423AE14939618FC /* InsightCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1351EC4038456CB0218CA3 /* InsightCoordinator.swift */; };
@@ -854,6 +855,7 @@
 		912140EE22AFCD2CE3BDFE87 /* ProjectOperationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperationsView.swift; sourceTree = "<group>"; };
 		92C287C54CB88F5D9A80EAB7 /* QAInputMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAInputMark.swift; sourceTree = "<group>"; };
 		9373C4D827475F2C25EDED31 /* WindowTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTheme.swift; sourceTree = "<group>"; };
+		F70948286EA786FC3EC3AEA9 /* WebThemeArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebThemeArguments.swift; sourceTree = "<group>"; };
 		946974C4B6B73B5095F86BE1 /* QAFeatureStoreBugSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAFeatureStoreBugSink.swift; sourceTree = "<group>"; };
 		96084ABA742E8FA2AE114701 /* QAGraphLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAGraphLayout.swift; sourceTree = "<group>"; };
 		960887321C5E559125014363 /* QAAPIActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAAPIActor.swift; sourceTree = "<group>"; };
@@ -1253,6 +1255,7 @@
 				5D0BA904D56E2EC5A116AF06 /* WelcomeBackdrop.swift */,
 				62F8B96DC7472F6EF102D485 /* BackdropRegistry.swift */,
 				9373C4D827475F2C25EDED31 /* WindowTheme.swift */,
+				F70948286EA786FC3EC3AEA9 /* WebThemeArguments.swift */,
 			);
 			path = Appearance;
 			sourceTree = "<group>";
@@ -2818,6 +2821,7 @@
 				CBF31B5E8E50178F95B4926C /* WindowSessionController.swift in Sources */,
 				680109C1B00924E77549E2B5 /* WindowStorage.swift in Sources */,
 				64B4A8A6A3ABBCCE19B5CC79 /* WindowTheme.swift in Sources */,
+				FB5E4F4A75D1EADE2672602F /* WebThemeArguments.swift in Sources */,
 				57D9A37DCD381F7027AA8046 /* WindowTitle.swift in Sources */,
 				BB448665A9D7FC27A13173E4 /* WindowUIState.swift in Sources */,
 				88733817D9BE2C6222D9F9B6 /* WorkflowDescription.swift in Sources */,

@@ -147,8 +147,6 @@ extension AssistantProvider {
     func additionalFolderArgs(_ folders: [URL]) -> [String] { [] }
     func configuredModel() -> String? { nil }
 
-    /// UserDefaults key holding the user's explicit path override ("" = auto-detect).
-    var overrideKey: String { "settings.cli.\(id)Path" }
     /// Driven over the Agent Client Protocol (`ACPAssistant`) rather than a one-shot CLI run.
     var usesACP: Bool { acp != nil }
 

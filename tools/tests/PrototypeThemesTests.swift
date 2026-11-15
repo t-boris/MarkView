@@ -61,8 +61,6 @@ do {
     // The scripts never paste text raw.
     let hostile = PrototypeThemes.startScript(attribute: "data-theme", id: "a\"); alert(1); (\"")
     check(!hostile.contains("alert(1); (\"") || hostile.contains("\\\"); alert(1); (\\\""), "ids are JSON-escaped in the start script: \(hostile)")
-    check(PrototypeThemes.applyScript(attribute: "data-theme", id: nil) == "document.documentElement.removeAttribute(\"data-theme\");", "no id removes the attribute")
-    check(PrototypeThemes.applyScript(attribute: "data-theme", id: "dark") == "document.documentElement.setAttribute(\"data-theme\", \"dark\");", "an id sets the attribute")
 
     // Codable: an old manifest has no themes.
     let old = #"{"title":"T","slug":"t","brief":"","sources":[]}"#.data(using: .utf8)!

@@ -404,8 +404,6 @@ enum GHDate {
 /// passed to every `gh` it starts; otherwise the Git tab would speak as the default account,
 /// which may not even see the repository.
 enum GitHubProfile {
-    /// Settings key of an explicit configuration directory. Empty: follow the folder.
-    static let configDirectoryKey = "settings.github.configDirectory"
     /// A folder names its profile in this file, as the shell helper reads it.
     static let markerFile = ".ghprofile"
     /// Profiles live in `~/.config/gh-profiles/<name>/`, each a `GH_CONFIG_DIR` of its own.
@@ -426,7 +424,7 @@ enum GitHubProfile {
     }
 
     static func resolve(root: URL?, home: URL = SSHHostAliases.defaultHome) -> Resolved {
-        let setting = (UserDefaults.standard.string(forKey: configDirectoryKey) ?? "")
+        let setting = Settings.standard.value(Setting.gitHubConfigDirectory)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if !setting.isEmpty {
             let directory = URL(fileURLWithPath: expandTilde(setting, home: home))

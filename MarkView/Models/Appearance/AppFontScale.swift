@@ -1,14 +1,16 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Application-wide interface text scale (issue #40, docs/features/feature DEC-008/DEC-011).
 /// A percentage applied to every interface text style's own base size, so the existing
 /// typographic hierarchy stays proportional. Document text (editor, Markdown and code preview,
 /// GitHub issue bodies) is owned by the editor slider and never reads this value (DEC-006/DEC-009).
 enum AppFontScale {
-    /// One UserDefaults value for all windows and workspaces, separate from the editor
+    /// One stored value (`Setting.fontScalePercent`) for all windows and workspaces, separate from the editor
     /// slider's `markview-font-size` in web localStorage.
-    static let storageKey = "appFontScalePercent"
-    static let defaultPercent = 100
+    static let defaultPercent = Setting.fontScalePercent.defaultValue
     static let range = 80...200
     static let step = 10
 
@@ -24,7 +26,7 @@ enum AppFontScale {
 
     /// The saved scale, for code outside the SwiftUI environment (a web view's first load).
     static var storedFactor: CGFloat {
-        factor(percent: UserDefaults.standard.object(forKey: storageKey) as? Int ?? defaultPercent)
+        factor(percent: Settings.standard.value(Setting.fontScalePercent))
     }
 
     /// macOS point sizes of the SwiftUI text styles the views use.
@@ -51,8 +53,7 @@ enum AppFontScale {
 /// value in web localStorage; this mirror lets native-hosted document text (the GitHub issue
 /// body viewer) follow the same control.
 enum EditorTextSize {
-    static let mirrorKey = "editorTextSizeMirror"
-    static let defaultSize = 13.0
+    static let defaultSize = Setting.editorTextSizeMirror.defaultValue
     static let range = 10.0...20.0
 
     static func validated(_ size: Double) -> Double {

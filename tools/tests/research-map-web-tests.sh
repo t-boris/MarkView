@@ -10,6 +10,6 @@ trap 'rm -rf "$out"' EXIT
 mkdir "$out/web"
 cp tools/tests/ResearchMapWebTests.swift "$out/web/main.swift"
 swiftc -O -module-cache-path /private/tmp/markview-swift-cache -o "$out/research-map-web-tests" \
-  MarkView/Bridge/TypedWebBridge.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift "$out/web/main.swift"
+  Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift MarkView/Bridge/TypedWebBridge.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift "$out/web/main.swift"
 cp -R MarkView/Resources/Themes "$out/Themes"
 "$out/research-map-web-tests" "$PWD/MarkView/Resources/Editor"

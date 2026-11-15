@@ -25,10 +25,6 @@ extension CLITool {
     /// our timeout, so it waits longer (DEC-020); nil for the others.
     var signedOutInterval: TimeInterval? { provider.usage?.signedOutInterval }
 
-    /// UserDefaults key: the user hid this assistant's indicator (Settings → DDE).
-    var hiddenKey: String { "settings.usage.\(rawValue).hidden" }
-    /// UserDefaults key: the user's fallback limit, JSON-encoded `FallbackLimit`.
-    var limitKey: String { "settings.usage.\(rawValue).limit" }
 }
 
 /// Where a value comes from (DEC-002): the vendor's own limit data, or local logs against the

@@ -163,7 +163,7 @@ let presets = looks.filter { !$0.classic }
 // ---- what Swift sends: the real WindowTheme of each appearance --------------------------------------------------------
 /// The three forms a window gives the web: the arguments of the page's theme function, the attributes written into the page
 /// text, and the script injected into a page loaded from a file. All of them are produced by WindowTheme from the theme's data.
-struct Sent { let arguments: String; let attributes: String; let firstPaint: String }
+struct Sent { let arguments: WebThemeArguments; let payload: String; let attributes: String; let firstPaint: String }
 let sentCatalog: ThemeCatalog = MainActor.assumeIsolated { ThemeCatalog(userFolder: userThemesFolder) }
 var sentCache: [String: Sent] = [:]
 func sentFor(_ id: String, accent: String? = nil) -> Sent {
@@ -176,17 +176,16 @@ func sentFor(_ id: String, accent: String? = nil) -> Sent {
         let theme = AppTheme(id)
         let accents: [AppTheme: ThemeColor] = accent.flatMap { ThemeColor(hex: $0) }.map { [theme: $0] } ?? [:]
         let window = WindowTheme(settings: WindowThemeSettings(theme: theme, accents: accents), store: ThemeSettingsStore(defaults: defaults), catalog: sentCatalog)
-        return Sent(arguments: window.webArguments, attributes: window.htmlAttributes, firstPaint: window.firstPaintScript)
+        return Sent(arguments: window.webArguments, payload: window.webArguments.payload, attributes: window.htmlAttributes, firstPaint: window.firstPaintScript)
     }
     sentCache[key] = made
     return made
 }
+/// The script a host sends to a page to set the theme: the same `JS.call` the hosts use.
+func themeCall(_ function: String, _ sent: Sent) -> String { JS.call(function, args: sent.arguments.list) ?? "throw new Error('theme not encodable')" }
 /// The theme data of an appearance as the page receives it (the JSON after the first two arguments).
 func definitionObject(_ id: String) -> [String: Any] {
-    let arguments = sentFor(id).arguments
-    guard let split = arguments.range(of: ", {") else { return [:] }
-    let text = "{" + arguments[split.upperBound...]
-    return (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? [:]
+    (try? JSONSerialization.jsonObject(with: Data(sentFor(id).payload.utf8)) as? [String: Any]) ?? [:]
 }
 /// Hands every appearance's data to a page, as repeated theme changes would have.
 func defineAll(_ page: Page) {
@@ -281,7 +280,7 @@ return JSON.stringify(out);
 /// Sets the appearance through whichever entry point the page has (the old page took 'dark' or 'light').
 func setLook(_ page: Page, _ look: Look, accent: String? = nil) {
     _ = page.js("""
-    if (window.MarkViewThemes) window.setTheme(\(sentFor(look.id, accent: accent).arguments));
+    if (window.MarkViewThemes) \(themeCall("window.setTheme", sentFor(look.id, accent: accent)));
     else { window.setTheme('dark'); window.setTheme(dark ? 'dark' : 'light'); }   // the old page ignored a mode equal to its remembered one
     return 'ok';
     """, ["dark": look.dark])
@@ -556,7 +555,7 @@ let left = loadEditor(rewrite: { $0.replacingOccurrences(of: "data-preset=\"clas
 let right = loadEditor(rewrite: { $0.replacingOccurrences(of: "data-preset=\"classic-dark\" data-theme=\"dark\"", with: sentFor("midnight", accent: "#FFAA00").attributes) })
 func summary(_ p: Page) -> String { p.js("return document.documentElement.getAttribute('data-preset') + '|' + (document.documentElement.getAttribute('data-accent') || '') + '|' + getComputedStyle(document.body).backgroundColor;") }
 check(summary(left) == "paper||rgb(255, 252, 245)" && summary(right) == "midnight|#FFAA00|rgb(21, 28, 43)", "two pages hold Paper and Midnight at the same time", "\(summary(left)) / \(summary(right))")
-_ = left.js("window.setTheme(\(sentFor("darcula", accent: "#33AAFF").arguments)); return 'ok';")
+_ = left.js("\(themeCall("window.setTheme", sentFor("darcula", accent: "#33AAFF"))); return 'ok';")
 spin(0.3)
 check(summary(left) == "darcula|#33AAFF|rgb(43, 43, 43)" && summary(right) == "midnight|#FFAA00|rgb(21, 28, 43)", "changing one page leaves the other as it was", "\(summary(left)) / \(summary(right))")
 
@@ -598,7 +597,7 @@ _ = discussion.js("window.mvSetTurns(json); return 'ok';", ["json": turnsJSON])
 spin(1.2)
 let discussionErrors = discussion.errors.count
 for look in looks {
-    _ = discussion.js("window.mvSetTheme(\(sentFor(look.id).arguments)); return 'ok';")
+    _ = discussion.js("\(themeCall("window.mvSetTheme", sentFor(look.id))); return 'ok';")
     spin(0.6)
     let d = discussion.json("""
     const cs = function (s, p) { const e = document.querySelector(s); return e ? getComputedStyle(e)[p] : null; };
@@ -626,7 +625,7 @@ check(terminal.eval("typeof window.mvSetTheme === 'function' && !!window.MarkVie
 _ = terminal.js("window.mvWrite(btoa('plain text and \\u001b[31mred\\u001b[0m')); return 'ok';")
 spin(0.6)
 for look in looks {
-    _ = terminal.js("window.mvSetTheme(\(sentFor(look.id).arguments)); return 'ok';")
+    _ = terminal.js("\(themeCall("window.mvSetTheme", sentFor(look.id))); return 'ok';")
     spin(0.6)
     let t = terminal.json("""
     const rows = document.querySelector('.xterm-rows');
