@@ -1,7 +1,6 @@
 import SwiftUI
 import WebKit
 import Combine
-import Security
 #if canImport(MarkViewCore)
 import MarkViewCore
 #endif
@@ -238,15 +237,6 @@ struct EditorView: NSViewRepresentable {
 
         // MARK: - Page Loading
 
-        private static func makeCSPNonce() -> String {
-            var bytes = [UInt8](repeating: 0, count: 16)
-            if SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess {
-                return bytes.map { String(format: "%02x", $0) }.joined()
-            }
-            var rng = SystemRandomNumberGenerator()
-            return (0..<16).map { _ in String(format: "%02x", UInt8.random(in: 0...255, using: &rng)) }.joined()
-        }
-
         /// Load the editor HTML from the app bundle so bundled vendor assets remain available.
         func loadEditorPage() {
             guard let webView = webView, let html = editorHTML else { return }
@@ -254,12 +244,10 @@ struct EditorView: NSViewRepresentable {
             lastLoadedContent = ""
             // The page starts at the current interface scale, so its chrome never flashes at 100%.
             appliedUIScale = uiScale
-            let cspNonce = Self.makeCSPNonce()
-            var page = html
+            // The page's policy takes the Insight nonce here; a page that cannot take it loads without one (FU-26).
+            let prepared = EditorPage.prepare(html)
+            let page = prepared.html
                 .replacingOccurrences(of: "<html lang=\"en\"", with: "<html lang=\"en\" style=\"--ui-scale: \(Double(uiScale))\"")
-            if let cspRange = page.range(of: #"<meta http-equiv="Content-Security-Policy"[^>]*script-src [^;"]+"#, options: .regularExpression) {
-                page = page.replacingCharacters(in: cspRange, with: String(page[cspRange]) + " 'nonce-\(cspNonce)'")
-            }
             // This window's own text size and panel widths injected at documentStart via WKUserScript (`EditorWindowPrefs`, `FU-10`)
             // so index.html needs no inline <script> injection.
             let windowUI = parent.workspaceManager.windowUI
@@ -272,14 +260,15 @@ struct EditorView: NSViewRepresentable {
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
             )
-            let nonceScript = WKUserScript(
-                source: "window.__markviewInsightNonce = \"\(cspNonce)\";",
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
             webView.configuration.userContentController.removeAllUserScripts()
             webView.configuration.userContentController.addUserScript(prefsScript)
-            webView.configuration.userContentController.addUserScript(nonceScript)
+            if let nonce = prepared.nonce {
+                webView.configuration.userContentController.addUserScript(WKUserScript(
+                    source: EditorPage.nonceScript(nonce),
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: true
+                ))
+            }
             webView.loadHTMLString(page, baseURL: editorResourceBaseURL)
         }
 

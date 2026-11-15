@@ -1,6 +1,5 @@
 import Foundation
 import WebKit
-import Security
 
 var passed = 0
 var failed = 0
@@ -49,10 +48,9 @@ func runPhase0Checks() async throws {
     }
 
     // 2. Live WebKit check of AR-01/AR-02/AR-03/FU-10/FU-13 sanitization, style filtering, TOC escaping, SVG sanitization & CSP
-    var bytes = [UInt8](repeating: 0, count: 16)
-    _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-    let nonce = bytes.map { String(format: "%02x", $0) }.joined()
-    let nonceScript = WKUserScript(source: "window.__markviewInsightNonce = \"\(nonce)\";", injectionTime: .atDocumentStart, forMainFrameOnly: true)
+    // The app's own nonce and nonce script (EditorPage, FU-26), not a copy of them.
+    let nonce = EditorPage.makeNonce()
+    let nonceScript = WKUserScript(source: EditorPage.nonceScript(nonce), injectionTime: .atDocumentStart, forMainFrameOnly: true)
     let webView = await loadFile(
         editorDir.appendingPathComponent("index.html"),
         allowingReadAccessTo: editorDir,
@@ -86,9 +84,7 @@ func runPhase0Checks() async throws {
                 var rendered = document.getElementById('editor-rendered').innerHTML;
                 var lower = rendered.toLowerCase();
                 var styledBad = document.getElementById('styled-bad');
-                var badStyle = styledBad ? (styledBad.getAttribute('style') || '') : '';
                 var mathEl = document.querySelector('.katex-like');
-                var mathStyle = mathEl ? (mathEl.getAttribute('style') || '') : '';
                 var tocImgCount = document.querySelectorAll('#toc-status img').length;
                 var tocText = (document.getElementById('toc-status') || {}).textContent || '';
 
@@ -113,8 +109,8 @@ func runPhase0Checks() async throws {
                     hasDataSVG: lower.indexOf('data:image/svg+xml') >= 0,
                     hasPngData: lower.indexOf('data:image/png;base64,aaa=') >= 0,
                     hasHeading: rendered.indexOf('SafeHeading') >= 0,
-                    badStyleStripped: badStyle.indexOf('fixed') < 0 && badStyle.indexOf('9999') < 0 && badStyle.indexOf('url(') < 0 && badStyle.indexOf('color:red') >= 0,
-                    mathStyleKept: mathStyle.indexOf('height:1.5em') >= 0,
+                    badStyleStripped: !!styledBad && styledBad.style.position === '' && styledBad.style.zIndex === '' && styledBad.style.backgroundImage === '' && styledBad.style.color === 'red',
+                    mathStyleKept: !!mathEl && mathEl.style.height === '1.5em' && mathEl.style.top === '-0.2em',
                     tocEscaped: tocImgCount === 0 && tocText.indexOf('SafeHeading') >= 0,
                     svgSafe: svgClean.indexOf('<svg') >= 0 && svgClean.indexOf('<rect') >= 0 && svgClean.indexOf('<script') < 0 && svgClean.indexOf('onclick') < 0 && svgClean.indexOf('body{') < 0 && svgClean.indexOf('#s1 rect{fill') >= 0,
                     failClosed: stripWhenMissing.indexOf('sanitization-error') >= 0 && stripWhenMissing.indexOf('<img') < 0,
@@ -250,7 +246,13 @@ func runPhase0Checks() async throws {
     let cfg = WKWebViewConfiguration()
     cfg.userContentController.add(handler, name: "probe")
     let nonceWeb = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: cfg)
-    let rawMeta = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'nonce-\(nonce)'; style-src 'self' 'unsafe-inline';\">"
+    // The parent page's policy is the shipped index.html's own Content-Security-Policy element after the app's own injection
+    // (EditorPage.injectNonce), not a hand-built copy that could drift from it (FU-26).
+    let shippedIndex = (try? String(contentsOf: editorDir.appendingPathComponent("index.html"), encoding: .utf8)) ?? ""
+    let injectedIndex = EditorPage.injectNonce(nonce, into: shippedIndex) ?? ""
+    let rawMeta = injectedIndex.range(of: #"<meta http-equiv="Content-Security-Policy"[^>]*>"#, options: .regularExpression).map { String(injectedIndex[$0]) } ?? ""
+    check("FU-26: EditorPage.injectNonce puts the nonce into script-src of the shipped index.html policy",
+          rawMeta.contains("script-src 'self' 'wasm-unsafe-eval' 'nonce-\(nonce)'"))
     let childCSP = "default-src 'none'; script-src 'nonce-\(nonce)'; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; font-src data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     let srcdoc = "<!DOCTYPE html><meta http-equiv='Content-Security-Policy' content=\"\(childCSP)\"><script>window.__unnonced=1; parent.postMessage({evil:true},'*');</script><script nonce='\(nonce)'>parent.postMessage({good:true, unnonced: !!window.__unnonced},'*');</script>"
     let srcdocJSON = String(data: try JSONSerialization.data(withJSONObject: srcdoc, options: .fragmentsAllowed), encoding: .utf8)!

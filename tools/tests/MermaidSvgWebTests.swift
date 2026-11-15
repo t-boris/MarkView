@@ -7,8 +7,8 @@ import WebKit
 // mvKit.sanitizeMermaidSvg -> the page), not on a copy of the function.
 //   - a real diagram has the colours and the labels Mermaid drew (computed fill, stroke and label colour equal those of the
 //     same diagram inserted without the sanitiser, and are not the browser's default black);
-//   - sixteen kinds of diagram keep every label and every style declaration (the tooltip's z-index is the one declaration
-//     the filter refuses);
+//   - sixteen kinds of diagram keep every label and every style declaration (z-index, and the absolute position of the
+//     tooltip and popup-menu overlays that are never inside the SVG, are the declarations the filter refuses);
 //   - hostile SVG (script, handlers, foreignObject with script or iframe, javascript: links, @import, unscoped rules, url()
 //     loads, CSS escapes, markup that breaks out of <style>, mutation-XSS payloads) executes nothing, adds no import rule,
 //     no rule outside the SVG, no fixed position and no remote background, and its serialisation parses to the same thing;
@@ -175,7 +175,10 @@ runChecks("diagram kinds", #"""
         try { drawn = await mermaid.render('kind-' + (++serial), source); } catch (e) { note(kind + ': Mermaid draws the sample', false, e); continue; }
         const clean = window.mvKit.sanitizeMermaidSvg(drawn.svg);
         const before = declarations(drawn.svg), after = new Set(declarations(clean));
-        const lost = before.filter(d => !after.has(d)).filter(d => d.indexOf('|z-index:') < 0);
+        // The two declarations the filter refuses on purpose: z-index, and position:absolute on the HTML overlays Mermaid adds
+        // to the page body for click callbacks (tooltip, sequence-diagram popup menu), which never sit inside the returned SVG.
+        const overlay = /\.(?:mermaidTooltip|actorPopupMenu|actorPopupMenuPanel)\|position:absolute$/;
+        const lost = before.filter(d => !after.has(d)).filter(d => d.indexOf('|z-index:') < 0 && !overlay.test(d));
         note(kind + ': every label is kept', text(drawn.svg) === text(clean), text(drawn.svg).slice(0, 80) + ' / ' + text(clean).slice(0, 80));
         note(kind + ': every style declaration is kept', before.length > 0 && lost.length === 0, 'declarations ' + before.length + ', lost: ' + lost.slice(0, 3).join(' ; '));
     }

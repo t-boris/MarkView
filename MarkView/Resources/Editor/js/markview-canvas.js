@@ -22,9 +22,13 @@
             viewport: null, world: null, svg: null, propsPanel: null, zoomLabel: null
         };
 
+        // A colour comes from the .canvas file and ends up in style properties and in the style attribute of the properties
+        // panel, so only a preset, a hex colour, rgb()/hsl() with plain numbers or a colour keyword the browser knows passes (FU-25).
+        const CANVAS_COLOR_SHAPE = /^(?:#[0-9a-f]{3,8}|(?:rgb|hsl)a?\(\s*[\w.%\s,\/-]+\)|[a-z]{3,30})$/i;
         function canvasColor(color, fallback) {
             if (!color) return fallback;
-            return CANVAS_PRESET_COLORS[color] || color;
+            const value = String(CANVAS_PRESET_COLORS[color] || color).trim();
+            return CANVAS_COLOR_SHAPE.test(value) && CSS.supports('color', value) ? value : fallback;
         }
 
         window.renderCanvasView = function() {
@@ -465,7 +469,7 @@
                 html += canvasPropRow('width', String(n.width || 0)) + canvasPropRow('height', String(n.height || 0));
                 if (n.color) {
                     const c = canvasColor(n.color, '');
-                    html += canvasPropRow('color', '<span class="canvas-swatch" style="background:' + c + '"></span>' + escapeHTML(String(n.color)));
+                    html += canvasPropRow('color', '<span class="canvas-swatch" style="background:' + escapeHTML(c) + '"></span>' + escapeHTML(String(n.color)));
                 }
                 if (n.type === 'file') {
                     html += canvasPropRow('file', escapeHTML(String(n.file || '')));
@@ -495,7 +499,7 @@
                 if (e.label) html += canvasPropRow('label', escapeHTML(String(e.label)));
                 if (e.color) {
                     const c = canvasColor(e.color, '');
-                    html += canvasPropRow('color', '<span class="canvas-swatch" style="background:' + c + '"></span>' + escapeHTML(String(e.color)));
+                    html += canvasPropRow('color', '<span class="canvas-swatch" style="background:' + escapeHTML(c) + '"></span>' + escapeHTML(String(e.color)));
                 }
             }
             cv.propsPanel.innerHTML = html;
