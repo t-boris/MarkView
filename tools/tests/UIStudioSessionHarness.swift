@@ -550,8 +550,8 @@ func run() async {
         Error: connect ECONNREFUSED 127.0.0.1:5432
          GET /studio 200 in 1043ms
         """
-    check("BUG-067 errors of an application that built are not build failures", StudioSession.buildFailure(in: handled) == nil,
-          StudioSession.buildFailure(in: handled) ?? "")
+    check("BUG-067 errors of an application that built are not build failures", StudioChangeFlow.buildFailure(in: handled) == nil,
+          StudioChangeFlow.buildFailure(in: handled) ?? "")
     let failures = [
         " ⨯ ./app/page.tsx\nModule not found: Can't resolve './missing'",
         "Failed to compile.",
@@ -565,7 +565,7 @@ func run() async {
         "SyntaxError: /app/src/App.js: Unexpected token (3:4)",
         "Error: \n  x Expected ';', got 'foo'\nCaused by:\n    Syntax Error",
     ]
-    let missed = failures.filter { StudioSession.buildFailure(in: handled + "\n" + $0) == nil }
+    let missed = failures.filter { StudioChangeFlow.buildFailure(in: handled + "\n" + $0) == nil }
     check("BUG-067 compile and bundle failures of common dev servers are build failures", missed.isEmpty, missed.joined(separator: " || "))
 
     // An unknown request is prepared once, validated, registered and then served without the model (AC-05, AC-06).
@@ -596,8 +596,8 @@ func run() async {
     // BUG-089: a page's request whose rule takes long is answered "preparing" at once; the page is loaded again when the rule is ready.
     watchdog.reached("BUG-089 a slow rule is answered preparing, then the page is loaded again")
     let scenarioBeforeBug089 = session.scenario
-    let provisionalBefore = StudioSession.provisionalAfter
-    StudioSession.provisionalAfter = 0.6
+    let provisionalBefore = StudioRequestPath.provisionalAfter
+    StudioRequestPath.provisionalAfter = 0.6
     CLICompletion.answer = { request in
         if request.label == "ui-studio:prepare" { try await Task.sleep(nanoseconds: 2_500_000_000) }
         return assistant.respond(request)
@@ -620,7 +620,7 @@ func run() async {
     let served = await text("const r = await fetch('/api/slow-stats'); return r.status + ' ' + await r.text();")
     check("BUG-089 the page is loaded again once the rule is ready, and then served from it", reloaded && served == "200 {\"open\":7}",
           "\(reloaded) \(served ?? "nil")")
-    StudioSession.provisionalAfter = provisionalBefore
+    StudioRequestPath.provisionalAfter = provisionalBefore
     CLICompletion.answer = { request in assistant.respond(request) }
 
     // BUG-089: switching the scenario does not throw away a rule that is being prepared.
@@ -1628,15 +1628,15 @@ func browserChecks(_ session: StudioSession, web: URL, root: URL, text: (String)
                                                   .expires: Date().addingTimeInterval(86_400), HTTPCookiePropertyKey("HttpOnly"): "TRUE"]) {
         await store.setCookie(serverCookie)
     }
-    session.keepBrowserData()
+    session.keptData.keepBrowserData()
     _ = await idle()
     let kept = session.spec.keptBrowserData
     check("REQ-008 the page's cookies, httpOnly ones too, and its localStorage are kept",
           kept?.cookies.map(\.name).sorted() == ["cookie_consent", "prefs"] && kept?.cookies.first { $0.name == "prefs" }?.httpOnly == true
           && kept?.localStorage.map(\.key) == ["consent"], "\(kept?.cookies.map(\.name) ?? []) \(kept?.localStorage.map(\.key) ?? [])")
     check("REQ-008 confidential entries are not kept and are listed",
-          session.keptSkipped.contains { $0.hasPrefix("cookie session_id ") } && session.keptSkipped.contains { $0.hasPrefix("localStorage auth-token ") },
-          session.keptSkipped.joined(separator: " | "))
+          session.keptData.keptSkipped.contains { $0.hasPrefix("cookie session_id ") } && session.keptData.keptSkipped.contains { $0.hasPrefix("localStorage auth-token ") },
+          session.keptData.keptSkipped.joined(separator: " | "))
     func environmentFile() -> String { (try? String(contentsOf: StudioStore.environmentURL(root), encoding: .utf8)) ?? "" }
     _ = await waitUntil(3) { environmentFile().contains("cookie_consent") }
     let file = environmentFile()
@@ -1676,14 +1676,14 @@ func browserChecks(_ session: StudioSession, web: URL, root: URL, text: (String)
     _ = await idle()
     let switched = await text("return String(document.querySelector('.consent') === null);")
     check("REQ-008 kept data survives a scenario switch", switched == "true", switched ?? "nil")
-    session.forgetKeptStorage("consent")
+    session.keptData.forgetKeptStorage("consent")
     session.reset()
     _ = await idle()
     let forgotten = await text("return String(document.querySelector('.consent') !== null);")
     check("REQ-008 a forgotten entry is no longer set again", switched == "true" && forgotten == "true"
           && session.spec.keptBrowserData?.localStorage.isEmpty != false
           && session.spec.keptBrowserData?.cookies.isEmpty == false, forgotten ?? "nil")
-    session.forgetKeptBrowserData()
+    session.keptData.forgetKeptBrowserData()
     let removed = await waitUntil(3) { !environmentFile().contains("cookie_consent") }
     check("REQ-008 forgetting everything removes the kept data", session.spec.keptBrowserData == nil && removed
           && StudioStore.loadEnvironment(root)?.keptBrowserData == nil)
@@ -2698,9 +2698,9 @@ func fixDataChecks() async {
     func environmentFile() -> String { (try? String(contentsOf: StudioStore.environmentURL(root), encoding: .utf8)) ?? "" }
 
     // AC1: the error is offered in the banner (fixableErrors) and on its row in the Log, and nothing runs without a click.
-    let offered = await waitUntil(30) { !session.fixableErrors.isEmpty }
-    let error = session.fixableErrors.first
-    check("REQ-017 a page error caused by the simulated data is offered Fix data", offered && error?.key.contains("LABELS") == true, "\(session.fixableErrors.map(\.key))")
+    let offered = await waitUntil(30) { !session.repair.fixableErrors.isEmpty }
+    let error = session.repair.fixableErrors.first
+    check("REQ-017 a page error caused by the simulated data is offered Fix data", offered && error?.key.contains("LABELS") == true, "\(session.repair.fixableErrors.map(\.key))")
     check("REQ-017 its row in the Log carries the action", session.sessionLog.entries.contains { $0.errorKey == error?.key && $0.kind == .page && $0.problem })
     try? await Task.sleep(nanoseconds: 1_000_000_000)
     check("REQ-017 with the automatic repair off nothing is sent to the assistant without a click", fixRequests().isEmpty)
@@ -2709,7 +2709,7 @@ func fixDataChecks() async {
     let seedBefore = session.spec.seed
     let fileBefore = environmentFile()
     answers.set([["kind": "not_data", "summary": "The label table has no entry for the status.", "codePointer": "index.html:9", "changes": []]])
-    session.fixData()
+    session.repair.fixData()
     _ = await waitUntil(120) { session.busy == nil }
     check("REQ-017 one call is made per click", fixRequests().count == 1, "\(fixRequests().count)")
     let first = fixRequests().first
@@ -2722,11 +2722,11 @@ func fixDataChecks() async {
     check("REQ-017 a not-data answer changes nothing and points at the code", session.spec.seed == seedBefore && environmentFile() == fileBefore
           && session.notice?.contains("data did not cause this error") == true && session.notice?.contains("index.html:9") == true
           && session.notice?.contains("Nothing was changed") == true, session.notice ?? "nil")
-    check("REQ-017 the error is still there, so Fix data is offered again", session.fixableErrors.contains { $0.key == error?.key })
+    check("REQ-017 the error is still there, so Fix data is offered again", session.repair.fixableErrors.contains { $0.key == error?.key })
 
     // AC3 + guards: a refused answer is sent back once with its reasons; the corrected answer is applied.
     answers.set([fixAnswer(["404"]), fixAnswer(["1", "2", "3"])])
-    session.fixData()
+    session.repair.fixData()
     _ = await waitUntil(180) { session.busy == nil }
     let requests = fixRequests()
     check("REQ-017 a refused answer is asked for again once", requests.count == 3, "\(requests.count)")
@@ -2747,17 +2747,17 @@ func fixDataChecks() async {
         if shown != "EDITABLE,EDITABLE,EDITABLE" { try? await Task.sleep(nanoseconds: 200_000_000) }
     }
     check("REQ-017 the page reloads and shows the corrected data", shown == "EDITABLE,EDITABLE,EDITABLE", shown)
-    check("REQ-017 the fixed error is not offered again", session.fixableErrors.isEmpty, "\(session.fixableErrors.map(\.key))")
+    check("REQ-017 the fixed error is not offered again", session.repair.fixableErrors.isEmpty, "\(session.repair.fixableErrors.map(\.key))")
     try? await Task.sleep(nanoseconds: 1_500_000_000)
     check("REQ-017 nothing more is sent without another click", fixRequests().count == 3, "\(fixRequests().count)")
 
     // A scenario with its own records: its record and the seed's are corrected, the scenario file is saved again.
     session.activate(mine)
     _ = await waitUntil(120) { session.busy == nil }
-    let again = await waitUntil(30) { !session.fixableErrors.isEmpty }
-    check("REQ-017 the same error on another scenario's data is offered again", again && session.fixableErrors.first?.key.contains("LABELS") == true)
+    let again = await waitUntil(30) { !session.repair.fixableErrors.isEmpty }
+    check("REQ-017 the same error on another scenario's data is offered again", again && session.repair.fixableErrors.first?.key.contains("LABELS") == true)
     answers.set([fixAnswer(["1", "7"])])
-    session.fixData()
+    session.repair.fixData()
     _ = await waitUntil(180) { session.busy == nil }
     check("REQ-017 the scenario's own records are corrected", session.scenario.data?["bundles"]?.allSatisfy { $0["status"] == .string("editable") } == true
           && session.scenario.revision == 2, "\(String(describing: session.scenario.data)) \(session.scenario.revision)")
@@ -2979,10 +2979,10 @@ func autoRepairChecks() async {
     func listText() async -> String {
         ((try? await session.call("return Array.from(document.querySelectorAll('#list li')).map(l => l.textContent).join(',');")) as? String) ?? ""
     }
-    let repaired = await waitUntil(180) { session.repairUndo != nil && session.busy == nil }
+    let repaired = await waitUntil(180) { session.repair.repairUndo != nil && session.busy == nil }
     check("REQ-020 the error is repaired by itself, with one assistant call", repaired && fixRequests().count == before + 1, "\(fixRequests().count - before) \(session.notice ?? "nil")")
     check("REQ-020 the repair is marked automatic and says what it did",
-          session.repairUndo?.automatic == true && session.repairUndo?.summary.contains("bundles.status") == true, session.repairUndo?.summary ?? "nil")
+          session.repair.repairUndo?.automatic == true && session.repair.repairUndo?.summary.contains("bundles.status") == true, session.repair.repairUndo?.summary ?? "nil")
     let logged = session.sessionLog.entries.map(\.text)
     check("REQ-020 the log says that Studio repaired it by itself",
           logged.contains { $0.hasPrefix("Repairing by itself:") } && logged.contains { $0.hasPrefix("Repaired by itself:") } && logged.contains("Fixed data: bundles.status draft → editable in 3 records"),
@@ -2995,34 +2995,34 @@ func autoRepairChecks() async {
     check("REQ-020 the page shows the repaired data", shown == "EDITABLE,EDITABLE,EDITABLE", shown)
     check("REQ-020 the repaired data is saved", environmentFile().contains("editable") && !environmentFile().contains("draft"))
     try? await Task.sleep(nanoseconds: 4_500_000_000)
-    check("REQ-020 nothing is repeated once the page is clean", fixRequests().count == before + 1 && session.fixableErrors.isEmpty, "\(fixRequests().count - before)")
+    check("REQ-020 nothing is repeated once the page is clean", fixRequests().count == before + 1 && session.repair.fixableErrors.isEmpty, "\(fixRequests().count - before)")
 
     // Undo: the old values are back, the page shows the error again, and the person's decision stands.
-    session.undoRepair()
+    session.repair.undoRepair()
     _ = await waitUntil(120) { session.busy == nil }
     check("REQ-020 Undo writes the records back as they were", session.spec.seed["bundles"]?.allSatisfy { $0["status"] == .string("draft") } == true
-          && environmentFile().contains("draft") && !environmentFile().contains("editable") && session.repairUndo == nil, environmentFile().prefix(200).description)
-    let erred = await waitUntil(30) { !session.fixableErrors.isEmpty }
+          && environmentFile().contains("draft") && !environmentFile().contains("editable") && session.repair.repairUndo == nil, environmentFile().prefix(200).description)
+    let erred = await waitUntil(30) { !session.repair.fixableErrors.isEmpty }
     check("REQ-020 the undone error is reported again by the page", erred)
     try? await Task.sleep(nanoseconds: 5_500_000_000)
     check("REQ-020 what the person undid is not repaired again by itself", fixRequests().count == before + 1, "\(fixRequests().count - before)")
-    check("REQ-020 the Log still offers the click", session.repairItems(automatic: false).contains { $0.kind == .dataError })
+    check("REQ-020 the Log still offers the click", session.repair.repairItems(automatic: false).contains { $0.kind == .dataError })
 
     // Fix problems is the click, and it repairs what the person asked for although Studio would not.
     answers.set([fixAnswer(["1", "2", "3"])])
-    session.fixProblems()
+    session.repair.fixProblems()
     _ = await waitUntil(180) { session.busy == nil && fixRequests().count == before + 2 }
-    _ = await waitUntil(30) { session.repairUndo != nil && session.busy == nil }
-    check("REQ-019 Fix problems repairs the error on the click", fixRequests().count == before + 2 && session.repairUndo?.automatic == false
+    _ = await waitUntil(30) { session.repair.repairUndo != nil && session.busy == nil }
+    check("REQ-019 Fix problems repairs the error on the click", fixRequests().count == before + 2 && session.repair.repairUndo?.automatic == false
           && session.spec.seed["bundles"]?.allSatisfy { $0["status"] == .string("editable") } == true, "\(fixRequests().count - before)")
 
     // The switch: off means nothing by itself, and the choice is saved with the project.
     session.setAutoRepair(false)
     let switchSaved = await waitUntil(15) { environmentFile().contains("\"autoRepair\" : false") }
     check("REQ-020 the switch is saved in the environment", session.spec.autoRepair == false && switchSaved, environmentFile().prefix(200).description)
-    session.undoRepair()
+    session.repair.undoRepair()
     _ = await waitUntil(120) { session.busy == nil }
-    _ = await waitUntil(30) { !session.fixableErrors.isEmpty }
+    _ = await waitUntil(30) { !session.repair.fixableErrors.isEmpty }
     try? await Task.sleep(nanoseconds: 4_500_000_000)
     check("REQ-020 with the switch off nothing is repaired by itself", fixRequests().count == before + 2, "\(fixRequests().count - before)")
     await session.close()
@@ -3040,11 +3040,11 @@ func autoRepairChecks() async {
     check("REQ-020 an error is asked about once at open", asked, "\(fixRequests().count - askedBefore)")
     try? await Task.sleep(nanoseconds: 5_500_000_000)
     check("REQ-020 a not-data answer is never asked again by itself", fixRequests().count == askedBefore + 1, "\(fixRequests().count - askedBefore)")
-    check("REQ-020 nothing was changed and no Undo is offered", other.repairUndo == nil && other.spec.seed["bundles"]?.allSatisfy { $0["status"] == .string("draft") } == true)
+    check("REQ-020 nothing was changed and no Undo is offered", other.repair.repairUndo == nil && other.spec.seed["bundles"]?.allSatisfy { $0["status"] == .string("draft") } == true)
     let key = other.sessionLog.entries.compactMap(\.errorKey).first ?? ""
-    check("REQ-019 the Log marks the row as not caused by data", !key.isEmpty && other.notDataKeys.contains(key)
-          && StudioProblem.classify(kind: .page, problem: true, text: "runtimeError: x", errorKey: key, notData: other.notDataKeys) == .notData, "\(other.notDataKeys)")
-    check("REQ-019 the click is still allowed", other.repairItems(automatic: false).isEmpty == false || other.fixableKeys.contains(key))
+    check("REQ-019 the Log marks the row as not caused by data", !key.isEmpty && other.repair.notDataKeys.contains(key)
+          && StudioProblem.classify(kind: .page, problem: true, text: "runtimeError: x", errorKey: key, notData: other.repair.notDataKeys) == .notData, "\(other.repair.notDataKeys)")
+    check("REQ-019 the click is still allowed", other.repair.repairItems(automatic: false).isEmpty == false || other.repair.fixableKeys.contains(key))
     await other.close()
 }
 
@@ -3185,8 +3185,8 @@ func signInRepairChecks() async {
     }
     check("REQ-020 the page after the sign-in is shown", shown == "Dashboard", shown)
     check("REQ-020 the sign-in is a saved scenario with the form's steps", session.savedScenarios.first { $0.name == "Signed in" }.map { $0.steps.count == 3 } == true)
-    check("REQ-020 no sign-in page is offered any more", session.signInWall == nil && !session.repairItems(automatic: false).contains { $0.kind == .signInRedirect },
-          "\(session.signInWall ?? "nil")")
+    check("REQ-020 no sign-in page is offered any more", session.repair.signInWall == nil && !session.repair.repairItems(automatic: false).contains { $0.kind == .signInRedirect },
+          "\(session.repair.signInWall ?? "nil")")
     try? await Task.sleep(nanoseconds: 4_500_000_000)
     check("REQ-020 nothing more is asked once the page is signed in", calls.all.count == 1, "\(calls.all.count)")
     check("REQ-020 the log says that Studio repaired the sign-in by itself", session.sessionLog.entries.contains { $0.text.hasPrefix("Repaired by itself") })

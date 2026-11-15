@@ -298,7 +298,6 @@
 		9C4DA44F3BEA0F4D04B30E15 /* ProjectWorkflowStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EFED0AF1527B1A44DD95C1A /* ProjectWorkflowStore.swift */; };
 		9C59A1E999EB653E03478FA0 /* PrototypeFeatureWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8528AC59F5DF6B456427AB /* PrototypeFeatureWriter.swift */; };
 		9CE756F50996950EE520D986 /* RemoteTerminalConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173CDBCF76BA471F54B8A3A7 /* RemoteTerminalConnection.swift */; };
-		9D40554AB2880901FF7C9BC1 /* UIStudioSession+Repair.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07EBD7652AC5527C7701C211 /* UIStudioSession+Repair.swift */; };
 		9E23615DDB835FE6E9DC2B37 /* ControlToolRunner+Agents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EBD8CA222E37B957D752DD0 /* ControlToolRunner+Agents.swift */; };
 		9EAA8A126FA8F27267BBA0B0 /* ResearchPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69D1C231E9DC47C097CBBA6 /* ResearchPrompt.swift */; };
 		A04D482E27A41747B95841CA /* QAAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33B1794ED37907C706DA17A1 /* QAAPIClient.swift */; };
@@ -418,6 +417,19 @@
 		E161A7454C9233FFD975F710 /* UIStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15F3C39CF6E64AB9AA1EDA1B /* UIStudioView.swift */; };
 		E2CE0EB3D3C7C08360E404CF /* QARunRetention.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17D1BEADAB5A6E90B4D5724 /* QARunRetention.swift */; };
 		E37B57F00EDBD629DF3E4065 /* UIStudioSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3E5C37B252C850C8583ED83 /* UIStudioSession.swift */; };
+		33EB8BFE2BCD83DE434B969D /* UIStudioKeptData.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDA59449C86241AAFAC1FC54 /* UIStudioKeptData.swift */; };
+		4C7A167804DA16608E5B6CE1 /* UIStudioElementPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74D692D694061875FAE7719D /* UIStudioElementPicker.swift */; };
+		6D39E261D39483CA7B40C5C0 /* UIStudioRepairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BCE15E7C90E9D68A6E8BE6F /* UIStudioRepairing.swift */; };
+		FCFB35B984103A9833ECBF35 /* UIStudioRequestPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2E27AFF4424F9C3EA3BD05A /* UIStudioRequestPath.swift */; };
+		A896F6A54D88938C467B9723 /* UIStudioChangeFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F115FCA7ED143930E81F9D8 /* UIStudioChangeFlow.swift */; };
+		BD104DCCD853A82A64122A3A /* UIStudioWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 933747E2DF0D8BC2194BF908 /* UIStudioWork.swift */; };
+		3964F2903D17040A6298DF68 /* UIStudioHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35BEC797D14B94770ED90CA8 /* UIStudioHistory.swift */; };
+		2E01A5468A950D981275E5CC /* UIStudioPackages.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3611A93E8A56D5938E97478 /* UIStudioPackages.swift */; };
+		FB6B8B137DFDBAB36864A72C /* UIStudioCaptures.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5AEE0FC3682B48E6982CC87 /* UIStudioCaptures.swift */; };
+		87A2F326865A2DAB141928E2 /* UIStudioReply.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08BEB28016F43154FE7BF3ED /* UIStudioReply.swift */; };
+		4EFEFB3177981EDA86000B59 /* UIStudioFeatureWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64EA931E037AE354EA3ACCE5 /* UIStudioFeatureWriter.swift */; };
+		E0880EFC1AD0D7422FB6DB36 /* UIStudioSourceResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEAE053A00D9BC88DE6C6AC5 /* UIStudioSourceResolution.swift */; };
+		728A753585CFF8F9A5998BD1 /* UIStudioMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 838E50AF8C3427ACECCD26AE /* UIStudioMessageHandler.swift */; };
 		E4180A4A4BFB984356C01CEC /* RemoteChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1ED1471F59C8FDD227A510 /* RemoteChannel.swift */; };
 		E479DD4A1D4057828DE86630 /* PTYWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0E8670B2DD2EE667B3BDF94 /* PTYWriter.swift */; };
 		E50AB0F829D3286EF731D88F /* CockpitQAReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C35CD22C10D06C9DB15AA4 /* CockpitQAReview.swift */; };
@@ -535,7 +547,6 @@
 		058C1D9A87ABFF23F7C02515 /* LifecycleStatusChange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleStatusChange.swift; sourceTree = "<group>"; };
 		05D306BABCE732DB48917D5D /* prism-line-numbers.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-line-numbers.min.js"; sourceTree = "<group>"; };
 		07E6C73E57B66F2FC4DCD08F /* ModuleExplorerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleExplorerView.swift; sourceTree = "<group>"; };
-		07EBD7652AC5527C7701C211 /* UIStudioSession+Repair.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIStudioSession+Repair.swift"; sourceTree = "<group>"; };
 		08D9CF1EF8614080AAF298EE /* DocumentFileSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentFileSchemeHandler.swift; sourceTree = "<group>"; };
 		08E4B120E755FF9AED5F57E0 /* FeatureBugValidity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureBugValidity.swift; sourceTree = "<group>"; };
 		08F1C10751459B0288159692 /* DeploymentToolRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentToolRunner.swift; sourceTree = "<group>"; };
@@ -1092,6 +1103,19 @@
 		F21E96FB5400057E1B7290BB /* MarkViewDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MarkViewDebug.entitlements; sourceTree = "<group>"; };
 		F3352D93C2368769940952CA /* QAVideoWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAVideoWriter.swift; sourceTree = "<group>"; };
 		F3E5C37B252C850C8583ED83 /* UIStudioSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioSession.swift; sourceTree = "<group>"; };
+		CDA59449C86241AAFAC1FC54 /* UIStudioKeptData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioKeptData.swift; sourceTree = "<group>"; };
+		74D692D694061875FAE7719D /* UIStudioElementPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioElementPicker.swift; sourceTree = "<group>"; };
+		2BCE15E7C90E9D68A6E8BE6F /* UIStudioRepairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioRepairing.swift; sourceTree = "<group>"; };
+		C2E27AFF4424F9C3EA3BD05A /* UIStudioRequestPath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioRequestPath.swift; sourceTree = "<group>"; };
+		6F115FCA7ED143930E81F9D8 /* UIStudioChangeFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioChangeFlow.swift; sourceTree = "<group>"; };
+		933747E2DF0D8BC2194BF908 /* UIStudioWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioWork.swift; sourceTree = "<group>"; };
+		35BEC797D14B94770ED90CA8 /* UIStudioHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioHistory.swift; sourceTree = "<group>"; };
+		F3611A93E8A56D5938E97478 /* UIStudioPackages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioPackages.swift; sourceTree = "<group>"; };
+		A5AEE0FC3682B48E6982CC87 /* UIStudioCaptures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioCaptures.swift; sourceTree = "<group>"; };
+		08BEB28016F43154FE7BF3ED /* UIStudioReply.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioReply.swift; sourceTree = "<group>"; };
+		64EA931E037AE354EA3ACCE5 /* UIStudioFeatureWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioFeatureWriter.swift; sourceTree = "<group>"; };
+		CEAE053A00D9BC88DE6C6AC5 /* UIStudioSourceResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioSourceResolution.swift; sourceTree = "<group>"; };
+		838E50AF8C3427ACECCD26AE /* UIStudioMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioMessageHandler.swift; sourceTree = "<group>"; };
 		F40EC4D0B33F766DF89989E1 /* QARunCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QARunCleanup.swift; sourceTree = "<group>"; };
 		F43C1666D920639C5EE347C0 /* prism-diff-highlight.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "prism-diff-highlight.css"; sourceTree = "<group>"; };
 		F4700050C38EAE4C47A81DF3 /* AICallLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICallLog.swift; sourceTree = "<group>"; };
@@ -1630,11 +1654,23 @@
 				3AFAF46FDFE5330333E05163 /* UIStudioScreens.swift */,
 				437E30B3E5F2185484ADA2D6 /* UIStudioSelection.swift */,
 				872961C48C130402739DD233 /* UIStudioServer.swift */,
-				07EBD7652AC5527C7701C211 /* UIStudioSession+Repair.swift */,
 				90BE2B919FD21F9154C78744 /* UIStudioSession+Review.swift */,
 				9D0228F8BD26A840109C0420 /* UIStudioSession+Screens.swift */,
 				D40D799A352C7767B5450F9E /* UIStudioSession+Tracking.swift */,
 				F3E5C37B252C850C8583ED83 /* UIStudioSession.swift */,
+				CDA59449C86241AAFAC1FC54 /* UIStudioKeptData.swift */,
+				74D692D694061875FAE7719D /* UIStudioElementPicker.swift */,
+				2BCE15E7C90E9D68A6E8BE6F /* UIStudioRepairing.swift */,
+				C2E27AFF4424F9C3EA3BD05A /* UIStudioRequestPath.swift */,
+				6F115FCA7ED143930E81F9D8 /* UIStudioChangeFlow.swift */,
+				933747E2DF0D8BC2194BF908 /* UIStudioWork.swift */,
+				35BEC797D14B94770ED90CA8 /* UIStudioHistory.swift */,
+				F3611A93E8A56D5938E97478 /* UIStudioPackages.swift */,
+				A5AEE0FC3682B48E6982CC87 /* UIStudioCaptures.swift */,
+				08BEB28016F43154FE7BF3ED /* UIStudioReply.swift */,
+				64EA931E037AE354EA3ACCE5 /* UIStudioFeatureWriter.swift */,
+				CEAE053A00D9BC88DE6C6AC5 /* UIStudioSourceResolution.swift */,
+				838E50AF8C3427ACECCD26AE /* UIStudioMessageHandler.swift */,
 				62CFDF9FD40076EEACC1B7E5 /* UIStudioSimulation.swift */,
 				4290F1912EB67F6DD7EB9033 /* UIStudioStore.swift */,
 				FDCC7B36EA23F878450488F7 /* UIStudioTracking.swift */,
@@ -2818,11 +2854,23 @@
 				2F5B627F741DAFF862891870 /* UIStudioScreens.swift in Sources */,
 				8FE54D4E55AA567CEA794978 /* UIStudioSelection.swift in Sources */,
 				68978C2FAA308134A818B87D /* UIStudioServer.swift in Sources */,
-				9D40554AB2880901FF7C9BC1 /* UIStudioSession+Repair.swift in Sources */,
 				AA998931BCB7FD8BC8ECA9DD /* UIStudioSession+Review.swift in Sources */,
 				F7C237D81054F6484BFF4968 /* UIStudioSession+Screens.swift in Sources */,
 				BBA239505DF73DB59192DC2E /* UIStudioSession+Tracking.swift in Sources */,
 				E37B57F00EDBD629DF3E4065 /* UIStudioSession.swift in Sources */,
+				33EB8BFE2BCD83DE434B969D /* UIStudioKeptData.swift in Sources */,
+				4C7A167804DA16608E5B6CE1 /* UIStudioElementPicker.swift in Sources */,
+				6D39E261D39483CA7B40C5C0 /* UIStudioRepairing.swift in Sources */,
+				FCFB35B984103A9833ECBF35 /* UIStudioRequestPath.swift in Sources */,
+				A896F6A54D88938C467B9723 /* UIStudioChangeFlow.swift in Sources */,
+				BD104DCCD853A82A64122A3A /* UIStudioWork.swift in Sources */,
+				3964F2903D17040A6298DF68 /* UIStudioHistory.swift in Sources */,
+				2E01A5468A950D981275E5CC /* UIStudioPackages.swift in Sources */,
+				FB6B8B137DFDBAB36864A72C /* UIStudioCaptures.swift in Sources */,
+				87A2F326865A2DAB141928E2 /* UIStudioReply.swift in Sources */,
+				4EFEFB3177981EDA86000B59 /* UIStudioFeatureWriter.swift in Sources */,
+				E0880EFC1AD0D7422FB6DB36 /* UIStudioSourceResolution.swift in Sources */,
+				728A753585CFF8F9A5998BD1 /* UIStudioMessageHandler.swift in Sources */,
 				CB62EEE11756D6ED1D103D2C /* UIStudioSimulation.swift in Sources */,
 				EB315F16B4603811DE1E360A /* UIStudioStore.swift in Sources */,
 				CEB68D6CDA33EA59EB05837D /* UIStudioTracking.swift in Sources */,

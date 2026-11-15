@@ -46,18 +46,18 @@ struct UIStudioView: View {
                     preview.frame(maxWidth: .infinity, maxHeight: .infinity)
                     if showingLog {
                         Divider().background(palette.border)
-                        UIStudioLogDrawer(log: session.sessionLog, fixable: session.fixableKeys, notData: session.notDataKeys,
-                                          hasSignInWall: session.signInWall != nil,
+                        UIStudioLogDrawer(log: session.sessionLog, fixable: session.repair.fixableKeys, notData: session.repair.notDataKeys,
+                                          hasSignInWall: session.repair.signInWall != nil,
                                           hasMissingRules: session.dependencies.contains { $0.mode == .unresolved },
-                                          canFixAll: !session.repairItems(automatic: false).isEmpty, busy: session.busy != nil,
+                                          canFixAll: !session.repair.repairItems(automatic: false).isEmpty, busy: session.busy != nil,
                                           act: { kind, key in
                                               if kind == .dataError {
-                                                  session.fixData(key)
-                                              } else if let item = session.repairItems(automatic: false).first(where: { $0.kind == kind }) {
-                                                  session.repairProblem(item)
+                                                  session.repair.fixData(key)
+                                              } else if let item = session.repair.repairItems(automatic: false).first(where: { $0.kind == kind }) {
+                                                  session.repair.repairProblem(item)
                                               }
                                           },
-                                          fixAll: { session.fixProblems() }) { showingLog = false }
+                                          fixAll: { session.repair.fixProblems() }) { showingLog = false }
                     }
                 }
                 resizeHandle
@@ -286,15 +286,15 @@ struct UIStudioView: View {
                 panel = .environment
             }
         }
-        if let undo = session.repairUndo, session.busy == nil {
+        if let undo = session.repair.repairUndo, session.busy == nil {
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "checkmark.circle").uiFont(size: 10).foregroundColor(palette.green)
                 Text((undo.automatic ? "Fixed automatically: " : "Fixed: ") + undo.summary)
                     .uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 Spacer()
-                Button("Undo") { session.undoRepair() }.controlSize(.small)
+                Button("Undo") { session.repair.undoRepair() }.controlSize(.small)
                     .help("Write the records back as they were, and load the page again")
-                Button { session.dismissRepairNotice() } label: { Image(systemName: "xmark").uiFont(size: 9) }
+                Button { session.repair.dismissRepairNotice() } label: { Image(systemName: "xmark").uiFont(size: 9) }
                     .buttonStyle(.plain).foregroundColor(palette.textDim)
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
@@ -302,8 +302,8 @@ struct UIStudioView: View {
         }
         // A problem Studio repairs by itself is not offered here (it is about to be repaired); one it will not repair again, or any
         // problem when the automatic repair is off, is (REQ-019).
-        let offered = session.repairItems(automatic: false).filter { item in
-            !session.spec.repairsAutomatically || !session.repairItems(automatic: true).contains { $0.id == item.id }
+        let offered = session.repair.repairItems(automatic: false).filter { item in
+            !session.spec.repairsAutomatically || !session.repair.repairItems(automatic: true).contains { $0.id == item.id }
         }
         if let problem = offered.first, session.busy == nil {
             HStack(alignment: .top, spacing: 6) {
@@ -311,7 +311,7 @@ struct UIStudioView: View {
                 Text("The page reported a problem: " + String(problem.text.prefix(160)) + (offered.count > 1 ? " (and \(offered.count - 1) more)" : ""))
                     .uiFont(size: 10).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 Spacer()
-                Button("Fix problems") { session.fixProblems() }.controlSize(.small)
+                Button("Fix problems") { session.repair.fixProblems() }.controlSize(.small)
                     .help("Repairs what Studio can: signs the test user in, prepares missing rules, corrects simulated records that caused a page error")
                 Button("Open Log") { showingLog = true }.controlSize(.small)
             }
@@ -1167,19 +1167,19 @@ struct UIStudioBrowserSettings: View {
                  + "cookies and localStorage entries are set again before the page loads. Entries that look like sessions or "
                  + "credentials are not kept; the rest is saved in .markview/studio/environment.json.")
                 .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
-            Button("Keep this page's cookies and storage") { session.keepBrowserData() }
+            Button("Keep this page's cookies and storage") { session.keptData.keepBrowserData() }
                 .controlSize(.small).disabled(session.appURL == nil || !idle)
-            ForEach(session.keptSkipped, id: \.self) { skipped in
+            ForEach(session.keptData.keptSkipped, id: \.self) { skipped in
                 Text("Not kept: " + skipped).uiFont(size: 10).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
             }
             if let kept = session.spec.keptBrowserData {
                 ForEach(kept.cookies) { cookie in
-                    keptRow("cookie", cookie.name, cookie.value, note: cookie.httpOnly ? "httpOnly" : "") { session.forgetKeptCookie(cookie.id) }
+                    keptRow("cookie", cookie.name, cookie.value, note: cookie.httpOnly ? "httpOnly" : "") { session.keptData.forgetKeptCookie(cookie.id) }
                 }
                 ForEach(kept.localStorage, id: \.key) { entry in
-                    keptRow("localStorage", entry.key, entry.value, note: "") { session.forgetKeptStorage(entry.key) }
+                    keptRow("localStorage", entry.key, entry.value, note: "") { session.keptData.forgetKeptStorage(entry.key) }
                 }
-                Button("Forget all") { session.forgetKeptBrowserData() }.controlSize(.small)
+                Button("Forget all") { session.keptData.forgetKeptBrowserData() }.controlSize(.small)
                     .help("The next restore starts from empty cookies and storage again")
             }
         }
