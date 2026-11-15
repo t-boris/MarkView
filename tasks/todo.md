@@ -1,4 +1,4 @@
-# Three new themes and four new welcome animations (2026-11-14, proposed 6.25.0)
+# Three new themes and four new welcome animations (2026-11-14, 6.25.0)
 
 Boris: "add about three new themes and three new animations for the splash screen, the main screen; invent something interesting". Status: APPROVED by Boris's answers (themes: Nord + Forest + Daylight; animations: he ticked all four of Git Flow, Deep Sea, Warp, Typewriter, so all four are built, "about three" leaves room). Implementation in worktree `MarkView-welcome-themes`, branch `feat/welcome-animations-and-themes`.
 
@@ -41,6 +41,15 @@ Spare ideas: Snowfall, Paper Planes, Fireflies, Rainy Window.
 - Real app, invisibly (app-probe, alpha-0 window, empty HOME): each new backdrop and theme selected, layers move, hit test nil; CPU of the app idle with each new scene for ~10 s (BUG-117 lesson).
 - Delivery per CLAUDE.md: branch `feat/welcome-animations-and-themes`, `./bump-version.sh minor` (6.25.0), one PR, merge, `./release.sh --publish` from a clean worktree, remove my worktree. Boris installs; I do not touch the running app.
 - Not verifiable by me: how the scenes look on a real display, WindowServer cost, taste.
+
+## Review (6.25.0, 2026-11-14)
+
+- Delivered: PR #413 (`7a946fe`): themes Nord, Forest, Daylight; backdrops Git Flow, Typewriter, Deep Sea, Warp (4, not 3: Boris ticked all four). Shuffle includes them; By Project rules unchanged.
+- Verified: 10 test scripts that compile the changed files (theme model/web/window, window-session, project-backdrop, welcome-screen, intake-clipboard, pdf-reader, change-review-layout, workflow-editor-layout), Debug build, the real Debug app invisibly (each new scene with a new theme: layers move, backdrop hit test nil, app CPU idle 0.0%, pictures looked at).
+- The scenes were looked at as pictures in dark and light themes. Layer counts at detail 4: Git Flow 61, Typewriter 60-65, Deep Sea 78, Warp 205 (bound 260).
+- Not seen: the scenes on a real display, WindowServer cost (the probe's alpha-0 windows do not measure it), taste. Typewriter in a narrow window shows only fragments between the tiles; at 1142 pt the side pages slip 18 pt under the tiles.
+- Release: https://github.com/t-boris/MarkView/releases/tag/v6.25.0 (Latest, built from `7a946fe` by `release.sh --publish`: signed Developer ID, notarization Accepted, stapled, `spctl` accepted the DMG as Notarized Developer ID, app version 6.25.0). DMG: `build/MarkView-6.25.0.dmg`. NOT installed: the running app is older; waiting for Boris's "reinstall". 6.24.2 (PR #412) has no release of its own, it ships inside v6.25.0.
+- Also in this release, separate PR #412 (6.24.2): End-to-End QA took the model of the shown agent tab (`observedModel ?? model`, since 5.65.1); it now takes the project's chosen model for the shown agent's tool (`CLICompletion.Assistant.chosen`). Open question for Boris: a `/model` switch inside a Claude Code session is still remembered as the project's model (BUG-048, `AIAssistantPreferences.remember`), so QA follows it after such a switch; stopping that reverses BUG-048. A live QA run was not made.
 
 # Antigravity usage next to Claude and Codex in the top bar (2026-11-14, 6.24.0)
 

@@ -1,5 +1,12 @@
 # Lessons
 
+## An operation tied to a window must take the model chosen for the project, not the one a live tab reports (End-to-End QA, 2026-11-14)
+
+- Boris: End-to-End QA used "the last model I picked in the agents", not the main model chosen for the agent. Cause: 5.65.1 captured the shown agent tab's `observedModel ?? model` (what its session runs after `/model` or the Agents header). The fix keeps the shown agent's tool and takes the model from the project's choice (`CLICompletion.Assistant.chosen`).
+- Rule: a state that a running session reports is not a setting. Anything that starts work for the person (QA, generation, reviews) reads the setting the person made in the menu or in Settings. Before wiring a new operation to "the shown agent", say which of its properties are the person's choice and which are runtime.
+- Still open: `AIAssistantPreferences.remember` (BUG-048) writes a `/model` switch of a running session into the project's model setting, so the setting itself can drift to the last session model. That was a deliberate decision for the next start; changing it needs Boris's word.
+- Worth remembering when adding scenes: a probe `snap` shows the model layer, i.e. the first frame of a typed or revealed animation (Typewriter shows only carets); use `frame` for what the render server shows.
+
 ## Never run a signed-out test where Boris can see a live login link (Antigravity usage, 2026-11-14)
 
 - I tested `agy -p "/usage"` with an empty HOME to see the signed-out behaviour. The tool output showed a full Google login link and "paste the authorization code here"; Boris then wrote "Code in clipboard", and the clipboard held a one-time Google authorization code, apparently from that link (not confirmed), meant for a process that no longer existed. Reading the clipboard put the code into my own tool output as well.
