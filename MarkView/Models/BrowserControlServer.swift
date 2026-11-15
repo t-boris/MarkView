@@ -29,17 +29,13 @@ enum BrowserControlServer {
 
     private static var windows: [UUID: Window] = [:]
     private static var listening: String?
+    nonisolated(unsafe) private static var listeningFD: Int32 = -1
     /// Per-instance control socket token generated on listen (`AR-40`, `DEC-009`).
     nonisolated(unsafe) private(set) static var instanceToken: String?
-    /// Optional confirmation gate for `by_user: true` mutations over the control socket (`AR-40`, `DEC-009`).
-    /// When set, must return `true` to allow a `by_user: true` mutation to proceed.
-    static var byUserConfirmationGate: ((_ tool: String, _ arguments: [String: Any]) -> Bool)?
 
-    /// Verifies a control socket token against `expectedToken` (`AR-40`).
+    /// Verifies a control socket token against `expectedToken` fail-closed and constant-time (`AR-40`, `FU-03`).
     nonisolated static func verifyToken(_ provided: String?, expected: String?) -> Bool {
-        guard let expected, !expected.isEmpty else { return true }
-        guard let provided, !provided.isEmpty else { return false }
-        return provided == expected
+        BrowserAgentTools.verifyToken(provided, expected: expected)
     }
 
     /// The socket path of this app process, listening once started.
@@ -99,20 +95,41 @@ enum BrowserControlServer {
             NSLog("[MarkView] browser control socket unavailable at \(path)")
             return false
         }
-        if let token = BrowserAgentTools.writeSocketToken(forSocket: path) {
-            instanceToken = token
-            setenv(BrowserAgentTools.controlTokenEnvKey, token, 1)
+        guard let token = BrowserAgentTools.writeSocketToken(forSocket: path) else {
+            close(fd)
+            unlink(path)
+            NSLog("[MarkView] browser control token unavailable at \(path)")
+            return false
         }
+        instanceToken = token
+        listeningFD = fd
         let thread = Thread {
             while true {
                 let client = accept(fd, nil, nil)
-                guard client >= 0 else { continue }
+                if client < 0 {
+                    if errno == EINTR { continue }
+                    break
+                }
                 DispatchQueue.global(qos: .userInitiated).async { serve(client) }
             }
         }
         thread.name = "MarkView browser control"
         thread.start()
         return true
+    }
+
+    /// Stops accepting new connections and removes the control socket and token files (`FU-03`).
+    static func shutdown() {
+        if listeningFD >= 0 {
+            close(listeningFD)
+            listeningFD = -1
+        }
+        if let path = listening {
+            unlink(path)
+            unlink(BrowserAgentTools.tokenPath(forSocket: path))
+            listening = nil
+        }
+        instanceToken = nil
     }
 
     /// Sockets of MarkView processes that are gone (they are not removed on quit).
@@ -135,7 +152,7 @@ enum BrowserControlServer {
         var noSigPipe: Int32 = 1
         setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         let peer = BrowserAgentTools.peerCredentials(for: client)
-        if let peerUID = peer.uid, peerUID != getuid() {
+        guard let peerUID = peer.uid, peerUID == getuid() else {
             close(client)
             return
         }
@@ -219,10 +236,6 @@ enum BrowserControlServer {
                                  declared: Bool = false, cwdTrusted: Bool = true) async -> BrowserAgentTools.Reply {
         // The agent of a Cockpit step gets only the tools its controls allow, whichever family a tool belongs to.
         if let refusal = cockpitRefusal(tool, args, pids: pids) { return .error(refusal) }
-        // Native confirmation gate for `by_user: true` mutations (`AR-40`, `DEC-009`).
-        if args["by_user"] as? Bool == true, let gate = byUserConfirmationGate, !gate(tool, args) {
-            return .error("The user declined confirmation for \(tool) (by_user: true).")
-        }
         // The control tools name their window themselves (`window`), or take the caller's folder when it says one.
         if ControlAgentTools.names.contains(tool) {
             return await ControlToolRunner.run(tool, args, caller: .init(pids: pids, folder: declared || cwdTrusted ? cwd : ""))

@@ -3,15 +3,62 @@ import Darwin
 import Foundation
 import os
 
-/// Atomic file writer with parent directory creation and optional POSIX permissions (`AR-24`).
+/// Atomic file writer with parent directory creation and POSIX permissions set before rename (`AR-24`, `FU-04`).
 public enum AtomicFile {
     public static func write(_ data: Data, to url: URL, permissions: Int16? = nil) throws {
         let dir = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try data.write(to: url, options: .atomic)
-        if let permissions {
-            chmod(url.path, mode_t(permissions))
+
+        let tmpURL = dir.appendingPathComponent(".\(url.lastPathComponent).tmp-\(UUID().uuidString)")
+        let mode = mode_t(permissions ?? 0o644)
+        let fd = open(tmpURL.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode)
+        guard fd >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
+
+        var cleanupTmp = true
+        defer {
+            if cleanupTmp {
+                unlink(tmpURL.path)
+            }
+        }
+
+        var closed = false
+        do {
+            // Apply explicit permissions before rename so the target never exists even momentarily with wider mode (`FU-04`).
+            if permissions != nil {
+                guard fchmod(fd, mode) == 0 else {
+                    let err = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                    throw err
+                }
+            }
+
+            try data.withUnsafeBytes { rawBuffer in
+                guard let base = rawBuffer.baseAddress else { return }
+                var written = 0
+                while written < rawBuffer.count {
+                    let n = Darwin.write(fd, base.advanced(by: written), rawBuffer.count - written)
+                    if n < 0 {
+                        if errno == EINTR { continue }
+                        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                    }
+                    written += n
+                }
+            }
+            _ = fsync(fd)
+            closed = true
+            guard close(fd) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        } catch {
+            if !closed { close(fd) }
+            throw error
+        }
+
+        guard rename(tmpURL.path, url.path) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        cleanupTmp = false
     }
 
     public static func write(_ text: String, to url: URL, permissions: Int16? = nil) throws {
@@ -97,8 +144,8 @@ public enum CoreDigest {
     }
 }
 
-/// Append-only JSON Lines file with size-bounded rotation (`AR-24`).
-public struct JSONLinesFile: Sendable {
+/// Append-only JSON Lines file with `O_APPEND` writes and size-bounded rotation (`AR-24`, `FU-04`).
+public struct RotatingJSONLinesFile: Sendable {
     public let url: URL
     public let maxBytes: Int
 
@@ -117,7 +164,7 @@ public struct JSONLinesFile: Sendable {
         let fm = FileManager.default
         let dir = url.deletingLastPathComponent()
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        let payload = Data((line.hasSuffix("\n") ? line : line + "\n").utf8)
+        var payload = Data((line.hasSuffix("\n") ? line : line + "\n").utf8)
 
         if let attrs = try? fm.attributesOfItem(atPath: url.path),
            let size = attrs[.size] as? NSNumber,
@@ -127,12 +174,27 @@ public struct JSONLinesFile: Sendable {
             try? fm.moveItem(at: url, to: rotated)
         }
 
-        if fm.fileExists(atPath: url.path), let handle = try? FileHandle(forWritingTo: url) {
-            defer { try? handle.close() }
-            try handle.seekToEnd()
-            try handle.write(contentsOf: payload)
-        } else {
-            try payload.write(to: url, options: .atomic)
+        // Open with O_APPEND so concurrent/multi-writer appends never overwrite each other (`FU-04`).
+        let fd = open(url.path, O_RDWR | O_APPEND | O_CREAT, 0o600)
+        guard fd >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { close(fd) }
+
+        let size = lseek(fd, 0, SEEK_END)
+        if size > 0 {
+            var lastByte: UInt8 = 0
+            if pread(fd, &lastByte, 1, size - 1) == 1, lastByte != 0x0A {
+                payload = Data([0x0A]) + payload
+            }
+        }
+
+        let written = payload.withUnsafeBytes { rawBuffer -> Int in
+            guard let base = rawBuffer.baseAddress else { return 0 }
+            return Darwin.write(fd, base, rawBuffer.count)
+        }
+        guard written == payload.count else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
     }
 

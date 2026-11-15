@@ -107,26 +107,11 @@ final class PanelLayout: ObservableObject {
         didSet { remember(welcomeBackdrop.rawValue, WelcomeBackdrop.storageKey) }
     }
 
-    /// Last layout preset explicitly selected by the user in this window (`AR-33`, `DEC-002`).
-    /// Never triggered automatically on tab or git changes.
-    @Published private(set) var activePresetID: String?
-
-    /// Explicitly applies `preset` to this window's panel layout (`AR-33`, `DEC-002`).
-    func apply(preset: LayoutPreset) {
-        workspaceArea = preset.workspaceArea
-        workSection = preset.workSection
-        navigatorTab = preset.navigatorTab
-        leftPanel = preset.leftPanel
-        activePresetID = preset.id
-        remember(preset.id, Self.layoutPresetKey)
-    }
-
     static let leftPanelKey = "layout.leftPanel"
     static let workspaceAreaKey = "layout.workspaceArea"
     static let workSectionKey = "layout.workSection"
     static let issuesFeatureKey = "layout.issuesFeature"
     static let gitSectionKey = "layout.gitSection"
-    static let layoutPresetKey = "layout.preset"
 
     private let defaults: UserDefaults
 

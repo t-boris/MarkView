@@ -1,6 +1,10 @@
 import SwiftUI
 import WebKit
 import Combine
+import Security
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// NSViewRepresentable wrapper for WKWebView markdown editor
 struct EditorView: NSViewRepresentable {
@@ -14,9 +18,10 @@ struct EditorView: NSViewRepresentable {
         let config = WKWebViewConfiguration()
         let userController = WKUserContentController()
 
-        // Set up script message handler — name must match JS: window.webkit.messageHandlers.bridge
+        // Set up script message handler wrapped in WeakScriptMessageHandler (`AR-27`)
+        // to avoid WKUserContentController retaining Coordinator -> WebView cycles.
         let bridge = context.coordinator.bridge
-        userController.add(bridge, name: "bridge")
+        userController.add(WeakScriptMessageHandler(bridge), name: "bridge")
 
         config.userContentController = userController
         #if DEBUG
@@ -233,6 +238,14 @@ struct EditorView: NSViewRepresentable {
 
         // MARK: - Page Loading
 
+        private static func makeCSPNonce() -> String {
+            var bytes = [UInt8](repeating: 0, count: 16)
+            if SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess {
+                return bytes.map { String(format: "%02x", $0) }.joined()
+            }
+            return UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        }
+
         /// Load the editor HTML from the app bundle so bundled vendor assets remain available.
         func loadEditorPage() {
             guard let webView = webView, let html = editorHTML else { return }
@@ -240,14 +253,33 @@ struct EditorView: NSViewRepresentable {
             lastLoadedContent = ""
             // The page starts at the current interface scale, so its chrome never flashes at 100%.
             appliedUIScale = uiScale
-            var page = html.replacingOccurrences(of: "<html lang=\"en\"", with: "<html lang=\"en\" style=\"--ui-scale: \(Double(uiScale))\"")
-            // This window's own text size and panel widths, ahead of every script that reads them (`EditorWindowPrefs`).
+            let cspNonce = Self.makeCSPNonce()
+            var page = html
+                .replacingOccurrences(of: "<html lang=\"en\"", with: "<html lang=\"en\" style=\"--ui-scale: \(Double(uiScale))\"")
+                .replacingOccurrences(
+                    of: "script-src 'self' 'wasm-unsafe-eval';",
+                    with: "script-src 'self' 'wasm-unsafe-eval' 'nonce-\(cspNonce)';"
+                )
+            // This window's own text size and panel widths injected at documentStart via WKUserScript (`EditorWindowPrefs`, `FU-10`)
+            // so index.html needs no inline <script> injection.
             let windowUI = parent.workspaceManager.windowUI
             var own: [String: String] = [:]
             for key in EditorWindowPrefs.keys {
                 if let value: String = windowUI.existing(EditorWindowPrefs.stateKey(key)) { own[key] = value }
             }
-            page = page.replacingOccurrences(of: "<head>", with: "<head><script>\(EditorWindowPrefs.script(values: own))</script>")
+            let prefsScript = WKUserScript(
+                source: EditorWindowPrefs.script(values: own),
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+            let nonceScript = WKUserScript(
+                source: "window.__markviewInsightNonce = \"\(cspNonce)\";",
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+            webView.configuration.userContentController.removeAllUserScripts()
+            webView.configuration.userContentController.addUserScript(prefsScript)
+            webView.configuration.userContentController.addUserScript(nonceScript)
             webView.loadHTMLString(page, baseURL: editorResourceBaseURL)
         }
 

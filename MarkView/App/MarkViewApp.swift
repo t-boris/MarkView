@@ -90,6 +90,7 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
     /// Quitting for real (not when a save error keeps the windows open): stop the assistants of headless runs
     /// so none keeps working, and spending tokens, for a window that is gone.
     func applicationWillTerminate(_ notification: Notification) {
+        BrowserControlServer.shutdown()
         RemoteConnectionsStore.shared.suspend()
         CockpitAgentRegistry.cancelAll(reason: "MarkView is closing.")
         AgentProcesses.terminateAll()
@@ -392,24 +393,43 @@ struct MarkViewApp: App {
     }
 
     private static func checkFinderOpenRequest(handler: @escaping ([URL]) -> Void) {
-        // Use the per-user temporary directory and reject symlinks or foreign-owned files (AR-12).
-        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("markview_open_path.txt")
-        let path = fileURL.path
+        // Check both the per-user temporary directory and `/tmp` with O_NOFOLLOW + fstat to reject symlinks or foreign-owned files (AR-12, FU-09).
         let fm = FileManager.default
-        var st = stat()
-        guard lstat(path, &st) == 0,
-              (st.st_mode & S_IFMT) == S_IFREG,
-              st.st_uid == getuid(),
-              let content = try? String(contentsOfFile: path, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
-              !content.isEmpty else { return }
+        let candidates = [
+            fm.temporaryDirectory.appendingPathComponent("markview_open_path.txt").path,
+            "/tmp/markview_open_path.txt"
+        ]
+        for path in candidates {
+            let fd = open(path, O_RDONLY | O_NOFOLLOW)
+            guard fd >= 0 else { continue }
+            var st = stat()
+            guard fstat(fd, &st) == 0,
+                  (st.st_mode & S_IFMT) == S_IFREG,
+                  st.st_uid == getuid() else {
+                close(fd)
+                continue
+            }
+            var data = Data()
+            var buf = [UInt8](repeating: 0, count: 4096)
+            while data.count < 65536 {
+                let n = Darwin.read(fd, &buf, buf.count)
+                if n > 0 { data.append(buf, count: n) }
+                else { break }
+            }
+            close(fd)
+            // Delete immediately so we don't re-process.
+            try? fm.removeItem(atPath: path)
 
-        // Delete immediately so we don't re-process
-        try? fm.removeItem(atPath: path)
+            guard let content = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !content.isEmpty else { continue }
 
-        let url = URL(fileURLWithPath: content)
-        debugLogStatic("checkFinderOpenRequest: found \(url.lastPathComponent), calling handler")
-        handler([url])
-        debugLogStatic("checkFinderOpenRequest: handler called, notification posted")
+            let url = URL(fileURLWithPath: content)
+            debugLogStatic("checkFinderOpenRequest: found \(url.lastPathComponent), calling handler")
+            handler([url])
+            debugLogStatic("checkFinderOpenRequest: handler called, notification posted")
+            return
+        }
     }
 
     private func openFile() {

@@ -447,32 +447,21 @@ struct ContentView: View {
                     headerButton("checklist", help: "Tasks", width: controlWidth,
                                  selected: workspaceManager.layout.workspaceArea == .work) { activate(.work) }
                         .disabled(workspaceManager.rootNode == nil)
-                    tabButton("arrow.triangle.branch", help: "Git", width: controlWidth, matches: { if case .git = $0 { return true } else { return false } }) {
-                        workspaceManager.openGit()
-                    }.disabled(workspaceManager.rootNode == nil)
-                    tabButton("server.rack", help: "Build & Deployment (⌃⌘D)", width: controlWidth, matches: { if case .deployments = $0 { return true } else { return false } }) {
-                        workspaceManager.openDeployments()
-                    }.disabled(workspaceManager.rootNode == nil)
-                    tabButton("point.3.connected.trianglepath.dotted", help: "Workflow", width: controlWidth, matches: { if case .workflow = $0 { return true } else { return false } }) {
-                        workspaceManager.openWorkflow()
-                    }.disabled(workspaceManager.rootNode == nil)
-                    tabButton("checkmark.shield", help: "End-to-End QA (⌘8)", width: controlWidth, matches: { if case .qa = $0 { return true } else { return false } }) {
-                        workspaceManager.openQA()
-                    }.disabled(workspaceManager.rootNode == nil)
-                    tabButton("macwindow.and.cursorarrow", help: "UI Studio (⌘7)", width: controlWidth, matches: { if case .uiStudio = $0 { return true } else { return false } }) {
-                        workspaceManager.openUIStudio()
-                    }.disabled(workspaceManager.rootNode == nil)
-                    tabButton("airplane", help: "Copilot Cockpit", width: controlWidth, matches: { if case .cockpit = $0 { return true } else { return false } }) {
-                        workspaceManager.openCockpit()
-                    }.disabled(workspaceManager.rootNode == nil)
+                    ForEach(ToolRegistry.primaryToolbarTools) { tool in
+                        tabButton(tool.icon, help: tool.help, width: controlWidth, matches: { WorkspaceManager.toolMatches(tool.id, kind: $0) }) {
+                            workspaceManager.openTool(tool.id)
+                        }.disabled(workspaceManager.rootNode == nil)
+                    }
                     headerButton("square.on.square.dashed", help: "New Prototype…", width: controlWidth,
                                  selected: { if case .prototype? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openPrototypeCreator(mode: .requirements)
                     }.disabled(workspaceManager.rootNode == nil)
                     browserMenu.frame(width: controlWidth, height: controlWidth)
-                    tabButton("bubble.left.and.text.bubble.right", help: "Discussions (⌃⌘I)", width: controlWidth, matches: { if case .discussions = $0 { return true } else { return false } }) {
-                        workspaceManager.openDiscussions()
-                    }.disabled(workspaceManager.rootNode == nil)
+                    if let discussionsTool = ToolRegistry.descriptor(for: .discussions) {
+                        tabButton(discussionsTool.icon, help: discussionsTool.help, width: controlWidth, matches: { WorkspaceManager.toolMatches(discussionsTool.id, kind: $0) }) {
+                            workspaceManager.openTool(discussionsTool.id)
+                        }.disabled(workspaceManager.rootNode == nil)
+                    }
                     headerButton("terminal", help: "Agents (⌘3)", width: controlWidth,
                                  selected: workspaceManager.agentsVisible) { workspaceManager.toggleAIConsole() }
                     projectMenu.frame(width: controlWidth, height: controlWidth)

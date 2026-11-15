@@ -21,7 +21,7 @@ public enum WebHost {
     @MainActor
     public static func makeConfiguration(
         messageHandler: WKScriptMessageHandler? = nil,
-        channelName: String = "editorBridge",
+        channelName: String = "bridge",
         schemeHandlers: [(String, WKURLSchemeHandler)] = []
     ) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()

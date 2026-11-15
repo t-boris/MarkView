@@ -789,30 +789,49 @@ final class ArchitectureStore: ObservableObject {
     private func xrayCall(_ request: CLICompletion.Request, root: URL, db: SemanticDatabase?,
                           call: Int, fresh: Bool = false, trackProgress: Bool = true,
                           accept: (([String: Any]) -> Bool)? = nil) async throws -> [String: Any] {
-        var request = request
-        request.model = request.xrayModel
-        request.effort = "low"
+        var prepared = request
+        prepared.model = request.xrayModel
+        prepared.effort = "low"
         let cache = answerCache(root)
-        let file = Self.answerFile(for: request, in: cache)
+        let file = Self.answerFile(for: prepared, in: cache)
         let usable = { (object: [String: Any]) in !object.isEmpty && (accept?(object) ?? true) }
         if !fresh, let data = try? Data(contentsOf: file),
            let cached = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], usable(cached) {
             return cached
         }
-        var object: [String: Any] = [:]
-        for _ in 0..<(accept == nil ? 1 : 2) {
-            let result = try await CLICompletion.run(
-                request, onActivity: trackProgress ? activityHandler(root: root, call: call) : nil)
-            result.record(in: db)
-            object = result.structured as? [String: Any] ?? [:]
-            guard usable(object) else { continue }
+
+        let opName = prepared.label.isEmpty ? "xray" : prepared.label
+        let progressHandler = trackProgress ? activityHandler(root: root, call: call) : nil
+        let operation = AIOperation<CLICompletion.Request, AIRawJSONObject>(
+            name: opName,
+            maxRepairAttempts: accept == nil ? 0 : 1,
+            buildRequest: { $0 },
+            validate: { _, decoded in
+                guard usable(decoded.dictionary) else {
+                    throw AIOperationError.validationFailed(
+                        operation: opName,
+                        reason: "Response did not contain required fields"
+                    )
+                }
+            },
+            runner: { [db] req, _ in
+                let result = try await CLICompletion.run(req, onActivity: progressHandler)
+                await MainActor.run { result.record(in: db) }
+                return result
+            }
+        )
+
+        do {
+            let (decoded, _) = try await operation.execute(prepared)
+            let object = decoded.dictionary
             if let data = try? JSONSerialization.data(withJSONObject: object) {
                 try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
                 try? data.write(to: file, options: .atomic)
             }
-            break
+            return object
+        } catch is AIOperationError {
+            return [:]
         }
-        return object
     }
 
     /// Where the answer to `request` is cached: one key for every X-Ray call, from the
