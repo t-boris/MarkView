@@ -78,6 +78,7 @@ final class Page {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(folder, forURLScheme: EditorFolder.scheme)
         config.userContentController.add(bridge, name: "bridge")
+        config.userContentController.addUserScript(try! BridgeContract(contentsOf: URL(fileURLWithPath: editor + "/js/bridge-contract.json")).userScript)  // the page gets the bridge contract from the app (AR-28)
         config.userContentController.addUserScript(WKUserScript(source: EditorWindowPrefs.script(values: own), injectionTime: .atDocumentStart, forMainFrameOnly: true))
         if let nonce {
             config.userContentController.addUserScript(WKUserScript(source: EditorPage.nonceScript(nonce), injectionTime: .atDocumentStart, forMainFrameOnly: true))

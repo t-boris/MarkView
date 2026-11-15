@@ -14,4 +14,4 @@ swiftc -o "$out/ui-studio-web-harness" Packages/MarkViewCore/Sources/MarkViewCor
   MarkView/Models/UIStudio/UIStudioPolicy.swift MarkView/Models/UIStudio/UIStudioGateway.swift MarkView/Models/UIStudio/UIStudioGatewayStreams.swift \
   MarkView/Models/UIStudio/UIStudioGraphQL.swift MarkView/Models/UIStudio/UIStudioChannels.swift MarkView/Models/UIStudio/UIStudioEnvironmentMap.swift \
   MarkView/Views/UIStudio/UIStudioPreviewHost.swift "$out/main.swift"
-"$out/ui-studio-web-harness" MarkView/Resources/Editor/js/markview-ui-studio.js
+"$out/ui-studio-web-harness" MarkView/Resources/Editor/js

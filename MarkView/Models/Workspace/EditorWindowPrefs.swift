@@ -41,7 +41,7 @@ enum EditorWindowPrefs {
             write.call(this, key, value);
             if (!mine(this, key)) return;
             own[key] = String(value);
-            try { window.webkit.messageHandlers.bridge.postMessage({ type: 'editorWindowPref', payload: { key: key, value: own[key] } }); } catch (e) {}
+            try { window.mvBridge.send('editorWindowPref', { key: key, value: own[key] }, 'bridge'); } catch (e) { console.error('[bridge] editorWindowPref was not sent: ' + e); }
           };
         })();
         """

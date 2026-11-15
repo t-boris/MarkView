@@ -1093,7 +1093,7 @@
         .code-heat-view { position: absolute; left: 0; right: 0; border: 1px solid var(--text-secondary); border-radius: 2px; opacity: .55; pointer-events: none; }
         .code-main.with-heat .cm-editor { margin-right: 10px; }
 
-        /* Architecture tab (markview-architecture.js) */
+        /* Architecture tab (markview-architecture-*.js) */
         .arch-container { display: none; flex: 1; min-height: 0; min-width: 0; overflow: hidden; flex-direction: column; background: var(--bg-primary); color: var(--text-primary); }
         .arch-container.visible { display: flex; }
         .arch-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border-color); font-size: calc(11px * var(--ui-scale, 1)); flex-wrap: wrap; }
@@ -1419,7 +1419,7 @@
             <div class="code-container" id="code-container"></div>
             <div class="data-container" id="data-container"></div>
 
-            <!-- Architecture tab (markview-architecture.js + cytoscape/elk) -->
+            <!-- Architecture tab (markview-architecture-*.js + cytoscape/elk) -->
             <div class="arch-container" id="arch-container">
                 <div class="arch-toolbar">
                     <div class="arch-seg" role="tablist">
@@ -1647,15 +1647,25 @@
          after everything that defines or wraps them. -->
     <script src="js/markview-panels.js"></script>
     <script src="js/markview-code.js"></script>
-    <script src="js/markview-architecture.js"></script>
+    <script src="js/markview-architecture-model.js"></script>
+    <script src="js/markview-architecture-graph.js"></script>
+    <script src="js/markview-architecture-panels.js"></script>
+    <script src="js/markview-architecture-details.js"></script>
+    <script src="js/markview-architecture-toolbar.js"></script>
     <script src="js/markview-diagram-viewer.js"></script>
     <script src="js/markview-d3-mermaid.js"></script>
     <!-- markview-data.js wraps setContent / setStructuredContent / setCodeContent: load after them. -->
     <script src="js/markview-data.js"></script>
     <!-- The research map (type: research-map documents) also wraps setContent / the entry points of the other views and
-         switchToSource / switchToPreview / the mode toggles: load it after markview-data.js. The layout engine comes first. -->
+         switchToSource / switchToPreview / the mode toggles: load it after markview-data.js. The layout engine comes first, then the
+         six parts of the map in order (they share window.MVResearchMapView). -->
     <script src="js/markview-research-map-layout.js"></script>
-    <script src="js/markview-research-map.js"></script>
+    <script src="js/markview-research-map-core.js"></script>
+    <script src="js/markview-research-map-chrome.js"></script>
+    <script src="js/markview-research-map-tree.js"></script>
+    <script src="js/markview-research-map-viewport.js"></script>
+    <script src="js/markview-research-map-panel.js"></script>
+    <script src="js/markview-research-map-entry.js"></script>
     <script src="js/markview-init.js"></script>
 </body>
 </html>

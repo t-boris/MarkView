@@ -237,12 +237,12 @@ func waitUntil(_ timeout: TimeInterval, _ condition: () -> Bool) async -> Bool {
 @MainActor
 func run() async {
     guard let runtime = CommandLine.arguments.dropFirst().first else {
-        print("usage: ui-studio-session-harness <markview-ui-studio.js>")
+        print("usage: ui-studio-session-harness <Editor/js folder>")
         exit(2)
     }
     StudioSession.expectedStateTimeout = 1
-    StudioSession.runtimeURL = URL(fileURLWithPath: runtime)
-    StudioSession.nodePreloadURL = URL(fileURLWithPath: runtime).deletingLastPathComponent().appendingPathComponent("markview-ui-studio-node.cjs")
+    StudioSession.runtimeFolder = URL(fileURLWithPath: runtime)
+    StudioSession.nodePreloadURL = URL(fileURLWithPath: runtime).appendingPathComponent("markview-ui-studio-node.cjs")
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-session-\(UUID().uuidString)").resolvingSymlinksInPath()
     let web = root.appendingPathComponent("web")

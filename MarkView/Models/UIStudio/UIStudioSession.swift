@@ -265,9 +265,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// The debounced automatic repair waiting to look at the page.
     var autoRepairTask: Task<Void, Never>?
 
-    /// The page runtime, from the editor bundle (overridable for tests outside the app).
-    static var runtimeURL = Bundle.main.url(forResource: "markview-ui-studio", withExtension: "js", subdirectory: "Editor/js")
-    private static var runtimeSource: String? { runtimeURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } }
+    /// The folder with the page runtime's parts (`StudioRuntime.parts`), from the editor bundle (overridable for tests outside the app).
+    static var runtimeFolder = Bundle.main.url(forResource: StudioRuntime.parts[0], withExtension: nil, subdirectory: "Editor/js")?.deletingLastPathComponent()
+    private static var runtimeSource: String? { runtimeFolder.flatMap(StudioRuntime.source(in:)) }
 
     init(root: URL) {
         self.root = root.standardizedFileURL

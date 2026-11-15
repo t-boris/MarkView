@@ -9,5 +9,5 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 mkdir "$out/web"
 cp tools/tests/ResearchMapWebTests.swift "$out/web/main.swift"
-swiftc -O -o "$out/research-map-web-tests" "$out/web/main.swift"
+swiftc -O -o "$out/research-map-web-tests" MarkView/Bridge/TypedWebBridge.swift "$out/web/main.swift"
 "$out/research-map-web-tests" "$PWD/MarkView/Resources/Editor"

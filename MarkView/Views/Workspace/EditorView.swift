@@ -20,7 +20,7 @@ struct EditorView: NSViewRepresentable {
         // Set up script message handler wrapped in WeakScriptMessageHandler (`AR-27`)
         // to avoid WKUserContentController retaining Coordinator -> WebView cycles.
         let bridge = context.coordinator.bridge
-        userController.add(WeakScriptMessageHandler(bridge), name: "bridge")
+        userController.add(WeakScriptMessageHandler(bridge.messages), name: "bridge")
 
         config.userContentController = userController
         #if DEBUG
@@ -261,6 +261,8 @@ struct EditorView: NSViewRepresentable {
                 forMainFrameOnly: true
             )
             webView.configuration.userContentController.removeAllUserScripts()
+            // The contract goes in first: `mvBridge.send` validates every message against it (AR-28).
+            webView.configuration.userContentController.addUserScript(bridge.messages.contract.userScript)
             webView.configuration.userContentController.addUserScript(prefsScript)
             if let nonce = prepared.nonce {
                 webView.configuration.userContentController.addUserScript(WKUserScript(
@@ -929,21 +931,9 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         }
     }
 
-    func bridge(_ bridge: WebViewBridge, didChangeScrollPosition position: CGFloat) {
-        Task { @MainActor in
-            self.parent.workspaceManager.updateActiveTabScrollPosition(position)
-        }
-    }
-
     func bridge(_ bridge: WebViewBridge, didReceiveBlocksDelta delta: BlocksDelta) {
         Task { @MainActor in
             self.parent.workspaceManager.handleBlocksDelta(delta)
-        }
-    }
-
-    func bridge(_ bridge: WebViewBridge, didChangeCursorBlock blockId: String) {
-        Task { @MainActor in
-            self.parent.workspaceManager.handleCursorBlockChange(blockId)
         }
     }
 

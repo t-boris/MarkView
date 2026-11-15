@@ -200,6 +200,34 @@ try:
           "a new view that takes the whole WorkspaceManager fails")
     check("Tab.swift" not in out, "@ObservedObject and other environment objects are not counted")
 
+    # --- bridge-no-bypass
+    root = fresh()
+    write(root, "MarkView/Resources/Editor/js/mv-kit.js", "webkit.messageHandlers[name].postMessage(message);\n")
+    write(root, "MarkView/Resources/Editor/js/markview-ui-studio-core.js", "var handlers = window.webkit.messageHandlers;\n")
+    write(root, "MarkView/Resources/Editor/js/markview-note.js", "// talks to webkit.messageHandlers.bridge only in this comment\nmvBridge.send('ready', {}, 'bridge');\n")
+    code, out = run(root)
+    check(code == 0 and "bridge-no-bypass" in out, "the one sender, the other host and a comment do not count as a bypass")
+    write(root, "MarkView/Resources/Editor/js/markview-bad.js", "ok();\nwindow.webkit.messageHandlers.bridge.postMessage({ type: 'x' });\n")
+    write(root, "MarkView/Models/Workspace/EditorWindowPrefs.swift", "let s = \"window.webkit.messageHandlers.bridge.postMessage({})\"\n")
+    write(root, "MarkView/Bridge/WebViewBridge.swift", "switch type {\n    case \"ready\":\n        break\n// case \"ignored\":\n}\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[bridge-no-bypass] MarkView/Resources/Editor/js/markview-bad.js:2" in out
+          and "[bridge-no-bypass] MarkView/Models/Workspace/EditorWindowPrefs.swift:1" in out
+          and "[bridge-no-bypass] MarkView/Bridge/WebViewBridge.swift:2" in out and out.count("[bridge-no-bypass]") == 3,
+          "a direct messageHandlers call in a page script or in EditorWindowPrefs, and a string case in WebViewBridge, fail with file and line")
+
+    # --- no-private-escape
+    root = fresh()
+    write(root, "MarkView/Resources/Editor/js/mv-kit.js", "var table = { '&': '&amp;' };\n")
+    write(root, "MarkView/Resources/Editor/js/markview-iframe.js", "// mvkit-exempt: runs in a document without mv-kit.js\nfunction e(s) {\n    return s.replace(/&/g, '&amp;');\n}\n")
+    code, out = run(root)
+    check(code == 0, "mv-kit.js and a line with an exemption note above it are not private escaping")
+    write(root, "MarkView/Resources/Editor/js/markview-bad.js", "ok();\nfunction esc(s) { return s.replace(/&/g, '&amp;'); }\n")
+    code, out = run(root)
+    check(code == 1 and "[no-private-escape] MarkView/Resources/Editor/js/markview-bad.js:2" in out and out.count("[no-private-escape]") == 1,
+          "a private HTML escape in a page script fails with file and line")
+
     # --- lists
     root = fresh()
     (root / "tools/lint/process-allowlist.txt").unlink()

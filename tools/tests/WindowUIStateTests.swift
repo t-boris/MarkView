@@ -109,7 +109,6 @@ do {
     check(script.contains("\"markview-font-size\":\"16\""), "the window's text size starts the page")
     check(!script.contains("markview-other\":"), "a value for a key the window does not keep is not passed to the page")
     check(!script.contains("</script>"), "nothing in the script can end the script element")
-    check(script.contains("type: 'editorWindowPref'"), "the page tells the app when it saves one of the choices")
 }
 
 // MARK: Excluded folders belong to the project
@@ -203,13 +202,18 @@ final class PageMessages: NSObject, WKScriptMessageHandler {
 
 @MainActor func pageChecks() {
     _ = NSApplication.shared
+    let editor = CommandLine.arguments[1]
+    let contract = try! BridgeContract(contentsOf: URL(fileURLWithPath: editor + "/js/bridge-contract.json"))
+    let mvKit = (try! String(contentsOfFile: editor + "/js/mv-kit.js", encoding: .utf8)).replacingOccurrences(of: "</", with: "<\\/")
     var keep: [WKWebView] = []
     func page(own: [String: String]) -> (WKWebView, PageMessages) {
         let messages = PageMessages()
         let config = WKWebViewConfiguration()
         config.userContentController.add(messages, name: "bridge")
+        // The page sends through mvBridge (mv-kit.js) with the contract the app gives it, as the editor does (AR-28).
+        config.userContentController.addUserScript(contract.userScript)
         let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 100, height: 100), configuration: config)
-        web.loadHTMLString("<html><head><script>\(EditorWindowPrefs.script(values: own))</script></head><body>x</body></html>",
+        web.loadHTMLString("<html><head><script>\(mvKit)</script><script>\(EditorWindowPrefs.script(values: own))</script></head><body>x</body></html>",
                            baseURL: URL(string: "https://markview.test/"))
         let deadline = Date().addingTimeInterval(10)
         while web.isLoading && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }

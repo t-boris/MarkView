@@ -120,62 +120,176 @@
         };
     }
 
-    // Typed JS <-> Swift bridge registry (AR-28)
-    var handlers = Object.create(null);
-    var knownOutboundTypes = {
-        ready: true,
-        contentChanged: true,
-        headingsExtracted: true,
-        scrollPosition: true,
-        scrollOffset: true,
-        blocksChanged: true,
-        cursorInBlock: true,
-        linkClicked: true,
-        selectionAction: true,
-        translateDocument: true,
-        structuredSaved: true,
-        structuredRevert: true,
-        dictationToggle: true,
-        dictationSelectLanguage: true,
-        insightAction: true,
-        codeAction: true,
-        researchMapAction: true,
-        architectureAction: true,
-        editorFontSize: true,
-        jsError: true
-    };
+    // Typed JS -> Swift messages (AR-28). The app gives each page the one contract (Editor/js/bridge-contract.json) as
+    // window.mvBridgeContract before any script runs; `send` checks a message against it and refuses what the app would refuse:
+    // a channel or type that is not declared, a missing or mistyped field. A refusal is logged to the console with the type and
+    // field names (never the values) and nothing is posted. The Swift side (TypedWebBridge) validates the same declaration again.
+    var BRIDGE_KINDS = { string: 1, int: 1, number: 1, boolean: 1, object: 1, array: 1, any: 1 };
+    var UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    var compiledContract = null;
+    var compiledFrom = null;
+    var warnedNoContract = false;
+
+    // A spec is a type name (a primitive or a definition), optionally ending in `?`, or an object with `type` and its options.
+    function compileSpec(raw, definitions, depth) {
+        if (depth > 8) throw new Error('definitions nest too deep');
+        var options = {};
+        var typeName;
+        var optional = false;
+        if (typeof raw === 'string') {
+            typeName = raw;
+        } else if (raw && typeof raw === 'object' && typeof raw.type === 'string') {
+            typeName = raw.type;
+            options = raw;
+            optional = options.optional === true;
+        } else {
+            throw new Error('not a type');
+        }
+        if (typeName.charAt(typeName.length - 1) === '?') {
+            optional = true;
+            typeName = typeName.slice(0, -1);
+        }
+        if (!BRIDGE_KINDS[typeName]) {
+            if (!definitions || !definitions[typeName]) throw new Error('unknown type ' + typeName);
+            var resolved = compileSpec(definitions[typeName], definitions, depth + 1);
+            resolved.optional = optional || resolved.optional;
+            return resolved;
+        }
+        var spec = {
+            kind: typeName,
+            optional: optional,
+            nonEmpty: options.nonEmpty === true,
+            min: typeof options.min === 'number' ? options.min : null,
+            max: typeof options.max === 'number' ? options.max : null,
+            maxItems: typeof options.maxItems === 'number' ? options.maxItems : null,
+            allowed: null,
+            isUUID: options.format === 'uuid',
+            fields: null,
+            items: null
+        };
+        if (Array.isArray(options.enum)) {
+            spec.allowed = Object.create(null);
+            options.enum.forEach(function(value) { spec.allowed[value] = true; });
+        }
+        if (options.fields) spec.fields = compileFields(options.fields, definitions);
+        if (options.items !== undefined) spec.items = compileSpec(options.items, definitions, depth + 1);
+        return spec;
+    }
+
+    function compileFields(fields, definitions) {
+        var compiled = {};
+        Object.keys(fields).forEach(function(name) { compiled[name] = compileSpec(fields[name], definitions, 0); });
+        return compiled;
+    }
+
+    function compileContract(contract) {
+        var channels = Object.create(null);
+        var definitions = contract.definitions || {};
+        Object.keys(contract.channels).forEach(function(channelName) {
+            var messages = Object.create(null);
+            var declared = contract.channels[channelName].messages;
+            Object.keys(declared).forEach(function(type) {
+                var entry = declared[type];
+                var payload = entry.fields
+                    ? { kind: 'object', optional: false, fields: compileFields(entry.fields, definitions) }
+                    : { kind: 'array', optional: false, items: compileSpec(entry.items, definitions, 0) };
+                messages[type] = { payload: payload, mainFrameOnly: entry.mainFrameOnly === true };
+            });
+            channels[channelName] = messages;
+        });
+        return channels;
+    }
+
+    function contractChannels() {
+        var contract = global.mvBridgeContract;
+        if (!contract || typeof contract !== 'object' || !contract.channels) return null;
+        if (compiledFrom !== contract) {
+            compiledContract = compileContract(contract);
+            compiledFrom = contract;
+        }
+        return compiledContract;
+    }
+
+    // What is wrong with `value` against `spec`, or ''. Names the field and the rule, never the value.
+    function bridgeProblem(spec, value, path) {
+        if (value === undefined || value === null) return spec.optional ? '' : path + ' is missing';
+        switch (spec.kind) {
+            case 'any':
+                return '';
+            case 'string':
+                if (typeof value !== 'string') return path + ' is not a string';
+                if (spec.nonEmpty && value.length === 0) return path + ' is empty';
+                if (spec.allowed && spec.allowed[value] !== true) return path + ' is not a declared value';
+                if (spec.isUUID && !UUID_PATTERN.test(value)) return path + ' is not a UUID';
+                return '';
+            case 'int':
+            case 'number':
+                if (typeof value !== 'number') return path + ' is not a ' + (spec.kind === 'int' ? 'whole number' : 'number');
+                if (!isFinite(value)) return path + ' is not finite';
+                if (spec.kind === 'int' && (Math.floor(value) !== value || Math.abs(value) > 9007199254740992)) return path + ' is not a whole number';
+                if (spec.min !== null && value < spec.min) return path + ' is below its minimum';
+                if (spec.max !== null && value > spec.max) return path + ' is above its maximum';
+                return '';
+            case 'boolean':
+                return typeof value === 'boolean' ? '' : path + ' is not a boolean';
+            case 'object':
+                if (typeof value !== 'object' || Array.isArray(value)) return path + ' is not an object';
+                if (spec.fields) {
+                    var names = Object.keys(spec.fields);
+                    for (var i = 0; i < names.length; i++) {
+                        var problem = bridgeProblem(spec.fields[names[i]], value[names[i]], path + '.' + names[i]);
+                        if (problem) return problem;
+                    }
+                }
+                return '';
+            case 'array':
+                if (!Array.isArray(value)) return path + ' is not an array';
+                if (spec.maxItems !== null && value.length > spec.maxItems) return path + ' has too many items';
+                if (spec.items) {
+                    for (var j = 0; j < value.length; j++) {
+                        var itemProblem = bridgeProblem(spec.items, value[j], path + '[' + j + ']');
+                        if (itemProblem) return itemProblem;
+                    }
+                }
+                return '';
+        }
+        return path + ' has an unknown type';
+    }
+
+    // The reason `send` would refuse this message, or ''.
+    function outboundProblem(channel, type, payload) {
+        var channels = contractChannels();
+        if (!channels) return 'no bridge contract on this page';
+        var messages = channels[channel];
+        if (!messages) return 'channel ' + channel + ' is not in the contract';
+        var message = messages[String(type)];
+        if (!message) return channel + '/' + String(type) + ' is not in the contract';
+        if (payload === undefined && message.payload.kind === 'object') payload = {};
+        var problem = bridgeProblem(message.payload, payload, 'payload');
+        return problem ? channel + '/' + type + ': ' + problem : '';
+    }
 
     var mvBridge = {
-        register: function(name, fn) {
-            if (typeof name !== 'string' || typeof fn !== 'function') return;
-            handlers[name] = fn;
-            if (typeof global[name] !== 'function') {
-                global[name] = fn;
-            }
-        },
-        dispatch: function(name, args) {
-            var fn = handlers[name] || global[name];
-            if (typeof fn !== 'function') return undefined;
-            return fn.apply(global, Array.isArray(args) ? args : []);
-        },
+        // Posts one message to the app. Returns false when the message was refused or the page has no app to send it to.
         send: function(type, payload, channel) {
-            var handlerName = channel || 'bridge';
-            if (typeof type !== 'string' || !type) return false;
-            if (global.webkit && global.webkit.messageHandlers && global.webkit.messageHandlers[handlerName]) {
-                global.webkit.messageHandlers[handlerName].postMessage({
-                    type: type,
-                    payload: payload !== undefined ? payload : {},
-                    doc: global.mvDocumentId || ''
-                });
-                return true;
+            var name = channel || 'bridge';
+            var problem = outboundProblem(name, type, payload);
+            if (problem) {
+                if (problem === 'no bridge contract on this page') {
+                    if (warnedNoContract) return false;
+                    warnedNoContract = true;
+                }
+                if (global.console && global.console.error) global.console.error('[mvBridge] refused: ' + problem);
+                return false;
             }
-            return false;
-        },
-        isKnownType: function(type) {
-            return Boolean(knownOutboundTypes[type]);
-        },
-        registeredNames: function() {
-            return Object.keys(handlers);
+            var handler = global.webkit && global.webkit.messageHandlers && global.webkit.messageHandlers[name];
+            if (!handler) return false;
+            handler.postMessage({
+                type: type,
+                payload: payload !== undefined ? payload : {},
+                doc: global.mvDocumentId || ''
+            });
+            return true;
         }
     };
 

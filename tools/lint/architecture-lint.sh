@@ -9,6 +9,11 @@
 #                        MarkView.xcodeproj/project.pbxproj, and every Swift file the project references exists on disk
 #   semantic-database-actor  MarkView/Models/Insight/SemanticDatabase.swift declares `actor SemanticDatabase` and no @MainActor, so
 #                        none of its sqlite3 calls can run on the main thread (AR-37)
+#   bridge-no-bypass     (AR-28) the editor page's scripts send through mvBridge.send only: no `messageHandlers` in
+#                        Editor/js/*.js (except mv-kit.js, the one sender, and markview-ui-studio-*.js, a different host) or in
+#                        EditorWindowPrefs.swift, and no string `case "..."` in Bridge/WebViewBridge.swift (handlers are registered)
+#   no-private-escape    (AR-29) no private HTML escaping in Editor/js/*.js: every `&amp;` literal outside mv-kit.js (mvKit.escapeHtml and
+#                        escapeAttr are the one implementation) needs an `mvkit-exempt:` note within three lines above it
 # Ratchets: a count that may fall and never rise. Today's sites are listed per file in an allow-list; a new site or a higher
 # count fails, and so does a lower count that the list does not yet say (run `--tighten`), so that the allowance never has slack.
 #   process              Process() outside Packages/MarkViewCore Subprocess.swift     tools/lint/process-allowlist.txt
@@ -217,8 +222,34 @@ if database.is_file():
         if "@MainActor" in line:
             violations.append(("semantic-database-actor", f"{rel(database)}:{number}: `@MainActor` in the database; its SQLite calls must stay off the main thread"))
 
+# --- bridge-no-bypass
+bridge_senders = {"mv-kit.js"}   # and the UI Studio runtime parts below: a different host with its own handler
+page_files = []
+js_dir = root / "MarkView" / "Resources" / "Editor" / "js"
+if js_dir.is_dir():
+    page_files += sorted(p for p in js_dir.glob("*.js") if p.is_file() and p.name not in bridge_senders and not p.name.startswith("markview-ui-studio-"))
+page_files += [p for p in [root / "MarkView" / "Models" / "Workspace" / "EditorWindowPrefs.swift"] if p.is_file()]
+for path in page_files:
+    for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+        if "messageHandlers" in line and not line.lstrip().startswith(("//", "*", "/*")):
+            violations.append(("bridge-no-bypass", f"{rel(path)}:{number}: talks to `messageHandlers` directly; send through mvBridge.send so the contract is checked"))
+for relative in ("MarkView/Bridge/WebViewBridge.swift",):
+    path = root / relative
+    if path.is_file():
+        for number, line in code_lines(path):
+            if re.match(r'\s*case\s+"', line):
+                violations.append(("bridge-no-bypass", f"{relative}:{number}: a string `case` on a message type; register a typed handler (TypedWebBridge.on) instead"))
+
+# --- no-private-escape
+if js_dir.is_dir():
+    for path in sorted(p for p in js_dir.glob("*.js") if p.is_file() and p.name != "mv-kit.js"):
+        text_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        for index, line in enumerate(text_lines):
+            if "&amp;" in line and not any("mvkit-exempt:" in near for near in text_lines[max(0, index - 3):index + 1]):
+                violations.append(("no-private-escape", f"{rel(path)}:{index + 1}: escapes HTML itself; use window.mvKit.escapeHtml / escapeAttr"))
+
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "bridge-no-bypass", "no-private-escape"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

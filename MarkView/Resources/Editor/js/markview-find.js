@@ -145,7 +145,7 @@
             if (typeof md !== 'undefined') {
                 html = md.render(markdownContent);
             } else {
-                html = '<pre>' + String(markdownContent || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
+                html = '<pre>' + window.mvKit.escapeHtml(markdownContent || '') + '</pre>';
             }
             if (typeof window.sanitizeMarkdownHTML === 'function') {
                 html = window.sanitizeMarkdownHTML(html);

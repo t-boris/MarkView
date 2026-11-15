@@ -13,13 +13,13 @@ final class LiveTotals: @unchecked Sendable {
 func liveRun() async {
     let args = CommandLine.arguments
     guard args.count >= 4 else {
-        print("usage: ui-studio-live-run <markview-ui-studio.js> <project copy> repair|screens|load|review [scenario name]")
+        print("usage: ui-studio-live-run <Editor/js folder> <project copy> repair|screens|load|review [scenario name]")
         exit(2)
     }
-    StudioSession.runtimeURL = URL(fileURLWithPath: args[1])
-    StudioSession.nodePreloadURL = URL(fileURLWithPath: args[1]).deletingLastPathComponent().appendingPathComponent("markview-ui-studio-node.cjs")
+    StudioSession.runtimeFolder = URL(fileURLWithPath: args[1])
+    StudioSession.nodePreloadURL = URL(fileURLWithPath: args[1]).appendingPathComponent("markview-ui-studio-node.cjs")
     // The launcher that serves an Electron app's renderer without Electron, as the app bundle has it.
-    WebAppPreview.webOnlyLauncher = URL(fileURLWithPath: args[1]).deletingLastPathComponent().appendingPathComponent("markview-web-only.mjs")
+    WebAppPreview.webOnlyLauncher = URL(fileURLWithPath: args[1]).appendingPathComponent("markview-web-only.mjs")
     let folder = URL(fileURLWithPath: args[2]).resolvingSymlinksInPath()
     let mode = args[3]
     let scenarioName = args.count > 4 ? args[4] : nil

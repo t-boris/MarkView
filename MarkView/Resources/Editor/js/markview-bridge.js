@@ -23,18 +23,9 @@
         // `window.mvDocumentId` is the id of the tab whose document this page shows. Swift sets it in the
         // same script that loads the document, so a message always names the document it describes, even
         // when the selected tab has changed by the time Swift handles it (BUG-031).
+        // Every message goes through mvBridge.send (mv-kit.js), which checks it against bridge-contract.json (AR-28).
         function sendToSwift(type, payload) {
-            if (window.mvBridge && typeof window.mvBridge.send === 'function') {
-                window.mvBridge.send(type, payload, 'bridge');
-                return;
-            }
-            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.bridge) {
-                window.webkit.messageHandlers.bridge.postMessage({
-                    type: type,
-                    payload: payload,
-                    doc: window.mvDocumentId || ''
-                });
-            }
+            window.mvBridge.send(type, payload, 'bridge');
         }
 
         // ============================================================================

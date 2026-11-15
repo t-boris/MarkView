@@ -3,13 +3,12 @@
 MarkViewThemes.applyFromDocument();
 
 document.addEventListener('DOMContentLoaded', function() {
-    function post(message) {
-        try { window.webkit.messageHandlers.terminal.postMessage(message); } catch (e) { console.log('[terminal]', e); }
-    }
+    // Every message goes through mvBridge.send (mv-kit.js), which checks it against bridge-contract.json (AR-28).
+    function post(type, payload) { window.mvBridge.send(type, payload, 'terminal'); }
     function activateLink(event, uri) {
         if (event.button !== 0 || (term.modes.mouseTrackingMode !== 'none' && !event.metaKey)) return;
         event.preventDefault();
-        post({ type: 'link', url: uri });
+        post('link', { url: uri });
     }
     function hoverLink(event, uri) { screen.title = uri + ' (⌘click to open)'; }
     function leaveLink() { screen.removeAttribute('title'); }
@@ -98,7 +97,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!links.length) { callback(undefined); return; }
         const request = ++linkRequest;
         pendingLinks.set(request, { links: links, callback: callback });
-        post({ type: 'resolveLinks', request: request, paths: links.map(link => link.text) });
+        post('resolveLinks', { request: request, paths: links.map(link => link.text) });
     }});
 
     const host = document.getElementById('term');
@@ -133,22 +132,22 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         if (term.cols !== size.cols || term.rows !== size.rows) {
             size = { cols: term.cols, rows: term.rows };
-            if (ready) post({ type: 'resize', cols: term.cols, rows: term.rows });
+            if (ready) post('resize', { cols: term.cols, rows: term.rows });
         }
         if (!ready) {
             ready = true;
-            post({ type: 'ready', cols: term.cols, rows: term.rows });
+            post('ready', { cols: term.cols, rows: term.rows });
         }
     }
     window.mvRefit = refit;
     new ResizeObserver(refit).observe(host);
     let readOnly = false;
-    term.onData(function(data) { if (!readOnly) post({ type: 'input', data: data }); });
+    term.onData(function(data) { if (!readOnly) post('input', { data: data }); });
     // Shift+Enter: a new line in the prompt, not "send" — a line feed (Ctrl+J), which
     // Claude Code and Codex take as a newline.
     term.attachCustomKeyEventHandler(function(e) {
         if (e.key === 'Enter' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-            if (e.type === 'keydown' && !readOnly) post({ type: 'input', data: '\n' });
+            if (e.type === 'keydown' && !readOnly) post('input', { data: '\n' });
             return false;
         }
         return true;
@@ -160,9 +159,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (text) return;
         e.preventDefault();
         e.stopPropagation();
-        post({ type: 'pasteFiles' });
+        post('pasteFiles', {});
     }, true);
-    term.onBinary(function(data) { if (!readOnly) post({ type: 'input', data: data }); });
+    term.onBinary(function(data) { if (!readOnly) post('input', { data: data }); });
 
     /** Output from the process, base64 (raw bytes: may split UTF-8 sequences). */
     window.mvWrite = function(b64) {

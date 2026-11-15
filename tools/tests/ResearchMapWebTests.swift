@@ -55,6 +55,7 @@ let config = WKWebViewConfiguration()
 config.websiteDataStore = .nonPersistent()
 let bridge = Bridge()
 config.userContentController.add(bridge, name: "bridge")
+config.userContentController.addUserScript(try! BridgeContract(contentsOf: URL(fileURLWithPath: editor + "/js/bridge-contract.json")).userScript)  // the page gets the bridge contract from the app (AR-28)
 // Every uncaught error and rejected promise of the page is recorded from the very start.
 let recorder = WKUserScript(source: """
 window.__errors = [];
