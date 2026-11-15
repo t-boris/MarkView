@@ -1,4 +1,5 @@
 import Foundation
+import MarkViewCore
 
 /// A result shown in the Feature tab: an answer to a contextual action or a chat turn, with
 /// what can be done with it.
@@ -1696,7 +1697,7 @@ final class FeatureAssistant: ObservableObject {
         while FileManager.default.fileExists(atPath: url.path) { url = feature.folder.appendingPathComponent("diagrams/\(name)-\(n).md"); n += 1 }
         let text = "# \(title)\n\n```mermaid\n\(mermaid)\n```\n"
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        return (try? text.write(to: url, atomically: true, encoding: .utf8)).map { url }
+        return (try? AtomicFile.write(text, to: url)).map { url }
     }
 
     // MARK: - Discussion (free-form chat, with decision detection — spec §16, §32)

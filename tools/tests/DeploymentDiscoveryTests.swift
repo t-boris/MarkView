@@ -130,9 +130,6 @@ check(DeploymentEnvironment(id: "a", name: "a", kind: .ssh, host: "-oProxyComman
 check(DeploymentEnvironment(id: "a", name: "a", kind: .ssh, host: "web-1.example.com", user: "deploy").problems.isEmpty, "a normal ssh environment is fine")
 check(DeploymentEnvironment(id: "a", name: "a", kind: .ssh, host: "::1").problems.isEmpty && DeploymentEnvironment.isSafeToken("fe80::1%en0"), "ipv6 fits")
 
-let file = DeploymentsFile(environments: [env])
-check(DeploymentsFile.decode((try? file.encoded()) ?? Data()) == file, "the file round-trips as JSON")
-
 
 // A project that keeps its database in a managed service (as docs write it down) and its servers at a hosting vendor.
 let root2 = FileManager.default.temporaryDirectory.appendingPathComponent("discovery2-\(UUID().uuidString)")

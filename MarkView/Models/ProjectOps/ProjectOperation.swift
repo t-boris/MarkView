@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The team-owned definition in .markview/operations.json. Only the run summary is local.
 struct ProjectOperation: Codable, Identifiable {
@@ -245,7 +248,7 @@ enum ProjectOperationsFile {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(document)
-        try data.write(to: file, options: .atomic)
+        try AtomicFile.write(data, to: file)
     }
 
     /// Reapply one change if a hand edit or git update landed while it was prepared.

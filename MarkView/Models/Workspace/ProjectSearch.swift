@@ -2,6 +2,9 @@ import Foundation
 import AppKit
 import PDFKit
 import SQLite3
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 enum ProjectSearchScope: String {
     case file = "File"
@@ -81,7 +84,7 @@ actor ProjectSearchIndex {
         "readme", "license", "makefile", "dockerfile", "gemfile", ".gitignore", ".editorconfig"
     ]
     static let excludedDirectories: Set<String> = [
-        ".git", ".dde", ".build", ".next", ".venv", ".markview-insight", ".worktrees",
+        ".git", ProjectPaths.localFolderName, ".build", ".next", ".venv", ProjectPaths.insightFolderName, ".worktrees",
         "node_modules", "build", "dist", "coverage", "deriveddata", "venv",
         // Build tool caches (BUG-083): Turborepo's `.turbo` held 8.9 GB of task outputs in one project.
         ".turbo", ".cache", ".parcel-cache", ".svelte-kit", ".nuxt", ".angular"

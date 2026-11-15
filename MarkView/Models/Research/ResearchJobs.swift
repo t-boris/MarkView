@@ -1,5 +1,8 @@
 import Foundation
 import AppKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Settings of New Research: the job timeout (global) and the per-repository web search
 /// opt-out (DEC-011, DEC-012).
@@ -114,7 +117,7 @@ final class ResearchJobs: ObservableObject {
             guard let updated = ResearchDocument.appending(section, to: latest, webQueries: run.webQueries) else {
                 return "\(file.lastPathComponent) has front matter the app cannot rewrite safely (comments?); the follow-up was not saved."
             }
-            do { try Data(updated.utf8).write(to: file, options: .atomic) } catch {
+            do { try AtomicFile.write(Data(updated.utf8), to: file) } catch {
                 return "Could not save the follow-up: \(error.localizedDescription)"
             }
             self.host?.researchDocumentChanged(file, content: updated) { tabText in
@@ -159,7 +162,7 @@ final class ResearchJobs: ObservableObject {
             guard let updated = ResearchDocument.replacing(now, in: latest, with: checked, webQueries: outcome.queries) else {
                 return "\(file.lastPathComponent) has front matter the app cannot rewrite safely (comments?); the comment was not applied."
             }
-            do { try Data(updated.utf8).write(to: file, options: .atomic) } catch {
+            do { try AtomicFile.write(Data(updated.utf8), to: file) } catch {
                 return "Could not save the revision: \(error.localizedDescription)"
             }
             self.host?.researchDocumentChanged(file, content: updated) { tabText in
@@ -409,16 +412,15 @@ enum ResearchScope {
     /// paths. Resolve symlinks at the boundary so a target cannot read outside the workspace.
     /// Runs off the main actor (the caller's task waits for it).
     static func targetFiles(root: URL, targets: [URL]) async -> [String] {
-        let base = root.resolvingSymlinksInPath().standardizedFileURL.path + "/"
         var paths = Set<String>()
         for target in targets {
-            guard target.standardizedFileURL == root.standardizedFileURL || target.resolvingSymlinksInPath().path.hasPrefix(base) else { continue }
+            guard ProjectPaths.contains(target, root: root) else { continue }
             if (try? target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
                 guard let entries = FileManager.default.enumerator(at: target, includingPropertiesForKeys: [.isRegularFileKey],
                     options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { continue }
                 // `nextObject()`: an enumerator's iterator is unavailable in an async function.
                 while let file = entries.nextObject() as? URL {
-                    guard file.resolvingSymlinksInPath().path.hasPrefix(base),
+                    guard ProjectPaths.containsStrictly(file, root: root),
                           (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
                           isText(file), let path = ResearchJobs.relative(file, to: root) else { continue }
                     paths.insert(path)

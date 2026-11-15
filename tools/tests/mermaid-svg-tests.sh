@@ -9,5 +9,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/MermaidSvgWebTests.swift "$out/main.swift"
-swiftc -O -o "$out/mermaid-svg-web-tests" MarkView/Bridge/TypedWebBridge.swift "$out/main.swift"
+swiftc -O -o "$out/mermaid-svg-web-tests" MarkView/Bridge/TypedWebBridge.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift "$out/main.swift"
 "$out/mermaid-svg-web-tests" "${1:-$PWD/MarkView/Resources/Editor}"

@@ -1,6 +1,8 @@
 import AppKit
 import Foundation
-import os
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// What a change to a research map file came to.
 enum ResearchMapChange {
@@ -52,8 +54,6 @@ final class ResearchMapController {
         var json: String
         var content: String?
     }
-
-    private static let log = Logger(subsystem: "com.markview.app", category: "research")
 
     private(set) weak var host: ResearchHost?
     private let project: any ProjectProviding
@@ -115,7 +115,7 @@ final class ResearchMapController {
             return .done(text)
         }
         do {
-            try Data(updated.utf8).write(to: file, options: .atomic)
+            try AtomicFile.write(Data(updated.utf8), to: file)
         } catch {
             return .rejected("The map could not be saved: \(error.localizedDescription)")
         }
@@ -245,7 +245,7 @@ final class ResearchMapController {
         case "open":
             notice = openSource(string("source")) ?? ""
         default:
-            Self.log.debug("unknown research map action \(loggedAction, privacy: .public)")
+            AppLog.workspace.debug("unknown research map action \(loggedAction)")
             return nil
         }
 

@@ -1,0 +1,4 @@
+# String literals that start with `.dde` or `.markview-` outside ProjectPaths (AR-24). `<count> <path>`; a ratchet that only falls.
+# The folders and files MarkView keeps in a project are named once, by ProjectPaths in Packages/MarkViewCore (CoreFiles.swift), with a
+# test per path. Add a location there instead of writing the literal. Prose that merely mentions `.dde/` in a longer sentence is not a
+# path and is not counted.

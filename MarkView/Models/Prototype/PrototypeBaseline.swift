@@ -1,5 +1,8 @@
 import CryptoKit
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// What a prototype made from code remembers about the code it was built from (feature "Prototype and code stay in step", REQ-009, REQ-014).
 ///
@@ -348,7 +351,7 @@ enum PrototypeBaseline {
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        try encoder.encode(record).write(to: target, options: .atomic)
+        try AtomicFile.write(encoder.encode(record), to: target)
     }
 
     /// A review edit makes a new version with the same sources: its baseline is the earlier one, unchanged (REQ-009).

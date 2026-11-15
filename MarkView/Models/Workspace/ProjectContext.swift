@@ -48,7 +48,6 @@ final class ProjectContext: ObservableObject, ProjectProviding {
     private weak var structuralIndexer: SubprocessChild?
     private var treeChanges: AnyCancellable?
 
-    private nonisolated static let logger = Logger(subsystem: "com.markview.app", category: "workspace")
 
     /// `recentFilesURL` is where the recently opened files are kept; the window uses the shared file in Application Support.
     init(recentFilesURL: URL? = nil) {
@@ -101,7 +100,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
         } else {
             base = url.deletingLastPathComponent()
         }
-        return base.appendingPathComponent(".dde/cache", isDirectory: true)
+        return ProjectPaths.cacheFolder(base)
     }
 
     /// Canonical document id for `url` in the project: its path relative to the root (the parent folder for a single-file workspace).
@@ -200,7 +199,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
         fileTree.setRootNode(node)
         fileTree.loadExcludedFolders()
         loadLinkedFolders()
-        Self.logger.debug("Tree loaded: \(node.children?.count ?? 0, privacy: .public) children")
+        AppLog.workspace.debug("Tree loaded: \(node.children?.count ?? 0) children")
         return true
     }
 
@@ -213,7 +212,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
     /// Creates `.dde/` and opens the project's database. False when the window moved on to another folder while it was opened.
     func openDatabase(at url: URL) async throws -> Bool {
         let fm = FileManager.default
-        let ddeRoot = url.appendingPathComponent(".dde")
+        let ddeRoot = ProjectPaths.localFolder(url)
 
         indexingProgress = "Creating workspace structure..."
         try? await Task.sleep(nanoseconds: 100_000_000)
@@ -255,10 +254,10 @@ final class ProjectContext: ObservableObject, ProjectProviding {
                 singleFileSetup = nil
                 // Index this single file: create root module, parse document, index FTS
                 await Self.indexSingleFile(fileURL: fileURL, db: db)
-                Self.logger.debug("Single-file workspace initialized: \(fileName, privacy: .private) → \(dbName, privacy: .private)")
+                AppLog.workspace.debug("Single-file workspace initialized: \(fileName) → \(dbName)")
             } catch {
                 singleFileSetup = nil
-                Self.logger.error("Failed to init single-file workspace: \(String(describing: error), privacy: .private)")
+                AppLog.workspace.error("Failed to init single-file workspace: \(String(describing: error))")
             }
         }
     }
@@ -383,7 +382,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
         }
         tasks.store(forget, for: "forget:" + relativePath)
         objectWillChange.send()
-        Self.logger.debug("Excluded folder: \(relativePath, privacy: .private)")
+        AppLog.workspace.debug("Excluded folder: \(relativePath)")
     }
 
     /// Re-include a previously excluded folder.
@@ -391,7 +390,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
         guard fileTree.includeFolder(relativePath) else { return }
         // Re-index would happen on next Refresh
         objectWillChange.send()
-        Self.logger.debug("Re-included folder: \(relativePath, privacy: .private)")
+        AppLog.workspace.debug("Re-included folder: \(relativePath)")
     }
 
     func isExcluded(_ url: URL) -> Bool {
@@ -437,14 +436,14 @@ final class ProjectContext: ObservableObject, ProjectProviding {
         var results: [URL] = []
         while let url = enumerator.nextObject() as? URL {
             guard url.pathExtension.lowercased() == "md" else { continue }
-            guard !url.path.contains(".dde") else { continue }
+            guard !url.path.contains(ProjectPaths.localFolderName) else { continue }
 
             let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
             // The `==` clause covers the (unlikely) case of the folder URL itself
             // surfacing here; the prefix clause requires a path-separator boundary
             // so a sibling like `/x/foobar/secret.md` cannot pass for `/x/foo`.
             guard resolvedFile == resolvedFolderPath || resolvedFile.hasPrefix(resolvedFolderPrefix) else {
-                Self.logger.debug("Skipped symlink escape: \(url.path, privacy: .private)")
+                AppLog.workspace.debug("Skipped symlink escape: \(url.path)")
                 continue
             }
 
@@ -464,7 +463,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
     func metadataItems() -> [URL] {
         guard let root else { return [] }
         let fm = FileManager.default
-        var items = [root.appendingPathComponent(".dde"), root.appendingPathComponent(".markview-insight")]
+        var items = [ProjectPaths.localFolder(root), ProjectPaths.insightFolder(root)]
             .filter { fm.fileExists(atPath: $0.path) }
         let claude = root.appendingPathComponent(".claude/CLAUDE.md")
         if let text = try? String(contentsOf: claude, encoding: .utf8),
@@ -509,21 +508,18 @@ final class ProjectContext: ObservableObject, ProjectProviding {
         saveRecentFiles()
     }
 
+    private static let recentFilesStore = SchemaVersionedStore<[String]>()
+
     private func loadRecentFiles() {
-        guard let data = try? Data(contentsOf: recentFilesURL) else { return }
-        do {
-            let urls = try JSONDecoder().decode([String].self, from: data)
-            recentFiles = urls.compactMap { URL(fileURLWithPath: $0) }
-        } catch {
-            Self.logger.error("Error loading recent files: \(String(describing: error), privacy: .public)")
-        }
+        let result = Self.recentFilesStore.load(from: recentFilesURL)
+        result.logProblem("RecentFiles")
+        guard let paths = result.value else { return }
+        recentFiles = paths.compactMap { URL(fileURLWithPath: $0) }
     }
 
     private func saveRecentFiles() {
-        let paths = recentFiles.map { $0.path }
-        if let data = try? JSONEncoder().encode(paths) {
-            try? data.write(to: recentFilesURL)
-        }
+        do { try Self.recentFilesStore.save(recentFiles.map { $0.path }, to: recentFilesURL) }
+        catch { AppLog.workspace.error("Could not save the recent files: \(error.localizedDescription)") }
     }
 
     // MARK: - Background folder analysis
@@ -533,7 +529,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
     /// straight to the shared SQLite DB (WAL + busy_timeout); on exit the views that read the database are told to refresh.
     func runStructuralIndex(at url: URL) {
         guard let exePath = Bundle.main.executablePath else {
-            Self.logger.debug("runStructuralIndex: no executablePath")
+            AppLog.index.debug("runStructuralIndex: no executablePath")
             return
         }
 
@@ -553,7 +549,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
                     Task { @MainActor in self?.structuralIndexProgress = "Indexing \(msg) files" }
                 }
             }, onExit: { [weak self] finished, exit in
-                ProjectContext.logger.debug("structural index process exited code=\(exit.status, privacy: .public)")
+                AppLog.index.debug("structural index process exited code=\(exit.status)")
                 Task { @MainActor in
                     guard let self = self else { return }
                     // A newer indexer (folder closed and reopened) owns the footer now.
@@ -563,10 +559,10 @@ final class ProjectContext: ObservableObject, ProjectProviding {
                 }
             })
             structuralIndexer = child
-            Self.logger.debug("structural index process launched pid=\(child.pid, privacy: .public)")
+            AppLog.index.debug("structural index process launched pid=\(child.pid)")
         } catch {
             structuralIndexProgress = nil
-            Self.logger.error("structural index process FAILED to launch: \(String(describing: error), privacy: .public)")
+            AppLog.index.error("structural index process FAILED to launch: \(String(describing: error))")
         }
     }
 
@@ -588,7 +584,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
     /// Index a single markdown file — structural parse + FTS. Works fully in sandbox: no directory scan, content passed directly.
     private static func indexSingleFile(fileURL: URL, db: SemanticDatabase) async {
         guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
-            logger.error("indexSingleFile: cannot read \(fileURL.path, privacy: .private)")
+            AppLog.index.error("indexSingleFile: cannot read \(fileURL.path)")
             return
         }
 
@@ -620,7 +616,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
             }
         }
 
-        logger.debug("indexSingleFile: parsed \(docId, privacy: .private), \(content.count, privacy: .public) chars")
+        AppLog.index.debug("indexSingleFile: parsed \(docId), \(content.count) chars")
     }
 
     private static func fnv1a(_ text: String) -> String {

@@ -1,4 +1,5 @@
 import Foundation
+import MarkViewCore
 
 /// Code navigation across the project without a language server: where a symbol is
 /// defined and where it is used. One `git grep -w` pass finds every line with the
@@ -202,7 +203,7 @@ enum CodeNavigator {
         }
         // -I skips binaries; --untracked includes new files; exclude bundled and generated code.
         let excludes = ["node_modules", "build", "dist", "DerivedData", ".build", "Pods", ".next", "coverage",
-                        ".dde", ".markview-insight"]
+                        ProjectPaths.localFolderName, ProjectPaths.insightFolderName]
             .map { ":(exclude,glob)**/\($0)/**" } + [":(exclude,glob)**/*.min.js", ":(exclude,glob)**/*.map"]
         let arguments = ["git", "-C", root.path, "grep", "-n", "-I", "-w", "-F", "-z", "--untracked",
                          "--max-count", "400", "-e", name, "--", "."] + excludes

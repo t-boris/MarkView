@@ -10,7 +10,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/BackdropRegistryTests.swift "$out/main.swift"
 swiftc -suppress-warnings -module-cache-path /private/tmp/markview-swift-cache -target "$(uname -m)-apple-macos13.0" \
-    MarkView/Models/Appearance/BackdropRegistry.swift MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Appearance/ProjectBackdrop.swift \
+    MarkView/Models/Appearance/BackdropRegistry.swift MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Appearance/ProjectBackdrop.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift \
     MarkView/Views/Appearance/BackdropLayerBuilders.swift MarkView/Views/Appearance/ProjectBackdropLayers.swift MarkView/Views/Appearance/DevBackdropLayers.swift MarkView/Views/Appearance/AtmosphereBackdropLayers.swift \
     "$out/main.swift" -o "$out/backdrop-registry-tests"
 "$out/backdrop-registry-tests"

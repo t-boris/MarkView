@@ -431,11 +431,9 @@ class WorkspaceManager: ObservableObject {
         Self.debugLog("WorkspaceManager init DONE")
     }
 
-    private nonisolated static let workspaceLogger = Logger(subsystem: "com.markview.app", category: "workspace")
-
     /// Write workspace diagnostic message to the unified system log (`AR-24`, `AR-42`).
     nonisolated static func debugLog(_ msg: String) {
-        workspaceLogger.debug("\(msg, privacy: .public)")
+        AppLog.workspace.debug("\(msg)")
     }
 
     func openFolder(_ url: URL, completion: (() -> Void)? = nil) {
@@ -730,7 +728,7 @@ class WorkspaceManager: ObservableObject {
             case .architecture(let scope):
                 // Reopen cached views without triggering new scans/reviews during launch.
                 if let root = rootNode?.url {
-                    var tab = OpenTab(url: root.appendingPathComponent(".markview-restored-xray-" + String(ContentHash.of(scope).prefix(12))),
+                    var tab = OpenTab(url: root.appendingPathComponent(ProjectPaths.placeholderName("restored-xray-" + String(ContentHash.of(scope).prefix(12)))),
                                       content: "", originalContent: "")
                     tab.kind = .architecture(scope: scope)
                     tabsStore.appendTab(tab)
@@ -943,7 +941,7 @@ class WorkspaceManager: ObservableObject {
                                                                 options: [.skipsPackageDescendants])
                 while let url = enumerator?.nextObject() as? URL {
                     let name = url.lastPathComponent
-                    if name == ".git" || name == ".dde" || name == "node_modules" { enumerator?.skipDescendants(); continue }
+                    if name == ".git" || name == ProjectPaths.localFolderName || name == "node_modules" { enumerator?.skipDescendants(); continue }
                     if name.lowercased() == wanted { matches.append(url.standardizedFileURL) }
                 }
                 return WikiLinkResolver.choose(candidates: matches.map(\.path), from: currentFolder)
@@ -980,7 +978,7 @@ class WorkspaceManager: ObservableObject {
         }
 
         guard let target = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
-            NSLog("Canvas file reference not found: \(path)")
+            AppLog.workspace.error("Canvas file reference not found: \(path)")
             return
         }
 
@@ -1264,7 +1262,7 @@ class WorkspaceManager: ObservableObject {
         let tool = AIAssistantPreferences.backend(project: aiProject)
         let engine = TranslationEngine(tool: tool, model: AIAssistantPreferences.model(for: tool, project: aiProject))
         guard CLIToolLocator.resolve(tool) != nil else {
-            NSLog("[DDE] Translation aborted: \(tool.binaryName) not found")
+            AppLog.workspace.error("Translation aborted: \(tool.binaryName) not found")
             return "\(tool.displayName) was not found. Set its path in DDE Settings → AI CLI Tools."
         }
 
@@ -1327,7 +1325,7 @@ class WorkspaceManager: ObservableObject {
             // Structural check, then one stricter retry. This is what keeps
             // tables intact when a small local model reflows them.
             if let candidate = translated, skeleton(of: candidate) != expected {
-                NSLog("[DDE] Translation chunk \(i + 1): structure mismatch, retrying strictly")
+                AppLog.workspace.notice("Translation chunk \(i + 1): structure mismatch, retrying strictly")
                 translated = await translateChunk(chunk.text, targetLang: targetLang, engine: engine,
                                                   strict: true, error: &lastError)
             }
@@ -1352,11 +1350,11 @@ class WorkspaceManager: ObservableObject {
                 ?? "(the model's output did not preserve their structure)"
             result = "> ⚠️ Translation incomplete — section(s) \(list) kept in the original language "
                 + "\(reason).\n\n" + result
-            NSLog("[DDE] Translation: \(failedChunks.count) chunk(s) left untranslated")
+            AppLog.workspace.error("Translation: \(failedChunks.count) chunk(s) left untranslated")
         }
         writeToTab(result)
         project.indexingProgress = nil
-        NSLog("[DDE] Translation complete: \(chunks.count) chunks, engine \(engine.label)")
+        AppLog.workspace.notice("Translation complete: \(chunks.count) chunks, engine \(engine.label)")
         return nil
     }
 
@@ -1400,7 +1398,7 @@ class WorkspaceManager: ObservableObject {
             return normalizeTranslation(result.text)
         } catch {
             lastError = error.localizedDescription
-            NSLog("[DDE] Translation chunk error: \(error.localizedDescription)")
+            AppLog.workspace.error("Translation chunk error: \(error.localizedDescription)")
             return nil
         }
     }
@@ -1447,7 +1445,7 @@ class WorkspaceManager: ObservableObject {
             }
         } catch {
             lastSaveError = "Could not save “\(tab.displayName)”: \(error.localizedDescription)"
-            NSLog("Error saving file: \(error)")
+            AppLog.workspace.error("Error saving file: \(error)")
         }
     }
 
@@ -2208,7 +2206,7 @@ class WorkspaceManager: ObservableObject {
     func openTerminal(in folder: URL, startupCommand: String? = nil, title: String? = nil,
                       activate: Bool = true) -> TerminalSession {
         let session = terminals.makeTabTerminal(in: folder, startupCommand: startupCommand, title: title)
-        var tab = OpenTab(url: folder.appendingPathComponent(".markview-terminal-" + session.id.uuidString),
+        var tab = OpenTab(url: folder.appendingPathComponent(ProjectPaths.placeholderName("terminal-" + session.id.uuidString)),
                           content: "", originalContent: "")
         tab.kind = .terminal(session.id)
         tabsStore.appendTab(tab, activate: activate)
@@ -2245,7 +2243,7 @@ class WorkspaceManager: ObservableObject {
             self?.sendPickedElement(element, screenshot: screenshot, from: session)
         }
         let base = rootNode?.url ?? FileManager.default.temporaryDirectory
-        var tab = OpenTab(url: base.appendingPathComponent(".markview-browser-" + session.id.uuidString),
+        var tab = OpenTab(url: base.appendingPathComponent(ProjectPaths.placeholderName("browser-" + session.id.uuidString)),
                           content: "", originalContent: "")
         tab.kind = .browser(session)
         if activate {
@@ -2497,7 +2495,7 @@ class WorkspaceManager: ObservableObject {
         session.record = { [weak self] result in result.record(in: self?.semanticDatabase) }
         session.languageNote = ActionOutputLanguage.current == ActionOutputLanguage.documentLanguage
             ? "" : "\n\nWrite every label, text and message in the prototype in \(ActionOutputLanguage.current)."
-        var tab = OpenTab(url: session.folder.appendingPathComponent(".markview-prototype-" + session.id.uuidString),
+        var tab = OpenTab(url: session.folder.appendingPathComponent(ProjectPaths.placeholderName("prototype-" + session.id.uuidString)),
                           content: "", originalContent: "")
         tab.kind = .prototype(session)
         layout.workspaceArea = .files
@@ -2851,9 +2849,9 @@ extension WorkspaceManager: CodeXRayHost {
         if let index = openTabs.firstIndex(where: isThisTab) {
             tabsStore.activeTabIndex = index
         } else {
-            let marker = scope.isEmpty ? ".markview-architecture"
-                : scope == TabKind.pullRequestScope ? ".markview-pr-xray"
-                : ".markview-architecture-" + String(ContentHash.of(scope).prefix(12))
+            let marker = ProjectPaths.placeholderName(scope.isEmpty ? "architecture"
+                : scope == TabKind.pullRequestScope ? "pr-xray"
+                : "architecture-" + String(ContentHash.of(scope).prefix(12)))
             var tab = OpenTab(url: root.appendingPathComponent(marker), content: "", originalContent: "")
             tab.kind = .architecture(scope: scope)
             tabsStore.appendTab(tab)

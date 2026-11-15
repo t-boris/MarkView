@@ -48,6 +48,42 @@ check(diskRun.status == .paused && diskRun.steps[1].status == .interrupted && di
 let listed = try CockpitRunStore.loadAll(root: root)
 check(listed.count == 1 && listed[0].id == run.id && listed[0].status == .paused && listed[0].waitingReason.contains("background processes"),
       "listing saved runs warns about interruption and detached processes without resuming")
+// The file of a run is a schema-versioned store (AR-36). The legacy fixture is what the store wrote before the envelope: the run
+// encoded with a plain `JSONEncoder`.
+do {
+    let storeRoot = StoreFixture.folder("cockpit-run-store")
+    defer { try? FileManager.default.removeItem(at: storeRoot) }
+    let file = storeRoot.appendingPathComponent(".dde/cockpit/runs/\(run.id.uuidString).json")
+    try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let legacyBytes = try JSONEncoder().encode(run)
+    try legacyBytes.write(to: file)
+    let upgraded = try CockpitRunStore.load(run.id, root: storeRoot)
+    check(upgraded.results == run.results && upgraded.plan == run.plan && upgraded.status == .paused, "legacy run file: it loads intact")
+    check(StoreFixture.envelope(file) == nil, "legacy run file: loading leaves it as written")
+    try CockpitRunStore.save(run, root: storeRoot)
+    check(StoreFixture.envelope(file)?.schema == 1 && StoreFixture.backups(of: file).isEmpty, "legacy run file: the next save writes the envelope, with no backup")
+    let reloadedRun = try CockpitRunStore.load(run.id, root: storeRoot)
+    check(reloadedRun.results == run.results, "legacy run file: the envelope reloads with the same results")
+    let permissions = (try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber)?.intValue
+    check(permissions == 0o600, "a run file stays private to the user")
+
+    let junk = Data("{ \"plan\": ".utf8)
+    try junk.write(to: file)
+    var failedToLoad = false
+    do { _ = try CockpitRunStore.load(run.id, root: storeRoot) } catch { failedToLoad = true }
+    let listedDamaged = try? CockpitRunStore.loadAll(root: storeRoot)
+    check(failedToLoad && listedDamaged == nil, "damaged run file: it is an error, never an empty run")
+    check(StoreFixture.bytes(file) == junk && StoreFixture.backups(of: file).isEmpty, "damaged run file: loading leaves it as it is")
+    try CockpitRunStore.save(run, root: storeRoot)
+    check(StoreFixture.backups(of: file).count == 1 && StoreFixture.bytes(StoreFixture.backups(of: file)[0]) == junk,
+          "damaged run file: a save keeps the old bytes in a dated backup")
+
+    let future = Data(StoreFixture.newerFile(payload: "{}").utf8)
+    try future.write(to: file)
+    var refused = false
+    do { try CockpitRunStore.save(run, root: storeRoot) } catch SchemaStoreError.newerSchemaVersion { refused = true }
+    check(refused && StoreFixture.bytes(file) == future, "newer run file: a save is refused and the file is untouched")
+}
 var revising = CockpitRun(plan: plan)
 check(revising.start(approval: approved, at: 0), "a revisable run starts")
 var revisedPlan = plan; revisedPlan.goal = "Revised goal"

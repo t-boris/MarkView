@@ -533,7 +533,7 @@ final class ArchitectureStore: ObservableObject {
         guard let data = try? Self.snapshotEncoder.encode(stored) else { return }
         Task.detached(priority: .utility) {
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: file, options: .atomic)
+            try? AtomicFile.write(data, to: file)
         }
     }
 
@@ -546,7 +546,7 @@ final class ArchitectureStore: ObservableObject {
 
     /// Where AI answers for this X-Ray are cached.
     private func answerCache(_ root: URL) -> URL {
-        cacheDirectory ?? root.appendingPathComponent(".dde/cache/xray", isDirectory: true)
+        cacheDirectory ?? ProjectPaths.xrayCacheFolder(root)
     }
 
     private func setStatus(_ text: String?) {
@@ -847,7 +847,7 @@ final class ArchitectureStore: ObservableObject {
             let object = decoded.dictionary
             if let data = try? JSONSerialization.data(withJSONObject: object) {
                 try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
-                try? data.write(to: file, options: .atomic)
+                try? AtomicFile.write(data, to: file)
             }
             return object
         } catch is AIOperationError {
@@ -882,7 +882,7 @@ final class ArchitectureStore: ObservableObject {
         guard let data = try? JSONEncoder().encode(value) else { return }
         Task.detached(priority: .utility) {
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: file, options: .atomic)
+            try? AtomicFile.write(data, to: file)
         }
     }
 
@@ -2042,7 +2042,7 @@ final class ArchitectureStore: ObservableObject {
         let wholeProjectNote: String? = wholeProject.first.map {
             "\n\nThe working directory is one folder of the project \($0.path); the whole project is readable too (an additional directory). Read any file the question names, by its absolute path if given; paths in the answer may be absolute or relative to the working directory."
         }
-        let attachmentFolder = attachments?.isEmpty == false ? root.appendingPathComponent(".dde/understanding/" + token.uuidString) : nil
+        let attachmentFolder = attachments?.isEmpty == false ? ProjectPaths.understandingFolder(root).appendingPathComponent(token.uuidString) : nil
         if let attachmentFolder { understandingAttachmentFolders[id] = attachmentFolder }
         understandingTokens[id] = token
         understandingAnswers[id] = .init(question: filter.criterion)
@@ -2945,7 +2945,7 @@ final class ArchitectureStore: ObservableObject {
         }.value
         guard let text = fetched else { return nil }
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil else { return nil }
+        guard (try? AtomicFile.write(text, to: file)) != nil else { return nil }
         return file
     }
 

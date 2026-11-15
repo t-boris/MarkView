@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Moving and copying files into a folder, as the file tree's drag and drop does.
 /// Never overwrites: a taken name becomes "name 2", "name 3"… A folder is never moved
@@ -17,7 +20,7 @@ enum FileTransfer {
         for raw in sources {
             let source = raw.standardizedFileURL
             let name = source.lastPathComponent
-            if target.path == source.path || target.path.hasPrefix(source.path + "/") {
+            if ProjectPaths.contains(target, root: source) {
                 result.errors.append("“\(name)” can't be \(copy ? "copied" : "moved") into itself.")
                 continue
             }

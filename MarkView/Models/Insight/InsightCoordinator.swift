@@ -1,5 +1,8 @@
 import AppKit
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 import UniformTypeIdentifiers
 
 /// What Recursive Insight needs from the window it runs in: the tab strip that shows a session. The open folder, the project whose
@@ -130,31 +133,29 @@ final class InsightCoordinator {
     /// The iframe finished loading. Logged for diagnostics only: the 10 s load timeout is enforced by the parent JS.
     func didReceiveInsightIframeReady(sessionId: String, nodeId: String) {
         guard session(id: sessionId) != nil else {
-            NSLog("[Insight] didReceiveInsightIframeReady: no session for id %@ (tab closed?)", InsightSession.sanitizeForLog(sessionId))
+            AppLog.insight.notice("didReceiveInsightIframeReady: no session for id \(InsightSession.sanitizeForLog(sessionId)) (tab closed?)")
             return
         }
-        NSLog("[Insight] iframe ready for session %@ node %@", InsightSession.sanitizeForLog(sessionId), InsightSession.sanitizeForLog(nodeId))
+        AppLog.insight.notice("iframe ready for session \(InsightSession.sanitizeForLog(sessionId)) node \(InsightSession.sanitizeForLog(nodeId))")
     }
 
     /// A 🤿 deep-dive control was clicked: `(sessionId, sectionId, topicIndex)`. The section must be in the current node's skeleton
     /// and the index inside its topics; `session.expand` checks again (never trust the page, even after the bridge's schema check).
     func didRequestInsightDeepDive(sessionId: String, sectionId: String, topicIndex: Int) {
         guard let session = session(id: sessionId) else {
-            NSLog("[Insight] didRequestInsightDeepDive: no session for id %@ (tab closed?)", InsightSession.sanitizeForLog(sessionId))
+            AppLog.insight.notice("didRequestInsightDeepDive: no session for id \(InsightSession.sanitizeForLog(sessionId)) (tab closed?)")
             return
         }
         guard let skeleton = session.currentNode()?.skeleton else {
-            NSLog("[Insight] didRequestInsightDeepDive: no skeleton on current node for session %@", InsightSession.sanitizeForLog(sessionId))
+            AppLog.insight.notice("didRequestInsightDeepDive: no skeleton on current node for session \(InsightSession.sanitizeForLog(sessionId))")
             return
         }
         guard let section = skeleton.sections.first(where: { $0.id == sectionId }) else {
-            NSLog("[Insight] didRequestInsightDeepDive: unknown sectionId %@ for session %@",
-                  InsightSession.sanitizeForLog(sectionId), InsightSession.sanitizeForLog(sessionId))
+            AppLog.insight.error("didRequestInsightDeepDive: unknown sectionId \(InsightSession.sanitizeForLog(sectionId)) for session \(InsightSession.sanitizeForLog(sessionId))")
             return
         }
         guard let topics = section.deepDiveTopics, topicIndex >= 0, topicIndex < topics.count else {
-            NSLog("[Insight] didRequestInsightDeepDive: topicIndex %d out of bounds for section %@ (topics: %d)",
-                  topicIndex, InsightSession.sanitizeForLog(sectionId), section.deepDiveTopics?.count ?? 0)
+            AppLog.insight.notice("didRequestInsightDeepDive: topicIndex \(topicIndex) out of bounds for section \(InsightSession.sanitizeForLog(sectionId)) (topics: \(section.deepDiveTopics?.count ?? 0))")
             return
         }
         run("expand", session) { await $0.expand(sectionId: sectionId, topicIndex: topicIndex) }
@@ -164,15 +165,15 @@ final class InsightCoordinator {
     /// session's manifest (a compromised page could forge a click for any id).
     func didRequestInsightBreadcrumb(sessionId: String, nodeId: String) {
         guard let session = session(id: sessionId) else {
-            NSLog("[Insight] didRequestInsightBreadcrumb: no session for id %@ (tab closed?)", InsightSession.sanitizeForLog(sessionId))
+            AppLog.insight.notice("didRequestInsightBreadcrumb: no session for id \(InsightSession.sanitizeForLog(sessionId)) (tab closed?)")
             return
         }
         guard let uuid = UUID(uuidString: nodeId) else {
-            NSLog("[Insight] didRequestInsightBreadcrumb: invalid nodeId %@", InsightSession.sanitizeForLog(nodeId))
+            AppLog.insight.error("didRequestInsightBreadcrumb: invalid nodeId \(InsightSession.sanitizeForLog(nodeId))")
             return
         }
         guard session.nodes[uuid] != nil else {
-            NSLog("[Insight] didRequestInsightBreadcrumb: nodeId %@ not in session manifest", InsightSession.sanitizeForLog(nodeId))
+            AppLog.insight.notice("didRequestInsightBreadcrumb: nodeId \(InsightSession.sanitizeForLog(nodeId)) not in session manifest")
             return
         }
         run("navigate", session) { await $0.navigateTo(nodeId: uuid) }
@@ -181,7 +182,7 @@ final class InsightCoordinator {
     /// The selected tab's session, for the messages that carry no session id (one active session per page in v2).
     private func activeSession(_ message: String) -> InsightSession? {
         guard let session = host?.activeInsightSession else {
-            NSLog("[Insight] %@: no active insight session", message)
+            AppLog.insight.notice("\(message): no active insight session")
             return nil
         }
         return session
@@ -191,7 +192,7 @@ final class InsightCoordinator {
     func didRequestInsightUp() {
         guard let session = activeSession("didRequestInsightUp") else { return }
         guard let parentId = session.currentNode()?.parentId else {
-            NSLog("[Insight] didRequestInsightUp: already at root for session %@", InsightSession.sanitizeForLog(session.id.uuidString))
+            AppLog.insight.notice("didRequestInsightUp: already at root for session \(InsightSession.sanitizeForLog(session.id.uuidString))")
             return
         }
         run("navigate", session) { await $0.navigateTo(nodeId: parentId) }
@@ -241,7 +242,7 @@ final class InsightCoordinator {
     /// The node tree is read here on the main actor before the task starts, so navigation cannot change it while it is walked.
     func exportArchive(sessionId: String) {
         guard let session = session(id: sessionId) else {
-            NSLog("[Insight] exportInsightArchive: no session for id %@", InsightSession.sanitizeForLog(sessionId))
+            AppLog.insight.notice("exportInsightArchive: no session for id \(InsightSession.sanitizeForLog(sessionId))")
             return
         }
 
@@ -279,9 +280,9 @@ final class InsightCoordinator {
                 try InsightArchiveExport.rewriteForStandalone(exportRoot: exportRoot, rootNodeId: rootNodeId, nodeChildMap: nodeChildMap)
                 try await InsightArchiveExporter().bundle(stagingURL: exportRoot, to: destinationURL)
             } catch is CancellationError {
-                NSLog("[Insight] exportInsightArchive: cancelled")
+                AppLog.insight.notice("exportInsightArchive: cancelled")
             } catch InsightArchiveExporterError.cancelled {
-                NSLog("[Insight] exportInsightArchive: cancelled mid-zip")
+                AppLog.insight.notice("exportInsightArchive: cancelled mid-zip")
             } catch {
                 Self.alert("ZIP export failed", InsightSession.sanitizeForLog(error.localizedDescription), style: .warning)
             }

@@ -1,6 +1,9 @@
 import Foundation
 import NaturalLanguage
 import UniformTypeIdentifiers
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// An immutable snapshot: exporting never saves or rewrites a source document.
 struct BookPDFChapter: Identifiable, Codable, Sendable {
@@ -30,7 +33,7 @@ enum BookPDFSource {
     }
     static let maximumBytes = 12 * 1024 * 1024
     static let maximumChapters = 1000
-    private static let ignored = Set([".git", ".dde", "node_modules", ".build", ".DS_Store"])
+    private static let ignored = Set([".git", ProjectPaths.localFolderName, "node_modules", ".build", ".DS_Store"])
     private static let markdown = Set(["md", "markdown", "mdown", "mkd"])
 
     static func collect(_ urls: [URL], drafts: [String: String] = [:]) throws -> Collection {

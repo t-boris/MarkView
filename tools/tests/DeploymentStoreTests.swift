@@ -28,6 +28,69 @@ func check(_ condition: Bool, _ message: String, line: Int = #line) {
     let text = (try? String(contentsOf: root.appendingPathComponent(".dde/deployments.json"), encoding: .utf8)) ?? ""
     check(!text.lowercased().contains("password"), "the file holds no secrets")
 
+    // The file is a schema-versioned store (AR-36): enveloped when saved, a file written before it still loads, a file that cannot
+    // be read is never replaced without a backup, a newer file is never replaced.
+    let legacyFixture = """
+    {
+      "environments" : [
+        {
+          "checks" : [ { "expect" : "", "id" : "uname", "kind" : "command", "target" : "uname -s", "title" : "uname" } ],
+          "cloudCommands" : [],
+          "evidence" : [],
+          "host" : "",
+          "id" : "this-mac",
+          "identityFile" : "",
+          "kind" : "local",
+          "logSources" : [],
+          "name" : "This Mac",
+          "notes" : "kept",
+          "port" : 22,
+          "provider" : "",
+          "user" : ""
+        }
+      ],
+      "version" : 1
+    }
+    """
+    let legacyRoot = StoreFixture.folder("deploy-legacy")
+    defer { try? FileManager.default.removeItem(at: legacyRoot) }
+    let deployFile = legacyRoot.appendingPathComponent(".dde/deployments.json")
+    StoreFixture.write(legacyFixture, to: deployFile)
+    let upgraded = DeploymentStore()
+    upgraded.setRoot(legacyRoot)
+    check(upgraded.environments.map(\.id) == ["this-mac"] && upgraded.environments.first?.notes == "kept" && upgraded.lastError == nil,
+          "legacy file: the environments and their notes load")
+    check(StoreFixture.envelope(deployFile) == nil, "legacy file: it is left as written until a change is saved")
+    upgraded.add(DeploymentEnvironment(id: "", name: "Second", kind: .local))
+    check(StoreFixture.envelope(deployFile)?.schema == 1 && StoreFixture.backups(of: deployFile).isEmpty, "legacy file: the next save writes the envelope, with no backup")
+    let reloaded = DeploymentStore()
+    reloaded.setRoot(legacyRoot)
+    check(reloaded.environments.map(\.id) == ["this-mac", "second"], "legacy file: the envelope reloads with both environments")
+
+    let damagedRoot = StoreFixture.folder("deploy-damaged")
+    defer { try? FileManager.default.removeItem(at: damagedRoot) }
+    let damagedFile = damagedRoot.appendingPathComponent(".dde/deployments.json")
+    StoreFixture.write("{ \"environments\": [ { \"id\": ", to: damagedFile)
+    let damaged = DeploymentStore()
+    damaged.setRoot(damagedRoot)
+    check(damaged.environments.isEmpty && damaged.lastError?.contains("deployments.json") == true, "damaged file: nothing is listed and the problem is shown")
+    check(StoreFixture.bytes(damagedFile) == Data("{ \"environments\": [ { \"id\": ".utf8) && StoreFixture.backups(of: damagedFile).isEmpty,
+          "damaged file: loading leaves it as it is")
+    damaged.add(DeploymentEnvironment(id: "", name: "Fresh", kind: .local))
+    check(StoreFixture.backups(of: damagedFile).count == 1 && StoreFixture.bytes(StoreFixture.backups(of: damagedFile)[0]) == Data("{ \"environments\": [ { \"id\": ".utf8)
+          && StoreFixture.envelope(damagedFile)?.schema == 1, "damaged file: a change keeps the old bytes in a dated backup and writes the new list")
+
+    let newerRoot = StoreFixture.folder("deploy-newer")
+    defer { try? FileManager.default.removeItem(at: newerRoot) }
+    let newerFile = newerRoot.appendingPathComponent(".dde/deployments.json")
+    StoreFixture.write(StoreFixture.newerFile(payload: #"{"environments":[],"future":1}"#), to: newerFile)
+    let newer = DeploymentStore()
+    newer.setRoot(newerRoot)
+    check(newer.environments.isEmpty && newer.lastError?.contains("newer") == true, "newer file: it is not used and the person is told")
+    newer.add(DeploymentEnvironment(id: "", name: "Fresh", kind: .local))
+    check(StoreFixture.bytes(newerFile) == Data(StoreFixture.newerFile(payload: #"{"environments":[],"future":1}"#).utf8) && newer.lastError?.contains("Could not save") == true,
+          "newer file: a change is refused and the file is untouched")
+
     // Looking.
     await store.refresh("this-mac")
     let state = store.states["this-mac"]

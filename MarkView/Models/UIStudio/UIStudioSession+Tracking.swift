@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Change tracking of a UI Studio session (REQ-012, DEC-008). A conversation that changes code or context is one feature,
 /// titled from its first applied change; each applied change is a requirement of it, or a fixed bug report linked to it
@@ -214,9 +217,7 @@ extension StudioSession {
 
     /// `url` relative to the project root, or nil when it is outside it.
     private func trackingPath(_ url: URL) -> String? {
-        let base = root.standardizedFileURL.resolvingSymlinksInPath().path
-        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
-        guard path.hasPrefix(base + "/") else { return nil }
-        return String(path.dropFirst(base.count + 1))
+        guard let relative = ProjectPaths.relativePath(of: url, under: root), !relative.isEmpty else { return nil }
+        return relative
     }
 }

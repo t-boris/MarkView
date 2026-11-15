@@ -1,0 +1,29 @@
+# `.write(to:` / `.write(toFile:` outside AtomicFile (AR-24). `<count> <path>`; a ratchet that only falls. What may stay: a user's own
+# export or download (PDF, picture, HTML export), a scratch file in the temporary folder or a staging folder that is published by one
+# move, a file that must never replace an existing one (`.withoutOverwriting`), and an append-only log. Everything else, every file
+# of app or project state, goes through AtomicFile.write. Run tools/lint/architecture-lint.sh --tighten after converting a site.
+1 MarkView/Bridge/PDFExporter.swift
+1 MarkView/Models/AI/AIAssistants.swift
+1 MarkView/Models/AI/AICallLog.swift
+1 MarkView/Models/Architecture/ArchitectureStore.swift
+2 MarkView/Models/Architecture/UnderstandingAnswer.swift
+1 MarkView/Models/Book/BookPDFExportModel.swift
+1 MarkView/Models/Browser/BrowserSession.swift
+1 MarkView/Models/Deployments/DeploymentStore.swift
+1 MarkView/Models/Lifecycle/BugReportWriter.swift
+1 MarkView/Models/Lifecycle/FeatureStore.swift
+1 MarkView/Models/Lifecycle/LifecycleLog.swift
+2 MarkView/Models/Lifecycle/SpecificationHandoff.swift
+3 MarkView/Models/Prototype/PrototypeAI.swift
+1 MarkView/Models/Prototype/PrototypeHandoffRun.swift
+1 MarkView/Models/Research/ResearchMapImages.swift
+1 MarkView/Models/Research/ResearchMapJobs.swift
+2 MarkView/Models/Research/ResearchMapOutputJobs.swift
+1 MarkView/Models/Terminal/TerminalSession.swift
+5 MarkView/Models/UIStudio/UIStudioChanges.swift
+1 MarkView/Models/UIStudio/UIStudioSession.swift
+1 MarkView/Views/Browser/BrowserTabView.swift
+1 MarkView/Views/Discussion/DiscussionThreadView.swift
+1 MarkView/Views/Git/GitHubViews.swift
+1 MarkView/Views/Lifecycle/IntakeTextEditor.swift
+1 MarkView/Views/QA/QARunReportViews.swift

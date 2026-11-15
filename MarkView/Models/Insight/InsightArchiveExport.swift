@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The file work of exporting a Recursive Insight session as a standalone ZIP (Decision 7): the default file name, the staging
 /// copy of the session's cache, and the rewriting that makes the copied pages navigate in a plain browser without the JS bridge.
@@ -76,7 +79,7 @@ enum InsightArchiveExport {
                 html = html.replacingOccurrences(of: "\"../_assets/", with: "\"_assets/")
                 html = rewriteDeepDiveButtons(in: html, parentNodeId: rootId, nodeChildMap: nodeChildMap, childHrefPrefix: "nodes/")
                 html = rewriteBreadcrumbHrefs(in: html, isRoot: true, rootNodeId: rootId)
-                try html.write(to: exportRoot.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+                try AtomicFile.write(Data(html.utf8), to: exportRoot.appendingPathComponent("index.html"))
             }
         }
 
@@ -88,7 +91,7 @@ enum InsightArchiveExport {
             var html = (try? String(contentsOf: nodeFile, encoding: .utf8)) ?? ""
             html = rewriteDeepDiveButtons(in: html, parentNodeId: nodeId, nodeChildMap: nodeChildMap, childHrefPrefix: "")
             html = rewriteBreadcrumbHrefs(in: html, isRoot: nodeId == rootNodeId, rootNodeId: rootNodeId)
-            try html.write(to: nodeFile, atomically: true, encoding: .utf8)
+            try AtomicFile.write(Data(html.utf8), to: nodeFile)
         }
     }
 

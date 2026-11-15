@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// A context change proposed by the UI Studio assistant (REQ-013, DEC-009): what the view shows — the simulated records,
 /// the test user, per-rule overrides (error, empty, loading, latency), the route, restoration steps that open a dialog or
@@ -515,7 +518,7 @@ enum StudioContextValidator {
     /// files do not count: a context change is saved there, and rules prepared and captures taken meanwhile are kept there.
     static func sameSources(_ a: StudioWorkingSnapshot, _ b: StudioWorkingSnapshot) -> Bool {
         func sources(_ snapshot: StudioWorkingSnapshot) -> [String: String?] {
-            snapshot.files.filter { !$0.key.hasPrefix(".markview/studio/") && !$0.key.hasPrefix(".dde/studio/") }
+            snapshot.files.filter { !$0.key.hasPrefix(".markview/studio/") && !$0.key.hasPrefix(ProjectPaths.studioRelativePath + "/") }
         }
         return a.head == b.head && sources(a) == sources(b) && a.editorBuffers == b.editorBuffers
     }
