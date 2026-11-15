@@ -81,32 +81,7 @@ for s in suites {
 check(missingPaths.isEmpty,
       "FU-07: every script and source path in tools/tests/manifest.json exists on disk (\(missingPaths))")
 
-// 7. AR-20 & AR-23: Models (21 domains) and Views (19 domains) are organized with 0 top-level .swift files and split grab-bag files
-let modelsRoot = root.appendingPathComponent("MarkView/Models")
-let viewsRoot = root.appendingPathComponent("MarkView/Views")
-let looseModels = ((try? fm.contentsOfDirectory(atPath: modelsRoot.path)) ?? []).filter { $0.hasSuffix(".swift") }
-let looseViews = ((try? fm.contentsOfDirectory(atPath: viewsRoot.path)) ?? []).filter { $0.hasSuffix(".swift") }
-let expectedModelDomains = [
-    "AI", "AgentTools", "Appearance", "Architecture", "Book", "Browser", "Cockpit",
-    "Deployments", "Dictation", "Discussion", "Git", "Insight", "Lifecycle",
-    "ProjectOps", "Prototype", "QA", "Remote", "Research", "Terminal", "UIStudio", "Workspace"
-]
-let expectedViewDomains = [
-    "AI", "Appearance", "Architecture", "Book", "Browser", "Cockpit",
-    "Deployments", "Dictation", "Discussion", "Git", "Lifecycle",
-    "ProjectOps", "Prototype", "QA", "Remote", "Research", "Terminal", "UIStudio", "Workspace"
-]
-let modelDirsExist = expectedModelDomains.allSatisfy {
-    var isDir: ObjCBool = false
-    return fm.fileExists(atPath: modelsRoot.appendingPathComponent($0).path, isDirectory: &isDir) && isDir.boolValue
-}
-let viewDirsExist = expectedViewDomains.allSatisfy {
-    var isDir: ObjCBool = false
-    return fm.fileExists(atPath: viewsRoot.appendingPathComponent($0).path, isDirectory: &isDir) && isDir.boolValue
-}
-check(looseModels.isEmpty && looseViews.isEmpty && modelDirsExist && viewDirsExist,
-      "AR-20: MarkView/Models (21 domains) and MarkView/Views (19 domains) have 0 top-level .swift files")
-
+// 7. AR-23: grab-bag files split into single-responsibility files in domain folders
 let splitFilesExist = [
     "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
     "MarkView/Models/Workspace/TaskBag.swift",

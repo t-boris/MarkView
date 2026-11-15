@@ -13,9 +13,8 @@ private func check(_ condition: @autoclosure () -> Bool, _ label: String) {
 }
 
 private func runPhase7WebCITests() {
-    print("Phase 7 — Web Primitives, Bridge & Workflow Assets Tests")
+    print("Phase 7 — Web Primitives & Bridge Tests")
     let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    let fm = FileManager.default
 
     // 1. AR-28 & AR-29: mv-kit.js provides window.mvKit + window.mvBridge and executes runtime helpers
     let mvKitPath = repoRoot.appendingPathComponent("MarkView/Resources/Editor/js/mv-kit.js")
@@ -86,29 +85,6 @@ private func runPhase7WebCITests() {
     } else {
         check(false, "JavaScriptCore context initializes cleanly")
     }
-
-    // 2. HTML entry points and active GitHub workflow files exist; superseded per-feature workflows removed
-    for htmlName in ["index.html", "discussion.html", "book.html", "terminal.html"] {
-        let htmlPath = repoRoot.appendingPathComponent("MarkView/Resources/Editor/\(htmlName)")
-        check(fm.fileExists(atPath: htmlPath.path), "\(htmlName) exists in Resources/Editor/")
-    }
-
-    for wf in ["ci.yml", "build-release.yml", "publish-release.yml", "copilot-cockpit.yml", "remote-workspace.yml"] {
-        let wfPath = repoRoot.appendingPathComponent(".github/workflows/\(wf)")
-        check(fm.fileExists(atPath: wfPath.path), ".github/workflows/\(wf) exists (AR-45)")
-    }
-
-    for removedWf in ["bug-validity.yml", "document-files.yml", "editor-diagrams.yml", "pdf-book.yml", "themes.yml"] {
-        let removedPath = repoRoot.appendingPathComponent(".github/workflows/\(removedWf)")
-        check(!fm.fileExists(atPath: removedPath.path),
-              "Superseded workflow \(removedWf) removed in favor of unified ci.yml (AR-45, DEC-008)")
-    }
-
-    // 3. tasks/todo.md archive rotation exists on disk
-    let todoSrc = (try? String(contentsOf: repoRoot.appendingPathComponent("tasks/todo.md"), encoding: .utf8)) ?? ""
-    let archiveExists = fm.fileExists(atPath: repoRoot.appendingPathComponent("tasks/archive/todo-archive-2026-11.md").path)
-    check(archiveExists && todoSrc.components(separatedBy: "\n").count < 500,
-          "tasks/todo.md rotated into tasks/archive/todo-archive-2026-11.md (AR-49)")
 }
 
 runPhase7WebCITests()
@@ -116,4 +92,4 @@ if failures > 0 {
     print("FAILED: \(failures) check(s)")
     exit(1)
 }
-print("All Phase 7 web & workflow checks passed.")
+print("All Phase 7 web checks passed.")

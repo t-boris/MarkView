@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 176,
+  "suiteCount": 177,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -65,6 +65,14 @@
         "MarkView/Models/Appearance/AppFontScale.swift",
         "tools/tests/AppFontScaleTests.swift",
         "tools/tests/app-font-scale-tests.sh"
+      ]
+    },
+    {
+      "name": "architecture-lint-tests",
+      "script": "tools/tests/architecture-lint-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "tools/lint/architecture-lint.sh"
       ]
     },
     {
@@ -1074,9 +1082,6 @@
       "script": "tools/tests/phase7-web-ci-tests.sh",
       "tier": "pure",
       "sources": [
-        ".github/workflows/ci.yml",
-        ".github/workflows/publish-release.yml",
-        "CLAUDE.md",
         "MarkView/Resources/Editor/js/markview-bridge.js",
         "MarkView/Resources/Editor/js/mv-kit.js",
         "tools/tests/Phase7WebCITests.swift"
