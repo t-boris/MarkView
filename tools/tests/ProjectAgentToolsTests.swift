@@ -54,7 +54,7 @@ check(ProjectAgentTools.guideTopics.contains("workflow-format") && ProjectAgentT
 check(ProjectAgentTools.guide("workflow").contains("workflow-format") && ProjectAgentTools.guide("workflow").contains("markview_get_workflow"), "the feature workflow guide points to the workflow file")
 
 // Every assistant that MarkView can start gets the project tools registered (Connect Agents): the registration names it.
-let assistantsSource = (try? String(contentsOfFile: "MarkView/Models/AI/AIAssistants.swift", encoding: .utf8)) ?? ""
+let assistantsSource = (try? String(contentsOfFile: "MarkView/Models/AI/Providers/CLITool.swift", encoding: .utf8)) ?? ""
 let registrationSource = (try? String(contentsOfFile: "MarkView/Models/Browser/AgentBrowserRegistration.swift", encoding: .utf8)) ?? ""
 let assistantNames: [String] = {
     guard let start = assistantsSource.range(of: "enum CLITool: String, CaseIterable {"), let end = assistantsSource.range(of: "var displayName", range: start.upperBound..<assistantsSource.endIndex) else { return [] }

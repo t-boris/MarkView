@@ -1,14 +1,5 @@
 import Foundation
 
-enum CLITool: String {
-    case claude, codex, antigravity, cline, copilot
-    var usesACP: Bool { self == .copilot || self == .cline }
-    var displayName: String { rawValue }
-    var binaryName: String { rawValue }
-    var loginCommand: String { "login" }
-    func modelArgs(_ model: String?) -> [String] { [] }
-    func additionalFolderArgs(_ folders: [URL]) -> [String] { [] }
-}
 enum AIAssistantPreferences {
     static func backend(project: URL?) -> CLITool { .copilot }
     static func model(for tool: CLITool, project: URL?) -> String? { nil }
@@ -23,7 +14,6 @@ enum CLIToolLocator {
     static func searchDirectories() -> [String] { [] }
     static func subprocessPath(toolPath: String?) -> String { ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin" }
 }
-struct AIModelOption { let id: String; let name: String; let detail: String }
 actor SemanticDatabase {
     func addUsage(inputTokens: Int, outputTokens: Int, costCents: Double) {}
 }

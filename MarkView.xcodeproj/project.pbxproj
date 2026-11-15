@@ -460,6 +460,15 @@
 		09A17E5C789C8522CA39B941 /* TypedWebBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51C33F7988006A528DE872B7 /* TypedWebBridge.swift */; };
 		FF7B7975E6E5BB57226F4446 /* QAPageEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10AB314CA9B3FD3A9A58668 /* QAPageEvidence.swift */; };
 		FF99949FBDA0BB735F226A9B /* QARun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C0F0778AC373BF137EF446E /* QARun.swift */; };
+		E214BB0F603274CB34B904C6 /* AssistantProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47FD117E3B89CF8F4644E36D /* AssistantProvider.swift */; };
+		595704AE086B1FF35FFFE3E5 /* AssistantACP.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0EC2B7C74F5B960CB9E79B7 /* AssistantACP.swift */; };
+		72741F90DD9AA197E5F1572A /* CLITool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43ECB118C66665AF67859B9E /* CLITool.swift */; };
+		8C6A0C17FA47ED5CC0F35838 /* ClaudeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D8B7A04C3640E99F6F0BDDE /* ClaudeProvider.swift */; };
+		D998013CAF7149E26FED3B23 /* CodexProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F182FAF95368EABFB9D3E8 /* CodexProvider.swift */; };
+		F66D949D3E0A85EBEA9D6998 /* ClineProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 567F82E56E9DA02E6569B6EA /* ClineProvider.swift */; };
+		7CF5DA3CE7C5EE1FDF0658C8 /* CopilotProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69FC1C3D0E8793EC31299096 /* CopilotProvider.swift */; };
+		58D34C0375E4198443DE5659 /* AntigravityProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1241E52C30F6483587F0922C /* AntigravityProvider.swift */; };
+		B0458690522BE1E9B6BB5BD4 /* AssistantProviderList.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED74EBF2936E077A4E03BA99 /* AssistantProviderList.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1034,6 +1043,15 @@
 		8481AD7D0786783E89B0C11E /* markview-book-md.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-book-md.js"; sourceTree = "<group>"; };
 		AF4999B5DE274BA1571F8ADA /* markview-terminal.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-terminal.js"; sourceTree = "<group>"; };
 		5D42EFED00836F5D45A63E3C /* mv-kit.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "mv-kit.js"; sourceTree = "<group>"; };
+		47FD117E3B89CF8F4644E36D /* AssistantProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantProvider.swift; sourceTree = "<group>"; };
+		C0EC2B7C74F5B960CB9E79B7 /* AssistantACP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantACP.swift; sourceTree = "<group>"; };
+		43ECB118C66665AF67859B9E /* CLITool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITool.swift; sourceTree = "<group>"; };
+		7D8B7A04C3640E99F6F0BDDE /* ClaudeProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeProvider.swift; sourceTree = "<group>"; };
+		E3F182FAF95368EABFB9D3E8 /* CodexProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexProvider.swift; sourceTree = "<group>"; };
+		567F82E56E9DA02E6569B6EA /* ClineProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClineProvider.swift; sourceTree = "<group>"; };
+		69FC1C3D0E8793EC31299096 /* CopilotProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotProvider.swift; sourceTree = "<group>"; };
+		1241E52C30F6483587F0922C /* AntigravityProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AntigravityProvider.swift; sourceTree = "<group>"; };
+		ED74EBF2936E077A4E03BA99 /* AssistantProviderList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantProviderList.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1113,7 +1131,6 @@
 				A6E0167483A13431C669BD05 /* AIOperation.swift */,
 				1A772D24F7564B57E808520A /* AIPrompts.swift */,
 				A6E0167483A13431C669BCFB /* AIToolRuns.swift */,
-				A6E0167483A13431C669BD12 /* AssistantProviderRegistry.swift */,
 				BDD60B865C8AFD298FC5EB04 /* ClaudeSessionModel.swift */,
 				8617D6996AEA0B711F366A7C /* CLICompletion.swift */,
 				4E5C49BB3F8E4AF05F47765E /* CommandPolicy.swift */,
@@ -1121,6 +1138,7 @@
 				2DDC0BA825074D867C9D7697 /* OutputLanguage.swift */,
 				3C5186158816AE816A500A12 /* ProviderHints.swift */,
 				2813544220B3EBEC33B10F32 /* SystemProbe.swift */,
+				DAFD936599E6497BB1CC0AB4 /* Providers */,
 			);
 			path = AI;
 			sourceTree = "<group>";
@@ -2048,6 +2066,23 @@
 			path = Bridge;
 			sourceTree = "<group>";
 		};
+		DAFD936599E6497BB1CC0AB4 /* Providers */ = {
+			isa = PBXGroup;
+			children = (
+				A6E0167483A13431C669BD12 /* AssistantProviderRegistry.swift */,
+				47FD117E3B89CF8F4644E36D /* AssistantProvider.swift */,
+				C0EC2B7C74F5B960CB9E79B7 /* AssistantACP.swift */,
+				43ECB118C66665AF67859B9E /* CLITool.swift */,
+				7D8B7A04C3640E99F6F0BDDE /* ClaudeProvider.swift */,
+				E3F182FAF95368EABFB9D3E8 /* CodexProvider.swift */,
+				567F82E56E9DA02E6569B6EA /* ClineProvider.swift */,
+				69FC1C3D0E8793EC31299096 /* CopilotProvider.swift */,
+				1241E52C30F6483587F0922C /* AntigravityProvider.swift */,
+				ED74EBF2936E077A4E03BA99 /* AssistantProviderList.swift */,
+			);
+			path = Providers;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -2193,6 +2228,15 @@
 				47B282BD306263A5DE536089 /* ACPAssistant.swift in Sources */,
 				D4F3C35D9679DCE67FDD55E2 /* AIAssistantPickerView.swift in Sources */,
 				436C087D720363F0E8146706 /* AIAssistants.swift in Sources */,
+				B0458690522BE1E9B6BB5BD4 /* AssistantProviderList.swift in Sources */,
+				58D34C0375E4198443DE5659 /* AntigravityProvider.swift in Sources */,
+				7CF5DA3CE7C5EE1FDF0658C8 /* CopilotProvider.swift in Sources */,
+				F66D949D3E0A85EBEA9D6998 /* ClineProvider.swift in Sources */,
+				D998013CAF7149E26FED3B23 /* CodexProvider.swift in Sources */,
+				8C6A0C17FA47ED5CC0F35838 /* ClaudeProvider.swift in Sources */,
+				72741F90DD9AA197E5F1572A /* CLITool.swift in Sources */,
+				595704AE086B1FF35FFFE3E5 /* AssistantACP.swift in Sources */,
+				E214BB0F603274CB34B904C6 /* AssistantProvider.swift in Sources */,
 				45E882A9EAE673E382F7EDC1 /* AICallLog.swift in Sources */,
 				3824EA89779E6F8AD2B05497 /* AIPrompts.swift in Sources */,
 				07044898F5427AD51A50B41F /* AIToolRuns.swift in Sources */,

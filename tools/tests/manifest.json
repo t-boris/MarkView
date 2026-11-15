@@ -13,7 +13,17 @@
         "tools/tests/ACPContinuationTests.swift",
         "tools/tests/CLICompletionTestSupport.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantACP.swift",
+        "MarkView/Models/AI/Providers/AssistantProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
+        "MarkView/Models/AI/Providers/CLITool.swift",
+        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
+        "MarkView/Models/AI/Providers/ClineProvider.swift",
+        "MarkView/Models/AI/Providers/CodexProvider.swift",
+        "MarkView/Models/AI/Providers/CopilotProvider.swift"
       ]
     },
     {
@@ -122,7 +132,17 @@
         "MarkView/Models/AI/AIOperation.swift",
         "tools/tests/BookPDFLiveChecks.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantACP.swift",
+        "MarkView/Models/AI/Providers/AssistantProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
+        "MarkView/Models/AI/Providers/CLITool.swift",
+        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
+        "MarkView/Models/AI/Providers/ClineProvider.swift",
+        "MarkView/Models/AI/Providers/CodexProvider.swift",
+        "MarkView/Models/AI/Providers/CopilotProvider.swift"
       ]
     },
     {
@@ -252,7 +272,17 @@
         "tools/tests/CLICompletionTestSupport.swift",
         "tools/tests/CLICompletionTimeoutTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantACP.swift",
+        "MarkView/Models/AI/Providers/AssistantProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
+        "MarkView/Models/AI/Providers/CLITool.swift",
+        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
+        "MarkView/Models/AI/Providers/ClineProvider.swift",
+        "MarkView/Models/AI/Providers/CodexProvider.swift",
+        "MarkView/Models/AI/Providers/CopilotProvider.swift"
       ]
     },
     {
@@ -956,7 +986,17 @@
         "tools/tests/LinkedFoldersTests.swift",
         "tools/tests/linked-folders-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantACP.swift",
+        "MarkView/Models/AI/Providers/AssistantProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
+        "MarkView/Models/AI/Providers/CLITool.swift",
+        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
+        "MarkView/Models/AI/Providers/ClineProvider.swift",
+        "MarkView/Models/AI/Providers/CodexProvider.swift",
+        "MarkView/Models/AI/Providers/CopilotProvider.swift"
       ]
     },
     {
@@ -1170,10 +1210,19 @@
       "sources": [
         "MarkView/Models/AI/AIAssistants.swift",
         "MarkView/Models/AI/AIOperation.swift",
-        "MarkView/Models/AI/AssistantProviderRegistry.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "tools/tests/Phase5AITests.swift"
+        "tools/tests/Phase5AITests.swift",
+        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantACP.swift",
+        "MarkView/Models/AI/Providers/AssistantProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
+        "MarkView/Models/AI/Providers/CLITool.swift",
+        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
+        "MarkView/Models/AI/Providers/ClineProvider.swift",
+        "MarkView/Models/AI/Providers/CodexProvider.swift",
+        "MarkView/Models/AI/Providers/CopilotProvider.swift"
       ]
     },
     {
@@ -1248,7 +1297,17 @@
         "tools/tests/ProjectAIChoiceTests.swift",
         "tools/tests/project-ai-choice-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantACP.swift",
+        "MarkView/Models/AI/Providers/AssistantProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
+        "MarkView/Models/AI/Providers/CLITool.swift",
+        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
+        "MarkView/Models/AI/Providers/ClineProvider.swift",
+        "MarkView/Models/AI/Providers/CodexProvider.swift",
+        "MarkView/Models/AI/Providers/CopilotProvider.swift"
       ]
     },
     {
@@ -2408,7 +2467,17 @@
         "MarkView/Resources/Editor/js/markview-ui-studio-sdk.js",
         "MarkView/Resources/Editor/js/markview-ui-studio-diagnostics.js",
         "MarkView/Resources/Editor/js/markview-ui-studio-select.js",
-        "MarkView/Resources/Editor/js/markview-ui-studio-api.js"
+        "MarkView/Resources/Editor/js/markview-ui-studio-api.js",
+        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantACP.swift",
+        "MarkView/Models/AI/Providers/AssistantProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
+        "MarkView/Models/AI/Providers/CLITool.swift",
+        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
+        "MarkView/Models/AI/Providers/ClineProvider.swift",
+        "MarkView/Models/AI/Providers/CodexProvider.swift",
+        "MarkView/Models/AI/Providers/CopilotProvider.swift"
       ]
     },
     {
