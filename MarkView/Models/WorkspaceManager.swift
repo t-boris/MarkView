@@ -25,6 +25,8 @@ final class WorkspaceFileTreeStore: ObservableObject {
     private var fileWatchTimer: Timer?
     private var fileWatchDebounce: DispatchWorkItem?
     private var lastRootModDate: Date?
+    /// Cached markdown presence flag invalidated when the root tree reloads (`AR-42`).
+    var cachedHasMarkdownFiles: Bool?
 
     init() {
         let ud = UserDefaults.standard
@@ -42,11 +44,13 @@ final class WorkspaceFileTreeStore: ObservableObject {
         rootNode = nil
         excludedFolders = []
         lastRootModDate = nil
+        cachedHasMarkdownFiles = nil
     }
 
     func setRootNode(_ node: FileNode?) {
         rootNode = node
         lastRootModDate = node.map { rootModificationDate(for: $0.url) } ?? nil
+        cachedHasMarkdownFiles = nil
     }
 
     func loadExcludedFolders() {
@@ -183,6 +187,7 @@ final class WorkspaceFileTreeStore: ObservableObject {
             await MainActor.run {
                 self.rootNode = rebuilt
                 self.lastRootModDate = self.rootModificationDate(for: rootURL)
+                self.cachedHasMarkdownFiles = nil
                 Self.log("reloadFileTree: rootNode updated on MainActor")
             }
         }
@@ -975,10 +980,12 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
         return results
     }
 
-    /// Cheap check for menu disabled-state: returns `true` as soon as one
-    /// markdown file is found inside `rootNode`. Short-circuits on first match
-    /// to keep the menu responsive even on large workspaces.
+    /// Cached check for menu disabled-state (`AR-42`): returns `true` as soon as one
+    /// markdown file is found inside `rootNode` and caches the result until the file tree changes.
     var hasMarkdownFiles: Bool {
+        if let cached = fileTreeStore.cachedHasMarkdownFiles {
+            return cached
+        }
         guard let folderURL = rootNode?.url else { return false }
         let resolvedFolderPath = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
         // Same separator-aware containment as `scanMarkdownFiles(in:)` — keep in sync.
@@ -991,6 +998,7 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else {
+            fileTreeStore.cachedHasMarkdownFiles = false
             return false
         }
         while let url = enumerator.nextObject() as? URL {
@@ -998,8 +1006,10 @@ class WorkspaceManager: ObservableObject, ProjectContextProviding, TabsProviding
             guard !url.path.contains(".dde") else { continue }
             let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
             guard resolvedFile == resolvedFolderPath || resolvedFile.hasPrefix(resolvedFolderPrefix) else { continue }
+            fileTreeStore.cachedHasMarkdownFiles = true
             return true
         }
+        fileTreeStore.cachedHasMarkdownFiles = false
         return false
     }
 

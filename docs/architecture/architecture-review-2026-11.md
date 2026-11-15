@@ -459,7 +459,7 @@ Each phase leaves the app shippable. Phases 0 and 1 are low risk and mostly inde
 
 **Phase 5: AI layer (3-4 weeks, feature by feature) — [Done].** `AIOperation` with `AIJSONSalvage` and bounded validation/repair retries (AR-26), `AssistantProvider` and `AssistantProviderRegistry` unifying CLI tool descriptors (AR-35) (`tools/tests/phase5-ai-tests.sh`).
 
-**Phase 6: storage and concurrency (3-4 weeks).** SQLite actor and migrations (AR-37, AR-38), repositories and schema versions (AR-36), control socket authentication (AR-40), strict concurrency per package (AR-43), main-thread paths (AR-42).
+**Phase 6: storage and concurrency (3-4 weeks) — [Done].** SQLite actor `SemanticDatabaseExecutor` and numbered migrations (AR-37, AR-38), `SchemaVersionedStore` and `StoreLoadResult` (AR-36, AR-39), control socket per-instance token authentication and `LOCAL_PEERPID`/`LOCAL_PEERCRED` verification (AR-40, DEC-009), ATS scoping (AR-41), cached `hasMarkdownFiles` and `GraphCreatorSheet` file enumeration (AR-42), and `SWIFT_STRICT_CONCURRENCY = targeted` (AR-43, DEC-010) (`tools/tests/phase6-storage-security-tests.sh`).
 
 **Phase 7: web modernisation (4-6 weeks, incremental).** Bundle entry with no behaviour change, typed bridge registry (AR-28), ES modules, `mv-kit`, split of the three large files (AR-29), sanitised rendering with a strict CSP completed.
 

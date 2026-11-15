@@ -264,6 +264,7 @@ struct TabBarView: View {
 /// What the ‹ › buttons need from the tab strip: whether there is more to see on either side, and a move by a page. It watches the
 /// `NSScrollView` SwiftUI made for the strip (found by `TabStripScrollHook`) and publishes a flag only when it changes, so scrolling
 /// does not redraw the bar on every tick. Main thread only.
+@MainActor
 final class TabStripScroller: ObservableObject {
     enum Side { case left, right }
 

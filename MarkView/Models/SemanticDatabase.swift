@@ -8,6 +8,8 @@ class SemanticDatabase {
     var sqliteTransientValue: sqlite3_destructor_type { Self.sqliteTransient }
     private var db: OpaquePointer?
     let dbPath: String
+    /// Off-main-thread serialized SQLite executor (`AR-37`).
+    private(set) lazy var backgroundExecutor: SemanticDatabaseExecutor? = try? SemanticDatabaseExecutor(dbPath: dbPath)
 
     init(workspacePath: URL, dbName: String = "state.db") throws {
         let fm = FileManager.default
@@ -19,10 +21,10 @@ class SemanticDatabase {
                 try fm.createDirectory(at: ddeDir, withIntermediateDirectories: true)
             }
         } catch {
-            // Sandbox: can't write next to workspace. Use app support directory instead.
+            // Sandbox: can't write next to workspace. Use collision-free projectCacheIdentifier in Application Support (`AR-39`).
             let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            let workspaceId = workspacePath.lastPathComponent.replacingOccurrences(of: " ", with: "_")
-            ddeDir = appSupport.appendingPathComponent("MarkView/\(workspaceId)")
+            let workspaceId = ProjectPaths.projectCacheIdentifier(for: workspacePath)
+            ddeDir = appSupport.appendingPathComponent("MarkView/Projects/\(workspaceId)")
             try fm.createDirectory(at: ddeDir, withIntermediateDirectories: true)
             NSLog("[SemanticDB] Sandbox fallback: \(ddeDir.path)")
         }

@@ -206,11 +206,11 @@
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>MarkView uses macOS speech recognition, on this Mac, to turn your dictation into text when no OpenAI key is set.</string>
 
-    <!-- App Transport Security: allow local WKWebView content -->
+    <!-- App Transport Security: enforce HTTPS in native process, allow local & WKWebView content (AR-41) -->
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsArbitraryLoads</key>
-        <true/>
+        <false/>
         <key>NSAllowsArbitraryLoadsInWebContent</key>
         <true/>
         <key>NSAllowsLocalNetworking</key>
