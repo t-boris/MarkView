@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // What an AI session is told about the issue lifecycle (issue-lifecycle-management, plan I-5, REQ-003): the rules, the
 // context of one linked issue (status, outstanding work, what the next transition still needs), the block appended to the
@@ -88,7 +91,7 @@ final class SessionLinkStore: @unchecked Sendable {
     }
 
     convenience init(projectRoot: URL, now: @escaping () -> Date = Date.init) {
-        self.init(url: projectRoot.appendingPathComponent(".dde/lifecycle/sessions.jsonl"), now: now)
+        self.init(url: ProjectPaths.sessionsLog(projectRoot), now: now)
     }
 
     // MARK: Writing

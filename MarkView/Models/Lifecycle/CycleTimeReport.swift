@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // The project report of cycle time (feature cycle-time-as-a-view-over-the-workflow, REQ-002, REQ-003, REQ-004): the metrics of
 // `CycleTime.swift` over all items of a kind, judged against the project's own history. Three signals are kept apart (DEC-014):
@@ -108,7 +111,7 @@ struct CycleSettings: Codable, Equatable, Sendable {
 /// `.dde/lifecycle/cycle-time.json`. A missing file is the empty settings; a file that cannot be read is reported and left alone,
 /// and saving settings copies it to a backup first.
 enum CycleSettingsFile {
-    static func url(projectRoot: URL) -> URL { projectRoot.appendingPathComponent(".dde/lifecycle/cycle-time.json") }
+    static func url(projectRoot: URL) -> URL { ProjectPaths.cycleTimeFile(projectRoot) }
 
     enum Loaded: Equatable {
         case settings(CycleSettings)

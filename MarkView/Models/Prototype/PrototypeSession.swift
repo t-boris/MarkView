@@ -181,7 +181,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
     func sourceURL(of path: String) -> URL? {
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let url = base.appendingPathComponent(path).standardizedFileURL.resolvingSymlinksInPath()
-        guard url.path.hasPrefix(base.path + "/"), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        guard ProjectPaths.containsStrictly(url, root: base), FileManager.default.fileExists(atPath: url.path) else { return nil }
         return url
     }
 

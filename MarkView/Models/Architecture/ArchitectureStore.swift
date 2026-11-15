@@ -525,7 +525,7 @@ final class ArchitectureStore: ObservableObject {
 
     /// Where AI answers for this X-Ray are cached.
     private func answerCache(_ root: URL) -> URL {
-        cacheDirectory ?? root.appendingPathComponent(".dde/cache/xray", isDirectory: true)
+        cacheDirectory ?? ProjectPaths.xrayCacheFolder(root)
     }
 
     private func setStatus(_ text: String?) {
@@ -2034,7 +2034,7 @@ final class ArchitectureStore: ObservableObject {
         let wholeProjectNote: String? = wholeProject.first.map {
             "\n\nThe working directory is one folder of the project \($0.path); the whole project is readable too (an additional directory). Read any file the question names, by its absolute path if given; paths in the answer may be absolute or relative to the working directory."
         }
-        let attachmentFolder = attachments?.isEmpty == false ? root.appendingPathComponent(".dde/understanding/" + token.uuidString) : nil
+        let attachmentFolder = attachments?.isEmpty == false ? ProjectPaths.understandingFolder(root).appendingPathComponent(token.uuidString) : nil
         if let attachmentFolder { understandingAttachmentFolders[id] = attachmentFolder }
         understandingTokens[id] = token
         understandingAnswers[id] = .init(question: filter.criterion)

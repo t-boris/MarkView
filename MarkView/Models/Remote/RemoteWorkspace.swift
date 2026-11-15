@@ -184,7 +184,7 @@ actor RemoteWorkspace {
         guard !path.contains("\0"), path.utf8.count <= 8192 else { throw RemoteFailure.invalid("Invalid workspace path.") }
         let url = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path))
             .standardizedFileURL.resolvingSymlinksInPath()
-        guard url.path == root.path || url.path.hasPrefix(root.path == "/" ? "/" : root.path + "/") else {
+        guard ProjectPaths.contains(url, root: root) else {
             throw RemoteFailure.invalid("Path is outside the selected workspace: \(path). Select that folder in MarkView to work there.")
         }
         return url

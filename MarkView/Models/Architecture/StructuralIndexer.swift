@@ -1,4 +1,5 @@
 import Foundation
+import MarkViewCore
 
 /// Deterministic structural indexer — no LLM.
 /// Scans directory tree, parses markdown, records per-folder rows, indexes FTS5.
@@ -131,7 +132,7 @@ class StructuralIndexer: @unchecked Sendable {
                 for root in roots {
                     if let counter = fm.enumerator(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
                         while let u = counter.nextObject() as? URL {
-                            if u.pathExtension.lowercased() == "md", !u.path.contains("/.dde/") { totalMd += 1 }
+                            if u.pathExtension.lowercased() == "md", !ProjectPaths.isInLocalFolder(u) { totalMd += 1 }
                         }
                     }
                 }
@@ -143,7 +144,7 @@ class StructuralIndexer: @unchecked Sendable {
                 var fileCount = 0
 
                 while let url = nextURL() {
-                    guard url.pathExtension.lowercased() == "md", !url.path.contains("/.dde/") else { continue }
+                    guard url.pathExtension.lowercased() == "md", !ProjectPaths.isInLocalFolder(url) else { continue }
 
                     // Everything below is derived from docId (the workspace-relative
                     // path, or "@linked/<name>/…" in a linked folder) with pure "/" string

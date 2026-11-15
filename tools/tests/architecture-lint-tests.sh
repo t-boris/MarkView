@@ -28,7 +28,7 @@ SWIFT = {
     "MarkView/Models/Workspace/Runner.swift": "let process = Process()\n",
     "MarkView/Views/Workspace/Tab.swift": "struct Tab {\n    @EnvironmentObject var workspace: WorkspaceManager\n    @ObservedObject var other: WorkspaceManager\n    @EnvironmentObject var theme: Theme\n}\n",
     "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift": "let process = Process()\n",
-    "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift": "// the one writer\nlet n = Darwin.write(fd, base, count)\nlet t = try data.write(to: tmp)\n",
+    "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift": "// the one writer and the one place that names the folders\nlet n = Darwin.write(fd, base, count)\nlet t = try data.write(to: tmp)\nlet f = \".dde\"\nlet p = \".markview-\" + kind\n",
     "MarkView/Models/Workspace/Export.swift": "// A comment about .write(to: is not a site\nfunc export() throws { try png.write(to: url) }\n",
 }
 
@@ -82,6 +82,7 @@ def fixture():
     write(root, "tools/lint/clicompletion-allowlist.txt", "# none outside AIOperation\n")
     write(root, "tools/lint/workspace-manager-views.txt", "1 MarkView/Views/Workspace/Tab.swift\n")
     write(root, "tools/lint/atomic-write-allowlist.txt", "1 MarkView/Models/Workspace/Export.swift\n")
+    write(root, "tools/lint/project-paths-allowlist.txt", "# none outside ProjectPaths\n")
     return root
 
 def run(root, *args):
@@ -211,6 +212,20 @@ try:
     write(root, "MarkView/Models/Workspace/Export.swift", "func a() throws { try x.write(to: u); try y.write(to: v) }\nfunc b() throws { try z.write(to: w) }\n")
     code, out = run(root)
     check(code == 1 and "[atomic-write] MarkView/Models/Workspace/Export.swift: 2 direct file write(s), 1 allowed (more sites)" in out, "a second write line in a listed file fails")
+
+    # --- project-paths ratchet
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Store.swift", "func f(root: URL) -> URL { root.appendingPathComponent(\".dde/cache\") }\n// \".dde in a comment does not count\nlet tab = \".markview-terminal-\" + id\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[project-paths] MarkView/Models/Workspace/Store.swift: 2 path literal(s), 0 allowed (new sites)" in out,
+          "a literal that starts with .dde or .markview- fails and is named, comments are not counted")
+    check("CoreFiles.swift" not in out, "ProjectPaths' own file is the allowed home, not counted")
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Store.swift", "let help = \"Kept in .dde/workflow/workflow.json\"\nlet name = \"dde\"\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0, "prose that mentions .dde/ inside a longer sentence is not a path literal")
 
     # --- lists
     root = fresh()

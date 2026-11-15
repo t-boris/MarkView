@@ -16,7 +16,7 @@ class SemanticDatabase {
         let fm = FileManager.default
 
         // Try .dde/ next to workspace first; fall back to app container if sandboxed
-        var ddeDir = workspacePath.appendingPathComponent(".dde")
+        var ddeDir = ProjectPaths.localFolder(workspacePath)
         do {
             if !fm.fileExists(atPath: ddeDir.path) {
                 try fm.createDirectory(at: ddeDir, withIntermediateDirectories: true)

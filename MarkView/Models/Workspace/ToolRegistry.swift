@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Application surfaces where a registered tool appears (`AR-31`, `FU-02`).
 struct ToolSurface: OptionSet, Hashable, Codable, Sendable {
@@ -42,7 +45,7 @@ enum ToolRegistry {
             help: "Git",
             icon: "arrow.triangle.branch",
             shortcutHint: nil,
-            sentinelPath: ".dde/.markview-git",
+            sentinelPath: ProjectPaths.sentinelRelativePath("git"),
             surfaces: [.toolbar],
             isPrimaryToolbarItem: true
         ),
@@ -52,7 +55,7 @@ enum ToolRegistry {
             help: "Build & Deployment (⌃⌘D)",
             icon: "server.rack",
             shortcutHint: "⌃⌘D",
-            sentinelPath: ".dde/.markview-deployments",
+            sentinelPath: ProjectPaths.sentinelRelativePath("deployments"),
             surfaces: [.toolbar],
             isPrimaryToolbarItem: true
         ),
@@ -62,7 +65,7 @@ enum ToolRegistry {
             help: "Workflow",
             icon: "point.3.connected.trianglepath.dotted",
             shortcutHint: nil,
-            sentinelPath: ".dde/.markview-workflow",
+            sentinelPath: ProjectPaths.sentinelRelativePath("workflow"),
             surfaces: [.toolbar],
             isPrimaryToolbarItem: true
         ),
@@ -72,7 +75,7 @@ enum ToolRegistry {
             help: "End-to-End QA (⌘8)",
             icon: "checkmark.shield",
             shortcutHint: "⌘8",
-            sentinelPath: ".dde/.markview-qa",
+            sentinelPath: ProjectPaths.sentinelRelativePath("qa"),
             surfaces: [.toolbar],
             isPrimaryToolbarItem: true
         ),
@@ -82,7 +85,7 @@ enum ToolRegistry {
             help: "UI Studio (⌘7)",
             icon: "macwindow.and.cursorarrow",
             shortcutHint: "⌘7",
-            sentinelPath: ".dde/.markview-ui-studio-",
+            sentinelPath: ProjectPaths.sentinelRelativePath("ui-studio-"),
             surfaces: [.toolbar],
             isPrimaryToolbarItem: true
         ),
@@ -92,7 +95,7 @@ enum ToolRegistry {
             help: "Copilot Cockpit",
             icon: "airplane",
             shortcutHint: nil,
-            sentinelPath: ".dde/.markview-cockpit",
+            sentinelPath: ProjectPaths.sentinelRelativePath("cockpit"),
             surfaces: [.toolbar],
             isPrimaryToolbarItem: true
         ),
@@ -102,7 +105,7 @@ enum ToolRegistry {
             help: "Discussions (⌃⌘I)",
             icon: "bubble.left.and.text.bubble.right",
             shortcutHint: "⌃⌘I",
-            sentinelPath: ".dde/.markview-discussions",
+            sentinelPath: ProjectPaths.sentinelRelativePath("discussions"),
             surfaces: [.toolbar],
             isPrimaryToolbarItem: false
         ),
@@ -112,7 +115,7 @@ enum ToolRegistry {
             help: "Change Review",
             icon: "doc.text.magnifyingglass",
             shortcutHint: nil,
-            sentinelPath: ".dde/.markview-file-changes",
+            sentinelPath: ProjectPaths.sentinelRelativePath("file-changes"),
             surfaces: [],
             isPrimaryToolbarItem: false
         )
@@ -126,7 +129,7 @@ enum ToolRegistry {
     }
 
     static func sentinelURL(for id: ToolDescriptor.ToolID, in root: URL, suffix: String = "") -> URL {
-        let base = descriptor(for: id)?.sentinelPath ?? ".dde/.markview-\(id.rawValue)"
+        let base = descriptor(for: id)?.sentinelPath ?? ProjectPaths.sentinelRelativePath(id.rawValue)
         return root.appendingPathComponent(base + suffix)
     }
 }

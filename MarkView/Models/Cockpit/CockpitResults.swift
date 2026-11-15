@@ -1,5 +1,8 @@
 import Foundation
 import Darwin
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// A result retains the reviewed plan and build even if the linked QA details are deliberately deleted.
 struct CockpitResult: Codable, Equatable, Identifiable {
@@ -23,10 +26,10 @@ enum CockpitResults {
 
     private static let fileStore = SchemaVersionedStore<CockpitResult>(dates: .referenceDate)
 
-    private static func directory(_ root: URL) -> URL { root.appendingPathComponent(".dde/cockpit/results", isDirectory: true) }
+    private static func directory(_ root: URL) -> URL { ProjectPaths.cockpitResultsFolder(root) }
 
     static func withLock<T>(_ root: URL, _ body: () throws -> T) throws -> T {
-        let parent = root.appendingPathComponent(".dde/cockpit", isDirectory: true)
+        let parent = ProjectPaths.cockpitFolder(root)
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path)
         let fd = open(parent.appendingPathComponent("retention.lock").path, O_CREAT | O_RDWR, mode_t(0o600))

@@ -5,7 +5,7 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 swiftc -parse-as-library -module-cache-path /private/tmp/markview-swift-cache \
-  MarkView/Models/Book/BookPDFSource.swift MarkView/Models/Book/BookPDFTransform.swift MarkView/Models/Book/BookPDFAssistant.swift MarkView/Bridge/BookPDFRenderer.swift \
+  MarkView/Models/Book/BookPDFSource.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/Book/BookPDFTransform.swift MarkView/Models/Book/BookPDFAssistant.swift MarkView/Bridge/BookPDFRenderer.swift \
   MarkView/Models/AI/AIAssistants.swift MarkView/Models/Appearance/ProjectColor.swift MarkView/Models/Workspace/LinkedFolders.swift \
   MarkView/Models/AI/AICallLog.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/AgentProcesses.swift \
   tools/tests/BookPDFLiveChecks.swift -o "$out/book-pdf-live"

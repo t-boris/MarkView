@@ -1,5 +1,8 @@
 import Foundation
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One command asked for, waiting for the person's yes.
 struct DeploymentApproval: Identifiable {
@@ -99,7 +102,7 @@ final class DeploymentStore: ObservableObject {
     // MARK: Files
 
     private static let fileStore = SchemaVersionedStore<DeploymentsFile>()
-    private var folder: URL? { root?.appendingPathComponent(".dde", isDirectory: true) }
+    private var folder: URL? { root.map { ProjectPaths.localFolder($0) } }
     private var file: URL? { folder?.appendingPathComponent("deployments.json") }
     private var logFile: URL? { folder?.appendingPathComponent("deployments-log.jsonl") }
 

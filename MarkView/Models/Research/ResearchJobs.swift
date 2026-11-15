@@ -395,15 +395,14 @@ enum ResearchScope {
     /// Explicit folder targets expand recursively into readable files, never directory
     /// paths. Resolve symlinks at the boundary so a target cannot read outside the workspace.
     static func targetFiles(root: URL, targets: [URL]) -> [String] {
-        let base = root.resolvingSymlinksInPath().standardizedFileURL.path + "/"
         var paths = Set<String>()
         for target in targets {
-            guard target.standardizedFileURL == root.standardizedFileURL || target.resolvingSymlinksInPath().path.hasPrefix(base) else { continue }
+            guard ProjectPaths.contains(target, root: root) else { continue }
             if (try? target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
                 guard let entries = FileManager.default.enumerator(at: target, includingPropertiesForKeys: [.isRegularFileKey],
                     options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { continue }
                 for case let file as URL in entries {
-                    guard file.resolvingSymlinksInPath().path.hasPrefix(base),
+                    guard ProjectPaths.containsStrictly(file, root: root),
                           (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
                           isText(file), let path = ResearchJobs.relative(file, to: root) else { continue }
                     paths.insert(path)

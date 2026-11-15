@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// A code-only projection of the X-Ray. Layer guesses are a visible draft until
 /// the existing source-based component analysis supplies semantic assignments.
@@ -394,7 +397,7 @@ enum CodeArchitecture {
         for file in interleaved(primary) + interleaved(tests) {
             guard remaining > 100, let path = file.path else { break }
             let url = base.appendingPathComponent(path).resolvingSymlinksInPath().standardizedFileURL
-            guard url.path.hasPrefix(base.path + "/"),
+            guard ProjectPaths.containsStrictly(url, root: base),
                   let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true,
                   (values.fileSize ?? Int.max) <= ArchitectureScanner.maxParseBytes,
                   let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
@@ -682,7 +685,7 @@ enum CodeArchitecture {
         guard !path.isEmpty, !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else { return nil }
         let base = root.resolvingSymlinksInPath().standardizedFileURL
         let url = base.appendingPathComponent(path).resolvingSymlinksInPath().standardizedFileURL
-        guard url.path.hasPrefix(base.path + "/"),
+        guard ProjectPaths.containsStrictly(url, root: base),
               let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true,
               (values.fileSize ?? Int.max) <= ArchitectureScanner.maxParseBytes else { return nil }
         return try? String(contentsOf: url, encoding: .utf8)

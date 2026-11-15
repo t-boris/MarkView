@@ -156,8 +156,7 @@ actor SpecificationHandoffStore {
         let root = try handoffDirectory(project: project, slug: slug)
             .appendingPathComponent("revisions/" + String(format: "%06d", revision) + "/files", isDirectory: true)
         let file = root.appendingPathComponent(relative)
-        guard file.resolvingSymlinksInPath().standardizedFileURL.path
-                .hasPrefix(root.resolvingSymlinksInPath().standardizedFileURL.path + "/") else {
+        guard ProjectPaths.containsStrictly(file, root: root) else {
             throw HandoffError.invalidPath(path)
         }
         return try? String(contentsOf: file, encoding: .utf8)
@@ -167,8 +166,7 @@ actor SpecificationHandoffStore {
         let relative = try validRelativePath(path)
         let root = try featureFolder(project: project, slug: slug)
         let file = root.appendingPathComponent(relative)
-        guard file.resolvingSymlinksInPath().standardizedFileURL.path
-                .hasPrefix(root.resolvingSymlinksInPath().standardizedFileURL.path + "/") else {
+        guard ProjectPaths.containsStrictly(file, root: root) else {
             throw HandoffError.invalidPath(path)
         }
         return try? String(contentsOf: file, encoding: .utf8)

@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Combine
+import MarkViewCore
 
 @MainActor
 final class CockpitSession: ObservableObject {
@@ -423,7 +424,7 @@ final class CockpitSession: ObservableObject {
             let candidate = await Task.detached { () -> URL? in
                 let project = root.standardizedFileURL.resolvingSymlinksInPath()
                 let candidate = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : project.appendingPathComponent(path)).standardizedFileURL.resolvingSymlinksInPath()
-                guard candidate.path.hasPrefix(project.path + "/"), FileManager.default.fileExists(atPath: candidate.path) else { return nil }
+                guard ProjectPaths.containsStrictly(candidate, root: project), FileManager.default.fileExists(atPath: candidate.path) else { return nil }
                 return candidate
             }.value
             guard let candidate else { self?.error = "The linked build log is unavailable inside this project."; return }

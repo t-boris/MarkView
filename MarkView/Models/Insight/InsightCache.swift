@@ -90,8 +90,7 @@ struct InsightCache {
     /// the path.
     init(workspaceURL: URL, sessionId: UUID) throws {
         _ = sessionId
-        let root = workspaceURL
-            .appendingPathComponent(".markview-insight", isDirectory: true)
+        let root = ProjectPaths.insightFolder(workspaceURL)
         self.rootDirectory = root
         self.assetsDirectory = root.appendingPathComponent("_assets", isDirectory: true)
         self.nodesDirectory = root.appendingPathComponent("nodes", isDirectory: true)

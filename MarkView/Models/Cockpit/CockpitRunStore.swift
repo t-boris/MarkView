@@ -1,10 +1,13 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Call on a background executor. Running records load paused so a restart cannot resume work by itself.
 enum CockpitRunStore {
     /// Runs were written with `JSONEncoder`'s default dates, so they keep them.
     private static let fileStore = SchemaVersionedStore<CockpitRun>(dates: .referenceDate)
-    private static func directory(_ root: URL) -> URL { root.appendingPathComponent(".dde/cockpit/runs", isDirectory: true) }
+    private static func directory(_ root: URL) -> URL { ProjectPaths.cockpitRunsFolder(root) }
     private static func url(_ id: UUID, root: URL) -> URL { directory(root).appendingPathComponent(id.uuidString + ".json") }
 
     static func save(_ run: CockpitRun, root: URL) throws {

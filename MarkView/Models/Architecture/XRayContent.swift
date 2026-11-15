@@ -60,7 +60,7 @@ enum XRayContent {
     }
 
     static func cacheDirectory(root: URL) -> URL {
-        root.appendingPathComponent(".dde/cache/xray-content", isDirectory: true)
+        ProjectPaths.xrayContentFolder(root)
     }
 
     private static func cacheFile(root: URL, path: String) -> URL {

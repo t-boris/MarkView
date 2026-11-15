@@ -77,7 +77,7 @@ final class ProjectWorkflowStore: @unchecked Sendable {
     init(url: URL) { self.url = url }
 
     convenience init(projectRoot: URL) {
-        self.init(url: projectRoot.appendingPathComponent(".dde/workflow/workflow.json"))
+        self.init(url: ProjectPaths.workflowFile(projectRoot))
     }
 
     private var assignmentMarker: URL { url.deletingLastPathComponent().appendingPathComponent("assignments-pending") }

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One entry of an archive, as `bsdtar -tv` lists it.
 struct ArchiveEntry: Identifiable, Hashable {
@@ -126,7 +129,7 @@ enum Archive {
         let stamp = "\(archive.path)|\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(values?.fileSize ?? 0)"
         let folder = cacheRoot.appendingPathComponent(String(fnv(stamp)), isDirectory: true)
         let target = folder.appendingPathComponent(entry.path)
-        guard target.standardizedFileURL.path.hasPrefix(folder.standardizedFileURL.path + "/") else { throw ArchiveError.unsafe(entry.path) }
+        guard ProjectPaths.containsStrictly(target, root: folder) else { throw ArchiveError.unsafe(entry.path) }
         if FileManager.default.fileExists(atPath: target.path) { return target }
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         FileManager.default.createFile(atPath: target.path, contents: nil)

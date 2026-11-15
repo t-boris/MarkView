@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 M=MarkView/Models
-base=("$M/Lifecycle/FeatureVocabulary.swift" "$M/Lifecycle/IssueListing.swift" "$M/Lifecycle/ProjectWorkflow.swift" "$M/Lifecycle/IssueLifecycle.swift" tools/tests/IssueChecksSupport.swift)
+base=("$M/Lifecycle/FeatureVocabulary.swift" "$M/Lifecycle/IssueListing.swift" "$M/Lifecycle/ProjectWorkflow.swift" "$M/Lifecycle/IssueLifecycle.swift" tools/tests/IssueChecksSupport.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift)
 
 run() {  # name, checks file, extra sources...
     local name=$1 checks=$2; shift 2
@@ -23,10 +23,10 @@ run() {  # name, checks file, extra sources...
 run_suite() {
     local suite=$1
     case $suite in
-        workflow)   run workflow ProjectWorkflowChecks.swift tools/tests/StoreTestSupport.swift "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$M/Lifecycle/ProjectWorkflowStore.swift" "$M/Lifecycle/DefinitionOfDone.swift" MarkView/Models/Workspace/SchemaVersionedStore.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift ;;
+        workflow)   run workflow ProjectWorkflowChecks.swift tools/tests/StoreTestSupport.swift "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$M/Lifecycle/ProjectWorkflowStore.swift" "$M/Lifecycle/DefinitionOfDone.swift" MarkView/Models/Workspace/SchemaVersionedStore.swift ;;
         events)     run events WorkflowEventChecks.swift "$M/Lifecycle/WorkflowEvents.swift" ;;
         description) run description WorkflowDescriptionChecks.swift "$M/Lifecycle/WorkflowEvents.swift" "$M/Lifecycle/WorkflowDescription.swift" ;;
-        proposal)   run proposal WorkflowProposalChecks.swift "$M/Lifecycle/WorkflowEvents.swift" "$M/Lifecycle/WorkflowDescription.swift" "$M/Lifecycle/WorkflowProposal.swift" "$M/Lifecycle/ProjectWorkflowStore.swift" "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$M/Lifecycle/DefinitionOfDone.swift" MarkView/Models/Workspace/SchemaVersionedStore.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift ;;
+        proposal)   run proposal WorkflowProposalChecks.swift "$M/Lifecycle/WorkflowEvents.swift" "$M/Lifecycle/WorkflowDescription.swift" "$M/Lifecycle/WorkflowProposal.swift" "$M/Lifecycle/ProjectWorkflowStore.swift" "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$M/Lifecycle/DefinitionOfDone.swift" MarkView/Models/Workspace/SchemaVersionedStore.swift ;;
         policy)     run policy IssueLifecyclePolicyChecks.swift ;;
         log)        run log IssueTransitionLogChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/Lifecycle/WorkflowEvents.swift" ;;
         evidence)   run evidence IssueEvidenceChecks.swift "$M/Lifecycle/IssueLifecycleEvidence.swift" ;;
@@ -35,7 +35,7 @@ run_suite() {
         github)     run github IssueGitHubSyncChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueSync.swift" "$M/Lifecycle/IssueGitHubSync.swift" ;;
         context)    run context IssueContextChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueLifecycleContext.swift" ;;
         display)    run display IssueDisplayChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueLifecycleDisplay.swift" ;;
-        store)      run store IssueStoreChecks.swift "$M/Workspace/FrontMatter.swift" "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueReconciler.swift" "$M/Lifecycle/MarkdownIssueStatusStore.swift" Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift ;;
+        store)      run store IssueStoreChecks.swift "$M/Workspace/FrontMatter.swift" "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueReconciler.swift" "$M/Lifecycle/MarkdownIssueStatusStore.swift" ;;
         *) echo "unknown suite $suite"; exit 2 ;;
     esac
 }

@@ -136,7 +136,7 @@ final class DiscussionStore: ObservableObject {
         load()
     }
 
-    static func base(root: URL) -> URL { root.appendingPathComponent(".dde/discussions", isDirectory: true) }
+    static func base(root: URL) -> URL { ProjectPaths.discussionsFolder(root) }
     private static func fileURL(base: URL, slug: String) -> URL {
         base.appendingPathComponent(slug, isDirectory: true).appendingPathComponent("discussion.json")
     }

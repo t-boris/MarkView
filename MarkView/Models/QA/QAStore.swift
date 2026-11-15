@@ -44,7 +44,7 @@ enum QAStore {
     static func configFolder(_ root: URL) -> URL { root.appendingPathComponent(".markview/qa", isDirectory: true) }
     static func scenariosFolder(_ root: URL) -> URL { configFolder(root).appendingPathComponent("scenarios", isDirectory: true) }
 
-    static func localFolder(_ root: URL) -> URL { root.appendingPathComponent(".dde/qa", isDirectory: true) }
+    static func localFolder(_ root: URL) -> URL { ProjectPaths.qaFolder(root) }
     static func runsFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("runs", isDirectory: true) }
     static func runFolder(_ root: URL, runID: String) -> URL { runsFolder(root).appendingPathComponent(safeID(runID), isDirectory: true) }
     static func runURL(_ root: URL, runID: String) -> URL { runFolder(root, runID: runID).appendingPathComponent("run.json") }
@@ -209,8 +209,7 @@ enum QAStore {
         guard safeID(runID) == runID else { throw QAStoreError.badID(runID) }
         let folder = runFolder(root, runID: runID)
         guard (try? FileManager.default.attributesOfItem(atPath: folder.path)) != nil else { return nil }
-        let inside = runsFolder(root).resolvingSymlinksInPath().path + "/"
-        guard folder.resolvingSymlinksInPath().path.hasPrefix(inside) else { throw QAStoreError.outsideRuns(runID) }
+        guard ProjectPaths.containsStrictly(folder, root: runsFolder(root)) else { throw QAStoreError.outsideRuns(runID) }
         return folder
     }
 

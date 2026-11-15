@@ -3144,7 +3144,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         _ = try? await call("return window.__markviewStudio.finishCapture();")
         guard let image else { return nil }
         let id = "cap-" + ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "") + "-" + UUID().uuidString.prefix(4).lowercased()
-        let relative = ".dde/studio/captures/\(id).png"
+        let relative = ProjectPaths.studioCaptureRelativePath(id: id)
         let file = root.appendingPathComponent(relative)
         StudioStore.prepareLocalFolder(root)
         guard await Task.detached(operation: { StudioImageDiff.writePNG(image, to: file) }).value else { return nil }

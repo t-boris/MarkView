@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Prepares rules for an unknown request with the project's assistant (SIM-07): read-only access to the project, no web,
 /// a strict answer schema. Whatever it proposes is validated before it is registered.
@@ -52,7 +55,7 @@ enum StudioTargetLimits {
                          + "environment are simulated; its database is not, and only Node servers follow the scenario's clock.")
         }
         if target.usesIsolatedBackend {
-            notes.append("Titanium runs in a separate workshop under .dde/studio/titanium-data, not the operator's workshop. "
+            notes.append("Titanium runs in a separate workshop under \(ProjectPaths.studioTitaniumDataRelativePath), not the operator's workshop. "
                          + "Same-origin API calls use this real separate workshop, not simulated records; changes persist between sessions. Reset does not clear it.")
         } else if target.command.contains("uvicorn") || target.command.contains(" -m flask") || target.command.contains("artisan serve") || target.command.contains("dotnet run") {
             notes.append("The server runs with your permissions; its database and background tasks are real. Browser API simulation "

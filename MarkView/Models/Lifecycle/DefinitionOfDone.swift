@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // What "done" means when an assistant implements a feature: a checklist the person tunes per project
 // (`.dde/definition-of-done.json`) and can adjust again just before a run. Each item is required, skipped
@@ -69,7 +72,7 @@ struct DefinitionOfDone: Codable, Equatable {
     private static let store = SchemaVersionedStore<DefinitionOfDone>()
 
     static func url(root: URL) -> URL {
-        root.appendingPathComponent(".dde", isDirectory: true).appendingPathComponent(fileName)
+        ProjectPaths.localFolder(root).appendingPathComponent(fileName)
     }
 
     /// The project's checklist, or the standard one when there is none or it cannot be read. Built-in items

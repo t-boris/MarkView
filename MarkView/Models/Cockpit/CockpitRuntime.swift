@@ -1,6 +1,9 @@
 import Foundation
 import CryptoKit
 import Darwin
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 struct CockpitTLSFiles: Codable { var ca: String; var cert: String; var key: String }
 struct CockpitEndpoint: Codable { var address: String; var tls: CockpitTLSFiles }
@@ -87,7 +90,7 @@ final class CockpitService {
             server = nil
         }
         guard let bundled else { throw Failure.missingRuntime }
-        let state = root.appendingPathComponent(".dde/cockpit/temporal", isDirectory: true)
+        let state = ProjectPaths.cockpitTemporalFolder(root)
         let runtime = URL(fileURLWithPath: "/tmp/mvt-" + UUID().uuidString.lowercased(), isDirectory: true)
         let startup = Task { [weak self] () throws -> CockpitEndpoint in
             let serverURL = bundled.appendingPathComponent("bin/server")

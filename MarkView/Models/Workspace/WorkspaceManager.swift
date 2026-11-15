@@ -883,7 +883,7 @@ class WorkspaceManager: ObservableObject {
     /// Initialize .dde/ workspace structure and SQLite database — async to keep UI responsive
     private func initDDEWorkspaceAsync(at url: URL) async {
         let fm = FileManager.default
-        let ddeRoot = url.appendingPathComponent(".dde")
+        let ddeRoot = ProjectPaths.localFolder(url)
 
         indexingProgress = "Creating workspace structure..."
         Self.debugLog("initDDE: creating dirs...")
@@ -976,7 +976,7 @@ class WorkspaceManager: ObservableObject {
         var results: [URL] = []
         while let url = enumerator.nextObject() as? URL {
             guard url.pathExtension.lowercased() == "md" else { continue }
-            guard !url.path.contains(".dde") else { continue }
+            guard !url.path.contains(ProjectPaths.localFolderName) else { continue }
 
             let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
             // The `==` clause covers the (unlikely) case of the folder URL itself
@@ -1015,7 +1015,7 @@ class WorkspaceManager: ObservableObject {
         }
         while let url = enumerator.nextObject() as? URL {
             guard url.pathExtension.lowercased() == "md" else { continue }
-            guard !url.path.contains(".dde") else { continue }
+            guard !url.path.contains(ProjectPaths.localFolderName) else { continue }
             let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
             guard resolvedFile == resolvedFolderPath || resolvedFile.hasPrefix(resolvedFolderPrefix) else { continue }
             fileTreeStore.cachedHasMarkdownFiles = true
@@ -1307,7 +1307,7 @@ class WorkspaceManager: ObservableObject {
             case .architecture(let scope):
                 // Reopen cached views without triggering new scans/reviews during launch.
                 if let root = rootNode?.url {
-                    var tab = OpenTab(url: root.appendingPathComponent(".markview-restored-xray-" + String(ContentHash.of(scope).prefix(12))),
+                    var tab = OpenTab(url: root.appendingPathComponent(ProjectPaths.placeholderName("restored-xray-" + String(ContentHash.of(scope).prefix(12)))),
                                       content: "", originalContent: "")
                     tab.kind = .architecture(scope: scope)
                     tabsStore.appendTab(tab)
@@ -1354,7 +1354,7 @@ class WorkspaceManager: ObservableObject {
     func metadataItems() -> [URL] {
         guard let root = rootNode?.url else { return [] }
         let fm = FileManager.default
-        var items = [root.appendingPathComponent(".dde"), root.appendingPathComponent(".markview-insight")]
+        var items = [ProjectPaths.localFolder(root), ProjectPaths.insightFolder(root)]
             .filter { fm.fileExists(atPath: $0.path) }
         let claude = root.appendingPathComponent(".claude/CLAUDE.md")
         if let text = try? String(contentsOf: claude, encoding: .utf8),
@@ -1439,7 +1439,7 @@ class WorkspaceManager: ObservableObject {
     private func explainDirectory(for url: URL) -> URL {
         // A pull request's copy of a project file keeps its notes with the project's.
         if architecture.prRelativePath(for: url) != nil, let root = rootNode?.url {
-            return root.appendingPathComponent(".dde/cache/explain", isDirectory: true)
+            return ProjectPaths.explainCacheFolder(root)
         }
         return cacheDirectory(for: url).appendingPathComponent("explain", isDirectory: true)
     }
@@ -1650,9 +1650,9 @@ class WorkspaceManager: ObservableObject {
         if let root = rootNode?.url {
             // Kept in the project's .dde, never inside the folder itself.
             let key = String(ContentHash.of(scope).prefix(24))
-            let base = root.appendingPathComponent(".dde/xray-folders", isDirectory: true)
+            let base = ProjectPaths.xrayFoldersFolder(root)
             store.persistenceFile = base.appendingPathComponent(key + ".json")
-            store.cacheDirectory = root.appendingPathComponent(".dde/cache/xray", isDirectory: true)
+            store.cacheDirectory = ProjectPaths.xrayCacheFolder(root)
         }
         store.temporaryFilter = temporaryFilter
         folderXRays[scope] = store
@@ -1686,9 +1686,9 @@ class WorkspaceManager: ObservableObject {
         if let index = openTabs.firstIndex(where: isThisTab) {
             tabsStore.activeTabIndex = index
         } else {
-            let marker = scope.isEmpty ? ".markview-architecture"
-                : scope == TabKind.pullRequestScope ? ".markview-pr-xray"
-                : ".markview-architecture-" + String(ContentHash.of(scope).prefix(12))
+            let marker = scope.isEmpty ? ProjectPaths.placeholderName("architecture")
+                : scope == TabKind.pullRequestScope ? ProjectPaths.placeholderName("pr-xray")
+                : ProjectPaths.placeholderName("architecture-" + String(ContentHash.of(scope).prefix(12)))
             var tab = OpenTab(url: root.appendingPathComponent(marker), content: "", originalContent: "")
             tab.kind = .architecture(scope: scope)
             tabsStore.appendTab(tab)
@@ -2135,7 +2135,7 @@ class WorkspaceManager: ObservableObject {
                                                                 options: [.skipsPackageDescendants])
                 while let url = enumerator?.nextObject() as? URL {
                     let name = url.lastPathComponent
-                    if name == ".git" || name == ".dde" || name == "node_modules" { enumerator?.skipDescendants(); continue }
+                    if name == ".git" || name == ProjectPaths.localFolderName || name == "node_modules" { enumerator?.skipDescendants(); continue }
                     if name.lowercased() == wanted { matches.append(url.standardizedFileURL) }
                 }
                 return WikiLinkResolver.choose(candidates: matches.map(\.path), from: currentFolder)
@@ -2823,7 +2823,7 @@ class WorkspaceManager: ObservableObject {
         } else {
             root = url.deletingLastPathComponent()
         }
-        return root.appendingPathComponent(".dde/cache", isDirectory: true)
+        return ProjectPaths.cacheFolder(root)
     }
 
     private func normalizeTranslation(_ raw: String) -> String {
@@ -4768,7 +4768,7 @@ class WorkspaceManager: ObservableObject {
         session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
         session.browserWindowID = browserControlID
         registerBrowserControl()
-        var tab = OpenTab(url: folder.appendingPathComponent(".markview-terminal-" + session.id.uuidString),
+        var tab = OpenTab(url: folder.appendingPathComponent(ProjectPaths.placeholderName("terminal-" + session.id.uuidString)),
                           content: "", originalContent: "")
         tab.kind = .terminal(session.id)
         terminalTabs[session.id] = session
@@ -4807,7 +4807,7 @@ class WorkspaceManager: ObservableObject {
             self?.sendPickedElement(element, screenshot: screenshot, from: session)
         }
         let base = rootNode?.url ?? FileManager.default.temporaryDirectory
-        var tab = OpenTab(url: base.appendingPathComponent(".markview-browser-" + session.id.uuidString),
+        var tab = OpenTab(url: base.appendingPathComponent(ProjectPaths.placeholderName("browser-" + session.id.uuidString)),
                           content: "", originalContent: "")
         tab.kind = .browser(session)
         if activate {
@@ -5162,7 +5162,7 @@ class WorkspaceManager: ObservableObject {
         session.record = { [weak self] result in result.record(in: self?.semanticDatabase) }
         session.languageNote = ActionOutputLanguage.current == ActionOutputLanguage.documentLanguage
             ? "" : "\n\nWrite every label, text and message in the prototype in \(ActionOutputLanguage.current)."
-        var tab = OpenTab(url: session.folder.appendingPathComponent(".markview-prototype-" + session.id.uuidString),
+        var tab = OpenTab(url: session.folder.appendingPathComponent(ProjectPaths.placeholderName("prototype-" + session.id.uuidString)),
                           content: "", originalContent: "")
         tab.kind = .prototype(session)
         layout.workspaceArea = .files
