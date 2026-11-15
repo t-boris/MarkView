@@ -298,7 +298,7 @@ struct IssuesListView: View {
                 }
             }.buttonStyle(.plain)
             Spacer()
-            Button(action: { workspaceManager.intake = IntakeRequest(kind: kind) }) {
+            Button(action: { workspaceManager.requests.intake = IntakeRequest(kind: kind) }) {
                 Image(systemName: "plus").uiFont(size: 9).foregroundColor(palette.textDim)
             }.buttonStyle(.plain).help(kind.title)
         }

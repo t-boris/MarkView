@@ -280,7 +280,7 @@ struct SharedSearchView: View {
                 NotificationCenter.default.post(name: .showFolderPicker, object: nil)
             }),
             SearchCommand(id: "new-project", title: "New Project…", symbol: "plus.square", detail: "File menu", run: {
-                manager.newProject = NewProjectRequest()
+                manager.requests.newProject = NewProjectRequest()
             }),
             SearchCommand(id: "theme", title: "Theme…", symbol: "paintpalette", detail: "⌘⇧T", run: {
                 manager.theme.showsPicker = true
@@ -301,10 +301,10 @@ struct SharedSearchView: View {
                     manager.showAIConsole()
                 }),
                 SearchCommand(id: "new-feature", title: "New Feature…", symbol: "plus.square", detail: "Work", run: {
-                    manager.intake = IntakeRequest(kind: .feature)
+                    manager.requests.intake = IntakeRequest(kind: .feature)
                 }),
                 SearchCommand(id: "new-bug", title: "New Bug…", symbol: "ladybug", detail: "Work", run: {
-                    manager.intake = IntakeRequest(kind: .bug)
+                    manager.requests.intake = IntakeRequest(kind: .bug)
                 }),
                 SearchCommand(id: "deployments", title: "Show Build & Deployment", symbol: "server.rack", detail: "Where the project runs", run: {
                     manager.openTool(.deployments)

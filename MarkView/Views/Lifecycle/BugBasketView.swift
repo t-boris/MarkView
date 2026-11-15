@@ -179,7 +179,7 @@ struct BugBasketView: View {
     private func open(_ path: String) {
         guard let url = batch.url(path) else { return }
         workspaceManager.openFile(url)
-        workspaceManager.showTOC = true
+        workspaceManager.chrome.showTOC = true
         workspaceManager.layout.navigatorTab = .feature
     }
 }

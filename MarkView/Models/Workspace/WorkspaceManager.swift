@@ -263,6 +263,10 @@ class WorkspaceManager: ObservableObject, TabsProviding {
     let layout = PanelLayout()
     /// Everything else this window shows of itself (expanded sections, widths, panel modes); never shared with other windows.
     let windowUI = WindowUIState()
+    /// The panels of this window that are shown. Views that draw or toggle them observe this object, not the manager (`AR-14`).
+    let chrome = WindowChrome()
+    /// What this window was asked to show in a sheet, popover or alert; never shared with other windows (`AR-14`).
+    let requests = WindowRequests()
     /// The theme of this window; a change here leaves every other window alone.
     let theme = WindowTheme()
     /// The tabs of this window. Views that show them observe this object, not the manager (`AR-15`).
@@ -315,7 +319,7 @@ class WorkspaceManager: ObservableObject, TabsProviding {
         let opener = Self.toolOpeners[id] ?? ToolOpener()
         opener.prepare(self, root)
         layout.workspaceArea = .files
-        showCenter = true
+        chrome.showCenter = true
         if let index = openTabs.firstIndex(where: { $0.kind.toolID == id }) {
             activeTabIndex = index
             return
@@ -342,22 +346,10 @@ class WorkspaceManager: ObservableObject, TabsProviding {
     func dismissOperationRun(id: String) {
         guard let store = projectOperations else { return }
         store.dismiss(id: id)
-        if operationSelectedRunID == id { operationSelectedRunID = store.runs.keys.sorted().first }
-        if store.runs.isEmpty { operationConsoleVisible = false }
+        if requests.operationSelectedRunID == id { requests.operationSelectedRunID = store.runs.keys.sorted().first }
+        if store.runs.isEmpty { requests.operationConsoleVisible = false }
     }
 
-    /// The left panel. Every window starts with it closed, so a new window shows the center panel only. The window keeps its own
-    /// choice in its saved session; it is not a default for other windows.
-    @Published var showFileTree: Bool = false
-    @Published var showTOC: Bool = false {
-        didSet { UserDefaults.standard.set(showTOC, forKey: "layout.showTOC.v3") }
-    }
-    @Published var compactLayout = false
-    @Published var showCenter = true
-    @Published var terminalVisible = false
-    @Published var agentsVisible = false
-    @Published var handoffResume: HandoffResume?
-    @Published var showGlobalSearch = false
     struct SelectionActionState: Identifiable {
         enum Phase { case running, completed, stopped, failed }
         let id: UUID
@@ -384,41 +376,10 @@ class WorkspaceManager: ObservableObject, TabsProviding {
 
     func dismissSelectionAction(_ id: UUID) { selectionActions.removeValue(forKey: id) }
 
-    func toggleNavigation() {
-        guard !showFileTree || showCenter || terminalVisible else { return }
-        showFileTree.toggle()
-    }
-
-    /// Hide the file tree and the agents panel of this window and leave the document, as for a file opened from Finder.
-    /// The panels come back with their usual toggles.
-    func showDocumentOnly() {
-        showFileTree = false
-        terminalVisible = false
-        agentsVisible = false
-        showCenter = true
-    }
-
     /// Files opened from outside the app on their own (Finder, Quick Action): the documents, nothing around them.
     func openDocumentsOnly(_ urls: [URL]) {
         for url in urls { openFile(url) }
-        showDocumentOnly()
-    }
-
-    func toggleCenter() {
-        guard !showCenter || showFileTree || terminalVisible else { return }
-        showCenter.toggle()
-    }
-
-    func toggleRightPanel() {
-        guard !terminalVisible || showFileTree || showCenter else { return }
-        terminalVisible.toggle()
-    }
-
-    func toggleContext() {
-        guard activeTab != nil else { return }
-        showTOC = true
-        layout.navigatorTab = .contents
-        terminalVisible = true
+        chrome.showDocumentOnly()
     }
 
     /// Keep the selected task visible beside its documents in the right column.
@@ -428,8 +389,8 @@ class WorkspaceManager: ObservableObject, TabsProviding {
             layout.issuesFeature = slug
         }
         layout.navigatorTab = .feature
-        showTOC = true
-        terminalVisible = true
+        chrome.showTOC = true
+        chrome.terminalVisible = true
     }
 
     @Published var semanticDatabase: SemanticDatabase?
@@ -439,14 +400,13 @@ class WorkspaceManager: ObservableObject, TabsProviding {
     var researchMapJobNotice: [String: String] = [:]
     /// Set by the editor view: makes the PDF of a report (Markdown, file name) with the editor page's renderer and asks where to save it.
     var researchMapPDFExporter: ((String, String) -> Bool)?
-    @Published var pdfBookSelection: BookPDFSelection?
 
     func presentPDFBook(_ urls: [URL]? = nil) {
         let sources: [URL]
         if let urls { sources = urls }
         else if openTabs.indices.contains(activeTabIndex), case .file = openTabs[activeTabIndex].kind { sources = [openTabs[activeTabIndex].url] }
         else { sources = [] }
-        pdfBookSelection = BookPDFSelection(urls: sources)
+        requests.pdfBookSelection = BookPDFSelection(urls: sources)
     }
 
     var pdfBookDrafts: [String: String] {
@@ -472,8 +432,6 @@ class WorkspaceManager: ObservableObject, TabsProviding {
     let gitHub = GitHubStore()
     /// Feature workspaces of the folder (docs/features/<slug>/…).
     let features = FeatureStore()
-    /// Implement with AI was asked for this document: the definition-of-done sheet is shown first.
-    @Published var doneRequest: URL?
     /// New Research jobs of this window: research, follow-ups and comments (docs/research/).
     let research = ResearchJobs()
     /// This window's bug basket for batch Fix with AI (issue #31); a new folder empties it.
@@ -505,10 +463,6 @@ class WorkspaceManager: ObservableObject, TabsProviding {
     let architecture = ArchitectureStore()
     /// Team-shared operation definitions and the process registry for this workspace root.
     @Published private(set) var projectOperations: ProjectOperationsStore?
-    /// What this window has open of the project's operations; the store is shared by every window on the folder, these are not.
-    @Published var operationConsoleVisible = false
-    @Published var operationSelectedRunID: String?
-    @Published var operationEditRequest: ProjectOperationEditRequest?
     /// AI margin notes for code files (code viewer → Explain).
     let codeExplain = CodeExplainStore()
     /// Go to definition / find usages, jump history and AI answers about selected code.
@@ -527,7 +481,6 @@ class WorkspaceManager: ObservableObject, TabsProviding {
     @Published var totalFilesInWorkspace: Int = 0
     @Published var analyzedFiles: Int = 0
     @Published var semanticRefreshVersion: Int = 0
-    @Published var pendingGraphCreatorType: String?
     /// The folder tree of this window. Views that show it observe this object, not the manager (`AR-15`).
     let fileTreeStore = WorkspaceFileTreeStore()
     private var cancellables: Set<AnyCancellable> = []
@@ -648,12 +601,6 @@ class WorkspaceManager: ObservableObject, TabsProviding {
         agentActivity.activeTerminalID = { [weak self] in self?.activeAITerminalID }
         agentActivity.onClaudeModel = { [weak self] id, model in self?.claudeModelReported(model, terminalID: id) }
         agentActivity.start()
-
-        // Restore layout from UserDefaults
-        let ud = UserDefaults.standard
-        if ud.object(forKey: "layout.showTOC.v3") != nil {
-            showTOC = ud.bool(forKey: "layout.showTOC.v3")
-        }
 
         fileTreeStore.shouldAutoRefresh = { [weak self] in
             self?.indexingProgress == nil
@@ -1007,13 +954,13 @@ class WorkspaceManager: ObservableObject, TabsProviding {
             if index == activeTabIndex { state.activeTabIndex = state.tabs.count }
             state.tabs.append(saved)
         }
-        state.panels = WorkspacePanelState(workspaceArea: layout.workspaceArea.rawValue,
+        var panels = WorkspacePanelState(workspaceArea: layout.workspaceArea.rawValue,
             workSection: layout.workSection.rawValue,
             navigator: layout.navigatorTab.rawValue, left: layout.leftPanel,
             feature: layout.issuesFeature, git: layout.gitSection.rawValue, stage: layout.featureStage.rawValue,
-            showFiles: showFileTree, showNavigator: showTOC,
-            contentsVisible: showTOC, terminalVisible: terminalVisible, agentsVisible: agentsVisible,
-            showCenter: showCenter, welcomeBackdrop: layout.welcomeBackdrop.rawValue)
+            showFiles: false, showNavigator: false, welcomeBackdrop: layout.welcomeBackdrop.rawValue)
+        chrome.save(into: &panels)
+        state.panels = panels
         return state
     }
 
@@ -1090,13 +1037,7 @@ class WorkspaceManager: ObservableObject, TabsProviding {
             layout.featureStage = FeatureStage.stored(panels.stage)
             // A session saved before BUG-120 has none: the window keeps the starting choice it was created with.
             if let backdrop = panels.welcomeBackdrop { layout.welcomeBackdrop = WelcomeBackdrop.stored(backdrop) }
-            showFileTree = panels.showFiles
-            showTOC = panels.contentsVisible ?? false
-            showCenter = panels.showCenter ?? true
-            let oldVisible = panels.terminalVisible ?? panels.showNavigator
-            agentsVisible = panels.agentsVisible ?? (restoredNavigator == .terminal && oldVisible)
-            terminalVisible = panels.agentsVisible == nil && restoredNavigator == .terminal ? false : oldVisible
-            if !showFileTree && !showCenter && !terminalVisible { showCenter = true }
+            chrome.restore(panels)
         }
     }
 
@@ -2007,7 +1948,7 @@ class WorkspaceManager: ObservableObject, TabsProviding {
         analysisDetail = nil
         totalFilesInWorkspace = 0
         analyzedFiles = 0
-        pendingGraphCreatorType = nil
+        requests.pendingGraphCreatorType = nil
         return true
     }
 
@@ -2104,14 +2045,11 @@ class WorkspaceManager: ObservableObject, TabsProviding {
         return String(hash, radix: 16)
     }
 
-    /// A file the file tree should show ("Reveal in File Tree"); the tree browses its
-    /// folder, highlights it and clears the request.
-    @Published var fileTreeRevealRequest: URL?
 
     /// Show the file tree at `url`'s folder with `url` highlighted.
     func revealInFileTree(url: URL) {
-        showFileTree = true
-        fileTreeRevealRequest = url.standardizedFileURL
+        chrome.showFileTree = true
+        requests.fileTreeRevealRequest = url.standardizedFileURL
     }
 
     /// Handle selection actions: translate or explain selected text via the selected AI CLI.
@@ -3070,11 +3008,11 @@ class WorkspaceManager: ObservableObject, TabsProviding {
 
     func presentGraphCreator(for type: String = "architecture", in folder: URL? = nil) {
         graphCreatorFolder = folder
-        pendingGraphCreatorType = type
+        requests.pendingGraphCreatorType = type
     }
 
     func dismissGraphCreator() {
-        pendingGraphCreatorType = nil
+        requests.pendingGraphCreatorType = nil
     }
 
     func runAITool(named toolName: String, contentOverride: String? = nil) {
@@ -3228,9 +3166,9 @@ class WorkspaceManager: ObservableObject, TabsProviding {
     }
 
     /// Show the floating agents surface without changing the other panels.
-    func showAIConsole() { agentsVisible = true }
+    func showAIConsole() { chrome.agentsVisible = true }
 
-    func toggleAIConsole() { agentsVisible.toggle() }
+    func toggleAIConsole() { chrome.agentsVisible.toggle() }
 
     func resumeHandoff(slug: String, title: String, linkedFiles: [String]) {
         guard let root = features.root else { return }
@@ -3257,7 +3195,7 @@ class WorkspaceManager: ObservableObject, TabsProviding {
                 return (available, missing)
             }.value
             guard features.root == root else { return }
-            handoffResume = HandoffResume(slug: slug, title: title,
+            requests.handoffResume = HandoffResume(slug: slug, title: title,
                                           linkedFiles: linkedFiles, missingFiles: checked.missing)
             for url in checked.available { openFile(url) }
             layout.workspaceArea = .files
@@ -3398,7 +3336,7 @@ class WorkspaceManager: ObservableObject, TabsProviding {
     func showBrowser(_ session: BrowserSession) {
         guard let index = openTabs.firstIndex(where: { if case .browser(let s) = $0.kind { return s === session }; return false }) else { return }
         layout.workspaceArea = .files
-        showCenter = true
+        chrome.showCenter = true
         activeTabIndex = index
     }
 
@@ -3677,13 +3615,7 @@ class WorkspaceManager: ObservableObject, TabsProviding {
         }
     }
 
-    /// The "New" intake sheet shown (New Feature / New Bug / I Need to Understand).
-    @Published var intake: IntakeRequest?
 
-    /// Start a Project from Scratch shown in this window: a new idea, or an unfinished draft.
-    @Published var newProject: NewProjectRequest?
-    /// "Publish to GitHub…" shown for the open folder (REQ-003, later connection).
-    @Published var gitHubPublishRequested = false
 
     /// The project a new-project flow created: open it with its specification in front — the
     /// Issues list on it and the overview in the editor (DEC-023).
@@ -3694,8 +3626,8 @@ class WorkspaceManager: ObservableObject, TabsProviding {
             self.layout.leftPanel = "issues"
             self.layout.issuesFeature = slug
             self.layout.featureStage = .explore
-            self.showTOC = true
-            self.showFileTree = true
+            self.chrome.showTOC = true
+            self.chrome.showFileTree = true
             self.layout.navigatorTab = .feature
             self.openFile(url.appendingPathComponent(FeatureStore.folderName).appendingPathComponent(slug).appendingPathComponent("overview.md"))
         }
@@ -3726,12 +3658,12 @@ class WorkspaceManager: ObservableObject, TabsProviding {
     /// "New Feature / New Bug from #n": the issue's text and comments as the material, linked.
     func startIntake(_ kind: IntakeKind, fromIssue number: Int) {
         // The sheet opens at once and loads the issue itself (with a spinner).
-        intake = IntakeRequest(kind: kind, linkedIssue: number, loadIssue: number)
+        requests.intake = IntakeRequest(kind: kind, linkedIssue: number, loadIssue: number)
     }
 
     /// "New … from this pull request": its description as the material (a new issue is filed).
     func startIntake(_ kind: IntakeKind, fromPullRequest pr: GHPullRequest) {
-        intake = IntakeRequest(kind: kind, text: "Pull request #\(pr.number): \(pr.title) (\(pr.headRefName) → \(pr.baseRefName))",
+        requests.intake = IntakeRequest(kind: kind, text: "Pull request #\(pr.number): \(pr.title) (\(pr.headRefName) → \(pr.baseRefName))",
                                loadPullRequest: pr.number)
     }
 
@@ -3760,20 +3692,20 @@ class WorkspaceManager: ObservableObject, TabsProviding {
         case .research: lead = "Review \(path): "
         }
         switch kind {
-        case .understand: intake = IntakeRequest(kind: kind, text: lead)
-        case .research: intake = IntakeRequest(kind: kind, text: lead, targets: [url])
-        default: intake = IntakeRequest(kind: kind, text: lead, attachments: [url])
+        case .understand: requests.intake = IntakeRequest(kind: kind, text: lead)
+        case .research: requests.intake = IntakeRequest(kind: kind, text: lead, targets: [url])
+        default: requests.intake = IntakeRequest(kind: kind, text: lead, attachments: [url])
         }
     }
 
     /// New Research (replaces the Deep Research AI tool, DEC-010): the intake sheet, with the open
     /// document as its first target.
     func newResearch() {
-        intake = IntakeRequest(kind: .research)
+        requests.intake = IntakeRequest(kind: .research)
     }
 
     func startResearch(fromFolder folder: URL) {
-        intake = IntakeRequest(kind: .research, text: "Review the documents in \(workspaceRelativePath(folder)) and its subfolders: ", targets: [folder])
+        requests.intake = IntakeRequest(kind: .research, text: "Review the documents in \(workspaceRelativePath(folder)) and its subfolders: ", targets: [folder])
     }
 
     /// Documents a new research starts with (DEC-009): the open document when it is a file in the folder.
@@ -3840,7 +3772,7 @@ class WorkspaceManager: ObservableObject, TabsProviding {
     /// Implement with AI: in a project the person first sees the definition of done for this run (and may
     /// change it); without a project folder the standard one is used at once.
     func implementWithAI(_ url: URL) {
-        if projectFolder != nil { doneRequest = url } else { startImplementation(url, done: .standard) }
+        if projectFolder != nil { requests.doneRequest = url } else { startImplementation(url, done: .standard) }
     }
 
     /// Hand a document to the AI to implement, establishing a goal in the receiving assistant. The goal
@@ -3931,15 +3863,13 @@ class WorkspaceManager: ObservableObject, TabsProviding {
             showFeature(slug, stage: kind == .quickFeature ? .build : .explore)
         } else if kind == .bug {
             // The report opens in the editor; its questions are answered in the Feature tab.
-            showTOC = true
+            chrome.showTOC = true
             layout.navigatorTab = .feature
         }
         refreshFileTree()
         if let file = outcome.file { openFile(file) }
     }
 
-    /// The item ("feature:slug", "bug:BUG-001") whose cycle time the window should open at; the window clears it when it closes.
-    @Published var cycleTimeItem: String?
 
     /// Opens feature `slug` in the Feature panel at `stage`, with its documents beside it.
     func showFeature(_ slug: String, stage: FeatureStage) {
@@ -3947,8 +3877,8 @@ class WorkspaceManager: ObservableObject, TabsProviding {
         layout.leftPanel = "issues"
         layout.issuesFeature = slug
         layout.featureStage = stage
-        showTOC = true
-        showFileTree = true
+        chrome.showTOC = true
+        chrome.showFileTree = true
         layout.navigatorTab = .feature
     }
 
@@ -3975,7 +3905,7 @@ class WorkspaceManager: ObservableObject, TabsProviding {
         let located = url.flatMap { features.locate($0) }
         let slug = located?.feature.slug ?? features.active?.slug
         let document = url.map { features.relativePath($0) }
-        showTOC = true
+        chrome.showTOC = true
         layout.navigatorTab = .feature
         Task { await features.assistant.perform(action, selection: text, document: document, question: question, feature: slug) }
     }
@@ -4036,7 +3966,7 @@ class WorkspaceManager: ObservableObject, TabsProviding {
         case .pullRequest: layout.gitSection = .pullRequests
         case .run: layout.gitSection = .actions
         }
-        showCenter = true
+        chrome.showCenter = true
         let url = root.appendingPathComponent(item.marker)
         if tabs.selectTab(matching: url) != nil { return }
         var tab = OpenTab(url: url, content: "", originalContent: "")
@@ -4196,7 +4126,7 @@ class WorkspaceManager: ObservableObject, TabsProviding {
         tab.kind = .browser(session)
         if activate {
             layout.workspaceArea = .files
-            showCenter = true
+            chrome.showCenter = true
         }
         tabs.appendTab(tab, activate: activate)
         return session
@@ -4230,18 +4160,13 @@ class WorkspaceManager: ObservableObject, TabsProviding {
 
     // MARK: - Prototype Studio
 
-    /// Opens the creator sheet of Prototype Studio.
-    @Published var showPrototypeCreator = false
-    /// What the creator sheet makes: a prototype from requirement documents. Existing code is no longer reconstructed:
-    /// it opens in UI Studio (DEC-002, DEC-005).
-    @Published var prototypeCreatorMode = PrototypeFiles.Mode.requirements
 
     /// Opens the creator sheet of Prototype Studio for requirements; `.code` ("New Prototype from Code…") opens UI Studio
     /// on the real application instead of generating a reconstruction (REQ-001).
     func openPrototypeCreator(mode: PrototypeFiles.Mode) {
         guard mode == .requirements else { return openTool(.uiStudio) }
-        prototypeCreatorMode = mode
-        showPrototypeCreator = true
+        requests.prototypeCreatorMode = mode
+        requests.showPrototypeCreator = true
     }
 
     /// A prototype saved in the open project, for the lists in the menu and the creator sheet.
@@ -4439,7 +4364,7 @@ class WorkspaceManager: ObservableObject, TabsProviding {
                           content: "", originalContent: "")
         tab.kind = .prototype(session)
         layout.workspaceArea = .files
-        showCenter = true
+        chrome.showCenter = true
         tabs.appendTab(tab, activate: true)
     }
 
@@ -4449,7 +4374,7 @@ class WorkspaceManager: ObservableObject, TabsProviding {
         let file = file.standardizedFileURL
         guard FileType.isHTML(file), FileManager.default.fileExists(atPath: file.path) else { return }
         layout.workspaceArea = .files
-        showCenter = true
+        chrome.showCenter = true
         for index in openTabs.indices {
             if case .browser(let session) = openTabs[index].kind, session.url?.standardizedFileURL == file {
                 activeTabIndex = index
@@ -4477,7 +4402,7 @@ class WorkspaceManager: ObservableObject, TabsProviding {
             ?? candidates.first { $0.session.isAppPreview }
             ?? candidates.first
         layout.workspaceArea = .files
-        showCenter = true
+        chrome.showCenter = true
         if let chosen {
             activeTabIndex = chosen.index
             chosen.session.load(url)
@@ -4497,7 +4422,7 @@ class WorkspaceManager: ObservableObject, TabsProviding {
             // One preview tab per window: bring it back and look again.
             activeTabIndex = index
             layout.workspaceArea = .files
-            showCenter = true
+            chrome.showCenter = true
             findWebApp(for: session)
             return
         }
@@ -4943,12 +4868,12 @@ extension WorkspaceManager {
 
 extension WorkspaceManager: ProjectOperationsPresenter {
     func showOperationConsole(selecting id: String) {
-        operationSelectedRunID = id
-        operationConsoleVisible = true
+        requests.operationSelectedRunID = id
+        requests.operationConsoleVisible = true
     }
 
     func showOperationEditor(_ request: ProjectOperationEditRequest) {
-        operationEditRequest = request
+        requests.operationEditRequest = request
     }
 
     var operationsHostWindow: NSWindow? { hostWindow }

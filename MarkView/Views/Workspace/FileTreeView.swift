@@ -9,6 +9,7 @@ struct FileTreeView: View {
     @EnvironmentObject private var tabs: TabsController
     @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
     @EnvironmentObject private var git: GitClient
+    @EnvironmentObject private var requests: WindowRequests
     /// The view and the filter choices of this window; they persist across restarts with its session (AC-5, DEC-008)
     /// and no other window follows them. The sort order persists in the file tree store.
     @WindowStorage("fileBrowser.viewMode") private var storedMode = FileBrowserViewMode.list
@@ -361,7 +362,7 @@ struct FileTreeView: View {
             seedTree()
             reveal(with: proxy)
         }
-        .onChange(of: workspaceManager.fileTreeRevealRequest) { _ in reveal(with: proxy) }
+        .onChange(of: requests.fileTreeRevealRequest) { _ in reveal(with: proxy) }
         }
     }
 
@@ -623,9 +624,9 @@ struct FileTreeView: View {
     /// off only the filter choices that would hide it (DEC-008), scroll to the item and highlight it. An item
     /// not on disk (a terminal or X-Ray tab) shows its nearest existing folder.
     private func reveal(with proxy: ScrollViewProxy) {
-        guard let request = workspaceManager.fileTreeRevealRequest,
+        guard let request = requests.fileTreeRevealRequest,
               let projectRoot = projectRootURL?.standardizedFileURL else { return }
-        workspaceManager.fileTreeRevealRequest = nil
+        requests.fileTreeRevealRequest = nil
         var target = request.standardizedFileURL
         // The project, or the linked folder, the item is in (Task 59).
         guard let root = workspaceManager.containerRoot(for: target)?.standardizedFileURL else { return }

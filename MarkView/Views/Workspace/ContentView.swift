@@ -194,10 +194,13 @@ struct ContentView: View {
 }
 
 extension View {
-    /// Gives the views below the parts of `workspace` they redraw with (tabs, panels, folder tree, Git): `@EnvironmentObject` for each.
+    /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, folder tree, Git):
+    /// `@EnvironmentObject` for each.
     func observingParts(of workspace: WorkspaceManager) -> some View {
         environmentObject(workspace.tabs)
             .environmentObject(workspace.layout)
+            .environmentObject(workspace.chrome)
+            .environmentObject(workspace.requests)
             .environmentObject(workspace.fileTreeStore)
             .environmentObject(workspace.gitClient)
     }
@@ -210,6 +213,8 @@ private struct WorkspaceWindow: View {
     @ObservedObject var workspaceManager: WorkspaceManager
     @EnvironmentObject private var tabs: TabsController
     @EnvironmentObject private var layout: PanelLayout
+    @EnvironmentObject private var chrome: WindowChrome
+    @EnvironmentObject private var requests: WindowRequests
     @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
     @EnvironmentObject private var git: GitClient
     @StateObject private var changeReview = ProjectChangeReview()
@@ -272,31 +277,31 @@ private struct WorkspaceWindow: View {
                                       store: workspaceManager.features)
                 }
                 HSplitView {
-                    if workspaceManager.showFileTree {
+                    if chrome.showFileTree {
                         navigationPane
                             .frame(minWidth: compact ? 160 : LeftPanelWidth.range.lowerBound,
                                    idealWidth: compact ? 190 : LeftPanelWidth.standard,
                                    maxWidth: compact ? 240 : .infinity)
                             .background { if !compact { LeftPanelWidthKeeper(state: workspaceManager.windowUI) } }
                     }
-                    if workspaceManager.showCenter {
+                    if chrome.showCenter {
                         workspaceCenter.frame(minWidth: 400, idealWidth: 500)
                     }
-                    if workspaceManager.terminalVisible {
+                    if chrome.terminalVisible {
                         rightPane.frame(minWidth: terminalMinimum, idealWidth: max(500, terminalMinimum))
-                            .background(RightPanelWidthKeeper(centerVisible: workspaceManager.showCenter, state: workspaceManager.windowUI))
+                            .background(RightPanelWidthKeeper(centerVisible: chrome.showCenter, state: workspaceManager.windowUI))
                     }
                 }
                 .environment(\.palette, palette)
-                if workspaceManager.agentsVisible {
+                if chrome.agentsVisible {
                     FloatingAgentsView(workspaceManager: workspaceManager, available: geometry.size)
                 }
                 }
                 .onAppear {
-                    workspaceManager.compactLayout = compact
+                    chrome.compactLayout = compact
                 }
                 .onChange(of: compact) { value in
-                    workspaceManager.compactLayout = value
+                    chrome.compactLayout = value
                 }
             }
         }
@@ -327,7 +332,7 @@ private struct WorkspaceWindow: View {
                 case .run: layout.gitSection = .actions
                 }
             }
-            workspaceManager.showCenter = true
+            chrome.showCenter = true
         }
         // NOTE: Do NOT use .onOpenURL — it causes SwiftUI to intercept
         // folder URLs, preventing application:open: from receiving them.
@@ -343,7 +348,7 @@ private struct WorkspaceWindow: View {
             showFolderPicker = true
         }
         .overlay(alignment: .bottomTrailing) { AIToolJobsBanner(jobs: workspaceManager.aiJobs) }
-        .sheet(item: $workspaceManager.pdfBookSelection) { selection in
+        .sheet(item: $requests.pdfBookSelection) { selection in
             BookPDFExportView(selection: selection, project: workspaceManager.aiProject,
                               drafts: workspaceManager.pdfBookDrafts, database: workspaceManager.semanticDatabase)
         }
@@ -351,32 +356,32 @@ private struct WorkspaceWindow: View {
             GraphCreatorSheet(
                 workspaceManager: workspaceManager,
                 isPresented: graphCreatorSheetBinding,
-                preselectedType: workspaceManager.pendingGraphCreatorType ?? "architecture"
+                preselectedType: requests.pendingGraphCreatorType ?? "architecture"
             )
         }
-        .sheet(isPresented: $workspaceManager.showPrototypeCreator) {
-            PrototypeCreatorSheet(workspaceManager: workspaceManager, isPresented: $workspaceManager.showPrototypeCreator,
-                                  mode: workspaceManager.prototypeCreatorMode)
+        .sheet(isPresented: $requests.showPrototypeCreator) {
+            PrototypeCreatorSheet(workspaceManager: workspaceManager, isPresented: $requests.showPrototypeCreator,
+                                  mode: requests.prototypeCreatorMode)
         }
-        .sheet(isPresented: Binding(get: { workspaceManager.doneRequest != nil },
-                                    set: { if !$0 { workspaceManager.doneRequest = nil } })) {
-            if let url = workspaceManager.doneRequest {
+        .sheet(isPresented: Binding(get: { requests.doneRequest != nil },
+                                    set: { if !$0 { requests.doneRequest = nil } })) {
+            if let url = requests.doneRequest {
                 DefinitionOfDoneSheet(root: workspaceManager.projectFolder, feature: url) { done in
                     workspaceManager.startImplementation(url, done: done)
                 }
             }
         }
-        .sheet(isPresented: $workspaceManager.showGlobalSearch) {
+        .sheet(isPresented: $chrome.showGlobalSearch) {
             SharedSearchView()
                 .environmentObject(workspaceManager)
                 .windowThemed(workspaceManager.theme)
         }
-        .sheet(isPresented: $workspaceManager.operationConsoleVisible) {
+        .sheet(isPresented: $requests.operationConsoleVisible) {
             if let store = workspaceManager.projectOperations {
                 ProjectOperationConsole(store: store).environmentObject(workspaceManager)
             }
         }
-        .sheet(item: $workspaceManager.operationEditRequest) { request in
+        .sheet(item: $requests.operationEditRequest) { request in
             if let store = workspaceManager.projectOperations {
                 let nodes = workspaceManager.architecture.snapshot?.view("deployment")?.nodes
                     .filter { $0.kind != "root" && $0.kind != "moduleRef" }
@@ -384,19 +389,19 @@ private struct WorkspaceWindow: View {
                 ProjectOperationEditor(store: store, request: request, deploymentNodes: nodes)
             }
         }
-        .sheet(item: $workspaceManager.intake) { request in
+        .sheet(item: $requests.intake) { request in
             IntakeSheet(request: request, workspaceManager: workspaceManager)
         }
-        .sheet(item: $workspaceManager.newProject) { request in
+        .sheet(item: $requests.newProject) { request in
             NewProjectSheet(request: request, workspaceManager: workspaceManager)
         }
-        .sheet(isPresented: $workspaceManager.gitHubPublishRequested) {
+        .sheet(isPresented: $requests.gitHubPublishRequested) {
             if let root = fileTree.rootNode?.url {
                 GitHubPublishSheet(root: root, workspaceManager: workspaceManager)
             } else {
                 VStack(spacing: 10) {
                     Text("Open a folder first, then publish it to GitHub.")
-                    Button("Close") { workspaceManager.gitHubPublishRequested = false }.keyboardShortcut(.defaultAction)
+                    Button("Close") { requests.gitHubPublishRequested = false }.keyboardShortcut(.defaultAction)
                 }
                 .padding(20)
             }
@@ -445,7 +450,7 @@ private struct WorkspaceWindow: View {
             // File › New Project… from a window with a folder: this new window takes it.
             if MarkViewApp.pendingNewProject {
                 MarkViewApp.pendingNewProject = false
-                workspaceManager.newProject = NewProjectRequest()
+                requests.newProject = NewProjectRequest()
             }
         }
     }
@@ -457,11 +462,11 @@ private struct WorkspaceWindow: View {
             HStack(spacing: 5) {
                 HStack(spacing: 1) {
                     headerButton("sidebar.leading", help: "Navigation (⌘1)", width: controlWidth,
-                                 selected: workspaceManager.showFileTree) { workspaceManager.toggleNavigation() }
+                                 selected: chrome.showFileTree) { chrome.toggleNavigation() }
                     headerButton("rectangle", help: "Workspace content", width: controlWidth,
-                                 selected: workspaceManager.showCenter) { workspaceManager.toggleCenter() }
+                                 selected: chrome.showCenter) { chrome.toggleCenter() }
                     headerButton("sidebar.trailing", help: "Right panel (⌘2)", width: controlWidth,
-                                 selected: workspaceManager.terminalVisible) { workspaceManager.toggleRightPanel() }
+                                 selected: chrome.terminalVisible) { chrome.toggleRightPanel() }
                 }
                 .background(RoundedRectangle(cornerRadius: 7).fill(palette.bgActive.opacity(0.5)))
                 headerDivider
@@ -498,12 +503,12 @@ private struct WorkspaceWindow: View {
                     browserMenu.frame(width: controlWidth, height: controlWidth)
                     toolButtons(.afterBrowser)
                     headerButton("terminal", help: "Agents (⌘3)", width: controlWidth,
-                                 selected: workspaceManager.agentsVisible) { workspaceManager.toggleAIConsole() }
+                                 selected: chrome.agentsVisible) { workspaceManager.toggleAIConsole() }
                     projectMenu.frame(width: controlWidth, height: controlWidth)
                 }
                 .background(RoundedRectangle(cornerRadius: 7).fill(palette.bgActive.opacity(0.5)))
                 headerButton("magnifyingglass", help: "Search project (⌘⇧K)", width: controlWidth) {
-                    workspaceManager.showGlobalSearch = true
+                    chrome.showGlobalSearch = true
                 }
                 newMenu.frame(width: controlWidth, height: controlWidth)
                 AIToolbarMenu(workspaceManager: workspaceManager, fileTree: fileTree, compact: compact)
@@ -520,8 +525,8 @@ private struct WorkspaceWindow: View {
         .frame(height: min(70, 44 * max(1, appFontScale)))
         .background(palette.bgSidebar)
         .overlay(alignment: .bottom) { Divider() }
-        .sheet(isPresented: $showCycleTime, onDismiss: { workspaceManager.cycleTimeItem = nil }) {
-            CycleTimeSheet(store: workspaceManager.features, focus: workspaceManager.cycleTimeItem, open: { item in
+        .sheet(isPresented: $showCycleTime, onDismiss: { requests.cycleTimeItem = nil }) {
+            CycleTimeSheet(store: workspaceManager.features, focus: requests.cycleTimeItem, open: { item in
                 showCycleTime = false
                 if item.kind == .feature {
                     workspaceManager.showFeature(item.issue, stage: .explore)
@@ -530,7 +535,7 @@ private struct WorkspaceWindow: View {
                 }
             }, close: { showCycleTime = false })
         }
-        .onChange(of: workspaceManager.cycleTimeItem) { item in if item != nil { showCycleTime = true } }
+        .onChange(of: requests.cycleTimeItem) { item in if item != nil { showCycleTime = true } }
     }
 
     private var headerDivider: some View {
@@ -574,7 +579,7 @@ private struct WorkspaceWindow: View {
     private func tabMark(_ matches: (TabKind) -> Bool) -> TabMark {
         guard tabs.openTabs.contains(where: { matches($0.kind) }) else { return .closed }
         if let active = tabs.activeTab, matches(active.kind),
-           workspaceManager.showCenter, layout.workspaceArea == .files { return .current }
+           chrome.showCenter, layout.workspaceArea == .files { return .current }
         return .open
     }
 
@@ -641,7 +646,7 @@ private struct WorkspaceWindow: View {
     private var newMenu: some View {
         Menu {
             ForEach(IntakeKind.allCases) { kind in
-                Button(kind.title + "…") { workspaceManager.intake = IntakeRequest(kind: kind) }
+                Button(kind.title + "…") { requests.intake = IntakeRequest(kind: kind) }
             }
             if let url = tabs.activeTab?.url, tabs.activeTab?.isFileBacked == true {
                 Section("From the open document (\(url.lastPathComponent))") {
@@ -693,7 +698,7 @@ private struct WorkspaceWindow: View {
             if !workspaceManager.selectionActions.isEmpty {
                 SelectionActionBar().environmentObject(workspaceManager)
             }
-            if let resume = workspaceManager.handoffResume,
+            if let resume = requests.handoffResume,
                layout.workspaceArea == .files {
                 HandoffResumeBar(resume: resume).environmentObject(workspaceManager)
             }
@@ -755,7 +760,7 @@ private struct WorkspaceWindow: View {
     }
 
     private func activate(_ area: WorkspaceArea) {
-        workspaceManager.showCenter = true
+        chrome.showCenter = true
         switch area {
         case .files:
             if let id = lastFilesTab,
@@ -848,7 +853,7 @@ private struct WorkspaceWindow: View {
 
     private var graphCreatorSheetBinding: Binding<Bool> {
         Binding(
-            get: { workspaceManager.pendingGraphCreatorType != nil },
+            get: { requests.pendingGraphCreatorType != nil },
             set: { isPresented in
                 if !isPresented {
                     workspaceManager.dismissGraphCreator()
@@ -875,7 +880,7 @@ private struct WorkspaceWindow: View {
                     .frame(maxWidth: 700)
             } else {
                 ProjectDraftList(drafts: ProjectDraftStore.shared) { id in
-                    workspaceManager.newProject = NewProjectRequest(resume: id)
+                    requests.newProject = NewProjectRequest(resume: id)
                 }
                 if !workspaceManager.recentProjects.isEmpty {
                     VStack(alignment: .leading, spacing: 5) {
@@ -900,25 +905,25 @@ private struct WorkspaceWindow: View {
         switch id {
         case .terminal: workspaceManager.showAIConsole()
         case .newFeature:
-            workspaceManager.intake = IntakeRequest(kind: .feature)
+            requests.intake = IntakeRequest(kind: .feature)
             layout.workspaceArea = .work
         case .quickFeature:
-            workspaceManager.intake = IntakeRequest(kind: .quickFeature)
+            requests.intake = IntakeRequest(kind: .quickFeature)
             layout.workspaceArea = .work
         case .newBug:
-            workspaceManager.intake = IntakeRequest(kind: .bug)
+            requests.intake = IntakeRequest(kind: .bug)
             layout.workspaceArea = .work
-        case .understand: workspaceManager.intake = IntakeRequest(kind: .understand)
+        case .understand: requests.intake = IntakeRequest(kind: .understand)
         case .research: workspaceManager.newResearch()
         case .tool(let tool): workspaceManager.openTool(tool)
         case .tasks: activate(.work)
         case .xray: workspaceManager.openArchitecture()
-        case .search: workspaceManager.showGlobalSearch = true
+        case .search: chrome.showGlobalSearch = true
         case .files: activate(.files)
         case .openFile: openFile()
         case .browser: _ = workspaceManager.openBrowser(nil)
         case .openFolder: openFolder()
-        case .newProject: workspaceManager.newProject = NewProjectRequest()
+        case .newProject: requests.newProject = NewProjectRequest()
         }
     }
 
@@ -1289,7 +1294,7 @@ private struct FloatingAgentsView: View {
                         maximized.toggle()
                     }
                     headerControl("xmark", help: "Hide Agents", height: headerHeight) {
-                        workspaceManager.agentsVisible = false
+                        workspaceManager.chrome.agentsVisible = false
                     }
                 }
             }

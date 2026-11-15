@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 186,
+  "suiteCount": 187,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2667,6 +2667,26 @@
         "MarkView/Views/Workspace/WelcomeView.swift",
         "tools/tests/WelcomeScreenTests.swift",
         "tools/tests/welcome-screen-tests.sh"
+      ]
+    },
+    {
+      "name": "window-chrome-tests",
+      "script": "tools/tests/window-chrome-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Appearance/AppTheme.swift",
+        "MarkView/Models/Appearance/ProjectBackdrop.swift",
+        "MarkView/Models/Appearance/WelcomeBackdrop.swift",
+        "MarkView/Models/Workspace/DocumentState.swift",
+        "MarkView/Models/Workspace/PanelLayout.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
+        "MarkView/Models/Workspace/ToolRegistry.swift",
+        "MarkView/Models/Workspace/WindowChrome.swift",
+        "MarkView/Models/Workspace/WindowSession.swift",
+        "MarkView/Models/Workspace/WindowUIState.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/WindowChromeTests.swift",
+        "tools/tests/window-chrome-tests.sh"
       ]
     },
     {

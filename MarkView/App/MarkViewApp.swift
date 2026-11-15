@@ -245,7 +245,7 @@ struct MarkViewApp: App {
                 Button("New Project…") {
                     // A window without a folder takes it; otherwise a new window does.
                     if let workspace = activeWorkspace, activeWorkspaceHasFolder != true {
-                        workspace.newProject = NewProjectRequest()
+                        workspace.requests.newProject = NewProjectRequest()
                     } else {
                         Self.pendingNewProject = true
                         newWindow()
@@ -253,7 +253,7 @@ struct MarkViewApp: App {
                 }
 
                 Button("Publish to GitHub…") {
-                    activeWorkspace?.gitHubPublishRequested = true
+                    activeWorkspace?.requests.gitHubPublishRequested = true
                 }
                 .disabled(activeWorkspaceHasFolder != true)
 
@@ -304,7 +304,7 @@ struct MarkViewApp: App {
                 Divider()
 
                 Button("Search Project…") {
-                    activeWorkspace?.showGlobalSearch = true
+                    activeWorkspace?.chrome.showGlobalSearch = true
                 }
                 .keyboardShortcut("k", modifiers: [.command, .shift])
 
@@ -314,12 +314,12 @@ struct MarkViewApp: App {
                 .keyboardShortcut("t", modifiers: [.command, .shift])
 
                 Button("Toggle File Tree") {
-                    activeWorkspace?.toggleNavigation()
+                    activeWorkspace?.chrome.toggleNavigation()
                 }
                 .keyboardShortcut("1", modifiers: [.command])
 
                 Button("Toggle Right Panel") {
-                    activeWorkspace?.toggleRightPanel()
+                    activeWorkspace?.chrome.toggleRightPanel()
                 }
                 .keyboardShortcut("2", modifiers: [.command])
 

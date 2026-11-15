@@ -81,7 +81,7 @@ struct TabBarView: View {
         return Button {
             tabs.activeTabIndex = -1
             workspaceManager.layout.workspaceArea = .files
-            workspaceManager.showCenter = true
+            workspaceManager.chrome.showCenter = true
         } label: {
             Image(systemName: selected ? "house.fill" : "house")
                 .uiFont(size: 11)
