@@ -1064,6 +1064,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Workspace/ToolRegistry.swift",
+        "MarkView/Models/Workspace/WelcomeActions.swift",
         "MarkView/Models/Workspace/PanelLayout.swift",
         "tools/tests/Phase3ExtensibilityTests.swift"
       ]
@@ -2433,6 +2434,7 @@
         "MarkView/Models/Appearance/AppFontScale.swift",
         "MarkView/Models/Appearance/AppTheme.swift",
         "MarkView/Models/Appearance/ProjectBackdrop.swift",
+        "MarkView/Models/Workspace/ToolRegistry.swift",
         "MarkView/Models/Workspace/WelcomeActions.swift",
         "MarkView/Models/Appearance/WelcomeBackdrop.swift",
         "MarkView/Models/Appearance/WindowTheme.swift",

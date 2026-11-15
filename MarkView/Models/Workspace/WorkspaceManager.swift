@@ -374,7 +374,7 @@ class WorkspaceManager: ObservableObject {
         return CLICompletion.Assistant.chosen(tool: tool, project: aiProject)
     }
 
-    func openTool(_ id: ToolDescriptor.ToolID) {
+    func openTool(_ id: ToolID) {
         switch id {
         case .git: openGit()
         case .deployments: openDeployments()
@@ -384,10 +384,11 @@ class WorkspaceManager: ObservableObject {
         case .cockpit: openCockpit()
         case .discussions: openDiscussions()
         case .changeReview: openChangeReview()
+        default: assertionFailure("No opener for the tool \(id.rawValue)")
         }
     }
 
-    nonisolated static func toolMatches(_ id: ToolDescriptor.ToolID, kind: TabKind) -> Bool {
+    nonisolated static func toolMatches(_ id: ToolID, kind: TabKind) -> Bool {
         switch (id, kind) {
         case (.git, .git),
              (.deployments, .deployments),
@@ -4848,7 +4849,7 @@ class WorkspaceManager: ObservableObject {
         session.openFile = { [weak self] url in self?.openFile(url) }
         session.featureStore = { [weak self] in self?.features }
         session.onFeatureExported = { [weak self] slug in self?.showFeatureContext(slug) }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .uiStudio, in: root, suffix: session.id.uuidString),
+        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .uiStudio, in: root, suffix: session.id.uuidString),
                           content: "", originalContent: "")
         tab.kind = .uiStudio(session)
         tabsStore.appendTab(tab, activate: true)
@@ -4928,7 +4929,7 @@ class WorkspaceManager: ObservableObject {
         for index in openTabs.indices {
             if case .deployments = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
         }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .deployments, in: root), content: "", originalContent: "")
+        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .deployments, in: root), content: "", originalContent: "")
         tab.kind = .deployments
         layout.workspaceArea = .files
         showCenter = true
@@ -4943,7 +4944,7 @@ class WorkspaceManager: ObservableObject {
         for index in openTabs.indices {
             if case .git = openTabs[index].kind { activeTabIndex = index; return }
         }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .git, in: root), content: "", originalContent: "")
+        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .git, in: root), content: "", originalContent: "")
         tab.kind = .git
         tabsStore.appendTab(tab, activate: true)
     }
@@ -4957,7 +4958,7 @@ class WorkspaceManager: ObservableObject {
         for index in openTabs.indices {
             if case .workflow = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
         }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .workflow, in: root), content: "", originalContent: "")
+        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .workflow, in: root), content: "", originalContent: "")
         tab.kind = .workflow
         layout.workspaceArea = .files
         showCenter = true
@@ -4973,7 +4974,7 @@ class WorkspaceManager: ObservableObject {
             activeTabIndex = index
             return
         }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .cockpit, in: root), content: "", originalContent: "")
+        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .cockpit, in: root), content: "", originalContent: "")
         let session: CockpitSession
         if let existing = cockpitSession, existing.root.standardizedFileURL == root.standardizedFileURL {
             session = existing
@@ -4997,7 +4998,7 @@ class WorkspaceManager: ObservableObject {
         for index in openTabs.indices {
             if case .qa = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
         }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .qa, in: root), content: "", originalContent: "")
+        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .qa, in: root), content: "", originalContent: "")
         tab.kind = .qa
         layout.workspaceArea = .files
         showCenter = true
@@ -5010,7 +5011,7 @@ class WorkspaceManager: ObservableObject {
         for index in openTabs.indices {
             if case .changeReview = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
         }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .changeReview, in: root), content: "", originalContent: "")
+        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .changeReview, in: root), content: "", originalContent: "")
         tab.kind = .changeReview
         layout.workspaceArea = .files
         showCenter = true
@@ -5024,7 +5025,7 @@ class WorkspaceManager: ObservableObject {
         for index in openTabs.indices {
             if case .discussions = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
         }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .discussions, in: root), content: "", originalContent: "")
+        var tab = OpenTab(url: ToolRegistry.shared.sentinelURL(for: .discussions, in: root), content: "", originalContent: "")
         tab.kind = .discussions
         layout.workspaceArea = .files
         showCenter = true

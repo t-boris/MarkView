@@ -464,21 +464,13 @@ struct ContentView: View {
                     headerButton("checklist", help: "Tasks", width: controlWidth,
                                  selected: workspaceManager.layout.workspaceArea == .work) { activate(.work) }
                         .disabled(workspaceManager.rootNode == nil)
-                    ForEach(ToolRegistry.primaryToolbarTools) { tool in
-                        tabButton(tool.icon, help: tool.help, width: controlWidth, matches: { WorkspaceManager.toolMatches(tool.id, kind: $0) }) {
-                            workspaceManager.openTool(tool.id)
-                        }.disabled(workspaceManager.rootNode == nil)
-                    }
+                    toolButtons(.primary)
                     headerButton("square.on.square.dashed", help: "New Prototype…", width: controlWidth,
                                  selected: { if case .prototype? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openPrototypeCreator(mode: .requirements)
                     }.disabled(workspaceManager.rootNode == nil)
                     browserMenu.frame(width: controlWidth, height: controlWidth)
-                    if let discussionsTool = ToolRegistry.descriptor(for: .discussions) {
-                        tabButton(discussionsTool.icon, help: discussionsTool.help, width: controlWidth, matches: { WorkspaceManager.toolMatches(discussionsTool.id, kind: $0) }) {
-                            workspaceManager.openTool(discussionsTool.id)
-                        }.disabled(workspaceManager.rootNode == nil)
-                    }
+                    toolButtons(.afterBrowser)
                     headerButton("terminal", help: "Agents (⌘3)", width: controlWidth,
                                  selected: workspaceManager.agentsVisible) { workspaceManager.toggleAIConsole() }
                     projectMenu.frame(width: controlWidth, height: controlWidth)
@@ -565,6 +557,15 @@ struct ContentView: View {
                            action: @escaping () -> Void) -> some View {
         let mark = tabMark(matches)
         return headerButton(symbol, help: help, width: width, selected: mark == .current, open: mark == .open, action: action)
+    }
+
+    /// The buttons of the tools registered for `slot` of the toolbar (`ToolRegistry`).
+    private func toolButtons(_ slot: ToolbarSlot) -> some View {
+        ForEach(ToolRegistry.shared.toolbarTools(slot)) { tool in
+            tabButton(tool.icon, help: tool.help, width: toolbarIconWidth, matches: { WorkspaceManager.toolMatches(tool.id, kind: $0) }) {
+                workspaceManager.openTool(tool.id)
+            }.disabled(workspaceManager.rootNode == nil)
+        }
     }
 
     /// Less frequent window tools, kept alongside the direct project buttons.

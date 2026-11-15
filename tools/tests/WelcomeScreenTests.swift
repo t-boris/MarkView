@@ -185,11 +185,12 @@ func catalogueChecks() {
     check(all.allSatisfy { NSImage(systemSymbolName: $0.symbol, accessibilityDescription: nil) != nil }, "catalogue: every icon is a symbol this macOS has",
           all.filter { NSImage(systemSymbolName: $0.symbol, accessibilityDescription: nil) == nil }.map(\.symbol).joined(separator: ","))
     check(withGit[0].actions.first?.isProminent == true && all.filter(\.isProminent).count == 2, "catalogue: Open Terminal (and Open Folder, in its own window) stand out")
-    // A shortcut a tile shows must be one the app's menus really have.
+    // A shortcut a tile shows must be one the app's menus really have: a tool's comes from the registry that generates its menu item.
     let menus = (try? String(contentsOfFile: "MarkView/App/MarkViewApp.swift")) ?? ""
+    let toolShortcuts = Set(ToolRegistry.shared.tools.compactMap { $0.shortcut?.hint })
     for action in all {
         guard let shortcut = action.shortcut, let key = shortcut.last else { continue }
-        check(menus.contains("keyboardShortcut(\"\(key.lowercased())\""), "catalogue: \(action.title) shows \(shortcut), which the menus have")
+        check(toolShortcuts.contains(shortcut) || menus.contains("keyboardShortcut(\"\(key.lowercased())\""), "catalogue: \(action.title) shows \(shortcut), which the menus have")
     }
 }
 

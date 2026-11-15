@@ -32,6 +32,7 @@ One step per line, run on the main queue (`#` starts a comment). Output goes to 
 | `frame <name>` | PNG of the backdrop's presentation layer (what the render server shows now) |
 | `motion begin` / `motion end` | how many backdrop layers moved between the two, and the backdrop's hit test |
 | `ax` | accessibility tree: every button with its frame in window coordinates (top-left origin) and whether it is enabled |
+| `menu` | the application's main menu: one line per item with its path, key equivalent and whether it is enabled (the View menu shows what the registry generated) |
 | `move x y` / `click x y` | real mouse events through `sendEvent:` |
 | `clicklabel <label>` | clicks the first element whose accessibility label or title is `<label>` (independent of the layout) |
 | `drag x1 y1 x2 y2` | mouse down, five drags, mouse up (content coordinates, top-left origin) |
