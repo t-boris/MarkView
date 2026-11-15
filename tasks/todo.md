@@ -1,3 +1,11 @@
+# Architecture and code review (2026-11-15, docs only)
+
+Boris asked for a serious architecture and code analysis written to a file under docs, as a source for tasks (clean architecture, decomposition, sharing, decoupling, improvements such as a plugin system for themes, splash screens, layouts).
+
+- [x] Seven read-only passes (layering, shell and state, AI layer and processes, web editor and bridge, extensibility, tests/CI/build/repo, persistence/security/concurrency), then a spot check of the most serious claims against the code.
+- [x] `docs/architecture/architecture-review-2026-11.md`: findings AR-01..AR-49 (severity, effort, evidence, fix), target structure, roadmap in 8 phases, 10 decisions for Boris; linked from `docs/architecture/README.md`.
+- Nothing was built, run or profiled; performance findings are by reading. No code was changed. No tasks or issues were created: Boris turns the findings into tasks himself.
+
 # Three new themes and four new welcome animations (2026-11-14, 6.25.0)
 
 Boris: "add about three new themes and three new animations for the splash screen, the main screen; invent something interesting". Status: APPROVED by Boris's answers (themes: Nord + Forest + Daylight; animations: he ticked all four of Git Flow, Deep Sea, Warp, Typewriter, so all four are built, "about three" leaves room). Implementation in worktree `MarkView-welcome-themes`, branch `feat/welcome-animations-and-themes`.
