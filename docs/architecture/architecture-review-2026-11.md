@@ -457,7 +457,7 @@ Each phase leaves the app shippable. Phases 0 and 1 are low risk and mostly inde
 
 **Phase 4: shell decomposition (4-6 weeks, incremental) — [Done].** `WorkspaceManager` steps 1-5 (`MarkdownDocumentChunker`, `WorkspaceModalCoordinator`, `WorkspaceSemanticCoordinator`, `WorkspaceChromeCoordinator`, AR-14), stop scroll/heading change forwarding via `DocumentScrollSideTable` and `updateActiveTabSilently` (AR-15), the composition root `WindowDependencies` and narrow protocols (`ProjectContextProviding`, `TabsProviding`, `AssistantContextProviding`, AR-17), and `TaskBag` + `WindowTaskScheduler` + single Finder poll timer (AR-19) (`tools/tests/phase4-shell-tests.sh`).
 
-**Phase 5: AI layer (3-4 weeks, feature by feature).** `AIOperation` (AR-26), `AssistantProvider` (AR-35).
+**Phase 5: AI layer (3-4 weeks, feature by feature) — [Done].** `AIOperation` with `AIJSONSalvage` and bounded validation/repair retries (AR-26), `AssistantProvider` and `AssistantProviderRegistry` unifying CLI tool descriptors (AR-35) (`tools/tests/phase5-ai-tests.sh`).
 
 **Phase 6: storage and concurrency (3-4 weeks).** SQLite actor and migrations (AR-37, AR-38), repositories and schema versions (AR-36), control socket authentication (AR-40), strict concurrency per package (AR-43), main-thread paths (AR-42).
 
