@@ -485,10 +485,10 @@ private struct ProjectContextScreen: View {
 /// BUG-120: the background belongs to the window that chose it. The screen shows only the binding it is given, so the stored value that
 /// the old @AppStorage shared with every window cannot reach it, and two windows hold two different choices at once.
 @MainActor func perWindowChecks() {
-    let defaults = UserDefaults.standard
-    let previous = defaults.object(forKey: WelcomeBackdrop.storageKey)
-    defer { if let previous { defaults.set(previous, forKey: WelcomeBackdrop.storageKey) } else { defaults.removeObject(forKey: WelcomeBackdrop.storageKey) } }
-    defaults.set(WelcomeBackdrop.aurora.rawValue, forKey: WelcomeBackdrop.storageKey)
+    let settings = Settings.standard
+    let previous = settings.stored(Setting.welcomeBackdrop)
+    defer { settings.set(previous, for: Setting.welcomeBackdrop) }
+    settings.set(WelcomeBackdrop.aurora.rawValue, for: Setting.welcomeBackdrop)
     let size = NSSize(width: 900, height: 700)
     let (first, firstHosting) = host(project: "MarkView", git: false, theme: .classicDark, size: size, still: true, backdrop: .network)
     let (second, secondHosting) = host(project: "MarkView", git: false, theme: .classicDark, size: size, still: true, backdrop: .bugs)

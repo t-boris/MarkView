@@ -67,9 +67,6 @@ struct FileBrowserPreferences: Equatable {
     var category = FileBrowserCategory.all
 }
 
-extension FileBrowserViewMode: WindowUIStorable {}
-extension FileBrowserCategory: WindowUIStorable {}
-
 /// The project folder or a linked folder: a place at the Workspace level (AC-2).
 struct FileBrowserRoot: Equatable {
     let url: URL

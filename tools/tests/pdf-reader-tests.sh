@@ -15,7 +15,7 @@ Path(sys.argv[1]).write_text(
 )
 PY
 swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library \
-    Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
+    MarkView/Models/Appearance/WebThemeArguments.swift Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Models/Workspace/DocumentState.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Workspace/TabClosing.swift MarkView/Models/Workspace/BackgroundFileScans.swift \
     MarkView/Models/Workspace/EditorDocumentRouting.swift MarkView/Models/Workspace/DocumentScrollSideTable.swift MarkView/Models/Workspace/TaskBag.swift MarkView/Models/Workspace/TabsController.swift \
     MarkView/Models/Book/PDFReader.swift MarkView/Models/AI/OutputLanguage.swift \

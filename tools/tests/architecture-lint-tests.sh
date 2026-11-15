@@ -28,6 +28,8 @@ SWIFT = {
     "MarkView/Models/Workspace/Runner.swift": "let process = Process()\n",
     "MarkView/Views/Workspace/Tab.swift": "struct Tab {\n    @EnvironmentObject var workspace: WorkspaceManager\n    @ObservedObject var other: WorkspaceManager\n    @EnvironmentObject var theme: Theme\n}\n",
     "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift": "let process = Process()\n",
+    # The settings store is the one place that touches UserDefaults and the one that listens to its notification.
+    "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift": "public struct Settings {\n    func f(_ defaults: UserDefaults) { defaults.set(1, forKey: \"k\") }\n    let changes = UserDefaults.didChangeNotification\n}\n",
     # The providers are the one place that names an assistant; strings, paths and trailing comments never count.
     "MarkView/Models/AI/Providers/ClaudeProvider.swift": "struct P {\n    func f(_ t: CLITool) -> Int {\n        switch t {\n        case .claude, .codex: return 1\n        default: return 0\n        }\n    }\n}\n",
     "MarkView/Models/AI/Paths.swift": "let a = \"~/.claude/settings.json\"\nlet b = home.appendingPathComponent(\".codex\")\nlet c = other.claude\nlet d = 1 // .copilot in a comment\n",
@@ -316,6 +318,121 @@ try:
     code, out = run(root)
     check(code == 1 and "[no-private-escape] MarkView/Resources/Editor/js/markview-bad.js:2" in out and out.count("[no-private-escape]") == 1,
           "a private HTML escape in a page script fails with file and line")
+
+    # --- js-interpolation
+    root = fresh()
+    write(root, "MarkView/Views/Workspace/GoodPage.swift", (
+        "func ok(_ web: WKWebView, _ value: String) {\n"
+        "    web.evaluateJavaScript(\"window.reset()\")\n"
+        "    if let script = JS.call(\"window.f\", args: [\"a\\(value)\"]) { web.evaluateJavaScript(script) }\n"
+        "    web.evaluateJavaScript(JS.call(\"window.g\") ?? \"\")\n"
+        "    web.callAsyncJavaScript(\"return x\", arguments: [\"x\": value], in: nil, contentWorld: .page) { _ in }\n"
+        "    // web.evaluateJavaScript(\"window.f(\\(value))\") is only a comment\n"
+        "    web.evaluateJavaScript(Self.probe)\n"
+        "    web.evaluateJavaScript(constant)\n"
+        "}\n"
+        "let constant = \"window.k()\"\n"
+        "static let probe = #\"\"\"\n(function () { var n = \\#(3); })()\n\"\"\"#\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0 and "js-interpolation" in out, "constant scripts, JS.call with interpolated Swift arguments, arguments: and a raw-string constant pass js-interpolation")
+    write(root, "MarkView/Views/Workspace/BadPage.swift", (
+        "func bad(_ web: WKWebView, _ value: String) {\n"
+        "    web.evaluateJavaScript(\"window.f(\\(value))\")\n"
+        "    let script = \"window.g('\\(value)')\"\n"
+        "    web.evaluateJavaScript(script)\n"
+        "    web.evaluateJavaScript(Self.build(value))\n"
+        "    web.evaluateJavaScript(\"\"\"\n"
+        "        window.k(\\(value))\n"
+        "        \"\"\")\n"
+        "    web.callAsyncJavaScript(\"return \\(value)\", arguments: [:], in: nil, contentWorld: .page) { _ in }\n"
+        "    let built = Self.build(value)\n"
+        "    web.evaluateJavaScript(built)\n"
+        "}\n"
+        "static func build(_ v: String) -> String { \"window.h(\\(v))\" }\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    reported = {line.split(" ")[3] for line in out.splitlines() if line.startswith("  [js-interpolation]")}
+    check(code == 1 and reported == {f"MarkView/Views/Workspace/BadPage.swift:{n}:" for n in (2, 4, 5, 6, 9, 11)},
+          "a script built by interpolation fails js-interpolation: directly, through a variable, through a helper function, as a multi-line literal, and in callAsyncJavaScript")
+    check("GoodPage.swift" not in out, "the good page is not reported")
+
+    # --- webview-configuration
+    root = fresh()
+    write(root, "MarkView/Views/Workspace/GoodHost.swift", (
+        "func make() -> WKWebView {\n"
+        "    // WKWebViewConfiguration() is only named in a comment, as is WKWebView(frame: .zero)\n"
+        "    let configuration = WebHost.makeConfiguration(handlers: [.message(\"bridge\", handler)])\n"
+        "    let view = WebHost.makeWebView(configuration: configuration)\n"
+        "    var views: [WKWebView] = []\n"
+        "    let none = [WKWebView]()\n"
+        "    let browser = BrowserWebView(frame: .zero, configuration: configuration) // WKWebView(frame: .zero) in a trailing comment\n"
+        "    WebHost.markInspectable(browser)\n"
+        "    return view\n"
+        "}\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0 and "webview-configuration" in out, "WebHost calls, a subclass, a type annotation and comments pass webview-configuration")
+    write(root, "MarkView/Views/Workspace/BadHost.swift", (
+        "func make() {\n"
+        "    let configuration = WKWebViewConfiguration()\n"
+        "    let view = WKWebView(frame: .zero, configuration: configuration)\n"
+        "    let other = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())\n"
+        "}\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    reported = {line.split(" ")[3] for line in out.splitlines() if line.startswith("  [webview-configuration]")}
+    check(code == 1 and reported == {f"MarkView/Views/Workspace/BadHost.swift:{n}:" for n in (2, 3, 4)},
+          "a configuration or a web view made directly fails webview-configuration with file and line")
+    check("GoodHost.swift" not in out, "the good host is not reported")
+
+    # --- settings-literal and settings-observer
+    root = fresh()
+    write(root, "MarkView/Views/Workspace/GoodSettings.swift", (
+        "struct Good {\n"
+        "    @AppStorage(Setting.fontScalePercent) private var percent: Int\n"
+        "    @WindowStorage(Setting.qaInspectorWidth) private var width: Double\n"
+        "    private let defaults: UserDefaults\n"
+        "    init(defaults: UserDefaults = .standard) { self.defaults = defaults; _flag = AppStorage(Setting.gitHubEnabled) }\n"
+        "    func f() {\n"
+        "        let value = Settings(defaults).value(Setting.autoAnalyze)\n"
+        "        Settings.standard.set(value, for: Setting.autoAnalyze)\n"
+        "        layer.add(animation, forKey: \"sway\")\n"
+        "        view.setValue(false, forKey: \"drawsBackground\")\n"
+        "        pending.removeValue(forKey: \"id\")\n"
+        "        // UserDefaults.standard.set(1, forKey: \"k\") and didChangeNotification are only named in a comment\n"
+        "        let observer = SettingsObserver([Setting.gitHubEnabled.erased]) { }\n"
+        "    }\n"
+        "}\n"))
+    write(root, "Packages/MarkViewCore/Tests/MarkViewCoreTests/SettingsTests.swift", "let d = UserDefaults(suiteName: \"t\")!\nd.set(1, forKey: \"x\")\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0 and "settings-literal" in out and "settings-observer" in out,
+          "registry keys, Settings, SettingsObserver, an injected UserDefaults, other forKey: calls, comments, Settings.swift itself and package tests pass the settings rules")
+    write(root, "MarkView/Views/Workspace/BadSettings.swift", (
+        "struct Bad {\n"
+        "    @AppStorage(\"legacy.key\") private var a = 1\n"
+        "    @WindowStorage(\"window.key\") private var b = 2.0\n"
+        "    init() { _c = AppStorage(wrappedValue: true, \"dynamic.key\") }\n"
+        "    func f(_ defaults: UserDefaults) {\n"
+        "        UserDefaults.standard.set(1, forKey: \"k\")\n"
+        "        let v = defaults.string(forKey: key)\n"
+        "        let w = UserDefaults(suiteName: \"s\")\n"
+        "    }\n"
+        "    var body: some View {\n"
+        "        Text(\"x\").onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in }\n"
+        "    }\n"
+        "}\n"))
+    write(root, "Packages/MarkViewCore/Sources/MarkViewCore/Elsewhere.swift", "func g(_ ud: UserDefaults) { _ = ud.object(forKey: \"x\") }\nlet n = UserDefaults.didChangeNotification\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    literal = {line.split(" ")[3] for line in out.splitlines() if line.startswith("  [settings-literal]")}
+    observer = {line.split(" ")[3] for line in out.splitlines() if line.startswith("  [settings-observer]")}
+    check(code == 1 and literal == {f"MarkView/Views/Workspace/BadSettings.swift:{n}:" for n in (2, 3, 4, 6, 7, 8)} | {"Packages/MarkViewCore/Sources/MarkViewCore/Elsewhere.swift:1:"},
+          "a string-literal @AppStorage or @WindowStorage key, and a direct UserDefaults call, fail settings-literal with file and line")
+    check(observer == {"MarkView/Views/Workspace/BadSettings.swift:11:", "Packages/MarkViewCore/Sources/MarkViewCore/Elsewhere.swift:2:"},
+          "an observer of every UserDefaults write fails settings-observer with file and line")
+    check("GoodSettings.swift" not in out and "MarkViewCore/Settings.swift" not in out, "the good file and the settings store itself are not reported")
 
     # --- tabs-direct
     root = fresh()

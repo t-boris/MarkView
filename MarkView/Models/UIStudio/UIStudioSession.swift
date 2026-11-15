@@ -227,23 +227,21 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         scenario = first
         simulator = StudioSimulator(spec: loaded, scenario: first)
 
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.preferences.isElementFullscreenEnabled = false
-        configuration.applicationNameForUserAgent = "Version/17.0 Safari/605.1.15 MarkViewUIStudio"
-        webView = WKWebView(frame: CGRect(x: 0, y: 0, width: first.viewport.width, height: first.viewport.height), configuration: configuration)
+        let configuration = WebHost.makeConfiguration(
+            dataStore: .nonPersistent,
+            handlers: [.reply(StudioBridge.handlerName, handler)],
+            allowsPopups: true,
+            applicationName: "Version/17.0 Safari/605.1.15 MarkViewUIStudio")
+        webView = WebHost.makeWebView(frame: CGRect(x: 0, y: 0, width: first.viewport.width, height: first.viewport.height),
+                                      configuration: configuration)
         super.init()
         preparation.onRecord = { [weak self] record in self?.logPreparation(record) }
         wireMapping()
         handler.session = self
-        configuration.userContentController.addScriptMessageHandler(handler, contentWorld: .page, name: StudioBridge.handlerName)
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsMagnification = false
-        #if DEBUG
-        if #available(macOS 13.3, *) { webView.isInspectable = true }
-        #endif
         applyTheme()
 
         savedScenarios = StudioStore.loadScenarios(root)

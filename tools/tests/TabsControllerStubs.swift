@@ -6,8 +6,6 @@ struct InsightSession {
     let id = UUID()
     func cancel() async {}
 }
-struct SemanticBlock {}
-struct BlockCompilationState {}
 struct BrowserSession {
     var url: URL?
     func close() {}

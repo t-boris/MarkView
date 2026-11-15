@@ -1,6 +1,9 @@
 import SwiftUI
 import AppKit
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // MARK: - Shared pieces
 
@@ -1138,7 +1141,7 @@ struct GitHubIssueView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @EnvironmentObject var windowTheme: WindowTheme
     @Environment(\.appFontScale) private var fontScale
-    @WindowStorage(EditorTextSize.mirrorKey) private var editorTextSize = EditorTextSize.defaultSize
+    @WindowStorage(Setting.editorTextSizeMirror) private var editorTextSize: Double
     @State private var comment = ""
     @State private var starting = false
     @State private var editing = false
@@ -1427,10 +1430,7 @@ struct GitHubHTMLView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        configuration.websiteDataStore = .nonPersistent()
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let view = WebHost.makeWebView(configuration: WebHost.makeConfiguration(dataStore: .nonPersistent, allowsJavaScript: false))
         view.navigationDelegate = context.coordinator
         view.setValue(false, forKey: "drawsBackground")
         return view
@@ -1464,12 +1464,12 @@ struct GitHubHTMLView: NSViewRepresentable {
 struct GitHubSettingsSection: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @AppStorage(GitHubSettings.enabledKey) private var enabled = false
-    @AppStorage(GitHubSettings.idleIntervalKey) private var idleInterval: Double = 300
-    @AppStorage(GitHubSettings.activeIntervalKey) private var activeInterval: Double = 30
-    @AppStorage(GitHubSettings.notifyKey) private var notify = true
-    @AppStorage(GitHubSettings.autoReviewKey) private var autoReview = true
-    @AppStorage(GitHubProfile.configDirectoryKey) private var configDirectory = ""
+    @AppStorage(Setting.gitHubEnabled) private var enabled: Bool
+    @AppStorage(Setting.gitHubIdleInterval) private var idleInterval: Double
+    @AppStorage(Setting.gitHubActiveInterval) private var activeInterval: Double
+    @AppStorage(Setting.gitHubNotifyRuns) private var notify: Bool
+    @AppStorage(Setting.gitHubAutoReview) private var autoReview: Bool
+    @AppStorage(Setting.gitHubConfigDirectory) private var configDirectory: String
     @State private var account: GitHubClient.Account?
     @State private var accountError: String?
     @State private var checking = false
@@ -1654,7 +1654,7 @@ struct GitHubPullRequestView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @EnvironmentObject var windowTheme: WindowTheme
     @Environment(\.appFontScale) private var fontScale
-    @WindowStorage(EditorTextSize.mirrorKey) private var editorTextSize = EditorTextSize.defaultSize
+    @WindowStorage(Setting.editorTextSizeMirror) private var editorTextSize: Double
     @State private var comment = ""
     @State private var checkingOut = false
     @State private var confirm: String?

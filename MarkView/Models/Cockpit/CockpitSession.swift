@@ -3,6 +3,16 @@ import AppKit
 import Combine
 import MarkViewCore
 
+/// What the Cockpit needs of the window it runs in: the window, its assistants, its QA model and bug features, and its tabs (which tab is
+/// shown, opening a file). `ToolTabsRouter` is the one implementation, built from the window's parts (`AR-14` step 10).
+@MainActor
+protocol CockpitWindow: CockpitQAWindow, TabsProviding {
+    var hostWindow: NSWindow? { get }
+    func showAIConsole()
+    var assistants: any AssistantProviding { get }
+    var features: FeatureStore { get }
+}
+
 @MainActor
 final class CockpitSession: ObservableObject {
     let root: URL
@@ -38,7 +48,7 @@ final class CockpitSession: ObservableObject {
     @Published var qaTargets: [String: String] = [:]
     private var qaLogins: Set<QALoginReference> = []
     @Published private(set) var startingExecution = false
-    private weak var workspace: WorkspaceManager?
+    private weak var workspace: (any CockpitWindow)?
     /// What the Cockpit needs of the window's tabs: which one is shown, and to open a file.
     private weak var tabs: TabsProviding?
     private let notifier = CockpitNotifier()
@@ -53,11 +63,11 @@ final class CockpitSession: ObservableObject {
     private var reportingStep: (id: UUID, fingerprint: String)?
     private var task: Task<Void, Never>?
 
-    init(root: URL, workspace: WorkspaceManager) {
+    init(root: URL, workspace: any CockpitWindow) {
         self.root = root; self.workspace = workspace; self.tabs = workspace
-        let defaults = UserDefaults.standard, key = ProjectAIChoice.key(root)
-        plannerAgent = defaults.string(forKey: "cockpit.plannerAgent.\(key)")
-        plannerModel = defaults.string(forKey: "cockpit.plannerModel.\(key)")
+        let key = ProjectAIChoice.key(root)
+        plannerAgent = Settings.standard.stored(Setting.cockpitPlannerAgent(project: key))
+        plannerModel = Settings.standard.stored(Setting.cockpitPlannerModel(project: key))
         restoringPlannerChoice = false
         loadRuns()
         noticeClicks = NotificationCenter.default.publisher(for: .cockpitNoticeOpened).sink { [weak self] note in
@@ -117,9 +127,9 @@ final class CockpitSession: ObservableObject {
 
     private func savePlannerChoice() {
         guard !restoringPlannerChoice else { return }
-        let defaults = UserDefaults.standard, key = ProjectAIChoice.key(root)
-        defaults.set(plannerAgent, forKey: "cockpit.plannerAgent.\(key)")
-        defaults.set(plannerModel, forKey: "cockpit.plannerModel.\(key)")
+        let key = ProjectAIChoice.key(root)
+        Settings.standard.set(plannerAgent, for: Setting.cockpitPlannerAgent(project: key))
+        Settings.standard.set(plannerModel, for: Setting.cockpitPlannerModel(project: key))
     }
 
     /// The agents that can run a step in this project, each with the models it offers and what "default" means for it here.
@@ -188,7 +198,7 @@ final class CockpitSession: ObservableObject {
               let approval = CockpitApproval(plan: reviewed, productionConfirmed: productionConfirmed), reviewed.steps.indices.contains(index) else { return }
         let plan = reviewed
         let recovering = recoveryRun
-        let attempt = CockpitAgentAttempt(assistants: workspace.terminals, root: root) { [weak self] progress in
+        let attempt = CockpitAgentAttempt(assistants: workspace.assistants, root: root) { [weak self] progress in
             guard let self else { throw CancellationError() }
             try await self.publishProgress(progress)
         }

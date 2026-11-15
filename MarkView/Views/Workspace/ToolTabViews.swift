@@ -14,10 +14,10 @@ enum ToolTabViews {
 
     private static let builders: [ToolID: (Context) -> AnyView] = [
         .git: { AnyView(GitView(git: $0.workspace.gitClient, workspaceManager: $0.workspace)) },
-        .deployments: { AnyView(DeploymentsView(store: $0.workspace.deployments)) },
-        .workflow: { AnyView(WorkflowTabView(store: $0.workspace.features, editor: $0.workspace.workflowEditor)) },
-        .qa: { AnyView(QATabView(model: $0.workspace.qa)) },
-        .discussions: { AnyView(DiscussionsView(store: $0.workspace.discussions)) },
+        .deployments: { AnyView(DeploymentsView(host: $0.workspace.toolTabs.deployments, store: $0.workspace.toolTabs.deployments.store)) },
+        .workflow: { AnyView(WorkflowTabView(store: $0.workspace.features, editor: $0.workspace.toolTabs.workflowEditor)) },
+        .qa: { AnyView(QATabView(model: $0.workspace.toolTabs.qa)) },
+        .discussions: { AnyView(DiscussionsView(host: $0.workspace.toolTabs.discussions, store: $0.workspace.toolTabs.discussions.store)) },
         .changeReview: { AnyView(ProjectChangeReviewTab(review: $0.changeReview)) },
         .uiStudio: { context in
             guard case .uiStudio(let session) = context.tab.kind else { return AnyView(EmptyView()) }

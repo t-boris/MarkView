@@ -78,12 +78,6 @@ enum PrototypeThemes {
         "(function () { try { document.documentElement.setAttribute(\(literal(attribute)), \(literal(id))); } catch (e) {} })();"
     }
 
-    /// Sets or removes the attribute of the page that is open.
-    static func applyScript(attribute: String, id: String?) -> String {
-        guard let id else { return "document.documentElement.removeAttribute(\(literal(attribute)));" }
-        return "document.documentElement.setAttribute(\(literal(attribute)), \(literal(id)));"
-    }
-
     /// A JSON string literal: ids and attribute names come from stylesheets and are never pasted raw into a script.
     static func literal(_ text: String) -> String {
         let data = (try? JSONSerialization.data(withJSONObject: [text])) ?? Data("[\"\"]".utf8)

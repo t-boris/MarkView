@@ -3,7 +3,7 @@ import Foundation
 /// The editor page keeps a few choices of the person in `localStorage`: the document text size, the width of the X-Ray details and
 /// of the code notes, and whether the X-Ray details are hidden. WebKit hands one `localStorage` to every window's page, so a choice
 /// made in one window would be the one every other window reads next. Each window keeps its own copy instead, in its `WindowUIState`
-/// (so the session restores it): the page asks its own copy first, and the shared store is only where a window with no choice of its
+/// (`Setting.editorPref`, so the session restores it): the page asks its own copy first, and the shared store is only where a window with no choice of its
 /// own starts from (the last choice anywhere), exactly as `WindowUIState` seeds the native values.
 enum EditorWindowPrefs {
     /// The only keys a window keeps for itself. Everything else the editor stores (a research map's view per document, an output
@@ -15,9 +15,6 @@ enum EditorWindowPrefs {
         "markview-code-notes-width"
     ]
     static let maxValueLength = 32
-
-    /// Where `WindowUIState` files the value of one of the keys.
-    static func stateKey(_ key: String) -> String { "editor.\(key)" }
 
     /// The page is not trusted to send anything but one of the keys with a short value.
     static func accepts(key: String, value: String) -> Bool {

@@ -1,11 +1,14 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The Search tab of the right panel: the whole project (file names and the text of any file, plus the
 /// names inside archives), or the meaning search of the Markdown documents.
 struct WorkspaceSearchView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @WindowStorage("search.panelMode") private var mode = Mode.project.rawValue
+    @WindowStorage(Setting.searchPanelMode) private var mode: String
 
     enum Mode: String, CaseIterable, Identifiable {
         case project = "Project"

@@ -81,7 +81,7 @@ final class WindowSessionController {
             loaded = true
             var windows = archive?.windows ?? []
             // One-time migration from versions that only remembered one folder.
-            if archive == nil, let path = UserDefaults.standard.string(forKey: ProjectContext.lastFolderKey) {
+            if archive == nil, let path = Settings.standard.stored(Setting.lastFolder) {
                 windows = [WorkspaceWindowState(id: UUID(), folder: URL(fileURLWithPath: path))]
             }
             order = windows.map(\.id)
@@ -136,6 +136,8 @@ final class WindowSessionController {
                 workspace?.project.close()
                 // So do the code analysis, the X-Ray scans and the AI answers about code that it started (AR-14 step 11).
                 workspace?.codeXRay.close()
+                // The answers and records the tools started (Discussions, UI Studio) stop too (AR-14 step 10).
+                workspace?.toolTabs.close()
                 self?.remove(id)
             }
             .store(in: &entry.subscriptions)

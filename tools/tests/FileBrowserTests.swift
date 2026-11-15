@@ -81,18 +81,18 @@ let defaults = UserDefaults(suiteName: suite)!
 defer { defaults.removePersistentDomain(forName: suite) }
 // Each window keeps its own view and filter choices (`FileTreeView` stores them in the window's `WindowUIState`).
 func browserPreferences(_ state: WindowUIState) -> FileBrowserPreferences {
-    FileBrowserPreferences(mode: state.value("fileBrowser.viewMode", fallback: FileBrowserViewMode.list),
-                           showHidden: state.value("fileBrowser.showHidden", fallback: false),
-                           hideIgnored: state.value("fileBrowser.hideIgnored", fallback: false),
-                           category: state.value("fileBrowser.category", fallback: FileBrowserCategory.all))
+    FileBrowserPreferences(mode: FileBrowserViewMode(rawValue: state.value(Setting.fileBrowserViewMode)) ?? .list,
+                           showHidden: state.value(Setting.fileBrowserShowHidden),
+                           hideIgnored: state.value(Setting.fileBrowserHideIgnored),
+                           category: FileBrowserCategory(rawValue: state.value(Setting.fileBrowserCategory)) ?? .all)
 }
 let windowA = WindowUIState(defaults: defaults), windowB = WindowUIState(defaults: defaults)
 check(browserPreferences(windowA) == FileBrowserPreferences(), "defaults: list, hidden off, ignored shown, all")
 check(browserPreferences(windowB) == FileBrowserPreferences(), "a second window starts the same")
 check(FileBrowserPreferences().mode == .list && !FileBrowserPreferences().showHidden, "hidden items are excluded by default")
-windowA.set(FileBrowserViewMode.tree, for: "fileBrowser.viewMode")
-windowA.set(true, for: "fileBrowser.showHidden")
-windowA.set(FileBrowserCategory.openable, for: "fileBrowser.category")
+windowA.set(FileBrowserViewMode.tree.rawValue, for: Setting.fileBrowserViewMode)
+windowA.set(true, for: Setting.fileBrowserShowHidden)
+windowA.set(FileBrowserCategory.openable.rawValue, for: Setting.fileBrowserCategory)
 check(browserPreferences(windowA).mode == .tree && browserPreferences(windowA).showHidden && browserPreferences(windowA).category == .openable,
       "the window that changed its view shows it")
 check(browserPreferences(windowB) == FileBrowserPreferences(), "another window that already shows its files keeps its own view")

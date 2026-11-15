@@ -133,3 +133,153 @@ struct SectionState: Codable {
         case failed       // Phase-2 errored; section keeps any partial buffer for diagnostics
     }
 }
+
+// MARK: - Supporting Types
+//
+// V2 Recursive Insight (tech-spec.md, Decision 1, 4, 10, 11). One InsightSession owns
+// the in-memory tree of insight nodes for a single tab; the actual rendered HTML is
+// composed deterministically by `writeFinalHTMLToCache(...)` (NOT by an iframe round-trip)
+// and persisted via `InsightCache` (T3). The bridge layer (T7) subscribes to the
+// `@Published` surface to drive the JS-side iframe srcdoc + per-section streaming.
+//
+// V1 marker parser (`---DEEP-DIVES---`), `streamCompletion`-only single-shot path, and
+// right-pane deep-dive list are all deleted. v2 splits generation into:
+//   Phase 1: `graphRAG.buildSkeleton(...)` returns a strict-schema `InsightSkeleton`
+//            via Anthropic tool_use (single non-streaming call, T4 owns the call).
+//   Phase 2: N parallel `AIOperation.ask(...)` calls — one per section
+//            in the skeleton — capped at 5 concurrent via `withThrowingTaskGroup`. Per
+//            section `SectionState.buffer` accumulates the streamed HTML fragment.
+//
+// Types `InsightSkeleton`, `InsightSection`, `SectionType`, `InsightDeepDiveTopic`,
+// `SectionState`, and the existing `AnyCodable` (defined in WebViewBridge.swift, reused
+// per T4 decision) live in `InsightModels.swift` — DO NOT redeclare them here.
+
+/// Scope of an InsightNode within the recursive tree.
+/// `.folderRoot` is the top-level summary covering every `.md` file in the folder.
+/// `.topic` is a deep-dive narrowed to a labelled subset (the model-emitted topic name,
+/// hint, and the validated `.md` files matching the topic's `scope_hint`).
+enum NodeScope: Codable {
+    case folderRoot
+    case topic(label: String, hint: String, files: [URL])
+
+    // Manual Codable: associated values + URL serialise via path strings so the cached
+    // node tree can round-trip cleanly (T8 Pre-deploy QA may exercise this).
+    private enum CodingKeys: String, CodingKey { case kind, label, hint, files }
+    private enum Kind: String, Codable { case folderRoot, topic }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .folderRoot:
+            try c.encode(Kind.folderRoot, forKey: .kind)
+        case .topic(let label, let hint, let files):
+            try c.encode(Kind.topic, forKey: .kind)
+            try c.encode(label, forKey: .label)
+            try c.encode(hint, forKey: .hint)
+            try c.encode(files.map { $0.path }, forKey: .files)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try c.decode(Kind.self, forKey: .kind)
+        switch kind {
+        case .folderRoot:
+            self = .folderRoot
+        case .topic:
+            let label = try c.decode(String.self, forKey: .label)
+            let hint = try c.decode(String.self, forKey: .hint)
+            let paths = try c.decode([String].self, forKey: .files)
+            self = .topic(label: label, hint: hint, files: paths.map { URL(fileURLWithPath: $0) })
+        }
+    }
+
+    /// Convenience accessor for `phase1Skeleton` to feed `graphRAG.buildSkeleton`.
+    var label: String? {
+        switch self {
+        case .folderRoot: return nil
+        case .topic(let label, _, _): return label
+        }
+    }
+
+    var hint: String? {
+        switch self {
+        case .folderRoot: return nil
+        case .topic(_, let hint, _): return hint
+        }
+    }
+}
+
+/// Lightweight breadcrumb entry — UUIDs serialised as strings so the JS bridge can
+/// pass them back as identifiers without re-decoding.
+struct BreadcrumbEntry: Codable {
+    let nodeId: String
+    let title: String
+}
+
+/// Snapshot of the current insight view, consumed by the WebView bridge layer.
+/// V2 shape: skeleton replaces v1 `markdown + deepDives` (the per-section iframe srcdoc
+/// is rebuilt parent-side from `skeleton + section buffers`, see `writeFinalHTMLToCache`).
+/// All identifiers serialised as strings to avoid JSON↔Swift UUID round-trip cost.
+struct InsightViewSnapshot: Codable {
+    let sessionId: String
+    let nodeId: String
+    let title: String
+    let breadcrumbs: [BreadcrumbEntry]
+    let skeleton: InsightSkeleton?
+    let isStreaming: Bool
+}
+
+/// One node in the in-memory insight tree. Reference type because the tree is mutated
+/// in place (per-section `buffer` accumulation, status transitions) and other parts of
+/// `InsightSession` hold direct references via `nodes[id]`.
+final class InsightNode: Identifiable, Codable {
+    enum Status: String, Codable {
+        case pending                // initialised, no LLM call yet
+        case generatingSkeleton     // Phase 1 in flight
+        case streamingContent       // Phase 2 in flight (one or more sections)
+        case ready                  // all sections completed + cache written
+        case failed                 // any phase errored or cap exceeded
+    }
+
+    let id: UUID
+    let parentId: UUID?
+    let level: Int
+    let title: String
+    let scope: NodeScope
+    var skeleton: InsightSkeleton?
+    /// Per-section streaming state. Keyed by `InsightSection.id`. Mutated only on
+    /// `@MainActor`. Initialised lazily in `phase1Skeleton` once the skeleton is parsed.
+    var sectionStates: [String: SectionState]
+    var children: [UUID]
+    var status: Status
+    var generatedAt: Date?
+    let model: String
+
+    init(
+        id: UUID = UUID(),
+        parentId: UUID?,
+        level: Int,
+        title: String,
+        scope: NodeScope,
+        model: String = "claude-sonnet-4-6"
+    ) {
+        self.id = id
+        self.parentId = parentId
+        self.level = level
+        self.title = title
+        self.scope = scope
+        self.skeleton = nil
+        self.sectionStates = [:]
+        self.children = []
+        self.status = .pending
+        self.generatedAt = nil
+        self.model = model
+    }
+
+    /// Live byte total across all section buffers. Used by per-node + per-session caps
+    /// (Decision 10 §7 / tech-spec "Resource caps"). UTF-8 byte count, not Swift `count`.
+    var rawBufferForCap: Int {
+        sectionStates.values.reduce(0) { $0 + $1.buffer.utf8.count }
+    }
+}

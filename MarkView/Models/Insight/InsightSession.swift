@@ -4,156 +4,6 @@ import Combine
 import MarkViewCore
 #endif
 
-// MARK: - Supporting Types
-//
-// V2 Recursive Insight (tech-spec.md, Decision 1, 4, 10, 11). One InsightSession owns
-// the in-memory tree of insight nodes for a single tab; the actual rendered HTML is
-// composed deterministically by `writeFinalHTMLToCache(...)` (NOT by an iframe round-trip)
-// and persisted via `InsightCache` (T3). The bridge layer (T7) subscribes to the
-// `@Published` surface to drive the JS-side iframe srcdoc + per-section streaming.
-//
-// V1 marker parser (`---DEEP-DIVES---`), `streamCompletion`-only single-shot path, and
-// right-pane deep-dive list are all deleted. v2 splits generation into:
-//   Phase 1: `graphRAG.buildSkeleton(...)` returns a strict-schema `InsightSkeleton`
-//            via Anthropic tool_use (single non-streaming call, T4 owns the call).
-//   Phase 2: N parallel `AIOperation.ask(...)` calls — one per section
-//            in the skeleton — capped at 5 concurrent via `withThrowingTaskGroup`. Per
-//            section `SectionState.buffer` accumulates the streamed HTML fragment.
-//
-// Types `InsightSkeleton`, `InsightSection`, `SectionType`, `InsightDeepDiveTopic`,
-// `SectionState`, and the existing `AnyCodable` (defined in WebViewBridge.swift, reused
-// per T4 decision) live in `InsightModels.swift` — DO NOT redeclare them here.
-
-/// Scope of an InsightNode within the recursive tree.
-/// `.folderRoot` is the top-level summary covering every `.md` file in the folder.
-/// `.topic` is a deep-dive narrowed to a labelled subset (the model-emitted topic name,
-/// hint, and the validated `.md` files matching the topic's `scope_hint`).
-enum NodeScope: Codable {
-    case folderRoot
-    case topic(label: String, hint: String, files: [URL])
-
-    // Manual Codable: associated values + URL serialise via path strings so the cached
-    // node tree can round-trip cleanly (T8 Pre-deploy QA may exercise this).
-    private enum CodingKeys: String, CodingKey { case kind, label, hint, files }
-    private enum Kind: String, Codable { case folderRoot, topic }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .folderRoot:
-            try c.encode(Kind.folderRoot, forKey: .kind)
-        case .topic(let label, let hint, let files):
-            try c.encode(Kind.topic, forKey: .kind)
-            try c.encode(label, forKey: .label)
-            try c.encode(hint, forKey: .hint)
-            try c.encode(files.map { $0.path }, forKey: .files)
-        }
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        let kind = try c.decode(Kind.self, forKey: .kind)
-        switch kind {
-        case .folderRoot:
-            self = .folderRoot
-        case .topic:
-            let label = try c.decode(String.self, forKey: .label)
-            let hint = try c.decode(String.self, forKey: .hint)
-            let paths = try c.decode([String].self, forKey: .files)
-            self = .topic(label: label, hint: hint, files: paths.map { URL(fileURLWithPath: $0) })
-        }
-    }
-
-    /// Convenience accessor for `phase1Skeleton` to feed `graphRAG.buildSkeleton`.
-    var label: String? {
-        switch self {
-        case .folderRoot: return nil
-        case .topic(let label, _, _): return label
-        }
-    }
-
-    var hint: String? {
-        switch self {
-        case .folderRoot: return nil
-        case .topic(_, let hint, _): return hint
-        }
-    }
-}
-
-/// Lightweight breadcrumb entry — UUIDs serialised as strings so the JS bridge can
-/// pass them back as identifiers without re-decoding.
-struct BreadcrumbEntry: Codable {
-    let nodeId: String
-    let title: String
-}
-
-/// Snapshot of the current insight view, consumed by the WebView bridge layer.
-/// V2 shape: skeleton replaces v1 `markdown + deepDives` (the per-section iframe srcdoc
-/// is rebuilt parent-side from `skeleton + section buffers`, see `writeFinalHTMLToCache`).
-/// All identifiers serialised as strings to avoid JSON↔Swift UUID round-trip cost.
-struct InsightViewSnapshot: Codable {
-    let sessionId: String
-    let nodeId: String
-    let title: String
-    let breadcrumbs: [BreadcrumbEntry]
-    let skeleton: InsightSkeleton?
-    let isStreaming: Bool
-}
-
-/// One node in the in-memory insight tree. Reference type because the tree is mutated
-/// in place (per-section `buffer` accumulation, status transitions) and other parts of
-/// `InsightSession` hold direct references via `nodes[id]`.
-final class InsightNode: Identifiable, Codable {
-    enum Status: String, Codable {
-        case pending                // initialised, no LLM call yet
-        case generatingSkeleton     // Phase 1 in flight
-        case streamingContent       // Phase 2 in flight (one or more sections)
-        case ready                  // all sections completed + cache written
-        case failed                 // any phase errored or cap exceeded
-    }
-
-    let id: UUID
-    let parentId: UUID?
-    let level: Int
-    let title: String
-    let scope: NodeScope
-    var skeleton: InsightSkeleton?
-    /// Per-section streaming state. Keyed by `InsightSection.id`. Mutated only on
-    /// `@MainActor`. Initialised lazily in `phase1Skeleton` once the skeleton is parsed.
-    var sectionStates: [String: SectionState]
-    var children: [UUID]
-    var status: Status
-    var generatedAt: Date?
-    let model: String
-
-    init(
-        id: UUID = UUID(),
-        parentId: UUID?,
-        level: Int,
-        title: String,
-        scope: NodeScope,
-        model: String = "claude-sonnet-4-6"
-    ) {
-        self.id = id
-        self.parentId = parentId
-        self.level = level
-        self.title = title
-        self.scope = scope
-        self.skeleton = nil
-        self.sectionStates = [:]
-        self.children = []
-        self.status = .pending
-        self.generatedAt = nil
-        self.model = model
-    }
-
-    /// Live byte total across all section buffers. Used by per-node + per-session caps
-    /// (Decision 10 §7 / tech-spec "Resource caps"). UTF-8 byte count, not Swift `count`.
-    var rawBufferForCap: Int {
-        sectionStates.values.reduce(0) { $0 + $1.buffer.utf8.count }
-    }
-}
-
 // MARK: - InsightSession
 
 /// `@MainActor` session class owning the in-memory insight tree for one tab.
@@ -697,32 +547,6 @@ final class InsightSession: ObservableObject, Identifiable {
         }
     }
 
-    /// Per-node persisted snapshot (root or any deep-dive child).
-    private struct NodeSnapshotEntry: Codable {
-        let nodeId: UUID
-        let parentId: UUID?
-        let level: Int
-        let title: String
-        let scope: NodeScope
-        let skeleton: InsightSkeleton
-        let sectionBuffers: [String: String]
-        let childIds: [UUID]
-    }
-
-    /// Whole-tree snapshot — root + all generated deep-dives. Restored on
-    /// reopen so deep-dive buttons reuse cached children instead of re-running
-    /// Phase 1+2.
-    private struct RootSnapshot: Codable {
-        let rootId: UUID
-        let folderPath: String
-        let createdAt: Date
-        // Legacy fields kept for forward compatibility (older snapshots only had these).
-        let skeleton: InsightSkeleton?
-        let sectionBuffers: [String: String]?
-        // New: full tree.
-        let nodes: [NodeSnapshotEntry]?
-    }
-
     /// Try to restore the root node + ALL cached deep-dive children from
     /// `<cacheRoot>/snapshot.json`. Populates `nodes` map so subsequent
     /// `expand(...)` calls find existing children (matched by topic
@@ -731,61 +555,17 @@ final class InsightSession: ObservableObject, Identifiable {
     @MainActor
     private func tryRestoreRootFromSnapshot(rootId: UUID) -> Bool {
         guard let data = cache.readSnapshotData() else { return false }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let snap = try? decoder.decode(RootSnapshot.self, from: data) else {
+        guard let snapshot = InsightTreeSnapshot.decode(data) else {
             AppLog.insight.error("snapshot decode failed — falling back to fresh generation")
             return false
         }
-        guard snap.rootId == rootId else {
+        guard snapshot.rootId == rootId else {
             AppLog.insight.notice("snapshot rootId mismatch — folder path collision? regenerating")
             return false
         }
-
-        // Prefer the new full-tree snapshot. Fall back to legacy root-only
-        // snapshot for forward compatibility.
-        let entries: [NodeSnapshotEntry]
-        if let ns = snap.nodes, !ns.isEmpty {
-            entries = ns
-        } else if let skel = snap.skeleton, let bufs = snap.sectionBuffers {
-            // Synthesise a single root entry from the legacy fields.
-            entries = [NodeSnapshotEntry(
-                nodeId: rootId,
-                parentId: nil,
-                level: 0,
-                title: folderURL.lastPathComponent,
-                scope: .folderRoot,
-                skeleton: skel,
-                sectionBuffers: bufs,
-                childIds: []
-            )]
-        } else {
-            return false
-        }
-
-        // Rebuild every InsightNode from the snapshot. The pre-existing root
-        // node (created in generateRoot before this call) is overwritten.
-        for entry in entries {
-            let node = InsightNode(
-                id: entry.nodeId,
-                parentId: entry.parentId,
-                level: entry.level,
-                title: entry.title,
-                scope: entry.scope
-            )
-            node.skeleton = entry.skeleton
-            var states: [String: SectionState] = [:]
-            for section in entry.skeleton.sections {
-                var s = SectionState()
-                s.buffer = entry.sectionBuffers[section.id] ?? ""
-                s.status = s.buffer.isEmpty ? .pending : .ready
-                states[section.id] = s
-            }
-            node.sectionStates = states
-            node.status = .ready
-            node.children = entry.childIds
-            nodes[entry.nodeId] = node
-        }
+        // The pre-existing root node (created in generateRoot before this call) is overwritten.
+        guard let restored = snapshot.restoredNodes(rootTitle: folderURL.lastPathComponent) else { return false }
+        for node in restored { nodes[node.id] = node }
 
         // Make root the current view.
         guard let rootNode = nodes[rootId], let rootSkel = rootNode.skeleton else { return false }
@@ -795,7 +575,7 @@ final class InsightSession: ObservableObject, Identifiable {
         currentNodeSections = rootNode.sectionStates
         allSectionsReady = true
         cachedNodeHTML = (try? cache.readNode(nodeId: rootId))
-        AppLog.insight.notice("snapshot restored: \(entries.count) nodes total")
+        AppLog.insight.notice("snapshot restored: \(restored.count) nodes total")
         return true
     }
 
@@ -809,40 +589,11 @@ final class InsightSession: ObservableObject, Identifiable {
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let rootId = self.rootNodeId else { return }
-            var entries: [NodeSnapshotEntry] = []
-            for (id, node) in self.nodes {
-                guard let skel = node.skeleton else { continue }
-                var bufs: [String: String] = [:]
-                for (sid, st) in node.sectionStates { bufs[sid] = st.buffer }
-                // Skip nodes that have a skeleton but NO content at all —
-                // they're useless until generation completes.
-                let totalContent = bufs.values.reduce(0) { $0 + $1.count }
-                if totalContent == 0 { continue }
-                entries.append(NodeSnapshotEntry(
-                    nodeId: id,
-                    parentId: node.parentId,
-                    level: node.level,
-                    title: node.title,
-                    scope: node.scope,
-                    skeleton: skel,
-                    sectionBuffers: bufs,
-                    childIds: node.children
-                ))
-            }
-            let snap = RootSnapshot(
-                rootId: rootId,
-                folderPath: self.folderURL.path,
-                createdAt: Date(),
-                skeleton: nil,
-                sectionBuffers: nil,
-                nodes: entries
-            )
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
+            let snapshot = InsightTreeSnapshot(rootId: rootId, folderPath: self.folderURL.path, nodes: Array(self.nodes.values))
             do {
-                let data = try encoder.encode(snap)
+                let data = try snapshot.encoded()
                 try self.cache.writeSnapshotData(data)
-                AppLog.insight.notice("snapshot saved (\(entries.count) nodes, \(data.count) bytes)")
+                AppLog.insight.notice("snapshot saved (\(snapshot.nodes?.count ?? 0) nodes, \(data.count) bytes)")
             } catch {
                 AppLog.insight.error("snapshot save failed: \(String(describing: error))")
             }
@@ -1440,7 +1191,7 @@ final class InsightSession: ObservableObject, Identifiable {
     ///
     /// Per Decision 10:
     ///   - All LLM-controlled skeleton string fields (title, section.title, deep-dive
-    ///     label/hint, scopeHint paths displayed) are HTML-escaped via `escapeForHTML`.
+    ///     label/hint, scopeHint paths displayed) are HTML-escaped via `InsightHTMLTemplate.escape`.
     ///   - Section buffer HTML is preserved verbatim — already inside the iframe trust
     ///     boundary; iframe sandbox isolates execution.
     ///   - Per-node 2 MB final-HTML cap (tech-spec acceptance criterion). Exceeding sets
@@ -1456,7 +1207,7 @@ final class InsightSession: ObservableObject, Identifiable {
         // Build crumbs for chrome — escaped.
         let crumbs = breadcrumbs().map { ($0.id.uuidString, $0.title) }
 
-        let html = Self.buildHTMLTemplate(
+        let html = InsightHTMLTemplate.html(
             skeleton: skel,
             sectionStates: node.sectionStates,
             breadcrumbs: crumbs,
@@ -1517,381 +1268,6 @@ final class InsightSession: ObservableObject, Identifiable {
         }
     }
 
-    // MARK: - HTML template (single source of truth for runtime + cache)
-
-    /// Lib reference mode for the rebuilt HTML.
-    /// - `runtimeBlobs(libBlobURLs:)` — passes blob: URLs from parent (T7's lazy materialisation).
-    /// - `exportRelative` — references `../_assets/<lib>` for ZIP export portability (T8).
-    /// Currently `writeFinalHTMLToCache` always uses `exportRelative` because cache also
-    /// serves as the ZIP-export source (Decision 4: `_assets/` lives inside session dir).
-    enum LibRefMode {
-        case runtimeBlobs(libBlobURLs: [String: String])
-        case exportRelative
-    }
-
-    /// Deterministic HTML composition. Reproducible: identical (skeleton, sectionStates,
-    /// breadcrumbs) input → byte-identical output. NO Date interpolation, NO new UUIDs —
-    /// only known-good fields from the in-memory tree.
-    ///
-    /// `cache` is optional and only consulted in `.exportRelative` mode to resolve
-    /// vendored lib filenames dynamically from `_assets/` (Wave 6 audit T9 #1 fix).
-    /// In `.runtimeBlobs(...)` mode the caller supplies the blob URLs directly so no
-    /// disk lookup is required.
-    static func buildHTMLTemplate(
-        skeleton: InsightSkeleton,
-        sectionStates: [String: SectionState],
-        breadcrumbs: [(nodeId: String, title: String)],
-        libRefMode: LibRefMode,
-        cache: InsightCache? = nil
-    ) -> String {
-        let escapedTitle = escapeForHTML(skeleton.title)
-
-        // Breadcrumb chrome (parent frame — uses textContent in JS, but we still escape
-        // because the static HTML is rendered as HTML at file-open / ZIP-export time).
-        var breadcrumbHTML = ""
-        for (idx, crumb) in breadcrumbs.enumerated() {
-            let label = escapeForHTML(crumb.title)
-            let isLast = (idx == breadcrumbs.count - 1)
-            if isLast {
-                breadcrumbHTML += "<span class=\"crumb crumb-active\">\(label)</span>"
-            } else {
-                let nodeIdAttr = escapeForHTML(crumb.nodeId)
-                breadcrumbHTML += "<a class=\"crumb\" href=\"#\(nodeIdAttr)\">\(label)</a>"
-                breadcrumbHTML += "<span class=\"crumb-sep\"> / </span>"
-            }
-        }
-
-        // Per-section HTML — buffer interpolated VERBATIM (already inside iframe trust
-        // boundary). Section title + id + scopeHint paths displayed are escaped.
-        var sectionsHTML = ""
-        for section in skeleton.sections {
-            let buffer = sectionStates[section.id]?.buffer ?? ""
-            let sectionId = escapeForHTML(section.id)
-            let title = section.title.map { "<h2>\(escapeForHTML($0))</h2>" } ?? ""
-
-            // Inline 🤿 deep-dive controls. Each control posts `insightDeepDiveClicked`
-            // with sectionId+topicIndex via the iframe → parent → bridge chain (T7).
-            var topicsHTML = ""
-            if let topics = section.deepDiveTopics, !topics.isEmpty {
-                topicsHTML += "<div class=\"deep-dives\">"
-                for (idx, topic) in topics.enumerated() {
-                    let label = escapeForHTML(topic.label)
-                    let hint = escapeForHTML(topic.hint)
-                    topicsHTML += """
-                    <button class="deep-dive" data-section-id="\(sectionId)" data-topic-index="\(idx)" title="\(hint)">🤿 \(label)</button>
-                    """
-                }
-                topicsHTML += "</div>"
-            }
-
-            sectionsHTML += """
-            <section class="insight-section" data-section-id="\(sectionId)" data-section-type="\(section.type.rawValue)">
-              \(title)
-              <div class="section-body">\(buffer)</div>
-              \(topicsHTML)
-            </section>
-            """
-        }
-
-        // Lib references (Decision 5).
-        var libRefs = ""
-        switch libRefMode {
-        case .runtimeBlobs(let blobs):
-            // Each lib blob: <script src="blob:...">. Iframe sandbox null-origin can load these.
-            for (name, blobURL) in blobs.sorted(by: { $0.key < $1.key }) {
-                let safe = escapeForHTML(blobURL)
-                if name.hasSuffix(".css") {
-                    libRefs += "<link rel=\"stylesheet\" href=\"\(safe)\">\n"
-                } else {
-                    libRefs += "<script src=\"\(safe)\"></script>\n"
-                }
-            }
-        case .exportRelative:
-            // Export-friendly relative refs to `_assets/`. Filenames are resolved
-            // dynamically from the cache's `_assets/` directory so version bumps in
-            // `Resources/Editor/vendor/` (e.g. `chart-4.4.9.min.js` →
-            // `chart-5.x.min.js`) do not desync with a hard-coded list (Wave 6
-            // audit T9 #1 fix). Each entry is a (prefix, extension) pair; the
-            // shortest-name match wins for determinism. Output order is sorted by
-            // resolved filename so the byte-for-byte reproducibility contract holds.
-            let prefixes: [(prefix: String, ext: String)] = [
-                ("prism", "css"),
-                ("prism", "js"),
-                ("mermaid", "js"),
-                ("chart", "js"),
-                ("katex", "css"),
-                ("katex", "js"),
-                ("auto-render", "js"),
-                ("markdown-it", "js")
-            ]
-            var resolved: [(filename: String, kind: String)] = []
-            for entry in prefixes {
-                if let url = cache?.vendoredLibURL(matching: entry.prefix, extension: entry.ext) {
-                    resolved.append((filename: url.lastPathComponent, kind: entry.ext))
-                }
-            }
-            for entry in resolved.sorted(by: { $0.filename < $1.filename }) {
-                if entry.kind == "css" {
-                    libRefs += "<link rel=\"stylesheet\" href=\"../_assets/\(entry.filename)\">\n"
-                } else {
-                    libRefs += "<script src=\"../_assets/\(entry.filename)\"></script>\n"
-                }
-            }
-        }
-
-        // CSP for the cached HTML (Wave 6 audit T9 #3 fix). Aligned with the iframe
-        // srcdoc CSP (Decision 10 §3 / index.html:2827) but adapted for the cached /
-        // exported context: scripts and styles load from `'self'` (the cache root or
-        // the unzipped export) instead of `blob:`. Webfonts and images come from
-        // `'self'` + `data:` only — no wildcard CDNs. Matches the iframe's
-        // defense-in-depth posture (`default-src 'none'`, `connect-src 'none'`,
-        // `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`).
-        let csp = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
-
-        // Mirror the iframe srcdoc's section/hero/table/callout/timeline/
-        // cards-grid/mermaid/chart styling so the exported standalone site
-        // looks the same as the in-app view. Plus minimal mermaid/chart
-        // bootstrap scripts (libs are loaded via libRefs above).
-        let inlineCSS = """
-        html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; background: #fff; color: #1e1e1e; }
-        body { padding: 16px 24px; }
-        header.insight-breadcrumbs { padding: 8px 0 12px; border-bottom: 1px solid #e0e0e0; margin-bottom: 16px; font-size: 13px; }
-        .crumb { color: #2563eb; text-decoration: none; padding: 2px 6px; border-radius: 3px; }
-        .crumb:hover { background: #f0f4ff; }
-        .crumb-active { color: #1e1e1e; font-weight: 600; }
-        .crumb-sep { color: #999; padding: 0 2px; }
-        section.insight-section { margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #e0e0e0; }
-        section.insight-section:last-of-type { border-bottom: none; }
-        section.insight-section h2 { font-size: 16px; font-weight: 600; margin: 0 0 8px; color: #2a2a2a; }
-        .section-body { font-size: 14px; line-height: 1.6; }
-        .section-body img { max-width: 100%; height: auto; }
-        section[data-section-type="hero"] h2 { display: none; }
-        section[data-section-type="hero"] .section-body h1 { font-size: 22px; line-height: 1.2; margin: 0 0 6px; color: #1e1e1e; font-weight: 700; }
-        section[data-section-type="hero"] .section-body h1 + p { font-size: 14px; line-height: 1.5; margin: 0 0 4px; color: #4a4a4a; }
-        section[data-section-type="hero"] .section-body p { margin: 4px 0; }
-        section[data-section-type="hero"] .section-body { font-size: 13px; }
-        .mermaid { max-height: 520px; overflow: hidden; cursor: zoom-in; }
-        .mermaid svg { max-width: 100%; height: auto; max-height: 520px; display: block; margin: 0 auto; }
-        section[data-section-type="chartJsChart"] .section-body { position: relative; height: 360px; max-height: 50vh; overflow: hidden; }
-        section[data-section-type="chartJsChart"] canvas { max-height: 360px !important; max-width: 100% !important; display: block; }
-        .section-body table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 13px; }
-        .section-body th, .section-body td { padding: 6px 10px; border: 1px solid #e0e0e0; text-align: left; vertical-align: top; }
-        .section-body th { background: #f5f7fb; font-weight: 600; color: #1e1e1e; }
-        .section-body tbody tr:nth-child(odd) td { background: #fafafa; }
-        .cards-grid { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; align-items: stretch; }
-        .cards-grid .card, .cards-grid > article { background: #f8f9fb; border: 1px solid #e0e0e0; border-radius: 6px; padding: 12px 14px; min-width: 0; display: flex; flex-direction: column; }
-        .cards-grid .card h3, .cards-grid > article h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: #1e1e1e; }
-        .cards-grid .card p, .cards-grid > article p { margin: 4px 0; font-size: 12px; line-height: 1.45; }
-        .cards-grid .card .meta, .cards-grid > article .meta { font-size: 11px; color: #6b7280; }
-        .callout { padding: 10px 14px; border-left: 4px solid #6b7280; background: #f5f7fb; margin: 8px 0; border-radius: 4px; }
-        .callout.callout-info { border-color: #3b82f6; background: #eff6ff; }
-        .callout.callout-warn { border-color: #f59e0b; background: #fffbeb; }
-        .callout.callout-danger { border-color: #ef4444; background: #fef2f2; }
-        .callout.callout-tip { border-color: #10b981; background: #ecfdf5; }
-        .timeline { list-style: none; padding: 0; margin: 8px 0; border-left: 2px solid #d4d4d4; }
-        .timeline li { position: relative; padding: 4px 0 8px 16px; }
-        .timeline li::before { content: ''; position: absolute; left: -6px; top: 8px; width: 10px; height: 10px; background: #569cd6; border-radius: 50%; }
-        .timeline time { display: inline-block; font-weight: 600; color: #1e1e1e; margin-right: 6px; }
-        .deep-dives { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
-        .deep-dive { background: #f4f4f4; color: #1e1e1e; border: 1px solid #d0d0d0; border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer; font-family: inherit; text-decoration: none; }
-        .deep-dive:hover { background: #e8e8e8; border-color: #909090; }
-        pre { background: #f6f8fa; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
-        code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-        .inferred { color: #b45309; font-style: italic; border-bottom: 1px dashed #b45309; }
-        .mermaid, .section-body canvas, .section-body img { cursor: zoom-in; }
-        #lb { position: fixed; inset: 0; z-index: 10000; background: rgba(0,0,0,0.88); display: none; align-items: center; justify-content: center; padding: 32px; box-sizing: border-box; }
-        #lb.on { display: flex; }
-        #lb .lb-stage { position: relative; width: 100%; height: 100%; overflow: auto; display: flex; align-items: center; justify-content: center; }
-        #lb .lb-content { transform-origin: center center; transition: transform 0.18s ease; background: #fff; padding: 16px; border-radius: 6px; cursor: grab; user-select: none; }
-        #lb .lb-content svg, #lb .lb-content img, #lb .lb-content canvas { display: block; max-width: none; max-height: none; }
-        #lb .lb-bar { position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; background: #fff; padding: 6px 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
-        #lb .lb-bar button { background: #f4f4f4; color: #1e1e1e; border: 1px solid #d0d0d0; border-radius: 4px; padding: 6px 12px; font-size: 14px; cursor: pointer; font-family: inherit; min-width: 36px; }
-        #lb .lb-bar button:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
-        #lb .lb-bar .lb-pct { display: inline-flex; align-items: center; padding: 0 6px; font-size: 13px; color: #666; min-width: 50px; justify-content: center; }
-        /* The exported site follows the system theme. */
-        @media (prefers-color-scheme: dark) {
-        html, body { background: #1e1e1e; color: #d4d4d4; }
-        h1, h2, h3, h4, th, .crumb-active, .timeline time, section.insight-section h2,
-        section[data-section-type="hero"] .section-body h1, .cards-grid .card h3, .cards-grid > article h3 { color: #d4d4d4; }
-        section[data-section-type="hero"] .section-body h1 + p { color: #a0a0a0; }
-        a, .crumb { color: #4a9eff; }
-        .crumb:hover { background: #2d2d30; }
-        .crumb-sep { color: #808080; }
-        header.insight-breadcrumbs, section.insight-section { border-color: #3c3c3c; }
-        .section-body th, .section-body td { border-color: #3c3c3c; }
-        .section-body th { background: #2d2d30; }
-        .section-body tbody tr:nth-child(odd) td { background: #232323; }
-        .cards-grid .card, .cards-grid > article { background: #252526; border-color: #3c3c3c; }
-        .cards-grid .card .meta, .cards-grid > article .meta { color: #9a9a9a; }
-        .callout { background: #252526; border-left-color: #6b7280; }
-        .callout.callout-info { background: #1b2838; }
-        .callout.callout-warn { background: #2d2614; }
-        .callout.callout-danger { background: #2e1a1a; }
-        .callout.callout-tip { background: #16281f; }
-        .timeline { border-left-color: #3c3c3c; }
-        .deep-dive, .dd-btn, .iframe-footer button, #lb .lb-bar button { background: #2d2d30; color: #d4d4d4; border-color: #3c3c3c; }
-        .deep-dive:hover, .dd-btn:hover { background: #3c3c3c; border-color: #5a5a5a; }
-        .iframe-footer { background: #252526; border-top-color: #3c3c3c; }
-        .iframe-footer input#iframe-input-topic, .iframe-footer select { background: #1e1e1e; color: #d4d4d4; border-color: #3c3c3c; }
-        pre { background: #252526; color: #d4d4d4; }
-        .inferred { color: #e2a93b; border-bottom-color: #e2a93b; }
-        .skeleton-loader { background: linear-gradient(90deg, #2d2d30 25%, #3c3c3c 50%, #2d2d30 75%); background-size: 200% 100%; }
-        #lb .lb-content, #lb .lb-bar { background: #252526; }
-        #lb .lb-bar .lb-pct { color: #a0a0a0; }
-        .insight-progress-banner { color: #4a9eff; }
-        }
-        """
-
-        // Bootstrap script — initialises mermaid + chart, wires lightbox click-to-zoom.
-        let bootstrap = """
-        <script>
-        (function() {
-            try {
-                if (typeof mermaid !== 'undefined') {
-                    mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', flowchart: { htmlLabels: true },
-                                         theme: window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default' });
-                    var mNodes = document.querySelectorAll('.mermaid, pre code.language-mermaid, pre.mermaid');
-                    for (var i = 0; i < mNodes.length; i++) {
-                        var n = mNodes[i];
-                        if (n.tagName !== 'DIV') {
-                            var pre = (n.tagName === 'CODE') ? n.parentElement : n;
-                            if (!pre) continue;
-                            var src = (n.textContent || '').trim().replace(/<br\\s*\\/>/gi, '<br>');
-                            var d = document.createElement('div');
-                            d.className = 'mermaid';
-                            d.textContent = src;
-                            pre.replaceWith(d);
-                        }
-                    }
-                    try { mermaid.run({ nodes: document.querySelectorAll('.mermaid'), suppressErrors: true }); } catch (e) {}
-                }
-                if (typeof Chart !== 'undefined') {
-                    var canvases = document.querySelectorAll('canvas[data-chart], canvas[data-chart-config]');
-                    for (var j = 0; j < canvases.length; j++) {
-                        var cv = canvases[j];
-                        var s = cv.getAttribute('data-chart') || cv.getAttribute('data-chart-config') || '';
-                        if (!s) continue;
-                        var clean = s.replace(/"function"\\s*:\\s*"function[\\s\\S]*?"\\s*\\}/g, '"_stripped":true}');
-                        try { var cfg = JSON.parse(clean); new Chart(cv, cfg); } catch (e) {}
-                    }
-                }
-                // Lightbox.
-                var lb = null, lbContent = null, lbZoom = 1, lbPanX = 0, lbPanY = 0;
-                var dragging = false, dsx = 0, dsy = 0, dix = 0, diy = 0;
-                function applyTransform() { if (lbContent) lbContent.style.transform = 'translate(' + lbPanX + 'px,' + lbPanY + 'px) scale(' + lbZoom + ')'; }
-                function setZoom(z) { lbZoom = Math.max(0.25, Math.min(8, z)); applyTransform(); var p = lb && lb.querySelector('.lb-pct'); if (p) p.textContent = Math.round(lbZoom * 100) + '%'; }
-                function close() { if (lb) lb.classList.remove('on'); if (lbContent) lbContent.innerHTML = ''; lbPanX = lbPanY = 0; lbZoom = 1; }
-                function ensure() {
-                    if (lb) return;
-                    lb = document.createElement('div'); lb.id = 'lb';
-                    lb.innerHTML = '<div class="lb-stage"><div class="lb-content"></div></div>' +
-                        '<div class="lb-bar">' +
-                        '<button class="lb-out">−</button><span class="lb-pct">100%</span>' +
-                        '<button class="lb-in">+</button><button class="lb-reset">1:1</button>' +
-                        '<button class="lb-close">✕</button></div>';
-                    document.body.appendChild(lb);
-                    lbContent = lb.querySelector('.lb-content');
-                    lb.querySelector('.lb-in').onclick = function(e) { e.stopPropagation(); setZoom(lbZoom * 1.25); };
-                    lb.querySelector('.lb-out').onclick = function(e) { e.stopPropagation(); setZoom(lbZoom / 1.25); };
-                    lb.querySelector('.lb-reset').onclick = function(e) { e.stopPropagation(); lbPanX = lbPanY = 0; setZoom(1); };
-                    lb.querySelector('.lb-close').onclick = function(e) { e.stopPropagation(); close(); };
-                    lb.addEventListener('click', function(ev) { if (ev.target === lb || (ev.target.classList && ev.target.classList.contains('lb-stage'))) close(); });
-                    document.addEventListener('keydown', function(ev) {
-                        if (!lb.classList.contains('on')) return;
-                        if (ev.key === 'Escape') close();
-                        else if (ev.key === '+' || ev.key === '=') setZoom(lbZoom * 1.25);
-                        else if (ev.key === '-' || ev.key === '_') setZoom(lbZoom / 1.25);
-                        else if (ev.key === '0' || ev.key === '1') { lbPanX = lbPanY = 0; setZoom(1); }
-                    });
-                    lb.addEventListener('wheel', function(ev) {
-                        if (ev.ctrlKey || ev.metaKey) { ev.preventDefault(); setZoom(lbZoom * (ev.deltaY < 0 ? 1.1 : 0.9)); }
-                    }, { passive: false });
-                    lbContent.addEventListener('mousedown', function(ev) {
-                        if (ev.target.closest('.lb-bar')) return;
-                        dragging = true; dsx = ev.clientX; dsy = ev.clientY; dix = lbPanX; diy = lbPanY;
-                        lbContent.style.transition = 'none'; lbContent.style.cursor = 'grabbing';
-                        ev.preventDefault();
-                    });
-                    document.addEventListener('mousemove', function(ev) {
-                        if (!dragging) return;
-                        lbPanX = dix + (ev.clientX - dsx); lbPanY = diy + (ev.clientY - dsy);
-                        applyTransform();
-                    });
-                    document.addEventListener('mouseup', function() { if (!dragging) return; dragging = false; if (lbContent) { lbContent.style.transition = ''; lbContent.style.cursor = ''; } });
-                }
-                function open(el) {
-                    ensure();
-                    lbContent.innerHTML = '';
-                    if (el.classList && el.classList.contains('mermaid')) { var inner = el.querySelector('svg'); if (inner) el = inner; }
-                    var clone;
-                    if (el.tagName && el.tagName.toUpperCase() === 'CANVAS') {
-                        try { var img = document.createElement('img'); img.src = el.toDataURL('image/png'); img.style.width = el.width + 'px'; img.style.height = el.height + 'px'; clone = img; }
-                        catch (_) { clone = el.cloneNode(true); }
-                    } else if (el.tagName && el.tagName.toLowerCase() === 'svg') {
-                        try {
-                            var ser = new XMLSerializer();
-                            var svgStr = ser.serializeToString(el);
-                            var box = el.viewBox && el.viewBox.baseVal;
-                            var w = (box && box.width) ? box.width : (el.getBoundingClientRect().width || 800);
-                            var h = (box && box.height) ? box.height : (el.getBoundingClientRect().height || 600);
-                            var holder = document.createElement('div');
-                            holder.style.cssText = 'width:' + (w * 2) + 'px; height:' + (h * 2) + 'px;';
-                            holder.innerHTML = svgStr;
-                            var ns = holder.querySelector('svg');
-                            if (ns) { ns.setAttribute('width', '100%'); ns.setAttribute('height', '100%'); ns.style.maxWidth = 'none'; ns.style.maxHeight = 'none'; }
-                            clone = holder;
-                        } catch (_) { clone = el.cloneNode(true); }
-                    } else { clone = el.cloneNode(true); }
-                    lbContent.appendChild(clone);
-                    lbPanX = lbPanY = 0; setZoom(1);
-                    lb.classList.add('on');
-                }
-                document.addEventListener('click', function(ev) {
-                    var t = ev.target;
-                    if (!t || typeof t.closest !== 'function') return;
-                    var pick = t.closest('.mermaid, .section-body canvas, .section-body img');
-                    if (!pick) return;
-                    if (t.closest('.deep-dive, .crumb, .lb-bar, #lb')) return;
-                    ev.preventDefault(); ev.stopPropagation();
-                    try { open(pick); } catch (_) {}
-                }, false);
-            } catch (e) {}
-        })();
-        </script>
-        """
-
-        return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-        <meta charset="utf-8">
-        <meta http-equiv="Content-Security-Policy" content="\(csp)">
-        <title>\(escapedTitle)</title>
-        <style>\(inlineCSS)</style>
-        \(libRefs)
-        </head>
-        <body>
-        <header class="insight-chrome insight-breadcrumbs">\(breadcrumbHTML)</header>
-        <main class="insight-content">
-        \(sectionsHTML)
-        </main>
-        <footer class="insight-chrome insight-status"></footer>
-        \(bootstrap)
-        </body>
-        </html>
-        """
-    }
-
-    /// HTML-escape utility (Decision 10). Applied to ALL LLM-controlled strings BEFORE
-    /// interpolation into the rebuilt HTML. The five canonical replacements + single-quote
-    /// (covers attribute and text contexts).
-    static func escapeForHTML(_ s: String) -> String {
-        s.replacingOccurrences(of: "&", with: "&amp;")
-         .replacingOccurrences(of: "<", with: "&lt;")
-         .replacingOccurrences(of: ">", with: "&gt;")
-         .replacingOccurrences(of: "\"", with: "&quot;")
-         .replacingOccurrences(of: "'", with: "&#39;")
-    }
 
     /// Strip `\r`, `\n`, and `\0` control bytes and truncate to 64 chars. Mirrors
     /// `WebViewBridge.sanitizeForLog`; `InsightCoordinator` uses this one for the bridge messages it logs.

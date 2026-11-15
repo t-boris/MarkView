@@ -3,6 +3,7 @@
 // open to release (a folder's and a single file's), and what a feature reads through ProjectProviding. The index process
 // (`--dde-index`) is the app's own binary and is covered by the app probe, not here.
 import Foundation
+import SQLite3
 
 /// Stand-ins for app types the checked modules mention but this check never exercises: the assistant list that LinkedFolders.swift
 /// extends, and the file-type table that decides which files the tree shows (the fixtures here are all Markdown).
@@ -42,10 +43,10 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         let base = fm.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("pc-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: base, withIntermediateDirectories: true)
         let defaults = UserDefaults.standard
-        for key in [ProjectContext.lastFolderKey, ProjectContext.recentProjectsKey] { defaults.removeObject(forKey: key) }
+        for key in [Setting.lastFolder.name, Setting.recentProjects.name] { defaults.removeObject(forKey: key) }
         defer {
             try? fm.removeItem(at: base)
-            for key in [ProjectContext.lastFolderKey, ProjectContext.recentProjectsKey, LinkedFolders.defaultsKey] { defaults.removeObject(forKey: key) }
+            for key in [Setting.lastFolder.name, Setting.recentProjects.name, Setting.linkedFolders.name] { defaults.removeObject(forKey: key) }
         }
 
         try await openFolderWithExclusions(base)
@@ -53,6 +54,7 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         try linkedFolders(base)
         try markdownFiles(base)
         try await singleFileDatabase(base)
+        try await blockDeltas(base)
         try await staleTreeReload(base)
 
         if failures > 0 { print("\(failures) check(s) FAILED"); exit(1) }
@@ -77,7 +79,7 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         context.beginOpening(project)
         check(context.rootOpenedAsFolder && context.indexingProgress != nil && context.root == nil,
               "opening a folder shows progress and clears the previous tree")
-        check(context.recentProjects.first == project.path && defaults(ProjectContext.lastFolderKey) == project.path,
+        check(context.recentProjects.first == project.path && defaults(Setting.lastFolder.name) == project.path,
               "the folder is the last folder and the first recent project")
         let loaded = await context.loadTree(of: project)
         check(loaded && context.root == project && context.projectFolder == project && context.aiProject == project,
@@ -294,6 +296,59 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         closed.close()
         try await Task.sleep(nanoseconds: 1_500_000_000)
         check(closed.database == nil, "closing the window stops the single file's setup")
+    }
+
+    // MARK: - The blocks the editor extracts reach the database in order
+
+    /// `SELECT` the first column of each row as text.
+    static func column(_ path: String, _ sql: String) -> [String] {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_close(db) }
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        var rows: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW { rows.append(sqlite3_column_text(statement, 0).map { String(cString: $0) } ?? "") }
+        return rows
+    }
+
+    static func block(_ id: String, _ text: String, in document: String, position: Int) -> SemanticBlock {
+        SemanticBlock(id: id, documentId: document, type: .paragraph, level: nil, content: text, plainText: text, contentHash: "h-" + text,
+                      semanticHash: nil, headingPath: [], parentBlockId: nil, lineStart: position, lineEnd: position, position: position,
+                      language: nil, anchor: nil)
+    }
+
+    static func blockDeltas(_ base: URL) async throws {
+        let project = base.appendingPathComponent("blocks-project", isDirectory: true)
+        let note = project.appendingPathComponent("note.md")
+        try write("# Note\n\nfirst\n", to: note)
+        let context = ProjectContext(recentFilesURL: base.appendingPathComponent("recent-blocks.json"))
+
+        // Without a database a delta has nowhere to go and is dropped without a trace.
+        context.saveBlocks(BlocksDelta(added: [block("early", "x", in: "note.md", position: 0)], removed: [], changed: [], unchanged: []), of: note)
+
+        context.beginOpening(project)
+        _ = await context.loadTree(of: project)
+        _ = try await context.openDatabase(at: project)
+        guard let db = context.database else { return check(false, "the database opens for the block checks") }
+        let dbPath = project.appendingPathComponent(".dde/state.db").path
+        try await db.upsertDocument(id: "note.md", projectId: project.lastPathComponent, filePath: note.path, fileName: "note.md", fileExt: "md", contentHash: "h")
+
+        func delta(added: [SemanticBlock] = [], removed: [String] = [], changed: [SemanticBlock] = []) -> BlocksDelta {
+            BlocksDelta(added: added, removed: removed, changed: changed, unchanged: [])
+        }
+        // Three deltas in a row, as the editor sends them while the person types: the blocks appear, one is rewritten, one goes and
+        // another comes. Written out of order, "second" would survive its removal.
+        context.saveBlocks(delta(added: [block("first", "one", in: "note.md", position: 0), block("second", "two", in: "note.md", position: 1)]), of: note)
+        context.saveBlocks(delta(changed: [block("first", "one, rewritten", in: "note.md", position: 0)]), of: note)
+        context.saveBlocks(delta(added: [block("third", "three", in: "note.md", position: 2)], removed: ["second"]), of: note)
+        context.saveBlocks(delta(), of: note)
+        let settled = await wait { column(dbPath, "SELECT block_id FROM blocks ORDER BY order_index") == ["first", "third"] }
+        check(settled, "the deltas apply in the order they were sent: \(column(dbPath, "SELECT block_id FROM blocks ORDER BY order_index"))")
+        check(column(dbPath, "SELECT raw_markdown FROM blocks WHERE block_id = 'first'") == ["one, rewritten"], "a changed block keeps its newest text")
+        check(column(dbPath, "SELECT document_id FROM blocks WHERE block_id = 'third'") == [context.documentId(for: note)], "the blocks belong to the document of the file")
+        check(column(dbPath, "SELECT block_id FROM blocks WHERE block_id = 'early'").isEmpty, "a delta that arrived without a database was dropped")
     }
 
     // MARK: - A tree rebuilt for a folder that has closed is dropped

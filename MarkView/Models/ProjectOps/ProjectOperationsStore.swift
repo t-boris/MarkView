@@ -255,7 +255,7 @@ final class ProjectOperationsStore: ObservableObject {
                 }
             }
         }
-        if UserDefaults.standard.dictionary(forKey: fingerprintsKey) != nil { checkSourceSignature() }
+        if Settings.standard.contains(fingerprintsKey) { checkSourceSignature() }
     }
 
     var operations: [ProjectOperation] { fileError == nil ? document.operations.filter { !$0.deleted } : [] }
@@ -402,12 +402,12 @@ final class ProjectOperationsStore: ObservableObject {
                                                                   environment: item.environment, label: item.label))
     }
 
-    private var fingerprintsKey: String { "projectOperations.fingerprints." + String(ContentHash.of(root.path).prefix(24)) }
-    private var rejectedKey: String { "projectOperations.rejected." + String(ContentHash.of(root.path).prefix(24)) }
+    private var fingerprintsKey: SettingsKey<[String: Any]> { Setting.operationFingerprints(project: String(ContentHash.of(root.path).prefix(24))) }
+    private var rejectedKey: SettingsKey<[String]> { Setting.operationsRejected(project: String(ContentHash.of(root.path).prefix(24))) }
 
     func checkSourceSignature() {
         guard !stalenessInFlight,
-              let saved = UserDefaults.standard.dictionary(forKey: fingerprintsKey) as? [String: String] else { return }
+              let saved = Settings.standard.stored(fingerprintsKey) as? [String: String] else { return }
         stalenessInFlight = true
         let root = self.root
         let paths = Set(operations.filter { $0.origin == "discovered" }.flatMap { operation in
@@ -443,7 +443,7 @@ final class ProjectOperationsStore: ObservableObject {
                         Task { @MainActor in self?.discoveryPhase = phase; self?.revision += 1 }
                     }
                 try Task.checkCancellation()
-                let rejected = Set(UserDefaults.standard.stringArray(forKey: rejectedKey) ?? [])
+                let rejected = Set(Settings.standard.value(rejectedKey))
                 var report = result.report
                 report.proposals.removeAll { rejected.contains(String(ContentHash.of($0.command))) }
                 // One atomic shared-file write, only after both AI phases and validation succeed.
@@ -464,7 +464,7 @@ final class ProjectOperationsStore: ObservableObject {
                 hasFile = true
                 fileError = nil
                 discoveryReport = report
-                UserDefaults.standard.set(result.sourceFingerprints, forKey: fingerprintsKey)
+                Settings.standard.set(result.sourceFingerprints as [String: Any], for: fingerprintsKey)
                 sourcesChanged = false
                 refresh()
             } catch is CancellationError {
@@ -512,9 +512,9 @@ final class ProjectOperationsStore: ObservableObject {
         alert.addButton(withTitle: "Reject")
         guard alert.runModal() == .alertSecondButtonReturn else { return }
         let operation = report.proposals.remove(at: index)
-        var rejected = Set(UserDefaults.standard.stringArray(forKey: rejectedKey) ?? [])
+        var rejected = Set(Settings.standard.value(rejectedKey))
         rejected.insert(String(ContentHash.of(operation.command)))
-        UserDefaults.standard.set(Array(rejected).sorted(), forKey: rejectedKey)
+        Settings.standard.set(Array(rejected).sorted(), for: rejectedKey)
         discoveryReport = report
         revision += 1
     }

@@ -1,5 +1,8 @@
 import SwiftUI
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Hosts a session's web view. The view belongs to the session, so it keeps its
 /// screen when SwiftUI rebuilds this host (tab or panel switches).
@@ -236,7 +239,7 @@ struct AITerminalPanel: View {
             terminals.ensureAITerminal()
             seenChoice = currentChoice()
         }
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+        .onReceive(SettingsObserver.changes(of: AIAssistantPreferences.observedKeys)) { _ in
             let now = currentChoice()
             defer { seenChoice = now }
             guard let seen = seenChoice else { return }

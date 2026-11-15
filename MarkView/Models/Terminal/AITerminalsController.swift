@@ -1,5 +1,8 @@
 import AppKit
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// What the terminals of a window need of the window: the browser the agents drive, the editor, and the watch over open files that
 /// runs while a terminal does. The folder, the project and its linked folders come from the window's `ProjectProviding`.
@@ -134,7 +137,7 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
             recent = ""
             DispatchQueue.main.async {
                 guard let self, let session, BrowserControlServer.agentToolsEnabled(tool) else { return }
-                UserDefaults.standard.set(false, forKey: BrowserControlServer.agentToolsKey(tool))
+                Settings.standard.set(false, for: BrowserControlServer.agentToolsKey(tool))
                 let alert = NSAlert()
                 alert.messageText = "\(name)'s policy blocks MarkView's browser tools"
                 alert.informativeText = "Your organisation allows \(name) only the MCP servers it lists, so it refused \"\(BrowserAgentTools.serverName)\". MarkView no longer gives \(name) these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). \(name) itself keeps working."
@@ -242,8 +245,8 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
 
     // MARK: - AI terminals across launches (BUG-005)
 
-    private static func savedKey(_ directory: URL) -> String {
-        "aiTerminals." + String(ContentHash.of(directory.standardizedFileURL.path).prefix(12))
+    private static func savedKey(_ directory: URL) -> SettingsKey<[String: Any]> {
+        Setting.aiTerminals(folder: String(ContentHash.of(directory.standardizedFileURL.path).prefix(12)))
     }
 
     /// Remember the folder's AI terminals: what each runs, in tab order, and the shown one.
@@ -252,15 +255,14 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
         // Saved remote pairings are restored by RemoteConnectionsStore, never as local assistant profiles.
         let local = sessions.filter { !$0.isRemote }
         let shownIndex = local.firstIndex { $0.id == shownID } ?? 0
-        UserDefaults.standard.set(["profiles": local.map(\.profile.rawValue), "shown": shownIndex],
-                                  forKey: Self.savedKey(directory))
+        Settings.standard.set(["profiles": local.map(\.profile.rawValue), "shown": shownIndex], for: Self.savedKey(directory))
     }
 
     /// Reopen the AI terminals the folder had when MarkView last ran, each assistant continuing
     /// its last session there. Does nothing once a terminal is open or when none were saved.
     private func restoreAITerminals() {
         guard sessions.isEmpty, let directory = root,
-              let saved = UserDefaults.standard.dictionary(forKey: Self.savedKey(directory)),
+              let saved = Settings.standard.stored(Self.savedKey(directory)),
               let names = saved["profiles"] as? [String] else { return }
         let opened = names.compactMap(TerminalProfile.init(rawValue:)).compactMap { openAITerminal($0, resuming: true) }
         let shownIndex = saved["shown"] as? Int ?? 0
@@ -452,3 +454,6 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
         previewTerminals = [:]
     }
 }
+
+/// The assistant's input line, for the tools that hand it a question (`DeploymentsHost`).
+extension AITerminalsController: AssistantPrompting {}

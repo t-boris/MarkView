@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // What an assistant driven over the Agent Client Protocol (`<cli> --acp`, `ACPAssistant`) brings besides its provider:
 // how it is started, what its probe checks, and the models its account offers. Foundation only.
@@ -37,10 +40,8 @@ extension AssistantACPSupport {
 
 /// The models an ACP assistant's account offers, as last listed over ACP (Settings, menus); `ACPAssistant.refreshModels` fills it.
 enum ACPModelCache {
-    private static func key(_ id: String) -> String { "settings.cli.\(id)Models" }
-
     static func cached(_ id: String) -> [AIModelOption] {
-        guard let data = UserDefaults.standard.data(forKey: key(id)),
+        guard let data = Settings.standard.stored(Setting.cliModelList(id)),
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] else { return [] }
         return rows.compactMap { row in
             guard let modelID = row["id"], !modelID.isEmpty else { return nil }
@@ -52,6 +53,6 @@ enum ACPModelCache {
         guard !models.isEmpty,
               let data = try? JSONSerialization.data(withJSONObject: models.map { ["id": $0.id, "name": $0.name, "detail": $0.detail] })
         else { return }
-        UserDefaults.standard.set(data, forKey: key(id))
+        Settings.standard.set(data, for: Setting.cliModelList(id))
     }
 }
