@@ -29,9 +29,20 @@ permissions:
   contents: read
 
 jobs:
-  test-and-build:
+  pure-tests:
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run pure regression test suite
+        run: ./tools/tests/run.sh --tier pure
+
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,9 +56,6 @@ jobs:
 
       - name: Run MarkViewCore Swift Package tests
         run: swift test --package-path Packages/MarkViewCore
-
-      - name: Run pure regression test suite
-        run: ./tools/tests/run.sh --tier pure
 
       - name: Run headless WebKit & window session regression suites
         run: |

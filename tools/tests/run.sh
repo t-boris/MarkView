@@ -165,7 +165,7 @@ if raw_jobs:
         sys.exit(2)
 else:
     cpus = os.cpu_count() or 4
-    cap = 4 if os.environ.get("CI") == "true" else 8
+    cap = 6 if os.environ.get("CI") == "true" else 8
     workers = max(1, min(cpus, cap, len(items)))
 
 def run_suite(item):
