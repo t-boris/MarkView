@@ -1,5 +1,8 @@
 import SwiftUI
 import AppKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // New Research (feature new-research-repository-grounded-analysis): the intake fields, the
 // bar under the editor with running jobs and "Continue / deepen", and the follow-up sheet.
@@ -60,7 +63,7 @@ struct WebSearchToggle: View {
     @AppStorage private var disabled: Bool
 
     init(root: URL) {
-        _disabled = AppStorage(wrappedValue: false, ResearchSettings.webDisabledKey(root))
+        _disabled = AppStorage(ResearchSettings.webDisabledKey(root))
     }
 
     var body: some View {

@@ -17,7 +17,7 @@ trap 'rm -rf "$out"' EXIT
 mkdir "$out/web"
 cp tools/tests/ThemeWebTests.swift "$out/web/main.swift"
 swiftc -O -module-cache-path /private/tmp/markview-swift-cache -o "$out/theme-web-tests" \
-  MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift \
+  Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift \
   MarkView/Models/Appearance/WindowTheme.swift MarkView/Models/Appearance/WebThemeArguments.swift Packages/MarkViewCore/Sources/MarkViewCore/JS.swift MarkView/Models/Appearance/AppFontScale.swift MarkView/Views/Appearance/AppFontScaleView.swift \
   MarkView/Views/Appearance/AppPalette.swift MarkView/Views/Appearance/ThemePickerView.swift "$out/web/main.swift"
 cp -R MarkView/Resources/Themes "$out/Themes"

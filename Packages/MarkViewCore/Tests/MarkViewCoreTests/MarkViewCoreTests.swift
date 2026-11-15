@@ -47,12 +47,12 @@ final class MarkViewCoreTests: XCTestCase {
         let toolURL = tempDir.appendingPathComponent("mv-custom-tool")
         try AtomicFile.write("#!/bin/sh\necho extra-path-ok\n", to: toolURL, permissions: 0o755)
 
-        let defaults = UserDefaults.standard
-        let previous = defaults.object(forKey: Subprocess.extraPATHDefaultsKey)
-        defaults.set(tempDir.path, forKey: Subprocess.extraPATHDefaultsKey)
+        let settings = Settings.standard
+        let previous = settings.stored(Setting.extraPATH)
+        settings.set(tempDir.path, for: Setting.extraPATH)
         defer {
-            if let previous { defaults.set(previous, forKey: Subprocess.extraPATHDefaultsKey) }
-            else { defaults.removeObject(forKey: Subprocess.extraPATHDefaultsKey) }
+            if let previous { settings.set(previous, for: Setting.extraPATH) }
+            else { settings.remove(Setting.extraPATH) }
         }
 
         let resolved = Subprocess.resolveExecutable("mv-custom-tool")

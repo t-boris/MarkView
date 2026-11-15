@@ -1,16 +1,19 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Settings panel for DDE — AI CLI (assistant, model, paths), voice input, maintenance
 struct DDESettingsView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var openaiKey: String = ""
-    @AppStorage(ActionOutputLanguage.storageKey) private var outputLanguage = ActionOutputLanguage.documentLanguage
-    @AppStorage(ResearchSettings.timeoutKey) private var researchTimeout = ResearchSettings.defaultTimeoutMinutes
-    @AppStorage(AIAssistantPreferences.autoAnalyzeKey) private var autoAnalyze = true
-    @AppStorage(AppFontScale.storageKey) private var fontScalePercent = AppFontScale.defaultPercent
+    @AppStorage(Setting.outputLanguage) private var outputLanguage: String
+    @AppStorage(Setting.researchTimeoutMinutes) private var researchTimeout: Int
+    @AppStorage(Setting.autoAnalyze) private var autoAnalyze: Bool
+    @AppStorage(Setting.fontScalePercent) private var fontScalePercent: Int
     @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
     private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
     @State private var showKey = false
@@ -25,8 +28,8 @@ struct DDESettingsView: View {
     @State private var extraPath: String = ""
 
     // Voice input: Whisper (with an OpenAI key) or macOS's built-in recognition (without one)
-    @AppStorage(WhisperClient.modelStorage) private var whisperModel: String = WhisperClient.defaultModel
-    @AppStorage(OnDeviceSpeech.languageStorage) private var dictationLanguage = ""
+    @AppStorage(Setting.whisperModel) private var whisperModel: String
+    @AppStorage(Setting.dictationLanguage) private var dictationLanguage: String
     /// Languages macOS can recognize on this Mac; nil until the first lookup finishes.
     @State private var installedLanguages: [String]?
     @StateObject private var whisperClient = WhisperClient()
@@ -150,7 +153,7 @@ struct DDESettingsView: View {
                         TextField("/opt/homebrew/bin:/some/other/bin", text: $extraPath)
                             .textFieldStyle(.roundedBorder)
                             .uiFont(size: 10, design: .monospaced)
-                            .onSubmit { UserDefaults.standard.set(extraPath, forKey: "settings.cli.extraPATH") }
+                            .onSubmit { Settings.standard.set(extraPath, for: Setting.extraPATH) }
                         Text("Added to PATH for spawned CLIs. Node version dirs are included automatically.")
                             .uiFont(size: 9).foregroundColor(palette.textDim)
                     }
@@ -420,7 +423,7 @@ struct DDESettingsView: View {
         for tool in CLITool.allCases {
             cliPaths[tool] = CLIToolLocator.override(for: tool) ?? ""
         }
-        extraPath = UserDefaults.standard.string(forKey: "settings.cli.extraPATH") ?? ""
+        extraPath = Settings.standard.value(Setting.extraPATH)
     }
 
     // MARK: - Voice input diagnostics
@@ -544,7 +547,7 @@ private struct AgentUsageVisibilityToggle: View {
 
     init(agent: CLITool) {
         self.agent = agent
-        _hidden = AppStorage(wrappedValue: false, agent.hiddenKey)
+        _hidden = AppStorage(Setting.usageHidden(agent.rawValue))
         detected = AgentUsageTracker.isDetected(agent)
     }
 

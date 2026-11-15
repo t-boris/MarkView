@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// What "done" means for the processes behind a transition table (feature workflow-flows, REQ-001): under the diagram, for each
 /// process, whether a pull request, passing checks, a release or a confirmed event and an acceptance are required, the steps where
@@ -9,7 +12,7 @@ struct WorkflowDonePanel: View {
     @ObservedObject var editor: WorkflowEditorModel
     let scope: WorkflowScope
     /// Whether GitHub is connected; read live, so connecting it in Settings clears the warning without reopening the tab.
-    @AppStorage(GitHubSettings.enabledKey) private var githubEnabled = false
+    @AppStorage(Setting.gitHubEnabled) private var githubEnabled: Bool
 
     private var kind: IssueKind {
         switch scope {

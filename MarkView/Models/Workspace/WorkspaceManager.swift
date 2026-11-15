@@ -242,7 +242,7 @@ class WorkspaceManager: ObservableObject {
     /// choice in its saved session; it is not a default for other windows.
     @Published var showFileTree: Bool = false
     @Published var showTOC: Bool = false {
-        didSet { UserDefaults.standard.set(showTOC, forKey: "layout.showTOC.v3") }
+        didSet { Settings.standard.set(showTOC, for: Setting.showTOC) }
     }
     @Published var compactLayout = false
     @Published var showCenter = true
@@ -430,11 +430,8 @@ class WorkspaceManager: ObservableObject {
         }
         agentActivity.start()
 
-        // Restore layout from UserDefaults
-        let ud = UserDefaults.standard
-        if ud.object(forKey: "layout.showTOC.v3") != nil {
-            showTOC = ud.bool(forKey: "layout.showTOC.v3")
-        }
+        // Restore layout from the settings
+        if let savedTOC = Settings.standard.stored(Setting.showTOC) { showTOC = savedTOC }
 
         project.fileTree.onTimer = { [weak self] in
             guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating, NSApp.isActive else { return }
@@ -1089,7 +1086,7 @@ class WorkspaceManager: ObservableObject {
         guard resolveUnsavedChanges(at: Array(openTabs.indices), before: "closing the folder") else { return false }
 
         Self.debugLog("closeFolder: \(rootNode?.url.path ?? "(no folder)")")
-        UserDefaults.standard.removeObject(forKey: ProjectContext.lastFolderKey)
+        Settings.standard.remove(Setting.lastFolder)
 
         // Stop work that would otherwise keep writing into the old workspace.
         for tab in openTabs {
@@ -2504,7 +2501,7 @@ class WorkspaceManager: ObservableObject {
             recent = ""
             DispatchQueue.main.async {
                 guard let self, let session, BrowserControlServer.agentToolsEnabled(tool) else { return }
-                UserDefaults.standard.set(false, forKey: BrowserControlServer.agentToolsKey(tool))
+                Settings.standard.set(false, for: BrowserControlServer.agentToolsKey(tool))
                 let alert = NSAlert()
                 alert.messageText = "\(name)'s policy blocks MarkView's browser tools"
                 alert.informativeText = "Your organisation allows \(name) only the MCP servers it lists, so it refused \"\(BrowserAgentTools.serverName)\". MarkView no longer gives \(name) these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). \(name) itself keeps working."
@@ -2651,8 +2648,8 @@ class WorkspaceManager: ObservableObject {
 
     // MARK: AI terminals across launches (BUG-005)
 
-    private static func aiTerminalsKey(_ directory: URL) -> String {
-        "aiTerminals." + String(ContentHash.of(directory.standardizedFileURL.path).prefix(12))
+    private static func aiTerminalsKey(_ directory: URL) -> SettingsKey<[String: Any]> {
+        Setting.aiTerminals(folder: String(ContentHash.of(directory.standardizedFileURL.path).prefix(12)))
     }
 
     /// Remember the folder's AI terminals: what each runs, in tab order, and the shown one.
@@ -2661,15 +2658,14 @@ class WorkspaceManager: ObservableObject {
         // Saved remote pairings are restored by RemoteConnectionsStore, never as local assistant profiles.
         let local = aiTerminals.filter { !$0.isRemote }
         let shown = local.firstIndex { $0.id == activeAITerminalID } ?? 0
-        UserDefaults.standard.set(["profiles": local.map(\.profile.rawValue), "shown": shown],
-                                  forKey: Self.aiTerminalsKey(directory))
+        Settings.standard.set(["profiles": local.map(\.profile.rawValue), "shown": shown], for: Self.aiTerminalsKey(directory))
     }
 
     /// Reopen the AI terminals the folder had when MarkView last ran, each assistant continuing
     /// its last session there. Does nothing once a terminal is open or when none were saved.
     private func restoreAITerminals() {
         guard aiTerminals.isEmpty, let directory = aiWorkspaceRoot ?? rootNode?.url,
-              let saved = UserDefaults.standard.dictionary(forKey: Self.aiTerminalsKey(directory)),
+              let saved = Settings.standard.stored(Self.aiTerminalsKey(directory)),
               let names = saved["profiles"] as? [String] else { return }
         let sessions = names.compactMap(TerminalProfile.init(rawValue:)).compactMap { openAITerminal($0, resuming: true) }
         let shown = saved["shown"] as? Int ?? 0
@@ -2866,7 +2862,7 @@ class WorkspaceManager: ObservableObject {
         guard let root = rootNode?.url, root.standardizedFileURL == folder.standardizedFileURL else {
             return "This window does not show \(folder.lastPathComponent) any more. Open it and use File › Publish to GitHub… to finish."
         }
-        if !GitHubSettings.enabled { UserDefaults.standard.set(true, forKey: GitHubSettings.enabledKey) }
+        if !GitHubSettings.enabled { Settings.standard.set(true, for: Setting.gitHubEnabled) }
         // The remote was added after the folder opened: detect again.
         gitHub.reset()
         gitHubRoot = root
@@ -3134,8 +3130,7 @@ class WorkspaceManager: ObservableObject {
     private var gitHubRoot: URL?
 
     /// Watches the Settings switch (every window follows it).
-    private var gitHubSettingObserver: NSObjectProtocol?
-    private var gitHubWasEnabled = GitHubSettings.enabled
+    private var gitHubSettingObserver: SettingsObserver?
 
     /// Find the folder's GitHub repository and follow the current branch's CI — only when
     /// the integration is turned on in Settings (MarkView stays a plain viewer otherwise).
@@ -3145,12 +3140,8 @@ class WorkspaceManager: ObservableObject {
         gitHub.onRepoChange = { [weak self] repo in self?.codeXRay.architecture.gitHubRepo = repo }
         gitHub.onPoll = { [weak self] client in self?.features.syncLifecycle(with: client) }
         if gitHubSettingObserver == nil {
-            gitHubSettingObserver = NotificationCenter.default.addObserver(
-                forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, GitHubSettings.enabled != self.gitHubWasEnabled else { return }
-                    self.gitHubSettingChanged()
-                }
+            gitHubSettingObserver = SettingsObserver([Setting.gitHubEnabled.erased]) { [weak self] in
+                MainActor.assumeIsolated { self?.gitHubSettingChanged() }
             }
         }
         gitHubSettingChanged()
@@ -3158,7 +3149,6 @@ class WorkspaceManager: ObservableObject {
 
     /// Start or stop the integration for the open folder, as the Settings switch says.
     private func gitHubSettingChanged() {
-        gitHubWasEnabled = GitHubSettings.enabled
         if GitHubSettings.enabled, let root = gitHubRoot {
             gitHub.setup(root: root)
             if !gitClient.branch.isEmpty { gitHub.branchChanged(gitClient.branch) }

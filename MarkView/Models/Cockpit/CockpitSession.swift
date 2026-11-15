@@ -1,6 +1,9 @@
 import Foundation
 import AppKit
 import Combine
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 @MainActor
 final class CockpitSession: ObservableObject {
@@ -52,9 +55,9 @@ final class CockpitSession: ObservableObject {
 
     init(root: URL, workspace: WorkspaceManager) {
         self.root = root; self.workspace = workspace
-        let defaults = UserDefaults.standard, key = ProjectAIChoice.key(root)
-        plannerAgent = defaults.string(forKey: "cockpit.plannerAgent.\(key)")
-        plannerModel = defaults.string(forKey: "cockpit.plannerModel.\(key)")
+        let key = ProjectAIChoice.key(root)
+        plannerAgent = Settings.standard.stored(Setting.cockpitPlannerAgent(project: key))
+        plannerModel = Settings.standard.stored(Setting.cockpitPlannerModel(project: key))
         restoringPlannerChoice = false
         loadRuns()
         noticeClicks = NotificationCenter.default.publisher(for: .cockpitNoticeOpened).sink { [weak self] note in
@@ -114,9 +117,9 @@ final class CockpitSession: ObservableObject {
 
     private func savePlannerChoice() {
         guard !restoringPlannerChoice else { return }
-        let defaults = UserDefaults.standard, key = ProjectAIChoice.key(root)
-        defaults.set(plannerAgent, forKey: "cockpit.plannerAgent.\(key)")
-        defaults.set(plannerModel, forKey: "cockpit.plannerModel.\(key)")
+        let key = ProjectAIChoice.key(root)
+        Settings.standard.set(plannerAgent, for: Setting.cockpitPlannerAgent(project: key))
+        Settings.standard.set(plannerModel, for: Setting.cockpitPlannerModel(project: key))
     }
 
     /// The agents that can run a step in this project, each with the models it offers and what "default" means for it here.

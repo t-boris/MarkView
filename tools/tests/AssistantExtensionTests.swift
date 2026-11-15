@@ -35,7 +35,7 @@ import Foundation
         ]
         for row in stored {
             let tool = CLITool(rawValue: row.raw)
-            check(tool?.displayName == row.name && tool?.binaryName == row.binary && tool?.overrideKey == row.overrideKey,
+            check(tool?.displayName == row.name && tool?.binaryName == row.binary && tool.map { Setting.cliPath($0.rawValue).name } == row.overrideKey,
                   "stored value \(row.raw) still names \(row.name) (\(row.binary), \(row.overrideKey))")
             check((try? JSONDecoder().decode(CLITool.self, from: Data("\"\(row.raw)\"".utf8))) == tool,
                   "\(row.raw) decodes from JSON")
@@ -53,7 +53,7 @@ import Foundation
         // The one registered line is the whole integration.
         guard let fake else { check(false, "the fake assistant is registered"); finish(); return }
         check(CLITool.allCases.last == fake && CLITool.allCases.count == 6, "the fake assistant is the sixth, after the built-in five")
-        check(fake.displayName == "Fake Assistant" && fake.binaryName == "fakeassist" && fake.overrideKey == "settings.cli.fakeassistPath",
+        check(fake.displayName == "Fake Assistant" && fake.binaryName == "fakeassist" && Setting.cliPath(fake.rawValue).name == "settings.cli.fakeassistPath",
               "identity, binary and settings key come from the provider")
         check(fake.fullAccessArgs == ["--yolo"] && fake.continueArgs == ["--resume-last"] && fake.modelArgs("m") == ["--model", "m"]
               && fake.modelArgs(nil).isEmpty, "launch arguments come from the provider")
@@ -74,7 +74,7 @@ import Foundation
 
         // Usage lookup.
         check(CLITool.usageTracked.contains(fake) && fake.hasLocalLogs && fake.shortName == "Fake"
-              && fake.hiddenKey == "settings.usage.fakeassist.hidden" && fake.limitKey == "settings.usage.fakeassist.limit",
+              && Setting.usageHidden(fake.rawValue).name == "settings.usage.fakeassist.hidden" && Setting.usageLimit(fake.rawValue).name == "settings.usage.fakeassist.limit",
               "the fake assistant is tracked, with the usage keys of every assistant")
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("mv-fake-assistant-" + UUID().uuidString)
         let logs = home.appendingPathComponent(".fakeassist/logs", isDirectory: true)

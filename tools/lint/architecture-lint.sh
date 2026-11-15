@@ -21,6 +21,13 @@
 #   webview-configuration (AR-27) no `WKWebViewConfiguration(...)` and no `WKWebView(...)` in MarkView/: every host makes its configuration
 #                        with WebHost.makeConfiguration and its web view with WebHost.makeWebView (a subclass of WKWebView calls
 #                        WebHost.markInspectable), so handlers are registered weakly and a Debug build is inspectable the same way
+#   settings-literal     (AR-18) no setting is named by a string literal outside the registry: no `@AppStorage("...")`, `@WindowStorage("...")`
+#                        or `AppStorage(wrappedValue: x, "...")`, and no direct UserDefaults call (`UserDefaults.standard.set`,
+#                        `defaults.string(forKey:)` ...) in MarkView/ or in a package's Sources outside Settings.swift: a setting is a
+#                        SettingsKey of `Setting` (Packages/MarkViewCore SettingsKeys.swift), read and written through `Settings`
+#   settings-observer    (AR-18) no `didChangeNotification` outside Settings.swift: the notification fires on every write to the
+#                        preferences (a divider drag, a window's own state); a view or a model that follows a setting uses
+#                        SettingsObserver(keys) or SettingsObserver.changes(of:), which calls back only when one of its keys changed
 # Ratchets: a count that may fall and never rise. Today's sites are listed per file in an allow-list; a new site or a higher
 # count fails, and so does a lower count that the list does not yet say (run `--tighten`), so that the allowance never has slack.
 #   process              Process() outside Packages/MarkViewCore Subprocess.swift     tools/lint/process-allowlist.txt
@@ -449,8 +456,23 @@ for path in swift_files("MarkView"):
         if found:
             violations.append(("webview-configuration", f"{rel(path)}:{number}: creates a `{found.group(1)}` itself; use WebHost.makeConfiguration and WebHost.makeWebView"))
 
+# --- settings-literal and settings-observer (AR-18)
+settings_home = "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift"
+settings_files = [p for p in app_swift + [q for q in package_swift if "/Sources/" in rel(q)] if rel(p) != settings_home]
+storage_literal = re.compile(r'(?<![A-Za-z0-9_])(?:AppStorage|WindowStorage)\s*\(\s*(?:wrappedValue\s*:[^,"]*,\s*)?"')
+defaults_call = re.compile(r"(?<![A-Za-z0-9_])(?:UserDefaults\.standard|UserDefaults\s*\(|(?:defaults|ud|userDefaults)\s*\.\s*(?:set|string|bool|integer|double|float|object|data|array|stringArray|dictionary|url|removeObject|register|setVolatileDomain|removePersistentDomain)\()")
+for path in settings_files:
+    for number, line in code_lines(path):
+        text = re.split(r"\s//", line)[0]
+        if storage_literal.search(text):
+            violations.append(("settings-literal", f"{rel(path)}:{number}: names a setting by a string literal; pass a SettingsKey from `Setting` (SettingsKeys.swift)"))
+        elif defaults_call.search(text):
+            violations.append(("settings-literal", f"{rel(path)}:{number}: reads or writes UserDefaults directly; use `Settings` with a key from `Setting`"))
+        if "didChangeNotification" in text:
+            violations.append(("settings-observer", f"{rel(path)}:{number}: observes every UserDefaults write; use SettingsObserver(keys) or SettingsObserver.changes(of:)"))
+
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "assistant-switch", "bridge-no-bypass", "no-private-escape", "js-interpolation", "webview-configuration"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "assistant-switch", "bridge-no-bypass", "no-private-escape", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

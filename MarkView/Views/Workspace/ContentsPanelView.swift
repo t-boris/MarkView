@@ -11,7 +11,7 @@ struct ContentsPanelView<Headings: View>: View {
     @Environment(\.palette) private var palette
     let tab: OpenTab
     @ViewBuilder let headings: () -> Headings
-    @WindowStorage("contents.infoExpanded") private var infoExpanded = true
+    @WindowStorage(Setting.contentsInfoExpanded) private var infoExpanded: Bool
 
     var body: some View {
         VStack(spacing: 0) {

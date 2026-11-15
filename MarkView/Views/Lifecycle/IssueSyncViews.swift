@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The Sync button of the Issues list (issue #36): runs at once, no preview (REQ-001); disabled
 /// with its progress while a run is under way (DEC-009). Not shown while the GitHub integration
@@ -7,7 +10,7 @@ struct IssueSyncButton: View {
     @Environment(\.palette) private var palette
     @ObservedObject var sync: IssueSyncRun
     let start: () -> Void
-    @AppStorage(GitHubSettings.enabledKey) private var gitHubEnabled = false
+    @AppStorage(Setting.gitHubEnabled) private var gitHubEnabled: Bool
 
     var body: some View {
         if !gitHubEnabled {

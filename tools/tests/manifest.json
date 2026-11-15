@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 192,
+  "suiteCount": 193,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -106,7 +106,9 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -130,7 +132,9 @@
       "sources": [
         "MarkView/Models/Appearance/AppFontScale.swift",
         "tools/tests/AppFontScaleTests.swift",
-        "tools/tests/app-font-scale-tests.sh"
+        "tools/tests/app-font-scale-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -230,7 +234,9 @@
         "MarkView/Models/Workspace/WikiLinkResolver.swift",
         "MarkView/Models/Architecture/XRayContent.swift",
         "tools/tests/BookXRayTests.swift",
-        "tools/tests/book-xray-tests.sh"
+        "tools/tests/book-xray-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -275,7 +281,9 @@
         "MarkView/Models/Browser/BrowserDownloads.swift",
         "MarkView/Models/Browser/BrowserPasswords.swift",
         "tools/tests/BrowserPasswordsTests.swift",
-        "tools/tests/browser-passwords-tests.sh"
+        "tools/tests/browser-passwords-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -320,7 +328,9 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -734,7 +744,9 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -993,7 +1005,9 @@
       "sources": [
         "MarkView/Models/AI/AIPrompts.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
-        "tools/tests/GitHubActivityPromptTests.swift"
+        "tools/tests/GitHubActivityPromptTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -1053,7 +1067,9 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -1101,7 +1117,9 @@
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/ThemeCatalog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -1171,7 +1189,9 @@
         "MarkView/Resources/Layouts/30-qa.json",
         "MarkView/Resources/Layouts/40-cockpit.json",
         "tools/tests/LayoutPresetTests.swift",
-        "tools/tests/layout-preset-tests.sh"
+        "tools/tests/layout-preset-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -1273,7 +1293,9 @@
         "MarkView/Resources/Editor/book.html",
         "tools/tests/PDFExportTests.swift",
         "tools/tests/pdf-export-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -1299,7 +1321,9 @@
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/ThemeCatalog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -1427,7 +1451,9 @@
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/BackdropRegistry.swift",
         "MarkView/Models/Appearance/WelcomeBackdrop.swift",
-        "MarkView/Models/Appearance/ProjectBackdrop.swift"
+        "MarkView/Models/Appearance/ProjectBackdrop.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -1627,7 +1653,9 @@
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/ThemeCatalog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -1651,7 +1679,9 @@
       "sources": [
         "MarkView/Models/Appearance/ProjectColor.swift",
         "tools/tests/ProjectColorTests.swift",
-        "tools/tests/project-color-tests.sh"
+        "tools/tests/project-color-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -2373,7 +2403,9 @@
       "sources": [
         "MarkView/Models/Remote/RemoteProtocol.swift",
         "MarkView/Models/Remote/RemoteRelaySettings.swift",
-        "tools/tests/RemoteRelaySettingsTests.swift"
+        "tools/tests/RemoteRelaySettingsTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -2584,7 +2616,9 @@
         "MarkView/Resources/Editor/js/markview-research-map-entry.js",
         "MarkView/Models/Appearance/AppTheme.swift",
         "MarkView/Models/Appearance/ThemeDefinition.swift",
-        "MarkView/Models/Appearance/ThemeCatalog.swift"
+        "MarkView/Models/Appearance/ThemeCatalog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -2627,7 +2661,20 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+      ]
+    },
+    {
+      "name": "settings-key-table-tests",
+      "script": "tools/tests/settings-key-table-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "tools/tests/SettingsKeyTableTests.swift",
+        "tools/tests/settings-key-table-tests.sh"
       ]
     },
     {
@@ -2787,7 +2834,9 @@
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/Workspace/TextDiff.swift",
         "tools/tests/TextDiffChecks.swift",
-        "tools/tests/text-diff-tests.sh"
+        "tools/tests/text-diff-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -2799,7 +2848,9 @@
         "tools/tests/ThemeModelTests.swift",
         "tools/tests/theme-model-tests.sh",
         "MarkView/Models/Appearance/ThemeDefinition.swift",
-        "MarkView/Models/Appearance/ThemeCatalog.swift"
+        "MarkView/Models/Appearance/ThemeCatalog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -2812,7 +2863,9 @@
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/ThemeCatalog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -3112,7 +3165,9 @@
         "MarkView/Views/Browser/BrowserPopup.swift",
         "tools/tests/WebPreviewTests.swift",
         "tools/tests/web-preview-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -3161,7 +3216,9 @@
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/ThemeCatalog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -3196,7 +3253,9 @@
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/ThemeCatalog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -3222,7 +3281,9 @@
         "tools/tests/window-ui-state-tests.sh",
         "MarkView/Bridge/TypedWebBridge.swift",
         "MarkView/Resources/Editor/js/bridge-contract.json",
-        "MarkView/Resources/Editor/js/mv-kit.js"
+        "MarkView/Resources/Editor/js/mv-kit.js",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -3295,7 +3356,9 @@
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/ThemeCatalog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -3383,7 +3446,9 @@
         "MarkView/Resources/Editor/js/markview-architecture-toolbar.js",
         "MarkView/Models/Appearance/AppTheme.swift",
         "MarkView/Models/Appearance/ThemeDefinition.swift",
-        "MarkView/Models/Appearance/ThemeCatalog.swift"
+        "MarkView/Models/Appearance/ThemeCatalog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -3458,7 +3523,9 @@
         "tools/tests/bridge-contract-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -3487,7 +3554,9 @@
         "tools/tests/bridge-contract-web-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {

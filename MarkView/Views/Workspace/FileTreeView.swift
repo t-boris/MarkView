@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Files: the project folder and its linked folders in three views (Icons, List, Tree), with filters and an
 /// explicit sort. The rules are in `FileBrowserModel.swift`; this view draws them and keeps the actions
@@ -8,17 +11,20 @@ struct FileTreeView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     /// The view and the filter choices of this window; they persist across restarts with its session (AC-5, DEC-008)
     /// and no other window follows them. The sort order persists in the file tree store.
-    @WindowStorage("fileBrowser.viewMode") private var storedMode = FileBrowserViewMode.list
-    @WindowStorage("fileBrowser.showHidden") private var storedShowHidden = false
-    @WindowStorage("fileBrowser.hideIgnored") private var storedHideIgnored = false
-    @WindowStorage("fileBrowser.category") private var storedCategory = FileBrowserCategory.all
+    @WindowStorage(Setting.fileBrowserViewMode) private var storedMode: String
+    @WindowStorage(Setting.fileBrowserShowHidden) private var storedShowHidden: Bool
+    @WindowStorage(Setting.fileBrowserHideIgnored) private var storedHideIgnored: Bool
+    @WindowStorage(Setting.fileBrowserCategory) private var storedCategory: String
     private var preferences: FileBrowserPreferences {
-        get { FileBrowserPreferences(mode: storedMode, showHidden: storedShowHidden, hideIgnored: storedHideIgnored, category: storedCategory) }
+        get {
+            FileBrowserPreferences(mode: FileBrowserViewMode(rawValue: storedMode) ?? .list, showHidden: storedShowHidden,
+                                   hideIgnored: storedHideIgnored, category: FileBrowserCategory(rawValue: storedCategory) ?? .all)
+        }
         nonmutating set {
-            storedMode = newValue.mode
+            storedMode = newValue.mode.rawValue
             storedShowHidden = newValue.showHidden
             storedHideIgnored = newValue.hideIgnored
-            storedCategory = newValue.category
+            storedCategory = newValue.category.rawValue
         }
     }
     private var preferencesBinding: Binding<FileBrowserPreferences> {

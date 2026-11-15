@@ -12,8 +12,8 @@ final class WorkspaceFileTreeStore: ObservableObject {
     @Published private(set) var excludedFolders: Set<String> = []
     @Published var sortOrder = FileTreeSortOrder() {
         didSet {
-            UserDefaults.standard.set(sortOrder.field.rawValue, forKey: "fileTree.sortField")
-            UserDefaults.standard.set(sortOrder.ascending, forKey: "fileTree.sortAscending")
+            Settings.standard.set(sortOrder.field.rawValue, for: Setting.fileTreeSortField)
+            Settings.standard.set(sortOrder.ascending, for: Setting.fileTreeSortAscending)
             refresh()
         }
     }
@@ -34,13 +34,12 @@ final class WorkspaceFileTreeStore: ObservableObject {
     private var reloadTask: Task<Void, Never>?
 
     init() {
-        let ud = UserDefaults.standard
-        if let savedField = ud.string(forKey: "fileTree.sortField"),
-           let field = FileTreeSortField(rawValue: savedField) {
+        let settings = Settings.standard
+        if let savedField = settings.stored(Setting.fileTreeSortField), let field = FileTreeSortField(rawValue: savedField) {
             sortOrder.field = field
         }
-        if ud.object(forKey: "fileTree.sortAscending") != nil {
-            sortOrder.ascending = ud.bool(forKey: "fileTree.sortAscending")
+        if let ascending = settings.stored(Setting.fileTreeSortAscending) {
+            sortOrder.ascending = ascending
         }
     }
 

@@ -1,5 +1,8 @@
 import AppKit
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // End-to-End QA (feature end-to-end-qa, REQ-003, REQ-008, REQ-009): the state of a run on screen. It starts the runner, shows what each
 // player's page looks like, keeps the feed of what is happening and what the review finds, asks the person for the yes that production
@@ -104,11 +107,8 @@ final class QARunModel: ObservableObject {
     /// The live view is hidden after "Back to the scenario" and comes back with "Show the run".
     @Published private(set) var dismissed = false
     /// The video is on unless the person turns it off before a run (REQ-009).
-    @Published var recordVideo: Bool { didSet { UserDefaults.standard.set(recordVideo, forKey: Self.videoKey) } }
-    @Published var reviewDepth: ReviewDepth { didSet { UserDefaults.standard.set(reviewDepth.rawValue, forKey: Self.depthKey) } }
-
-    private static let videoKey = "qaRecordVideo"
-    private static let depthKey = "qaReviewDepth"
+    @Published var recordVideo: Bool { didSet { Settings.standard.set(recordVideo, for: Setting.qaRecordVideo) } }
+    @Published var reviewDepth: ReviewDepth { didSet { Settings.standard.set(reviewDepth.rawValue, for: Setting.qaReviewDepth) } }
 
     private(set) var scenario: QAScenario?
     private var plan: QAExecutionPlan?
@@ -156,8 +156,8 @@ final class QARunModel: ObservableObject {
     var activeRunID: String? { isRunning ? runID : nil }
 
     init() {
-        recordVideo = UserDefaults.standard.object(forKey: Self.videoKey) as? Bool ?? true
-        reviewDepth = UserDefaults.standard.string(forKey: Self.depthKey).flatMap(ReviewDepth.init(rawValue:)) ?? .screens
+        recordVideo = Settings.standard.value(Setting.qaRecordVideo)
+        reviewDepth = ReviewDepth(rawValue: Settings.standard.value(Setting.qaReviewDepth)) ?? .screens
     }
 
     deinit {

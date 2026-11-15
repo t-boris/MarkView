@@ -28,6 +28,8 @@ SWIFT = {
     "MarkView/Models/Workspace/Runner.swift": "let process = Process()\n",
     "MarkView/Views/Workspace/Tab.swift": "struct Tab {\n    @EnvironmentObject var workspace: WorkspaceManager\n    @ObservedObject var other: WorkspaceManager\n    @EnvironmentObject var theme: Theme\n}\n",
     "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift": "let process = Process()\n",
+    # The settings store is the one place that touches UserDefaults and the one that listens to its notification.
+    "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift": "public struct Settings {\n    func f(_ defaults: UserDefaults) { defaults.set(1, forKey: \"k\") }\n    let changes = UserDefaults.didChangeNotification\n}\n",
     # The providers are the one place that names an assistant; strings, paths and trailing comments never count.
     "MarkView/Models/AI/Providers/ClaudeProvider.swift": "struct P {\n    func f(_ t: CLITool) -> Int {\n        switch t {\n        case .claude, .codex: return 1\n        default: return 0\n        }\n    }\n}\n",
     "MarkView/Models/AI/Paths.swift": "let a = \"~/.claude/settings.json\"\nlet b = home.appendingPathComponent(\".codex\")\nlet c = other.claude\nlet d = 1 // .copilot in a comment\n",
@@ -317,6 +319,54 @@ try:
     check(code == 1 and reported == {f"MarkView/Views/Workspace/BadHost.swift:{n}:" for n in (2, 3, 4)},
           "a configuration or a web view made directly fails webview-configuration with file and line")
     check("GoodHost.swift" not in out, "the good host is not reported")
+
+    # --- settings-literal and settings-observer
+    root = fresh()
+    write(root, "MarkView/Views/Workspace/GoodSettings.swift", (
+        "struct Good {\n"
+        "    @AppStorage(Setting.fontScalePercent) private var percent: Int\n"
+        "    @WindowStorage(Setting.qaInspectorWidth) private var width: Double\n"
+        "    private let defaults: UserDefaults\n"
+        "    init(defaults: UserDefaults = .standard) { self.defaults = defaults; _flag = AppStorage(Setting.gitHubEnabled) }\n"
+        "    func f() {\n"
+        "        let value = Settings(defaults).value(Setting.autoAnalyze)\n"
+        "        Settings.standard.set(value, for: Setting.autoAnalyze)\n"
+        "        layer.add(animation, forKey: \"sway\")\n"
+        "        view.setValue(false, forKey: \"drawsBackground\")\n"
+        "        pending.removeValue(forKey: \"id\")\n"
+        "        // UserDefaults.standard.set(1, forKey: \"k\") and didChangeNotification are only named in a comment\n"
+        "        let observer = SettingsObserver([Setting.gitHubEnabled.erased]) { }\n"
+        "    }\n"
+        "}\n"))
+    write(root, "Packages/MarkViewCore/Tests/MarkViewCoreTests/SettingsTests.swift", "let d = UserDefaults(suiteName: \"t\")!\nd.set(1, forKey: \"x\")\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0 and "settings-literal" in out and "settings-observer" in out,
+          "registry keys, Settings, SettingsObserver, an injected UserDefaults, other forKey: calls, comments, Settings.swift itself and package tests pass the settings rules")
+    write(root, "MarkView/Views/Workspace/BadSettings.swift", (
+        "struct Bad {\n"
+        "    @AppStorage(\"legacy.key\") private var a = 1\n"
+        "    @WindowStorage(\"window.key\") private var b = 2.0\n"
+        "    init() { _c = AppStorage(wrappedValue: true, \"dynamic.key\") }\n"
+        "    func f(_ defaults: UserDefaults) {\n"
+        "        UserDefaults.standard.set(1, forKey: \"k\")\n"
+        "        let v = defaults.string(forKey: key)\n"
+        "        let w = UserDefaults(suiteName: \"s\")\n"
+        "    }\n"
+        "    var body: some View {\n"
+        "        Text(\"x\").onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in }\n"
+        "    }\n"
+        "}\n"))
+    write(root, "Packages/MarkViewCore/Sources/MarkViewCore/Elsewhere.swift", "func g(_ ud: UserDefaults) { _ = ud.object(forKey: \"x\") }\nlet n = UserDefaults.didChangeNotification\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    literal = {line.split(" ")[3] for line in out.splitlines() if line.startswith("  [settings-literal]")}
+    observer = {line.split(" ")[3] for line in out.splitlines() if line.startswith("  [settings-observer]")}
+    check(code == 1 and literal == {f"MarkView/Views/Workspace/BadSettings.swift:{n}:" for n in (2, 3, 4, 6, 7, 8)} | {"Packages/MarkViewCore/Sources/MarkViewCore/Elsewhere.swift:1:"},
+          "a string-literal @AppStorage or @WindowStorage key, and a direct UserDefaults call, fail settings-literal with file and line")
+    check(observer == {"MarkView/Views/Workspace/BadSettings.swift:11:", "Packages/MarkViewCore/Sources/MarkViewCore/Elsewhere.swift:2:"},
+          "an observer of every UserDefaults write fails settings-observer with file and line")
+    check("GoodSettings.swift" not in out and "MarkViewCore/Settings.swift" not in out, "the good file and the settings store itself are not reported")
 
     # --- lists
     root = fresh()

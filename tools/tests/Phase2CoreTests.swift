@@ -99,7 +99,7 @@ try? AtomicFile.write("#!/bin/sh\necho extra-path-ok\n", to: toolScript, permiss
 let extraSuite = "com.markview.phase2.extrapath.\(UUID().uuidString)"
 if let extraDefaults = UserDefaults(suiteName: extraSuite) {
     defer { extraDefaults.removePersistentDomain(forName: extraSuite) }
-    extraDefaults.set(extraBinDir.path, forKey: Subprocess.extraPATHDefaultsKey)
+    Settings(extraDefaults).set(extraBinDir.path, for: Setting.extraPATH)
     let dirs = Subprocess.configuredExtraPATHDirectories(defaults: extraDefaults)
     let resolvedViaExtra = Subprocess.resolveExecutable(
         "mv-phase2-probe",

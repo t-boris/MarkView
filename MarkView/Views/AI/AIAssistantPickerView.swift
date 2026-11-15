@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // MARK: - Assistant Picker
 
@@ -75,7 +78,7 @@ struct AIAssistantPickerView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .onAppear { seenSnapshot = AIAssistantPreferences.snapshot(project: project) }
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+        .onReceive(SettingsObserver.changes(of: AIAssistantPreferences.observedKeys)) { _ in
             let next = AIAssistantPreferences.snapshot(project: project)
             if next != seenSnapshot {
                 seenSnapshot = next

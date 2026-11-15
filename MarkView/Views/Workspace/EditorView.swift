@@ -242,7 +242,7 @@ struct EditorView: NSViewRepresentable {
             let windowUI = parent.workspaceManager.windowUI
             var own: [String: String] = [:]
             for key in EditorWindowPrefs.keys {
-                if let value: String = windowUI.existing(EditorWindowPrefs.stateKey(key)) { own[key] = value }
+                if let value = windowUI.existing(Setting.editorPref(key)) { own[key] = value }
             }
             let prefsScript = WKUserScript(
                 source: EditorWindowPrefs.script(values: own),
@@ -929,11 +929,11 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     }
 
     func bridge(_ bridge: WebViewBridge, didChangeEditorFontSize size: Double) {
-        Task { @MainActor in self.parent.workspaceManager.windowUI.set(size, for: EditorTextSize.mirrorKey) }
+        Task { @MainActor in self.parent.workspaceManager.windowUI.set(size, for: Setting.editorTextSizeMirror) }
     }
 
     func bridge(_ bridge: WebViewBridge, didSetWindowPref key: String, value: String) {
-        Task { @MainActor in self.parent.workspaceManager.windowUI.set(value, for: EditorWindowPrefs.stateKey(key)) }
+        Task { @MainActor in self.parent.workspaceManager.windowUI.set(value, for: Setting.editorPref(key)) }
     }
 
     func bridgeEditorReady(_ bridge: WebViewBridge) {

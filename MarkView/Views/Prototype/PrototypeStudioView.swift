@@ -13,9 +13,9 @@ struct PrototypeStudioView: View {
     @ObservedObject var session: PrototypeSession
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var draft = ""
-    @WindowStorage("prototypeChatWidth") private var chatWidth = 340.0
+    @WindowStorage(Setting.prototypeChatWidth) private var chatWidth: Double
     /// What Point sends about the element: its HTML, or its HTML and a screenshot of it.
-    @WindowStorage("prototypePickScreenshot") private var pickScreenshot = true
+    @WindowStorage(Setting.prototypePickScreenshot) private var pickScreenshot: Bool
     @State private var dragStartWidth: Double?
     @FocusState private var draftFocused: Bool
     /// The "Assumptions & gaps" popover of the header (REQ-001: the reconstruction's limits are disclosed).

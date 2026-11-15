@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The feature workspaces of the open folder (`docs/features/<slug>/`): read from their Markdown
 /// files, written back as the user and the AI act on them. Files changed outside the app
@@ -18,20 +21,20 @@ final class FeatureStore: ObservableObject {
     @Published var activeSlug: String? {
         didSet {
             guard let root, let activeSlug else { return }
-            UserDefaults.standard.set(activeSlug, forKey: Self.activeKey(root))
+            Settings.standard.set(activeSlug, for: Self.activeKey(root))
         }
     }
     /// Funnel filter and order of the Issues list, kept per project (REQ-005).
     @Published var issueFilter = IssueFilter() {
         didSet {
             guard let root else { return }
-            UserDefaults.standard.set(issueFilter.storedValue, forKey: IssueListSettings.filterKey(Self.projectHash(root)))
+            Settings.standard.set(issueFilter.storedValue, for: Setting.issueFilter(project: Self.projectHash(root)))
         }
     }
     @Published var issueSort = IssueSort.default {
         didSet {
             guard let root else { return }
-            UserDefaults.standard.set(issueSort.storedValue, forKey: IssueListSettings.sortKey(Self.projectHash(root)))
+            Settings.standard.set(issueSort.storedValue, for: Setting.issueSort(project: Self.projectHash(root)))
         }
     }
     @Published var lastError: String?
@@ -65,7 +68,7 @@ final class FeatureStore: ObservableObject {
 
     func feature(_ slug: String) -> Feature? { features.first { $0.slug == slug } }
 
-    private static func activeKey(_ root: URL) -> String { "features.active." + projectHash(root) }
+    private static func activeKey(_ root: URL) -> SettingsKey<String> { Setting.featureActive(project: projectHash(root)) }
 
     /// Keys per-project settings.
     private static func projectHash(_ root: URL) -> String {
@@ -79,10 +82,10 @@ final class FeatureStore: ObservableObject {
         reset()
         // Restored while `root` is nil, so restoring does not write them back.
         let project = Self.projectHash(root)
-        issueFilter = IssueFilter(stored: UserDefaults.standard.stringArray(forKey: IssueListSettings.filterKey(project)))
-        issueSort = IssueSort(stored: UserDefaults.standard.string(forKey: IssueListSettings.sortKey(project)))
+        issueFilter = IssueFilter(stored: Settings.standard.stored(Setting.issueFilter(project: project)))
+        issueSort = IssueSort(stored: Settings.standard.stored(Setting.issueSort(project: project)))
         self.root = root
-        activeSlug = UserDefaults.standard.string(forKey: Self.activeKey(root))
+        activeSlug = Settings.standard.stored(Self.activeKey(root))
         reload()
         loadGitUser()
         let prefix = root.standardizedFileURL.resolvingSymlinksInPath().path

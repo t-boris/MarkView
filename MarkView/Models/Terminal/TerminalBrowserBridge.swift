@@ -1,5 +1,8 @@
 import AppKit
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Web addresses that programs in MarkView's terminals open (Claude Code, Codex, `vite --open`,
 /// `gh browse`, Python's webbrowser, …) go to the browser tab of the terminal's window instead
@@ -14,11 +17,7 @@ import Foundation
 @MainActor
 enum TerminalBrowserBridge {
     /// Setting: open terminal web links in MarkView (default on).
-    static let enabledKey = "browser.openTerminalLinksInApp"
-
-    static var isEnabled: Bool {
-        UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true
-    }
+    static var isEnabled: Bool { Settings.standard.value(Setting.openTerminalLinksInApp) }
 
     private static var sessions: [UUID: WeakTerminal] = [:]
     private static var watcher: DispatchSourceFileSystemObject?

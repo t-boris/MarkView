@@ -42,10 +42,10 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         let base = fm.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("pc-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: base, withIntermediateDirectories: true)
         let defaults = UserDefaults.standard
-        for key in [ProjectContext.lastFolderKey, ProjectContext.recentProjectsKey] { defaults.removeObject(forKey: key) }
+        for key in [Setting.lastFolder.name, Setting.recentProjects.name] { defaults.removeObject(forKey: key) }
         defer {
             try? fm.removeItem(at: base)
-            for key in [ProjectContext.lastFolderKey, ProjectContext.recentProjectsKey, LinkedFolders.defaultsKey] { defaults.removeObject(forKey: key) }
+            for key in [Setting.lastFolder.name, Setting.recentProjects.name, Setting.linkedFolders.name] { defaults.removeObject(forKey: key) }
         }
 
         try await openFolderWithExclusions(base)
@@ -76,7 +76,7 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         context.beginOpening(project)
         check(context.rootOpenedAsFolder && context.indexingProgress != nil && context.root == nil,
               "opening a folder shows progress and clears the previous tree")
-        check(context.recentProjects.first == project.path && defaults(ProjectContext.lastFolderKey) == project.path,
+        check(context.recentProjects.first == project.path && defaults(Setting.lastFolder.name) == project.path,
               "the folder is the last folder and the first recent project")
         let loaded = await context.loadTree(of: project)
         check(loaded && context.root == project && context.projectFolder == project && context.aiProject == project,

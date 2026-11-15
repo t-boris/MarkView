@@ -46,10 +46,10 @@ enum BrowserControlServer {
 
     /// Per agent and per Mac: give it the server when it starts from the AI panel (default on). Off
     /// for an agent whose organisation blocks MCP servers it does not list (BUG-025).
-    static func agentToolsKey(_ tool: CLITool) -> String { "browser.agentTools." + tool.rawValue }
+    static func agentToolsKey(_ tool: CLITool) -> SettingsKey<Bool> { Setting.browserAgentTools(tool.rawValue) }
 
     static func agentToolsEnabled(_ tool: CLITool) -> Bool {
-        UserDefaults.standard.object(forKey: agentToolsKey(tool)) as? Bool ?? true
+        Settings.standard.value(agentToolsKey(tool))
     }
 
     static func register(_ id: UUID, _ window: Window) {
