@@ -21,8 +21,8 @@ Feature specs and bug reports produced *by* the app live in [`docs/features`](..
 | 7 | [Concurrency](./concurrency.md) | Threading model, process rules, known main-thread hazards |
 | 8 | [Risks & tech debt](./risks-and-tech-debt.md) | Prioritised register of defects and debt found during the audit |
 | 9 | [Architecture and code review, November 2026](./architecture-review-2026-11.md) | Review of 6.25.0: findings AR-01..AR-49 with severity and effort, target structure, extensibility (registries and data files, no plugins), roadmap, decisions for the owner |
-| 9 | [Operations runbook](./operations-runbook.md) | Build, run, debug a hang, logs, reset state, release |
-| 10 | [Glossary](./glossary.md) | Project vocabulary |
+| 10 | [Operations runbook](./operations-runbook.md) | Build, run, debug a hang, logs, reset state, release |
+| 11 | [Glossary](./glossary.md) | Project vocabulary |
 
 ## Module docs
 
