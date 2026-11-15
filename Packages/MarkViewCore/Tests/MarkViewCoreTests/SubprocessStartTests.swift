@@ -24,7 +24,7 @@ final class SubprocessStartTests: XCTestCase {
     }
 
     private func start(_ spec: SubprocessSpec, _ recorder: Recorder) throws -> SubprocessChild {
-        try Subprocess.start(spec, onStdout: recorder.stdout, onStderr: recorder.stderr, onExit: { _, exit in recorder.exit(exit) })
+        try Subprocess.start(spec, onStdout: { recorder.stdout($0) }, onStderr: { recorder.stderr($0) }, onExit: { _, exit in recorder.exit(exit) })
     }
 
     private func sh(_ script: String, _ configure: (inout SubprocessSpec) -> Void = { _ in }) -> SubprocessSpec {

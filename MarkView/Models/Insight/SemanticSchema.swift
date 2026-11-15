@@ -25,8 +25,8 @@ enum SemanticSchema {
     static let busyTimeoutMilliseconds: Int32 = 5000
 
     static let migrations: [SQLiteMigration] = [
-        SQLiteMigration(version: 1, name: "docId scheme", apply: clearRowsKeyedByTheOldDocumentIds),
-        SQLiteMigration(version: 2, name: "table set of release 6.26", apply: createCurrentTables),
+        SQLiteMigration(version: 1, name: "docId scheme") { try clearRowsKeyedByTheOldDocumentIds($0) },
+        SQLiteMigration(version: 2, name: "table set of release 6.26") { try createCurrentTables($0) },
     ]
 
     /// A file with a `documents` table and no version predates the docId scheme (path relative to the root): its document,

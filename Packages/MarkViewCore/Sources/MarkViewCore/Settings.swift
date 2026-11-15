@@ -82,7 +82,7 @@ public struct SettingsKey<Value: SettingsValue> {
 }
 
 /// A key holds a name, an immutable default and a scope, so it can be shared between threads whatever the value type.
-// unchecked Sendable: every stored property is a `let`; the default value is only ever read.
+// unchecked Sendable: every stored property is a `let`; the default value is only ever read, and a property-list dictionary default is never mutated.
 extension SettingsKey: @unchecked Sendable {}
 
 /// The settings of one `UserDefaults` (the app's, or a test's own suite).
@@ -115,23 +115,26 @@ public struct Settings: @unchecked Sendable {
 /// Calls `onChange` when the value of one of its keys changes, and only then: a write to any other key (a divider drag, a window's
 /// own state) does nothing. `UserDefaults` offers no per-key notification for a name with dots, so the observer listens to the
 /// store's one general notification itself and compares its own keys with the values it saw last.
-public final class SettingsObserver {
+// unchecked Sendable: init sets `seen` and `token`, then only the callback (delivered on the main queue) writes `seen`; the rest are `let`s, and UserDefaults is thread-safe.
+public final class SettingsObserver: @unchecked Sendable {
     private let defaults: UserDefaults
     private let names: [String]
+    private let onChange: () -> Void
     private var seen: [NSObject?]
     private var token: NSObjectProtocol?
 
     /// `onChange` runs on the main queue.
     public init(_ keys: [AnySettingsKey], defaults: UserDefaults = .standard, onChange: @escaping () -> Void) {
         self.defaults = defaults
+        self.onChange = onChange
         names = keys.map(\.name)
         seen = keys.map { defaults.object(forKey: $0.name) as? NSObject }
         token = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
             guard let self else { return }
-            let now = names.map { defaults.object(forKey: $0) as? NSObject }
-            guard !zip(now, seen).allSatisfy({ $0 == $1 }) else { return }
-            seen = now
-            onChange()
+            let now = self.names.map { self.defaults.object(forKey: $0) as? NSObject }
+            guard !zip(now, self.seen).allSatisfy({ $0 == $1 }) else { return }
+            self.seen = now
+            self.onChange()
         }
     }
 

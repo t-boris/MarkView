@@ -16,14 +16,14 @@ let package = Package(
         .target(
             name: "MarkViewCore",
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency=targeted")
+                .enableExperimentalFeature("StrictConcurrency")
             ]
         ),
         .testTarget(
             name: "MarkViewCoreTests",
             dependencies: ["MarkViewCore"],
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency=targeted")
+                .enableExperimentalFeature("StrictConcurrency")
             ]
         ),
     ]

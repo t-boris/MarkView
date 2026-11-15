@@ -62,7 +62,8 @@ final class SubprocessProcessGroupTests: XCTestCase {
 
     func testCancellationEndsTheGrandchildToo() async throws {
         let file = scratch.appendingPathComponent("cancel.pid")
-        let task = Task { await Subprocess.run(spec("sleep 60 & echo $! > \"$1\"; wait", file: file, timeout: 60)) }
+        let command = spec("sleep 60 & echo $! > \"$1\"; wait", file: file, timeout: 60)
+        let task = Task { await Subprocess.run(command) }
         let pid = try await grandchildPid(file)
         task.cancel()
         let result = await task.value

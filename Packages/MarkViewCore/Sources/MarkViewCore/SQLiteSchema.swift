@@ -2,13 +2,13 @@ import Foundation
 import SQLite3
 
 /// One forward step of a SQLite schema (`AR-38`). Applying the step with `version` N moves `PRAGMA user_version` to N.
-public struct SQLiteMigration {
+public struct SQLiteMigration: Sendable {
     public let version: Int32
     public let name: String
     /// Runs inside the transaction that also writes `user_version`; throwing rolls the whole step back.
-    public let apply: (OpaquePointer) throws -> Void
+    public let apply: @Sendable (OpaquePointer) throws -> Void
 
-    public init(version: Int32, name: String, apply: @escaping (OpaquePointer) throws -> Void) {
+    public init(version: Int32, name: String, apply: @escaping @Sendable (OpaquePointer) throws -> Void) {
         self.version = version
         self.name = name
         self.apply = apply
