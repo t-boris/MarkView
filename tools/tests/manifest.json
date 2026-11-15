@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 198,
+  "suiteCount": 199,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -214,6 +214,20 @@
         "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
         "tools/tests/AutoAnalysisSchedulerTests.swift",
         "tools/tests/auto-analysis-scheduler-tests.sh"
+      ]
+    },
+    {
+      "name": "change-diff-tests",
+      "script": "tools/tests/change-diff-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Architecture/ChangeDiff.swift",
+        "MarkView/Models/Architecture/ChangeReviewModel.swift",
+        "MarkView/Models/Architecture/CodeExplainer.swift",
+        "MarkView/Models/Architecture/XRayContent.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/ChangeDiffTests.swift",
+        "tools/tests/change-diff-tests.sh"
       ]
     },
     {

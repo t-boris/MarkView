@@ -125,156 +125,6 @@ final class ArchitectureStore: ObservableObject {
     /// Containers whose children are being rated for importance.
     private var rating: Set<String> = []
 
-    struct PRSource: Codable, Hashable {
-        /// local | cmp:<ref> | rev:<ref> | at:<commit> (`HistoricalBaseline`) | gh:<number>
-        let id: String
-        let title: String
-    }
-
-    struct PRFileChange: Codable {
-        var path: String
-        var additions: Int
-        var deletions: Int
-        /// New-file line ranges touched by the change: [[start, end]].
-        var ranges: [[Int]]
-        /// Filled by the AI review: ok | concern | bug.
-        var verdict: String?
-        var risk: String?
-        var summary: String?
-        var findings: [PRFinding]?
-        /// What changed inside the file, drawn under it in the PR X-Ray (sent to the page;
-        /// filled from the X-Ray contents, then from the AI's explanation).
-        var changes: [PRChangeNote]?
-        /// The AI's one-paragraph reading of this file's change.
-        var changeSummary: String?
-        var explaining: Bool?
-        /// The change removes the file (it opens as it was before).
-        var deleted: Bool?
-    }
-
-    /// One change inside a changed file.
-    struct PRChangeNote: Codable {
-        /// The file's logical part it falls in (X-Ray contents), when known.
-        var part: String?
-        var title: String
-        /// New-file lines it covers (a removal: the line where the text was).
-        var start: Int
-        var end: Int
-        /// added | changed | removed | moved (AI)
-        var kind: String?
-        /// What the change does and why (AI).
-        var why: String?
-    }
-
-    struct PRFinding: Codable {
-        var line: Int
-        /// info | warning | bug
-        var severity: String
-        var message: String
-        /// The AI's explanation of the finding (streamed), and whether it is being written.
-        var explanation: String?
-        var explaining: Bool?
-        /// Hidden by the reviewer as not a real problem.
-        var dismissed: Bool?
-        /// Posted to the pull request as a line comment.
-        var commented: Bool?
-        /// Link of the issue created from it.
-        var issueURL: String?
-    }
-
-    /// The pull request on GitHub behind a "gh:<n>" change: its state, checks and review.
-    struct PRInfo: Codable {
-        var number: Int
-        var url: String
-        var state: String
-        var isDraft: Bool
-        var author: String
-        var head: String
-        var base: String
-        /// APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED | ""
-        var reviewDecision: String
-        var checksPassed: Int
-        var checksFailed: Int
-        var checksTotal: Int
-        /// MERGEABLE | CONFLICTING | UNKNOWN
-        var mergeable: String
-        var headOid: String
-        /// An action on the pull request is running (approve, merge…).
-        var busy: Bool?
-        /// Result of the last action, shown under the header, and whether it succeeded.
-        var message: String?
-        var ok: Bool?
-    }
-
-    /// A link between project files the change adds or removes.
-    struct PRDependency: Codable {
-        var source: String
-        var target: String
-        /// added | removed
-        var change: String
-    }
-
-    /// The AI's architectural reading of a change.
-    struct PRAnalysis: Codable {
-        struct Impact: Codable { var component: String; var risk: String; var note: String }
-        struct Check: Codable { var path: String; var line: Int; var note: String }
-        var summary: String
-        /// approve | attention | risky
-        var verdict: String
-        var impact: [Impact]
-        var risks: [String]
-        var checks: [Check]
-    }
-
-    struct PROverlay: Codable {
-        var source: PRSource
-        var files: [PRFileChange]
-        var reviewed: Bool
-        var reviewSummary: String?
-        var dependencies: [PRDependency] = []
-        var analysis: PRAnalysis?
-        var analyzing: Bool?
-        /// The diff of the file selected in the PR X-Ray.
-        var fileDiff: PRFileDiff?
-        /// Questions asked about this change and the AI's answers (newest last).
-        var chat: [PRChat] = []
-        /// The code changed after the review and analysis shown (reloaded automatically).
-        var reviewOutdated: Bool?
-        /// The pull request on GitHub (nil for local changes).
-        var info: PRInfo?
-    }
-
-    struct PRFileDiff: Codable {
-        var path: String
-        var text: String
-    }
-
-    struct PRChat: Codable {
-        var question: String
-        /// The file the question is about, or nil for the whole change.
-        var path: String?
-        var answer: String
-        var pending: Bool
-    }
-
-    /// The date-first baseline picker of the PR X-Ray: the commits of the calendar day the person chose
-    /// (`HistoricalBaseline`). The page asks for a day and draws what is here; nil while no day is asked for.
-    struct HistoryPicker: Codable, Equatable {
-        struct Entry: Codable, Equatable {
-            var sha: String
-            var short: String
-            var subject: String
-            var author: String
-            /// The committer timestamp, in seconds: the page writes the time in the user's own zone.
-            var time: Double
-        }
-        /// The day as the page sent it, `YYYY-MM-DD`.
-        var day: String
-        /// loading | ready (maybe no commit that day) | unavailable (the history could not be read)
-        var state: String
-        var commits: [Entry]
-    }
-
     private(set) var historyPicker: HistoryPicker?
     /// Answers only the latest question: a day asked for while an earlier one is still being read wins.
     private var historyRequest = 0
@@ -2884,14 +2734,6 @@ final class ArchitectureStore: ObservableObject {
         }
     }
 
-    /// A pull request fetched into the local repository: its head commit and where it
-    /// branched from its base. Nothing is checked out; the working copy stays as it is.
-    struct PRCheckout: Sendable {
-        let number: String
-        let head: String
-        let mergeBase: String
-    }
-
     /// Fetch pull request `number` (`pull/<n>/head`) and its base branch, unless already here.
     /// Nil while the GitHub integration is off (`gitHub`): the lookup needs `gh`.
     nonisolated static func fetchPR(number: String, root: URL, repo: GitHubRepo?, gitHub: Bool) -> PRCheckout? {
@@ -3008,80 +2850,6 @@ final class ArchitectureStore: ObservableObject {
         return out
     }
 
-    /// Added and removed lines of every file in a unified diff.
-    nonisolated static func diffLines(_ diff: String) -> [String: (added: String, removed: String)] {
-        var out: [String: (added: String, removed: String)] = [:]
-        var current: String?
-        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix("+++ ") {
-                let path = String(line.dropFirst(4))
-                current = path == "/dev/null" ? nil : (path.hasPrefix("b/") ? String(path.dropFirst(2)) : path)
-                if let current, out[current] == nil { out[current] = ("", "") }
-            } else if line.hasPrefix("--- ") || line.hasPrefix("diff --git ") {
-                continue
-            } else if let path = current, line.hasPrefix("+") {
-                out[path]!.added += line.dropFirst() + "\n"
-            } else if let path = current, line.hasPrefix("-") {
-                out[path]!.removed += line.dropFirst() + "\n"
-            }
-        }
-        return out
-    }
-
-    /// Parse a unified diff into per-file line counts and touched new-file ranges.
-    nonisolated static func parseDiff(_ diff: String) -> [PRFileChange] {
-        var files: [PRFileChange] = []
-        var current: PRFileChange?
-        var newLine = 0
-        var rangeStart: Int?
-        var oldPath: String?
-        func closeRange(_ end: Int) {
-            if let start = rangeStart, current != nil, current!.deleted != true { current!.ranges.append([start, max(start, end)]) }
-            rangeStart = nil
-        }
-        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix("diff --git ") {
-                closeRange(newLine - 1)
-                if let file = current { files.append(file) }
-                current = nil
-                oldPath = nil
-            } else if line.hasPrefix("--- ") && current == nil {
-                let path = String(line.dropFirst(4))
-                oldPath = path == "/dev/null" ? nil : (path.hasPrefix("a/") ? String(path.dropFirst(2)) : path)
-            } else if line.hasPrefix("+++ ") && current == nil {
-                let path = String(line.dropFirst(4))
-                if path != "/dev/null" {
-                    current = PRFileChange(path: path.hasPrefix("b/") ? String(path.dropFirst(2)) : path,
-                                           additions: 0, deletions: 0, ranges: [])
-                } else if let oldPath {
-                    // A removed file: kept, so it shows in the X-Ray and opens as it was.
-                    current = PRFileChange(path: oldPath, additions: 0, deletions: 0, ranges: [], deleted: true)
-                }
-            } else if line.hasPrefix("@@") {
-                closeRange(newLine - 1)
-                // @@ -a,b +c,d @@
-                if let plus = line.split(separator: " ").first(where: { $0.hasPrefix("+") }) {
-                    newLine = Int(plus.dropFirst().split(separator: ",").first ?? "0") ?? 0
-                }
-            } else if current != nil {
-                if line.hasPrefix("+") {
-                    current!.additions += 1
-                    if rangeStart == nil { rangeStart = newLine }
-                    newLine += 1
-                } else if line.hasPrefix("-") {
-                    current!.deletions += 1
-                    if rangeStart == nil { rangeStart = newLine }
-                } else {
-                    closeRange(newLine - 1)
-                    newLine += 1
-                }
-            }
-        }
-        closeRange(newLine - 1)
-        if let file = current { files.append(file) }
-        return files
-    }
-
     /// Show which files a change touches (no AI).
     /// Set by "Review" on a pull request: start the AI review as soon as it is loaded.
     var reviewWhenLoaded = false
@@ -3155,9 +2923,9 @@ final class ArchitectureStore: ObservableObject {
         let files = snapshot?.view("modules")?.nodes.filter { $0.kind == "file" }.compactMap(\.path) ?? []
         // A diff against an old commit can be tens of megabytes: read it off the main thread.
         let (dependencies, parsedFiles, fileDiffs) = await Task.detached { () -> ([PRDependency], [PRFileChange], [String: String]) in
-            let dependencies = ArchitectureScanner.dependencyChanges(lines: Self.diffLines(diff), projectFiles: files)
+            let dependencies = ArchitectureScanner.dependencyChanges(lines: ChangeDiff.lines(diff), projectFiles: files)
                 .map { PRDependency(source: $0.source, target: $0.target, change: $0.added ? "added" : "removed") }
-            return (dependencies, Self.parseDiff(diff), Self.splitDiff(diff))
+            return (dependencies, ChangeDiff.files(diff), ChangeDiff.split(diff))
         }.value
         guard token == prLoadToken else { return false }
         let previous = prOverlay?.source.id == source.id ? prOverlay : nil
@@ -3232,32 +3000,6 @@ final class ArchitectureStore: ObservableObject {
             + sections.map { "## \($0.0)\n" + $0.1.joined(separator: "\n") }.joined(separator: "\n\n")
     }
 
-    /// Each file's part of a unified diff, keyed by its new path.
-    nonisolated static func splitDiff(_ diff: String) -> [String: String] {
-        var out: [String: String] = [:]
-        var current: String?
-        var lines: [Substring] = []
-        func flush() { if let current { out[current] = lines.joined(separator: "\n") }; lines = [] }
-        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix("diff --git ") { flush(); current = nil; continue }
-            if line.hasPrefix("+++ ") {
-                let path = String(line.dropFirst(4))
-                current = path == "/dev/null" ? current : (path.hasPrefix("b/") ? String(path.dropFirst(2)) : path)
-                continue
-            }
-            if line.hasPrefix("--- ") {
-                // A deleted file keeps its old path.
-                let path = String(line.dropFirst(4))
-                if path != "/dev/null" { current = path.hasPrefix("a/") ? String(path.dropFirst(2)) : path }
-                continue
-            }
-            if line.hasPrefix("index ") || line.hasPrefix("new file") || line.hasPrefix("deleted file") || line.hasPrefix("similarity") { continue }
-            lines.append(line)
-        }
-        flush()
-        return out
-    }
-
     /// Show one changed file's diff in the PR X-Ray.
     func showFileDiff(path: String) {
         guard prOverlay != nil else { return }
@@ -3266,121 +3008,6 @@ final class ArchitectureStore: ObservableObject {
     }
 
     // MARK: Changes inside a file
-
-    /// The loaded change as the code viewer's "Pull request" lens shows it for one file:
-    /// added lines, where lines were removed, and each change with its explanation and
-    /// its own lines of the diff. Nil when the file is not part of the change.
-    struct PRFileNotes: Encodable {
-        struct Change: Encodable {
-            var title: String
-            var start: Int
-            var end: Int
-            var kind: String?
-            var why: String?
-            /// The change's lines of the diff ("+…", "-…").
-            var diff: [String]
-        }
-        var title: String
-        var summary: String?
-        var explaining: Bool
-        var explained: Bool
-        var additions: Int
-        var deletions: Int
-        var changes: [Change]
-        /// Added new-file line ranges.
-        var added: [[Int]]
-        /// [line, count]: where lines were removed.
-        var removed: [[Int]]
-        /// Opened from the PR X-Ray: show this lens.
-        var focus: Bool
-        /// The file differs from the change's version: lines were matched by content.
-        var remapped: Bool
-        /// Identifies the diff (a new one needs a new explanation).
-        var diffKey: String
-        var reviewOutdated: Bool
-        /// The change removes the file: all of its lines (shown as it was).
-        var deletedLines: Int?
-    }
-
-    /// New-file line numbers of a diff → lines of the file as it is now, matched by
-    /// content (longest common subsequence over the diff's new-side lines).
-    struct LineMap {
-        let inSync: Bool
-        private let mapped: [Int: Int]
-        private let known: [Int]   // sorted diff positions that were matched
-
-        init(inSync: Bool, mapped: [Int: Int]) {
-            self.inSync = inSync
-            self.mapped = mapped
-            self.known = mapped.keys.sorted()
-        }
-
-        /// The current line for a diff line: its match, else shifted like the nearest match.
-        func line(_ position: Int) -> Int {
-            if inSync { return position }
-            if let exact = mapped[position] { return exact }
-            guard !known.isEmpty else { return position }
-            var low = 0, high = known.count - 1
-            while low < high {
-                let mid = (low + high + 1) / 2
-                if known[mid] <= position { low = mid } else { high = mid - 1 }
-            }
-            let anchor = known[low] <= position ? known[low] : known[0]
-            return max(1, position + (mapped[anchor]! - anchor))
-        }
-
-        func exists(_ position: Int) -> Bool { inSync || mapped[position] != nil }
-    }
-
-    nonisolated static func lineMap(diff: String, current: String) -> LineMap {
-        // The diff's new side: positions and texts of context and added lines.
-        var side: [(position: Int, text: Substring)] = []
-        var newLine = 0
-        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix("@@") {
-                if let plus = line.split(separator: " ").first(where: { $0.hasPrefix("+") }) {
-                    newLine = Int(plus.dropFirst().split(separator: ",").first ?? "0") ?? 0
-                }
-            } else if line.hasPrefix("+") || line.hasPrefix(" ") {
-                side.append((newLine, line.dropFirst()))
-                newLine += 1
-            }
-        }
-        let lines = current.editorLines
-        func same(_ a: Substring, _ b: Substring) -> Bool {
-            a.trimmingCharacters(in: .whitespaces) == b.trimmingCharacters(in: .whitespaces)
-        }
-        if side.allSatisfy({ $0.position >= 1 && $0.position <= lines.count && same(lines[$0.position - 1], $0.text) }) {
-            return LineMap(inSync: true, mapped: [:])
-        }
-        let n = side.count, m = lines.count
-        guard n > 0, m > 0, n * m <= 8_000_000 else { return LineMap(inSync: false, mapped: [:]) }
-        let a = side.map { $0.text.trimmingCharacters(in: .whitespaces) }
-        let b = lines.map { $0.trimmingCharacters(in: .whitespaces) }
-        // LCS table (suffix lengths), then walk it forward.
-        var table = [UInt16](repeating: 0, count: (n + 1) * (m + 1))
-        let width = m + 1
-        for i in stride(from: n - 1, through: 0, by: -1) {
-            for j in stride(from: m - 1, through: 0, by: -1) {
-                table[i * width + j] = a[i] == b[j]
-                    ? table[(i + 1) * width + j + 1] &+ 1
-                    : max(table[(i + 1) * width + j], table[i * width + j + 1])
-            }
-        }
-        var mapped: [Int: Int] = [:]
-        var i = 0, j = 0
-        while i < n && j < m {
-            if a[i] == b[j] {
-                mapped[side[i].position] = j + 1
-                i += 1; j += 1
-            } else if table[(i + 1) * width + j] >= table[i * width + j + 1] {
-                i += 1
-            } else {
-                j += 1
-            }
-        }
-        return LineMap(inSync: false, mapped: mapped)
-    }
 
     func markPRFocus(path: String) {
         prFocusPaths.insert(path)
@@ -3406,7 +3033,7 @@ final class ArchitectureStore: ObservableObject {
                                remapped: false, diffKey: String(ContentHash.of(diff).prefix(12)),
                                reviewOutdated: overlay.reviewOutdated == true, deletedLines: count)
         }
-        let map = Self.lineMap(diff: diff, current: content)
+        let map = ChangeDiff.lineMap(diff: diff, current: content)
         // Local changes moved on (new commits, edits): read them again, at most every 10 s.
         if !map.inSync, overlay.source.id == "local" || HistoricalBaseline.commitHash(fromSourceId: overlay.source.id) != nil, let root = prRoot,
            Date().timeIntervalSince(prReloadedAt) > 10 {
@@ -3469,99 +3096,20 @@ final class ArchitectureStore: ObservableObject {
         for i in next.files.indices {
             let path = next.files[i].path
             let key = explanationKey(overlay.source, path)
-            let spans = Self.itemSpans(outlines[path])
+            let spans = ChangeDiff.itemSpans(outlines[path])
             if let explained = prExplanations[key] {
                 next.files[i].changeSummary = explained.summary
                 next.files[i].changes = explained.notes.map { note in
                     var note = note
-                    if note.part?.isEmpty != false { note.part = Self.part(at: note.start, in: spans) }
+                    if note.part?.isEmpty != false { note.part = ChangeDiff.part(at: note.start, in: spans) }
                     return note
                 }
             } else {
-                next.files[i].changes = Self.changeNotes(hunks: Self.changedRanges(prFileDiffs[path] ?? ""), spans: spans)
+                next.files[i].changes = ChangeDiff.changeNotes(hunks: ChangeDiff.changedRanges(prFileDiffs[path] ?? ""), spans: spans)
             }
             next.files[i].explaining = prExplaining.contains(key) ? true : nil
         }
         return next
-    }
-
-    /// Items of a file's X-Ray contents with the lines they cover (to the next item).
-    nonisolated private static func itemSpans(_ outline: XRayContent.Outline?)
-        -> [(part: String, name: String, start: Int, end: Int)] {
-        guard let outline else { return [] }
-        var items: [(part: String, name: String, start: Int)] = []
-        for collection in outline.collections {
-            for group in collection.groups {
-                for item in group.items { items.append((collection.name, item.name, item.line)) }
-            }
-        }
-        items.sort { $0.start < $1.start }
-        return items.enumerated().map { index, item in
-            let end = index + 1 < items.count ? max(item.start, items[index + 1].start - 1) : Int.max
-            return (item.part, item.name, item.start, end)
-        }
-    }
-
-    nonisolated private static func part(at line: Int, in spans: [(part: String, name: String, start: Int, end: Int)]) -> String? {
-        spans.last { $0.start <= line }?.part
-    }
-
-    /// Changed new-file line ranges of a file's diff: runs of added and removed lines
-    /// (a removal alone marks the line where the text was).
-    nonisolated static func changedRanges(_ diff: String) -> [[Int]] {
-        var ranges: [[Int]] = []
-        var newLine = 0
-        var run: [Int]?
-        func close() { if let r = run { ranges.append(r) }; run = nil }
-        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix("@@") {
-                close()
-                if let plus = line.split(separator: " ").first(where: { $0.hasPrefix("+") }) {
-                    newLine = Int(plus.dropFirst().split(separator: ",").first ?? "0") ?? 0
-                }
-            } else if line.hasPrefix("+") {
-                run = [min(run?[0] ?? newLine, newLine), newLine]
-                newLine += 1
-            } else if line.hasPrefix("-") {
-                let at = max(newLine, 1)
-                run = [min(run?[0] ?? at, at), max(run?[1] ?? at, at)]
-            } else if line.hasPrefix("\\") {
-                continue
-            } else {
-                close()
-                newLine += 1
-            }
-        }
-        close()
-        return ranges
-    }
-
-    /// Changed ranges placed in the items they touch; outside any item, "Lines a–b".
-    nonisolated private static func changeNotes(hunks: [[Int]],
-                                                spans: [(part: String, name: String, start: Int, end: Int)]) -> [PRChangeNote] {
-        var notes: [PRChangeNote] = []
-        var index: [String: Int] = [:]
-        for range in hunks {
-            let (a, b) = (range[0], range[1])
-            let touched = spans.filter { $0.start <= b && $0.end >= a }
-            if touched.isEmpty {
-                notes.append(PRChangeNote(part: nil, title: a == b ? "Line \(a)" : "Lines \(a)–\(b)", start: a, end: b))
-                continue
-            }
-            for item in touched {
-                let key = item.part + "\u{1}" + item.name
-                let start = max(a, item.start), end = min(b, item.end)
-                if let i = index[key] {
-                    notes[i].start = min(notes[i].start, start)
-                    notes[i].end = max(notes[i].end, end)
-                } else {
-                    index[key] = notes.count
-                    notes.append(PRChangeNote(part: item.part, title: item.name, start: start, end: end))
-                }
-            }
-            if notes.count >= 200 { break }
-        }
-        return notes
     }
 
     /// The AI's reading of one file's change — only what changed, split into its logical
@@ -3573,7 +3121,7 @@ final class ArchitectureStore: ObservableObject {
         guard prExplanations[key] == nil, !prExplaining.contains(key) else { return }
         prExplaining.insert(key)
         revision += 1
-        let spans = Self.itemSpans(outlines[path])
+        let spans = ChangeDiff.itemSpans(outlines[path])
         var parts: [(name: String, start: Int, end: Int)] = []
         for span in spans {
             if let last = parts.last, last.name == span.part {
@@ -3587,7 +3135,7 @@ final class ArchitectureStore: ObservableObject {
             prompt += "\nParts of the file (new line numbers):\n"
                 + parts.map { "- \($0.name): lines \($0.start)–\($0.end)" }.joined(separator: "\n") + "\n"
         }
-        prompt += "\nDiff (new-file line numbers on the left):\n" + Self.numberedDiff(diff)
+        prompt += "\nDiff (new-file line numbers on the left):\n" + ChangeDiff.numbered(diff)
         let outputLanguage = ActionOutputLanguage.current
         var request = CLICompletion.Request(
             project: project,
@@ -3646,28 +3194,6 @@ final class ArchitectureStore: ObservableObject {
                 self.error = "Could not explain the changes in \((path as NSString).lastPathComponent): \(error.localizedDescription)"
             }
         }
-    }
-
-    /// A file's diff with new-file line numbers on the left (clipped), for the prompt.
-    nonisolated private static func numberedDiff(_ diff: String, maxLines: Int = 1500) -> String {
-        var out: [String] = []
-        var newLine = 0
-        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-            if out.count >= maxLines { out.append("… (diff clipped)"); break }
-            if line.hasPrefix("@@") {
-                if let plus = line.split(separator: " ").first(where: { $0.hasPrefix("+") }) {
-                    newLine = Int(plus.dropFirst().split(separator: ",").first ?? "0") ?? 0
-                }
-                out.append(String(line))
-            } else if line.hasPrefix("+") {
-                out.append("\(newLine) + " + line.dropFirst()); newLine += 1
-            } else if line.hasPrefix("-") {
-                out.append("     - " + line.dropFirst())
-            } else if !line.hasPrefix("\\") {
-                out.append("\(newLine)   " + line.dropFirst()); newLine += 1
-            }
-        }
-        return out.joined(separator: "\n")
     }
 
     /// Ask the AI about the loaded change — the whole of it, or one file — with the
