@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 210,
+  "suiteCount": 211,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -4231,6 +4231,7 @@
         "tools/tests/semantic-database-tests.sh",
         "MarkView/Models/AI/AIOperation.swift",
         "MarkView/Models/Architecture/StructuralIndexer.swift",
+        "MarkView/Models/AI/LinkedFolderStore.swift",
         "MarkView/Models/Workspace/LinkedFolders.swift",
         "MarkView/Models/Appearance/ProjectColor.swift"
       ]
