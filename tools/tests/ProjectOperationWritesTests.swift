@@ -3,6 +3,7 @@
 // Many edits asked for at once are all in the file, each on top of the one before it; a failing edit hurts none of the others; the
 // records of a run are written in the order they were asked for, so the last one is the one kept; `drain()` returns when all are on disk.
 import Foundation
+import SQLite3
 
 var failures = 0
 func check(_ name: String, _ ok: Bool, _ detail: @autoclosure () -> String = "") {
@@ -74,6 +75,20 @@ func operation(_ number: Int) -> ProjectOperation {
         check("the last record asked for is the one kept", history["build"]?.state == "succeeded" && history["build"]?.exitCode == 29,
               "\(String(describing: history["build"]?.state)) \(String(describing: history["build"]?.exitCode))")
         check("another operation's record is kept too", history["deploy"]?.state == "running")
+
+        // 4b. A row of the history that cannot be read is logged and left out; the others are read and the row stays (AR-36).
+        let database = try ProjectOperationHistory.open(root: root)
+        sqlite3_exec(database, "INSERT INTO project_operation_runs (id, json) VALUES ('broken', '{ cut')", nil, nil, nil)
+        sqlite3_close(database)
+        let withBroken = try ProjectOperationHistory.load(root: root)
+        check("a damaged history row is left out and the others are read", withBroken["broken"] == nil && withBroken["build"]?.exitCode == 29 && withBroken["deploy"] != nil)
+        let again = try ProjectOperationHistory.open(root: root)
+        var statement: OpaquePointer?
+        sqlite3_prepare_v2(again, "SELECT count(*) FROM project_operation_runs WHERE id = 'broken'", -1, &statement, nil)
+        let kept = sqlite3_step(statement) == SQLITE_ROW ? sqlite3_column_int(statement, 0) : -1
+        sqlite3_finalize(statement)
+        sqlite3_close(again)
+        check("reading leaves the damaged row in the database", kept == 1, "\(kept)")
 
         // 5. `drain()` with nothing asked for returns at once, and a queue that went idle takes more work.
         await writes.drain()

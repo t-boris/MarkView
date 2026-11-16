@@ -128,6 +128,19 @@ check("unchanged file reuses saved outline",
 try (html + "\n").write(to: file, atomically: true, encoding: .utf8)
 check("changed file invalidates saved outline",
       XRayContent.loadFresh(root: root, paths: ["index.html"]).isEmpty)
+// A saved outline that cannot be read is a miss that is logged, not a crash and not a stale outline; the next save replaces it (AR-36).
+try html.write(to: file, atomically: true, encoding: .utf8)
+XRayContent.save(cached, root: root, path: "index.html")
+let cacheFolder = XRayContent.cacheDirectory(root: root)
+let cacheFiles = ((try? FileManager.default.contentsOfDirectory(atPath: cacheFolder.path)) ?? []).filter { $0.hasSuffix(".json") }
+check("the saved outline is one file of the cache", cacheFiles.count == 1)
+if let name = cacheFiles.first {
+    let outlineFile = cacheFolder.appendingPathComponent(name)
+    try Data("{ \"signature\": ".utf8).write(to: outlineFile)
+    check("a damaged saved outline is a miss", XRayContent.loadFresh(root: root, paths: ["index.html"]).isEmpty)
+    XRayContent.save(cached, root: root, path: "index.html")
+    check("and the next save replaces it", XRayContent.loadFresh(root: root, paths: ["index.html"])["index.html"]?.signature == signature)
+}
 
 struct TestTimeout: LocalizedError {
     var errorDescription: String? { "Codex did not finish within 60 s." }

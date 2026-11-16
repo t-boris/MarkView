@@ -30,7 +30,8 @@ enum RemoteCodexContext {
             let instructions = try RemoteProviderConfiguration.instructions(context: context)
             let signature = SHA256.hash(data: Data(instructions.utf8)).map { String(format: "%02x", $0) }.joined()
             let stamp = directory.appendingPathComponent("codex-context.json")
-            let previous = (try? Data(contentsOf: stamp)).flatMap { try? JSONDecoder().decode(RemoteJSON.self, from: $0) }
+            let previous = (try? Data(contentsOf: stamp))
+                .flatMap { StoredJSON.decode(RemoteJSON.self, from: $0, owner: "codex context stamp") }
             if previous?["thread"].string != id || previous?["signature"].string != signature {
                 _ = try await client.call("thread/resume", .object([
                     "threadId": .string(id), "cwd": .string(directory.path), "excludeTurns": .bool(true),

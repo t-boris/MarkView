@@ -1,5 +1,8 @@
 import Foundation
 import SQLite3
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // The architecture tables of `.dde/state.db` (`arch_*`): the scanned architecture snapshot and the cached change reviews. They are
 // the Architecture domain's own storage, so they extend the database actor from here and the Insight domain names no Architecture type.
@@ -121,7 +124,7 @@ extension SemanticDatabase {
                                     loc: Int(sqlite3_column_int64(stmt, 7)), files: Int(sqlite3_column_int64(stmt, 8)),
                                     summary: text(stmt, 9), role: text(stmt, 10), tech: text(stmt, 11),
                                     signature: text(stmt, 12), summarySignature: text(stmt, 13), component: text(stmt, 14),
-                                    tags: (text(stmt, 15)?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([String].self, from: $0) },
+                                    tags: (text(stmt, 15)?.data(using: .utf8)).flatMap { StoredJSON.decode([String].self, from: $0, owner: "architecture nodes") },
                                     line: int(16), endLine: int(17), anchor: text(stmt, 18))
                 nodesByView[text(stmt, 0) ?? "", default: []].append(node)
             }
@@ -143,7 +146,7 @@ extension SemanticDatabase {
         stmt = nil
         if sqlite3_prepare_v2(db, "SELECT node_id, status, docs_json FROM arch_coverage", -1, &stmt, nil) == SQLITE_OK {
             while sqlite3_step(stmt) == SQLITE_ROW {
-                let docs = (text(stmt, 2)?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+                let docs = (text(stmt, 2)?.data(using: .utf8)).flatMap { StoredJSON.decode([String].self, from: $0, owner: "architecture coverage") } ?? []
                 coverage[text(stmt, 0) ?? ""] = CoverageEntry(status: text(stmt, 1) ?? "none", docs: docs)
             }
         }
@@ -155,7 +158,7 @@ extension SemanticDatabase {
             let decoder = JSONDecoder()
             while sqlite3_step(stmt) == SQLITE_ROW {
                 if let id = text(stmt, 0), let data = text(stmt, 1)?.data(using: .utf8),
-                   let value = try? decoder.decode(FileMetrics.self, from: data) { metrics[id] = value }
+                   let value = StoredJSON.decode(FileMetrics.self, from: data, using: decoder, owner: "architecture metrics") { metrics[id] = value }
             }
         }
         sqlite3_finalize(stmt)
@@ -163,9 +166,9 @@ extension SemanticDatabase {
         let order = ["modules", "deployment", "docs"]
         let views = nodesByView.keys.sorted { (order.firstIndex(of: $0) ?? 9) < (order.firstIndex(of: $1) ?? 9) }
             .map { ArchView(id: $0, nodes: nodesByView[$0] ?? [], edges: edgesByView[$0] ?? []) }
-        let hints = (meta["deploymentHints"]?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+        let hints = (meta["deploymentHints"]?.data(using: .utf8)).flatMap { StoredJSON.decode([String].self, from: $0, owner: "architecture meta") } ?? []
         func decode<T: Decodable>(_ key: String, _ type: T.Type) -> T? {
-            (meta[key]?.data(using: .utf8)).flatMap { try? JSONDecoder().decode(type, from: $0) }
+            (meta[key]?.data(using: .utf8)).flatMap { StoredJSON.decode(type, from: $0, owner: "architecture meta") }
         }
         return ArchitectureSnapshot(views: views, coverage: coverage, metrics: metrics,
                                     coverageReport: meta["coverageReport"],

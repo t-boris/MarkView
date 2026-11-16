@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The persisted node tree of one Insight session (`<cache>/snapshot.json`): the root and every generated
 /// deep-dive child, restored on reopen so deep-dive buttons reuse the cached children instead of running
@@ -46,7 +49,7 @@ struct InsightTreeSnapshot: Codable {
     static func decode(_ data: Data) -> InsightTreeSnapshot? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(InsightTreeSnapshot.self, from: data)
+        return StoredJSON.decode(InsightTreeSnapshot.self, from: data, using: decoder, owner: "insight tree snapshot")
     }
 
     func encoded() throws -> Data {

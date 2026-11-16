@@ -175,6 +175,8 @@ func run() async {
     rootNode.sectionStates = ["s1": SectionState(buffer: "<p>root</p>", status: .ready)]
     childNode.sectionStates = ["s1": SectionState(buffer: "<p>auth</p>", status: .ready)]
     let snapshot = InsightTreeSnapshot(rootId: rootId, folderPath: analysed.path, nodes: [rootNode, childNode])
+    check(InsightTreeSnapshot.decode(try! snapshot.encoded())?.rootId == rootId, "a saved tree reads back")
+    check(InsightTreeSnapshot.decode(Data("{ \"rootId\": ".utf8)) == nil, "a saved tree that cannot be read is a miss (logged), not a crash")
     try? cache.writeSnapshotData(try! snapshot.encoded())
 
     let session = InsightSession(folderURL: analysed, mdFiles: [first, second], graphRAG: nil, cache: cache)

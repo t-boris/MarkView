@@ -646,7 +646,7 @@ final class ChangeReviewStore {
             if !fresh, let cached = await db?.loadArchitectureReview(key: key),
                !Task.isCancelled,
                let data = cached.data(using: .utf8),
-               var reviewed = try? JSONDecoder().decode(PROverlay.self, from: data) {
+               var reviewed = StoredJSON.decode(PROverlay.self, from: data, owner: "change review cache") {
                 reviewed.info = prOverlay?.info
                 prOverlay = reviewed
                 host.setStatus(nil)

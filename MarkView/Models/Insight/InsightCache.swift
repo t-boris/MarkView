@@ -301,7 +301,7 @@ struct InsightCache {
         if let data = try? Data(contentsOf: manifestURL) {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            manifest = try? decoder.decode(InsightManifest.self, from: data)
+            manifest = StoredJSON.decode(InsightManifest.self, from: data, using: decoder, owner: "insight manifest")
         }
         if manifest?.pagePolicy == policy { return false }
 

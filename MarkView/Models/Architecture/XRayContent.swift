@@ -75,7 +75,7 @@ enum XRayContent {
         let decoder = JSONDecoder()
         for path in paths {
             guard let data = try? Data(contentsOf: cacheFile(root: root, path: path)),
-                  let outline = try? decoder.decode(Outline.self, from: data),
+                  let outline = StoredJSON.decode(Outline.self, from: data, using: decoder, owner: "X-Ray outline cache"),
                   outline.signature == signature(of: root.appendingPathComponent(path)) else { continue }
             outlines[path] = outline
         }

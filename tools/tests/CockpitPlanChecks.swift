@@ -60,6 +60,13 @@ check(!oldStepEncoded.contains("model"), "a step without a model encodes without
 let oldControlsJSON = #"{"createScenarios":false,"checks":"","fileBugs":true,"fixBugs":false,"build":false,"deployment":"Disabled"}"#
 let oldControls = try JSONDecoder().decode(CockpitControls.self, from: Data(oldControlsJSON.utf8))
 check(oldControls.supervisorAgent == nil && oldControls.supervisorModel == nil && oldControls.supervisor, "controls saved before the supervisor's model was chosen decode with the project's assistant")
+// Controls a step carries as text: readable controls are read as they are; text that cannot be read is replaced by the restrictive defaults (AR-36).
+var storedControls = CockpitControls(); storedControls.fixBugs = true; storedControls.timeLimitMinutes = 30; storedControls.fixCycleLimit = 2
+let storedControlsText = String(decoding: (try? JSONEncoder().encode(storedControls)) ?? Data(), as: UTF8.self)
+check(CockpitControls(storedJSON: storedControlsText) == storedControls, "controls carried as text are read as they were set")
+check(CockpitControls(storedJSON: "{ \"fixBugs\": ") == CockpitControls(), "controls that cannot be read are the restrictive defaults")
+check(CockpitControls(storedJSON: "") == CockpitControls() && CockpitControls().fixBugs == false && CockpitControls().build == false,
+      "empty controls are the restrictive defaults, which fix and build nothing")
 var chosenControls = CockpitControls(); chosenControls.supervisorAgent = " Codex "; chosenControls.supervisorModel = "gpt-5"
 let chosenBack = try JSONDecoder().decode(CockpitControls.self, from: JSONEncoder().encode(chosenControls))
 check(chosenBack.supervisorAgent == "Codex" && chosenBack.supervisorModel == "gpt-5", "the supervisor's agent and model round-trip, trimmed")

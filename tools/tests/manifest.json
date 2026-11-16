@@ -302,7 +302,9 @@
         "tools/tests/BookXRayTests.swift",
         "tools/tests/book-xray-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -504,7 +506,10 @@
         "MarkView/Models/Cockpit/CockpitStepPolicy.swift",
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/CockpitAgentRegistryChecks.swift"
+        "tools/tests/CockpitAgentRegistryChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -536,7 +541,10 @@
         "MarkView/Models/Cockpit/CockpitHostBridge.swift",
         "MarkView/Models/Cockpit/CockpitPlan.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/CockpitHostBridgeChecks.swift"
+        "tools/tests/CockpitHostBridgeChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -551,7 +559,10 @@
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/CockpitInstrumentsChecks.swift",
-        "tools/tests/cockpit-instruments-tests.sh"
+        "tools/tests/cockpit-instruments-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -560,7 +571,10 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Cockpit/CockpitPlan.swift",
-        "tools/tests/CockpitPlanChecks.swift"
+        "tools/tests/CockpitPlanChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -570,7 +584,10 @@
       "sources": [
         "MarkView/Models/Cockpit/CockpitPlan.swift",
         "MarkView/Models/Cockpit/CockpitPlanning.swift",
-        "tools/tests/CockpitPlanningChecks.swift"
+        "tools/tests/CockpitPlanningChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -589,7 +606,9 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/CockpitPolicyChecks.swift",
         "tools/tests/IssueChecksSupport.swift",
-        "tools/tests/cockpit-policy-tests.sh"
+        "tools/tests/cockpit-policy-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -601,7 +620,9 @@
         "MarkView/Models/Cockpit/CockpitQAAttempt.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/CockpitQAAttemptChecks.swift"
+        "tools/tests/CockpitQAAttemptChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -4524,7 +4545,9 @@
       "sources": [
         "MarkView/Models/Architecture/XRayContent.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/XRayContentTests.swift"
+        "tools/tests/XRayContentTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {

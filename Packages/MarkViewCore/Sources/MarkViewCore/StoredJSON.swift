@@ -37,16 +37,16 @@ public enum JSONLinesFile {
     /// line that an earlier, interrupted write left without its newline is ended first, so the new line stands on its own.
     public static func append(_ line: Data, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let descriptor = open(url.path, O_RDWR | O_APPEND | O_CREAT, 0o644)
+        let descriptor = Darwin.open(url.path, O_RDWR | O_APPEND | O_CREAT, 0o644)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        defer { close(descriptor) }
+        defer { Darwin.close(descriptor) }
         var data = line
-        let size = lseek(descriptor, 0, SEEK_END)
+        let size = Darwin.lseek(descriptor, 0, SEEK_END)
         if size > 0 {
             var last: UInt8 = 0
-            if pread(descriptor, &last, 1, size - 1) == 1, last != 0x0A { data = Data([0x0A]) + line }
+            if Darwin.pread(descriptor, &last, 1, size - 1) == 1, last != 0x0A { data = Data([0x0A]) + line }
         }
-        let written = data.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
+        let written = data.withUnsafeBytes { Darwin.write(descriptor, $0.baseAddress, $0.count) }
         guard written == data.count else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
 
