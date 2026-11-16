@@ -79,6 +79,7 @@ private func copyToPasteboard(_ text: String) {
     NSPasteboard.general.setString(text, forType: .string)
 }
 
+@MainActor
 private func showError(_ title: String, _ message: String?) {
     guard let message else { return }
     let alert = NSAlert()
@@ -1475,7 +1476,7 @@ struct GitHubHTMLView: NSViewRepresentable {
         var shown: String?
 
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
-                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+                     decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
             // Only the page itself loads here; a clicked link opens in the browser.
             if action.navigationType == .linkActivated, let url = action.request.url {
                 if url.scheme == "https" || url.scheme == "http" || url.scheme == "mailto" { NSWorkspace.shared.open(url) }

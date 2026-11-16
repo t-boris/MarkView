@@ -76,4 +76,11 @@ final class EditorHostTests: XCTestCase {
         XCTAssertEqual(calls.withLock { $0 }, 1, "Released editor observers must not receive future notifications")
     }
 
+    @MainActor
+    func testGitHubNavigationDelegateExposesPolicyCallback() {
+        let coordinator = GitHubHTMLView.Coordinator()
+        let selector = NSSelectorFromString("webView:decidePolicyForNavigationAction:decisionHandler:")
+        XCTAssertTrue(coordinator.responds(to: selector), "WebKit must be able to call the navigation policy handler")
+    }
+
 }
