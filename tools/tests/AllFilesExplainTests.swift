@@ -27,13 +27,17 @@ try fm.createDirectory(at: file(".private"), withIntermediateDirectories: true)
 try fm.createDirectory(at: file(".git"), withIntermediateDirectories: true)
 try write(".private/hidden.unknown", "hidden text")
 try fm.createSymbolicLink(at: file("linked.unknown"), withDestinationURL: file("notes.txt"))
-let node = FileNode.buildTree(from: root)
-let names = Set((node.children ?? []).map(\.name))
-check(names.contains(".env") && names.contains(".env.local") && names.contains("settings.mystery"), "tree includes hidden and unknown files")
-check(names.contains(".private") && names.contains(".git") && names.contains("linked.unknown"), "tree includes hidden folders and file symlinks")
-let hidden = node.children!.first { $0.name == ".private" }!
-hidden.loadChildren()
-check(hidden.children?.first?.name == "hidden.unknown", "hidden folders can be browsed")
+// FileNode belongs to the main actor (the tree the views observe); the checks run there, as the window's own code does.
+@MainActor func checkTree(of root: URL) {
+    let node = FileNode.buildTree(from: root)
+    let names = Set((node.children ?? []).map(\.name))
+    check(names.contains(".env") && names.contains(".env.local") && names.contains("settings.mystery"), "tree includes hidden and unknown files")
+    check(names.contains(".private") && names.contains(".git") && names.contains("linked.unknown"), "tree includes hidden folders and file symlinks")
+    let hidden = node.children!.first { $0.name == ".private" }!
+    hidden.loadChildren()
+    check(hidden.children?.first?.name == "hidden.unknown", "hidden folders can be browsed")
+}
+MainActor.assumeIsolated { checkTree(of: root) }
 check(try FileType.readText(at: file("linked.unknown")) == "SERVICE_PORT=8080\n", "file symlinks decode their target")
 for encoding in [String.Encoding.utf8, .utf16, .utf32] {
     try "port: 8080\r\nname: café 🌱\n".data(using: encoding)!.write(to: file("unicode"))
