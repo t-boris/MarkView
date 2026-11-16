@@ -5175,6 +5175,8 @@
       "script": "tools/tests/new-project-close-tests.sh",
       "tier": "pure",
       "sources": [
+        "MarkView/Models/Workspace/NewProject.swift",
+        "MarkView/Models/Workspace/ProjectBootstrap.swift",
         "MarkView/Models/Workspace/NewProjectFlow.swift",
         "MarkView/Models/Workspace/ProjectDraftStore.swift",
         "MarkView/Models/Lifecycle/FeatureStore.swift",

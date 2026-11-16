@@ -146,6 +146,8 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+Project bootstrap draft values and persistence callbacks are Sendable. The new-project and close suites (23 close checks), Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `NewProjectFlow.swift` (one before). The close-suite manifest now includes the bootstrap and draft files it compiles; these suites do not exercise a full project creation.
+
 The delayed application window check logs without capturing the non-Sendable delegate. The phase-zero safety suite (18 checks), Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `MarkViewApp.swift` (two before). The safety suite does not exercise a real new-window action.
 
 Project Operations notification routing uses the SDK async callback and passes only Sendable routing values to the main actor; singleton access is main-actor isolated. The app-hosted test verified the system callback selector and both payload routes; all 14 hosted tests, the store suite, Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `ProjectOperationsStore.swift` (four before). A real notification click was not exercised.

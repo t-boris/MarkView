@@ -13,7 +13,7 @@ enum ProjectBootstrap {
 
     /// Run or continue bootstrap. `save` persists the draft after each stage.
     static func run(_ draft: inout ProjectDraft, specification: URL, slug: String, readme: String,
-                    save: (ProjectDraft) async throws -> Void) async throws -> URL {
+                    save: @Sendable (ProjectDraft) async throws -> Void) async throws -> URL {
         guard let parentPath = draft.parentPath, let name = draft.folderName else {
             throw Failure(message: "Choose where to create the project.")
         }

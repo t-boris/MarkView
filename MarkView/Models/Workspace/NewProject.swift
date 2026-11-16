@@ -9,8 +9,8 @@ import MarkViewCore
 /// A new project from its first idea until its folder exists (DEC-015). The clarification lives
 /// in a draft workspace next to this record; bootstrap copies it into the project and removes
 /// the draft only after every local stage succeeded (DEC-019).
-struct ProjectDraft: Codable, Equatable, Identifiable {
-    enum Stage: String, Codable {
+struct ProjectDraft: Codable, Equatable, Identifiable, Sendable {
+    enum Stage: String, Codable, Sendable {
         /// Adaptive questions; the brief is not confirmed yet.
         case clarifying
         /// The user confirmed the brief (DEC-003, DEC-016); the destination is chosen next.
