@@ -79,6 +79,7 @@ Status of AR-01 to AR-13 on 2026-11-15 (the table above is the review as written
 - AR-10 Status (2026-11-15): done by reading. `WhisperClient` stores the key with `SecItemUpdate` then `SecItemAdd` and migrates and removes the legacy `UserDefaults` value (`Setting.legacyOpenAIKey`). The Keychain was not read.
 - AR-11 Status (2026-11-15): done. `NSAppleScript` call sites: 0 (the one match is a comment in `AIAssistants.swift` saying it is avoided); the file tree's "Open in Terminal.app" goes through `openTerminal(at:)` and `NSWorkspace`. `SystemProbe.swift:160` (`sh -c`) was not re-checked.
 - AR-12 Status (2026-11-15): done by reading, with FU-09 open. The Web Inspector is `#if DEBUG` in `WebHost` (`developerExtrasEnabled`, `isInspectable`); `FinderOpenRequests` opens the open-path file with `O_NOFOLLOW` in the per-user temporary folder and in `/tmp`; the SSH control sockets use `/tmp/mvssh-<uid>` (mode 0700, checked by `ensureSecureSocketDirectory`, a short path because of the 104-byte socket limit) and not the per-user temporary folder. No writer of the open-path file exists in the repository; the Quick Action handoff was not tried.
+- AR-13 Status (2026-11-15): done by reading. `TabsController.lastSaveError` (6 references) feeds the window banner and saving goes through `AtomicFile.write`; the undo-conflict and bug-report rewrites named in the finding were not re-read.
 
 ## 3. Application shell and state
 
