@@ -118,7 +118,7 @@ Details: [semantic §5.4](./modules/semantic-index-and-insight.md#54-recursive-i
 
 ## 8. Feature and bug intake
 
-1. `IntakeSheet` has three options: New Feature, New Bug and "I Need to Understand". Its text field accepts dictation.
+1. `IntakeSheet` has five options (`IntakeKind`): New Feature, Quick Feature, New Bug, "I Need to Understand" and New Research. Its text field accepts dictation.
 2. `FeatureAssistant` runs AI rounds that produce questions, requirements, decisions and findings; `FeatureFlowCoordinator` owns the
    flow of a window.
 3. `FeatureStore` writes each object as a Markdown file under `docs/features/<slug>/` or `docs/bugs/BUG-nnn-<slug>.md`. An optional

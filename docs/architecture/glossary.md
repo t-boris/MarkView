@@ -21,7 +21,7 @@ Status (2026-11-15): every path and symbol in this doc was looked up mechanicall
 | **File-backed tab** | An `OpenTab` of kind `.file`. Other kinds (image, X-Ray, terminal, GitHub, Insight) use marker URLs |
 | **Folder X-Ray** | An X-Ray scoped to a subfolder, stored as JSON in `.dde/xray-folders/` |
 | **GraphRAG** | Class that assembles prompts from raw workspace files. Despite the name, it does no graph or vector retrieval |
-| **Intake** | The New Feature / New Bug / "I Need to Understand" sheet |
+| **Intake** | The New Feature / Quick Feature / New Bug / "I Need to Understand" / New Research sheet (`IntakeKind`) |
 | **Lifecycle event** | A JSONL record of a feature/bug stage transition, used for cycle-time analytics |
 | **Lossless front matter** | `FrontMatter.isLossless`: the YAML subset parser can round-trip the block unchanged |
 | **OSC 8** | Terminal escape sequence for hyperlinks whose label differs from the target. Claude Code emits them with a BEL terminator |

@@ -37,7 +37,7 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
   - planning, and creating GitHub issues
   (`FeatureAI.swift`)
 - Adding sources: files, PDFs, audio, URLs, GitHub issues, notes, voice notes. The AI extracts candidate facts from each (`FeatureIngest.swift`).
-- The four intake flows: New Feature, New Bug, I Need to Understand, New Research. Also bug investigation with question rounds (`FeatureIntake.swift`). New Research runs as a background job of its own (§5.9).
+- The five intake flows: New Feature, Quick Feature, New Bug, I Need to Understand, New Research. Also bug investigation with question rounds (`FeatureIntake.swift`). New Research runs as a background job of its own (§5.9).
 - Automatic lifecycle event capture for features: status and readiness transitions, git commits and GitHub captures (`FeatureStore.swift`).
 - UI:
   - left panel Issues list and feature navigator
@@ -163,7 +163,7 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 
 ### 3.4 Intake types (`FeatureIntake.swift`)
 
-- **`IntakeKind`** has the cases `feature`, `bug`, `understand` and `research`, each with a title and a prompt text. Every `IntakeKind.allCases` menu (toolbar ⊞, its "From the open document" section, the file tree's "New from This Document") lists all four.
+- **`IntakeKind`** has the cases `feature`, `quickFeature`, `bug`, `understand` and `research`, each with a title and a prompt text. Every `IntakeKind.allCases` menu (toolbar ⊞, its "From the open document" section, the file tree's "New from This Document") lists all five. `quickFeature` makes a one-page specification without question rounds and starts in the build stage (`FeatureFlowCoordinator`); the welcome screen has its own "Quick Feature…" action (`WelcomeActions.swift`).
 - **`IntakeRequest`** carries `kind`, `text`, `linkedIssue`, `attachments`, `targets` (New Research; nil = the open document), `loadIssue` and `loadPullRequest`. Setting `WindowRequests.intake` opens the sheet (`Models/Workspace/WindowRequests.swift`).
 - **`IntakeOutcome`** carries `file`, `feature` and `issue`.
 
@@ -882,7 +882,7 @@ Settings read indirectly: `actions.outputLanguage` (conversation language), `AIA
 | Cleanup | Moving outdated objects to the Trash and remapping links to their replacements |
 | Source / fact | Imported material (`SRC`) and the candidate statements extracted from it, which the user accepts |
 | Plan / epic | `implementation/plan.md`: issues `I-n` that become GitHub issues under an epic |
-| Intake | New Feature, New Bug or I Need to Understand sheet |
+| Intake | The New Feature, Quick Feature, New Bug, I Need to Understand or New Research sheet |
 | Bug question (`BQ-n`) | Investigation question stored in the bug's front matter |
 | Provenance | Front matter note on where an object came from |
 | Lossless front matter | YAML the app can rewrite without losing comments or structure (`FrontMatter.isLossless`) |
