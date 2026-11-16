@@ -69,6 +69,7 @@ Status of AR-01 to AR-13 on 2026-11-15 (the table above is the review as written
 
 - AR-01 Status (2026-11-15): done for the editor page, partial for exported Insight HTML. `mvKit.sanitizeHtml` (vendored DOMPurify, fail-closed) has 4 callers outside `mv-kit.js` in 4 files and `mvKit.sanitizeMermaidSvg` 5; Mermaid's `<style>` is kept only after `sanitizeScopedStylesheet` rebuilds it rule by rule; `index.html`, `book.html`, `discussion.html` and `terminal.html` carry `script-src 'self'` (the editor adds `'wasm-unsafe-eval'` and a per-load nonce for the Insight frame). The cached and exported Insight HTML still has `'unsafe-inline'` in its CSP (`InsightHTMLTemplate.swift:137`, FU-25). By reading and by the structural tests; never tried with a hostile document in the running app.
 - AR-02 Status (2026-11-15): done in code, never run live (FU-10). `allow-same-origin` appears 0 times outside comments and vendored bundles; the Insight frame is `sandbox="allow-scripts"` (`markview-insight-handlers.js`), and the nonce reaches the page through `EditorPage` (a miss is logged, with a test in `tools/tests/EditorPageCSPTests.swift`).
+- AR-03 Status (2026-11-15): done. References to `cdn.jsdelivr.net`, `unpkg` and `cdnjs` in the editor HTML and first-party scripts: 0 (`git grep`); Turndown and its GFM plugin are vendored.
 
 ## 3. Application shell and state
 
