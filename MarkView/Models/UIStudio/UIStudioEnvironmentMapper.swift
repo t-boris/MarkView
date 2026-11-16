@@ -632,7 +632,7 @@ final class StudioEnvironmentMapper: ObservableObject {
             var active = 0
             while active < concurrent, !stopped, !pending.isEmpty {
                 let id = pending.removeFirst()
-                tasks.addTask { @MainActor [weak self] in await self?.prepareGroup(id, context) }
+                tasks.addTask { [weak self] in await self?.prepareGroup(id, context) }
                 active += 1
             }
             while let result = await tasks.next() {
@@ -643,7 +643,7 @@ final class StudioEnvironmentMapper: ObservableObject {
                 }
                 while active < concurrent, !stopped, !pending.isEmpty {
                     let id = pending.removeFirst()
-                    tasks.addTask { @MainActor [weak self] in await self?.prepareGroup(id, context) }
+                    tasks.addTask { [weak self] in await self?.prepareGroup(id, context) }
                     active += 1
                 }
             }
