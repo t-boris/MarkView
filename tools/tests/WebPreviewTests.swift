@@ -414,6 +414,13 @@ MainActor.assumeIsolated {
     BrowserSession.captureScriptURL = URL(fileURLWithPath: "MarkView/Resources/Editor/js/markview-page-markdown.js")
     let prompts = ScriptedPrompts()
     let session = BrowserSession(url: nil, prompts: prompts)
+    _ = session.webView.perform(NSSelectorFromString("saveSelection"))
+    check("selection save reaches its browser session", session.saveRequest == .selection)
+    session.saveRequest = nil
+    _ = session.webView.perform(NSSelectorFromString("savePageAsPDF"))
+    check("PDF save reaches its browser session", session.saveRequest == .page && session.saveFormat == .pdf)
+    session.saveRequest = nil
+    session.saveFormat = .markdown
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
     window.contentView = session.webView
     session.webView.loadHTMLString(html, baseURL: URL(string: "https://example.com/post/")!)

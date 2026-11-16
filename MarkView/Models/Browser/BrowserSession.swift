@@ -52,7 +52,7 @@ enum PageFormat: String { case markdown, pdf }
 /// One browser tab: its web view and what the tab bar and the toolbar show. Links that
 /// ask for a new window open as new browser tabs; other schemes go to their apps.
 @MainActor
-final class BrowserSession: NSObject, ObservableObject {
+final class BrowserSession: NSObject, ObservableObject, BrowserSaveDelegate {
     let id = UUID()
     @Published private(set) var url: URL?
     @Published private(set) var title = ""
@@ -104,6 +104,9 @@ final class BrowserSession: NSObject, ObservableObject {
     @Published var agentStopped = false
     /// When an agent last used this tab (the tab shows that an agent is at work).
     @Published var agentLastUsed: Date?
+
+    func requestMarkdownSave(_ mode: PageCapture.Mode) { saveRequest = mode }
+    func requestPDFSave() { saveFormat = .pdf; saveRequest = .page }
 
     private(set) lazy var webView: BrowserWebView = makeWebView()
     private var observations: [NSKeyValueObservation] = []
@@ -173,8 +176,7 @@ final class BrowserSession: NSObject, ObservableObject {
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
         view.allowsMagnification = true
-        view.saveMarkdown = { [weak self] mode in self?.saveRequest = mode }
-        view.savePDF = { [weak self] in self?.saveFormat = .pdf; self?.saveRequest = .page }
+        view.saveDelegate = self
         observations = [
             view.observe(\.url, options: [.new]) { [weak self] view, _ in
                 MainActor.assumeIsolated { if let url = view.url { self?.url = url } }
@@ -624,10 +626,15 @@ extension BrowserSession {
     }
 }
 
+@MainActor
+protocol BrowserSaveDelegate: AnyObject {
+    func requestMarkdownSave(_ mode: PageCapture.Mode)
+    func requestPDFSave()
+}
+
 /// The page's context menu gets "Save Selection / Page as Markdown".
 final class BrowserWebView: WKWebView {
-    var saveMarkdown: ((PageCapture.Mode) -> Void)?
-    var savePDF: (() -> Void)?
+    weak var saveDelegate: (any BrowserSaveDelegate)?
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
@@ -649,7 +656,7 @@ final class BrowserWebView: WKWebView {
         return item
     }
 
-    @objc private func saveSelection() { saveMarkdown?(.selection) }
-    @objc private func savePage() { saveMarkdown?(.page) }
-    @objc private func savePageAsPDF() { savePDF?() }
+    @objc private func saveSelection() { saveDelegate?.requestMarkdownSave(.selection) }
+    @objc private func savePage() { saveDelegate?.requestMarkdownSave(.page) }
+    @objc private func savePageAsPDF() { saveDelegate?.requestPDFSave() }
 }
