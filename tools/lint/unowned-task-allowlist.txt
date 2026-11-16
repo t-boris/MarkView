@@ -34,6 +34,7 @@
 3 MarkView/Models/UIStudio/UIStudioSession.swift
 1 MarkView/Models/Workspace/LayoutCatalog.swift
 1 MarkView/Models/Workspace/ProjectDraftStore.swift
+1 MarkView/Views/AI/AIToolbarMenu.swift
 3 MarkView/Views/Architecture/ProjectChangeReviewView.swift
 1 MarkView/Views/Book/PDFReaderView.swift
 5 MarkView/Views/Browser/BrowserTabView.swift
@@ -63,7 +64,7 @@
 5 MarkView/Views/Remote/RemoteConnectionsView.swift
 1 MarkView/Views/Terminal/TerminalView.swift
 2 MarkView/Views/Workspace/ArchiveTabView.swift
-3 MarkView/Views/Workspace/ContentView.swift
+2 MarkView/Views/Workspace/ContentView.swift
 2 MarkView/Views/Workspace/ContentsPanelView.swift
 3 MarkView/Views/Workspace/DDESettingsView.swift
 3 MarkView/Views/Workspace/EditorView.swift

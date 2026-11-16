@@ -5,11 +5,13 @@ A domain is a folder directly under MarkView/Models or MarkView/Views. Domain A 
 when a Swift file in A names a type that a file in B declares at the top level. Models and Views are two separate graphs
 (a view of domain X using a model of domain Y is not a dependency cycle between the two layers' domains).
 
-The weight of the edge A -> B is the number of distinct types of B that files of A name. A pair of domains is in a cycle when
-the weight is above zero in both directions. In each pair the back-edge is the direction that points away from the composition
-domain (`Workspace`, which composes the others and may use them freely), or else the direction with the smaller weight; the lint
-rule `domain-cycles` (architecture-lint.sh) ratchets the back-edges so they only fall, and an allow-list may name the other
-direction when the smaller one is the right-way dependency.
+The weight of the edge A -> B is the number of distinct types of B that files of A name. The domains are layered, lowest first
+(RANKS): Appearance, then Shared (infrastructure that names no feature domain), then AI (the assistants the features call), then the
+feature domains, then Workspace (which composes the features and is named by none of them). A domain may name its own rank and
+the ranks below it; an edge that points up is a back-edge, whether or not anything points back. A pair of feature domains that name
+each other (an edge of weight above zero in both directions, a cycle) has one back-edge too: the direction with the smaller weight,
+or the direction an allow-list entry names. The lint rule `domain-cycles` (architecture-lint.sh) ratchets the back-edges so they
+only fall.
 
 Names are matched in code only (comments and string literals are skipped, but `\\(...)` interpolations are read), and a member
 access (`x.Name`) is not a reference. A name that cannot be told from another declaration is ignored and reported as ambiguous:
@@ -19,6 +21,8 @@ Usage: tools/lint/domain-dependencies.py [--root <repo>] [--layer Models|Views] 
   --layer   one graph only (default: both)
   --why     the types and the files behind the edge <from> -> <to> (domain names, e.g. Browser AgentTools; needs --layer)
   --json    print the measurement as JSON (the lint rule reads it this way)
+
+The layering is printed in the report; `rank(domain)` and `back_edges(layer)` are what the lint rule calls.
 """
 import argparse
 import json
@@ -27,7 +31,15 @@ import sys
 from pathlib import Path
 
 LAYERS = ("Models", "Views")
-COMPOSITION = "Workspace"   # the domain that composes the others: a dependency of it on another domain is never the back-edge
+# The layering of the domain folders, lowest first. A folder with no entry is a feature domain.
+RANKS = {"Appearance": 0, "Shared": 1, "AI": 2}
+FEATURE_RANK = 3
+COMPOSITION = "Workspace"   # the domain that composes the others: the highest rank, named by no feature domain
+COMPOSITION_RANK = 4
+
+
+def rank(domain):
+    return COMPOSITION_RANK if domain == COMPOSITION else RANKS.get(domain, FEATURE_RANK)
 
 TOKEN = re.compile(r'//[^\n]*|/\*|#{0,4}"""|#{0,4}"|[A-Za-z_]\w*|[()]')
 DECLARATION = re.compile(
@@ -145,16 +157,29 @@ def measure(root, layers=LAYERS):
 
 
 def back_edge(pair, preferred=()):
-    """(from, to, weight, forward weight) of the pair's back-edge: the direction `preferred` (a set of (from, to)) names, else the
-    one that points at the composition domain, else the lighter direction."""
+    """(from, to, weight, forward weight) of the back-edge of a pair of domains that name each other: the direction `preferred` (a set
+    of (from, to)) names, else the one that points up the layering, else (two domains of one rank) the lighter direction."""
     a, b, ab, ba = pair["a"], pair["b"], pair["a_to_b"], pair["b_to_a"]
     if (a, b) in preferred:
         return a, b, ab, ba
     if (b, a) in preferred:
         return b, a, ba, ab
-    if COMPOSITION in (a, b):
-        return (a, b, ab, ba) if b == COMPOSITION else (b, a, ba, ab)
+    if rank(a) != rank(b):
+        return (a, b, ab, ba) if rank(b) > rank(a) else (b, a, ba, ab)
     return (a, b, ab, ba) if (ab, a, b) <= (ba, b, a) else (b, a, ba, ab)
+
+
+def back_edges(layer, preferred=()):
+    """[(from, to, weight, forward weight)], sorted: the back-edge of every pair of domains that name each other, and every edge that
+    points up the layering although nothing points back (a lower domain that names a higher one has it inside)."""
+    found = {}
+    for pair in layer["pairs"]:
+        source, target, weight, forward = back_edge(pair, preferred)
+        found[(source, target)] = (weight, forward)
+    for (source, target), weight in layer["edges"].items():
+        if rank(target) > rank(source):
+            found.setdefault((source, target), (weight, layer["edges"].get((target, source), 0)))
+    return [(source, target, weight, forward) for (source, target), (weight, forward) in sorted(found.items())]
 
 
 def components(layer):
@@ -198,11 +223,11 @@ def report(layer_name, layer):
     domains = layer["domains"]
     pairs = layer["pairs"]
     type_edges = sum(p["a_to_b"] + p["b_to_a"] for p in pairs)
-    back_types = sum(back_edge(p)[2] for p in pairs)
+    back = back_edges(layer)
     lines.append(f"{layer_name}: {len(domains)} domains, {sum(layer['files'].values())} files, {sum(layer['declared'].values())} top-level types")
-    lines.append(f"  domain pairs in cycles: {len(pairs)}; type edges in them: {type_edges} ({back_types} in the back-edges)")
-    for pair in sorted(pairs, key=lambda p: (-(p["a_to_b"] + p["b_to_a"]), p["a"], p["b"])):
-        source, target, weight, forward = back_edge(pair)
+    lines.append(f"  domain pairs in cycles: {len(pairs)}; type edges in them: {type_edges}")
+    lines.append(f"  back-edges (up the layering, or the lighter side of a cycle): {len(back)}; types in them: {sum(b[2] for b in back)}")
+    for source, target, weight, forward in sorted(back, key=lambda b: (-b[2], b[0], b[1])):
         lines.append(f"    {source} -> {target}: {weight} type(s) back, {forward} forward")
     groups = components(layer)
     lines.append("  strongly connected groups: " + ("; ".join(f"{len(g)} domains" for g in groups) if groups else "none"))

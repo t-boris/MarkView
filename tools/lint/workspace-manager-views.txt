@@ -8,7 +8,7 @@
 5 MarkView/Views/Git/GitHubViews.swift
 1 MarkView/Views/Lifecycle/BugBasketView.swift
 1 MarkView/Views/Lifecycle/CycleTimeViews.swift
-5 MarkView/Views/Lifecycle/FeatureNavigatorView.swift
+3 MarkView/Views/Lifecycle/FeatureNavigatorView.swift
 1 MarkView/Views/Lifecycle/FeaturePanelBugViews.swift
 1 MarkView/Views/Lifecycle/FeaturePanelBuildViews.swift
 2 MarkView/Views/Lifecycle/FeaturePanelExploreViews.swift
@@ -30,6 +30,7 @@
 1 MarkView/Views/Workspace/EditorView.swift
 1 MarkView/Views/Workspace/FileTreeView.swift
 1 MarkView/Views/Workspace/ImageViewerView.swift
+2 MarkView/Views/Workspace/LeftPanelView.swift
 2 MarkView/Views/Workspace/SearchPanelView.swift
 1 MarkView/Views/Workspace/SharedSearchView.swift
 2 MarkView/Views/Workspace/TOCView.swift
