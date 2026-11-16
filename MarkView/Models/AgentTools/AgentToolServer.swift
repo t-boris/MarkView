@@ -134,8 +134,7 @@ enum AgentToolServer {
         let pids = BrowserAgentTools.ancestorPIDs(startingAt: peerPID)
         let cwd = BrowserAgentTools.workingDirectory(forPIDs: pids) ?? ""
         let tool = request["tool"] as? String ?? ""
-        // unchecked Sendable: a `let` dictionary decoded from the request JSON, never mutated, and read only by the one task below.
-        nonisolated(unsafe) let arguments = request["arguments"] as? [String: Any] ?? [:]
+        let arguments = request["arguments"] as? [String: Any] ?? [:]
         // task: answers one request of an agent's socket and closes it; the agent's call has no owner here to cancel it
         Task { @MainActor in
             let reply = await perform(tool, arguments, window: window, pids: pids, cwd: cwd)
