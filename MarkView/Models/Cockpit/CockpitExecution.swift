@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 struct CockpitExecutionState: Decodable {
     var status: String
@@ -54,6 +57,9 @@ final class CockpitExecution: ObservableObject {
     @Published private(set) var liveNotes: [CockpitCuratorNote] = []
     private var limitReason: String?
     private var limitWatch: Task<Void, Never>?
+    /// The saves and the stop of a step this run starts without making its caller wait (a lever, a note, a refusal, a limit): they end
+    /// with `shutdown()`, and none is started after it.
+    private let background = TaskBag()
     /// The running step: when it began (monotonic seconds) and what it has used of the fix cycle limit.
     private var stepClock: (id: UUID, began: TimeInterval)?
     private var meter: CockpitStepMeter?
@@ -246,7 +252,7 @@ final class CockpitExecution: ObservableObject {
             guard remaining > 0 else {
                 let text = Self.timeNotice(minutes)
                 limitReason = text; limitNotice = text
-                Task { await updateRecord({ $0.noteLimit(text) }, failure: "The limit notice could not be saved") }
+                saveInBackground({ $0.noteLimit(text) }, failure: "The limit notice could not be saved")
                 return text
             }
             limitWatch = Task { [weak self] in
@@ -266,6 +272,7 @@ final class CockpitExecution: ObservableObject {
         let seconds = ProcessInfo.processInfo.systemUptime - clock.began
         let cycles = meter?.stepCycles ?? 0
         // A fresh task: a step that was cancelled (a limit pause) must still be recorded, and a cancelled task would not wait for the record.
+        // task: awaited in place, on purpose: it does not inherit the cancellation of this step, and this call waits for it
         await Task { await addUsage(seconds: seconds, fixCycles: cycles) }.value
         stepClock = nil; meter = nil
     }
@@ -283,7 +290,7 @@ final class CockpitExecution: ObservableObject {
     func setLiveCuts(_ cuts: CockpitLiveSwitches) {
         guard isActive, cuts != liveCuts else { return }
         liveCuts = cuts
-        Task { await updateRecord({ $0.setSwitches(self.liveCuts) }, failure: "A lever could not be saved") }
+        saveInBackground({ $0.setSwitches(self.liveCuts) }, failure: "A lever could not be saved")
     }
 
     /// The person sent the supervisor a note. It is heard from the next answer on and is in the briefing of the next step; the running
@@ -293,13 +300,30 @@ final class CockpitExecution: ObservableObject {
         guard isActive, !trimmed.isEmpty else { return }
         let note = CockpitCuratorNote(at: Date(), text: trimmed)
         liveNotes = CockpitCuratorNote.appending(note, to: liveNotes)
-        Task { await updateRecord({ $0.addNote(note) }, failure: "A note could not be saved") }
+        saveInBackground({ $0.addNote(note) }, failure: "A note could not be saved")
     }
 
-    /// Changes the saved run once no other change is in flight, waiting a little for it.
+    /// Starts `work` for this run and keeps its task, so that `shutdown()` ends it. Nothing starts once the shutdown was asked for. Each
+    /// start has a key of its own: the pieces of work do not replace one another (a limit stop that is running must not be cancelled by
+    /// the note that follows it).
+    private func startInBackground(_ work: @escaping @MainActor (CockpitExecution) async -> Void) {
+        guard !shutdownRequested else { return }
+        background.store(Task { await work(self) }, for: UUID().uuidString)
+    }
+
+    /// Saves a change to the run without making the caller wait, after the saves already in flight (`updateRecord`).
+    private func saveInBackground(_ change: @escaping (inout CockpitRun) -> Void, failure: String) {
+        startInBackground { await $0.updateRecord(change, failure: failure) }
+    }
+
+    /// Changes the saved run once no other change is in flight, waiting a little for it. A caller that is cancelled while it waits
+    /// gives the change up: a cancelled `Task.sleep` returns at once, so waiting on would spin on the main actor.
     private func updateRecord(_ change: (inout CockpitRun) -> Void, failure: String) async {
         let give = Date().addingTimeInterval(30)
-        while mutatingRecord, Date() < give { try? await Task.sleep(nanoseconds: 50_000_000) }
+        while mutatingRecord, Date() < give {
+            guard !Task.isCancelled else { return }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
         guard !mutatingRecord, var next = record else { return }
         mutatingRecord = true
         defer { mutatingRecord = false }
@@ -312,7 +336,7 @@ final class CockpitExecution: ObservableObject {
     func noteGate(tool: String, refusal: String?) {
         lastActivity = Date()
         guard let refusal else { return }
-        Task { await updateRecord({ $0.noteRefusal("\(tool) refused: \(refusal)") }, failure: "A refusal could not be saved") }
+        saveInBackground({ $0.noteRefusal("\(tool) refused: \(refusal)") }, failure: "A refusal could not be saved")
     }
 
     /// The gate saw the agent move a bug into fixing: `count` such moves in this step.
@@ -332,7 +356,7 @@ final class CockpitExecution: ObservableObject {
         guard let limit = meter?.cycleLimit, stepClock != nil, meter?.overCycleLimit == true else { return }
         let text = "Fix cycle limit reached: \(limit) cycle\(limit == 1 ? "" : "s") allowed and another one started. "
             + "Raise the limit, propose the plan again and continue from the interrupted step."
-        Task { await stopStep(reason: text) }
+        startInBackground { await $0.stopStep(reason: text) }
     }
 
     private func stopStep(reason: String) async {
@@ -351,6 +375,8 @@ final class CockpitExecution: ObservableObject {
     func shutdown() {
         shutdownRequested = true
         poll?.cancel(); poll = nil
+        limitWatch?.cancel(); limitWatch = nil
+        background.cancelAll()
         releaseWorker()
     }
 

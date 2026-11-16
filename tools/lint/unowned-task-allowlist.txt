@@ -10,8 +10,6 @@
 3 MarkView/Models/Architecture/CodeExplainer.swift
 2 MarkView/Models/Architecture/CodeNavigation.swift
 7 MarkView/Models/Architecture/XRayFilterStore.swift
-2 MarkView/Models/Cockpit/CockpitAgentAttempt.swift
-6 MarkView/Models/Cockpit/CockpitExecution.swift
 8 MarkView/Models/ProjectOps/ProjectOperationsStore.swift
 3 MarkView/Views/Workspace/FileTreeView.swift
 3 MarkView/Views/Workspace/NewProjectSheet.swift
