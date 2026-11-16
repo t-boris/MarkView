@@ -1,4 +1,5 @@
 import Foundation
+import os
 import OSLog
 import XCTest
 @testable import MarkViewCore
@@ -259,23 +260,21 @@ final class MarkViewCoreTests: XCTestCase {
     }
 
     func testAtomicFileNeverShowsATemporaryFileInTheTargetFolder() throws {
-        // unchecked Sendable: written by the background write, read only after the dispatch group has finished.
-        final class Outcome: @unchecked Sendable { var error: Error? }
         let root = try makeScratchFolder()
         let document = root.appendingPathComponent("big.md")
         try AtomicFile.write("small", to: document)
         let payload = Data(repeating: 0x61, count: 48 * 1024 * 1024)
-        let outcome = Outcome()
+        let outcome = OSAllocatedUnfairLock(initialState: Optional<String>.none)
         let group = DispatchGroup()
         DispatchQueue.global().async(group: group) {
-            do { try AtomicFile.write(payload, to: document) } catch { outcome.error = error }
+            do { try AtomicFile.write(payload, to: document) } catch { outcome.withLock { $0 = String(describing: error) } }
         }
         // List the folder as fast as possible while the write runs: a temporary file next to the document would show up.
         var seen = Set<String>()
         repeat {
             seen.formUnion((try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? [])
         } while group.wait(timeout: .now()) == .timedOut
-        XCTAssertNil(outcome.error)
+        XCTAssertNil(outcome.withLock { $0 })
         XCTAssertEqual(seen.subtracting(["big.md"]), [], "watchers and git must not see a temporary file next to the document")
         XCTAssertEqual(try Data(contentsOf: document).count, payload.count)
     }
@@ -334,27 +333,27 @@ final class MarkViewCoreTests: XCTestCase {
     func testAtomicFileCreateHasExactlyOneWinnerPerName() throws {
         let root = try makeScratchFolder()
         let document = root.appendingPathComponent("race.md")
-        final class Tally: @unchecked Sendable { // unchecked Sendable: every access is under `lock`
-            let lock = NSLock()
+        struct Tally: Sendable {
             var winners: [Int] = []
             var refusals = 0
-            var others: [Error] = []
+            var others: [String] = []
         }
-        let tally = Tally()
+        let tally = OSAllocatedUnfairLock(initialState: Tally())
         DispatchQueue.concurrentPerform(iterations: 16) { writer in
             do {
                 try AtomicFile.create("writer \(writer)", to: document)
-                tally.lock.lock(); tally.winners.append(writer); tally.lock.unlock()
+                tally.withLock { $0.winners.append(writer) }
             } catch let error as POSIXError where error.code == .EEXIST {
-                tally.lock.lock(); tally.refusals += 1; tally.lock.unlock()
+                tally.withLock { $0.refusals += 1 }
             } catch {
-                tally.lock.lock(); tally.others.append(error); tally.lock.unlock()
+                tally.withLock { $0.others.append(String(describing: error)) }
             }
         }
-        XCTAssertEqual(tally.winners.count, 1, "one writer creates the file")
-        XCTAssertEqual(tally.refusals, 15, "the others are told it exists")
-        XCTAssertTrue(tally.others.isEmpty, "\(tally.others)")
-        XCTAssertEqual(try String(contentsOf: document, encoding: .utf8), "writer \(tally.winners[0])", "and the file holds that writer's whole text")
+        let result = tally.withLock { $0 }
+        XCTAssertEqual(result.winners.count, 1, "one writer creates the file")
+        XCTAssertEqual(result.refusals, 15, "the others are told it exists")
+        XCTAssertTrue(result.others.isEmpty, "\(result.others)")
+        XCTAssertEqual(try String(contentsOf: document, encoding: .utf8), "writer \(result.winners[0])", "and the file holds that writer's whole text")
         XCTAssertEqual(try entries(in: root), ["race.md"])
     }
 
