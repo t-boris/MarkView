@@ -1,29 +1,20 @@
 import AppKit
 import PDFKit
-
-// App types the exporter's entry points mention; the checks drive `PDFExporter.render` only.
-enum TabKind { case file, insight(Int), other }
-struct OpenTab { var url: URL; var content: String; var kind: TabKind }
+import WebKit
+import XCTest
+import MarkViewCore
+@testable import MarkView
 
 /// Checks the PDF of a single document, made by the bundled PDF-book engine in its "document" mode, in real WebKit.
-/// Run through tools/tests/pdf-export-tests.sh.
-@main
-enum PDFExportTests {
+/// Runs in the app-hosted test target with the bundled PDF engine.
+private enum PDFExportTests {
     @MainActor static var failures = 0
+    @MainActor static var checks = 0
 
     @MainActor static func check(_ ok: Bool, _ message: String, _ detail: @autoclosure () -> String = "") {
+        checks += 1
         if !ok { failures += 1 }
         print("\(ok ? "ok  " : "FAIL") \(message)\(ok ? "" : " — " + String(detail().prefix(500)))")
-    }
-
-    @MainActor static func main() {
-        let app = NSApplication.shared
-        app.setActivationPolicy(.prohibited)
-        Task { @MainActor in
-            do { try await run(); print(failures == 0 ? "PDF export checks passed." : "\(failures) PDF export check(s) failed."); exit(failures == 0 ? 0 : 1) }
-            catch { print("PDF export check failed to run: \(error)"); exit(1) }
-        }
-        app.run()
     }
 
     // MARK: - Reading a PDF
@@ -100,15 +91,17 @@ enum PDFExportTests {
     }
 
     static func make(_ chapter: BookPDFChapter, _ style: PDFExporter.Style = .init(), folder: URL, roots: [URL]) async throws -> (PDFDocument, BookPDFRenderer.Result) {
-        let entry = URL(fileURLWithPath: CommandLine.arguments[1])
+        let entry = Bundle.main.url(forResource: "book", withExtension: "html", subdirectory: "Editor")!
         let result = try await PDFExporter.render(chapter, style: style, entry: entry) { PDFExporter.allows($0, within: roots) }
         guard let pdf = PDFDocument(data: result.data) else { throw BookPDFError.invalid("The result is not a PDF.") }
         return (pdf, result)
     }
 
     @MainActor static func run() async throws {
-        let output = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
-        let fixtures = URL(fileURLWithPath: CommandLine.arguments[3], isDirectory: true)
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent("markview-pdf-export-" + UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: output) }
+        let sourceRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let fixtures = sourceRoot.appendingPathComponent("Tests/Fixtures/pdf-export", isDirectory: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         // The fixture and its pictures are copied, so a picture outside the allowed folder can be placed next to it.
         let work = output.appendingPathComponent("work", isDirectory: true)
@@ -227,7 +220,7 @@ enum PDFExportTests {
         var probeOptions = BookPDFOptions()
         probeOptions.mode = "document"
         probeOptions.title = "Formulas"
-        let probe = try BookPDFRenderer(entry: URL(fileURLWithPath: CommandLine.arguments[1]))
+        let probe = try BookPDFRenderer(entry: Bundle.main.url(forResource: "book", withExtension: "html", subdirectory: "Editor")!)
         _ = try await probe.prepare([chapter(formulas, in: docs, name: "math.md")], options: probeOptions)
         let styled = try await probe.webView.callAsyncJavaScript("return document.querySelectorAll('#source .katex-html [style]').length", in: nil, contentWorld: .page) as? Int ?? 0
         let paths = try await probe.webView.callAsyncJavaScript("return document.querySelectorAll('#source .katex-html svg path[d]').length", in: nil, contentWorld: .page) as? Int ?? 0
@@ -336,5 +329,13 @@ enum PDFExportTests {
             check(seconds < 120 && big.pageCount > 100, "a document with 120 diagrams is printed within two minutes", "\(seconds) s, \(big.pageCount) pages")
         }
         print("PDFs kept in \(output.path)")
+    }
+}
+
+final class PDFExportHostTests: XCTestCase {
+    @MainActor func testDocumentExportInWebKit() async throws {
+        try await PDFExportTests.run()
+        print("PDF export hosted checks: \(PDFExportTests.checks)")
+        XCTAssertEqual(PDFExportTests.failures, 0)
     }
 }

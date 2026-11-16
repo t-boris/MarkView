@@ -163,7 +163,7 @@ It does **not** own:
   on request (the report of a research map), `render(_:style:entry:allowFile:)` makes the PDF without a panel. The engine paginates page by
   page, so nothing is sliced: title page from the front matter, running head with the section, footer `n / N`, contents for a long document,
   bookmarks, links, Prism colours, KaTeX, Mermaid at its natural size; a picture is read only from the folders the document may use and a
-  picture that cannot be read becomes a note. Checks: `tools/tests/pdf-export-tests.sh`.
+  picture that cannot be read becomes a note. Checks: `MarkViewHostedTests/PDFExportHostTests.swift`.
 
 ### JavaScript globals (all classic scripts sharing one global scope)
 

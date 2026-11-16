@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 223,
+  "suiteCount": 222,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1832,25 +1832,6 @@
       ]
     },
     {
-      "name": "pdf-export-tests",
-      "script": "tools/tests/pdf-export-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Bridge/BookPDFRenderer.swift",
-        "MarkView/Bridge/DocumentFileSchemeHandler.swift",
-        "MarkView/Bridge/PDFExporter.swift",
-        "MarkView/Models/Book/BookPDFSource.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Workspace/DocumentFiles.swift",
-        "MarkView/Resources/Editor/book.html",
-        "tools/tests/PDFExportTests.swift",
-        "tools/tests/pdf-export-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift"
-      ]
-    },
-    {
       "name": "persistent-remote-session-tests",
       "script": "tools/tests/persistent-remote-session-tests.sh",
       "tier": "pure",
@@ -3091,7 +3072,14 @@
         "MarkView/Models/Workspace/TabsController.swift",
         "MarkView/Views/Book/PDFReaderView.swift",
         "MarkViewHostedTests/PDFReaderHostTests.swift",
-        "MarkViewHostedTests/BrowserFrameHostTests.swift"
+        "MarkViewHostedTests/BrowserFrameHostTests.swift",
+        "MarkView/Bridge/BookPDFRenderer.swift",
+        "MarkView/Bridge/DocumentFileSchemeHandler.swift",
+        "MarkView/Bridge/PDFExporter.swift",
+        "MarkView/Models/Book/BookPDFSource.swift",
+        "MarkView/Models/Workspace/DocumentFiles.swift",
+        "MarkView/Resources/Editor/book.html",
+        "MarkViewHostedTests/PDFExportHostTests.swift"
       ]
     },
     {
