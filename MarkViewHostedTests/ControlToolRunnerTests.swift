@@ -1,4 +1,5 @@
 import AppKit
+import MarkViewCore
 import XCTest
 @testable import MarkView
 
@@ -43,4 +44,20 @@ final class ControlToolRunnerTests: XCTestCase {
         let missing = await ControlToolRunner.run("markview_agents", ["window": "missing-window"], caller: caller)
         XCTAssertTrue(missing.isError)
     }
+    func testStaleSocketCleanupKeepsLiveAndUnrelatedFiles() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-stale-test-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let stale = folder.appendingPathComponent("mv-browser-2147483647.sock")
+        let token = URL(fileURLWithPath: PrivateSocket.tokenPath(forSocket: stale.path))
+        let live = folder.appendingPathComponent("mv-browser-\(ProcessInfo.processInfo.processIdentifier).sock")
+        let unrelated = folder.appendingPathComponent("another.sock")
+        for file in [stale, token, live, unrelated] { try Data().write(to: file) }
+        AgentToolServer.removeStaleSockets(near: live.path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stale.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: token.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: live.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unrelated.path))
+    }
+
 }

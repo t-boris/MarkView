@@ -65,7 +65,6 @@ enum AgentToolServer {
     // MARK: - Socket
 
     private static func listen(at path: String) -> Bool {
-        removeStaleSockets(near: path)
         let opened: PrivateSocket.Listener
         do {
             opened = try PrivateSocket.open(at: path)
@@ -86,6 +85,9 @@ enum AgentToolServer {
         }
         thread.name = "MarkView agent tools"
         thread.start()
+        // Enumerating a large temporary directory can take seconds. The current process's
+        // socket is already listening and is excluded from cleanup, so do this off the UI thread.
+        DispatchQueue.global(qos: .utility).async { removeStaleSockets(near: path) }
         return true
     }
 
@@ -97,7 +99,7 @@ enum AgentToolServer {
     }
 
     /// Sockets of MarkView processes that are gone (they are not removed on quit).
-    private static func removeStaleSockets(near path: String) {
+    nonisolated static func removeStaleSockets(near path: String) {
         let folder = (path as NSString).deletingLastPathComponent
         for name in (try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? [] {
             guard name.hasPrefix("mv-browser-"), name.hasSuffix(".sock"),
