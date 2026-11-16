@@ -1,6 +1,9 @@
 import SwiftUI
 import AppKit
 import QuartzCore
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The animated backdrop of the welcome screen as a SwiftUI view (REQ-002, REQ-003). It draws nothing itself: `BackdropBuilder` makes
 /// the layers and Core Animation moves them.
@@ -40,19 +43,18 @@ final class BackdropHostView: NSView {
     private var still = false
     private var detail = 1
     private(set) var builtSize = CGSize.zero
-    private var pendingRebuild: DispatchWorkItem?
+    private var pendingRebuild: Task<Void, Never>?
     /// How many times the layers were built: a SwiftUI update that changes nothing must not restart the animations.
     private(set) var buildCount = 0
-    private var reduceMotionObserver: NSObjectProtocol?
+    private let observers = NotificationObservers()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         layer = CALayer()
         wantsLayer = true
         layer?.masksToBounds = true
-        reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.rebuild()
+        observers.observe(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] _ in
+            MainActor.assumeIsolated { self?.rebuild() }
         }
     }
 
@@ -60,7 +62,6 @@ final class BackdropHostView: NSView {
 
     deinit {
         pendingRebuild?.cancel()
-        if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -97,10 +98,12 @@ final class BackdropHostView: NSView {
             return
         }
         pendingRebuild?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.rebuild() }
-        pendingRebuild = work
         // task: kept as pendingRebuild and cancelled by the next resize
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+        pendingRebuild = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: 150_000_000) } catch { return }
+            guard !Task.isCancelled else { return }
+            self?.rebuild()
+        }
     }
 
     /// Animations stop when a view leaves its window; a build starts them again.

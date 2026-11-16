@@ -146,6 +146,8 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+The welcome backdrop uses an owned notification observer and a cancellable main-actor resize task. The full welcome-screen GUI suite passed, including resize and reduced-motion checks; Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `WelcomeBackdropView.swift` (four before).
+
 A fresh clean complete-checking build on 6.30.58 succeeded with 75 distinct Swift warning lines in 32 files, down from 99 in 42 in the preceding clean audit and 232 in 77 initially. The zero-warning acceptance remains open.
 
 The parallel architecture scanner uses lock-owned Sendable document and complexity results instead of unsafe buffers. An app-hosted test scanned 32 source files and 32 documents and checked every result; all 13 hosted tests, all three changed-file suites, Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `ArchitectureScanner.swift` (four before).
