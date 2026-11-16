@@ -155,75 +155,80 @@ struct EditorView: NSViewRepresentable {
             super.init()
             bridge.delegate = self
 
-            // Listen for PDF export requests
+            // NotificationCenter delivers these callbacks on the main queue. Extract value data before
+            // entering the main actor; no Notification or mutable userInfo crosses the boundary.
             pdfExportObserver = NotificationCenter.default.addObserver(
-                forName: .performPDFExport,
-                object: nil, queue: .main
+                forName: .performPDFExport, object: nil, queue: .main
             ) { [weak self] notification in
-                guard let self, self.parent.window.map({ notification.isFor($0) }) == true else { return }
+                let scope = notification.userInfo?[Notification.workspaceKey] as? ObjectIdentifier
                 let fileName = notification.object as? String ?? "document.pdf"
-                self.exportPDF(fileName: fileName)
+                MainActor.assumeIsolated {
+                    guard let self, self.parent.window.map({ scope == ObjectIdentifier($0) }) == true else { return }
+                    self.exportPDF(fileName: fileName)
+                }
             }
 
-            // Listen for TOC scroll-to-heading requests
             scrollToHeadingObserver = NotificationCenter.default.addObserver(
-                forName: .scrollToHeading,
-                object: nil, queue: .main
+                forName: .scrollToHeading, object: nil, queue: .main
             ) { [weak self] notification in
-                guard let self, self.parent.window.map({ notification.isFor($0) }) == true else { return }
-                if let headingId = notification.object as? String {
-                    self.scrollToHeading(headingId)
+                let scope = notification.userInfo?[Notification.workspaceKey] as? ObjectIdentifier
+                let headingID = notification.object as? String
+                MainActor.assumeIsolated {
+                    guard let self, self.parent.window.map({ scope == ObjectIdentifier($0) }) == true,
+                          let headingID else { return }
+                    self.scrollToHeading(headingID)
                 }
             }
 
-            // Reveal a line in the code viewer (e.g. a `file.swift#L42` link).
-            NotificationCenter.default.addObserver(
-                forName: .revealCodeLine,
-                object: nil, queue: .main
-            ) { [weak self] notification in
-                guard let self, self.parent.window.map({ notification.isFor($0) }) == true,
-                      let url = notification.userInfo?["url"] as? URL,
-                      let line = notification.userInfo?["line"] as? Int else { return }
-                self.pendingCodeReveal = (url.standardizedFileURL, line, notification.userInfo?["endLine"] as? Int)
-                self.applyPendingCodeReveal()
-            }
-
-            // A key picked in the Contents panel: its node in the tree viewer (or its line in the source).
-            NotificationCenter.default.addObserver(
-                forName: .revealStructure,
-                object: nil, queue: .main
-            ) { [weak self] notification in
-                guard let self, self.parent.window.map({ notification.isFor($0) }) == true, let webView = self.webView,
-                      let url = (notification.userInfo?["url"] as? URL)?.standardizedFileURL, url == self.currentLineRevealURL,
-                      let path = notification.userInfo?["path"] as? String,
-                      let line = notification.userInfo?["line"] as? Int else { return }
-                MainActor.assumeIsolated { self.bridge.revealStructure(pathJSON: path, line: line, in: webView) }
-            }
-
-            // Navigation results and AI answers for the file in the code viewer.
-            NotificationCenter.default.addObserver(
-                forName: .codeNavEvent,
-                object: nil, queue: .main
-            ) { [weak self] notification in
-                // Delivered on the main queue, where the window's models live.
-                guard let self,
-                      MainActor.assumeIsolated({ notification.object as AnyObject? === self.parent.codeXRay.codeNav }),
-                      let webView = self.webView,
-                      let url = notification.userInfo?["url"] as? URL, url == self.currentCodeURL,
-                      let json = notification.userInfo?["json"] as? String else { return }
-                MainActor.assumeIsolated { self.bridge.sendCodeNavEvent(json, in: webView) }
-            }
-
-            // Listen for scroll-to-text requests (from Semantic Panel)
-            NotificationCenter.default.addObserver(
-                forName: .scrollToText,
-                object: nil, queue: .main
-            ) { [weak self] notification in
-                guard let self, self.parent.window.map({ notification.isFor($0) }) == true else { return }
-                if let text = notification.object as? String {
-                    self.scrollToText(text, heading: notification.userInfo?["heading"] as? Bool ?? false)
+            NotificationCenter.default.addObserver(forName: .revealCodeLine, object: nil, queue: .main) { [weak self] notification in
+                let scope = notification.userInfo?[Notification.workspaceKey] as? ObjectIdentifier
+                let url = notification.userInfo?["url"] as? URL
+                let line = notification.userInfo?["line"] as? Int
+                let endLine = notification.userInfo?["endLine"] as? Int
+                MainActor.assumeIsolated {
+                    guard let self, self.parent.window.map({ scope == ObjectIdentifier($0) }) == true,
+                          let url, let line else { return }
+                    self.pendingCodeReveal = (url.standardizedFileURL, line, endLine)
+                    self.applyPendingCodeReveal()
                 }
             }
+
+            NotificationCenter.default.addObserver(forName: .revealStructure, object: nil, queue: .main) { [weak self] notification in
+                let scope = notification.userInfo?[Notification.workspaceKey] as? ObjectIdentifier
+                let url = (notification.userInfo?["url"] as? URL)?.standardizedFileURL
+                let path = notification.userInfo?["path"] as? String
+                let line = notification.userInfo?["line"] as? Int
+                MainActor.assumeIsolated {
+                    guard let self, self.parent.window.map({ scope == ObjectIdentifier($0) }) == true,
+                          let webView = self.webView, let url, url == self.currentLineRevealURL,
+                          let path, let line else { return }
+                    self.bridge.revealStructure(pathJSON: path, line: line, in: webView)
+                }
+            }
+
+            NotificationCenter.default.addObserver(forName: .codeNavEvent, object: nil, queue: .main) { [weak self] notification in
+                let source = notification.object.map { ObjectIdentifier($0 as AnyObject) }
+                let url = notification.userInfo?["url"] as? URL
+                let json = notification.userInfo?["json"] as? String
+                MainActor.assumeIsolated {
+                    guard let self, source == ObjectIdentifier(self.parent.codeXRay.codeNav),
+                          let webView = self.webView, let url, url == self.currentCodeURL,
+                          let json else { return }
+                    self.bridge.sendCodeNavEvent(json, in: webView)
+                }
+            }
+
+            NotificationCenter.default.addObserver(forName: .scrollToText, object: nil, queue: .main) { [weak self] notification in
+                let scope = notification.userInfo?[Notification.workspaceKey] as? ObjectIdentifier
+                let text = notification.object as? String
+                let heading = notification.userInfo?["heading"] as? Bool ?? false
+                MainActor.assumeIsolated {
+                    guard let self, self.parent.window.map({ scope == ObjectIdentifier($0) }) == true,
+                          let text else { return }
+                    self.scrollToText(text, heading: heading)
+                }
+            }
+
         }
 
         deinit {

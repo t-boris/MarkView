@@ -43,5 +43,22 @@ final class EditorHostTests: XCTestCase {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         XCTAssertEqual(rendered, text, "The real editor receives the opened document through its scoped dependencies")
+        let webView = try XCTUnwrap(findWebView(hosting))
+        _ = try await webView.callAsyncJavaScript(
+            "window.__observedHeading = ''; window.scrollToHeading = value => { window.__observedHeading = value; };",
+            arguments: [:], in: nil, contentWorld: .page)
+        let other = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: folder.appendingPathComponent("other-recent.json"))
+        defer { other.windowWillClose() }
+        NotificationCenter.default.post(.scrollToHeading, for: other, object: "wrong-window")
+        try await Task.sleep(nanoseconds: 100_000_000)
+        var heading = try await webView.callAsyncJavaScript("return window.__observedHeading;", arguments: [:], in: nil, contentWorld: .page) as? String
+        XCTAssertEqual(heading, "", "A notification for another window must not reach this editor")
+        NotificationCenter.default.post(.scrollToHeading, for: workspace, object: "right-window")
+        for _ in 0..<50 {
+            heading = try await webView.callAsyncJavaScript("return window.__observedHeading;", arguments: [:], in: nil, contentWorld: .page) as? String
+            if heading == "right-window" { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(heading, "right-window", "The window's own notification reaches its editor")
     }
 }
