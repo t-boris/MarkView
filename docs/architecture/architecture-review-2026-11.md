@@ -144,6 +144,8 @@ Status (2026-11-15): partial. `WindowComposition` is the composition root (`Work
 
 Fix: a typed settings observable for the assistant choice, seeds written at window close, one `ProjectRegistry` keyed by root for per-project services, knobs as init parameters, a `DefaultsKey<T>` registry.
 
+Status (2026-11-15): partial. Direct `UserDefaults.standard` expressions 82 -> 0 and `didChangeNotification` observers 4 -> 0 outside `Settings.swift` (lints `settings-literal` and `settings-observer` pass); 70 `Setting` keys in `Packages/MarkViewCore` are read through `Settings`, `@AppStorage(key)` or `@WindowStorage`; 10 types still take a `UserDefaults` parameter that defaults to `.standard`. Not re-counted: the mutable statics, per-project registries and test knobs in production types (a rough count of stored `static var` gives 45 -> 43).
+
 ### AR-19 Tasks and timers are not owned (medium, S-M)
 
 `WorkspaceManager` has about 60 task sites (12 detached) and two stored handles; app-wide there are 356 statement-level `Task { }` against 80 stored task properties, and 238 `Task.detached`. Most work cannot be cancelled when a folder or window closes. Nine timers and many sleep loops never pause: there is no observer for app deactivation or window occlusion anywhere. `MarkViewApp.swift:244` starts a 1 s timer on every window appearance and never invalidates it (recorded, still true); a 2 s timer stats every open tab (`WorkspaceManager.swift:5455`).
