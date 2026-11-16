@@ -146,6 +146,8 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+Project Operations notification routing uses the SDK async callback and passes only Sendable routing values to the main actor; singleton access is main-actor isolated. The app-hosted test verified the system callback selector and both payload routes; all 14 hosted tests, the store suite, Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `ProjectOperationsStore.swift` (four before). A real notification click was not exercised.
+
 Project Operations file edit closures are explicitly Sendable before background execution. All three changed-file suites, including ordered writes, Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `ProjectOperationWrites.swift` (one before); four unrelated notification-router warnings remain in `ProjectOperationsStore.swift`.
 
 The welcome backdrop uses an owned notification observer and a cancellable main-actor resize task. The full welcome-screen GUI suite passed, including resize and reduced-motion checks; Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `WelcomeBackdropView.swift` (four before).

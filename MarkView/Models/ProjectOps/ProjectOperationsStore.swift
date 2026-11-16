@@ -669,8 +669,22 @@ final class ProjectOperationsStore: ObservableObject {
     }
 }
 
-private final class ProjectOperationNotificationRouter: NSObject, UNUserNotificationCenterDelegate {
-    static let shared = ProjectOperationNotificationRouter()
+final class ProjectOperationNotificationRouter: NSObject, UNUserNotificationCenterDelegate {
+    @MainActor static let shared = ProjectOperationNotificationRouter()
+
+    enum Destination: Equatable, Sendable {
+        case cockpit(root: String?, runID: String?)
+        case operation(root: String, id: String)
+    }
+
+    static func destination(for info: [AnyHashable: Any]) -> Destination? {
+        if info["cockpitRoot"] != nil {
+            return .cockpit(root: info["cockpitRoot"] as? String, runID: info["cockpitRunID"] as? String)
+        }
+        guard let root = info["projectOperationRoot"] as? String,
+              let id = info["projectOperationID"] as? String else { return nil }
+        return .operation(root: root, id: id)
+    }
 
     /// A Cockpit notice is sent when the person is not looking at the run, which can include another window of this app.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
@@ -678,31 +692,27 @@ private final class ProjectOperationNotificationRouter: NSObject, UNUserNotifica
         completionHandler(notification.request.content.userInfo["cockpitRoot"] != nil ? [.banner, .sound] : [])
     }
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                didReceive response: UNNotificationResponse,
-                                withCompletionHandler completionHandler: @escaping () -> Void) {
-        let info = response.notification.request.content.userInfo
-        if info["cockpitRoot"] != nil {
-            Task { @MainActor in
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        guard let destination = Self.destination(for: response.notification.request.content.userInfo) else { return }
+        switch destination {
+        case .cockpit(let root, let runID):
+            await MainActor.run {
                 NSApp.activate(ignoringOtherApps: true)
-                NotificationCenter.default.post(name: .cockpitNoticeOpened, object: nil, userInfo: info)
-                completionHandler()
+                var userInfo: [String: String] = [:]
+                userInfo["cockpitRoot"] = root
+                userInfo["cockpitRunID"] = runID
+                NotificationCenter.default.post(name: .cockpitNoticeOpened, object: nil, userInfo: userInfo)
             }
-            return
-        }
-        guard let root = info["projectOperationRoot"] as? String,
-              let id = info["projectOperationID"] as? String else {
-            completionHandler(); return
-        }
-        Task { @MainActor in
-            NSApp.activate(ignoringOtherApps: true)
-            if let store = ProjectOperationsStore.existing(rootPath: root) {
-                if let run = store.runs[id] {
-                    run.presenter?.operationsHostWindow?.makeKeyAndOrderFront(nil)
-                    store.openPanel(id: id, presenter: run.presenter)
+        case .operation(let root, let id):
+            await MainActor.run {
+                NSApp.activate(ignoringOtherApps: true)
+                if let store = ProjectOperationsStore.existing(rootPath: root) {
+                    if let run = store.runs[id] {
+                        run.presenter?.operationsHostWindow?.makeKeyAndOrderFront(nil)
+                        store.openPanel(id: id, presenter: run.presenter)
+                    }
                 }
             }
-            completionHandler()
         }
     }
 }

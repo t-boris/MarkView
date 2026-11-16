@@ -8,6 +8,17 @@ import XCTest
 
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
+    func testNotificationRouterExposesResponseCallback() {
+        let router = ProjectOperationNotificationRouter()
+        let selector = NSSelectorFromString("userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:")
+        XCTAssertTrue(router.responds(to: selector), "UserNotifications must be able to call the response handler")
+        XCTAssertEqual(ProjectOperationNotificationRouter.destination(for: ["cockpitRoot": "/project", "cockpitRunID": "run"]),
+                       .cockpit(root: "/project", runID: "run"))
+        XCTAssertEqual(ProjectOperationNotificationRouter.destination(for: ["projectOperationRoot": "/project", "projectOperationID": "build"]),
+                       .operation(root: "/project", id: "build"))
+        XCTAssertNil(ProjectOperationNotificationRouter.destination(for: ["projectOperationRoot": "/project"]))
+    }
+
     func testParallelSearchScoresAllReadableFiles() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-search-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
