@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// The model a running Claude Code session uses now, read from the session's own log (the lines
 /// `AgentActivityLog.tail` returns). The agent's title and the remembered model follow it: the user
@@ -70,16 +71,17 @@ enum ClaudeSessionModel {
         return family(of: String(text[range.upperBound...].prefix(60)))
     }
 
-    private static let fractional: ISO8601DateFormatter = {
+    // The formatters stay behind their locks and never escape; concurrent log readers may share them safely.
+    private static let fractional: OSAllocatedUnfairLock<ISO8601DateFormatter> = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
+        return OSAllocatedUnfairLock(uncheckedState: formatter)
     }()
-    private static let plain = ISO8601DateFormatter()
+    private static let plain = OSAllocatedUnfairLock(uncheckedState: ISO8601DateFormatter())
 
     private static func timestamp(_ object: [String: Any]) -> Date? {
         guard let text = object["timestamp"] as? String else { return nil }
-        return fractional.date(from: text) ?? plain.date(from: text)
+        return fractional.withLock { $0.date(from: text) } ?? plain.withLock { $0.date(from: text) }
     }
 
     /// `title` with its model part ("Claude Code · fable") replaced by `model`; a title without one

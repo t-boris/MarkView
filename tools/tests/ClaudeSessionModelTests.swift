@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // The model a running Claude Code session uses, read from its log lines.
 var failures = 0
@@ -82,6 +83,17 @@ check("a line without a time is skipped",
 check("a time without fractions is read",
       ClaudeSessionModel.reading(lines: [line(["type": "assistant", "timestamp": stamp(3, fractional: false),
                                                "message": ["model": "claude-opus-5-5"]])])?.date == start.addingTimeInterval(3))
+
+// Concurrent readers share the two timestamp parsers without changing their results.
+let concurrentLines = [reply("claude-opus-5-5", at: 1), line(["type": "assistant", "timestamp": stamp(3, fractional: false),
+                                                               "message": ["model": "claude-sonnet-5-5"]])]
+let expectedConcurrentDate = start.addingTimeInterval(3)
+let concurrentErrors = OSAllocatedUnfairLock(initialState: 0)
+DispatchQueue.concurrentPerform(iterations: 200) { _ in
+    let result = ClaudeSessionModel.reading(lines: concurrentLines)
+    if result?.model != "sonnet" || result?.date != expectedConcurrentDate { concurrentErrors.withLock { $0 += 1 } }
+}
+check("concurrent readers parse fractional and plain timestamps consistently", concurrentErrors.withLock { $0 } == 0)
 
 // Titles.
 check("title: the model part is replaced", ClaudeSessionModel.title("Claude Code · fable", model: "sonnet") == "Claude Code · sonnet")
