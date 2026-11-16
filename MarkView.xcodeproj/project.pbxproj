@@ -20,6 +20,7 @@
 		01833EC335A594FF5C294559 /* UIStudioTrackingLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF8D0D924530B8C94483B11 /* UIStudioTrackingLine.swift */; };
 		02044E5B00D534734886BB62 /* IssueGitHubSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC7E31914169E263C7E43C35 /* IssueGitHubSync.swift */; };
 		026ACF09E6ABAA2B642614D3 /* ArchiveSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727733DA44ECA2B9BBAD30E /* ArchiveSupport.swift */; };
+		9EF2792990CDBF023DF8BF5A /* ArchiveModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 118950A2E23855D420E6F93E /* ArchiveModel.swift */; };
 		03CC33F577463F4CDCCA922A /* QARunAssistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = B51DE8014E6E4B9D5269BD52 /* QARunAssistant.swift */; };
 		03D87B6042D0A0AEFBCB5C2C /* CockpitRunList.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF341DD17D4509302202B99E /* CockpitRunList.swift */; };
 		04DF637E19889A6C91B6A0D4 /* UIStudioReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 677FA91946060D4B98EF58AE /* UIStudioReview.swift */; };
@@ -925,6 +926,7 @@
 		96429CBA553AACC7995D6F5E /* DeploymentAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentAgentTools.swift; sourceTree = "<group>"; };
 		96A769BF1AF0740BC8A28F30 /* WebAppPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAppPreview.swift; sourceTree = "<group>"; };
 		9727733DA44ECA2B9BBAD30E /* ArchiveSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveSupport.swift; sourceTree = "<group>"; };
+		118950A2E23855D420E6F93E /* ArchiveModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveModel.swift; sourceTree = "<group>"; };
 		97EBFDF3C6E387DF3E3B4B1E /* CockpitRunTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitRunTimeline.swift; sourceTree = "<group>"; };
 		9845BC21274AB0C15237A10A /* DeploymentDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentDiscovery.swift; sourceTree = "<group>"; };
 		988AFD95FBA47411ED7C0508 /* SharedSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedSearchView.swift; sourceTree = "<group>"; };
@@ -1771,6 +1773,7 @@
 			isa = PBXGroup;
 			children = (
 				9727733DA44ECA2B9BBAD30E /* ArchiveSupport.swift */,
+				118950A2E23855D420E6F93E /* ArchiveModel.swift */,
 				659CD2D529EC42B2A426EAAC /* DocumentFiles.swift */,
 				A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */,
 				E7E3D6A8144A620B1B335381 /* DocumentState.swift */,
@@ -2568,6 +2571,7 @@
 				3F05808A1EC2557CCFC1A3A0 /* XRayCommand.swift in Sources */,
 				19D506E600C91FF4D84FFA92 /* CodeAndXRayCoordinator.swift in Sources */,
 				026ACF09E6ABAA2B642614D3 /* ArchiveSupport.swift in Sources */,
+				9EF2792990CDBF023DF8BF5A /* ArchiveModel.swift in Sources */,
 				776B4CCD3D7E382170DA54D9 /* ArchiveTabView.swift in Sources */,
 				633818C4C0B55262B8E03D5D /* AutoAnalysisScheduler.swift in Sources */,
 				B18E28636FC66D02115209D4 /* BackdropLayerBuilders.swift in Sources */,
