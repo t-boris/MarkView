@@ -421,6 +421,8 @@ Status (2026-11-15): partial. `SchemaVersionedStore` users 1 -> 14 files (17 sit
 
 Fix: make it an `actor` with one serial connection; callers already tolerate async.
 
+Status (2026-11-15): done by reading. `SemanticDatabase` is an `actor` (lint `semantic-database-actor` passes) and the file is opened and migrated off the caller's thread; `busy_timeout` stays at 5000 ms. Not checked: three other files call `sqlite3_` (`AgentActivity`, `ProjectOperationsStore`, `ProjectSearch`) and their isolation was not re-read; no `sample` trace was taken.
+
 ### AR-38 The migration strategy is "delete the database" (medium, M)
 
 `SemanticDatabase.swift:44-59` removes the database files when `user_version` is below 1 and then sets it to 1 unconditionally; the `applied_migrations` table is created and never used. X-Ray groupings live in this file, so a version bump discards them. A fallback path keys the database by the folder's last path component, so two folders with the same name share one.
