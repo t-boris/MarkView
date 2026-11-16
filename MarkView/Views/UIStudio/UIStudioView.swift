@@ -11,8 +11,7 @@ import MarkViewCore
 struct UIStudioView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
-    /// The tab's one declaration: opening a file at a line is a window command only the manager offers; the panels get it as a closure.
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @Environment(\.windowCommands) private var window
     @WindowStorage(Setting.uiStudioInspectorWidth) private var inspectorWidth: Double
     @State private var dragStartWidth: Double?
     @State private var panel: Panel = .element
@@ -472,10 +471,10 @@ struct UIStudioView: View {
             Divider().background(palette.border)
             switch panel {
             case .element: elementPanel
-            case .history: UIStudioHistoryPanel(session: session, openFile: { workspaceManager.openFile($0) }) { panel = .evidence }
+            case .history: UIStudioHistoryPanel(session: session, openFile: { window?.openFile($0) }) { panel = .evidence }
             case .scenarios: UIStudioScenariosPanel(session: session)
             case .environment: UIStudioEnvironmentPanel(session: session, queue: session.preparation)
-            case .evidence: UIStudioEvidencePanel(session: session, flow: workspaceManager.flow)
+            case .evidence: UIStudioEvidencePanel(session: session)
             }
         }
         .background(palette.bgSidebar)
@@ -580,7 +579,7 @@ struct UIStudioView: View {
 
     private func turn(_ operation: StudioOperation) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            UIStudioOperationRow(session: session, operation: operation, compact: true, openFile: { workspaceManager.openFile($0) }) { panel = .evidence }
+            UIStudioOperationRow(session: session, operation: operation, compact: true, openFile: { window?.openFile($0) }) { panel = .evidence }
             if operation.status == .clarification { clarification(operation) }
         }
         .padding(8)
@@ -628,7 +627,7 @@ struct UIStudioView: View {
             FactRows(rows: selectionRows(selection))
             if let path = selection.sourcePath {
                 Button {
-                    workspaceManager.openFile(session.root.appendingPathComponent(path), line: selection.line)
+                    window?.openFile(session.root.appendingPathComponent(path), line: selection.line)
                 } label: {
                     Label("Open \(path)\(selection.line.map { ":\($0)" } ?? "")", systemImage: "doc.text")
                 }
@@ -1681,7 +1680,7 @@ struct UIStudioMapSection: View {
 struct UIStudioEvidencePanel: View {
     @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
-    let flow: FeatureFlowCoordinator
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
     @State private var chosen: [String] = []
     @State private var showDifference = false
     @State private var title = ""

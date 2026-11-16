@@ -11,9 +11,11 @@ import MarkViewCore
 struct PrototypeStudioView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var session: PrototypeSession
-    /// The one declaration the tab keeps: opening UI Studio (`openTool`) and a source file (`openFile`) are window commands only the
-    /// manager offers; the hand-off sheet below gets its parts (terminals, flow, project) from it instead of declaring its own.
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @Environment(\.windowCommands) private var window
+    /// The window's terminals (the hand-off sheet sends its brief to one) and browser ("Open in browser"); the window does not publish
+    /// them, so the tab that shows this view hands them over.
+    let terminals: AITerminalsController
+    let browser: BrowserHost
     @State private var draft = ""
     @WindowStorage(Setting.prototypeChatWidth) private var chatWidth: Double
     /// What Point sends about the element: its HTML, or its HTML and a screenshot of it.
@@ -150,7 +152,7 @@ struct PrototypeStudioView: View {
             .help("Click an element in the preview to say what should change about it")
             if session.manifest.mode == .code {
                 // Existing code is no longer reconstructed again: the current interface opens in UI Studio (DEC-005).
-                Button { workspaceManager.openTool(.uiStudio) } label: {
+                Button { window?.openTool(.uiStudio) } label: {
                     Label("Sync from code", systemImage: "macwindow.and.cursorarrow")
                 }
                 .controlSize(.small).fixedSize()
@@ -192,7 +194,7 @@ struct PrototypeStudioView: View {
             }
             .controlSize(.small).fixedSize()
             .help("Copy \(PrototypeReference.string(slug: session.slug)) — for an AI agent with access to this project; always resolves to the latest saved version")
-            Button { workspaceManager.browser.openHTML(session.siteIndex) } label: {
+            Button { browser.openHTML(session.siteIndex) } label: {
                 Image(systemName: "globe")
             }
             .buttonStyle(.plain).foregroundColor(palette.textDim).disabled(!session.hasSite)
@@ -321,8 +323,7 @@ struct PrototypeStudioView: View {
         Group {
             if let handoff = session.handoff {
                 if let run = session.handoffRun {
-                    PrototypeHandoffDraftView(run: run, terminals: workspaceManager.terminals, flow: workspaceManager.flow,
-                                              project: workspaceManager.project) { session.handoff = nil }
+                    PrototypeHandoffDraftView(run: run, terminals: terminals) { session.handoff = nil }
                 } else {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Hand off to code").uiFont(size: 15, weight: .semibold).foregroundColor(palette.text)
@@ -481,7 +482,7 @@ struct PrototypeStudioView: View {
     private func componentActions(_ path: String) -> some View {
         HStack(spacing: 8) {
             Button("Open source") {
-                if let url = session.sourceURL(of: path) { workspaceManager.openFile(url, line: nil) }
+                if let url = session.sourceURL(of: path) { window?.openFile(url, line: nil) }
             }
             .disabled(session.sourceURL(of: path) == nil)
             .help(session.sourceURL(of: path) == nil ? "\(path) is not in the project any more" : "Open \(path) in an editor tab")

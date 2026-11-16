@@ -2,8 +2,6 @@
 # that only falls. Run tools/lint/architecture-lint.sh --tighten after narrowing a view's dependency.
 1 MarkView/Views/Deployments/DeploymentsView.swift
 1 MarkView/Views/ProjectOps/ProjectOperationsView.swift
-1 MarkView/Views/Prototype/PrototypeStudioView.swift
-1 MarkView/Views/UIStudio/UIStudioView.swift
 1 MarkView/Views/Workspace/EditorView.swift
 1 MarkView/Views/Workspace/FileTreeView.swift
 1 MarkView/Views/Workspace/SharedSearchView.swift

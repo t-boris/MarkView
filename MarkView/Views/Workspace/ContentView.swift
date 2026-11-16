@@ -755,8 +755,7 @@ private struct WorkspaceWindow: View {
                             .environmentObject(workspaceManager)
                             .id(activeTab.id)
                     } else if case .prototype(let session) = activeTab.kind {
-                        PrototypeStudioView(session: session)
-                            .environmentObject(workspaceManager)
+                        PrototypeStudioView(session: session, terminals: workspaceManager.terminals, browser: workspaceManager.browser)
                             .id(activeTab.id)
                     } else if case .github(let item) = activeTab.kind {
                         GitHubTabView(item: item)

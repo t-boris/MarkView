@@ -7,11 +7,11 @@ import AppKit
 struct PrototypeHandoffDraftView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var run: PrototypeHandoffRun
-    /// The parts of the window the sheet uses: the terminals for "Send to the agent", the feature flow that gets the feature it creates, and
-    /// the project whose assistant is offered.
+    /// The terminals for "Send to the agent": the tab hands them over, the window does not publish them. The feature flow that gets the
+    /// feature it creates and the project whose assistant is offered come from the window.
     let terminals: AITerminalsController
-    let flow: FeatureFlowCoordinator
-    let project: ProjectContext
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
+    @EnvironmentObject private var project: ProjectContext
     let onClose: () -> Void
 
     private enum Tab: String, CaseIterable, Identifiable {
