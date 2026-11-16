@@ -1,11 +1,13 @@
 # Feature and Bug Workflow (Intake, Feature Specs on Disk)
 
+Status (2026-11-15): every path and symbol in this doc was looked up mechanically in the code at `ac3001ba`; line citations were removed (they drift). Re-read against the code for this edit: where the intake, implement and lifecycle wiring lives now (`FeatureFlowCoordinator`, `WindowRequests`, `NewProjectSheet`) and the removed `importance-check.sh`. The rest keeps its earlier narrative and was not re-read.
+
 This module turns loose descriptions into specifications stored as Markdown in the
 repository. A feature is a folder `docs/features/<slug>/` holding an overview plus one file
 per requirement, question, decision, finding, research note and source. A bug is one file
 `docs/bugs/BUG-nnn-<slug>.md`. AI calls go through the user's Claude Code or Codex CLI, with
 JSON-schema answers. The app parses each answer and writes the parts it keeps back to those
-files. Everything the UI shows is read back from disk (`MarkView/Models/Lifecycle/FeatureModels.swift:3-6`).
+files. Everything the UI shows is read back from disk (`MarkView/Models/Lifecycle/FeatureModels.swift`).
 
 Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 [editor-and-bridge](editor-and-bridge.md), [ai-assistants-and-dictation](ai-assistants-and-dictation.md),
@@ -26,7 +28,7 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
   - readiness conditions and score
   - traceability graph (incoming, outgoing, impact)
   - cleanup candidates
-  (`FeatureModels.swift:260-436`)
+  (`FeatureModels.swift`)
 - The AI facilitator (`FeatureAssistant`):
   - guided discovery (Explore)
   - answer → decision → requirements
@@ -36,7 +38,7 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
   (`FeatureAI.swift`)
 - Adding sources: files, PDFs, audio, URLs, GitHub issues, notes, voice notes. The AI extracts candidate facts from each (`FeatureIngest.swift`).
 - The four intake flows: New Feature, New Bug, I Need to Understand, New Research. Also bug investigation with question rounds (`FeatureIntake.swift`). New Research runs as a background job of its own (§5.9).
-- Automatic lifecycle event capture for features: status and readiness transitions, git commits and GitHub captures (`FeatureStore.swift:558-728`).
+- Automatic lifecycle event capture for features: status and readiness transitions, git commits and GitHub captures (`FeatureStore.swift`).
 - UI:
   - left panel Issues list and feature navigator
   - intake sheet
@@ -49,10 +51,10 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 - Running the CLI, parsing its output and usage accounting: `CLICompletion` ([ai-assistants-and-dictation](ai-assistants-and-dictation.md)).
 - The YAML subset parser and writer: `MarkView/Models/Workspace/FrontMatter.swift`. This module consumes it.
 - GitHub API calls (`GitHubClient`, `GitHubStore`), git execution, the lifecycle event log file (`LifecycleLog`), lifecycle analytics and the lifecycle views ([git-github-terminal-lifecycle-usage](git-github-terminal-lifecycle-usage.md)).
-- Handing a spec or bug to the Terminal assistant (`WorkspaceManager.implementWithAI` / `fixBugWithAI`, `WorkspaceManager.swift:3264-3284`).
-- The "I Need to Understand" answer. It is delegated to the X-Ray temporary filter (`WorkspaceManager.swift:3241-3246`, [architecture-and-xray](architecture-and-xray.md)).
+- Handing a spec or bug to the Terminal assistant (`FeatureFlowCoordinator.implementWithAI` / `fixBugWithAI`, `Models/Lifecycle/FeatureFlowCoordinator.swift`).
+- The "I Need to Understand" answer. It is delegated to the X-Ray temporary filter (`CodeAndXRayCoordinator.swift`, [architecture-and-xray](architecture-and-xray.md)).
 - Whisper transcription and dictation (`WhisperClient`, `DictationController`).
-- `ImportanceRater` (`MarkView/Models/Architecture/ImportanceRater.swift`) and `tools/importance-check.sh`. They are listed here on request, but belong to the X-Ray / Architecture filters: the callers are `ArchitectureStore.swift:1231,1313,1691`, `CodeExplainer.swift:285` and `WorkspaceManager.swift:850,857`. See section 3.6.
+- `ImportanceRater` (`MarkView/Models/Architecture/ImportanceRater.swift`). It is listed here on request, but belongs to the X-Ray / Architecture filters: the callers are `ArchitectureStore.swift`, `CodeExplainer.swift` and `CodeAndXRayCoordinator.swift`. See section 3.6. (Its live-CLI check script `tools/importance-check.sh` was removed in 6.26.0.)
 
 ---
 
@@ -71,8 +73,7 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 | `MarkView/Models/Lifecycle/IssueSyncRun.swift` | `IssueSyncRun` (`@MainActor`, owned by `FeatureStore.issueSync`): preflight, per-issue lookup and close; `IssueSyncLoader` reads items from disk off the main thread |
 | `MarkView/Views/Lifecycle/IssueSyncViews.swift` | `IssueSyncButton` and `IssueSyncReportView` in the Issues list header |
 | `MarkView/Views/Lifecycle/FeaturePanelView.swift` | `FeatureStage`, `FeaturePanelView` and the stage views: `ExploreStageView`, `ReviewStageView` (with `BeforeBuildSection`), `BuildStageView`. Also the question, bug, source, finding and plan cards, `ObjectContextView` (trace, impact, history), `FeatureCleanupSheet`, `FlowLayout` |
-| `MarkView/Models/Workspace/FrontMatter.swift` | (dependency) Ordered YAML subset; `isLossless` guards rewrites (`FrontMatter.swift:52-54,83-96`) |
-| `tools/importance-check.sh` | Live-CLI check of `ImportanceRater` against `Tests/Fixtures/importance` (currently broken, see 10) |
+| `MarkView/Models/Workspace/FrontMatter.swift` | (dependency) Ordered YAML subset; `isLossless` guards rewrites (`FrontMatter.swift`) |
 | `docs/features/*/`, `docs/bugs/*.md` | Real files produced by this module (examples in section 6) |
 
 ---
@@ -81,7 +82,7 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 
 ### 3.1 Value model (`FeatureModels.swift`)
 
-- **`FeatureObjectKind`** (`:9-61`) maps each kind to its ID prefix and folder:
+- **`FeatureObjectKind`** maps each kind to its ID prefix and folder:
 
   | kind | prefix | folder |
   |---|---|---|
@@ -93,63 +94,62 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
   | source | `SRC` | `references/` |
 
   `of(id:)` finds the kind from the prefix before the first `-`.
-- **`FeatureVocabulary`** (`:64-95`) holds every enum stored in front matter, in lower case (tables in section 6.3).
-- **`FeatureObject`** (`:98-187`) holds `kind`, `id`, `url`, `front`, `body`.
-  - `title`: front matter `title`, else the first non-empty body line (`:108-117`).
-  - `links`: pairs from the link keys `depends_on, decisions, sources, blocking, resolved_by, produces, requirements, questions, related, supersedes, refs` (`:122-128`).
-  - `acceptanceCriteria`: `- [ ]` / `- [x]` lines under any heading that contains "acceptance criteria" (`:131-147`).
-  - `section(_:)`: the text of a `## ` section (`:150-162`).
-  - `isBlocking` (`:165-167`) and `isClosed` (`:169-177`).
-  - `load` takes `id` from front matter, falling back to the file name (`:181-186`).
-- **`PlannedIssue`** (`:190-221`) is one entry of `implementation/plan.md`: `I-n`, title, summary, requirements, decisions, and `github` once the issue is filed.
-- **`Feature`** (`:224-479`):
-  - `isStructured`: `overview.md` exists. Hand-written feature folders without one are still listed, and their `.md` files are shown as `documents` (`:233-237,446-452`).
-  - `status` defaults to `idea` when the folder is structured, else `draft` (`:252`).
-  - Understanding: `understanding`, `openDimensions`, `isUnderstood`, `discoveryDone` (`:266-331`).
-  - `isImplemented`: status is implementing, implemented or verified (`:262`). `isPastExplore`: status is not idea, exploring or draft (`:264`).
-  - `nextID(kind)`: the maximum over the IDs in front matter *and* the file names in the folder, plus 1, formatted `%@-%03d` (`:338-346`).
-  - Graph: `incoming`, `outgoing` and `impact(of:)`. Impact is a breadth-first search over requirements that link to the ID, plus a decision's `produces` list, plus the plan issues (`:351-390`).
-  - Readiness: seven fixed conditions, plus "Implementation coverage" when a plan exists. The score is the mean ratio over the conditions with `total > 0` (`:394-436`).
-  - `load(folder:)` reads the overview, up to 12 documents (200k chars each) to find issue references, every object folder and the plan (`:440-478`). `issueReferences` finds front matter `issue`/`issues`, GitHub issue and PR URLs, and "issue/epic/PR #n" (`:491-509`).
-- **`BugReport`** / **`BugQuestion`** (`:513-575`) represent a bug file. Its questions live in front matter `questions` (IDs `BQ-n`). The bug statuses are `open, fixing, fixed, closed` (`:527`).
-- **`featureSlug`** (`:578-581`) keeps ASCII letters and digits, turns every other character into `-`, and keeps at most 8 segments.
-- **`FeatureCleanup`** (`:584-605`) has the categories requirements, questions, findings and decisions. `Feature.cleanupCandidates` defines what each category matches (`:291-313`).
+- **`FeatureVocabulary`** holds every enum stored in front matter, in lower case (tables in section 6.3).
+- **`FeatureObject`** holds `kind`, `id`, `url`, `front`, `body`.
+  - `title`: front matter `title`, else the first non-empty body line.
+  - `links`: pairs from the link keys `depends_on, decisions, sources, blocking, resolved_by, produces, requirements, questions, related, supersedes, refs`.
+  - `acceptanceCriteria`: `- [ ]` / `- [x]` lines under any heading that contains "acceptance criteria".
+  - `section(_:)`: the text of a `## ` section.
+  - `isBlocking` and `isClosed`.
+  - `load` takes `id` from front matter, falling back to the file name.
+- **`PlannedIssue`** is one entry of `implementation/plan.md`: `I-n`, title, summary, requirements, decisions, and `github` once the issue is filed.
+- **`Feature`**:
+  - `isStructured`: `overview.md` exists. Hand-written feature folders without one are still listed, and their `.md` files are shown as `documents`.
+  - `status` defaults to `idea` when the folder is structured, else `draft`.
+  - Understanding: `understanding`, `openDimensions`, `isUnderstood`, `discoveryDone`.
+  - `isImplemented`: status is implementing, implemented or verified. `isPastExplore`: status is not idea, exploring or draft.
+  - `nextID(kind)`: the maximum over the IDs in front matter *and* the file names in the folder, plus 1, formatted `%@-%03d`.
+  - Graph: `incoming`, `outgoing` and `impact(of:)`. Impact is a breadth-first search over requirements that link to the ID, plus a decision's `produces` list, plus the plan issues.
+  - Readiness: seven fixed conditions, plus "Implementation coverage" when a plan exists. The score is the mean ratio over the conditions with `total > 0`.
+  - `load(folder:)` reads the overview, up to 12 documents (200k chars each) to find issue references, every object folder and the plan. `issueReferences` finds front matter `issue`/`issues`, GitHub issue and PR URLs, and "issue/epic/PR #n".
+- **`BugReport`** / **`BugQuestion`** represent a bug file. Its questions live in front matter `questions` (IDs `BQ-n`). The bug statuses are `open, fixing, fixed, closed`.
+- **`featureSlug`** keeps ASCII letters and digits, turns every other character into `-`, and keeps at most 8 segments.
+- **`FeatureCleanup`** has the categories requirements, questions, findings and decisions. `Feature.cleanupCandidates` defines what each category matches.
 
-### 3.2 `FeatureStore` — `@MainActor final class`, `ObservableObject` (`FeatureStore.swift:6-747`)
+### 3.2 `FeatureStore` — `@MainActor final class`, `ObservableObject` (`FeatureStore.swift`)
 
 | Member | Notes |
 |---|---|
-| `features`, `bugs`, `hasFeaturesFolder`, `hasIssues`, `activeSlug`, `lastError` (published) | `features.didSet` runs `observeLifecycle()` (`:11-13`). `activeSlug` is saved per project (`:20-25`) |
-| `assistant` | lazy `FeatureAssistant(store: self)` (`:42`) |
-| `setup(root:)` / `reset()` | Starts a 3 s poll that checks the fingerprint every tick and runs the git lifecycle sync every 20th tick, about once a minute (`:59-93`) |
-| `reload()` | Loads everything in a detached task. The result is dropped if `generation` changed meanwhile (`:96-111`) |
-| `reloadSync(_ slug:)` | Synchronous reload after the app's own writes: one feature when a slug is given, else everything. Resets the fingerprint to `""` (`:234-246`) |
-| `createFeature(title:idea:)` | Picks a unique slug (`-2`, `-3`…), writes `overview.md` and records the `ideaCreated` lifecycle event (`:201-230`) |
-| `create(_:in:title:fields:body:provenance:)` | New object file, written with `.withoutOverwriting`. The ID is incremented while a file with that ID exists. Default status per kind, and `owner` for questions and decisions (`:250-284`) |
-| `update` / `updateMany` / `updateFeature` / `updateBug` | Re-read the file from disk, refuse front matter that is not lossless, change it, stamp `updated`, write it, reload (`:288-301,417-427,451-466,471-488`). `updateFeature` creates an "adopted" overview for a hand-written feature (`:495-507`) |
-| `cleanUp(_:ids:)` | Remaps links to `superseded_by` targets, following chains, or drops them; rewrites the plan; moves the files to the Trash (`:307-371`) |
-| `deleteFeature` / `restartFeature` | Trash the folder, or trash everything the idea produced except sources. Neither is allowed once `isImplemented` (`:375-414`) |
-| `approveRequirements`, `finishExplore`, `setStatus`, `setUnderstanding`, `savePlan`, `appendDiscussion`, `discussion` | See the flows in section 5 (`:430-556`) |
+| `features`, `bugs`, `hasFeaturesFolder`, `hasIssues`, `activeSlug`, `lastError` (published) | `features.didSet` runs `observeLifecycle()`. `activeSlug` is saved per project |
+| `assistant` | lazy `FeatureAssistant(store: self)` |
+| `setup(root:)` / `reset()` | Starts a 3 s poll that checks the fingerprint every tick and runs the git lifecycle sync every 20th tick, about once a minute |
+| `reload()` | Loads everything in a detached task. The result is dropped if `generation` changed meanwhile |
+| `reloadSync(_ slug:)` | Synchronous reload after the app's own writes: one feature when a slug is given, else everything. Resets the fingerprint to `""` |
+| `createFeature(title:idea:)` | Picks a unique slug (`-2`, `-3`…), writes `overview.md` and records the `ideaCreated` lifecycle event |
+| `create(_:in:title:fields:body:provenance:)` | New object file, written with `.withoutOverwriting`. The ID is incremented while a file with that ID exists. Default status per kind, and `owner` for questions and decisions |
+| `update` / `updateMany` / `updateFeature` / `updateBug` | Re-read the file from disk, refuse front matter that is not lossless, change it, stamp `updated`, write it, reload. `updateFeature` creates an "adopted" overview for a hand-written feature |
+| `cleanUp(_:ids:)` | Remaps links to `superseded_by` targets, following chains, or drops them; rewrites the plan; moves the files to the Trash |
+| `deleteFeature` / `restartFeature` | Trash the folder, or trash everything the idea produced except sources. Neither is allowed once `isImplemented` |
+| `approveRequirements`, `finishExplore`, `setStatus`, `setUnderstanding`, `savePlan`, `appendDiscussion`, `discussion` | See the flows in section 5 |
 | `recordLifecycle`, `observeLifecycle`, `recordImplementationStarted`, `syncLifecycle(with:)`, `syncLifecycleWithGit` | Lifecycle capture (section 5.8) |
-| `history(of:)`, `relativePath`, `locate`, `defaultOwner`, `lifecycleActor` | Helpers. The owner and actor come from `git config user.name` (`:166-182`) |
+| `history(of:)`, `relativePath`, `locate`, `defaultOwner`, `lifecycleActor` | Helpers. The owner and actor come from `git config user.name` |
 
-### 3.3 `FeatureAssistant` — `@MainActor final class`, `ObservableObject` (`FeatureAI.swift:66-1324`)
+### 3.3 `FeatureAssistant` — `@MainActor final class`, `ObservableObject` (`FeatureAI.swift`)
 
 - Published state:
   - `running`: job keys held while the CLI call is in flight.
   - `preparing`: job keys held for the whole operation, including context building.
   - `results`: cards shown in the Feature tab.
   - `error` and `decideProgress`.
-  (`:71-92`)
-- `isRunning(key)` is true for a key in either set (`:86`). Keys look like `explore:<slug>`, `answer:<Q-id>`, `review:<slug>`, `resolve:<F-id>`, `issues:<slug>`, `bug:<BUG-id>`, `ingest:<SRC-id>`.
-- `voice = WhisperClient()` records voice-note sources. The closures `database` and `gitHubClient` are wired by `WorkspaceManager.setUpFeatures` (`:76-80`, `WorkspaceManager.swift:3320-3324`).
-- `run(...)` (`:121-148`) is the only path to the CLI. It:
+- `isRunning(key)` is true for a key in either set. Keys look like `explore:<slug>`, `answer:<Q-id>`, `review:<slug>`, `resolve:<F-id>`, `issues:<slug>`, `bug:<BUG-id>`, `ingest:<SRC-id>`.
+- `voice = WhisperClient()` records voice-note sources. The assistant is given the project (`ProjectProviding`) by `FeatureFlowCoordinator.setUp(at:)` (`features.assistant.project = project`); the folder's GitHub client reaches it through `FeatureAssistant.gitHubClient`.
+- `run(...)` is the only path to the CLI. It:
   - rejects a second call with the same key
   - builds a `CLICompletion.Request` with the system prompt, schema, `readableFolder: store.root`, `effort = "low"`, a default timeout of 400 s and optional web access
   - drops the result if the open folder changed meanwhile
   - records token usage in the `SemanticDatabase`
-- `system` (`:98-119`) is the facilitator prompt. The conversation (questions, options, notes) uses `ActionOutputLanguage.current`; the specification text is always English.
-- `context(feature, focus:query:budget:)` (`:161-214`) builds the prompt context. The default budget is 45k characters:
+- `system` is the facilitator prompt. The conversation (questions, options, notes) uses `ActionOutputLanguage.current`; the specification text is always English.
+- `context(feature, focus:query:budget:)` builds the prompt context. The default budget is 45k characters:
 
   | Part | Limit |
   |---|---|
@@ -161,33 +161,32 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
   | Accepted source facts | — |
   | Related project documents from the search index | up to 5, excludes `docs/features/` |
 
-### 3.4 Intake types (`FeatureIntake.swift:6-45`)
+### 3.4 Intake types (`FeatureIntake.swift`)
 
 - **`IntakeKind`** has the cases `feature`, `bug`, `understand` and `research`, each with a title and a prompt text. Every `IntakeKind.allCases` menu (toolbar ⊞, its "From the open document" section, the file tree's "New from This Document") lists all four.
-- **`IntakeRequest`** carries `kind`, `text`, `linkedIssue`, `attachments`, `targets` (New Research; nil = the open document), `loadIssue` and `loadPullRequest`. Setting `WorkspaceManager.intake` opens the sheet (`WorkspaceManager.swift:3223-3259`).
+- **`IntakeRequest`** carries `kind`, `text`, `linkedIssue`, `attachments`, `targets` (New Research; nil = the open document), `loadIssue` and `loadPullRequest`. Setting `WindowRequests.intake` opens the sheet (`Models/Workspace/WindowRequests.swift`).
 - **`IntakeOutcome`** carries `file`, `feature` and `issue`.
 
 ### 3.5 Views
 
-- `LeftPanelView`: switches between Files and Issues, showing Issues only when `hasIssues`. It opens a feature in `FeatureNavigatorView` (`FeatureNavigatorView.swift:5-50`).
-- `IssuesListView` (`:53-137`) lists features and bugs. The `+` buttons open the intake.
-- `IntakeSheet` (`:403-652`) offers:
+- `LeftPanelView`: switches between Files and Issues, showing Issues only when `hasIssues`. It opens a feature in `FeatureNavigatorView` (`FeatureNavigatorView.swift`).
+- `IssuesListView` lists features and bugs. The `+` buttons open the intake.
+- `IntakeSheet` offers:
   - dictation, shown only when an OpenAI key is set
   - file drop and an "Add Files…" panel
   - "From GitHub Issue…", which loads the issue body and comments and links the issue
   - an option to add the bug analysis as a comment on the linked issue
-- `FeaturePanelView` (`FeaturePanelView.swift:12-199`) shows one of two things:
-  - a bug investigation panel when the active tab is a bug file (`BugPanelView`, `:572-648`)
-  - otherwise the active feature: header with Clean up, Restart, Delete, Cycle Time, the status menu, the stage switcher, readiness and `LifecycleSection`; then `ObjectContextView` for the object open in the editor, the result cards, the stage view and `DiscussionInput`
+- `FeaturePanelView` (`FeaturePanelView.swift`) shows one of two things:
+  - a bug investigation panel when the active tab is a bug file (`BugPanelView`)
+  - otherwise the active feature: header with Clean up, Restart, Delete, Cycle Time, the status menu, the stage switcher, readiness and `IssueLifecycleSection` (`Views/Lifecycle/IssueLifecycleSection.swift`); then `ObjectContextView` for the object open in the editor, the result cards, the stage view and `DiscussionInput`
 
 ### 3.6 `ImportanceRater` (X-Ray, for reference)
 
 - A static `enum`. Each `Filter` has an id, name, criterion and levels.
-  - The built-in `importance` filter has the levels `critical/high/normal/low` (`ImportanceRater.swift:16-17`).
-  - User filters are stored as JSON in UserDefaults `ai.customFilters` (`:21-32`) and use the levels `strong/moderate/weak/none` (`:79`).
-  - The one-off filter (id prefix `tmp-`) is built by `ImportanceRater.temporaryFilter(for:)`, held by each window (`WorkspaceManager.temporaryFilter`) and never persisted.
-- `request(subject:filter:context:items:language:)` builds a request with no file access, the X-Ray model, effort `low` and a 240 s timeout (`:185-195`). `parse` drops unknown keys and levels (`:198-207`).
-- `tools/importance-check.sh` compiles a throwaway Swift harness that rates the sections of `Tests/Fixtures/importance/*.md` with each CLI and compares the ratings with `expected.json`. It also runs a "Payment safety" custom-filter case (`tools/importance-check.sh:23-89`).
+  - The built-in `importance` filter has the levels `critical/high/normal/low` (`ImportanceRater.swift`).
+  - User filters are stored as JSON in UserDefaults `ai.customFilters` and use the levels `strong/moderate/weak/none`.
+  - The one-off filter (id prefix `tmp-`) is built by `ImportanceRater.temporaryFilter(for:)`, held by each window (`CodeAndXRayCoordinator.temporaryFilter`) and never persisted.
+- `request(subject:filter:context:items:language:)` builds a request with no file access, the X-Ray model, effort `low` and a 240 s timeout. `parse` drops unknown keys and levels.
 
 ---
 
@@ -197,30 +196,30 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 
 | Caller | Call |
 |---|---|
-| `WorkspaceManager.openFolder` → `setUpFeatures` | `features.setup(root:)`, wiring of `assistant.database` and `assistant.gitHubClient` (`WorkspaceManager.swift:530,3320-3324`) |
-| `WorkspaceManager` folder close | `features.reset()` (`WorkspaceManager.swift:1446`) |
-| `GitHubStore.onPoll` | `features.syncLifecycle(with:)` (`WorkspaceManager.swift:3339`) |
-| Editor selection menu (JS `featureAction('…')`, `Resources/Editor/index.html:1480+`) → `WebViewBridge` `featureAction` message (`Bridge/WebViewBridge.swift:319-323`) → `EditorView` delegate (`Views/Workspace/EditorView.swift:844-846`) → `WorkspaceManager.runFeatureAction` (`WorkspaceManager.swift:3307-3317`) | `assistant.perform(action, selection:document:question:feature:)`. The action name is validated with `FeatureAction(rawValue:)` |
-| Toolbar "New" menu (`Views/Workspace/ContentView.swift:113`), issue and PR menus (`WorkspaceManager.startIntake`, `:3227-3259`) | Set `workspaceManager.intake` and present `IntakeSheet` (`ContentView.swift:170`) |
-| `IntakeSheet.submit` → `WorkspaceManager.intakeFinished` | Opens the result, switches the left panel to Issues and the right panel to the Feature tab (`WorkspaceManager.swift:3287-3304`) |
-| `BuildStageView` "Implement with AI" → `WorkspaceManager.implementWithAI` | Chooses the receiving terminal first, then sends its goal handoff: `/goal` for Claude Code and Codex, `/autopilot` for Copilot, or an explicit Cline task goal. The assistant reads the whole folder; recorded answers (answered questions, accepted decisions, resolved findings, discussion.md) are binding and not asked again, and new answers are written back (BUG-011). Then `features.markImplementing` (status `ready/resolving/review/draft/exploring` → `implementing`, BUG-008) and `features.recordImplementationStarted` (`WorkspaceManager.swift`) run. |
-| `BugPanelView` "Fix with AI" → `WorkspaceManager.fixBugWithAI` | Sets the bug status to `fixing` with `updateBug` and sends `HandoffPrompt.bug` (answered report questions and `## Clarifications` are binding; new answers go to `## Clarifications`) (`WorkspaceManager.swift:3277-3284`) |
-| `TOCView` | Shows `FeaturePanelView` when `hasIssues` (`Views/Workspace/TOCView.swift:26-31`) |
-| `LifecycleViews` | Read `store.features` and `lifecycleEvents` (`Views/LifecycleViews.swift:22,106,206`) |
-| `ArchitectureStore` | Reuses `FeatureAssistant.nextNumbered("RES", …)` and `FeatureStore.today` for saved X-Ray answers (`ArchitectureStore.swift:1465,1481`) |
+| `WorkspaceManager.openFolder` → `FeatureFlowCoordinator.setUp(at:)` | `features.setup(root:)` and `features.assistant.project = project` (`Models/Lifecycle/FeatureFlowCoordinator.swift`) |
+| `WorkspaceManager.closeFolder` | `flow.reset()`, which resets the features (`WorkspaceManager.swift`, `FeatureFlowCoordinator`) |
+| `GitHubStore.polls` (a publisher) | `features.syncLifecycle(with:)`, subscribed in `FeatureFlowCoordinator.setUpGitHub` |
+| Editor selection menu (JS `featureAction('…')`, `Resources/Editor/index.html`) → `WebViewBridge` `featureAction` message (`Bridge/WebViewBridge.swift`) → `EditorView` delegate (`Views/Workspace/EditorView.swift`) → `FeatureFlowCoordinator.runFeatureAction` (`Models/Lifecycle/FeatureFlowCoordinator.swift`) | `assistant.perform(action, selection:document:question:feature:)`. The action name is validated with `FeatureAction(rawValue:)` |
+| Toolbar "New" menu (`Views/Workspace/ContentView.swift`), issue and PR menus (`FeatureFlowCoordinator.startIntake`) | Set `requests.intake` (`WindowRequests`) and present `IntakeSheet` (`ContentView.swift`) |
+| `IntakeSheet.submit` → `FeatureFlowCoordinator.intakeFinished` | Opens the result, switches the left panel to Issues and the right panel to the Feature tab (`Models/Lifecycle/FeatureFlowCoordinator.swift`) |
+| `BuildStageView` "Implement with AI" → `FeatureFlowCoordinator.implementWithAI` | Chooses the receiving terminal first, then sends its goal handoff: `/goal` for Claude Code and Codex, `/autopilot` for Copilot, or an explicit Cline task goal. The assistant reads the whole folder; recorded answers (answered questions, accepted decisions, resolved findings, discussion.md) are binding and not asked again, and new answers are written back (BUG-011). Then `features.markImplementing` (status `ready/resolving/review/draft/exploring` → `implementing`, BUG-008) and `features.recordImplementationStarted` (`FeatureFlowCoordinator.swift`) run. |
+| `BugPanelView` "Fix with AI" → `FeatureFlowCoordinator.fixBugWithAI` | Sets the bug status to `fixing` with `updateBug` and sends `HandoffPrompt.bug` (answered report questions and `## Clarifications` are binding; new answers go to `## Clarifications`) (`Models/Lifecycle/FeatureFlowCoordinator.swift`) |
+| `TOCView` | Shows `FeaturePanelView` when `hasIssues` (`Views/Workspace/TOCView.swift`) |
+| `IssueLifecycleSection`, `CycleTimeViews` | Read `store.features` and `lifecycleEvents` (`Views/Lifecycle/`) |
+| `ArchitectureStore` | Reuses `FeatureAssistant.nextNumbered("RES", …)` and `FeatureStore.today` for saved X-Ray answers (`ArchitectureStore.swift`) |
 
 **What this module calls**
 
 | Callee | Used for |
 |---|---|
-| `CLICompletion.run` | Every AI call (`FeatureAI.swift:137`). Streaming `onDelta` is used only for free-text contextual actions (`:1093-1098`) |
-| `SemanticDatabase.search`, `addUsage` | Related docs in the context (`FeatureAI.swift:216-225`); token and cost counter |
-| `GitHubClient` | `createIssue` (with labels `enhancement` or `bug`, retried without the label), `commentIssue`, `issue(n)`, `gh issue view … closedByPullRequestsReferences`, `gh pr view … files`, `lifecycleCaptures`, `ciPassed` (`FeatureIntake.swift:152-155,223`, `FeatureAI.swift:1275-1321`, `FeatureStore.swift:670,687`) |
-| `GitHubClient.execute(..., git: true)` | `git config user.name`, `git log`, `git grep -l -w <id> -- *.md`, `rev-parse`, `symbolic-ref` (`FeatureStore.swift:179,704,716-727,735`; `FeaturePanelView.swift:1536`) |
-| `LifecycleLog.shared` | `record`, `events`, `claim`/`release` (one store per project records automatic events) (`FeatureStore.swift:563-574,587,662,698`; `LifecycleLog.swift:105-114`) |
-| `AgentModelProbe`, `LifecycleGit`, `LifecycleModels` | Finding the model that answered, parsing commits (`FeatureStore.swift:626-636,704-709`) |
-| `WhisperClient` | Transcribing voice notes and audio files (`FeatureIngest.swift:147`; `FeaturePanelView.swift:805-815`) |
-| `PDFKit`, `URLSession` | Reading PDF sources and fetching URLs (`FeatureIngest.swift:141-176`) |
+| `CLICompletion.run` | Every AI call (`FeatureAI.swift`). Streaming `onDelta` is used only for free-text contextual actions |
+| `SemanticDatabase.search`, `addUsage` | Related docs in the context (`FeatureAI.swift`); token and cost counter |
+| `GitHubClient` | `createIssue` (with labels `enhancement` or `bug`, retried without the label), `commentIssue`, `issue(n)`, `gh issue view … closedByPullRequestsReferences`, `gh pr view … files`, `lifecycleCaptures`, `ciPassed` (`FeatureIntake.swift`, `FeatureAI.swift`, `FeatureStore.swift`) |
+| `GitHubClient.execute(..., git: true)` | `git config user.name`, `git log`, `git grep -l -w <id> -- *.md`, `rev-parse`, `symbolic-ref` (`FeatureStore.swift`; `FeaturePanelView.swift`) |
+| `LifecycleLog.shared` | `record`, `events`, `claim`/`release` (one store per project records automatic events) (`FeatureStore.swift`; `LifecycleLog.swift`) |
+| `AgentModelProbe`, `LifecycleGit`, `LifecycleModels` | Finding the model that answered, parsing commits (`FeatureStore.swift`) |
+| `WhisperClient` | Transcribing voice notes and audio files (`FeatureIngest.swift`; `FeaturePanelView.swift`) |
+| `PDFKit`, `URLSession` | Reading PDF sources and fetching URLs (`FeatureIngest.swift`) |
 | `FileManager.trashItem` | Cleanup, delete and restart |
 
 ---
@@ -251,10 +250,10 @@ sequenceDiagram
         A->>S: overview issue: "#n"
     end
     A-->>U: IntakeOutcome(overview.md, slug, issue)
-    U->>U: WorkspaceManager.intakeFinished -> Issues panel, Feature tab, stage Explore
+    U->>U: FeatureFlowCoordinator.intakeFinished -> Issues panel, Feature tab, stage Explore
 ```
 
-Source: `FeatureIntake.swift:52-149`, `FeatureNavigatorView.swift:626-651`, `WorkspaceManager.swift:3287-3304`.
+Source: `FeatureIntake.swift`, `FeatureNavigatorView.swift`, `FeatureFlowCoordinator.swift`.
 
 If the first AI call fails, nothing is written and the sheet shows `assistant.error`. Once `createFeature` has run, later failures such as fact extraction or the GitHub issue leave the feature partly filled, with no rollback.
 
@@ -306,7 +305,7 @@ flowchart TD
 
 ### 5.3 Review, resolve, clean up
 
-- **Review** (`review`, `FeatureAI.swift:794-841`):
+- **Review** (`review`, `FeatureAI.swift`):
   - A whole-spec review first calls `finishExplore` if discovery is done, then `applyDecisions`, so it reads one
     consistent specification.
   - The AI returns findings with category, severity, perspectives, quote, target and interpretations.
@@ -321,11 +320,11 @@ flowchart TD
   - A whole-spec review reports its outcome as a result ("Review: N new findings" or "Review: nothing new").
   - Status moves from `exploring/draft/idea` to `review`.
   - `focus` (an object ID) limits the review to one requirement ("Review requirement" in `ObjectContextView`).
-- **Acceptance criteria** (`:844-867`) adds only the criteria that are new.
+- **Acceptance criteria** adds only the criteria that are new.
 - **Resolve a finding**:
-  - `resolutionOptions` (`:872-895`) sets `status: discussing`, `resolution_question` and `options[{label,text,consequence}]`.
+  - `resolutionOptions` sets `status: discussing`, `resolution_question` and `options[{label,text,consequence}]`.
   - `resolve` calls `closeFinding`. That creates a decision (accepted, or proposed when delegated), sets the finding to `resolved` with `resolved_by`, appends a `## Resolution`, and adds the decision to every referenced requirement's `decisions`. When a decision was recorded, `applyDecisions` follows. A delegated resolution ("Decide for me", "Decide all for me") records a decision only when `needs_decision` is true — a product choice the specification must remember; an implementation detail or wording fix closes the finding with its resolution text alone.
-- **Decide all for me** (`decideAllFindings`, `:932-977`) works in chunks of 8 findings. It skips findings closed meanwhile, updates `decideProgress`, and stops at the first failed chunk. Then `applyDecisions` runs once for all of them.
+- **Decide all for me** (`decideAllFindings`) works in chunks of 8 findings. It skips findings closed meanwhile, updates `decideProgress`, and stops at the first failed chunk. Then `applyDecisions` runs once for all of them.
 - **Apply settlements** (`applyDecisions`, BUG-023): what was settled and is not yet `applied`
   (`Feature.settlementsToApply`: decisions in force — accepted or proposed — and findings resolved by their
   resolution text alone, without `resolved_by`) is written into the requirements. One call maps each settlement
@@ -348,11 +347,11 @@ flowchart TD
   overview and sources stay, discovery starts again. Was "Restart Feature…" in the ⋯ menu until 4.1.0.
 - **Reject a proposed decision** (`FeatureStore.rejectDecision`): sets `rejected`; when the decision was already
   `applied`, a high `contradiction` finding on the requirements carrying it asks how they should read instead.
-- **Consolidate** (`:624-681`):
-  - Offered in the UI above 30 active requirements (`FeaturePanelView.swift:948`).
+- **Consolidate**:
+  - Offered in the UI above 30 active requirements (`FeaturePanelView.swift`).
   - Target size is `max(8, min(30, n/5))`.
   - Merged requirements become `superseded` with `superseded_by`. Dropped ones become `rejected` with `rejected_reason`.
-- **Find outdated** (`markOutdated`, `:983-1046`) sets decisions to `superseded` (with `superseded_by` only when the replacement stays, and `outdated_reason`). It sets findings to `dismissed` with `dismissed_reason`.
+- **Find outdated** (`markOutdated`) sets decisions to `superseded` (with `superseded_by` only when the replacement stays, and `outdated_reason`). It sets findings to `dismissed` with `dismissed_reason`.
 - **Delete objects** (navigator context menu, ⌘/⇧-click selection with a Delete bar, Delete… in
   `ObjectContextView`; `FeatureObjectDeletion.confirmAndDelete` → `FeatureStore.deleteObjects`): one confirmation,
   open tabs of the files close, `cleanUp` rewrites the links. Requirements in force and decisions accepted or
@@ -361,8 +360,8 @@ flowchart TD
   Every question round (`exploreNext`) names these removals in its prompt and clears the record once asked;
   while a question is open Re-explore only says to answer it first. The text a deleted decision wrote into a
   requirement stays (Reject is the way to take a choice back).
-- **Clean up** (`FeatureStore.cleanUp`, `:307-371`):
-  - The sheet previews the candidates per category (`FeaturePanelView.swift:1576-1703`).
+- **Clean up** (`FeatureStore.cleanUp`):
+  - The sheet previews the candidates per category (`FeaturePanelView.swift`).
   - Each doomed ID maps to its `superseded_by` replacement, following chains through other doomed objects, or to nil.
   - List and scalar link keys in the surviving objects are rewritten, and a self-link is dropped. The plan is saved again only if an issue referenced a doomed ID. The files are moved to the Trash.
 - **Before Build** (`BeforeBuildSection`, at the end of the Review stage) collects what is left besides the
@@ -373,32 +372,32 @@ flowchart TD
 
 ### 5.4 Research, contextual actions, discussion
 
-- `research` (`FeatureAI.swift:745-789`):
+- `research` (`FeatureAI.swift`):
   - Runs with web access and a 900 s timeout.
   - Writes an `R-nnn` note with `topic`, `related` and `claims[{text,kind,source}]`.
   - If it is linked to an object, it appends its own ID to that object's `related`.
-- `perform` (`:1070-1106`), for selected text:
-  - `requirement`/`decision`/`question` create objects (`createFromSelection`, `:1113-1149`); decisions are `proposed`.
+- `perform`, for selected text:
+  - `requirement`/`decision`/`question` create objects (`createFromSelection`); decisions are `proposed`.
   - `research` delegates to `research`.
-  - Every other action streams Markdown into a `FeatureResult`. `diagram` pulls out the ` ```mermaid ` block, which can be saved to `diagrams/<name>.md` (`saveDiagram`, `:1159-1168`). The view passes the fixed title "Diagram" (`FeaturePanelView.swift:288`).
-- `chat` (`:1172-1203`):
+  - Every other action streams Markdown into a `FeatureResult`. `diagram` pulls out the ` ```mermaid ` block, which can be saved to `diagrams/<name>.md` (`saveDiagram`). The view passes the fixed title "Diagram" (`FeaturePanelView.swift`).
+- `chat`:
   1. Appends the user message to `discussion.md`.
   2. Sends the context plus the last 12k characters of the discussion.
   3. Gets `reply`, `has_decision` and `decision` back.
   4. Appends the reply.
-  A detected decision offers "Create Decision" (`saveDecision`, accepted, `sources: [discussion]`, `:1206-1212`).
+  A detected decision offers "Create Decision" (`saveDecision`, accepted, `sources: [discussion]`).
 
 ### 5.5 Build: plan and GitHub issues
 
-- `decompose` (`FeatureAI.swift:1222-1246`) works from the approved requirements, or all active ones when none are approved. The AI returns an epic of 2–10 issues. `savePlan` writes `implementation/plan.md` with IDs `I-1…`.
-- Requirements can be dragged between issue cards; `IssuePlanCard.move` then calls `savePlan` (`FeaturePanelView.swift:1364-1373`).
-- `createIssues` (`FeatureAI.swift:1250-1303`) handles each issue that has `github == nil`:
+- `decompose` (`FeatureAI.swift`) works from the approved requirements, or all active ones when none are approved. The AI returns an epic of 2–10 issues. `savePlan` writes `implementation/plan.md` with IDs `I-1…`.
+- Requirements can be dragged between issue cards; `IssuePlanCard.move` then calls `savePlan` (`FeaturePanelView.swift`).
+- `createIssues` (`FeatureAI.swift`) handles each issue that has `github == nil`:
   1. Create the issue.
   2. Parse the number from the returned URL. On failure, stop so a retry cannot file a duplicate.
   3. Add `#n` to each requirement's `issues`.
   4. Save the plan after every issue.
 
-  Afterwards it creates the epic issue if there is none, and moves the status from `ready/resolving/review/draft/exploring` to `implementing`. The button is disabled while approved requirements are not covered (`FeaturePanelView.swift:1285`).
+  Afterwards it creates the epic issue if there is none, and moves the status from `ready/resolving/review/draft/exploring` to `implementing`. The button is disabled while approved requirements are not covered (`FeaturePanelView.swift`).
 - "Implement with AI" is covered in section 4 and 5.8.
 
 ### 5.5a Sync to GitHub (feature `sync-documented-status-to-github-issues`, issue #36)
@@ -436,9 +435,9 @@ sequenceDiagram
     A->>S: update role, facts (status pending), prepend ## Summary
 ```
 
-- Source: `FeatureIngest.swift:19-120`.
-- For a file source the text is not stored in the body; the AI is pointed at the copied file instead (`:57,90-91`).
-- Facts are accepted, rejected or edited with `setFact` (`:123-133`). Only `accepted` facts go into the AI context (`FeatureAI.swift:205-209`).
+- Source: `FeatureIngest.swift`.
+- For a file source the text is not stored in the body; the AI is pointed at the copied file instead.
+- Facts are accepted, rejected or edited with `setFact`. Only `accepted` facts go into the AI context (`FeatureAI.swift`).
 
 ### 5.7 New Bug and investigation rounds
 
@@ -465,10 +464,10 @@ sequenceDiagram
     end
 ```
 
-- Source: `FeatureIntake.swift:163-235,246-330`.
-- Question budget: at most 3 open at a time, and no new questions once answered + open reach 8 (`bugQuestionLimit`, `:240,274`).
-- For a hand-written report, the existing text becomes "Original description", and missing front matter is filled in (`:299-319`).
-- The report is written before any GitHub call, "so a failed write leaves no orphan issue" (`:195`).
+- Source: `FeatureIntake.swift`.
+- Question budget: at most 3 open at a time, and no new questions once answered + open reach 8 (`bugQuestionLimit`).
+- For a hand-written report, the existing text becomes "Original description", and missing front matter is filled in.
+- The report is written before any GitHub call, "so a failed write leaves no orphan issue".
 
 ### 5.8 Status transitions
 
@@ -493,19 +492,19 @@ stateDiagram-v2
     review --> idea: restartFeature (not when implementing+)
 ```
 
-- Sources: `FeatureStore.swift:214,408,439-444,500`, `FeatureAI.swift:359,838-840,1296-1298`.
-- `resolving`, `ready`, `implemented`, `verified` and `archived` are never set by code. The user sets them through `FeatureStatusMenu`, which offers every status (`FeatureNavigatorView.swift:343-360`).
-- `finishExplore` also approves every draft and review requirement (`FeatureStore.swift:430-444`). It runs from:
+- Sources: `FeatureStore.swift`, `FeatureAI.swift`.
+- `resolving`, `ready`, `implemented`, `verified` and `archived` are never set by code. The user sets them through `FeatureStatusMenu`, which offers every status (`FeatureNavigatorView.swift`).
+- `finishExplore` also approves every draft and review requirement (`FeatureStore.swift`). It runs from:
   - `decideRest`
   - a whole-spec `review` when discovery is done
-  - leaving the Explore tab when discovery is done (`FeaturePanelView.swift:134`)
-  - "Go to Review" (`:413`)
+  - leaving the Explore tab when discovery is done (`FeaturePanelView.swift`)
+  - "Go to Review"
 
 Object statuses written by code:
 
 | Kind | Transitions (code) |
 |---|---|
-| Requirement | `draft` on create, or `approved` if past Explore (`FeatureAI.swift:287`; intake requirements always `draft`, `FeatureIntake.swift:109-113`). `draft/review → approved` (`approveRequirements`). `→ superseded` or `rejected` (consolidation). Otherwise manual |
+| Requirement | `draft` on create, or `approved` if past Explore (`FeatureAI.swift`; intake requirements always `draft`, `FeatureIntake.swift`). `draft/review → approved` (`approveRequirements`). `→ superseded` or `rejected` (consolidation). Otherwise manual |
 | Question | `open` on create. `→ answered` (`answer`, `decideRest`). `→ deferred` (`skip`, `decideRest`) |
 | Decision | `proposed` (delegated, `decideRest`, selection) or `accepted` (user answer, user resolve, chat). `proposed → accepted/rejected` (Before Build; `rejectDecision`). `applied: <date>` once written into the requirements (`applyDecisions`). `→ superseded` (`markOutdated`) |
 | Finding | `open` on create. `→ discussing` (`resolutionOptions`). `→ resolved` (`closeFinding`). `→ accepted-risk/dismissed` (buttons, `markOutdated`) |
@@ -513,19 +512,19 @@ Object statuses written by code:
 | Bug | `open` on create. `→ fixing` (`fixBugWithAI`). Manual `fixed`, `closed` |
 | Bug question | `open → answered/skipped` (`answerBug`, or `settled` in `investigateBug`) |
 
-Automatic lifecycle events (`FeatureStore.swift:576-728`):
+Automatic lifecycle events (`FeatureStore.swift`):
 
 | Event | Trigger |
 |---|---|
-| `ideaCreated` | `createFeature` (`:227`) |
-| `questionsResolved` | The count of open questions goes from ≥1 to 0 (`:590`) |
-| `specReady` | Status enters `ready`, or readiness reaches 100 (`:591-592`). Also back-filled when the status jumps into implementing without it, or on "Implement with AI" (`:593-605,612`) |
-| `implementationFinished` | Status enters `implemented` (`:596-597`) |
+| `ideaCreated` | `createFeature` |
+| `questionsResolved` | The count of open questions goes from ≥1 to 0 |
+| `specReady` | Status enters `ready`, or readiness reaches 100. Also back-filled when the status jumps into implementing without it, or on "Implement with AI" |
+| `implementationFinished` | Status enters `implemented` |
 | `implementationStarted` | `recordImplementationStarted`, at the click and without waiting for a reply (BUG-008): the model the running terminal has answered with (one read of its session log), else the model it was started with or the configured default |
-| `mergedToMain` | A commit on the default branch that mentions the feature folder or its issues after implementation started, checked about once a minute (`:697-713`) |
-| GitHub captures, `ciPassed` | From `GitHubClient.lifecycleCaptures` and `ciPassed`, on the GitHub poll, deduplicated by note (`:650-692`) |
+| `mergedToMain` | A commit on the default branch that mentions the feature folder or its issues after implementation started, checked about once a minute |
+| GitHub captures, `ciPassed` | From `GitHubClient.lifecycleCaptures` and `ciPassed`, on the GitHub poll, deduplicated by note |
 
-The first load only records a baseline (no backfill). A restart suppresses events through `lifecycleQuiet` (`:36-38,398-399`).
+The first load only records a baseline (no backfill). A restart suppresses events through `lifecycleQuiet`.
 
 ### 5.9 New Research (feature `new-research-repository-grounded-analysis`)
 
@@ -579,7 +578,7 @@ Project… (a window with a folder opens a new window for it, `MarkViewApp.pendi
    exist (no intermediate directories). The specification folder is copied to `docs/features/<slug>/`, a README
    and `.gitignore` (`.dde/`) are written, `git init -b main`; nothing is committed. Each stage is recorded in
    the draft (`createdPath`, `filesWritten`, `gitInitialized`) so Retry continues only in that folder. The draft is
-   removed after success and `WorkspaceManager.openCreatedProject` opens the folder with the spec selected.
+   removed after success and `NewProjectSheet` opens the folder (`workspaceManager.openFolder`) and then shows the spec through `features.showCreatedProject`.
 4. **GitHub** (`GitHubPublisher`, `GitHubPublishView`), also from the Git tab's cloud button and File › Publish
    to GitHub…: account and owners from `gh`, name, explicit visibility; `check()` refuses another origin, a repo
    without push access, and an existing repo with history unless MarkView created/pushed it or origin already
@@ -610,16 +609,16 @@ docs/bugs/
   assets/BUG-001-<file>
 ```
 
-- IDs are `<PREFIX>-%03d`, and are unique within a feature folder only (`FeatureModels.swift:338-346`). A feature has no ID other than its slug (front matter `id` = slug).
-- Bug IDs are `BUG-%03d`, unique within `docs/bugs/` (`FeatureIntake.swift:424-431`).
+- IDs are `<PREFIX>-%03d`, and are unique within a feature folder only (`FeatureModels.swift`). A feature has no ID other than its slug (front matter `id` = slug).
+- Bug IDs are `BUG-%03d`, unique within `docs/bugs/` (`FeatureIntake.swift`).
 - Plan issues are `I-n`, renumbered on every `decompose`. Bug questions are `BQ-n`.
-- All dates are ISO `yyyy-MM-dd` (`FeatureStore.swift:186-192`).
-- Files are written atomically as UTF-8. The front matter is YAML in key order, then a blank line, then the body (`FrontMatter.swift:99-101`).
+- All dates are ISO `yyyy-MM-dd` (`FeatureStore.swift`).
+- Files are written atomically as UTF-8. The front matter is YAML in key order, then a blank line, then the body (`FrontMatter.swift`).
 - In the real examples (`docs/features/lifecycle-event-log-cycle-time-analytics/`, `voice-input-for-text-prompts/`, `ai-agent-usage-quota-tracker-codex-claude-code/`), the question text, options and `understanding_notes` are in Russian (the conversation language). Requirement and decision text is in English, as `system` requires.
 
 ### 6.2 Front matter fields
 
-Common to every object file (`FeatureStore.swift:260-272`, `:296`):
+Common to every object file (`FeatureStore.swift`):
 
 | Field | Meaning |
 |---|---|
@@ -636,11 +635,11 @@ Common to every object file (`FeatureStore.swift:260-272`, `:296`):
 
 | Field | Written by | Notes |
 |---|---|---|
-| `type: feature`, `id: <slug>`, `title`, `status`, `owner`, `created`, `provenance` | `createFeature` / `adoptedOverview` | `FeatureStore.swift:210-218,496-504` |
-| `understanding` | map: 11 dimensions → `known/partial/unknown/n/a` | `setUnderstanding`, `FeatureStore.swift:509-518` |
-| `understanding_notes` | map: dimension → note | `FeatureAI.swift:403-416` |
+| `type: feature`, `id: <slug>`, `title`, `status`, `owner`, `created`, `provenance` | `createFeature` / `adoptedOverview` | `FeatureStore.swift` |
+| `understanding` | map: 11 dimensions → `known/partial/unknown/n/a` | `setUnderstanding`, `FeatureStore.swift` |
+| `understanding_notes` | map: dimension → note | `FeatureAI.swift` |
 | `questions_left` | integer as string | AI estimate |
-| `issue` | `"#n"` | intake (`FeatureIntake.swift:134,145`) |
+| `issue` | `"#n"` | intake (`FeatureIntake.swift`) |
 | `issues` | read only | parsed by `issueReferences` |
 | `restarted` | date | `restartFeature` |
 
@@ -655,7 +654,7 @@ Requirement (`REQ`):
 | `superseded_by`, `rejected_reason` | consolidation |
 | `related` | research links |
 
-The body has `## Statement` and `## Acceptance Criteria` with `- [ ]` items (`FeatureAI.swift:284-285`).
+The body has `## Statement` and `## Acceptance Criteria` with `- [ ]` items (`FeatureAI.swift`).
 
 Question (`Q`):
 
@@ -683,7 +682,7 @@ Decision (`DEC`):
 | `superseded_by`, `outdated_reason` | `markOutdated` |
 | `applied` | date the decision was written into the requirements (`applyDecisions`); a finding resolved without a decision gets it too |
 
-The body has `## Context`, `## Alternatives` (numbered), `## Decision`, `## Reason` and `## Consequences` (`FeatureAI.swift:299-319`).
+The body has `## Context`, `## Alternatives` (numbered), `## Decision`, `## Reason` and `## Consequences` (`FeatureAI.swift`).
 
 Finding (`F`):
 
@@ -700,7 +699,7 @@ Finding (`F`):
 
 The body has `## Finding`, a quote block, `## Possible interpretations` and `## Resolution`.
 
-Research (`R`): `topic`, `related`, and `claims[{text, kind, source}]`. `kind` is one of `project-fact, external-fact, ai-inference, user-decision, open-assumption`. The body has `## Topic`, `## Summary`, `## Claims` and `## Open questions` (`FeatureAI.swift:768-782`).
+Research (`R`): `topic`, `related`, and `claims[{text, kind, source}]`. `kind` is one of `project-fact, external-fact, ai-inference, user-decision, open-assumption`. The body has `## Topic`, `## Summary`, `## Claims` and `## Open questions` (`FeatureAI.swift`).
 
 Source (`SRC`):
 
@@ -713,7 +712,7 @@ Source (`SRC`):
 
 The body has `## Summary`, `## Origin`, `## Content` (up to 60k, not for files) and a `File:` link.
 
-`implementation/plan.md` (type `plan`, `FeatureStore.swift:521-541`):
+`implementation/plan.md` (type `plan`, `FeatureStore.swift`):
 
 | Field | Values |
 |---|---|
@@ -724,9 +723,9 @@ The body has `## Summary`, `## Origin`, `## Content` (up to 60k, not for files) 
 
 The body is regenerated on every save (`# Implementation plan — …`, `## I-n: title (#n)`, `Requirements:`, `Decisions:`), so hand edits to the body are lost.
 
-`discussion.md`: `# Discussion — <title>`, then `### <speaker> · <date>` blocks. The speakers are the git user or "User", "AI", "Answer to Q-nnn" and "AI decided the rest" (`FeatureStore.swift:544-550`).
+`discussion.md`: `# Discussion — <title>`, then `### <speaker> · <date>` blocks. The speakers are the git user or "User", "AI", "Answer to Q-nnn" and "AI decided the rest" (`FeatureStore.swift`).
 
-Bug (`docs/bugs/BUG-nnn-*.md`, `FeatureIntake.swift:198-209`):
+Bug (`docs/bugs/BUG-nnn-*.md`, `FeatureIntake.swift`):
 
 | Field | Values |
 |---|---|
@@ -737,7 +736,7 @@ Bug (`docs/bugs/BUG-nnn-*.md`, `FeatureIntake.swift:198-209`):
 | `reporter`, `created`, `provenance` | |
 | `questions` | list of `{id: BQ-n, text, why, options[{label,text}], status: open/answered/skipped, answer}` |
 
-The body has `# Title`, then `## Summary`, `## Steps to reproduce`, `## Expected`, `## Actual`, `## Environment`, `## Suspected code`, `## Likely causes` and `## Missing information`. After those come the kept sections `## Attachments`, `## Clarifications` and `## Original description`. `Original description` runs to the end of the file, so its own `## ` headings do not split it (`FeatureIntake.swift:406-417`).
+The body has `# Title`, then `## Summary`, `## Steps to reproduce`, `## Expected`, `## Actual`, `## Environment`, `## Suspected code`, `## Likely causes` and `## Missing information`. After those come the kept sections `## Attachments`, `## Clarifications` and `## Original description`. `Original description` runs to the end of the file, so its own `## ` headings do not split it (`FeatureIntake.swift`).
 
 ### 6.3 Understanding and readiness
 
@@ -751,13 +750,13 @@ The body has `# Title`, then `## Summary`, `## Steps to reproduce`, `## Expected
   - Contradictions resolved
   - Decisions accepted
   - Implementation coverage, only when a plan exists
-- The requirement conditions use `max(count, 1)` as the total, so an empty spec counts 0/1 and does not score as ready (`:414-416,429-436`).
+- The requirement conditions use `max(count, 1)` as the total, so an empty spec counts 0/1 and does not score as ready.
 
 ### 6.4 Outside the repository
 
 | Store | Key / path | Format |
 |---|---|---|
-| UserDefaults | `features.active.<first 12 chars of ContentHash(root path)>` | active slug per project (`FeatureStore.swift:53-55`) |
+| UserDefaults | `features.active.<first 12 chars of ContentHash(root path)>` | active slug per project (`FeatureStore.swift`) |
 | `PanelLayout` (per window) | `layout.leftPanel` | `files` or `issues` (`FeatureNavigatorView.swift`) |
 | `PanelLayout` (per window) | `layout.issuesFeature` | slug of the feature open in the Issues list. Per window, not per project |
 | `PanelLayout` (per window) | `feature.stage` | `Explore/Review/Build`; a stored `Resolve` opens Review (`FeatureStage.stored`) |
@@ -765,11 +764,11 @@ The body has `# Title`, then `## Summary`, `## Steps to reproduce`, `## Expected
 
 The `PanelLayout` keys hold the last choice only to seed a new window and relaunch (BUG-004).
 | UserDefaults | `ai.customFilters` | JSON `[Filter]` (ImportanceRater) |
-| UserDefaults (read) | `com.markview.dde.openai.apikey` | OpenAI key, which shows the dictation button (`FeatureNavigatorView.swift:422`) |
-| App Support | `~/Library/Application Support/MarkView/lifecycle-events.jsonl` | lifecycle events written through `LifecycleLog` (`LifecycleLog.swift:23-24`) |
-| SemanticDatabase | usage counter | tokens and cost for every AI call (`FeatureAI.swift:139`) |
+| UserDefaults (read) | `com.markview.dde.openai.apikey` | OpenAI key, which shows the dictation button (`FeatureNavigatorView.swift`) |
+| App Support | `~/Library/Application Support/MarkView/lifecycle-events.jsonl` | lifecycle events written through `LifecycleLog` (`LifecycleLog.swift`) |
+| SemanticDatabase | usage counter | tokens and cost for every AI call (`FeatureAI.swift`) |
 
-Settings read indirectly: `actions.outputLanguage` (conversation language), `AIAssistantPreferences` backend and model, `settings.github.enabled` (through the availability of `gitHubClient()`), `settings.github.idleInterval` (throttles `syncLifecycle`, `FeatureStore.swift:663`), `settings.xray.<tool>Model` (ImportanceRater).
+Settings read indirectly: `actions.outputLanguage` (conversation language), `AIAssistantPreferences` backend and model, `settings.github.enabled` (through the availability of `gitHubClient()`), `settings.github.idleInterval` (throttles `syncLifecycle`, `FeatureStore.swift`), `settings.xray.<tool>Model` (ImportanceRater).
 
 ---
 
@@ -777,96 +776,93 @@ Settings read indirectly: `actions.outputLanguage` (conversation language), `AIA
 
 - `FeatureStore`, `FeatureAssistant` (with its extensions in `FeatureIngest.swift` and `FeatureIntake.swift`) and `LifecycleLog` are `@MainActor`. All state changes and **all file writes by the store** run on the main thread.
 - Off the main thread:
-  - `reload()` and the fingerprint (`Task.detached`, `FeatureStore.swift:100,117`)
-  - the file copy in `ingest` (`FeatureIngest.swift:65`)
-  - `answeringModel` polling (`Task.detached(priority: .utility)`, `FeatureStore.swift:615`)
+  - `reload()` and the fingerprint (`Task.detached`, `FeatureStore.swift`)
+  - the file copy in `ingest` (`FeatureIngest.swift`)
+  - `answeringModel` polling (`Task.detached(priority: .utility)`, `FeatureStore.swift`)
   - `readableText` and `fetchText`, which are `nonisolated static`
   - the CLI and git subprocesses (awaited)
 - Synchronous file I/O on the main thread:
-  - `reloadSync()` without a slug re-reads every feature, including 12 documents × 200k characters each for issue references. It runs after `createFeature`, `deleteFeature`, every `updateBug` and `newBug` (`FeatureStore.swift:228,241,384,486`; `FeatureIntake.swift:233`).
-  - `update`, `updateMany` and `create` read, write and list folders synchronously. Consolidation writes hundreds of files in one `updateMany` (`FeatureStore.swift:417-427`).
-  - `cleanUp` trashes files synchronously, deferred one runloop turn so the spinner can draw (`FeaturePanelView.swift:1652-1656`).
-  - `context()` reads the feature documents from disk (`FeatureAI.swift:166-171`). `discussion()` reads `discussion.md` (`FeatureStore.swift:553-556`).
-  - `newBug` copies attachments and writes the report on the main actor (`FeatureIntake.swift:169-172,211-212`).
-- `features.didSet → observeLifecycle()` computes `readiness` for every feature on every reload (`FeatureStore.swift:11-13,583-600`).
+  - `reloadSync()` without a slug re-reads every feature, including 12 documents × 200k characters each for issue references. It runs after `createFeature`, `deleteFeature`, every `updateBug` and `newBug` (`FeatureStore.swift`; `FeatureIntake.swift`).
+  - `update`, `updateMany` and `create` read, write and list folders synchronously. Consolidation writes hundreds of files in one `updateMany` (`FeatureStore.swift`).
+  - `cleanUp` trashes files synchronously, deferred one runloop turn so the spinner can draw (`FeaturePanelView.swift`).
+  - `context()` reads the feature documents from disk (`FeatureAI.swift`). `discussion()` reads `discussion.md` (`FeatureStore.swift`).
+  - `newBug` copies attachments and writes the report on the main actor (`FeatureIntake.swift`).
+- `features.didSet → observeLifecycle()` computes `readiness` for every feature on every reload (`FeatureStore.swift`).
 - Races with outside writers:
-  - `generation` drops background reloads that started before an app write (`FeatureStore.swift:31-32,104,118`). `reloadSync` sets `fingerprint = ""`, so the next poll does one more full background reload (`:245`).
-  - `update*` re-reads each file from disk just before writing (`:288-290`), which keeps concurrent edits in the editor, git or the AI terminal. It does not merge an edit made *during* a long AI call when the change is computed from the AI answer. Example: `investigateBug` re-reads, but rebuilds every non-kept section from the AI output (`FeatureIntake.swift:296-314`).
-  - `create` writes with `.withoutOverwriting` and bumps the ID while a file with that ID exists (`FeatureStore.swift:255-258,277`).
-- Multiple windows: `LifecycleLog.claim` lets only the first live store record automatic events for a project (`LifecycleLog.swift:105-114`). `recordCapture` deduplicates by stage and note (`FeatureStore.swift:650-655`).
-- Folder switch: `run` drops a result when `store.root` changed (`FeatureAI.swift:130,138`). Multi-call flows such as `newFeature` check only per call. Later writes then find no feature for the slug and do nothing (the `guard let feature = feature(slug)` checks).
+  - `generation` drops background reloads that started before an app write (`FeatureStore.swift`). `reloadSync` sets `fingerprint = ""`, so the next poll does one more full background reload.
+  - `update*` re-reads each file from disk just before writing, which keeps concurrent edits in the editor, git or the AI terminal. It does not merge an edit made *during* a long AI call when the change is computed from the AI answer. Example: `investigateBug` re-reads, but rebuilds every non-kept section from the AI output (`FeatureIntake.swift`).
+  - `create` writes with `.withoutOverwriting` and bumps the ID while a file with that ID exists (`FeatureStore.swift`).
+- Multiple windows: `LifecycleLog.claim` lets only the first live store record automatic events for a project (`LifecycleLog.swift`). `recordCapture` deduplicates by stage and note (`FeatureStore.swift`).
+- Folder switch: `run` drops a result when `store.root` changed (`FeatureAI.swift`). Multi-call flows such as `newFeature` check only per call. Later writes then find no feature for the slug and do nothing (the `guard let feature = feature(slug)` checks).
 
 ---
 
 ## 8. Error handling and edge cases
 
-- Errors appear in the Feature tab from `store.lastError` or `assistant.error` (`FeaturePanelView.swift:171-183`). They are never thrown to callers. Operations return `nil` or `false`, or do nothing.
-- **Lossless guard**: front matter with comments or structures the YAML subset cannot model is never rewritten. `update` and `updateFeature` set an error (`FeatureStore.swift:291-293,457-459`); `updateMany` skips such files silently (`:421`).
-- **Write failures ignored**: `updateMany`, `appendDiscussion` and `saveDiagram` use `try?` (`FeatureStore.swift:424,549`; `FeatureAI.swift:1166-1167`).
-- **Duplicate job**: `run` refuses a key that is already running, with an error (`FeatureAI.swift:123-126`). `createIssues` returns silently (`:1256`).
-- **Issue number unreadable** after creation: the loop stops with an error, the progress so far is saved, and retrying does not re-create issues that have a number (`FeatureAI.swift:1276-1279,1299-1302`). The epic number, however, is not checked (see 10).
-- **Label missing**: `createIssue` retries without the label (`FeatureIntake.swift:152-155`). Every other GitHub failure in `newFeature`/`newBug` is swallowed (`try?`). The feature or report still exists, without an `issue`.
-- **AI IDs validated**: `requirement_updates.id`, `answers`, `merges`, `dropped`, `markOutdated` IDs and `decideAllFindings` IDs are intersected with the existing sets (`FeatureAI.swift:526-527,589,661,668,1026,1031,964`). The plan's `requirements`/`decisions` from `decompose` and a finding's `refs` are **not** validated (`:1240-1244,829-833`).
-- **Hand-written features** (no `overview.md`) are listed and readable. The first app write creates an adopted overview listing the documents (`FeatureStore.swift:453-455,495-507`). Restart is disabled for them (`:393`).
-- **Hand-written bugs**: front matter is added, the text is kept as "Original description" (`FeatureIntake.swift:299-319`). `BugReport.key` falls back to the first 7 characters of the file name (`FeatureModels.swift:534`).
-- **URL sources** accept only `http`/`https`, have a 30 s timeout, reject a non-2xx response, and keep the first 3 MB for text conversion (`FeatureIngest.swift:155-163`).
-- Image sources yield empty text; the AI is told the path so it reads the image itself. Audio needs an OpenAI key (Whisper), otherwise it yields empty text (`FeatureIngest.swift:145-150`).
-- Delete and restart are disabled once implementation started (`FeatureStore.swift:376,393`; `FeaturePanelView.swift:93-99`). Everything goes to the Trash, so it can be restored.
-- A non-ASCII title gives an empty slug, so the feature folder is named `feature` (`FeatureModels.swift:578-581`, `FeatureStore.swift:203-204`). The bug file then ends in `BUG-nnn-.md` (`FeatureIntake.swift:196`).
+- Errors appear in the Feature tab from `store.lastError` or `assistant.error` (`FeaturePanelView.swift`). They are never thrown to callers. Operations return `nil` or `false`, or do nothing.
+- **Lossless guard**: front matter with comments or structures the YAML subset cannot model is never rewritten. `update` and `updateFeature` set an error (`FeatureStore.swift`); `updateMany` skips such files silently.
+- **Write failures ignored**: `updateMany`, `appendDiscussion` and `saveDiagram` use `try?` (`FeatureStore.swift`; `FeatureAI.swift`).
+- **Duplicate job**: `run` refuses a key that is already running, with an error (`FeatureAI.swift`). `createIssues` returns silently.
+- **Issue number unreadable** after creation: the loop stops with an error, the progress so far is saved, and retrying does not re-create issues that have a number (`FeatureAI.swift`). The epic number, however, is not checked (see 10).
+- **Label missing**: `createIssue` retries without the label (`FeatureIntake.swift`). Every other GitHub failure in `newFeature`/`newBug` is swallowed (`try?`). The feature or report still exists, without an `issue`.
+- **AI IDs validated**: `requirement_updates.id`, `answers`, `merges`, `dropped`, `markOutdated` IDs and `decideAllFindings` IDs are intersected with the existing sets (`FeatureAI.swift`). The plan's `requirements`/`decisions` from `decompose` and a finding's `refs` are **not** validated.
+- **Hand-written features** (no `overview.md`) are listed and readable. The first app write creates an adopted overview listing the documents (`FeatureStore.swift`). Restart is disabled for them.
+- **Hand-written bugs**: front matter is added, the text is kept as "Original description" (`FeatureIntake.swift`). `BugReport.key` falls back to the first 7 characters of the file name (`FeatureModels.swift`).
+- **URL sources** accept only `http`/`https`, have a 30 s timeout, reject a non-2xx response, and keep the first 3 MB for text conversion (`FeatureIngest.swift`).
+- Image sources yield empty text; the AI is told the path so it reads the image itself. Audio needs an OpenAI key (Whisper), otherwise it yields empty text (`FeatureIngest.swift`).
+- Delete and restart are disabled once implementation started (`FeatureStore.swift`; `FeaturePanelView.swift`). Everything goes to the Trash, so it can be restored.
+- A non-ASCII title gives an empty slug, so the feature folder is named `feature` (`FeatureModels.swift`, `FeatureStore.swift`). The bug file then ends in `BUG-nnn-.md` (`FeatureIntake.swift`).
 
 ---
 
 ## 9. Extension points and recipes
 
 - **Add an object kind**:
-  1. Add a case to `FeatureObjectKind` with its prefix, folder, title and icon (`FeatureModels.swift:9-54`).
-  2. If it needs a status, add a vocabulary to `FeatureVocabulary`, a default status in `FeatureStore.create` (`:267`), a branch in `isClosed` and one in the `ObjectContextView.statusMenu` switch (`FeaturePanelView.swift:1421-1429`).
-  3. Add it to the digest loop in `context()` if the AI should see it (`FeatureAI.swift:191`).
+  1. Add a case to `FeatureObjectKind` with its prefix, folder, title and icon (`FeatureModels.swift`).
+  2. If it needs a status, add a vocabulary to `FeatureVocabulary`, a default status in `FeatureStore.create`, a branch in `isClosed` and one in the `ObjectContextView.statusMenu` switch (`FeaturePanelView.swift`).
+  3. Add it to the digest loop in `context()` if the AI should see it (`FeatureAI.swift`).
 
-  The loaders and the navigator pick it up automatically (`FeatureModels.swift:466-473`; `FeatureNavigatorView.swift:189`).
-- **Add a link relation**: add the key to `FeatureObject.links` (`FeatureModels.swift:123-124`), to the `listKeys`/`scalarKeys` in `cleanUp` (`FeatureStore.swift:334-336`) and to the `relation` labels (`FeaturePanelView.swift:1499-1504`).
+  The loaders and the navigator pick it up automatically (`FeatureModels.swift`; `FeatureNavigatorView.swift`).
+- **Add a link relation**: add the key to `FeatureObject.links` (`FeatureModels.swift`), to the `listKeys`/`scalarKeys` in `cleanUp` (`FeatureStore.swift`) and to the `relation` labels (`FeaturePanelView.swift`).
 - **Add a contextual action**:
-  1. Add a `FeatureAction` case with its title and instruction (`FeatureAI.swift:26-61`).
+  1. Add a `FeatureAction` case with its title and instruction (`FeatureAI.swift`).
   2. Add the menu item in `Resources/Editor/index.html` (`featureAction('<rawValue>')`, around line 1480).
-  3. Keep the raw value identical in Swift and JS: the bridge passes it through unchanged and `runFeatureAction` rejects unknown names (`WorkspaceManager.swift:3308`).
-- **Add a readiness condition**: append it in `readinessConditions` (`FeatureModels.swift:412-426`). A condition with `total == 0` does not count toward the score.
+  3. Keep the raw value identical in Swift and JS: the bridge passes it through unchanged and `runFeatureAction` rejects unknown names (`FeatureFlowCoordinator.swift`).
+- **Add a readiness condition**: append it in `readinessConditions` (`FeatureModels.swift`). A condition with `total == 0` does not count toward the score.
 - **Add an AI operation**:
-  - Write an `async` method on `FeatureAssistant` that inserts a `preparing` key, builds `context(feature, focus:)` plus a task, calls `structured(key, …)` with a schema from the helpers (`object`, `array`, `string`, `strings`, `:263-269`), and writes the result only through `store.create`/`update`/`updateMany`.
+  - Write an `async` method on `FeatureAssistant` that inserts a `preparing` key, builds `context(feature, focus:)` plus a task, calls `structured(key, …)` with a schema from the helpers (`object`, `array`, `string`, `strings`), and writes the result only through `store.create`/`update`/`updateMany`.
   - Gate the UI on `assistant.isRunning(key)`.
   - Validate every ID the AI returns against the feature.
-- **Add a source type**: add a `SourceOrigin` case, its reading branch in `ingest` and its `provenance` (`FeatureIngest.swift:9-85`), and a menu entry in `SourcesSection.addMenu` (`FeaturePanelView.swift:798-823`).
-- **Add an intake kind**: extend `IntakeKind` (`FeatureIntake.swift:6-25`), the sheet's `icon`, `footnote` and `submit` switches (`FeatureNavigatorView.swift:605-651`) and `WorkspaceManager.startIntake(fromDocument:)` (`:3249-3259`).
-- **Bridge rule**: a change to the `featureAction` message must update `WebViewBridge.swift:319-323`, `EditorView.swift:844-846` and `index.html` together (see [editor-and-bridge](editor-and-bridge.md)).
+- **Add a source type**: add a `SourceOrigin` case, its reading branch in `ingest` and its `provenance` (`FeatureIngest.swift`), and a menu entry in `SourcesSection.addMenu` (`FeaturePanelView.swift`).
+- **Add an intake kind**: extend `IntakeKind` (`FeatureIntake.swift`), the sheet's `icon`, `footnote` and `submit` switches (`FeatureNavigatorView.swift`) and `FeatureFlowCoordinator.startIntake(fromDocument:)`.
+- **Bridge rule**: a change to the `featureAction` message must update `WebViewBridge.swift`, `EditorView.swift` and `index.html` together (see [editor-and-bridge](editor-and-bridge.md)).
 
 ---
 
 ## 10. Risks, tech debt and oddities
 
-1. **Main-thread file I/O**, against the project rule in CLAUDE.md that file work stays off the main thread. `reloadSync()` with a full `loadAll`, `update`/`updateMany`/`create`, `cleanUp`, `context()` document reads and `newBug` attachment copies all run on the main actor (`FeatureStore.swift:194-197,234-246,417-427`; `FeatureAI.swift:166-171`; `FeatureIntake.swift:169-172`; `FeaturePanelView.swift:1652-1656`). Large specs, where consolidation touches hundreds of files, can beachball.
-2. **Polling cost**: every 3 s the whole of `docs/features` and `docs/bugs` is walked for modification dates (`FeatureStore.swift:66-75,143-152`). Every app write resets the fingerprint, which forces another full reload (`:245`). `observeLifecycle` computes readiness for all features on every `features` assignment (`:11-13,585`).
-3. **Duplicate epic risk**: after the epic issue is created, a URL without a parseable number leaves `epic = nil` (`FeatureAI.swift:1293`). The next "create issues" files another epic. The per-issue path guards against this (`:1276-1279`); the epic path does not.
-4. **Bug ID race**: `nextNumbered("BUG")` followed by `write(..., atomically: true)` has no `withoutOverwriting` (`FeatureIntake.swift:166,212,230`). Two windows or a concurrent git pull can overwrite a report. Feature objects are protected (`FeatureStore.swift:277`); bugs are not.
-5. **Unvalidated AI output**: plan issue `requirements`/`decisions` (`FeatureAI.swift:1240-1244`) and finding `refs` (`:833`) are stored verbatim. `openTarget` guards only against `..` (`FeaturePanelView.swift:1064`).
+1. **Main-thread file I/O**, against the project rule in CLAUDE.md that file work stays off the main thread. `reloadSync()` with a full `loadAll`, `update`/`updateMany`/`create`, `cleanUp`, `context()` document reads and `newBug` attachment copies all run on the main actor (`FeatureStore.swift`; `FeatureAI.swift`; `FeatureIntake.swift`; `FeaturePanelView.swift`). Large specs, where consolidation touches hundreds of files, can beachball.
+2. **Polling cost**: every 3 s the whole of `docs/features` and `docs/bugs` is walked for modification dates (`FeatureStore.swift`). Every app write resets the fingerprint, which forces another full reload. `observeLifecycle` computes readiness for all features on every `features` assignment.
+3. **Duplicate epic risk**: after the epic issue is created, a URL without a parseable number leaves `epic = nil` (`FeatureAI.swift`). The next "create issues" files another epic. The per-issue path guards against this; the epic path does not.
+4. **Bug ID race**: `nextNumbered("BUG")` followed by `write(..., atomically: true)` has no `withoutOverwriting` (`FeatureIntake.swift`). Two windows or a concurrent git pull can overwrite a report. Feature objects are protected (`FeatureStore.swift`); bugs are not.
+5. **Unvalidated AI output**: plan issue `requirements`/`decisions` (`FeatureAI.swift`) and finding `refs` are stored verbatim. `openTarget` guards only against `..` (`FeaturePanelView.swift`).
 6. **UI state per window, not per project**: `feature.stage` and `layout.issuesFeature` live in the window's `PanelLayout` (BUG-004), so two windows no longer share them. A window that switches projects keeps them, and a stale `issuesFeature` slug falls back to the list.
-7. **Plan body regenerated**: `savePlan` rebuilds the whole body (`FeatureStore.swift:530-536`), so hand edits below the front matter are lost on the next plan change or cleanup.
-8. **ASCII-only slugs**: non-Latin titles, such as Russian, which the examples show is the conversation language, collapse to `feature`, `feature-2`… and `BUG-nnn-.md` (`FeatureModels.swift:578-581`).
-9. **`PlannedIssue` fallback ID** is random (`UUID().uuidString.prefix(4)`) when `id` is missing (`FeatureModels.swift:214`). It changes on every load, which breaks drag and drop between issue cards for hand-written plans.
-10. **Readiness flapping**: `specReady` is recorded every time readiness climbs back to 100, for example after a new finding is resolved (`FeatureStore.swift:591-592`). The feature doc (plan I-3) says this is intended, but the analytics must cope with it.
-11. **Swallowed failures**: `updateMany` skips non-lossless files without telling the user (`FeatureStore.swift:421`). `appendDiscussion` and `saveDiagram` ignore write errors. GitHub issue creation in the intake ignores errors (`FeatureIntake.swift:152-155`).
-12. **Misplaced doc comment**: "Understanding dimension → known | partial…" sits on `isImplemented` instead of `understanding` (`FeatureModels.swift:260-262`).
-13. **Consolidation threshold mismatch**: the UI offers it above 30 requirements (`FeaturePanelView.swift:948`), the method runs above 3 (`FeatureAI.swift:629`).
-14. **`tools/importance-check.sh` is broken**:
-    - It extracts CLI helpers from `MarkView/Models/AIConsoleEngine.swift`, which no longer exists (`tools/importance-check.sh:19`).
-    - It passes a `readableFolder:` argument that `ImportanceRater.request` does not accept (`tools/importance-check.sh:36,68-69` vs `ImportanceRater.swift:185-186`).
-    - It does not compile `CodeExplainer.swift`, which defines `editorLines`, used at `ImportanceRater.swift:212`.
+7. **Plan body regenerated**: `savePlan` rebuilds the whole body (`FeatureStore.swift`), so hand edits below the front matter are lost on the next plan change or cleanup.
+8. **ASCII-only slugs**: non-Latin titles, such as Russian, which the examples show is the conversation language, collapse to `feature`, `feature-2`… and `BUG-nnn-.md` (`FeatureModels.swift`).
+9. **`PlannedIssue` fallback ID** is random (`UUID().uuidString.prefix(4)`) when `id` is missing (`FeatureModels.swift`). It changes on every load, which breaks drag and drop between issue cards for hand-written plans.
+10. **Readiness flapping**: `specReady` is recorded every time readiness climbs back to 100, for example after a new finding is resolved (`FeatureStore.swift`). The feature doc (plan I-3) says this is intended, but the analytics must cope with it.
+11. **Swallowed failures**: `updateMany` skips non-lossless files without telling the user (`FeatureStore.swift`). `appendDiscussion` and `saveDiagram` ignore write errors. GitHub issue creation in the intake ignores errors (`FeatureIntake.swift`).
+12. **Misplaced doc comment**: "Understanding dimension → known | partial…" sits on `isImplemented` instead of `understanding` (`FeatureModels.swift`).
+13. **Consolidation threshold mismatch**: the UI offers it above 30 requirements (`FeaturePanelView.swift`), the method runs above 3 (`FeatureAI.swift`).
+14. **`tools/importance-check.sh`** was broken in 2.17.0 (it extracted helpers from a file that no longer existed and passed an argument `ImportanceRater.request` did not accept). The script was removed in 6.26.0; `ImportanceRater` has no live-CLI check now.
 
-    `ImportanceRater` is also an X-Ray concern kept in this module's file list; the one-off filter used to be global mutable state; it is now a per-window value on `WorkspaceManager`.
+    `ImportanceRater` is also an X-Ray concern kept in this module's file list; the one-off filter used to be global mutable state; it is now a per-window value on `CodeAndXRayCoordinator` (`temporaryFilter`).
 15. **Sensitive content leaves the machine**:
-    - Every call sends feature content, documents and search snippets to the chosen CLI, with read access to the whole project root (`FeatureAI.swift:131-132`). `research` also enables the web (`:765`).
-    - `newBug` posts the full report to a GitHub issue, **including the user's "Original description"** and links to attachments (`FeatureIntake.swift:193,219-220`). `newFeature` posts the idea, problem and scope (`:136-141`). On a public repository this publishes whatever the user pasted, such as logs or tokens.
-    - Bug attachments are copied into `docs/bugs/assets/` inside the repository (`:170-172`), where they can be committed.
-    - Imported GitHub issue bodies and fetched web pages go into prompts unfiltered, which is a prompt-injection surface. The CLI is read-only (`CLICompletion.swift:6-9`).
-16. **No automated tests** for feature parsing, `nextID`, `cleanUp` link rewriting or `bugSections`. Only `tools/tests/lifecycle-tests.sh` covers the lifecycle duration rules.
+    - Every call sends feature content, documents and search snippets to the chosen CLI, with read access to the whole project root (`FeatureAI.swift`). `research` also enables the web.
+    - `newBug` posts the full report to a GitHub issue, **including the user's "Original description"** and links to attachments (`FeatureIntake.swift`). `newFeature` posts the idea, problem and scope. On a public repository this publishes whatever the user pasted, such as logs or tokens.
+    - Bug attachments are copied into `docs/bugs/assets/` inside the repository, where they can be committed.
+    - Imported GitHub issue bodies and fetched web pages go into prompts unfiltered, which is a prompt-injection surface. The CLI is read-only (`CLICompletion.swift`).
+16. **Tests (2.17.0: none).** Standalone suites now exist for the discovery flow, the review gate, the flow coordinator and the issue lifecycle (`tools/tests/feature-discovery-tests.sh`, `feature-review-gate-tests.sh`, `feature-flow-coordinator-tests.sh`, `issue-lifecycle-tests.sh`). Whether feature parsing, `nextID`, `cleanUp` link rewriting and `bugSections` are covered was not checked.
 
 ---
 

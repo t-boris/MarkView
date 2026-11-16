@@ -1,7 +1,8 @@
 # Build, Release and Testing
 
-How MarkView is configured, built, signed, packaged, installed and tested. Every statement
-cites the file it comes from. Day-to-day procedures are in
+How MarkView is configured, built, signed, packaged, installed and tested. Each section names the file it comes from.
+Checked against the code at `ac3001ba` (2026-11-15): file names and symbols were looked up mechanically, and the ATS, entitlement and install
+statements were re-read; the rest keeps its earlier text. Day-to-day procedures are in
 [operations-runbook.md](../operations-runbook.md).
 
 Related modules: [app-shell-and-workspace](app-shell-and-workspace.md) ·
@@ -28,14 +29,13 @@ Related modules: [app-shell-and-workspace](app-shell-and-workspace.md) ·
 | `gh` | CI release job; PR X-Ray at runtime | `.github/workflows/build-release.yml`, `release.sh --publish` |
 
 Local Swift package: `Packages/MarkViewCore` is linked directly into the `MarkView` app target
-in `MarkView.xcodeproj` (XcodeGen/`project.yml`, `setup.sh`, and `EditorWeb/` have been removed).
+in `MarkView.xcodeproj`. The XcodeGen setup and the `EditorWeb/` folder were removed in 6.26.0 (`DEC-004`, `DEC-005`).
 
 ## 2. Project structure (`MarkView.xcodeproj` + `Packages/MarkViewCore`)
 
 - `MarkView.xcodeproj/project.pbxproj` is the single source of truth (`CLAUDE.md` Working Rules).
   It defines one application target, `MarkView`, and links `Packages/MarkViewCore`.
-- Non-code markdown scaffold docs (`BUILD_NOTES.md`, `FILES_CREATED.txt`, `MANIFEST.md`) were
-  removed in 6.26.0 so they are not bundled into app resources.
+- The scaffold documents of the old build setup were removed in 6.26.0, so they are no longer bundled into the app resources.
 - `Assets.xcassets`, `Resources/Editor/`, and Swift source memberships are maintained directly
   in `MarkView.xcodeproj` (no generated-pbxproj drift from XcodeGen).
 
@@ -49,23 +49,21 @@ Bundle identifier: `com.markview.MarkView`.
 | Setting | Debug | Release |
 |---|---|---|
 | Entitlements | `MarkView/MarkViewDebug.entitlements` | `MarkView/MarkView.entitlements` |
-| Swift optimization | `-Onone` (`:654`) | `-O`, whole module (`:567-568`) |
-| Conditions | `DEBUG` (`:653`) | none |
-| Debug info | `dwarf` (`:626`) | `dwarf-with-dsym` (`:547`) |
-| Other | `ONLY_ACTIVE_ARCH YES` (`:649`), `ENABLE_TESTABILITY YES` (`:628`) | `ENABLE_NS_ASSERTIONS NO` (`:548`) |
+| Swift optimization | `-Onone` | `-O`, whole module |
+| Conditions | `DEBUG` | none |
+| Debug info | `dwarf` | `dwarf-with-dsym` |
+| Other | `ONLY_ACTIVE_ARCH YES`, `ENABLE_TESTABILITY YES` | `ENABLE_NS_ASSERTIONS NO` |
 
 Not set in `project.pbxproj`: `ENABLE_HARDENED_RUNTIME`, `DEVELOPMENT_TEAM` (`SWIFT_STRICT_CONCURRENCY = targeted` is set in both configurations).
-The hardened runtime is applied only by `release.sh` at signing time (`release.sh:29`).
+The hardened runtime is applied only by `release.sh` at signing time (`release.sh`).
 
 `Info.plist` highlights:
-- Versions come from build settings (`MarkView/Info.plist:21-26`).
+- Versions come from build settings (`MarkView/Info.plist`).
 - Document types: Markdown and JSON Canvas at rank Default, JSON/XML/YAML/folders at Alternate
-  (`Info.plist:33-137`); imported UTIs `net.daringfireball.markdown`, `com.markview.jsoncanvas`
-  (`:140-183`).
-- Privacy strings: Apple Events and microphone (`:186-189`).
-- ATS: `NSAllowsArbitraryLoads`, `...InWebContent`, `NSAllowsLocalNetworking` all true
-  (`:192-200`).
-- `NSPrincipalClass` is `NSApplication` (`:27-28`), although `MarkView/App/MarkViewApp.swift:10-12`
+  (`Info.plist`); imported UTIs `net.daringfireball.markdown`, `com.markview.jsoncanvas`.
+- Privacy strings: Apple Events and microphone.
+- ATS: `NSAllowsArbitraryLoads` is false; `NSAllowsArbitraryLoadsInWebContent` and `NSAllowsLocalNetworking` are true (AR-41).
+- `NSPrincipalClass` is `NSApplication`, although `MarkView/App/MarkViewApp.swift`
   says it should be `MarkViewApplication`.
 
 ## 4. Pre-build script: "Build Web Editor (optional)"
@@ -81,21 +79,17 @@ A new top-level page in `Resources/Editor` must be added to the script in `proje
 
 ## 5. Resource bundling
 
-| Bundle path | Put there by | Loaded by |
+| Path inside `MarkView.app/Contents/` | Put there by | Loaded by |
 |---|---|---|
-| `Contents/Resources/Editor/index.html` | pre-build script | `MarkView/Views/Workspace/EditorView.swift:26` |
-| `Contents/Resources/index.html` (flat copy) | Resources phase (`project.pbxproj:397`) | fallback, `EditorView.swift:27` |
-| `Contents/Resources/Editor/terminal.html` | pre-build script | `MarkView/Models/Terminal/TerminalSession.swift:110` |
-| `Contents/Resources/Editor/vendor/{js,css}` | pre-build script | `index.html`, `terminal.html` (`terminal.html:19`) |
-| `Assets.xcassets` (AppIcon) | Resources phase (`project.pbxproj:392`) | `ASSETCATALOG_COMPILER_APPICON_NAME` |
-| `BUILD_NOTES.md`, `FILES_CREATED.txt`, `MANIFEST.md`, `README.md` | Resources phase (`project.pbxproj:393-396`) | nothing (stale docs, see section 12) |
+| `Resources/Editor/index.html` | pre-build script | `MarkView/Views/Workspace/EditorView.swift` |
+| `Resources/Editor/terminal.html` | pre-build script | `MarkView/Models/Terminal/TerminalSession.swift` |
+| `Resources/Editor/vendor/{js,css}` | pre-build script | `index.html`, `terminal.html` |
+| `Assets.xcassets` (AppIcon) | Resources phase (`project.pbxproj`) | `ASSETCATALOG_COMPILER_APPICON_NAME` |
 
-Not fully offline: `index.html:1539-1544` loads D3, Dagre, Turndown and
-turndown-plugin-gfm from `cdn.jsdelivr.net`, and the CSP allows that host (`index.html:21`).
-README only mentions the D3/Dagre case (`README.md:162-163`). Turndown handles the WYSIWYG
-HTML-to-Markdown save (`index.html:1542`), so that path needs network access.
+Offline: `index.html` has no reference to a CDN (`git grep` for `jsdelivr`, `unpkg` and `cdnjs` finds nothing in it). Every library, Turndown
+and DOMPurify included, is a vendored copy under `Resources/Editor/vendor/`.
 `vendor/MANIFEST.txt` records versions, SHA-256 and CVE checks for the vendored libraries
-(`MarkView/Resources/Editor/vendor/MANIFEST.txt:1-9`).
+(`MarkView/Resources/Editor/vendor/MANIFEST.txt`).
 
 ## 6. Versioning policy
 
@@ -112,25 +106,25 @@ HTML-to-Markdown save (`index.html:1542`), so that path needs network access.
 
 ## 7. Signing, entitlements and sandbox
 
-**The App Sandbox is off in both configurations** (`MarkView/MarkView.entitlements:7-8`,
-`MarkView/MarkViewDebug.entitlements:6-7`). Stated reason: sandboxing blocks `Process()` from
-running the `claude` / `codex` CLIs (`MarkView.entitlements:5-6`). The app also reads other
+**The App Sandbox is off in both configurations** (`MarkView/MarkView.entitlements`,
+`MarkView/MarkViewDebug.entitlements`). Stated reason: sandboxing blocks `Process()` from
+running the `claude` / `codex` CLIs (`MarkView.entitlements`). The app also reads other
 tools' files, for example `~/.claude/.credentials.json`, `~/.codex/auth.json` and the Claude Code
-keychain item via `/usr/bin/security` (`MarkView/Models/AI/AgentUsageTracker.swift:483-493`).
+keychain item via `/usr/bin/security` (`MarkView/Models/AI/AgentUsageTracker.swift`).
 
 | Entitlement | Release | Debug | What it enables |
 |---|---|---|---|
-| `com.apple.security.app-sandbox` = false | yes (`:7-8`) | yes (`:6-7`) | Unsandboxed: child processes, full file system, network |
-| `com.apple.security.device.audio-input` | yes (`:11-12`) | yes (`:14-15`) | Microphone under the hardened runtime, for Whisper dictation (`MarkView/Models/Dictation/WhisperClient.swift:60-101`) |
-| `com.apple.security.automation.apple-events` | yes (`:13-14`) | **no** | Apple Events under the hardened runtime, for "Open in Terminal.app" via `NSAppleScript` (`MarkView/Views/Workspace/FileTreeView.swift:522`) |
-| `com.apple.security.network.client` | no | yes (`:10-11`) | Only matters inside a sandbox, so it has no effect here |
+| `com.apple.security.app-sandbox` = false | yes | yes | Unsandboxed: child processes, full file system, network |
+| `com.apple.security.device.audio-input` | yes | yes | Microphone under the hardened runtime, for Whisper dictation (`MarkView/Models/Dictation/WhisperClient.swift`) |
+| `com.apple.security.automation.apple-events` | yes | **no** | Apple Events under the hardened runtime. The comment in `MarkView.entitlements` says "Open in Terminal.app" needs it, but `FileTreeView.swift` opens Terminal with `NSWorkspace` and no AppleScript (AR-11), so the entitlement may be unused (not checked further) |
+| `com.apple.security.network.client` | no | yes | Only matters inside a sandbox, so it has no effect here |
 
 Signing paths:
 - Local Debug verification builds use `CODE_SIGNING_ALLOWED=NO` (`CLAUDE.md` Verification), so
   entitlements are not applied.
-- `release.sh` builds unsigned (`release.sh:24-25`), then signs the app with
+- `release.sh` builds unsigned (`release.sh`), then signs the app with
   `--options runtime --timestamp --entitlements MarkView/MarkView.entitlements`
-  (`release.sh:29-31`) and signs the DMG (`release.sh:39`).
+  (`release.sh`) and signs the DMG (`release.sh`).
 - CI signs ad hoc (`CODE_SIGN_IDENTITY="-"`, `.github/workflows/build-release.yml`).
 
 ## 8. Release pipeline (`release.sh`)
@@ -162,12 +156,10 @@ flowchart TD
     S --> T[open /Applications/MarkView.app]
 ```
 
-Step references: `release.sh:13` (version), `:14-15` (identity), `:17-21` (clean),
-`:23-26` (build), `:28-31` (sign), `:33-39` (DMG), `:41-45` (notarize), `:46` (checksum),
-`:49-61` (install).
+Step references: `release.sh` (version) (identity) (clean) (build) (sign) (DMG) (notarize) (checksum) (install).
 
 Without notarization, first launch needs "Open Anyway" in System Settings → Privacy & Security
-(`release.sh:7-9`, `README.md:147-149`). `./release.sh --publish` publishes the DMG as release
+(`release.sh`, `README.md`). `./release.sh --publish` publishes the DMG as release
 `v<version>` marked Latest.
 
 **Release from CI** (`.github/workflows/publish-release.yml`): a `workflow_dispatch` run on
@@ -179,32 +171,37 @@ the repository secrets `MACOS_CERTIFICATE_P12`, `MACOS_CERTIFICATE_PASSWORD`, `N
 `notarytool` is called with the App Store Connect key. Without them the run still publishes, but
 as an unsigned pre-release that is never marked Latest — only a signed, notarized installer is.
 
-**CI** (`.github/workflows/build-release.yml`): on every push to `main`, on `macos-15` with
-`Xcode_16.app` (`:5-7`, `:14`, `:19`). It builds Release with ad-hoc signing (`:21-27`) and publishes nothing:
-until 5.10.0 it also zipped the app and kept an unsigned `latest` pre-release with `MarkView.zip`, which was
-removed so that the signed DMG is the only installer on GitHub. It runs no tests, and it does not
-bump or check the version.
+**CI** (five workflows in `.github/workflows/`):
+
+- `ci.yml` (`CI`): on pull requests and pushes to `main` that change more than documentation; a newer run on the same ref cancels
+  the older one. Job `pure-tests` runs `./tools/lint/architecture-lint.sh` and `./tools/tests/run.sh --tier pure`. Job `build`
+  runs `swift test --package-path Packages/MarkViewCore`, compiles the app with a shared DerivedData cache
+  (`tools/ci/build-cache-mtimes.py`) and feeds both logs to `tools/lint/build-warnings.sh`.
+- `build-release.yml` (`Build & Release`): on pushes to `main` that change more than documentation. It compiles the Release
+  configuration and publishes nothing; the signed DMG is the only installer on GitHub (until 5.10.0 it also kept an unsigned
+  pre-release zip). It runs no tests, and it does not bump or check the version.
+- `publish-release.yml`: the release from CI described above.
+- `copilot-cockpit.yml` and `remote-workspace.yml`: path-filtered checks for the Cockpit and the remote workspace.
 
 ## 9. Install
 
 | Command | What it does | Source |
 |---|---|---|
-| `./install.sh` | quits and `pkill -9 MarkView`, runs `xcodebuild ... archive` to `build/MarkView.xcarchive`, replaces `/Applications/MarkView.app`, copies the OpenAI key from the old sandbox container's preferences into the global domain, opens the app | `install.sh:5-27` |
-| `./release.sh --install` | installs from the signed DMG (section 8) | `release.sh:49-61` |
-| manual | open the DMG and drag the app to Applications | `README.md:145-149` |
+| `./release.sh --install` | builds the signed DMG (section 8), quits a running MarkView (`osascript`, then `pkill -x MarkView`), replaces `/Applications/MarkView.app` from the mounted DMG and opens it | `release.sh` |
+| manual | open the DMG and drag the app to Applications | `README.md` |
 
-Both scripts quit the running app. When the command runs inside a MarkView terminal, quitting
-the app kills the script itself (see the runbook, "Install").
+`release.sh --install` quits the running app. When the command runs inside a MarkView terminal, quitting the app kills the script
+itself (see the runbook, "Install"). The old `install.sh` (an `xcodebuild archive` into `/Applications`) was removed in 6.26.0.
 
 ## 10. Rebuilding the vendored web libraries
 
-`cd tools/web-vendor && npm ci && ./build.sh` (`tools/web-vendor/build.sh:3`, `README.md:183-184`):
+`cd tools/web-vendor && npm ci && ./build.sh` (`tools/web-vendor/build.sh`, `README.md`):
 
 - `esbuild` bundles `codemirror-entry.js` → `vendor/js/codemirror.bundle.js` and `xterm-entry.js`
-  → `vendor/js/xterm.bundle.js`, as IIFE, minified, `--target=safari15` (`build.sh:8-12`).
-- Copies `xterm.css` (`:13`), `cytoscape.min.js`, `elk.bundled.js`, `cytoscape-elk.js` (`:15-17`).
-- Versions are pinned exactly in `package.json:8-40` with `package-lock.json`. `node_modules/` is
-  git-ignored (`.gitignore:50-51`).
+  → `vendor/js/xterm.bundle.js`, as IIFE, minified, `--target=safari15` (`build.sh`).
+- Copies `xterm.css`, `cytoscape.min.js`, `elk.bundled.js`, `cytoscape-elk.js`.
+- Versions are pinned exactly in `package.json` with `package-lock.json`. `node_modules/` is
+  git-ignored (`.gitignore`).
 - Other vendor files (markdown-it, KaTeX, Mermaid, Prism, Chart.js, js-yaml) are not produced by
   this script. They are checked-in copies tracked in `vendor/MANIFEST.txt`.
 - The bundles are shipping code: rebuild them, commit them, then build the app. Loading from a
@@ -212,21 +209,32 @@ the app kills the script itself (see the runbook, "Install").
 
 ## 11. Test strategy
 
-There is no XCTest target (`CLAUDE.md` Repository Map). Tests are standalone `swiftc` programs
-that compile selected app source files together with a test `main`, then run the result:
+There is no XCTest target for the app. Two kinds of tests exist:
 
-| Script | Compiles | Covers | Needs |
-|---|---|---|---|
-| `tools/tests/cycle-time-tests.sh` | `Models/Lifecycle/CycleTime.swift`, `Models/Lifecycle/CycleTimeReport.swift`, `Models/Lifecycle/EvidenceTimings.swift` + the workflow models + `CycleTimeChecks.swift` | Stays and rounds folded from journal records (baseline, replacement, reopen, rollback, external edit, forced step, unknown status, clock skew), the four measures by role for Kanban and the standard flow, missing-reason per item, distribution, pace colours (grey under 8 samples), trend, needs-attention list, exclusions and Measure since, the settings file round trip, model-name canonicalisation, delivery evidence per unit and per process; one check fails when a replacement counts as an event | CLI only |
-| `tools/tests/agent-usage-tests.sh` | `Models/AI/AgentUsage.swift`, `Models/AI/AgentUsageLogs.swift` + `AgentUsageTests.swift` (`:10-11`) | usage levels 80/95%, headline window, pace, fallback windows (month clamping), official Claude/Codex usage parsing, token formatting (`AgentUsageTests.swift:29-149`) | CLI only |
-| `tools/tests/dictation-insertion-tests.sh` | `enum DictationInsertion` cut out of `Views/Dictation/DictationViews.swift` with awk (`:10`) | inserting at the cursor, replacing a selection, spacing, undo, append when the field is unfocused, never writing into another window (`DictationInsertionTests.swift:23-64`) | logged-in GUI session, briefly opens a window (`:3-4`) |
-| `tools/tests/transcription-failure-tests.sh` | `struct TranscriptionFailure` cut out of `Models/Dictation/WhisperClient.swift` with awk | readable message, next step and tag for OpenAI error bodies (the captured 401 `invalid_api_key` body, quota, rate limit, model, 403, 413, 5xx, non-JSON), free-text codes dropped, network errors; no JSON or key fragment in any message | CLI only |
-| `tools/tests/terminal-link-tests.sh` | `Models/Terminal/TerminalLink.swift`, `Models/Terminal/TerminalSession.swift`, the `FileType` part of `DocumentState.swift` (`:9-21`); then `EditorLineLinkTests.swift` (`:24-26`) | terminal link resolution, OSC 8, Cmd-click under mouse-tracking TUIs, live shell cwd, the shipping `terminal.html` in a real WKWebView; editor go-to-line in the shipping `index.html` | GUI session. `--open-browser` also opens the real default browser (`TerminalLinkTests.swift:147-152`) |
+- **Package tests.** `swift test --package-path Packages/MarkViewCore` runs `MarkViewCoreTests` (`JSCallTests`, `PollingSchedulerTests`,
+  `SettingsTests`, `SQLiteSchemaTests`, `SubprocessProcessGroupTests`, `SubprocessStartTests`, `MarkViewCoreTests`).
+- **Standalone suites.** Each is a script in `tools/tests/` that compiles selected app source files together with a test `main`
+  with `swiftc` (or runs a script, a probe app or a web page) and runs the result. They are cataloged in
+  `tools/tests/manifest.json` (schema 1, 211 suites at ac3001ba: 136 `pure`, 70 `gui`, 5 `live`; each entry has `name`, `script`,
+  `tier` and the `sources` it compiles) and run by `tools/tests/run.sh`:
+
+| Command | What it does |
+|---|---|
+| `./tools/tests/run.sh --tier pure` | the pure suites (CLI only; default tier). CI runs this |
+| `./tools/tests/run.sh --changed [<ref>]` | the suites whose `sources` changed against the ref; exit 3 when files changed but no suite was selected |
+| `./tools/tests/run.sh --all` / `--tier gui` / `--tier live` | everything / suites that open a window or WebKit / suites that need a signed-in assistant or network |
+| `./tools/tests/run.sh <name>` or `--suite <name>` | one suite |
+| `./tools/tests/run.sh --list` / `--dry-run` | print the selection without running it |
+
+  Every suite runs in its own process group with a time limit from its tier (pure 180 s, gui 600 s, live 1800 s, or
+  `timeoutSeconds` in the manifest), and the group is killed on timeout or interrupt.
+- **Lint.** `./tools/lint/architecture-lint.sh` is the structural gate (21 rules and ratchets, allow-lists in `tools/lint/*.txt`);
+  it is checked by `tools/tests/architecture-lint-tests.sh`. `tools/lint/build-warnings.sh` ratchets compiler warnings and
+  `tools/lint/domain-dependencies.py` measures the dependency cycles between model domains.
+
 Fixtures:
-- `Tests/Fixtures/marker-cases/`, `sse-anthropic-sample.txt` and `insight-skeleton-sample.json`
-  are referenced from the specs under `work/recursive-insight*/`.
-- `TestFiles/` holds files for manual checks: `demo.md`, `demo.canvas`,
-  `structured/test.{json,xml,yaml}`, `translation-fixture.md`, plus ad-hoc files.
+- `Tests/Fixtures/` holds the data the suites read: `importance`, `insight-skeleton-sample.json`, `marker-cases`, `pdf-export`, `prototype-audit`, `qa-api-demo`, `qa-demo`, `qa-native-demo`, `sse-anthropic-sample.txt`, `themes`.
+- `TestFiles/` holds files for manual checks: `demo.md`, `demo.canvas`, `structured/test.{json,xml,yaml}`, `translation-fixture.md`, plus ad-hoc files.
 
 ## 12. Verification checklist
 
@@ -234,7 +242,7 @@ Fixtures:
    `xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug -derivedDataPath /tmp/MarkViewDerivedData CODE_SIGNING_ALLOWED=NO build`
    (`CLAUDE.md` Verification).
 2. Package tests: `swift test --package-path Packages/MarkViewCore`.
-3. Pure standalone suite: `./tools/tests/run.sh --tier pure` (or targeted `./tools/tests/run.sh --changed`).
+3. Pure standalone suites: `./tools/tests/run.sh --tier pure` (or targeted `./tools/tests/run.sh --changed`), and the structural gate `./tools/lint/architecture-lint.sh`.
 4. Bundle check: `ls /tmp/MarkViewDerivedData/Build/Products/Debug/MarkView.app/Contents/Resources/Editor/`
    must list `index.html`, `terminal.html`, `discussion.html`, `book.html`, and `vendor/` (`tasks/lessons.md`).
 5. Toolbar or menu changes: launch the built app. The build does not catch a missing
@@ -245,6 +253,6 @@ Fixtures:
 
 ## 13. Historical cleanup notes
 
-Obsolete scaffolds removed in 6.26.0 (`DEC-004`, `DEC-005`): `project.yml`, `setup.sh`, `install.sh`, `EditorWeb/`, `tools/importance-check.sh`, `QUICKSTART.md`, `EDITOR_IMPLEMENTATION.md`, `MarkView/BUILD_NOTES.md`, `MarkView/MANIFEST.md`, `MarkView/FILES_CREATED.txt`, and `MarkView/README.md`.
+Obsolete scaffolds removed in 6.26.0 (`DEC-004`, `DEC-005`): the XcodeGen configuration, the setup and install scripts, `EditorWeb/`, the importance-check script, and the scaffold documents of the old setup.
 - `.gitignore`: sandbox-off entitlements are intentional for spawning local CLIs (`CLAUDE.md`).
 - Web vendor libraries (including Turndown, DOMPurify, CodeMirror, Cytoscape, ELK, xterm.js) are bundled locally via `tools/web-vendor/build.sh` with zero CDN loads in `index.html`.

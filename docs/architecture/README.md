@@ -1,7 +1,7 @@
 # MarkView Architecture Documentation
 
 Reverse-engineered from the code at `main` `85b6f8d` (version 2.17.0, 2026-09-26) and updated through version 6.26.x ([architecture-review-2026-11.md](./architecture-review-2026-11.md) and [architecture-review-2026-11-followup.md](./architecture-review-2026-11-followup.md)). It is meant for
-engineers and AI agents who need to change MarkView safely. Every module doc cites symbols and `path:line`;
+engineers and AI agents who need to change MarkView safely. Every module doc names files and symbols (line numbers were removed in 2026-11 because they drift; `AR-49`);
 when code and docs disagree, the code wins. Update the affected doc in the same change.
 
 Project rules (build command, versioning, bridge-change rules) are in [`/CLAUDE.md`](../../CLAUDE.md).
@@ -52,5 +52,5 @@ Recipes for common changes are in each module's "Extension points" section:
 ## Maintenance
 
 - These docs don't need a version bump (CLAUDE.md: docs-only changes).
-- When a doc's `path:line` citations drift, refresh them rather than deleting them.
-- The audit's defect findings are in [risks-and-tech-debt](./risks-and-tech-debt.md) and are **not fixed** by this doc set.
+- Name files and symbols, not line numbers. A doc that names a path or symbol that no longer exists is a defect: check it with `git grep` before saying it is current.
+- The audit's defect findings are in [risks-and-tech-debt](./risks-and-tech-debt.md), which carries a status column per finding as of `ac3001ba`; this doc set does not fix them.

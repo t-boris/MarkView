@@ -1,5 +1,7 @@
 # End-to-End QA (Scenarios, Web, Native and API Runners, Video, UX Review, Bugs, Cleanup)
 
+Status (2026-11-15): every path and symbol in this doc was looked up mechanically in the code at `ac3001ba`; line citations were removed (they drift). Written for 6.x, so the narrative was not re-read in this edit.
+
 End-to-End QA turns a goal ("a requester submits an expense and a manager approves it") into a branching
 scenario, shows it in a visual editor, and checks the chosen branches against a running web application
 or an installed native macOS application with one or more players, each in a browser or an application

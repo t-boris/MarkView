@@ -1,5 +1,7 @@
 # Glossary
 
+Status (2026-11-15): every path and symbol in this doc was looked up mechanically in the code at `ac3001ba`; line citations were removed (they drift). Terms were not re-read one by one.
+
 | Term | Meaning |
 |---|---|
 | **ACP** | Agent Client Protocol: JSON-RPC over stdio, used to drive Cline and GitHub Copilot CLIs (`ACPAssistant`) |
