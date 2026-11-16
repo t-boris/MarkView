@@ -12,13 +12,13 @@ import SQLite3
         if !condition { fatalError(message) }
     }
 
-    /// The app writes the live status through the lifecycle service; the checks write it the same way, byte for byte.
+    /// The app writes the live status through the lifecycle service; the checks write it the same way (`FrontMatter.writeFile`), byte for byte.
     nonisolated static func writeReady(_ overview: URL) -> @Sendable (String) -> Bool {
         { _ in
             guard let text = try? String(contentsOf: overview, encoding: .utf8) else { return false }
             var (front, body) = FrontMatter.split(text)
             front.set("status", "ready")
-            return (try? front.join(body: body).write(to: overview, atomically: true, encoding: .utf8)) != nil
+            return (try? front.writeFile(body: body, to: overview)) != nil
         }
     }
 

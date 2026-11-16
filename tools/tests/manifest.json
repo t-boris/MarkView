@@ -1626,7 +1626,8 @@
         "tools/tests/IssueCollectorChecks.swift",
         "tools/tests/IssueLogSupport.swift",
         "tools/tests/issue-lifecycle-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "MarkView/Models/Shared/FrontMatterFile.swift"
       ]
     },
     {
@@ -4511,7 +4512,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/WorkspaceRedesignTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "MarkView/Models/Shared/FrontMatterFile.swift"
       ]
     },
     {
@@ -5042,6 +5044,23 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
         "tools/tests/NewProjectCloseChecks.swift",
         "tools/tests/new-project-close-tests.sh"
+      ]
+    },
+    {
+      "name": "feature-store-schema-tests",
+      "script": "tools/tests/feature-store-schema-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Lifecycle/FeatureStore.swift",
+        "MarkView/Models/Lifecycle/FeatureModels.swift",
+        "MarkView/Models/Lifecycle/MarkdownIssueStatusStore.swift",
+        "MarkView/Models/Lifecycle/FeatureIntake.swift",
+        "MarkView/Models/Lifecycle/SpecificationHandoff.swift",
+        "MarkView/Models/Shared/FrontMatter.swift",
+        "MarkView/Models/Shared/FrontMatterFile.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/FeatureStoreSchemaChecks.swift",
+        "tools/tests/feature-store-schema-tests.sh"
       ]
     },
     {

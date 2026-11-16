@@ -95,6 +95,8 @@ actor SpecificationHandoffStore {
         let shouldSetReady = ["idea", "exploring", "draft", "review", "resolving", ""].contains(currentStatus)
         if shouldSetReady {
             front.set("status", "ready")
+            // The live status is written through `FrontMatter.writeFile`, which stamps the schema; the snapshot holds the same bytes.
+            front.stampSchema()
         }
 
         let directory = try handoffDirectory(project: project, slug: slug)
@@ -147,7 +149,7 @@ actor SpecificationHandoffStore {
         guard front.isLossless else { throw HandoffError.uneditableOverview }
         let normalized = try Array(Set(links.map(validRelativePath))).sorted()
         front["handoff_files"] = .list(normalized.map { .string($0) })
-        try AtomicFile.write(front.join(body: body), to: overview)
+        try front.writeFile(body: body, to: overview)
     }
 
     func snapshotText(project: URL, slug: String, revision: Int, path: String) throws -> String? {
