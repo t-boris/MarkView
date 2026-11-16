@@ -267,6 +267,8 @@ Status (2026-11-15): partial, against 6.26.2. Done: `write(to:` 112 -> 35 (lint 
 
 Fix: one `Subprocess.run(executable, arguments, cwd, environment, stdin, timeout, outputCap) async` with concurrent drain, TERM then KILL, a bounded drain wait and task cancellation; `ProcessRunner` is the closest base. Port the 11 one-shot sites; mark the synchronous runner unavailable from the main actor.
 
+Status (2026-11-15): done by its count. `Process()` outside `Subprocess` 17 in 15 files -> 0 (lint `process`: 0 in 0 files, allow-list empty); `waitUntilExit` 11 sites -> 0. FU-22: `SubprocessChild` spawns with `POSIX_SPAWN_SETPGROUP`, so the group kill has a group to signal (by reading; not run).
+
 ### AR-26 Every feature re-implements the assistant call pipeline (high, L)
 
 - `CLICompletion.run` is called at 54 sites in 27 files. JSON schemas are hand-written dictionaries: 144 object literals in 38 files. Answers come back as `Any?` and are cast by hand in 24 feature files (291 `as? [String: Any]` in Models); only 12 sites decode with `JSONDecoder`.
