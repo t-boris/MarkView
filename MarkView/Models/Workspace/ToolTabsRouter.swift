@@ -32,9 +32,9 @@ final class ToolTabsRouter: ToolOpening {
     private let terminals: any AssistantProviding & AssistantPrompting
 
     /// Where the project runs and how each place is doing (the Deployments tab), and the assistant questions about it.
-    private(set) lazy var deployments = DeploymentsHost(project: project, assistants: terminals, showTab: { [unowned self] in open(.deployments) })
+    private(set) lazy var deployments = DeploymentsHost(project: project, assistants: terminals, showTab: { [weak self] in self?.open(.deployments) })
     /// Questions asked before there is a feature, answered as pages (the Discussions tab).
-    private(set) lazy var discussions = DiscussionsHost(project: project, showTab: { [unowned self] in open(.discussions) })
+    private(set) lazy var discussions = DiscussionsHost(project: project, showTab: { [weak self] in self?.open(.discussions) })
     /// The state of the Workflow tab: the draft being edited survives a switch to another tab.
     let workflowEditor = WorkflowEditorModel()
     /// End-to-End QA: the scenarios of the project and the one being edited.
