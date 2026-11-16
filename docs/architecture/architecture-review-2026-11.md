@@ -497,6 +497,8 @@ Three suite workflows trigger on any `MarkView/**` change; six end with their ow
 
 Fix: one `ci.yml`: a job that selects suites from the manifest of AR-44, one cached build, one macOS job running the selected suites, the Go and relay jobs kept separate, and `concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }`. At most three jobs per push.
 
+Status (2026-11-15): partial. 5 workflows (the review: 14), each with a `concurrency:` group (0 of 14); `ci.yml` has 2 jobs, runs `./tools/tests/run.sh --tier pure`, restores a DerivedData cache, feeds the build-warnings ratchet, and cancels superseded runs (`cancel-in-progress: true`). Not measured: jobs per push (4 of the 5 workflows also trigger on pull requests, 3 of them behind path filters), against the target of at most 3.
+
 ### AR-46 `project.yml` is declared the source of truth but the project file is edited by hand (high, M)
 
 `CLAUDE.md` and `setup.sh` (`xcodegen generate`) say one thing; `tasks/lessons.md` says not to run XcodeGen here because it rewrote every identifier, and records a hand edit that corrupted the file. New files are added to `project.pbxproj` in four places by hand (as 6.25.0 did). Both currently agree on sources.
