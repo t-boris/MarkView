@@ -105,9 +105,30 @@ private actor Latch {
         guard await !closingEvents.tasks.isEmpty else { fatalError("project-close step did not start") }
         let partial = CockpitProgress(passNumber: 1, activity: "Partial work", scenarioCoverage: [], bugs: [], fixes: [], latestChange: "Changed file", blockers: [], buildLogPath: nil)
         try await closing.saveProgress(partial, stepID: step.id, planFingerprint: plan.fingerprint)
+        // A refusal the gate reports, a lever and a note are saved by tasks the execution keeps (none makes its caller wait).
+        func refusals(_ runs: [CockpitRun]) -> Int { runs.flatMap { $0.events ?? [] }.filter { $0.kind == .refusal }.count }
+        var cutDeployment = CockpitLiveSwitches()
+        cutDeployment.deploymentCut = true
+        closing.noteGate(tool: "markview_deployments_run", refusal: "deployment is switched off")
+        closing.setLiveCuts(cutDeployment)
+        closing.sendNote("check the build log first")
+        for _ in 0..<50 {
+            let runs = try CockpitRunStore.loadAll(root: root)
+            if refusals(runs) == 1, runs.contains(where: { $0.switches == cutDeployment && $0.notes?.count == 1 }) { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        let saving = try CockpitRunStore.loadAll(root: root)
+        guard refusals(saving) == 1, saving.contains(where: { $0.switches == cutDeployment && $0.notes?.first?.text == "check the build log first" }) else {
+            fatalError("a refusal, a lever and a note of a running step were not saved on the run")
+        }
         closing.shutdown()
         for _ in 0..<100 where await closingEvents.cancellations == 0 { try await Task.sleep(nanoseconds: 100_000_000) }
         guard await closingEvents.cancellations == 1 else { fatalError("closing the project left its host task running") }
+        // Nothing is written for a closed execution: a gate call that arrives late saves no refusal.
+        let beforeLate = try CockpitRunStore.loadAll(root: root)
+        closing.noteGate(tool: "markview_deployments_run", refusal: "arrived after the project closed")
+        try await Task.sleep(nanoseconds: 800_000_000)
+        guard try CockpitRunStore.loadAll(root: root) == beforeLate else { fatalError("a closed execution wrote to the run it had") }
         let afterClose = try CockpitRunStore.loadAll(root: root)
         guard let recovered = afterClose.first(where: { $0.status == .paused && $0.steps.contains(where: { $0.status == .interrupted && $0.progress == partial }) }) else { fatalError("closed execution did not retain interrupted evidence") }
         let recoveryEvents = Events()

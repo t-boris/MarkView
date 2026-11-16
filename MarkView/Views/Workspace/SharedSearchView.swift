@@ -165,11 +165,17 @@ final class SharedSearchModel: ObservableObject {
 
 struct SharedSearchView: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @Environment(\.windowCommands) private var window
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var tabs: TabsController
     @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
     @EnvironmentObject private var git: GitClient
-    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var project: ProjectContext
+    @EnvironmentObject private var layout: PanelLayout
+    @EnvironmentObject private var chrome: WindowChrome
+    @EnvironmentObject private var requests: WindowRequests
+    @EnvironmentObject private var codeXRay: CodeAndXRayCoordinator
+    @EnvironmentObject private var theme: WindowTheme
     @StateObject private var model = SharedSearchModel()
     @FocusState private var searchFocused: Bool
 
@@ -182,9 +188,9 @@ struct SharedSearchView: View {
                     .textFieldStyle(.plain)
                     .uiFont(size: 16)
                     .focused($searchFocused)
-                    .onChange(of: model.query) { _ in model.scheduleSearch(documentDatabasePath: workspaceManager.semanticDatabase?.dbPath) }
+                    .onChange(of: model.query) { _ in model.scheduleSearch(documentDatabasePath: project.database?.dbPath) }
                 if model.indexing { ProgressView().controlSize(.small) }
-                Button { model.startRebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders) } label: {
+                Button { model.startRebuild(root: fileTree.rootNode?.url, linked: project.linkedFolders) } label: {
                     Image(systemName: "arrow.clockwise")
                 }
                 .help("Refresh project search index")
@@ -258,11 +264,11 @@ struct SharedSearchView: View {
             .background(palette.bg)
         }
         .frame(minWidth: 620, minHeight: 420)
-        .task(id: workspaceManager.project.searchRootsKey) {
-            await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders)
+        .task(id: project.searchRootsKey) {
+            await model.rebuild(root: fileTree.rootNode?.url, linked: project.linkedFolders)
         }
         .onAppear { searchFocused = true }
-        .onReceive(workspaceManager.project.$database) { database in
+        .onReceive(project.$database) { database in
             if !model.query.isEmpty { model.scheduleSearch(documentDatabasePath: database?.dbPath) }
         }
     }
@@ -301,8 +307,8 @@ struct SharedSearchView: View {
     }
 
     private func open(_ result: ProjectSearchResult) {
-        model.startOpen(result, root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders) { opening in
-            opening.show(in: workspaceManager)
+        model.startOpen(result, root: fileTree.rootNode?.url, linked: project.linkedFolders) { opening in
+            if let window { opening.show(in: window) }
             dismiss()
         }
     }
@@ -316,55 +322,54 @@ struct SharedSearchView: View {
     }
 
     private var matchingCommands: [SearchCommand] {
-        let manager = workspaceManager
         var commands = [
             SearchCommand(id: "files", title: "Show Files", symbol: "folder", detail: "Workspace", run: {
-                manager.layout.workspaceArea = .files
+                layout.workspaceArea = .files
             }),
             SearchCommand(id: "open-folder", title: "Open Folder…", symbol: "folder.badge.plus", detail: "File menu", run: {
                 NotificationCenter.default.post(name: .showFolderPicker, object: nil)
             }),
             SearchCommand(id: "new-project", title: "New Project…", symbol: "plus.square", detail: "File menu", run: {
-                manager.requests.newProject = NewProjectRequest()
+                requests.newProject = NewProjectRequest()
             }),
             SearchCommand(id: "theme", title: "Theme…", symbol: "paintpalette", detail: "⌘⇧T", run: {
-                manager.theme.showsPicker = true
+                theme.showsPicker = true
             }),
             SearchCommand(id: "settings", title: "DDE Settings…", symbol: "gearshape", detail: "⌘⇧,", run: {
-                DDESettingsWindow.show(workspace: manager)
+                window?.showSettings()
             })
         ]
         if fileTree.rootNode != nil {
             commands += [
                 SearchCommand(id: "map", title: "Show Project Map", symbol: "viewfinder", detail: "⌘4", run: {
-                    manager.codeXRay.openArchitecture()
+                    codeXRay.openArchitecture()
                 }),
                 SearchCommand(id: "work", title: "Show Work", symbol: "checklist", detail: "Workspace", run: {
-                    manager.layout.workspaceArea = .work
+                    layout.workspaceArea = .work
                 }),
                 SearchCommand(id: "terminal", title: "Open Terminal", symbol: "terminal", detail: "⌘3", run: {
-                    manager.showAIConsole()
+                    chrome.agentsVisible = true
                 }),
                 SearchCommand(id: "new-feature", title: "New Feature…", symbol: "plus.square", detail: "Work", run: {
-                    manager.requests.intake = IntakeRequest(kind: .feature)
+                    requests.intake = IntakeRequest(kind: .feature)
                 }),
                 SearchCommand(id: "new-bug", title: "New Bug…", symbol: "ladybug", detail: "Work", run: {
-                    manager.requests.intake = IntakeRequest(kind: .bug)
+                    requests.intake = IntakeRequest(kind: .bug)
                 }),
                 SearchCommand(id: "deployments", title: "Show Build & Deployment", symbol: "server.rack", detail: "Where the project runs", run: {
-                    manager.openTool(.deployments)
+                    window?.openTool(.deployments)
                 }),
                 SearchCommand(id: "git", title: "Show Git", symbol: "arrow.triangle.branch", detail: "Work", run: {
-                    manager.openTool(.git)
+                    window?.openTool(.git)
                 })
             ]
             if git.isGitRepo {
                 commands += [
                     SearchCommand(id: "pull", title: "Git Pull", symbol: "arrow.down", detail: "Work · Git", run: {
-                        Task { await git.pull() }
+                        git.startPull()
                     }),
                     SearchCommand(id: "push", title: "Git Push", symbol: "arrow.up", detail: "Work · Git", run: {
-                        Task { await git.push() }
+                        git.startPush()
                     })
                 ]
             }
@@ -375,7 +380,7 @@ struct SharedSearchView: View {
                     tabs.saveActiveFile()
                 }),
                 SearchCommand(id: "pdf", title: "Export PDF…", symbol: "doc.richtext", detail: "⌘E", run: {
-                    NotificationCenter.default.post(.exportPDFRequested, for: manager)
+                    if let window { NotificationCenter.default.post(.exportPDFRequested, for: window) }
                 })
             ]
         }

@@ -75,7 +75,7 @@ final class InsightCoordinator {
 
         let cache: InsightCache
         do {
-            cache = try InsightCache(workspaceURL: rootURL, sessionId: UUID())
+            cache = try InsightCache(workspaceURL: rootURL, sessionId: UUID(), pagePolicy: InsightHTMLTemplate.policyKey)
         } catch {
             Self.alert("Cannot start Recursive Insight", "Failed to initialise insight cache: \(error.localizedDescription)")
             return
@@ -254,19 +254,7 @@ final class InsightCoordinator {
         let rootNodeId = session.nodes.values.first { $0.parentId == nil }?.id
         let cache = session.cache
 
-        for (id, node) in session.nodes {
-            guard let skeleton = node.skeleton else { continue }
-            var crumbs: [(nodeId: String, title: String)] = []
-            var cursor: InsightNode? = node
-            while let current = cursor {
-                crumbs.insert((current.id.uuidString, current.title), at: 0)
-                cursor = current.parentId.flatMap { session.nodes[$0] }
-            }
-            let html = InsightHTMLTemplate.html(
-                skeleton: skeleton, sectionStates: node.sectionStates, breadcrumbs: crumbs, libRefMode: .exportRelative, cache: cache
-            )
-            try? cache.writeNode(nodeId: id, html: html)
-        }
+        session.writeAllPagesToCache()
 
         tasks.store(Task { @MainActor in
             do {

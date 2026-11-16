@@ -33,58 +33,6 @@ enum AnyCodableValue: Codable, Hashable, Equatable {
     }
 }
 
-// MARK: - Block Types
-
-enum BlockType: String, Codable, CaseIterable {
-    case document
-    case section
-    case paragraph
-    case list
-    case listItem
-    case table
-    case tableRow
-    case codeBlock
-    case quote
-    case callout
-    case diagramReference
-    case frontmatterProperty
-    case adrBlock
-    case rfcBlock
-}
-
-// MARK: - Semantic Block
-
-struct SemanticBlock: Identifiable, Codable {
-    let id: String
-    let documentId: String
-    let type: BlockType
-    let level: Int?
-    let content: String
-    let plainText: String
-    let contentHash: String
-    var semanticHash: String?
-    let headingPath: [String]
-    let parentBlockId: String?
-    let lineStart: Int
-    let lineEnd: Int
-    let position: Int
-    let language: String?
-    let anchor: String?
-}
-
-// MARK: - Blocks Delta
-
-struct BlocksDelta {
-    let added: [SemanticBlock]
-    let removed: [String]       // block IDs
-    let changed: [SemanticBlock]
-    let unchanged: [String]     // block IDs
-
-    var isEmpty: Bool {
-        added.isEmpty && removed.isEmpty && changed.isEmpty
-    }
-}
-
 // MARK: - Semantic Entity (§3.2)
 
 struct SemanticEntity: Identifiable, Codable {

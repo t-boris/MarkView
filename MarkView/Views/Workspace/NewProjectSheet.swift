@@ -38,6 +38,7 @@ struct NewProjectSheet: View {
         .padding(16)
         .frame(width: 680)
         .frame(minHeight: 460)
+        .onDisappear { flow.close() }
         .confirmationDialog("Discard this project draft?", isPresented: $confirmingDiscard) {
             Button("Discard Draft", role: .destructive) {
                 flow.startDiscard { dismiss() }
@@ -307,7 +308,7 @@ private struct ClarifyContent: View {
                         Text("No open question.").uiFont(size: 10).foregroundColor(palette.textDim)
                         Spacer()
                         SmallButton(title: "Ask more questions", icon: "sparkles", prominent: true) {
-                            Task { await assistant.exploreNext(slug) }
+                            assistant.start("explore:" + slug) { await $0.exploreNext(slug) }
                         }
                     }
                 } else {
@@ -315,7 +316,7 @@ private struct ClarifyContent: View {
                         Text("The project is clear enough to confirm.").uiFont(size: 10).foregroundColor(palette.green)
                         Spacer()
                         SmallButton(title: "Ask more questions", icon: "sparkles") {
-                            Task { await assistant.exploreNext(slug) }
+                            assistant.start("explore:" + slug) { await $0.exploreNext(slug) }
                         }
                     }
                 }
@@ -350,7 +351,7 @@ private struct ClarifyContent: View {
                         .uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     SmallButton(title: "Decide the rest", icon: "flag.checkered") {
-                        Task { await assistant.decideRest(slug) }
+                        assistant.start("decide:" + slug) { await $0.decideRest(slug) }
                     }
                 }
             }

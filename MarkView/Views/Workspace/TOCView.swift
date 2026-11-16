@@ -6,10 +6,16 @@ import MarkViewCore
 /// Document Contents panel. Legacy tabs remain for saved layouts and secondary routes.
 struct TOCView: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @Environment(\.windowCommands) private var window
     @EnvironmentObject private var tabs: TabsController
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
+    @EnvironmentObject private var codeXRay: CodeAndXRayCoordinator
+    @EnvironmentObject private var requests: WindowRequests
+    @EnvironmentObject private var git: GitClient
     /// This window's panel tabs (BUG-004: not @AppStorage, which every window observes).
     @ObservedObject var layout: PanelLayout
+    /// The window's terminals, for the facts of a terminal tab in the Contents panel.
+    let terminals: AITerminalsController
     var showTabs = true
 
     typealias Tab = NavigatorTab
@@ -17,7 +23,7 @@ struct TOCView: View {
     var body: some View {
         Group {
             if showTabs {
-                TOCTabs(store: workspaceManager.flow.features, selectedTab: $layout.navigatorTab) {
+                TOCTabs(store: flow.features, selectedTab: $layout.navigatorTab) {
                     tabContent
                 }
             } else {
@@ -28,18 +34,18 @@ struct TOCView: View {
 
     @ViewBuilder
     private var tabContent: some View {
-            switch layout.navigatorTab == .feature && !workspaceManager.flow.features.hasIssues ? .contents : layout.navigatorTab {
+            switch layout.navigatorTab == .feature && !flow.features.hasIssues ? .contents : layout.navigatorTab {
             case .contents: contentsList
             case .search: WorkspaceSearchView()
-            case .git: GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
+            case .git: GitView(git: git, flow: flow, codeXRay: codeXRay, requests: requests, layout: layout, window: window)
             case .terminal: contentsList
             case .feature:
                 VStack(spacing: 0) {
                     if let tab = tabs.activeTab,
-                       let feature = workspaceManager.flow.features.locate(tab.url)?.feature {
+                       let feature = flow.features.locate(tab.url)?.feature {
                         HandoffPanelView(feature: feature)
                     }
-                    FeaturePanelView(store: workspaceManager.flow.features, layout: layout)
+                    FeaturePanelView(store: flow.features, layout: layout)
                 }
             }
     }
@@ -47,7 +53,7 @@ struct TOCView: View {
     private var contentsList: some View {
         Group {
             if let tab = tabs.activeTab {
-                ContentsPanelView(tab: tab, terminals: workspaceManager.terminals) { headingsList(tab) }
+                ContentsPanelView(tab: tab, terminals: terminals) { headingsList(tab) }
             } else {
                 emptyState("No File Open")
             }
@@ -58,7 +64,7 @@ struct TOCView: View {
     private func headingsList(_ tab: OpenTab) -> some View {
         TOCHeadingsListView(tab: tab, scrollState: tabs.scroll) { headingID in
             tabs.updateActiveHeading(headingID)
-            NotificationCenter.default.post(.scrollToHeading, for: workspaceManager, object: headingID)
+            if let window { NotificationCenter.default.post(.scrollToHeading, for: window, object: headingID) }
         }
     }
 
@@ -221,5 +227,5 @@ struct DocumentSearchView: View {
 
 #Preview {
     let workspaceManager = WorkspaceManager()
-    return TOCView(layout: workspaceManager.layout).environmentObject(workspaceManager).observingParts(of: workspaceManager)
+    return TOCView(layout: workspaceManager.layout, terminals: workspaceManager.terminals).observingParts(of: workspaceManager)
 }

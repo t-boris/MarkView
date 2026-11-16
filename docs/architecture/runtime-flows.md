@@ -54,7 +54,7 @@ Details: [app-shell §5.2](./modules/app-shell-and-workspace.md#52-open-folder),
    and canvas (`setStructuredContent`), data files (`setDataContent`, which the page fetches from the `markview-data:` scheme), or
    Markdown (`setContent`). Pictures next to a document are not inlined: the page asks for them through `markview-doc:///<path>`
    (`DocumentFileSchemeHandler`, rule in `DocumentFiles`).
-3. The page renders (markdown-it, DOMPurify, Mermaid, Prism, KaTeX) and reports `headingsUpdated`, `blocksChanged` and
+3. The page renders (markdown-it, DOMPurify, Mermaid, Prism, KaTeX) and reports `headingsUpdated` and
    `contentChanged` back to Swift. Each message is declared in `Editor/js/bridge-contract.json` and decoded by a type in
    `Bridge/PageMessages.swift`.
 
@@ -68,7 +68,6 @@ source or WYSIWYG edit ─► page: contentChanged{documentID, markdown}
       (the tab is chosen by EditorDocumentRouting; isModified = content != originalContent)
 WYSIWYG edits ─► on Cmd-S: Turndown HTML→Markdown ─► contentChanged ─► saveRequested{documentID}
    ─► TabsController.saveEditorDocument ─► saveFile(at:) ─► AtomicFile.write ─► .saved(url) event
-blocksChanged ─► ProjectContext.saveBlocks ─► SemanticDatabase.applyBlockDelta (a serialized chain of tasks)
 ```
 
 A save failure sets `TabsController.lastSaveError`, which the window shows as a banner. Turndown is vendored

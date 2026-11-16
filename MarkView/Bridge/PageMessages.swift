@@ -54,31 +54,6 @@ enum EditorMessage {
         let value: String
     }
 
-    struct BlocksChanged: BridgePayload {
-        static let messageType = "blocksChanged"
-        struct Block: Decodable {
-            let id: String
-            let documentId: String?
-            let type: String
-            let level: Int?
-            let content: String
-            let plainText: String?
-            let contentHash: String
-            let semanticHash: String?
-            let headingPath: [String]?
-            let parentBlockId: String?
-            let lineStart: Int
-            let lineEnd: Int
-            let position: Int
-            let language: String?
-            let anchor: String?
-        }
-        let added: [Block]
-        let removed: [String]
-        let changed: [Block]
-        let unchanged: [String]
-    }
-
     struct CanvasOpenFile: BridgePayload {
         static let messageType = "canvasOpenFile"
         let path: String

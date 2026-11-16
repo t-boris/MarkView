@@ -2,11 +2,3 @@
 # property, not awaited in place, and without a `// task: <why it needs no owner>` comment. `<count> <path>`; a ratchet that only
 # falls. Convert a site (the object that starts it owns a TaskBag, keys the task, cancels it on close and checks cancellation before
 # it touches state), or justify it, then run tools/lint/architecture-lint.sh --tighten; tools/lint/task-ownership.sh --sites lists them.
-2 MarkView/Models/Cockpit/CockpitAgentAttempt.swift
-6 MarkView/Models/Cockpit/CockpitExecution.swift
-8 MarkView/Models/ProjectOps/ProjectOperationsStore.swift
-3 MarkView/Models/UIStudio/UIStudioSession+Screens.swift
-3 MarkView/Models/UIStudio/UIStudioSession.swift
-3 MarkView/Views/Workspace/FileTreeView.swift
-3 MarkView/Views/Workspace/NewProjectSheet.swift
-2 MarkView/Views/Workspace/SharedSearchView.swift

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 220,
+  "suiteCount": 223,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -641,6 +641,7 @@
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
         "tools/tests/CockpitRuntimeChecks.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
@@ -4944,6 +4945,57 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/ArchiveModelTests.swift",
         "tools/tests/archive-model-tests.sh"
+      ]
+    },
+    {
+      "name": "project-operation-writes-tests",
+      "script": "tools/tests/project-operation-writes-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ProjectOps/ProjectOperation.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationHistory.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationWrites.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/OrderedWork.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/ProjectOperationAnyCodableStub.swift",
+        "tools/tests/ProjectOperationWritesTests.swift",
+        "tools/tests/project-operation-writes-tests.sh"
+      ]
+    },
+    {
+      "name": "new-project-close-tests",
+      "script": "tools/tests/new-project-close-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Workspace/NewProjectFlow.swift",
+        "MarkView/Models/Workspace/ProjectDraftStore.swift",
+        "MarkView/Models/Lifecycle/FeatureStore.swift",
+        "MarkView/Models/Lifecycle/FeatureAI.swift",
+        "MarkView/Models/Lifecycle/FeatureJobs.swift",
+        "MarkView/Models/Lifecycle/FeatureIntake.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
+        "tools/tests/NewProjectCloseChecks.swift",
+        "tools/tests/new-project-close-tests.sh"
+      ]
+    },
+    {
+      "name": "insight-page-web-tests",
+      "script": "tools/tests/insight-page-web-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/Insight/InsightCache.swift",
+        "MarkView/Models/Insight/InsightHTMLTemplate.swift",
+        "MarkView/Models/Insight/InsightModels.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "tools/tests/InsightPageWebTests.swift",
+        "tools/tests/ProjectOperationAnyCodableStub.swift",
+        "tools/tests/insight-page-web-tests.sh"
       ]
     }
   ]

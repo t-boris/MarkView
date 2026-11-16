@@ -52,7 +52,8 @@ extension String: WindowUIStorable {
 /// value lives in this object and is saved with the window's session, so a relaunch gives each window its own again. UserDefaults gets
 /// the value only as the STARTING value of the next new window: a window takes a snapshot of those starting values when it is created
 /// and reads them from it, so a later change in another window never reaches it, not even a panel the window opens much later.
-/// Nothing observes those keys.
+/// Nothing observes those keys. The views read and write it and the window saves it, all on the main actor.
+@MainActor
 final class WindowUIState: ObservableObject {
     private var own: [String: WindowUIValue] = [:]
     private let defaults: UserDefaults

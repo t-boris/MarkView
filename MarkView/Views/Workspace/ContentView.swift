@@ -33,12 +33,12 @@ enum LeftPanelWidth {
     static let standard: CGFloat = 220
 
     /// The width this window last had (or, for a window that has none yet, the last one any window left).
-    static func saved(in state: WindowUIState) -> CGFloat {
+    @MainActor static func saved(in state: WindowUIState) -> CGFloat {
         let width = CGFloat(state.value(Setting.leftPanelWidth))
         return width > 0 ? min(max(width, range.lowerBound), range.upperBound) : standard
     }
 
-    static func save(_ width: CGFloat, in state: WindowUIState) {
+    @MainActor static func save(_ width: CGFloat, in state: WindowUIState) {
         guard range.contains(width) else { return }
         state.set(Double(width.rounded()), for: Setting.leftPanelWidth, publishing: false)
     }
@@ -100,12 +100,12 @@ private enum RightPanelWidth {
     static let standard: CGFloat = 500
 
     /// The width this window last had (or, for a window that has none yet, the last one any window left).
-    static func saved(in state: WindowUIState) -> CGFloat {
+    @MainActor static func saved(in state: WindowUIState) -> CGFloat {
         let width = CGFloat(state.value(Setting.rightPanelWidth))
         return width > 0 ? min(max(width, range.lowerBound), range.upperBound) : standard
     }
 
-    static func save(_ width: CGFloat, in state: WindowUIState) {
+    @MainActor static func save(_ width: CGFloat, in state: WindowUIState) {
         guard range.contains(width) else { return }
         state.set(Double(width.rounded()), for: Setting.rightPanelWidth, publishing: false)
     }
@@ -384,7 +384,7 @@ private struct WorkspaceWindow: View {
         }
         .sheet(isPresented: $requests.operationConsoleVisible) {
             if let store = workspaceManager.projectOperations {
-                ProjectOperationConsole(store: store).environmentObject(workspaceManager)
+                ProjectOperationConsole(store: store)
             }
         }
         .sheet(item: $requests.operationEditRequest) { request in
@@ -694,8 +694,7 @@ private struct WorkspaceWindow: View {
 
     private var rightPane: some View {
         VStack(spacing: 0) {
-            TOCView(layout: layout)
-                .environmentObject(workspaceManager)
+            TOCView(layout: layout, terminals: workspaceManager.terminals)
             if fileTree.rootNode != nil {
                 Divider()
                 ProjectChangeReviewBar(review: changeReview)

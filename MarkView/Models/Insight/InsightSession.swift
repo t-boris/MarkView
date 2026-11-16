@@ -157,34 +157,6 @@ final class InsightSession: ObservableObject, Identifiable {
     /// Title of the root page.
     let rootTitle: String
 
-    /// v1-compat init — replaced by Task 7/8 once `InsightCoordinator.start`
-    /// is updated to construct `InsightCache` and pass it explicitly. Builds a cache
-    /// rooted under the system temp dir (NOT inside `folderURL` — avoids polluting the
-    /// user's analyzed folder during the v1→v2 transition).
-    ///
-    /// `throws` is the cleanest signal: T8 will rewrite the call site to pass an
-    /// explicit cache. Until then the v1 call site (`InsightCoordinator.start`)
-    /// will need a `try?` wrap — handled by the WorkspaceManager v1 stub block in T6.
-    convenience init(
-        folderURL: URL,
-        mdFiles: [URL],
-        graphRAG: GraphRAG?
-    ) throws {
-        // Cache lives under the system temp dir during the v1→v2 transition so we don't
-        // accidentally start writing `.insight-cache/` into the user's folder before T8
-        // wires up the proper lifecycle (closeTab cleanup ordering — Decision 11 §4).
-        let placeholderId = UUID()
-        let cacheRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("insight-v1-compat", isDirectory: true)
-        let cache = try InsightCache(workspaceURL: cacheRoot, sessionId: placeholderId)
-        self.init(
-            folderURL: folderURL,
-            mdFiles: mdFiles,
-            graphRAG: graphRAG,
-            cache: cache
-        )
-    }
-
     // MARK: - Public API: lifecycle
 
     /// Generate the root summary for the open folder. Idempotent: if a generation Task
@@ -574,6 +546,7 @@ final class InsightSession: ObservableObject, Identifiable {
         skeletonReady = true
         currentNodeSections = rootNode.sectionStates
         allSectionsReady = true
+        if cache.droppedStalePages { writeAllPagesToCache() }
         cachedNodeHTML = (try? cache.readNode(nodeId: rootId))
         AppLog.insight.notice("snapshot restored: \(restored.count) nodes total")
         return true
@@ -1211,7 +1184,6 @@ final class InsightSession: ObservableObject, Identifiable {
             skeleton: skel,
             sectionStates: node.sectionStates,
             breadcrumbs: crumbs,
-            libRefMode: .exportRelative,
             cache: cache
         )
 
@@ -1245,6 +1217,7 @@ final class InsightSession: ObservableObject, Identifiable {
                 nodes: []
             )
         }
+        manifest.pagePolicy = cache.pagePolicy
         // Append (or replace) this node's manifest entry.
         manifest.nodes.removeAll { $0.nodeId == nodeId }
         manifest.nodes.append(
@@ -1268,6 +1241,23 @@ final class InsightSession: ObservableObject, Identifiable {
         }
     }
 
+
+    /// Writes the page of every node that has a skeleton from the tree in memory: the pages are a pure function of it, so this
+    /// is also how the cache gets them back after it dropped the pages of another policy (`InsightCache.droppedStalePages`) and
+    /// how the ZIP export makes sure the archive holds the current pages. A node whose page cannot be written is left out.
+    func writeAllPagesToCache() {
+        for (id, node) in nodes {
+            guard let skeleton = node.skeleton else { continue }
+            var crumbs: [(nodeId: String, title: String)] = []
+            var cursor: InsightNode? = node
+            while let current = cursor {
+                crumbs.insert((current.id.uuidString, current.title), at: 0)
+                cursor = current.parentId.flatMap { nodes[$0] }
+            }
+            let html = InsightHTMLTemplate.html(skeleton: skeleton, sectionStates: node.sectionStates, breadcrumbs: crumbs, cache: cache)
+            try? cache.writeNode(nodeId: id, html: html)
+        }
+    }
 
     /// Strip `\r`, `\n`, and `\0` control bytes and truncate to 64 chars. Mirrors
     /// `WebViewBridge.sanitizeForLog`; `InsightCoordinator` uses this one for the bridge messages it logs.

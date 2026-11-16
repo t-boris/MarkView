@@ -2,26 +2,6 @@
   "contract": 1,
   "description": "The one declaration of every message a MarkView page may post to the app (AR-28). The app reads it in Swift (BridgeContract / TypedWebBridge decode, validate and dispatch) and hands the same text to each page as window.mvBridgeContract, where mvBridge.send validates before it posts. A message whose channel, type or fields do not match is refused on both sides and logged by type name only. Field specs: \"string\", \"int\", \"number\", \"boolean\", \"object\", \"array\", \"any\"; a trailing ? makes the field optional (null counts as absent). The object form adds nonEmpty, min, max, maxItems, enum, format (\"uuid\"), fields (nested object) and items (array element). A message carries `fields` (an object payload) or `items` (an array payload); fields not listed are ignored. mainFrameOnly: only the page's top frame may send it. Every type listed here has exactly one Swift handler and every Swift handler is listed here (tools/tests/bridge-contract-tests.sh).",
   "definitions": {
-    "block": {
-      "type": "object",
-      "fields": {
-        "id": "string",
-        "documentId": "string?",
-        "type": "string",
-        "level": "int?",
-        "content": "string",
-        "plainText": "string?",
-        "contentHash": "string",
-        "semanticHash": "string?",
-        "headingPath": { "type": "array", "optional": true, "items": "string" },
-        "parentBlockId": "string?",
-        "lineStart": "int",
-        "lineEnd": "int",
-        "position": "int",
-        "language": "string?",
-        "anchor": "string?"
-      }
-    },
     "heading": {
       "type": "object",
       "fields": { "id": "string", "level": "int", "text": "string" }
@@ -38,14 +18,6 @@
         "linkClicked": { "fields": {"href": "string"} },
         "editorFontSize": { "fields": {"size": "number"} },
         "editorWindowPref": { "fields": {"key": "string", "value": "string"} },
-        "blocksChanged": {
-          "fields": {
-            "added": { "type": "array", "items": "block" },
-            "removed": { "type": "array", "items": "string" },
-            "changed": { "type": "array", "items": "block" },
-            "unchanged": { "type": "array", "items": "string" }
-          }
-        },
         "canvasOpenFile": { "fields": {"path": {"type": "string", "nonEmpty": true}} },
         "saveRequested": { "fields": {} },
         "translateRequested": { "fields": {"markdown": "string", "targetLang": "string"} },
