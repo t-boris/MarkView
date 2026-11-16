@@ -15,7 +15,7 @@ func insert(_ original: String, _ range: NSRange, _ transcript: String) -> Strin
     view.string = original
     view.setSelectedRange(range)
     var binding = original
-    DictationInsertion.insert(transcript, window: window, fieldFocused: true, text: &binding)
+    MainActor.assumeIsolated { DictationInsertion.insert(transcript, window: window, fieldFocused: true, text: &binding) }
     check("binding owns the edit", view.string, original)
     return binding
 }
@@ -25,10 +25,10 @@ check("selection", insert("one two three", NSRange(location: 4, length: 3), "д�
 check("empty", insert("", NSRange(location: 0, length: 0), "Привет"), "Привет")
 check("unicode selection", insert("🙂 привет мир", NSRange(location: 3, length: 6), "hello"), "🙂 hello мир")
 var text = "Existing text"
-DictationInsertion.insert("more", window: window, fieldFocused: false, text: &text)
+MainActor.assumeIsolated { DictationInsertion.insert("more", window: window, fieldFocused: false, text: &text) }
 check("unfocused append", text, "Existing text more")
 var multiline = "Line\n"
-DictationInsertion.insert("next", window: window, fieldFocused: false, text: &multiline)
+MainActor.assumeIsolated { DictationInsertion.insert("next", window: window, fieldFocused: false, text: &multiline) }
 check("append after newline", multiline, "Line\nnext")
 let other = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
 let otherView = NSTextView(frame: .zero)
@@ -39,10 +39,10 @@ check("own window selection", insert("abc", NSRange(location: 3, length: 0), "de
 check("other window preserved", otherView.string, "another window")
 view.string = "stale editor"
 var current = "Current binding"
-DictationInsertion.insert("spoken", window: window, fieldFocused: true, text: &current)
+MainActor.assumeIsolated { DictationInsertion.insert("spoken", window: window, fieldFocused: true, text: &current) }
 check("stale selection appends safely", current, "Current binding spoken")
 var noWindow = "Field"
-DictationInsertion.insert("spoken", window: nil, fieldFocused: true, text: &noWindow)
+MainActor.assumeIsolated { DictationInsertion.insert("spoken", window: nil, fieldFocused: true, text: &noWindow) }
 check("missing window appends", noWindow, "Field spoken")
 if failures > 0 { exit(1) }
 print("All dictation insertion checks passed")

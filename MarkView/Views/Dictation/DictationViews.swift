@@ -200,6 +200,7 @@ enum DictationInsertion {
     /// window's text view; the edit itself always goes to `text`. Editing the text view directly
     /// does not work: its binding update is overwritten when this `inout` is written back
     /// (BUG-003). A space separates the transcript from a word it would touch.
+    @MainActor
     static func insert(_ transcript: String, window: NSWindow?, fieldFocused: Bool, text: inout String) {
         if fieldFocused, let view = window?.firstResponder as? NSTextView, view.isEditable,
            view.string == text, let range = Range(view.selectedRange(), in: text) {
