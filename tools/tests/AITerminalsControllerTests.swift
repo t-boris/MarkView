@@ -182,24 +182,30 @@ func run() async {
     // A home assistant is never saved as a local profile.
     let invitation = try? RemoteInvitation(relay: URL(string: "http://127.0.0.1:16394")!, persistent: true)
     RemoteTerminalConnection.rootChange = nil
-    let remote = try? await terminals.openRemoteAITerminal(code: invitation?.code ?? "", provider: codexTool, model: nil, resume: true)
+    let savedRemoteID = UUID()
+    let remote = try? await terminals.openRemoteAITerminal(code: invitation?.code ?? "", provider: codexTool, model: nil, resume: true, savedConnectionID: savedRemoteID)
     check(remote != nil && remote?.isRemote == true && terminals.shown === remote, "a home assistant opens as a terminal and is shown")
     check(remote?.title == "Home · Codex", "its tab says it is the home assistant (\(remote?.title ?? "nil"))")
     check(host.consoleShown >= 1, "the panel is brought to the front for it")
+    (remote?.connection as? RemoteTerminalConnection)?.publish(.online, "Connected")
+    check(RemoteConnectionsStore.shared.updates.last?.0 == savedRemoteID && RemoteConnectionsStore.shared.updates.last?.2 == "Connected",
+          "the active saved connection receives state updates")
     check((defaults.dictionary(forKey: savedKey(folder))?["profiles"] as? [String]) == ["claude", "claude", "shell"], "a home assistant is not saved among the local terminals")
     remote?.links?.openFile(folder.appendingPathComponent("b.md"), line: nil, endLine: nil)
     check(host.opened.last?.url.lastPathComponent == "b.md", "a home assistant's file link opens in the window's editor too")
 
     // The folder changes while the home assistant connects: nothing opens for the old folder.
     let count = terminals.sessions.count
+    let updatesBeforeRefused = RemoteConnectionsStore.shared.updates.count
     RemoteTerminalConnection.rootChange = { terminals.workspaceRoot = sandbox }
     do {
-        _ = try await terminals.openRemoteAITerminal(code: invitation?.code ?? "", provider: claudeTool, model: nil, resume: false)
+        _ = try await terminals.openRemoteAITerminal(code: invitation?.code ?? "", provider: claudeTool, model: nil, resume: false, savedConnectionID: savedRemoteID)
         check(false, "a connection that finished after the folder changed must be refused")
     } catch {
         check(terminals.sessions.count == count, "a connection that finished after the folder changed is refused and opens no terminal (\(error))")
     }
     check(RemoteTerminalConnection.stopped == 1, "and its connection is stopped")
+    check(RemoteConnectionsStore.shared.updates.count == updatesBeforeRefused, "a refused connection cannot update the saved state")
     terminals.workspaceRoot = folder
     RemoteTerminalConnection.rootChange = nil
     terminals.closeAITerminal(remote!.id)

@@ -204,14 +204,14 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
         guard let host, let root else { throw RemoteFailure.invalid("Open the folder you want the home assistant to work in.") }
         let invitation = try RemoteInvitation(code: code)
         host.registerBrowserControl()
-        let connection = try await RemoteTerminalConnection(invitation: invitation, root: root, browserWindowID: host.browserControlID, provider: provider, model: model, resume: resume, savedConnectionID: savedConnectionID)
-        guard self.root?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else { connection.stop(); throw RemoteFailure.invalid("The open folder changed. Connect again for the new folder.") }
         let session = TerminalSession(directory: root, profile: TerminalProfile(provider),
                                       title: "Home · " + provider.displayName, links: host)
-        connection.onState = { [weak session] phase, text in
-            session?.remoteConnectionState = .init(phase: phase, detail: text, lastSeen: phase == .online ? Date() : nil)
+        let connection = try await RemoteTerminalConnection(invitation: invitation, root: root, browserWindowID: host.browserControlID,
+                                                            provider: provider, model: model, resume: resume, savedConnectionID: savedConnectionID) { [weak session] source, phase, text in
+            if let session, session.connection !== source { return }
             if let savedConnectionID { RemoteConnectionsStore.shared.update(savedConnectionID, phase, text) }
         }
+        guard self.root?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else { connection.stop(); throw RemoteFailure.invalid("The open folder changed. Connect again for the new folder.") }
         session.connection = connection
         sessions.append(session)
         shownID = session.id

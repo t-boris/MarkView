@@ -78,21 +78,25 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 final class RemoteTerminalConnection {
     static var rootChange: (() -> Void)?
     static var stopped = 0
-    var onState: ((RemoteConnectionState.Phase, String) -> Void)?
-    init() {}
+    private let onState: ((RemoteTerminalConnection, RemoteConnectionState.Phase, String) -> Void)?
+    init() { onState = nil }
     init(invitation: RemoteInvitation, root: URL, browserWindowID: UUID, provider: CLITool,
-         model: String?, resume: Bool, savedConnectionID: UUID?) async throws {
+         model: String?, resume: Bool, savedConnectionID: UUID?,
+         onState: ((RemoteTerminalConnection, RemoteConnectionState.Phase, String) -> Void)? = nil) async throws {
+        self.onState = onState
         Self.rootChange?()
     }
-    func stop() { Self.stopped += 1 }
+    func publish(_ phase: RemoteConnectionState.Phase, _ text: String) { onState?(self, phase, text) }
+    func stop() { Self.stopped += 1; publish(.offline, "Stopped") }
 }
 
 @MainActor
 final class RemoteConnectionsStore {
     static let shared = RemoteConnectionsStore()
     var attached = 0
+    var updates: [(UUID, RemoteConnectionState.Phase, String)] = []
     func attach(_ host: any RemoteAssistantHost) { attached += 1 }
-    func update(_ id: UUID, _ phase: RemoteConnectionState.Phase, _ detail: String) {}
+    func update(_ id: UUID, _ phase: RemoteConnectionState.Phase, _ detail: String) { updates.append((id, phase, detail)) }
 }
 
 extension CLITool {

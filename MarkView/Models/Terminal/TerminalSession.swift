@@ -8,9 +8,15 @@ import MarkViewCore
 /// An alternate process endpoint. The terminal renderer and prompt delivery do not depend on
 /// whether bytes come from a local PTY or an authenticated remote connection.
 @MainActor
+protocol TerminalConnectionObserver: AnyObject {
+    func connectionDidReceive(_ data: Data)
+    func connectionDidExit(_ code: Int32)
+    func connectionDidChangeState(_ phase: RemoteConnectionState.Phase, detail: String)
+}
+
+@MainActor
 protocol TerminalConnection: AnyObject {
-    var onOutput: ((Data) -> Void)? { get set }
-    var onExit: ((Int32) -> Void)? { get set }
+    var observer: (any TerminalConnectionObserver)? { get set }
     func start()
     func write(_ text: String)
     func resize(cols: Int, rows: Int)
@@ -38,8 +44,16 @@ protocol TerminalCloseObserver: AnyObject {
 /// loses the screen. Output is read on a background queue and sent to the page in
 /// batches; keystrokes and size changes come back through the "terminal" handler.
 @MainActor
-final class TerminalSession: NSObject, ObservableObject, Identifiable {
-    var connection: TerminalConnection?
+final class TerminalSession: NSObject, ObservableObject, Identifiable, TerminalConnectionObserver {
+    var connection: TerminalConnection? {
+        didSet {
+            guard oldValue !== connection else { return }
+            oldValue?.observer = nil
+            connection?.observer = self
+            connectionEventsActive = false
+        }
+    }
+    private var connectionEventsActive = false
     var isRemote: Bool { connection != nil }
     @Published var remoteConnectionState: RemoteConnectionState?
     let id = UUID()
@@ -304,12 +318,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         if let connection {
             guard !isRunning else { flush(); return }
             exitCode = nil; isRunning = true; startedAt = Date()
-            connection.onOutput = { [weak self] data in self?.deliver(data) }
-            connection.onExit = { [weak self] code in
-                guard let self else { return }
-                isRunning = false; exitCode = code; exitMarkerPending = code
-                flush(); onExit?(code)
-            }
+            connectionEventsActive = true
             connection.resize(cols: Int(size.ws_col), rows: Int(size.ws_row))
             connection.start()
             return
@@ -405,6 +414,21 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         }
         exit.resume()
         exitSource = exit
+    }
+
+    func connectionDidReceive(_ data: Data) {
+        guard connectionEventsActive else { return }
+        deliver(data)
+    }
+
+    func connectionDidExit(_ code: Int32) {
+        guard connectionEventsActive else { return }
+        isRunning = false; exitCode = code; exitMarkerPending = code
+        flush(); onExit?(code)
+    }
+
+    func connectionDidChangeState(_ phase: RemoteConnectionState.Phase, detail: String) {
+        remoteConnectionState = .init(phase: phase, detail: detail, lastSeen: phase == .online ? Date() : nil)
     }
 
     private func processExited(status: Int32) {

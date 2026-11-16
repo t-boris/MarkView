@@ -2,9 +2,8 @@ import Foundation
 
 @MainActor
 final class RemoteTerminalConnection: TerminalConnection {
-    var onOutput: ((Data) -> Void)?
-    var onExit: ((Int32) -> Void)?
-    var onState: ((RemoteConnectionState.Phase, String) -> Void)?
+    weak var observer: (any TerminalConnectionObserver)?
+    private let onState: ((RemoteTerminalConnection, RemoteConnectionState.Phase, String) -> Void)?
     private var channel: RemoteChannel?
     private var workspace: RemoteWorkspace?
     private let invitation: RemoteInvitation
@@ -24,9 +23,16 @@ final class RemoteTerminalConnection: TerminalConnection {
     private var size = (cols: 120, rows: 30)
 
     init(invitation: RemoteInvitation, root: URL, browserWindowID: UUID, provider: CLITool,
-         model: String?, resume: Bool, savedConnectionID: UUID? = nil) async throws {
+         model: String?, resume: Bool, savedConnectionID: UUID? = nil,
+         onState: ((RemoteTerminalConnection, RemoteConnectionState.Phase, String) -> Void)? = nil) async throws {
         self.invitation = invitation; self.root = root; self.browserWindowID = browserWindowID
         self.provider = provider; self.model = model; self.resume = resume; self.savedConnectionID = savedConnectionID
+        self.onState = onState
+    }
+
+    private func setState(_ phase: RemoteConnectionState.Phase, _ detail: String) {
+        observer?.connectionDidChangeState(phase, detail: detail)
+        onState?(self, phase, detail)
     }
 
     func start() {
@@ -38,7 +44,7 @@ final class RemoteTerminalConnection: TerminalConnection {
                 let channel = RemoteChannel(invitation: invitation, role: .work)
                 self.channel = channel
                 do {
-                    onState?(.connecting, "Connecting to home Mac…")
+                    setState(.connecting, "Connecting to home Mac…")
                     let root = root, windowID = browserWindowID, provider = provider
                     let workspace = try await RemoteWorkspace(root: root, browserCall: { name, arguments in
                         await RemoteBrowserRelay.perform(name, arguments: arguments, window: windowID, root: root, agent: provider)
@@ -52,13 +58,13 @@ final class RemoteTerminalConnection: TerminalConnection {
                         "context": context, "provider": .string(provider.rawValue), "model": model.map(RemoteJSON.string) ?? .null,
                         "resume": .bool(first ? resume : true), "cols": .int(size.cols), "rows": .int(size.rows)])))
                     first = false; readyToSend = true; drain(); lastHomeMessage = Date()
-                    onState?(.waiting, "Waiting for home assistant…")
+                    setState(.waiting, "Waiting for home assistant…")
                     watchdog = Task { [weak self] in
                         while !Task.isCancelled {
                             try? await Task.sleep(nanoseconds: 15_000_000_000)
                             guard let self, !Task.isCancelled else { return }
                             if Date().timeIntervalSince(lastHomeMessage) > 75 {
-                                onState?(.reconnecting, "Home Mac is offline · reconnecting")
+                                setState(.reconnecting, "Home Mac is offline · reconnecting")
                                 await channel.close(); return
                             }
                         }
@@ -67,11 +73,11 @@ final class RemoteTerminalConnection: TerminalConnection {
                     reset = true
                 } catch RemoteFailure.sessionChanged { reset = false }
                 catch RemoteFailure.expired {
-                    onState?(.revoked, "Access was revoked. A new connection code is required.")
+                    setState(.revoked, "Access was revoked. A new connection code is required.")
                     finish(1); return
                 } catch {
                     reset = true
-                    if !stopped { onState?(.reconnecting, "Reconnecting · " + error.localizedDescription) }
+                    if !stopped { setState(.reconnecting, "Reconnecting · " + error.localizedDescription) }
                 }
                 await clearTransport()
                 guard !stopped, !Task.isCancelled else { return }
@@ -83,15 +89,15 @@ final class RemoteTerminalConnection: TerminalConnection {
     private func receive(_ message: RemoteMessage) async throws {
         guard !stopped else { return }
         lastHomeMessage = Date()
-        onState?(.online, "Connected · " + provider.displayName)
+        setState(.online, "Connected · " + provider.displayName)
         switch message.kind {
         case "output":
-            if let value = message.payload.string, let data = Data(base64Encoded: value), data.count <= 65536 { onOutput?(data) }
+            if let value = message.payload.string, let data = Data(base64Encoded: value), data.count <= 65536 { observer?.connectionDidReceive(data) }
         case "exited":
-            onState?(.offline, "The home assistant exited. Use Reconnect to continue.")
+            setState(.offline, "The home assistant exited. Use Reconnect to continue.")
             finish(Int32(clamping: message.payload.integer ?? 1))
         case "error":
-            onState?(.offline, message.payload.string ?? "Remote session failed.")
+            setState(.offline, message.payload.string ?? "Remote session failed.")
             finish(1)
         case "toolCall":
             guard let name = message.payload["name"].string, let workspace, let channel else { return }
@@ -116,7 +122,7 @@ final class RemoteTerminalConnection: TerminalConnection {
     private func enqueue(_ message: RemoteMessage) {
         guard !stopped else { return }
         guard outgoing.count < 256 else {
-            onState?(.reconnecting, "Remote input paused · reconnecting")
+            setState(.reconnecting, "Remote input paused · reconnecting")
             // task: closes the channel of a connection that fell behind; teardown must run to the end
             if let channel { Task { await channel.close() } }; return
         }
@@ -145,9 +151,9 @@ final class RemoteTerminalConnection: TerminalConnection {
     /// Closing a terminal suspends its session; it does not revoke the saved pairing.
     func stop() {
         guard !stopped else { return }
-        onState?(.offline, "Session paused. Use Reconnect to continue.")
+        setState(.offline, "Session paused. Use Reconnect to continue.")
         suspend()
-        onExit?(130)
+        observer?.connectionDidExit(130)
     }
     private func suspend() {
         guard !stopped else { return }
@@ -156,5 +162,5 @@ final class RemoteTerminalConnection: TerminalConnection {
         // task: closes the transport after the connection stopped; teardown must run to the end
         Task { await clearTransport() }
     }
-    private func finish(_ code: Int32) { suspend(); onExit?(code) }
+    private func finish(_ code: Int32) { suspend(); observer?.connectionDidExit(code) }
 }

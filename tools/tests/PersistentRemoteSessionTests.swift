@@ -25,9 +25,20 @@ enum RemoteRelayKeychain { static func account(for text: String) throws -> Strin
     }
 }
 @MainActor protocol TerminalConnection: AnyObject {
-    var onOutput: ((Data) -> Void)? { get set }
-    var onExit: ((Int32) -> Void)? { get set }
+    var observer: (any TerminalConnectionObserver)? { get set }
     func start(); func write(_ text: String); func resize(cols: Int, rows: Int); func stop()
+}
+@MainActor protocol TerminalConnectionObserver: AnyObject {
+    func connectionDidReceive(_ data: Data)
+    func connectionDidExit(_ code: Int32)
+    func connectionDidChangeState(_ phase: RemoteConnectionState.Phase, detail: String)
+}
+@MainActor final class ConnectionRecorder: TerminalConnectionObserver {
+    var output = ""
+    var exited = false
+    func connectionDidReceive(_ data: Data) { output += String(decoding: data, as: UTF8.self) }
+    func connectionDidExit(_ code: Int32) { exited = true }
+    func connectionDidChangeState(_ phase: RemoteConnectionState.Phase, detail: String) {}
 }
 @MainActor final class TerminalSession {
     static var starts = 0
@@ -81,15 +92,14 @@ enum RemoteRelayKeychain { static func account(for text: String) throws -> Strin
         let windowA = UUID(), windowB = UUID()
         let workA = try await RemoteTerminalConnection(invitation: first, root: a, browserWindowID: windowA, provider: CLITool(rawValue: "claude")!, model: nil, resume: true)
         let workB = try await RemoteTerminalConnection(invitation: second, root: b, browserWindowID: windowB, provider: CLITool(rawValue: "codex")!, model: nil, resume: true)
-        var outputA = "", outputB = "", exitedA = false
-        workA.onOutput = { outputA += String(decoding: $0, as: UTF8.self) }
-        workB.onOutput = { outputB += String(decoding: $0, as: UTF8.self) }
-        workA.onExit = { _ in exitedA = true }
+        let recorderA = ConnectionRecorder(), recorderB = ConnectionRecorder()
+        workA.observer = recorderA
+        workB.observer = recorderB
         workA.start(); workB.start()
         defer { workA.stop(); workB.stop() }
-        try await wait("Two simultaneous work connections reach separate home terminals") { outputA.contains("SESSION_STARTED") && outputB.contains("SESSION_STARTED") }
+        try await wait("Two simultaneous work connections reach separate home terminals") { recorderA.output.contains("SESSION_STARTED") && recorderB.output.contains("SESSION_STARTED") }
         workA.write("ECHO_A\n"); workB.write("ECHO_B\n")
-        try await wait("Terminal input/output stays isolated across connections") { outputA.contains("ECHO_A") && outputB.contains("ECHO_B") && !outputA.contains("ECHO_B") }
+        try await wait("Terminal input/output stays isolated across connections") { recorderA.output.contains("ECHO_A") && recorderB.output.contains("ECHO_B") && !recorderA.output.contains("ECHO_B") }
         // Probe every live MCP socket and prove that each reaches exactly its own work folder/browser.
         var identities: Set<String> = [], browsers: Set<String> = []
         for directory in TerminalSession.directories {
@@ -108,16 +118,16 @@ enum RemoteRelayKeychain { static func account(for text: String) throws -> Strin
         homeA.suspend()
         let restarted = RemoteHostController(); restarted.start(code: try first.code)
         defer { restarted.suspend() }
-        try await wait("Home app restart restores the saved pairing without another code") { TerminalSession.starts > starts && outputA.components(separatedBy: "SESSION_STARTED").count >= 3 }
+        try await wait("Home app restart restores the saved pairing without another code") { TerminalSession.starts > starts && recorderA.output.components(separatedBy: "SESSION_STARTED").count >= 3 }
         var request = URLRequest(url: relay.appendingPathComponent("test/outage")); request.httpMethod = "POST"
         _ = try await URLSession.shared.data(for: request)
         let beforeOutage = TerminalSession.starts
         try await wait("Both sessions recover automatically after a network outage without new codes", seconds: 45) { TerminalSession.starts >= beforeOutage + 2 }
         let revoker = RemoteChannel(invitation: first, role: .work)
         try await revoker.revokeAccess()
-        try await wait("Explicit work-side revocation ends only that saved connection") { exitedA }
+        try await wait("Explicit work-side revocation ends only that saved connection") { recorderA.exited }
         workB.write("STILL_CONNECTED\n")
-        try await wait("The second connection remains usable after the first is revoked") { outputB.contains("STILL_CONNECTED") }
+        try await wait("The second connection remains usable after the first is revoked") { recorderB.output.contains("STILL_CONNECTED") }
         print("Persistent remote session integration passed.")
     }
 }

@@ -17,6 +17,15 @@ private actor DraftCheckpointRecorder {
     func terminalWillClose() { calls += 1 }
 }
 
+@MainActor private final class TerminalTestConnection: TerminalConnection {
+    weak var observer: (any TerminalConnectionObserver)?
+    var started = false
+    func start() { started = true }
+    func write(_ text: String) {}
+    func resize(cols: Int, rows: Int) {}
+    func stop() {}
+}
+
 private actor SessionTestDriver: QAActorDriver {
     private var opening: CheckedContinuation<Void, Never>?
     private(set) var didStart = false
@@ -58,6 +67,35 @@ private actor DelayedSessionTestFactory: QADriverFactory {
 
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
+    @MainActor
+    func testTerminalConnectionForwardsStateOutputAndExit() {
+        let terminal = TerminalSession(directory: FileManager.default.temporaryDirectory)
+        let first = TerminalTestConnection(), next = TerminalTestConnection()
+        var output = Data(), exits: [Int32] = []
+        terminal.onOutput = { output.append($0) }
+        terminal.onExit = { exits.append($0) }
+        terminal.connection = first
+        first.observer?.connectionDidReceive(Data("early".utf8))
+        first.observer?.connectionDidExit(99)
+        XCTAssertTrue(output.isEmpty)
+        XCTAssertTrue(exits.isEmpty)
+        first.observer?.connectionDidChangeState(.online, detail: "Connected")
+        if case .online? = terminal.remoteConnectionState?.phase {} else { XCTFail("Expected online state") }
+        XCTAssertEqual(terminal.remoteConnectionState?.detail, "Connected")
+        XCTAssertNotNil(terminal.remoteConnectionState?.lastSeen)
+        terminal.start()
+        XCTAssertTrue(first.started)
+        first.observer?.connectionDidReceive(Data("hello".utf8))
+        first.observer?.connectionDidExit(7)
+        XCTAssertEqual(output, Data("hello".utf8))
+        XCTAssertEqual(exits, [7])
+        XCTAssertFalse(terminal.isRunning)
+        terminal.connection = next
+        XCTAssertNil(first.observer)
+        XCTAssertNotNil(next.observer)
+        terminal.terminate()
+    }
+
     @MainActor
     func testTerminalCloseObserverIsCalledOnceAndCanBeCleared() {
         let terminal = TerminalSession(directory: FileManager.default.temporaryDirectory)
