@@ -9,10 +9,15 @@ struct DatabaseState: Equatable {
     var samples: [String: QueryResult] = [:]
     var last: (sql: String, result: QueryResult)?
     var lastError: String?
+    /// A statement of the SQL box is running.
+    var running = false
+    /// What the SQL box tells the person about the last statement (it ran and returned nothing, the person said no, it is blocked).
+    var message: String?
 
     static func == (a: Self, b: Self) -> Bool {
         a.loading == b.loading && a.overview == b.overview && a.error == b.error && a.details == b.details && a.samples == b.samples
             && a.last?.sql == b.last?.sql && a.last?.result == b.last?.result && a.lastError == b.lastError
+            && a.running == b.running && a.message == b.message
     }
 }
 
@@ -67,7 +72,7 @@ extension DeploymentStore {
         let id = DeploymentEnvironment.slug(title.isEmpty ? candidate.key : title, existing: Set(environment(envID)?.databases.map(\.id) ?? []))
         let target = DatabaseTarget(id: id, title: title.isEmpty ? "Database (\(candidate.redacted))" : title, source: .envFile, file: candidate.file, key: candidate.key)
         addTarget(target, to: envID)
-        tasks.store(Task { await loadOverview(env: envID, target: id) }, for: "overview:" + Self.databaseKey(envID, id))
+        startOverview(env: envID, target: id)
     }
 
     /// nil when saved, else what is wrong with the text.
@@ -76,7 +81,7 @@ extension DeploymentStore {
         let id = DeploymentEnvironment.slug(title.isEmpty ? url.database : title, existing: Set(environment(envID)?.databases.map(\.id) ?? []))
         guard DatabaseKeychain.save(pastedURL.trimmingCharacters(in: .whitespacesAndNewlines), account: keychainAccount(envID, id)) else { return "The Keychain did not accept it." }
         addTarget(DatabaseTarget(id: id, title: title.isEmpty ? "Database (\(url.redacted))" : title, source: .keychain), to: envID)
-        tasks.store(Task { await loadOverview(env: envID, target: id) }, for: "overview:" + Self.databaseKey(envID, id))
+        startOverview(env: envID, target: id)
         return nil
     }
 
@@ -85,7 +90,10 @@ extension DeploymentStore {
         if env.databases.first(where: { $0.id == target })?.source == .keychain { DatabaseKeychain.delete(account: keychainAccount(envID, target)) }
         env.databaseList = env.databases.filter { $0.id != target }
         update(env)
-        databaseStates[Self.databaseKey(envID, target)] = nil
+        // What was looking at it or asking it stops; the answers would only bring back a state for a database that is gone.
+        let key = Self.databaseKey(envID, target)
+        for prefix in ["overview:", "table:", "query:"] { tasks.cancel(key: prefix + key) }
+        databaseStates[key] = nil
     }
 
     func databaseURL(env envID: String, target id: String) -> Result<DatabaseURL, DatabaseProblem> {
@@ -96,14 +104,47 @@ extension DeploymentStore {
 
     // MARK: Looking
 
+    /// Looks at a database (its size, tables, connections); a look still running at it is replaced by this one.
+    func startOverview(env envID: String, target: String) {
+        tasks.store(Task { await loadOverview(env: envID, target: target) }, for: "overview:" + Self.databaseKey(envID, target))
+    }
+
+    /// Reads one table of a database; the table the person picked last is the one that is read.
+    func startTable(env envID: String, target: String, table: DatabaseTable) {
+        tasks.store(Task { await loadTable(env: envID, target: target, table: table) }, for: "table:" + Self.databaseKey(envID, target))
+    }
+
+    /// Runs what the person typed in the SQL box. A statement already running there is not replaced (its approval would stay waiting):
+    /// the Run button is off meanwhile, so a second start is dropped.
+    func startQuery(_ sql: String, env envID: String, target: String) {
+        guard !databaseState(envID, target).running else { return }
+        mutate(envID, target) { $0.running = true; $0.message = nil }
+        tasks.store(Task { [self] in
+            let outcome = await runQuery(sql, env: envID, target: target, origin: "You")
+            guard !Task.isCancelled else { return }
+            mutate(envID, target) { state in
+                state.running = false
+                switch outcome {
+                case .ran(let result, let wrote): if result.empty { state.message = wrote ? "Done: the statement ran." : "The statement ran and returned no rows." }
+                case .denied: state.message = "Not run: you said no."
+                case .blocked(let why): state.message = why
+                case .failed: break
+                }
+            }
+            if case .ran(_, true) = outcome { startOverview(env: envID, target: target) }
+        }, for: "query:" + Self.databaseKey(envID, target))
+    }
+
     func loadOverview(env envID: String, target: String) async {
-        guard let env = environment(envID) else { return }
+        guard !Task.isCancelled, let env = environment(envID) else { return }
         mutate(envID, target) { $0.loading = true; $0.error = nil }
         switch databaseURL(env: envID, target: target) {
         case .failure(let problem):
             mutate(envID, target) { $0.loading = false; $0.error = problem.message }
         case .success(let url):
             let result = await PostgresClient.overview(url: url, executor: executor(for: env))
+            // Replaced by a newer look, or the window closed or the database was disconnected meanwhile: nothing is written.
+            guard !Task.isCancelled else { return }
             switch result {
             case .success(let overview): mutate(envID, target) { $0.loading = false; $0.overview = overview; $0.error = nil }
             case .failure(let problem): mutate(envID, target) { $0.loading = false; $0.error = problem.message }
@@ -112,11 +153,12 @@ extension DeploymentStore {
     }
 
     func loadTable(env envID: String, target: String, table: DatabaseTable) async {
-        guard let env = environment(envID), case .success(let url) = databaseURL(env: envID, target: target) else { return }
+        guard !Task.isCancelled, let env = environment(envID), case .success(let url) = databaseURL(env: envID, target: target) else { return }
         let runner = executor(for: env)
         async let detail = PostgresClient.detail(schema: table.schema, table: table.name, url: url, executor: runner)
         async let sample = PostgresClient.run(PostgresClient.sampleSQL(schema: table.schema, table: table.name), url: url, executor: runner, readOnly: true)
         let (d, s) = await (detail, sample)
+        guard !Task.isCancelled else { return }
         mutate(envID, target) { state in
             if case .success(let detail) = d { state.details[table.id] = detail }
             switch s {
@@ -156,11 +198,11 @@ extension DeploymentStore {
         switch result {
         case .success(let rows):
             note(CommandLogEntry(time: Date(), environment: envID, command: clipped, origin: origin, outcome: "ran", status: 0))
-            mutate(envID, target) { $0.last = (sql, rows); $0.lastError = nil }
+            if !Task.isCancelled { mutate(envID, target) { $0.last = (sql, rows); $0.lastError = nil } }
             return .ran(rows, wrote: !readOnly)
         case .failure(let problem):
             note(CommandLogEntry(time: Date(), environment: envID, command: clipped, origin: origin, outcome: "ran", status: 1))
-            mutate(envID, target) { $0.lastError = problem.message }
+            if !Task.isCancelled { mutate(envID, target) { $0.lastError = problem.message } }
             return .failed(problem.message)
         }
     }

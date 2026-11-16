@@ -33,7 +33,7 @@ struct CloudServicesCard: View {
                 }
                 Spacer()
                 if state.loading { ProgressView().controlSize(.small) }
-                Button { Task { await store.loadServices(env.id) } } label: { Image(systemName: "arrow.clockwise") }
+                Button { store.startServices(env.id) } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.plain).disabled(state.loading).help("Look again")
             }
             ForEach(state.problems, id: \.self) { problem in
@@ -69,7 +69,7 @@ struct CloudServicesCard: View {
             }
         }
         .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(palette.bgSidebar).cornerRadius(6)
-        .onAppear { if state.updated == nil && !state.loading { Task { await store.loadServices(env.id) } } }
+        .onAppear { if state.updated == nil && !state.loading { store.startServices(env.id) } }
         .sheet(item: $logRequest) { request in
             ServiceLogSheet(env: env, store: store, request: request, askAI: askAI)
         }
@@ -149,6 +149,8 @@ struct ServiceLogSheet: View {
     @State private var text = ""
     @State private var filter = ""
     @State private var loading = false
+    /// Asks for the log; the `.task` that follows it ends with the sheet, and a newer request replaces an older one.
+    @State private var fetchRequest: UUID? = UUID()
 
     private var shown: String {
         guard !filter.isEmpty else { return text }
@@ -165,7 +167,7 @@ struct ServiceLogSheet: View {
             Text(request.service.logCommand ?? "").uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim).textSelection(.enabled)
             HStack {
                 TextField("Filter lines (error, 500, …)", text: $filter).textFieldStyle(.roundedBorder)
-                Button("Fetch again") { fetch() }.disabled(loading)
+                Button("Fetch again") { fetchRequest = UUID() }.disabled(loading)
                 Button { askAI("Read this log: what stands out, and what should I do?", text, "Log: " + request.service.name) } label: { Label("Ask AI", systemImage: "sparkles") }
                     .disabled(text.isEmpty).help("Send what is on screen to the assistant")
             }
@@ -179,15 +181,15 @@ struct ServiceLogSheet: View {
             }
         }
         .padding(18).frame(width: 720)
-        .onAppear(perform: fetch)
+        .task(id: fetchRequest) { await fetch() }
     }
 
-    private func fetch() {
-        guard let command = request.service.logCommand, !loading else { return }
+    private func fetch() async {
+        guard let command = request.service.logCommand else { return }
         loading = true
-        Task {
-            text = await store.run(command, on: env.id, origin: "You", timeout: 90).summary
-            loading = false
-        }
+        let outcome = await store.run(command, on: env.id, origin: "You", timeout: 90)
+        guard !Task.isCancelled else { return }
+        text = outcome.summary
+        loading = false
     }
 }
