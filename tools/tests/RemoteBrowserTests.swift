@@ -56,7 +56,6 @@ enum TerminalBrowserBridge {
     static var isEnabled: Bool { UserDefaults.standard.object(forKey: "test.browser.enabled") as? Bool ?? true }
     static func windowID(forAncestors pids: [Int32]) -> UUID? { nil }
 }
-enum BrowserAddress { static func url(from text: String) -> URL? { URL(string: text) } }
 @MainActor final class BrowserSession {
     let agentFrames = BrowserAgentExecutor.Frames()
     let webView = WKWebView(frame: .init(x: 0, y: 0, width: 480, height: 320))

@@ -10,5 +10,5 @@ import sys
 s=Path('MarkView/Models/Browser/BrowserAgentExecutor.swift').read_text()
 Path(sys.argv[1]).write_text('import AppKit\nimport WebKit\n@MainActor\n'+s[s.index('enum BrowserAgentExecutor {'):])
 PY
-swiftc -parse-as-library -o "$qa_frame_out/checks" Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift "$qa_frame_out/Executor.swift" MarkView/Views/QA/QAWebWindow.swift tools/tests/BrowserFrameChecks.swift
+swiftc MarkView/Models/Browser/BrowserAddress.swift -parse-as-library -o "$qa_frame_out/checks" Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift "$qa_frame_out/Executor.swift" MarkView/Views/QA/QAWebWindow.swift tools/tests/BrowserFrameChecks.swift
 "$qa_frame_out/checks"

@@ -352,6 +352,7 @@
       "script": "tools/tests/browser-frame-tests.sh",
       "tier": "gui",
       "sources": [
+        "MarkView/Models/Browser/BrowserAddress.swift",
         "MarkView/Models/Browser/BrowserAgentExecutor.swift",
         "MarkView/Views/QA/QAWebWindow.swift",
         "tools/tests/BrowserFrameChecks.swift",
@@ -363,6 +364,7 @@
       "script": "tools/tests/browser-passwords-tests.sh",
       "tier": "gui",
       "sources": [
+        "MarkView/Models/Browser/BrowserAddress.swift",
         "MarkView/Models/Browser/BrowserDownloads.swift",
         "MarkView/Models/Browser/BrowserPasswords.swift",
         "tools/tests/BrowserPasswordsTests.swift",
@@ -1239,6 +1241,7 @@
         "MarkView/Models/Book/PDFReader.swift",
         "MarkView/Models/Browser/BrowserAgentTabs.swift",
         "MarkView/Models/Browser/BrowserElementPick.swift",
+        "MarkView/Models/Browser/BrowserAddress.swift",
         "MarkView/Models/Workspace/BrowserHost.swift",
         "MarkView/Models/Browser/WebPreview.swift",
         "MarkView/Models/Workspace/BackgroundFileScans.swift",
@@ -3096,6 +3099,7 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "MarkView/Models/QA/QATriage.swift",
         "MarkView/Models/QA/QAWebActor.swift",
+        "MarkView/Models/Browser/BrowserAddress.swift",
         "MarkView/Models/Browser/BrowserSession.swift",
         "MarkView/Models/Browser/BrowserAgentExecutor.swift",
         "MarkViewHostedTests/QAWebFaultTests.swift",
@@ -3119,6 +3123,7 @@
       "script": "tools/tests/qa-file-upload-tests.sh",
       "tier": "gui",
       "sources": [
+        "MarkView/Models/Browser/BrowserAddress.swift",
         "MarkView/Models/Browser/BrowserSession.swift",
         "MarkView/Models/Browser/WebPreview.swift",
         "MarkView/Models/Browser/WebAppPreview.swift",
@@ -3174,6 +3179,7 @@
       "script": "tools/tests/remote-browser-tests.sh",
       "tier": "gui",
       "sources": [
+        "MarkView/Models/Browser/BrowserAddress.swift",
         "MarkView/Models/AI/AgentProcesses.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
         "MarkView/Models/AgentTools/AgentToolServer.swift",
@@ -4224,6 +4230,7 @@
         "MarkView/Models/Browser/BrowserPagePDF.swift",
         "MarkView/Models/Browser/BrowserPasswordScript.swift",
         "MarkView/Models/Browser/BrowserPasswords.swift",
+        "MarkView/Models/Browser/BrowserAddress.swift",
         "MarkView/Models/Browser/BrowserSession.swift",
         "MarkView/Models/Browser/WebPreview.swift",
         "MarkView/Models/Shared/FrontMatter.swift",

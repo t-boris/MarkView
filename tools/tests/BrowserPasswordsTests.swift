@@ -1,10 +1,5 @@
 import Foundation
 
-// Stand-in for the app's BrowserAddress (BrowserSession.swift pulls in WebKit).
-enum BrowserAddress {
-    static func isLocal(_ host: String) -> Bool { ["localhost", "127.0.0.1"].contains(host) || host.hasSuffix(".localhost") }
-}
-
 var failures = 0
 func check(_ name: String, _ ok: Bool) {
     print((ok ? "ok   " : "FAIL ") + name)

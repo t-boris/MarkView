@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-swiftc -parse-as-library -o "$out/remote-browser-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
+swiftc MarkView/Models/Browser/BrowserAddress.swift -parse-as-library -o "$out/remote-browser-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/AgentTools/AgentToolServer.swift MarkView/Models/AgentTools/AgentToolWindow.swift \
     MarkView/Models/Browser/BrowserAgentTabs.swift MarkView/Models/Browser/BrowserAgentExecutor.swift MarkView/Models/AI/AgentToolsSetting.swift MarkView/Models/AI/Providers/AssistantMCP.swift MarkView/Models/Remote/RemoteBrowserRelay.swift \
     MarkView/Models/Remote/RemoteProtocol.swift MarkView/Models/Remote/RemoteWorkspaceTools.swift \

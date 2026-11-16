@@ -76,7 +76,6 @@ enum AgentToolServer {
 }
 
 /// What an agent's tab tool runs in the page: the tab it ran in is recorded in the reply.
-enum BrowserAddress { static func url(from text: String) -> URL? { URL(string: text) } }
 @MainActor
 enum BrowserAgentExecutor {
     static func settle(_ session: BrowserSession, started: Bool) async {}

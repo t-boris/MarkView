@@ -12,7 +12,6 @@ enum BrowserAgentTools {
         static func error(_ text: String) -> Reply { Reply(text: text, isError: true) }
     }
 }
-enum BrowserAddress { static func url(from text: String) -> URL? { URL(string: text) } }
 @MainActor final class BrowserSession: NSObject, WKNavigationDelegate {
     let agentFrames = BrowserAgentExecutor.Frames()
     var agentControlled = false
