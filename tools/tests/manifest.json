@@ -3132,6 +3132,7 @@
         "MarkView/Models/Workspace/WindowComposition.swift",
         "MarkView.xcodeproj/project.pbxproj",
         "MarkView.xcodeproj/xcshareddata/xcschemes/MarkView.xcscheme",
+        "MarkView/Views/QA/QAViews.swift",
         "MarkView/Views/QA/QAWebWindow.swift",
         "MarkView/Models/AI/AIOperation.swift",
         "MarkView/Models/Shared/UserPrompts.swift",

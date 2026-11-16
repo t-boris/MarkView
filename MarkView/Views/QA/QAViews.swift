@@ -1566,22 +1566,26 @@ private struct QAGraphWheel: NSViewRepresentable {
 final class QAGraphWheelView: NSView {
     var onZoom: ((CGPoint, CGFloat) -> Void)?
     var onPan: ((CGFloat, CGFloat) -> Void)?
-    private var monitor: Any?
+    private var cancelMonitor: (@MainActor @Sendable () -> Void)?
 
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
+        cancelMonitor?()
+        cancelMonitor = nil
         guard window != nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify]) { [weak self] event in
+        guard let monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify], handler: { [weak self] event in
             self?.handle(event) ?? event
-        }
+        }) else { return }
+        cancelMonitor = { NSEvent.removeMonitor(monitor) }
     }
 
-    deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
+    deinit {
+        let cancelMonitor = cancelMonitor
+        Task { @MainActor in cancelMonitor?() }
+    }
 
     private func handle(_ event: NSEvent) -> NSEvent? {
         guard let window, event.window === window else { return event }

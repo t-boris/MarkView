@@ -15,6 +15,24 @@ private actor DraftCheckpointRecorder {
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
     @MainActor
+    func testQAGraphWheelDetachesAndReleasesAfterWindowChanges() async {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        weak var released: QAGraphWheelView?
+        do {
+            let wheel = QAGraphWheelView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+            released = wheel
+            window.contentView?.addSubview(wheel)
+            wheel.removeFromSuperview()
+            window.contentView?.addSubview(wheel)
+            wheel.removeFromSuperview()
+        }
+        await Task.yield()
+        XCTAssertNil(released)
+        window.close()
+    }
+
+    @MainActor
     func testClusterNamingSchemaIncludesGroupsOnlyForSingleBatch() throws {
         let single = ArchitectureStore.clusterNamingSchema(single: true)
         let multi = ArchitectureStore.clusterNamingSchema(single: false)
