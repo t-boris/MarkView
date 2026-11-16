@@ -435,6 +435,8 @@ Status (2026-11-15): done by reading. `SemanticSchema.migrations` is an ordered 
 
 Best: `ProjectWorkflow` + `ProjectWorkflowStore`, then `QAStore` and `CockpitRunStore`. Middle: `FeatureStore` (pure parsing, a lossless-rewrite guard, but synchronous I/O and git on main). Worst: `ArchitectureStore`. New feature work should follow the first three: pure values and rules, a small store with typed results, the observable object last.
 
+Status (2026-11-15): partial (guidance; the finding has no count of its own). The pattern the review names as best is now the one in use: `SchemaVersionedStore` is used by 14 files, among them `ProjectWorkflowStore`, `QAStore`, `CockpitRunStore`, `DeploymentStore` and `UIStudioStore`; `ArchitectureStore`, the one named worst, went from 4,512 to 1,889 lines. `FeatureStore`'s synchronous I/O was not re-checked.
+
 ## 9. Security boundaries
 
 Beyond section 2:
