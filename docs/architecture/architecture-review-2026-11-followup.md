@@ -637,3 +637,85 @@ positives of the checker (generic names and file patterns). `Type.member` pairs 
    convert files.
 8. **Tests and records (AR-44, AR-49):** an app-hosted test target for the GUI and WebKit suites; distil
    `tasks/lessons.md` by topic.
+
+## 14. The remainder round (2026-11-15, version 6.27.1)
+
+Section 13 ended with a list of what 6.27.0 did not finish. This round took four slices of it down on the branch
+`feat/architecture-review-remainder` (base `20bf3ab7`, the merge of PR #418), and found one defect that 6.27.0 had shipped.
+Every number below was measured with `tools/lint/architecture-lint.sh`, `tools/lint/task-ownership.sh` and
+`tools/lint/domain-dependencies.py`; nothing here is `verified` (that status stays with the owner).
+
+### 14.1 New finding: FU-31, a use after release in UI Studio (fixed in this round)
+
+| ID | Where | Problem | Fix |
+|---|---|---|---|
+| FU-31 | `Models/UIStudio/`, the nine parts of `StudioSession` | The split of AR-16 gave the parts `unowned let session`. A task a part started kept the part alive after an `await` but not the session; if the tab closed during that wait, the next read of `session` trapped (`swift_abortRetainUnowned` in `StudioRepair.finishRepair`, seen in a test harness crash report on 2026-11-15; in the app it is a crash when the person closes UI Studio during an automatic repair, a request, a capture or a pick). | Every task a part starts goes through `StudioSession.startPartTask`: it pins the session until the task ends and keeps the task in a `TaskBag`; `close()` cancels the bag. A page call that is cancelled resumes with `CancellationError`. Work that ends after the close writes nothing. The lint rule `studio-part-tasks` keeps the pattern from coming back; `ui-studio-lifetime-tests` closes a real session with seven long paths in flight (on the old code it crashed or failed for five of them). |
+
+The crash was in 6.27.0. It was found by a test harness, not by the app-probe, because no probe path closes a tab in the middle of work.
+
+### 14.2 The measures, 6.27.0 against this round
+
+| Measure | 6.27.0 | Now | Source |
+|---|---|---|---|
+| Views taking the whole manager (`@EnvironmentObject ... WorkspaceManager`) | 56 | **6** (6 files; each issues a window command or hosts a view that does) | lint `workspace-manager` |
+| Unowned `Task {}` sites | 263 in 70 files | **70 in 16 files** | `task-ownership.sh` |
+| Domain pairs in cycles, `Models/` | 22 | **1** (`AgentTools` <-> `Workspace`, 4 type edges) | `domain-dependencies.py` |
+| Domain pairs in cycles, `Views/` | 7 | **0** | `domain-dependencies.py` |
+| Type references held by the `domain-cycles` ratchet | 104 in 29 pairs | **2 in 1 back-edge** | lint `domain-cycles` |
+| `Models/` and `Views/` domain folders | 21 and 19 | **22 and 20** (`Models/Shared`, `Views/Shared`) | `domain-dependencies.py` |
+| Closure hooks and back-references to the manager | 33 in 12 files; 4 | 33 in 12 files; 4 (unchanged) | lint `window-wiring` |
+| Part tasks of UI Studio without an owner | 13 | **0** | `task-ownership.sh` |
+| Suites in the test manifest | 211 | **219** | `tools/tests/manifest.json` |
+| Compiler warnings, app target | 0 | **0** | `build-warnings.sh` |
+
+What moved, in short:
+
+- **Parts instead of the manager (AR-14, AR-17).** Views take the part they read (`FeatureFlowCoordinator`, `TabsController`,
+  `ProjectContext`, `WindowChrome`, `PanelLayout`, `WindowRequests`) and the window's own commands as
+  `@Environment(\.windowCommands)` (`WindowCommands`: open a file, open a file at a line, open a tool). The six that remain:
+  `EditorView`, `FileTreeView`, `SharedSearchView`, `TOCView` (each hosts a view that still reads the manager), `DeploymentsView`
+  (reads the manager's project operations and opens a terminal for a provider sign-in) and `ProjectOperationsView`
+  (`dismissOperationRun(id:)` also moves the window's selected run).
+- **Owned tasks (AR-19).** A view no longer holds a `Task` for work that outlives it: the model has a method that starts the
+  work and keeps the task under a key in its `TaskBag` (a second start replaces or is refused, `close()` cancels, nothing is
+  written after it). A result that belongs to the view only is a `.task(id:)`. Behaviour suites run the real stores with stand-ins
+  (`feature-jobs-tests`, `workflow-template-library-tests`, `git-task-ownership-tests`, `deployment-task-ownership-tests`,
+  `qa-run-archive-ownership-tests`, `prototype-ownership-tests`, `archive-model-tests`, `ui-studio-lifetime-tests`).
+- **A shared home (AR-20, AR-21).** `Models/Shared` and `Views/Shared` hold what every domain may use (the project and
+  file-format primitives, the JSON store types, the shared view helpers); `domain-dependencies.py` knows the layering
+  (Appearance, Shared, AI, the feature domains, then Workspace) and a feature that names `Workspace` is the violation. The one pair
+  left is the MCP control tools, which name `WorkspaceManager` and `WindowSessionController`; cutting it needs a window protocol of about
+  fifteen members and a way to open a window, which is its own finding.
+
+### 14.3 What is still not finished, with counts
+
+- **AR-19:** 70 unowned tasks in 16 files: X-Ray stores 37 (hand-rolled run tokens; `Models/Architecture`), UI Studio session 6,
+  Cockpit 8, project operations 8 (`change(_:)` must not drop edits, so a replace-on-restart bag does not fit it), the
+  file tree, new-project sheet and shared search 8 (they start `GitClient` and `FeatureAssistant` work whose owners are other
+  slices), the rest 3. Each remaining site is in `tools/lint/unowned-task-allowlist.txt`.
+- **AR-14, AR-17:** 6 views and the 33 hooks and 4 back-references above. `WorkspaceManager.swift` is 730 lines.
+- **AR-20, AR-21:** one pair in cycles; the 16 domains of the `Models/` strongly connected group (10 of them feature domains)
+  are still joined through longer cycles; the tool counts named types only, so coupling through property chains is not seen.
+- **FU-25:** still open (`InsightHTMLTemplate.swift` keeps `'unsafe-inline'` in `script-src`). Also open: the `FileNode` and
+  `WindowUIState` isolation, and the `blocks` table that is written and never read.
+- Everything else of 13.4 is unchanged: AR-22, AR-24, AR-04, AR-27, AR-29, AR-36, AR-39, AR-40 to AR-44, AR-47 to AR-49.
+
+### 14.4 What was run, and what was not
+
+Run on the merged tip: Debug build (0 warnings), `swift test --package-path Packages/MarkViewCore` (83), `architecture-lint.sh`
+(exit 0), the pure tier (142 passed, 1 failed: `qa-native-tests`, whose demo applications are not installed on the
+machine), the gui tier (68 passed, 3 failed; the three terminal suites compiled `TerminalSession` against a stand-in that lacked
+`stopRecording`; fixed, 3 of 3 pass alone), and four invisible app-probe runs on a fixture project (a git repository with changes,
+features, a bug, a prototype with versions, images, a `.canvas`, a `.zip`).
+
+Seen in the probe: the Files sidebar, a Markdown file with its contents and file panels, the image viewer, the bug panel, a
+feature (requirements, questions, decisions), the hand-off panel with its Versions button, Git changes and diff, Git history,
+Build & Deployment, UI Studio (opened), Copilot Cockpit, Workflow, X-Ray, Discussions, the prototype creator and hand-off
+draft sheets, the cycle-time sheet, the intake sheet, project search, the settings window, and a project-less Markdown window.
+A read of every `@EnvironmentObject` and `@Environment(\.windowCommands)` declaration (66) against the places that create the
+views found no missing provider.
+
+**Not seen:** the archive viewer and the canvas (the probe did not reach them), project-less image and zip windows, closing a
+UI Studio tab by keyboard (the lifetime suite covers the model path), drag and drop, the trash dialog, a window close with
+work running, a real assistant in any panel, the Search navigator tab (no code path selects it; `WorkspaceSearchView` has one
+caller, which is that unreachable branch).
