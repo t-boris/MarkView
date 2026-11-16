@@ -12,6 +12,7 @@ final class ProjectOperationRun: ObservableObject, Identifiable {
     let snapshot: ProjectOperation
     let session: TerminalSession
     let started = Date()
+    weak var presenter: (any ProjectOperationsPresenter)?
     @Published var state = "running"
     @Published var exitCode: Int32?
     @Published var ended: Date?
@@ -21,7 +22,8 @@ final class ProjectOperationRun: ObservableObject, Identifiable {
     private(set) var cancelRequested = false
     private var escalation: Task<Void, Never>?
 
-    init(snapshot: ProjectOperation, directory: URL) {
+    init(snapshot: ProjectOperation, directory: URL, presenter: (any ProjectOperationsPresenter)? = nil) {
+        self.presenter = presenter
         id = snapshot.id
         self.snapshot = snapshot
         session = TerminalSession(directory: directory, title: snapshot.label, operationCommand: snapshot.command)
@@ -82,6 +84,13 @@ protocol ProjectOperationsPresenter: AnyObject {
     var operationsHostWindow: NSWindow? { get }
 }
 
+/// Keeps the originating window weak across an asynchronous operation-file read.
+@MainActor
+private final class OperationPresentation {
+    weak var presenter: (any ProjectOperationsPresenter)?
+    init(_ presenter: (any ProjectOperationsPresenter)?) { self.presenter = presenter }
+}
+
 @MainActor
 final class ProjectOperationsStore: ObservableObject {
     private static var stores: [String: ProjectOperationsStore] = [:]
@@ -127,8 +136,6 @@ final class ProjectOperationsStore: ObservableObject {
     let root: URL
     /// How the store asks the person before it runs, adopts, accepts, rejects or cancels something (`AR-22`).
     private let prompts: any UserPrompts
-    /// The window that last started something here; `WorkspaceManager.operations()` sets it.
-    weak var presenter: (any ProjectOperationsPresenter)?
     @Published private(set) var document = ProjectOperationsDocument()
     @Published private(set) var fileError: String?
     @Published private(set) var hasFile = false
@@ -312,7 +319,7 @@ final class ProjectOperationsStore: ObservableObject {
         }
     }
 
-    func edit(id: String?) {
+    func edit(id: String?, presenter: (any ProjectOperationsPresenter)? = nil) {
         guard !readOnly else { return }
         if let id, let operation = operations.first(where: { $0.id == id }) {
             presenter?.showOperationEditor(ProjectOperationEditRequest(operation: operation))
@@ -321,7 +328,7 @@ final class ProjectOperationsStore: ObservableObject {
         }
     }
 
-    func addUnknown(index: Int) {
+    func addUnknown(index: Int, presenter: (any ProjectOperationsPresenter)? = nil) {
         guard let report = discoveryReport, report.notDetermined.indices.contains(index) else { return }
         let item = report.notDetermined[index]
         presenter?.showOperationEditor(ProjectOperationEditRequest(operation: nil, kind: item.kind,
@@ -477,20 +484,21 @@ final class ProjectOperationsStore: ObservableObject {
         }
     }
 
-    func run(id: String) {
+    func run(id: String, presenter: (any ProjectOperationsPresenter)? = nil) {
         guard !readOnly else { return }
         guard !id.isEmpty, id.count <= 100, id.range(of: "^[a-z0-9]+(?:-[a-z0-9]+)*$", options: .regularExpression) != nil else { return }
-        guard runs[id]?.isActive != true else { openPanel(id: id); return }
+        guard runs[id]?.isActive != true else { openPanel(id: id, presenter: presenter); return }
         let root = self.root
         // One start per operation at a time: the confirmation of the first is on the screen until it is answered.
         let key = "run-" + id
         guard !tasks.contains(key: key) else { return }
-        tasks.store(Task { await confirmAndRun(id: id, root: root) }, for: key)
+        let presentation = OperationPresentation(presenter)
+        tasks.store(Task { await confirmAndRun(id: id, root: root, presentation: presentation) }, for: key)
     }
 
     /// Reads the operation fresh from disk, asks for confirmation and starts it. A method of its own
     /// (not a `Task` closure) keeps type-checking cheap for older compilers (Xcode 16 in CI).
-    private func confirmAndRun(id: String, root: URL) async {
+    private func confirmAndRun(id: String, root: URL, presentation: OperationPresentation) async {
         let snapshot: ProjectOperation
         do {
             let latest = try await Task.detached { try ProjectOperationsFile.read(root: root) }.value
@@ -506,18 +514,18 @@ final class ProjectOperationsStore: ObservableObject {
             message = "Working directory is unavailable: \(cwd.path)"
             return
         }
-        guard runs[id]?.isActive != true else { openPanel(id: id); return }
+        guard runs[id]?.isActive != true else { openPanel(id: id, presenter: presentation.presenter); return }
         let previous = lastRuns[id]
         let start = UserPrompt(
             title: "Run \(snapshot.label)?",
             detail: Self.confirmationDetails(snapshot: snapshot, cwd: cwd, previous: previous),
             buttons: ["Cancel", "Run"])
         guard prompts.confirm(start, proceedingWith: 1) else { return }
-        guard runs[id]?.isActive != true else { openPanel(id: id); return }
-        let run = ProjectOperationRun(snapshot: snapshot, directory: cwd)
+        guard runs[id]?.isActive != true else { openPanel(id: id, presenter: presentation.presenter); return }
+        let run = ProjectOperationRun(snapshot: snapshot, directory: cwd, presenter: presentation.presenter)
         suppressNotifications = false
         runs[id] = run
-        presenter?.showOperationConsole(selecting: id)
+        presentation.presenter?.showOperationConsole(selecting: id)
         revision += 1
         let history = ProjectOperationLastRun(id: id, label: snapshot.label, environment: snapshot.environment,
             command: snapshot.command, cwd: snapshot.cwd, started: run.started, ended: nil, state: "running", exitCode: nil)
@@ -596,7 +604,7 @@ final class ProjectOperationsStore: ObservableObject {
             identifier: "project-operation-\(UUID().uuidString)", content: content, trigger: nil))
     }
 
-    func openPanel(id: String) {
+    func openPanel(id: String, presenter: (any ProjectOperationsPresenter)? = nil) {
         guard runs[id] != nil || lastRuns[id] != nil else { return }
         presenter?.showOperationConsole(selecting: id)
     }
@@ -689,8 +697,10 @@ private final class ProjectOperationNotificationRouter: NSObject, UNUserNotifica
         Task { @MainActor in
             NSApp.activate(ignoringOtherApps: true)
             if let store = ProjectOperationsStore.existing(rootPath: root) {
-                store.presenter?.operationsHostWindow?.makeKeyAndOrderFront(nil)
-                if store.runs[id] != nil { store.openPanel(id: id) }
+                if let run = store.runs[id] {
+                    run.presenter?.operationsHostWindow?.makeKeyAndOrderFront(nil)
+                    store.openPanel(id: id, presenter: run.presenter)
+                }
             }
             completionHandler()
         }

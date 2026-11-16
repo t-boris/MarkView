@@ -161,6 +161,7 @@ struct DeploymentsView: View {
 
 
 private struct BuildDeploymentOperationBar: View {
+    @Environment(\.windowCommands) private var window
     @Environment(\.palette) private var palette
     @ObservedObject var operations: ProjectOperationsStore
     let scan: () -> Void
@@ -178,7 +179,7 @@ private struct BuildDeploymentOperationBar: View {
                 } else {
                     Button("Scan commands") { scan() }.disabled(operations.readOnly)
                 }
-                Button("Add") { operations.edit(id: nil) }.disabled(operations.readOnly)
+                Button("Add") { operations.edit(id: nil, presenter: window) }.disabled(operations.readOnly)
             }
             if let error = operations.fileError ?? operations.message {
                 Text(error).uiFont(size: 10).foregroundColor(palette.orange).textSelection(.enabled)
@@ -214,7 +215,7 @@ private struct BuildDeploymentOperationBar: View {
                                         operationButton(operation, store: operations)
                                         Text(operation.command).uiFont(size: 10).foregroundColor(palette.textDim).textSelection(.enabled)
                                         Spacer()
-                                        Button("Edit") { operations.edit(id: operation.id) }.disabled(operations.readOnly)
+                                        Button("Edit") { operations.edit(id: operation.id, presenter: window) }.disabled(operations.readOnly)
                                     }
                                 }
                             }
@@ -234,7 +235,7 @@ private struct BuildDeploymentOperationBar: View {
                 ForEach(Array(report.notDetermined.enumerated()), id: \.offset) { index, item in
                     HStack {
                         Text("\(item.label): \(item.reason)").uiFont(size: 10).foregroundColor(palette.orange)
-                        Button("Add manually") { operations.addUnknown(index: index) }
+                        Button("Add manually") { operations.addUnknown(index: index, presenter: window) }
                     }
                 }
             }
@@ -245,7 +246,7 @@ private struct BuildDeploymentOperationBar: View {
     private func operationButton(_ operation: ProjectOperation, store: ProjectOperationsStore) -> some View {
         let running = store.runs[operation.id]?.isActive == true
         return Button {
-            if running { store.openPanel(id: operation.id) } else { store.run(id: operation.id) }
+            if running { store.openPanel(id: operation.id, presenter: window) } else { store.run(id: operation.id, presenter: window) }
         } label: {
             Text(operation.label + (operation.environment.map { " · " + $0 } ?? "")
                 + (store.state(id: operation.id).map { " · " + $0.capitalized } ?? ""))

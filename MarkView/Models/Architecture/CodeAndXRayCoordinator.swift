@@ -22,8 +22,8 @@ protocol CodeXRayHost: AnyObject {
     /// Scroll the open document to `text`.
     func scrollToText(_ text: String)
     func refreshFileTree()
-    /// The project's operations, with this window as their presenter.
-    func operations() -> ProjectOperationsStore?
+    /// The window presenting an operation initiated from this X-Ray.
+    var operationsPresenter: (any ProjectOperationsPresenter)? { get }
     var projectOperations: ProjectOperationsStore? { get }
     func startRecursiveInsight(at target: URL?, title: String?)
     /// Type `prompt` at the assistant's prompt; `submit` presses Enter.
@@ -614,10 +614,10 @@ final class CodeAndXRayCoordinator: ObservableObject {
     /// The project's operations strip: Run, Open, Edit, discovery and its proposals.
     private func perform(_ operation: XRayCommand.Operation, deploymentNodes: () -> [ArchNode]) {
         switch operation {
-        case .run(let id): host?.operations()?.run(id: id)
-        case .open(let id): host?.operations()?.openPanel(id: id)
-        case .edit(let id): host?.operations()?.edit(id: id)
-        case .add: host?.operations()?.edit(id: nil)
+        case .run(let id): host?.projectOperations?.run(id: id, presenter: host?.operationsPresenter)
+        case .open(let id): host?.projectOperations?.openPanel(id: id, presenter: host?.operationsPresenter)
+        case .edit(let id): host?.projectOperations?.edit(id: id, presenter: host?.operationsPresenter)
+        case .add: host?.projectOperations?.edit(id: nil, presenter: host?.operationsPresenter)
         case .adopt(let id): host?.projectOperations?.adoptDiscovered(id: id)
         case .discover:
             let nodes = deploymentNodes()
@@ -628,7 +628,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
         case .dismissReport: host?.projectOperations?.dismissDiscoveryReport()
         case .acceptProposal(let index): host?.projectOperations?.acceptProposal(index: index)
         case .rejectProposal(let index): host?.projectOperations?.rejectProposal(index: index)
-        case .addUnknown(let index): host?.operations()?.addUnknown(index: index)
+        case .addUnknown(let index): host?.projectOperations?.addUnknown(index: index, presenter: host?.operationsPresenter)
         }
     }
 

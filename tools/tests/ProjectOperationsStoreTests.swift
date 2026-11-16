@@ -4,6 +4,16 @@
 // `ScriptedPrompts`. Not covered here: starting a run (it starts a terminal and asks the system for notification permission) and
 // cancelling one, so the "Run" and "Cancel operation" answers are checked by the app probe, not here.
 import Foundation
+import AppKit
+
+@MainActor
+private final class TestOperationPresenter: ProjectOperationsPresenter {
+    var editors: [ProjectOperationEditRequest] = []
+    var consoles: [String] = []
+    var operationsHostWindow: NSWindow? { nil }
+    func showOperationEditor(_ request: ProjectOperationEditRequest) { editors.append(request) }
+    func showOperationConsole(selecting id: String) { consoles.append(id) }
+}
 
 @MainActor
 @main enum ProjectOperationsStoreTests {
@@ -96,6 +106,20 @@ import Foundation
         await settle()
         check(store.runs.isEmpty && TerminalSession.started.isEmpty, "a question with no answer left starts nothing either")
         check(try Data(contentsOf: operationsFile) == before, "the operations file is untouched by all three")
+        let firstWindow = TestOperationPresenter()
+        let secondWindow = TestOperationPresenter()
+        store.edit(id: "build", presenter: firstWindow)
+        store.edit(id: nil, presenter: secondWindow)
+        check(firstWindow.editors.count == 1 && secondWindow.editors.count == 1,
+              "shared project routes each editor to the window that requested it")
+        prompts.script = [.press("Run")]
+        store.run(id: "build", presenter: firstWindow)
+        check(await wait { store.runs["build"] != nil }, "approved run starts with its originating window")
+        check(firstWindow.consoles == ["build"] && secondWindow.consoles.isEmpty,
+              "asynchronous run opens the originating window's console")
+        store.run(id: "build", presenter: secondWindow)
+        check(secondWindow.consoles == ["build"] && store.runs["build"]?.presenter === firstWindow,
+              "another window opens its own console without replacing the run's notification owner")
     }
 
     // MARK: - Adopt the discovered command

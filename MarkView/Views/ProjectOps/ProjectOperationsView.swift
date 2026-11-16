@@ -2,6 +2,7 @@ import SwiftUI
 
 /// The same operation registry powers both toolbar entry points and the details panel.
 struct ProjectDeployButton: View {
+    @Environment(\.windowCommands) private var window
     @ObservedObject var store: ProjectOperationsStore
 
     var body: some View {
@@ -73,8 +74,8 @@ struct ProjectDeployButton: View {
     }
 
     private func action(_ operation: ProjectOperation) {
-        if store.runs[operation.id]?.isActive == true { store.openPanel(id: operation.id) }
-        else { store.run(id: operation.id) }
+        if store.runs[operation.id]?.isActive == true { store.openPanel(id: operation.id, presenter: window) }
+        else { store.run(id: operation.id, presenter: window) }
     }
 }
 

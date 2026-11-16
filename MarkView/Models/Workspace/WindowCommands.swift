@@ -7,7 +7,7 @@ import SwiftUI
 /// The window puts itself in the environment of its views (`observingParts(of:)`). A view outside any window finds nothing there, and
 /// its command does nothing.
 @MainActor
-protocol WindowCommands: AnyObject {
+protocol WindowCommands: ProjectOperationsPresenter {
     /// Show `url` in a tab, or return to its tab.
     func openFile(_ url: URL)
     /// Show `url` and, for code, reveal `line`…`endLine` in the code viewer.

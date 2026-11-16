@@ -65,12 +65,6 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
     /// Opens the tab of a tool of `ToolRegistry`, or returns to it.
     func openTool(_ id: ToolID) { toolTabs.open(id) }
 
-    /// The project's operations, with this window as the one that shows what the person starts from here.
-    func operations() -> ProjectOperationsStore? {
-        projectOperations?.presenter = self
-        return projectOperations
-    }
-
     /// Files opened from outside the app on their own (Finder, Quick Action): the documents, nothing around them.
     func openDocumentsOnly(_ urls: [URL]) {
         for url in urls { openFile(url) }
@@ -704,6 +698,7 @@ extension WorkspaceManager: ProjectOperationsPresenter {
 
 /// What `CodeAndXRayCoordinator` needs of this window; the coordinator holds no other reference to it (`AR-14` step 11).
 extension WorkspaceManager: CodeXRayHost {
+    var operationsPresenter: (any ProjectOperationsPresenter)? { self }
     var activeXRayScope: String? {
         if case .architecture(let scope)? = tabs.activeTab?.kind { return scope }
         return nil
