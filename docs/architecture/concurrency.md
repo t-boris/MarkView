@@ -68,7 +68,7 @@ Ranked by likely user impact. The list is from the 2.17.0 audit, re-read against
 | 6 | `WhisperClient.transcribe` builds a large upload body on main | Not re-checked |
 | 7 | `prFileNotes` builds an LCS table of up to 8 million cells on main | Not re-checked |
 | 8 | A 2 s timer re-reads every open tab | Reworked: the 2 s open-files poll is a `PollingScheduler` job (`TabsController.startWatchingOpenFiles`); `BackgroundFileScans` holds the off-main reads for it. How much of the poll still runs on main was not traced |
-| 9 | `debugLog` and the Insight diag log append synchronously | Fixed: `debugLog` forwards to `AppLog.workspace.debug`; the Insight diag log is gone |
+| 9 | `debugLog` and the Insight diag log append synchronously | Fixed: `debugLog` forwards to `AppLog.workspace.debug`; `WebViewBridge.logInsightDiag` no longer writes a file (it logs through `AppLog.insight` in a Debug build and deletes an old `/tmp/markview-insight-diag.log`) |
 
 Still on the main thread by reading: `NSAlert.runModal` / `NSOpenPanel.runModal` (welcome screen, file tree, close folder, remove
 metadata), `FileTransfer` copies and moves, and `FilterSearch.scoreFiles` (a caller must call it off the main thread).
