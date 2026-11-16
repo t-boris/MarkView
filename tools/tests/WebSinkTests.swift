@@ -38,7 +38,7 @@ let app = NSApplication.shared
 app.setActivationPolicy(.prohibited)
 let config = WKWebViewConfiguration()
 config.userContentController.add(Bridge(), name: "bridge")
-config.userContentController.addUserScript(try! BridgeContract(contentsOf: URL(fileURLWithPath: editor + "/js/bridge-contract.json")).userScript)  // the page gets the bridge contract from the app (AR-28)
+config.userContentController.addUserScript(MainActor.assumeIsolated { try! BridgeContract(contentsOf: URL(fileURLWithPath: editor + "/js/bridge-contract.json")).userScript })  // the page gets the bridge contract from the app (AR-28)
 let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1100, height: 760), configuration: config)
 let window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
 window.alphaValue = 0

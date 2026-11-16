@@ -38,7 +38,7 @@ let config = WKWebViewConfiguration()
 config.setURLSchemeHandler(DataFiles(), forURLScheme: "markview-data")
 let bridge = Bridge()
 config.userContentController.add(bridge, name: "bridge")
-config.userContentController.addUserScript(try! BridgeContract(contentsOf: URL(fileURLWithPath: editor + "/js/bridge-contract.json")).userScript)  // the page gets the bridge contract from the app (AR-28)
+config.userContentController.addUserScript(MainActor.assumeIsolated { try! BridgeContract(contentsOf: URL(fileURLWithPath: editor + "/js/bridge-contract.json")).userScript })  // the page gets the bridge contract from the app (AR-28)
 let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800), configuration: config)
 let window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
 window.contentView = web

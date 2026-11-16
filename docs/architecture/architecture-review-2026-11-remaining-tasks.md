@@ -144,6 +144,10 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+The UI Studio server reaper is being changed to capture the spawned process ID by value; verification is in progress.
+
+Ten additional standalone WebKit drivers now make their existing main-thread execution explicit for the contract script. The full pure run exposed two compilation failures; both affected suites and the other eight driver suites passed after correction.
+
 The WebKit contract script and cycle-time section title are now main-actor isolated. The standalone bridge and CSP WebKit drivers were updated accordingly after their first compilations failed; the CSP and terminal-link suites passed on retry. The cycle-time suite, both bridge-contract suites, Debug build and warning ratchet passed; complete checking reports no warnings in `TypedWebBridge.swift` or `CycleTimeViews.swift`.
 
 The file-tree drop URL collection is now main-actor isolated as provider completions arrive. The file-operations suite, Debug build and warning ratchet passed; complete checking reports no warnings in `FileTreeView.swift`. The suite checks the underlying file operations, not an interactive drag.

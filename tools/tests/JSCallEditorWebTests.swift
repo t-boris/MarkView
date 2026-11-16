@@ -40,7 +40,7 @@ let bridge = WebViewBridge(contract: contract)
 bridge.delegate = delegate
 let config = WKWebViewConfiguration()
 config.userContentController.add(bridge.messages, name: "bridge")
-config.userContentController.addUserScript(contract.userScript)
+config.userContentController.addUserScript(MainActor.assumeIsolated { contract.userScript })
 let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1100, height: 760), configuration: config)
 let window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
 window.alphaValue = 0
