@@ -8,9 +8,10 @@ import Foundation
 /// bag's own release.
 @MainActor
 public final class TaskBag {
-    private struct Entry {
+    /// `Task` is `Sendable`, so cancelling it from the release of the bag (a non-isolated `deinit`) is safe.
+    private struct Entry: Sendable {
         let serial: UInt64
-        let cancel: () -> Void
+        let cancel: @Sendable () -> Void
     }
 
     private var entries: [String: Entry] = [:]
