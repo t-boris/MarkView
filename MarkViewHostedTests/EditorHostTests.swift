@@ -8,6 +8,22 @@ import XCTest
 
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
+    func testParallelSearchScoresAllReadableFiles() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-search-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let names = (0..<64).map { "file-\($0).txt" }
+        for (index, name) in names.enumerated() {
+            try (index.isMultiple(of: 2) ? "needle" : "unrelated").write(to: folder.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        let results = FilterSearch.scoreFiles(names + ["missing.txt"], root: folder, terms: ["needle"])
+        XCTAssertEqual(results.count, names.count)
+        XCTAssertNil(results["missing.txt"])
+        for (index, name) in names.enumerated() {
+            XCTAssertEqual((results[name]?.score ?? -1) > 0, index.isMultiple(of: 2), name)
+        }
+    }
+
     @MainActor
     func testEditorLoadsDocumentWithScopedWindowParts() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-hosted-editor-" + UUID().uuidString)

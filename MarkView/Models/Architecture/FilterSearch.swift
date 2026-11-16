@@ -1,13 +1,14 @@
 import Foundation
 import CryptoKit
 import MarkViewCore
+import os
 
 /// Fast AI filters: a criterion ("payment flow") becomes search terms once (one short
 /// AI call, cached), then every file and section is scored locally from where those
 /// terms occur. The result is a provisional rating for the whole project in seconds;
 /// the AI then confirms only the strongest candidates.
 enum FilterSearch {
-    struct Match {
+    struct Match: Sendable {
         var score: Double
         /// Terms found, most frequent first.
         var hits: [String]
@@ -89,18 +90,18 @@ enum FilterSearch {
 
     /// Scores of files under `root` (read in parallel, up to 256 KB each).
     static func scoreFiles(_ paths: [String], root: URL, terms: [String]) -> [String: Match] {
-        var results = [Match?](repeating: nil, count: paths.count)
-        results.withUnsafeMutableBufferPointer { out in
-            DispatchQueue.concurrentPerform(iterations: paths.count) { i in
-                let url = root.appendingPathComponent(paths[i])
-                guard let handle = try? FileHandle(forReadingFrom: url) else { return }
-                defer { try? handle.close() }
-                let text = String(decoding: (try? handle.read(upToCount: 256 * 1024)) ?? Data(), as: UTF8.self)
-                out[i] = score(name: paths[i], text: text, terms: terms)
-            }
+        let results = OSAllocatedUnfairLock(initialState: [Match?](repeating: nil, count: paths.count))
+        DispatchQueue.concurrentPerform(iterations: paths.count) { i in
+            let url = root.appendingPathComponent(paths[i])
+            guard let handle = try? FileHandle(forReadingFrom: url) else { return }
+            defer { try? handle.close() }
+            let text = String(decoding: (try? handle.read(upToCount: 256 * 1024)) ?? Data(), as: UTF8.self)
+            let match = score(name: paths[i], text: text, terms: terms)
+            results.withLock { $0[i] = match }
         }
+        let scores = results.withLock { $0 }
         var map: [String: Match] = [:]
-        for (i, path) in paths.enumerated() { if let match = results[i] { map[path] = match } }
+        for (i, path) in paths.enumerated() { if let match = scores[i] { map[path] = match } }
         return map
     }
 

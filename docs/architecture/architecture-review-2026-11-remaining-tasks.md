@@ -146,6 +146,10 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+Parallel X-Ray search scoring uses lock-owned Sendable results rather than an unsafe mutable buffer. The app-hosted check verified 64 files and a missing file; all 12 hosted tests, X-Ray ownership suite, Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `FilterSearch.swift` (two before).
+
+A system-lock variant was evaluated but rejected: `ISO8601DateFormatter` is not Sendable on macOS, so the strict build warned and the targeted warnings-as-errors build failed. The previously verified lock-owned formatter was restored instead of hiding the unchecked transfer.
+
 The transition log timestamp formatter is lock-owned for Sendable encoder and decoder callbacks, preserving the existing ISO 8601 format and millisecond behavior. All seven affected pure/gui suites, Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `IssueTransitionLog.swift` (three before). This justified private unchecked owner brings the app/package annotation count to 41, versus 43 initially.
 
 CI run 43929215840 failed `code-architecture-tests`, `xray-comparison-web-tests` and `xray-layout-web-tests` because their standalone WebKit drivers had not adopted the main-actor script contract. All three passed locally after the driver fixes; CI run 43930584296 passed all jobs.
