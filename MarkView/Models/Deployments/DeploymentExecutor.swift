@@ -1,9 +1,10 @@
 import Foundation
+import os
 #if canImport(MarkViewCore)
 import MarkViewCore
 #endif
 
-struct CommandResult: Equatable {
+struct CommandResult: Equatable, Sendable {
     var status: Int32
     var stdout: String
     var stderr: String
@@ -61,7 +62,7 @@ extension CommandResult {
 }
 
 /// Where a command runs.
-protocol DeploymentExecutor {
+protocol DeploymentExecutor: Sendable {
     func run(_ command: String, stdin: String?, timeout: TimeInterval) async -> CommandResult
 }
 
@@ -110,8 +111,11 @@ struct LocalExecutor: DeploymentExecutor {
 struct SSHExecutor: DeploymentExecutor {
     let environment: DeploymentEnvironment
     /// Extra ssh options. Empty in the app; a test points ssh at its own known_hosts and a private server.
-    // unchecked Sendable: a test hook: the test assigns it once before any SSH command runs, and the app never writes it.
-    nonisolated(unsafe) static var extraOptions: [String] = []
+    private static let extraOptionsStorage = OSAllocatedUnfairLock(initialState: [String]())
+    static var extraOptions: [String] {
+        get { extraOptionsStorage.withLock { $0 } }
+        set { extraOptionsStorage.withLock { $0 = newValue } }
+    }
 
     /// Per-user mode-0700 directory for SSH ControlMaster sockets (AR-12).
     /// Placed under `/tmp` rather than `temporaryDirectory` (`/var/folders/...`) so

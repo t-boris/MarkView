@@ -3,8 +3,8 @@ import Foundation
 /// A place the project runs: a server reached over SSH, this Mac, or a cloud service reached by its CLI.
 /// Stored in `.dde/deployments.json`; it holds no passwords or keys (SSH uses the person's agent and
 /// ~/.ssh/config, a cloud CLI its own login). Foundation only, checked in `tools/tests/deployment-models-tests.sh`.
-struct DeploymentEnvironment: Codable, Identifiable, Equatable {
-    enum Kind: String, Codable, CaseIterable { case ssh, local, cloud }
+struct DeploymentEnvironment: Codable, Identifiable, Equatable, Sendable {
+    enum Kind: String, Codable, CaseIterable, Sendable { case ssh, local, cloud }
 
     var id: String
     var name: String
@@ -67,8 +67,8 @@ struct DeploymentEnvironment: Codable, Identifiable, Equatable {
 }
 
 /// A database the person connected to an environment. It names where the URL is read from, never the URL itself.
-struct DatabaseTarget: Codable, Identifiable, Equatable {
-    enum Source: String, Codable { case envFile, keychain }
+struct DatabaseTarget: Codable, Identifiable, Equatable, Sendable {
+    enum Source: String, Codable, Sendable { case envFile, keychain }
 
     var id: String
     var title: String
@@ -79,14 +79,14 @@ struct DatabaseTarget: Codable, Identifiable, Equatable {
     var key = ""
 }
 
-struct CloudCommand: Codable, Identifiable, Equatable {
+struct CloudCommand: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var title: String
     var command: String
 }
 
-struct DeploymentCheck: Codable, Identifiable, Equatable {
-    enum Kind: String, Codable, CaseIterable { case systemd, docker, port, http, postgres, redis, mysql, command }
+struct DeploymentCheck: Codable, Identifiable, Equatable, Sendable {
+    enum Kind: String, Codable, CaseIterable, Sendable { case systemd, docker, port, http, postgres, redis, mysql, command }
 
     var id: String
     var title: String
@@ -98,7 +98,7 @@ struct DeploymentCheck: Codable, Identifiable, Equatable {
     var expect = ""
 }
 
-struct LogSource: Codable, Identifiable, Equatable {
+struct LogSource: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var title: String
     /// A command that prints the log (it must be read-only: `journalctl -u app -n 200 --no-pager`).
