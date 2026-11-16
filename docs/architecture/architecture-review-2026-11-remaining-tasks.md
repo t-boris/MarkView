@@ -146,6 +146,10 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+ACP response continuations transfer JSON data and decode it at the receiver rather than send mutable dictionaries. The three ACP/provider/timeout suites, Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `ACPAssistant.swift` (one before). Live provider calls were not run per DEC-013.
+
+The unchecked raw JSON object is being replaced by validated Sendable JSON storage; verification is in progress, including large integers.
+
 Prototype screenshot waits now resume on timeout or cancellation even if WebKit never calls back, and ignore a late callback. An app-hosted test verified timeout, cancellation, a late result and a real local-page screenshot; all 20 hosted tests, prototype ownership suite, Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `PrototypeScreenshots.swift` (two before).
 
 Book PDF’s private WebKit value wrapper now enforces main-actor access in its type. Both PDF gui suites, Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `BookPDFRenderer.swift`.

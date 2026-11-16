@@ -493,7 +493,7 @@ private final class ACPConnection: @unchecked Sendable {
     private let queue = DispatchQueue(label: "markview.acp")
     private var child: SubprocessChild?
     private var nextId = 1
-    private var pending: [Int: CheckedContinuation<[String: Any], Error>] = [:]
+    private var pending: [Int: CheckedContinuation<Data, Error>] = [:]
     private var lineBuffer = Data()
     private var stderrTail = ""
     private var failure: Error?
@@ -546,7 +546,7 @@ private final class ACPConnection: @unchecked Sendable {
     func request(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
         // The parameters reach the queue as JSON bytes (a Sendable value), not as a `[String: Any]`.
         let encoded = try JSONSerialization.data(withJSONObject: params)
-        return try await withCheckedThrowingContinuation { continuation in
+        let result: Data = try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 if let failure = self.failure { continuation.resume(throwing: failure); return }
                 let id = self.nextId
@@ -556,6 +556,10 @@ private final class ACPConnection: @unchecked Sendable {
                 self.write(["jsonrpc": "2.0", "id": id, "method": method, "params": params])
             }
         }
+        guard let object = try JSONSerialization.jsonObject(with: result) as? [String: Any] else {
+            throw CLICompletion.Failure.invalidOutput(tool, "the ACP response was not a JSON object")
+        }
+        return object
     }
 
     /// Stop the turn (if any) and the process; waiting requests end as cancelled.
@@ -619,7 +623,12 @@ private final class ACPConnection: @unchecked Sendable {
             if let error = message["error"] as? [String: Any] {
                 continuation.resume(throwing: CLICompletion.Failure.failed(tool, Self.readable(error, tool: tool)))
             } else {
-                continuation.resume(returning: message["result"] as? [String: Any] ?? [:])
+                do {
+                    let result = message["result"] as? [String: Any] ?? [:]
+                    continuation.resume(returning: try JSONSerialization.data(withJSONObject: result))
+                } catch {
+                    continuation.resume(throwing: CLICompletion.Failure.invalidOutput(tool, "the ACP response was not valid JSON"))
+                }
             }
             return
         }
