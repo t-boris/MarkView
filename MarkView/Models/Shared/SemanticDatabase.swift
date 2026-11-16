@@ -4,6 +4,15 @@ import SQLite3
 import MarkViewCore
 #endif
 
+/// Owns the connection until its actor is released.
+// unchecked Sendable: the pointer is used only by SemanticDatabase's actor; this owner only closes it on deinit.
+private final class SemanticConnectionOwner: @unchecked Sendable {
+    let handle: OpaquePointer
+
+    init(_ handle: OpaquePointer) { self.handle = handle }
+    deinit { sqlite3_close(handle) }
+}
+
 /// SQLite wrapper for .dde/state.db — stores semantic blocks, documents, and compilation cache.
 ///
 /// An actor (`AR-37`): the connection belongs to the actor and every statement runs on its executor, never on the main
@@ -13,10 +22,11 @@ import MarkViewCore
 actor SemanticDatabase {
     /// The database file, or nil while this session uses an in-memory index because the file had to be left alone.
     nonisolated let dbPath: String?
-    let db: OpaquePointer
+    private let connection: SemanticConnectionOwner
+    var db: OpaquePointer { connection.handle }
 
     private init(handle: OpaquePointer, path: String?) {
-        self.db = handle
+        self.connection = SemanticConnectionOwner(handle)
         self.dbPath = path
     }
 
@@ -111,10 +121,6 @@ actor SemanticDatabase {
         }
         return fileURL.lastPathComponent
         #endif
-    }
-
-    deinit {
-        sqlite3_close(db)
     }
 
     // MARK: - Project CRUD
