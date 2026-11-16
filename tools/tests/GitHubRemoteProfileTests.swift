@@ -53,6 +53,9 @@ import Darwin
         precondition(SSHHostAliases.resolve("gh-work", home: home) == "github.com", "An Include'd file must be read.")
         precondition(SSHHostAliases.resolve("gl-main", home: home) == "gitlab.com", "A wildcard Host pattern must match.")
         precondition(SSHHostAliases.resolve("unknown-host", home: home) == "unknown-host")
+        DispatchQueue.concurrentPerform(iterations: 200) { _ in
+            precondition(SSHHostAliases.resolve("gh-work", home: home) == "github.com", "Concurrent cache reads must agree.")
+        }
 
         precondition(GitHubClient.slug(fromRemoteURL: "git@github-personal:owner/name.git", home: home) == "owner/name")
         precondition(GitHubClient.slug(fromRemoteURL: "ssh://git@gh-work/owner/name.git", home: home) == "owner/name")

@@ -28,7 +28,7 @@ struct GitHubError: LocalizedError, Sendable {
 /// out of a subprocess: it happens while a window loads its Git state.
 enum SSHHostAliases {
     /// One `HostName` with the `Host` patterns it belongs to.
-    private struct Entry {
+    private struct Entry: Sendable {
         let patterns: [String]
         let hostName: String
     }
@@ -45,9 +45,8 @@ enum SSHHostAliases {
     private static let fileLimit = 64
     private static let depthLimit = 8
 
-    private static let lock = NSLock()
     /// Parsed entries with the files they came from and the modification dates seen then.
-    private static var cache: (signature: String, files: [URL], entries: [Entry])?
+    private static let cache = OSAllocatedUnfairLock(initialState: Optional<(signature: String, files: [URL], entries: [Entry])>.none)
 
     /// The host an alias stands for, or `host` itself when no `Host` block matches it.
     static func resolve(_ host: String, home: URL = defaultHome) -> String {
@@ -74,16 +73,15 @@ enum SSHHostAliases {
     }
 
     private static func entries(home: URL) -> [Entry] {
-        lock.lock()
-        defer { lock.unlock() }
-        // The files of the last parse are re-checked, not re-read: an unchanged configuration
-        // costs a few stats, and an edited or newly included file changes the signature.
-        if let cache, cache.signature == signature(of: cache.files, home: home) { return cache.entries }
-        var files: [URL] = []
-        var parsed: [Entry] = []
-        for root in roots(home: home) { parse(root, home: home, depth: 0, files: &files, into: &parsed) }
-        cache = (signature(of: files, home: home), files, parsed)
-        return parsed
+        cache.withLock { cache in
+            // Unchanged configurations are re-checked, not re-read.
+            if let previous = cache, previous.signature == signature(of: previous.files, home: home) { return previous.entries }
+            var files: [URL] = []
+            var parsed: [Entry] = []
+            for root in roots(home: home) { parse(root, home: home, depth: 0, files: &files, into: &parsed) }
+            cache = (signature(of: files, home: home), files, parsed)
+            return parsed
+        }
     }
 
     private static func signature(of files: [URL], home: URL) -> String {
