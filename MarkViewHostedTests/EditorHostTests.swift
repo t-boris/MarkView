@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import os
 import MarkViewCore
 import SwiftUI
@@ -15,6 +16,15 @@ private actor DraftCheckpointRecorder {
 @MainActor private final class TerminalCloseTestObserver: TerminalCloseObserver {
     var calls = 0
     func terminalWillClose() { calls += 1 }
+}
+
+@MainActor private final class CockpitTestAssistants: AssistantProviding {
+    var currentAssistant: CLICompletion.Assistant? { nil }
+    var sessions: [TerminalSession] { [] }
+    var shownID: UUID? { nil }
+    func liveModelReported(_ model: String, terminalID: UUID) {}
+    func openAITerminal(_ profile: TerminalProfile, resuming: Bool, model: String?) -> TerminalSession? { nil }
+    func showAIConsole() {}
 }
 
 @MainActor private final class TerminalTestConnection: TerminalConnection {
@@ -68,12 +78,40 @@ private actor DelayedSessionTestFactory: QADriverFactory {
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
     @MainActor
+    func testCockpitSupervisorUsesCurrentStepChoiceAndLiveCut() async {
+        let assistants = CockpitTestAssistants()
+        var choices: [(String?, String?)] = [], exchanges: [CockpitSupervisorExchange] = []
+        var cuts = CockpitLiveSwitches()
+        let attempt = CockpitAgentAttempt(assistants: assistants, root: FileManager.default.temporaryDirectory,
+            askSupervisor: { _, tool, model in
+                choices.append((tool?.rawValue, model))
+                return CockpitSupervisor.Answer(text: "Proceed carefully", outOfScope: false)
+            }, onExchange: { exchanges.append($0) }, liveCuts: { cuts })
+        let firstTool = CLITool.allCases.first!, secondTool = CLITool.allCases.last!
+        let step = CockpitHostStep(id: UUID().uuidString, agent: "fixture", assignment: "Check", prerequisite: false)
+        let task = CockpitHostTask(step: step, planFingerprint: "fixture", goal: "Check", controls: "{}", successCriteria: [], priorResults: [])
+        attempt.supervisorTool = firstTool; attempt.supervisorModel = "first"
+        let first = await attempt.supervise(.init(text: "First question"), task: task)
+        attempt.supervisorTool = secondTool; attempt.supervisorModel = "second"
+        let second = await attempt.supervise(.init(text: "Second question"), task: task)
+        cuts.supervisorCut = true
+        let disabled = await attempt.supervise(.init(text: "Third question"), task: task)
+        XCTAssertEqual(choices.map { $0.0 }, [firstTool.rawValue, secondTool.rawValue])
+        XCTAssertEqual(choices.map { $0.1 }, ["first", "second"])
+        XCTAssertTrue(first.contains("Proceed carefully"))
+        XCTAssertTrue(second.contains("Proceed carefully"))
+        XCTAssertEqual(disabled, CockpitSupervisor.disabledReply)
+        XCTAssertEqual(exchanges.count, 2)
+    }
+
+    @MainActor
     func testTerminalConnectionForwardsStateOutputAndExit() {
         let terminal = TerminalSession(directory: FileManager.default.temporaryDirectory)
         let first = TerminalTestConnection(), next = TerminalTestConnection()
-        var output = Data(), exits: [Int32] = []
-        terminal.onOutput = { output.append($0) }
-        terminal.onExit = { exits.append($0) }
+        var output = Data(), secondOutput = Data(), exits: [Int32] = []
+        let outputObservation = terminal.outputEvents.sink { output.append($0) }
+        let secondObservation = terminal.outputEvents.sink { secondOutput.append($0) }
+        let exitObservation = terminal.exitEvents.sink { exits.append($0) }
         terminal.connection = first
         first.observer?.connectionDidReceive(Data("early".utf8))
         first.observer?.connectionDidExit(99)
@@ -86,14 +124,19 @@ final class EditorHostTests: XCTestCase {
         terminal.start()
         XCTAssertTrue(first.started)
         first.observer?.connectionDidReceive(Data("hello".utf8))
+        XCTAssertEqual(secondOutput, Data("hello".utf8))
+        secondObservation.cancel()
+        first.observer?.connectionDidReceive(Data(" again".utf8))
         first.observer?.connectionDidExit(7)
-        XCTAssertEqual(output, Data("hello".utf8))
+        XCTAssertEqual(output, Data("hello again".utf8))
+        XCTAssertEqual(secondOutput, Data("hello".utf8))
         XCTAssertEqual(exits, [7])
         XCTAssertFalse(terminal.isRunning)
         terminal.connection = next
         XCTAssertNil(first.observer)
         XCTAssertNotNil(next.observer)
         terminal.terminate()
+        withExtendedLifetime((outputObservation, exitObservation)) {}
     }
 
     @MainActor

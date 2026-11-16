@@ -205,7 +205,26 @@ final class CockpitSession: ObservableObject {
               let approval = CockpitApproval(plan: reviewed, productionConfirmed: productionConfirmed), reviewed.steps.indices.contains(index) else { return }
         let plan = reviewed
         let recovering = recoveryRun
-        let attempt = CockpitAgentAttempt(assistants: workspace.assistants, root: root) { [weak self] progress in
+        let attempt = CockpitAgentAttempt(assistants: workspace.assistants, root: root,
+            onFixCycle: { [weak self] count in self?.execution?.noteFixCycles(fromGate: count) },
+            onGate: { [weak self] tool, refusal in self?.execution?.noteGate(tool: tool, refusal: refusal) },
+            askSupervisor: { [root] prompt, tool, model in
+                let supervising = AIOperation<CLICompletion.Request, CockpitSupervisor.Answer>(
+                    name: "cockpit-supervisor",
+                    parse: { result in
+                        guard let answer = CockpitSupervisor.parse(result.structured) else { throw CockpitSupervisor.Failure.unusable }
+                        return answer
+                    })
+                return try await supervising.execute(CLICompletion.Request(project: root, prompt: prompt,
+                    systemPrompt: CockpitSupervisor.systemPrompt, jsonSchema: CockpitSupervisor.schema, readableFolder: root,
+                    timeout: CockpitSupervisor.timeoutSeconds, toolOverride: tool, model: model, effort: "medium", label: "cockpit-supervisor")).output
+            },
+            onExchange: { [weak self] exchange in
+                // task: records one exchange on the execution, which owns its own end
+                Task { await self?.execution?.recordExchange(exchange) }
+            },
+            liveCuts: { [weak self] in self?.execution?.liveCuts ?? CockpitLiveSwitches() },
+            liveNotes: { [weak self] in self?.execution?.liveNotes ?? [] }) { [weak self] progress in
             guard let self else { throw CancellationError() }
             try await self.publishProgress(progress)
         }
@@ -269,28 +288,11 @@ final class CockpitSession: ObservableObject {
             do { try await publishProgress(progress) }
             catch { return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: "Progress could not be saved.") }
         }
-        attempt.onFixCycle = { [weak self] count in self?.execution?.noteFixCycles(fromGate: count) }
-        attempt.liveCuts = { [weak self] in self?.execution?.liveCuts ?? CockpitLiveSwitches() }
-        attempt.liveNotes = { [weak self] in self?.execution?.liveNotes ?? [] }
-        attempt.onGate = { [weak self] tool, refusal in self?.execution?.noteGate(tool: tool, refusal: refusal) }
         // The runtime does not carry the model (it only knows the fields it declares), so it comes from the approved plan by the step's id.
         attempt.stepModel = reviewed.plan.steps.first { $0.id.uuidString == task.step.id }?.chosenModel
         attempt.planOutline = reviewed.plan.steps.map { "\($0.title) (\($0.agent))" }
-        // task: records one exchange on the execution, which owns its own end
-        attempt.onExchange = { [weak self] exchange in Task { await self?.execution?.recordExchange(exchange) } }
-        let supervisorTool = CLITool.allCases.first { $0.displayName == reviewed.plan.controls.supervisorAgent }
-        let supervisorModel = reviewed.plan.controls.supervisorModel
-        attempt.askSupervisor = { [root] prompt in
-            let supervising = AIOperation<CLICompletion.Request, CockpitSupervisor.Answer>(
-                name: "cockpit-supervisor",
-                parse: { result in
-                    guard let answer = CockpitSupervisor.parse(result.structured) else { throw CockpitSupervisor.Failure.unusable }
-                    return answer
-                })
-            return try await supervising.execute(CLICompletion.Request(project: root, prompt: prompt,
-                systemPrompt: CockpitSupervisor.systemPrompt, jsonSchema: CockpitSupervisor.schema, readableFolder: root,
-                timeout: CockpitSupervisor.timeoutSeconds, toolOverride: supervisorTool, model: supervisorModel, effort: "medium", label: "cockpit-supervisor")).output
-        }
+        attempt.supervisorTool = CLITool.allCases.first { $0.displayName == reviewed.plan.controls.supervisorAgent }
+        attempt.supervisorModel = reviewed.plan.controls.supervisorModel
         let result = await attempt.run(task)
         guard result.error.isEmpty, result.result.passed, let id = task.step.qaScenarioID, !id.isEmpty else { return result }
         let qa = CockpitQAAttempt(workspace: workspace, root: root, plan: reviewed.plan, productionConfirmed: reviewed.productionConfirmed) { [weak self] activity, coverage, blockers in

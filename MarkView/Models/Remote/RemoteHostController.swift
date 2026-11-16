@@ -16,6 +16,7 @@ final class RemoteHostController: ObservableObject {
     private var requests: RemoteToolRequests?
     private var bridge: RemoteToolBridge?
     private var terminal: TerminalSession?
+    private var terminalObservations: Set<AnyCancellable> = []
     private var task: Task<Void, Never>?
     private var lastPeerMessage = Date()
     private var heartbeat: Task<Void, Never>?
@@ -148,18 +149,18 @@ final class RemoteHostController: ObservableObject {
         self.bridge = prepared.1
         let terminal = TerminalSession(directory: prepared.0, profile: TerminalProfile(tool), title: "Remote · " + tool.displayName, operationCommand: prepared.2)
         self.terminal = terminal
-        terminal.onOutput = { [weak self] data in
+        terminal.outputEvents.sink { [weak self] data in
             self?.sendOutput(data, channel: channel)
-        }
-        terminal.onExit = { [weak self] code in
+        }.store(in: &terminalObservations)
+        terminal.exitEvents.sink { [weak self] code in
             let drain = self?.outputTask
             self?.transportTasks.store(Task { await drain?.value; try? await channel.send(RemoteMessage("exited", .int(Int(code)))) }, for: "send-exited")
             self?.setState(.offline, "\(tool.displayName) exited (\(code)). Reconnect to continue the saved connection.")
-        }
-        terminal.onLaunchFailure = { [weak self] _ in
+        }.store(in: &terminalObservations)
+        terminal.launchFailureEvents.sink { [weak self] _ in
             self?.setState(.reconnecting, "Could not start the home assistant.")
             self?.transportTasks.store(Task { await channel.close() }, for: "close-channel")
-        }
+        }.store(in: &terminalObservations)
         terminal.resizeForConnection(cols: payload["cols"].integer ?? 120, rows: payload["rows"].integer ?? 30)
         terminal.start()
         setState(.online, "\(tool.displayName) connected to \(hostname) · \(cwd)")
@@ -184,7 +185,8 @@ final class RemoteHostController: ObservableObject {
     private func clearTransport() async {
         heartbeat?.cancel(); heartbeat = nil
         outputTask?.cancel(); outputTask = nil; outputBuffer.removeAll()
-        terminal?.onOutput = nil; terminal?.onExit = nil; terminal?.terminate(); terminal = nil
+        terminalObservations.removeAll()
+        terminal?.terminate(); terminal = nil
         bridge?.stop(); bridge = nil
         if let requests { await requests.close() }; requests = nil
         if let channel { await channel.close() }; channel = nil

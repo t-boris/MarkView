@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 #if canImport(MarkViewCore)
 import MarkViewCore
@@ -42,6 +43,7 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
     }
     /// The AI panel's terminals, in tab order: Claude Code, Codex or a plain shell each.
     @Published private(set) var sessions: [TerminalSession] = []
+    private var policyObservations: [UUID: AnyCancellable] = [:]
     /// The terminal shown in the AI panel.
     @Published var shownID: UUID? {
         // Closing the workspace empties `sessions` first, so it does not overwrite the saved set.
@@ -124,7 +126,7 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
     private func watchForMCPPolicyBlock(_ session: TerminalSession, tool: CLITool) {
         let name = tool.displayName
         var recent = ""
-        session.onOutput = { [weak self, weak session] data in
+        policyObservations[session.id] = session.outputEvents.sink { [weak self, weak session] data in
             recent = String((recent + String(decoding: data, as: UTF8.self)).suffix(4_000))
             guard BrowserAgentTools.reportsPolicyBlock(recent) else { return }
             recent = ""
@@ -255,6 +257,7 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
 
     func closeAITerminal(_ id: UUID) {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+        policyObservations[id] = nil
         sessions.remove(at: index).terminate()
         if shownID == id {
             shownID = sessions.isEmpty ? nil : sessions[min(index, sessions.count - 1)].id
@@ -429,6 +432,7 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
 
     /// End every terminal of the window (the folder closes or another opens).
     func stopAll() {
+        policyObservations.removeAll()
         sessions.forEach { $0.terminate() }
         sessions = []
         shownID = nil

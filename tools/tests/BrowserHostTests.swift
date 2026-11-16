@@ -318,7 +318,7 @@ func preview() async {
     let rig2 = Rig()
     declareApp(rig2.folder, command: "npm run dev", ports: [port], reuse: false)
     rig2.browser.previewWebApp()
-    check(await waitUntil { rig2.window.terminals.first?.onOutput != nil }, "the dev server starts in a terminal tab of the project")
+    check(await waitUntil { (rig2.window.terminals.first?.outputObservers ?? 0) > 0 }, "the dev server starts in a terminal tab of the project")
     let terminal = rig2.window.terminals.first
     check(terminal?.startupCommand == "npm run dev" && terminal?.directory == rig2.folder && terminal?.started == 1, "with its command, started at once")
     let session = rig2.sessions.first
@@ -330,18 +330,18 @@ func preview() async {
     // The server prints its address and answers: the tab shows it.
     let server = listen()
     defer { server.stop() }
-    terminal?.onOutput?(Data("  Local:   http://localhost:\(server.port)/\n".utf8))
+    terminal?.emitOutput(Data("  Local:   http://localhost:\(server.port)/\n".utf8))
     check(await waitUntil(8) { session?.previews.isEmpty == false }, "the tab shows the address the server printed, once it answers")
-    check(session?.previews.first?.port == server.port && terminal?.onOutput == nil, "and the terminal is no longer read")
+    check(session?.previews.first?.port == server.port && terminal?.outputObservers == 0, "and the terminal is no longer read")
 
     // The window closes while the server is awaited: the wait ends with it.
     let closing = Rig()
     let closingPort = freePort()
     declareApp(closing.folder, command: "npm run dev", ports: [closingPort], reuse: false)
     closing.browser.previewWebApp()
-    check(await waitUntil { closing.window.terminals.first?.onOutput != nil }, "a second window waits for its dev server")
+    check(await waitUntil { (closing.window.terminals.first?.outputObservers ?? 0) > 0 }, "a second window waits for its dev server")
     closing.browser.close()
-    check(await waitUntil(3) { closing.window.terminals.first?.onOutput == nil }, "closing the window ends the wait (the terminal is no longer read)")
+    check(await waitUntil(3) { closing.window.terminals.first?.outputObservers == 0 }, "closing the window ends the wait (the terminal is no longer read)")
     if case .starting? = closing.sessions.first?.preview { check(true, "and the tab is not left claiming a timeout") } else { check(false, "and the tab is not left claiming a timeout") }
 
     // A terminal remembered for the same app is reused rather than started again.
@@ -351,7 +351,7 @@ func preview() async {
     let existing = TerminalSession(directory: reuse.folder, startupCommand: "npm run dev")
     reuse.terminals.rememberPreviewTerminal(existing, forApp: reuse.folder.standardizedFileURL.path)
     reuse.browser.previewWebApp()
-    check(await waitUntil { existing.onOutput != nil }, "a dev server the window already runs for the app is watched again")
+    check(await waitUntil { existing.outputObservers > 0 }, "a dev server the window already runs for the app is watched again")
     check(reuse.window.terminals.isEmpty && existing.started == 0, "and no second one is started")
     reuse.browser.close()
 }

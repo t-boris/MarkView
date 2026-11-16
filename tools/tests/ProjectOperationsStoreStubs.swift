@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 // Compile-time stand-ins for what `ProjectOperationsStore` and the discovery service mention but the checks do not exercise: the
@@ -9,8 +10,8 @@ import Foundation
 final class TerminalSession: ObservableObject {
     nonisolated(unsafe) static var started: [String] = []
     let operationCommand: String?
-    var onExit: ((Int32) -> Void)?
-    var onLaunchFailure: ((String) -> Void)?
+    let exitEvents = PassthroughSubject<Int32, Never>()
+    let launchFailureEvents = PassthroughSubject<String, Never>()
     var isRunning = false
     var webView: AnyObject { self }
     init(directory: URL, title: String, operationCommand: String?) { self.operationCommand = operationCommand }

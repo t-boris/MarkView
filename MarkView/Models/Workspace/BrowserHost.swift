@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 #if canImport(MarkViewCore)
 import MarkViewCore
@@ -271,8 +272,8 @@ final class BrowserHost: BrowserSessionHost {
             session.previewTerminalID = terminal.id
             session.preview = .starting(target, started: true)
             let watch = DevServerWatch()
-            terminal.onOutput = { [weak watch] data in watch?.read(data) }
-            defer { terminal.onOutput = nil }
+            let observation = terminal.outputEvents.sink { [weak watch] data in watch?.read(data) }
+            defer { observation.cancel() }
             let deadline = Date().addingTimeInterval(180)
             var round = 0
             while Date() < deadline {

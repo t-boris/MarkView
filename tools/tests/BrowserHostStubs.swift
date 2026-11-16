@@ -49,7 +49,13 @@ final class TerminalSession {
     let id = UUID()
     let directory: URL
     let startupCommand: String?
-    var onOutput: ((Data) -> Void)?
+    private let outputSubject = PassthroughSubject<Data, Never>()
+    private(set) var outputObservers = 0
+    var outputEvents: AnyPublisher<Data, Never> {
+        outputSubject.handleEvents(receiveSubscription: { [weak self] _ in self?.outputObservers += 1 },
+                                   receiveCancel: { [weak self] in self?.outputObservers -= 1 }).eraseToAnyPublisher()
+    }
+    func emitOutput(_ data: Data) { outputSubject.send(data) }
     var started = 0
     var pasted: [String] = []
     init(directory: URL, startupCommand: String?) {

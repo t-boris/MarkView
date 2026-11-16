@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import Darwin
 
 /// One step gets a fresh existing agent terminal and a one-use reporting ticket.
@@ -16,27 +17,38 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
     private var watchdogTask: Task<Void, Never>?
     private var watchdogExited: CockpitExitSignal?
     private var terminationTask: Task<Void, Never>?
+    private var terminalExitObservation: AnyCancellable?
     private let onProgress: (CockpitProgress) async throws -> Void
-    /// Told how many times the step's agent has moved a bug into fixing; set by the session before each step.
-    var onFixCycle: (Int) -> Void = { _ in }
+    /// Told how many times the step's agent has moved a bug into fixing.
+    private let onFixCycle: (Int) -> Void
     /// Told of every MarkView tool call of the step's agent (the tool, and the reason when it was refused), for the run's timeline.
-    var onGate: (String, String?) -> Void = { _, _ in }
-    /// The supervisor: set by the session. Takes the prompt built for a question and returns the model's answer, or throws.
-    var askSupervisor: ((String) async throws -> CockpitSupervisor.Answer)?
+    private let onGate: (String, String?) -> Void
+    /// The supervisor takes the prompt and the current step's model, and returns its answer or throws.
+    private let askSupervisor: ((String, CLITool?, String?) async throws -> CockpitSupervisor.Answer)?
     /// Told of every question the step asked and what came back, for the run's log.
-    var onExchange: (CockpitSupervisorExchange) -> Void = { _ in }
-    /// What the person has switched off, and what the person told the supervisor, as of now; set by the session. Asked on every gate
+    private let onExchange: (CockpitSupervisorExchange) -> Void
+    /// What the person has switched off, and what the person told the supervisor, as of now. Asked on every gate
     /// call and every question, so a lever or a note counts from the agent's next move.
-    var liveCuts: () -> CockpitLiveSwitches = { CockpitLiveSwitches() }
-    var liveNotes: () -> [CockpitCuratorNote] = { [] }
+    private let liveCuts: () -> CockpitLiveSwitches
+    private let liveNotes: () -> [CockpitCuratorNote]
     /// One line per step of the plan, for the supervisor's context.
     var planOutline: [String] = []
     /// The model of the step about to run, from the approved plan: the runtime does not carry it, so the session sets it before each step.
     var stepModel: String?
+    var supervisorTool: CLITool?
+    var supervisorModel: String?
     private var ledger = CockpitSupervisor.Ledger()
 
-    init(assistants: any AssistantProviding, root: URL, onProgress: @escaping (CockpitProgress) async throws -> Void = { _ in }) {
+    init(assistants: any AssistantProviding, root: URL, onFixCycle: @escaping (Int) -> Void = { _ in },
+         onGate: @escaping (String, String?) -> Void = { _, _ in },
+         askSupervisor: ((String, CLITool?, String?) async throws -> CockpitSupervisor.Answer)? = nil,
+         onExchange: @escaping (CockpitSupervisorExchange) -> Void = { _ in },
+         liveCuts: @escaping () -> CockpitLiveSwitches = { CockpitLiveSwitches() },
+         liveNotes: @escaping () -> [CockpitCuratorNote] = { [] },
+         onProgress: @escaping (CockpitProgress) async throws -> Void = { _ in }) {
         self.assistants = assistants; self.root = root.standardizedFileURL; self.onProgress = onProgress
+        self.onFixCycle = onFixCycle; self.onGate = onGate; self.askSupervisor = askSupervisor
+        self.onExchange = onExchange; self.liveCuts = liveCuts; self.liveNotes = liveNotes
     }
 
     func run(_ task: CockpitHostTask) async -> CockpitHostReply {
@@ -92,7 +104,9 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
                                               cuts: { [weak self] in self?.liveCuts() ?? CockpitLiveSwitches() }, shell: pty.shell,
                                               onFixCycle: { [weak self] count in self?.onFixCycle(count) },
                                               onActivity: { [weak self] tool, refusal in self?.onGate(tool, refusal) })
-                terminal.onExit = { [weak self] _ in self?.cancel(reason: "The agent terminal exited before reporting a result.") }
+                terminalExitObservation = terminal.exitEvents.sink { [weak self] _ in
+                    self?.cancel(reason: "The agent terminal exited before reporting a result.")
+                }
                 terminal.closeObserver = self
                 do {
                     let data = try JSONEncoder().encode(task)
@@ -158,7 +172,7 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
         watchdog?.stop(); watchdog = nil
         let exited = watchdogExited
         watchdogExited = nil
-        session?.onExit = nil
+        terminalExitObservation = nil
         session?.closeObserver = nil
         let reaping = session?.terminateCockpitStep(beforeReap: { await exited?.wait() })
         session = nil
@@ -197,7 +211,7 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
     }
 
     /// The agent's question to the supervisor: asked once per distinct question, at most `questionsPerStep` of them, and never waited on.
-    private func supervise(_ question: CockpitSupervisor.Question, task: CockpitHostTask) async -> String {
+    func supervise(_ question: CockpitSupervisor.Question, task: CockpitHostTask) async -> String {
         guard CockpitControls(storedJSON: task.controls).narrowed(by: liveCuts()).supervisor, let askSupervisor else { return CockpitSupervisor.disabledReply }
         switch ledger.admit(question.text) {
         case .repeated(let reply): return reply
@@ -209,7 +223,7 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
                                                  answer: "", outOfScope: false, failed: false)
         let reply: String
         do {
-            let answer = try await askSupervisor(prompt)
+            let answer = try await askSupervisor(prompt, supervisorTool, supervisorModel)
             reply = CockpitSupervisor.reply(for: answer)
             ledger.remember(question.text, reply: reply)
             exchange.answer = answer.text; exchange.outOfScope = answer.outOfScope

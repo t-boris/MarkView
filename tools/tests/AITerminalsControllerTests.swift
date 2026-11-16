@@ -133,9 +133,9 @@ func run() async {
     let withLinks = terminals.openAITerminal(.claude)
     check(withLinks?.startupCommand?.contains("linked-docs") == true, "the folders linked to the project are given to the assistant")
     project.linkedFolderURLs = []
-    check(withLinks?.onOutput == nil, "an assistant whose organisation policy cannot block the MCP servers is not watched for it")
+    check(withLinks?.outputObservers == 0, "an assistant whose organisation policy cannot block the MCP servers is not watched for it")
     let copilot = terminals.openAITerminal(TerminalProfile(CLITool(rawValue: "copilot")!))
-    check(copilot?.onOutput != nil, "Copilot's output is watched for the policy block of the browser tools (BUG-025)")
+    check((copilot?.outputObservers ?? 0) > 0, "Copilot's output is watched for the policy block of the browser tools (BUG-025)")
 
     // AR-22: the question about a blocked assistant goes through the window's prompter. Keeping the assistant running ("Later") restarts
     // nothing, restarting it replaces its command (continuing its session), and a window that cannot answer leaves it running.
@@ -144,7 +144,7 @@ func run() async {
     func policyBlocked(_ answer: ScriptedPrompts.Answer) async -> Bool {
         let before = prompts.asked.count
         prompts.script = [answer]
-        copilot?.onOutput?(blockedOutput)
+        copilot?.emitOutput(blockedOutput)
         return await waitUntil { prompts.asked.count == before + 1 }
     }
     check(await policyBlocked(.press("Later")), "a blocked assistant asks the person")

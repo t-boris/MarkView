@@ -3085,6 +3085,7 @@
         "MarkView/Models/QA/QATriage.swift",
         "MarkView/Models/QA/QAWebActor.swift",
         "MarkView/Models/Cockpit/CockpitAgentAttempt.swift",
+        "MarkView/Models/Cockpit/CockpitSession.swift",
         "MarkView/Models/Terminal/TerminalSession.swift",
         "MarkView/Models/Browser/BrowserAddress.swift",
         "MarkView/Models/Browser/BrowserSession.swift",

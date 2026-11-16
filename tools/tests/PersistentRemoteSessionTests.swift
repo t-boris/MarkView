@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import CryptoKit
 
@@ -44,14 +45,14 @@ enum RemoteRelayKeychain { static func account(for text: String) throws -> Strin
     static var starts = 0
     static var directories: Set<URL> = []
     let directory: URL
-    var onOutput: ((Data) -> Void)?
-    var onExit: ((Int32) -> Void)?
-    var onLaunchFailure: ((String) -> Void)?
+    let outputEvents = PassthroughSubject<Data, Never>()
+    let exitEvents = PassthroughSubject<Int32, Never>()
+    let launchFailureEvents = PassthroughSubject<String, Never>()
     init(directory: URL, profile: TerminalProfile, title: String, operationCommand: String) {
         self.directory = directory; Self.directories.insert(directory)
     }
-    func start() { Self.starts += 1; onOutput?(Data("SESSION_STARTED\n".utf8)) }
-    func writeBytesForConnection(_ data: Data) { onOutput?(data) }
+    func start() { Self.starts += 1; outputEvents.send(Data("SESSION_STARTED\n".utf8)) }
+    func writeBytesForConnection(_ data: Data) { outputEvents.send(data) }
     func resizeForConnection(cols: Int, rows: Int) {}
     func terminate() {}
 }

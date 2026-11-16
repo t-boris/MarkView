@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Darwin
 import WebKit
 #if canImport(MarkViewCore)
@@ -79,12 +80,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, TerminalC
     /// A project operation executes this exact string as one argument to the login shell.
     /// It is never typed into an ordinary terminal tab.
     let operationCommand: String?
-    var onExit: ((Int32) -> Void)?
+    private let exitSubject = PassthroughSubject<Int32, Never>()
+    var exitEvents: AnyPublisher<Int32, Never> { exitSubject.eraseToAnyPublisher() }
     /// A cockpit assignment must be interrupted if its terminal is closed or restarted.
     weak var closeObserver: (any TerminalCloseObserver)?
     /// Everything the process prints, as it arrives (e.g. to find a dev server's address).
-    var onOutput: ((Data) -> Void)?
-    var onLaunchFailure: ((String) -> Void)?
+    private let outputSubject = PassthroughSubject<Data, Never>()
+    var outputEvents: AnyPublisher<Data, Never> { outputSubject.eraseToAnyPublisher() }
+    private let launchFailureSubject = PassthroughSubject<String, Never>()
+    var launchFailureEvents: AnyPublisher<String, Never> { launchFailureSubject.eraseToAnyPublisher() }
     /// What it runs; a shell for terminals opened in folders.
     @Published private(set) var profile: TerminalProfile
     /// Tab title in the AI panel ("Claude Code", "Codex 2").
@@ -382,7 +386,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, TerminalC
         guard pid > 0 else {
             let reason = String(cString: strerror(errno))
             deliver(Data("\r\nCould not start a process: \(reason)\r\n".utf8))
-            onLaunchFailure?(reason)
+            launchFailureSubject.send(reason)
             return
         }
         masterFD = master
@@ -424,7 +428,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, TerminalC
     func connectionDidExit(_ code: Int32) {
         guard connectionEventsActive else { return }
         isRunning = false; exitCode = code; exitMarkerPending = code
-        flush(); onExit?(code)
+        flush(); exitSubject.send(code)
     }
 
     func connectionDidChangeState(_ phase: RemoteConnectionState.Phase, detail: String) {
@@ -451,7 +455,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, TerminalC
         exitMarkerPending = exitCode ?? 127
         flush()
         finishOutputDisplayIfReady()
-        onExit?(exitCode ?? 127)
+        exitSubject.send(exitCode ?? 127)
     }
 
     /// Signal the whole foreground operation group, including non-detached children.
@@ -674,7 +678,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, TerminalC
     /// shell has printed its prompt.
     private func deliver(_ data: Data) {
         pendingOutput.append(data)
-        onOutput?(data)
+        outputSubject.send(data)
         if operationCommand != nil && pendingOutput.count > 16_000_000 {
             pendingOutput.removeFirst(pendingOutput.count - 8_000_000)
             outputDropped = true

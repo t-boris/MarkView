@@ -11,6 +11,7 @@ final class ProjectOperationRun: ObservableObject, Identifiable {
     let id: String
     let snapshot: ProjectOperation
     let session: TerminalSession
+    var terminalObservations: Set<AnyCancellable> = []
     let started = Date()
     weak var presenter: (any ProjectOperationsPresenter)?
     @Published var state = "running"
@@ -533,18 +534,18 @@ final class ProjectOperationsStore: ObservableObject {
         writes.record(history)
         // task: asks the system once for notification permission; it holds nothing of its own and ends with the answer
         Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
-        run.session.onExit = { [weak self, weak run] code in
+        run.session.exitEvents.sink { [weak self, weak run] code in
             guard let self, let run else { return }
             run.finish(exitCode: code)
             self.recordCompletion(run)
-        }
-        run.session.onLaunchFailure = { [weak self, weak run] reason in
+        }.store(in: &run.terminalObservations)
+        run.session.launchFailureEvents.sink { [weak self, weak run] reason in
             guard let self, let run else { return }
             run.state = "failed"
             run.ended = Date()
             self.message = "Could not start \(run.snapshot.label): \(reason)"
             self.recordCompletion(run)
-        }
+        }.store(in: &run.terminalObservations)
         _ = run.session.webView
         run.session.start()
     }

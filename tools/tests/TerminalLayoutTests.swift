@@ -35,6 +35,17 @@ final class WhisperClient { func stopRecording() async -> String? { nil } }
             let initialFit = try await js("testFit.proposeDimensions()") as! [String: Int]
             check(readySize?.cols == initialFit["cols"] && readySize?.rows == initialFit["rows"],
                   "initial ready waits for valid cell metrics and reports the fitted grid")
+            // WebKit being ready does not mean the login shell has finished starting.
+            // Wait for a command executed by the real shell before testing PTY resizing.
+            session.write("printf 'MV_LAYOUT_%s\\n' SHELL_READY\r")
+            var shellReady = false
+            for _ in 0..<150 {
+                if try await js("mvText().includes('MV_LAYOUT_SHELL_READY')") as? Bool == true {
+                    shellReady = true; break
+                }
+                await pause(100)
+            }
+            guard shellReady else { throw NSError(domain: "TerminalLayoutTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "The shell did not become ready"]) }
             for width in [300, 500, 699, 941, 1200, 2400, 3440] {
                 window.setContentSize(NSSize(width: width, height: 480))
                 await pause(250)
@@ -47,6 +58,10 @@ final class WhisperClient { func stopRecording() async -> String? { nil } }
                         matched = true; break
                     }
                     await pause(100)
+                }
+                if !matched {
+                    let sizes = try await js("mvText().match(/SIZE:[0-9]+:[0-9]+/g) || []") ?? []
+                    print("PTY size diagnostic: xterm=\(cols), reported=\(sizes), running=\(session.isRunning)")
                 }
                 check(matched, "\(width)px: live PTY COLUMNS/tput match xterm")
                 check(try await js("mvText().split('\\n')[0] === '='.repeat(testTerm.cols)") as? Bool == true,

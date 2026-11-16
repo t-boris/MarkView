@@ -10,6 +10,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/AITerminalsControllerTests.swift "$out/main.swift"
 cat > "$out/Stub.swift" <<'SWIFT'
+import Combine
 import Foundation
 
 @MainActor
@@ -34,7 +35,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     var connection: AnyObject?
     var isRemote: Bool { connection != nil }
     @Published var remoteConnectionState: RemoteConnectionState?
-    var onOutput: ((Data) -> Void)?
+    private let outputSubject = PassthroughSubject<Data, Never>()
+    private(set) var outputObservers = 0
+    var outputEvents: AnyPublisher<Data, Never> {
+        outputSubject.handleEvents(receiveSubscription: { [weak self] _ in self?.outputObservers += 1 },
+                                   receiveCancel: { [weak self] in self?.outputObservers -= 1 }).eraseToAnyPublisher()
+    }
+    func emitOutput(_ data: Data) { outputSubject.send(data) }
     private(set) weak var links: (any TerminalLinkTarget)?
     var browserWindowID: UUID?
     var shellPID: pid_t { 0 }
