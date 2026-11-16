@@ -170,7 +170,7 @@ func mutations(_ spec: Any, _ value: Any) -> [(String, Any)] {
 let expectedCall: [String: String] = [
     "ready": "bridgeEditorReady", "contentChanged": "didUpdateContent", "headingsUpdated": "didExtractHeadings",
     "scrollPosition": "didSelectHeading", "linkClicked": "didClickLink", "editorFontSize": "didChangeEditorFontSize",
-    "editorWindowPref": "didSetWindowPref", "blocksChanged": "didReceiveBlocksDelta", "canvasOpenFile": "didRequestCanvasOpenFile",
+    "editorWindowPref": "didSetWindowPref", "canvasOpenFile": "didRequestCanvasOpenFile",
     "saveRequested": "bridgeSaveRequested", "translateRequested": "didRequestTranslation", "selectionAction": "didRequestSelectionAction",
     "featureAction": "didRequestFeatureAction", "refreshRequested": "bridgeRefreshRequested", "generateGraph": "didRequestGraph:sample::",
     "code": "didReceiveCodeAction", "arch": "didReceiveArchitectureAction", "researchMap": "didReceiveResearchMapAction",
@@ -192,7 +192,6 @@ for (type, message) in editorMessages.sorted(by: { $0.key < $1.key }) {
     let envelope: [String: Any] = ["type": type, "payload": payload, "doc": "8E1C4B52-0C2E-4D77-9A53-0F0B2E5A7C11"]
     delegate.calls.removeAll()
     let outcome = editorBridge.messages.receive(body: envelope, isMainFrame: true)
-    RunLoop.main.run(until: Date().addingTimeInterval(0.01))   // blocksChanged tells the delegate on the next run loop
     if type == "jsError" {
         check(outcome == .handled, "bridge/jsError: a contract-valid sample is handled (it is logged, not forwarded)", "\(outcome)")
     } else {
@@ -200,7 +199,7 @@ for (type, message) in editorMessages.sorted(by: { $0.key < $1.key }) {
         check(outcome == .handled && delegate.calls == [want], "bridge/\(type): a contract-valid sample reaches \(want)", "\(outcome) \(delegate.calls)")
     }
 }
-check(editorMessages.count == 28, "the editor channel declares 28 messages", "\(editorMessages.count)")
+check(editorMessages.count == 27, "the editor channel declares 27 messages", "\(editorMessages.count)")
 
 for (type, message) in entry("terminal").sorted(by: { $0.key < $1.key }) {
     terminalHandled.removeAll()
@@ -225,12 +224,6 @@ do {
     check(delegate.documentIDs == [nil], "a message that names no tab names none", "\(delegate.documentIDs)")
     d.receive(body: ["type": "headingsUpdated", "payload": [["id": "h1", "level": 2, "text": "Two"]]], isMainFrame: true)
     check(delegate.lastHeadings.map { "\($0.id)/\($0.level)/\($0.text)" } == ["h1/2/Two"], "headingsUpdated decodes the array payload", "\(delegate.lastHeadings)")
-    d.receive(body: ["type": "blocksChanged", "payload": [
-        "added": [["id": "b1", "type": "no-such-type", "content": "text", "contentHash": "h", "lineStart": 1, "lineEnd": 2, "position": 0, "level": NSNull(), "headingPath": ["A"]]],
-        "removed": ["b0"], "changed": [], "unchanged": ["b2"]]], isMainFrame: true)
-    RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-    check(delegate.lastDelta.map { $0.added.count == 1 && $0.added[0].type == .paragraph && $0.added[0].plainText == "text" && $0.added[0].headingPath == ["A"] && $0.removed == ["b0"] && $0.unchanged == ["b2"] } == true,
-          "blocksChanged decodes the blocks (an unknown block type is a paragraph)")
     d.receive(body: ["type": "insightRequestExploreAll", "payload": ["sessionId": NSNull()]], isMainFrame: true)
     check(delegate.lastDepth == 1, "an exploreAll without a depth explores one level", "\(String(describing: delegate.lastDepth))")
     d.receive(body: ["type": "featureAction", "payload": ["action": "ask", "text": "t"]], isMainFrame: true)
@@ -331,7 +324,7 @@ for channel in ["bridge", "discussion", "terminal"] {
     }
 }
 check(disagreements.isEmpty, "the page and the app accept and refuse the same \(compared) cases", disagreements.prefix(8).joined(separator: "\n"))
-check(compared > 400, "enough cases were compared (\(compared))")
+check(compared > 300, "enough cases were compared (\(compared))")
 
 // What only the page can see: channel and type.
 check(!jsSends("bridge", "no-such-type", [String: Any]()).sent && jsErrors.joined().contains("bridge/no-such-type is not in the contract"), "the page refuses a type that is not declared, and says so on the console", jsErrors.joined())

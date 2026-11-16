@@ -107,7 +107,7 @@ func run() async {
     let first = analysed.appendingPathComponent("one.md"), second = analysed.appendingPathComponent("two.md")
     write("# one", to: first)
     write("# two", to: second)
-    guard let cache = try? InsightCache(workspaceURL: analysed, sessionId: UUID()) else {
+    guard let cache = try? InsightCache(workspaceURL: analysed, sessionId: UUID(), pagePolicy: InsightHTMLTemplate.policyKey) else {
         check(false, "the cache opens on a real folder with the vendored libraries")
         return
     }
@@ -136,8 +136,7 @@ func run() async {
             crumbs.insert((current.id.uuidString, current.title), at: 0)
             cursor = current.parentId.flatMap { nodes[$0] }
         }
-        let html = InsightHTMLTemplate.html(skeleton: node.skeleton!, sectionStates: [:], breadcrumbs: crumbs,
-                                                    libRefMode: .exportRelative, cache: cache)
+        let html = InsightHTMLTemplate.html(skeleton: node.skeleton!, sectionStates: [:], breadcrumbs: crumbs, cache: cache)
         try? cache.writeNode(nodeId: id, html: html)
     }
     let liveRootBefore = (try? cache.readNode(nodeId: rootId)) ?? ""
@@ -243,6 +242,44 @@ func run() async {
     check(host.events == ["release", "remove"], "the page releases its blobs before the tab is removed (events: \(host.events))")
     check((try? cache.readNode(nodeId: rootId)) == liveRootBefore, "closing keeps the cache, so reopening the folder's insight reuses it")
     withExtendedLifetime(page) {}
+
+    // 4. FU-25: pages are served from the cache only under the policy the manifest names.
+    print("\n-- page policy")
+    let policy = InsightHTMLTemplate.policyKey
+    let manifest = InsightManifest(sessionId: UUID(), folderName: "analysed", createdAt: Date(), nodes: [], pagePolicy: policy)
+    try? cache.updateManifest(manifest)
+    let sameCache = try? InsightCache(workspaceURL: analysed, sessionId: UUID(), pagePolicy: policy)
+    check(sameCache?.droppedStalePages == false && (try? sameCache?.readNode(nodeId: rootId)) == liveRootBefore,
+          "a cache whose manifest names the policy in force keeps its pages")
+
+    // A page an older version wrote: its policy allowed every inline script.
+    let olderPage = liveRootBefore.replacingOccurrences(of: "script-src 'self' \(InsightHTMLTemplate.bootstrapHash)", with: "script-src 'self' 'unsafe-inline'")
+    check(olderPage != liveRootBefore && olderPage.contains("script-src 'self' 'unsafe-inline'"), "the older page of the scenario allows every inline script")
+    try? cache.writeNode(nodeId: rootId, html: olderPage)
+    try? cache.updateManifest(InsightManifest(sessionId: UUID(), folderName: "analysed", createdAt: Date(), nodes: []))   // no policy recorded: as before FU-25
+    guard let reopened = try? InsightCache(workspaceURL: analysed, sessionId: UUID(), pagePolicy: policy) else {
+        check(false, "the cache opens again")
+        return
+    }
+    check(reopened.droppedStalePages && (try? reopened.readNode(nodeId: rootId)) == nil,
+          "a cache written before the policy had a key loses its pages when it is opened, so the older page is not served")
+    check(reopened.readSnapshotData() != nil && reopened.vendoredLibURL(matching: "mermaid", extension: "js") != nil,
+          "the saved tree and the bundled libraries stay")
+    check((try? reopened.loadManifest())?.pagePolicy == policy, "the manifest names the policy now")
+    let again = try? InsightCache(workspaceURL: analysed, sessionId: UUID(), pagePolicy: policy)
+    check(again?.droppedStalePages == false, "opening it a second time drops nothing")
+
+    let restored = InsightSession(folderURL: analysed, mdFiles: [first, second], graphRAG: nil, cache: reopened)
+    await restored.generateRoot()
+    let rewritten = (try? reopened.readNode(nodeId: rootId)) ?? ""
+    let rewrittenScriptSources = rewritten.components(separatedBy: "script-src ").dropFirst().first?.components(separatedBy: ";").first ?? ""
+    check(restored.nodes.count == 2 && rewrittenScriptSources == "'self' \(InsightHTMLTemplate.bootstrapHash)"
+          && (try? reopened.readNode(nodeId: childId)) != nil && rewritten.contains("<p>root</p>"),
+          "restoring the saved tree writes the pages of every node again, from that tree, under the policy in force")
+
+    let moved = try? InsightCache(workspaceURL: analysed, sessionId: UUID(), pagePolicy: "another-policy")
+    check(moved?.droppedStalePages == true && (try? moved?.readNode(nodeId: rootId)) == nil && (try? moved?.loadManifest())?.pagePolicy == "another-policy",
+          "a change of the policy drops the pages again")
 }
 
 let semaphore = DispatchSemaphore(value: 0)

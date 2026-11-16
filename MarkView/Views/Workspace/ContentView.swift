@@ -33,12 +33,12 @@ enum LeftPanelWidth {
     static let standard: CGFloat = 220
 
     /// The width this window last had (or, for a window that has none yet, the last one any window left).
-    static func saved(in state: WindowUIState) -> CGFloat {
+    @MainActor static func saved(in state: WindowUIState) -> CGFloat {
         let width = CGFloat(state.value(Setting.leftPanelWidth))
         return width > 0 ? min(max(width, range.lowerBound), range.upperBound) : standard
     }
 
-    static func save(_ width: CGFloat, in state: WindowUIState) {
+    @MainActor static func save(_ width: CGFloat, in state: WindowUIState) {
         guard range.contains(width) else { return }
         state.set(Double(width.rounded()), for: Setting.leftPanelWidth, publishing: false)
     }
@@ -100,12 +100,12 @@ private enum RightPanelWidth {
     static let standard: CGFloat = 500
 
     /// The width this window last had (or, for a window that has none yet, the last one any window left).
-    static func saved(in state: WindowUIState) -> CGFloat {
+    @MainActor static func saved(in state: WindowUIState) -> CGFloat {
         let width = CGFloat(state.value(Setting.rightPanelWidth))
         return width > 0 ? min(max(width, range.lowerBound), range.upperBound) : standard
     }
 
-    static func save(_ width: CGFloat, in state: WindowUIState) {
+    @MainActor static func save(_ width: CGFloat, in state: WindowUIState) {
         guard range.contains(width) else { return }
         state.set(Double(width.rounded()), for: Setting.rightPanelWidth, publishing: false)
     }

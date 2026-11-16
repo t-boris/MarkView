@@ -10,8 +10,6 @@ struct InsightSession {
     let id = UUID()
     func cancel() async {}
 }
-struct SemanticBlock {}
-struct BlockCompilationState {}
 struct PrototypeSession { let slug: String }
 struct StudioSession { func close() async {} }
 struct CockpitSession { func cancel() {} }

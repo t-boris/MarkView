@@ -93,12 +93,27 @@ import Darwin
         precondition(plainText == "first part second part",
                      "A text answer stopped at the output limit must be continued too.")
 
+        // The assistant's own tool calls (it asks first): reads inside the folder the request may read and searches are allowed; reads
+        // outside it, edits and every ask of a request that may read nothing are refused.
+        func answers(readableFolder: URL?) async throws -> String {
+            var request = CLICompletion.Request(project: root, prompt: "[permission]|" + root.path, readableFolder: readableFolder)
+            request.tool = .copilot
+            request.timeout = 60
+            return try await CLICompletion.run(request).text
+        }
+        let seen = try await answers(readableFolder: root)
+        precondition(seen == "read-inside=yes,read-relative=yes,read-outside=no,search=yes,edit=no",
+                     "The folder the request may read decides which tool calls the assistant is allowed: \(seen)")
+        let blind = try await answers(readableFolder: nil)
+        precondition(blind == "read-inside=no,read-relative=no,read-outside=no,search=no,edit=no",
+                     "A request that may read no files allows no tool call: \(blind)")
+
         for _ in 0..<100 {
             if AgentProcesses.count == 0 { break }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         precondition(AgentProcesses.count == 0, "Finished test assistants must be removed.")
-        print("ACP continuations: cut-off JSON, repeated tails, restarts, finished answers, the turn budget and text answers passed.")
+        print("ACP continuations: cut-off JSON, repeated tails, restarts, finished answers, the turn budget, text answers and tool-call permissions passed.")
     }
 
     /// The answer every joining scenario must end up with: long enough to be split, and without a
@@ -141,7 +156,7 @@ import Darwin
                                        "[never-ends]", "[no-progress]", "[plain-cut-off]",
                                        "[narrated-complete]", "[narrated]", "[internal-restart-continued]",
                                        "[internal-restart]", "[pretty-restart]", "[pretty-restart-continued]",
-                                       "[declines]"].first { text.contains($0) } ?? "" }
+                                       "[declines]", "[permission]"].first { text.contains($0) } ?? "" }
             turn += 1
             let head = String(full.prefix(split))
             switch (scenario, turn) {
@@ -170,6 +185,29 @@ import Darwin
                 try send(["id": id, "result": ["stopReason": "end_turn"]])
             case ("[internal-restart-continued]", _):
                 try chunk(String(full.dropFirst(split)))
+                try send(["id": id, "result": ["stopReason": "end_turn"]])
+            case ("[permission]", _):
+                // The assistant asks to run tools and the app answers each ask from the folder the request may read; the answers
+                // it got are this turn's text. The folder follows the marker in the prompt.
+                let folder = text.components(separatedBy: "[permission]|").last?.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+                let asks: [(label: String, kind: String, input: [String: Any])] = [
+                    ("read-inside", "read", ["path": folder + "/notes/a.md"]),
+                    ("read-relative", "read", ["path": "notes/b.md"]),
+                    ("read-outside", "read", ["path": folder + "/../outside.md"]),
+                    ("search", "search", [:]),
+                    ("edit", "edit", ["path": folder + "/notes/a.md"]),
+                ]
+                var answers: [String] = []
+                for (index, ask) in asks.enumerated() {
+                    try send(["jsonrpc": "2.0", "id": 900 + index, "method": "session/request_permission", "params": [
+                        "toolCall": ["kind": ask.kind, "rawInput": ask.input],
+                        "options": [["optionId": "yes", "kind": "allow_once"], ["optionId": "no", "kind": "reject_once"]],
+                    ]])
+                    let reply = (try? JSONSerialization.jsonObject(with: Data((readLine() ?? "").utf8))) as? [String: Any]
+                    let outcome = (reply?["result"] as? [String: Any])?["outcome"] as? [String: Any]
+                    answers.append("\(ask.label)=\(outcome?["optionId"] as? String ?? "none")")
+                }
+                try chunk(answers.joined(separator: ","))
                 try send(["id": id, "result": ["stopReason": "end_turn"]])
             case ("[declines]", 1):
                 try chunk(head)

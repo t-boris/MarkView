@@ -916,15 +916,6 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         }
     }
 
-    func bridge(_ bridge: WebViewBridge, didReceiveBlocksDelta delta: BlocksDelta) {
-        Task { @MainActor in
-            // The insight player does not run the block extractor, so a delta for a tab that is not a file (an Insight page) is a stray
-            // one and must not reach the database as a `.insight-<uuid>` document.
-            guard let tab = self.parent.tabs.activeTab, tab.isFileBacked else { return }
-            self.parent.workspaceManager.project.saveBlocks(delta, of: tab.url)
-        }
-    }
-
     func bridge(_ bridge: WebViewBridge, didChangeEditorFontSize size: Double) {
         Task { @MainActor in self.parent.workspaceManager.windowUI.set(size, for: Setting.editorTextSizeMirror) }
     }
