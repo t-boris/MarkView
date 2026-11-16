@@ -233,7 +233,7 @@ private struct CycleMarkIcon: View {
     }
 }
 
-private func sectionTitle(_ text: String, palette: AppPalette) -> some View {
+@MainActor private func sectionTitle(_ text: String, palette: AppPalette) -> some View {
     Text(text.uppercased()).uiFont(size: 9, weight: .bold).foregroundColor(palette.textDim).padding(.top, 6)
 }
 

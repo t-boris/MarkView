@@ -144,6 +144,8 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+The WebKit contract script and cycle-time section title are now main-actor isolated. The standalone WebKit driver was updated accordingly after its first compilation failed. The cycle-time suite, both bridge-contract suites, Debug build and warning ratchet passed; complete checking reports no warnings in `TypedWebBridge.swift` or `CycleTimeViews.swift`.
+
 The file-tree drop URL collection is now main-actor isolated as provider completions arrive. The file-operations suite, Debug build and warning ratchet passed; complete checking reports no warnings in `FileTreeView.swift`. The suite checks the underlying file operations, not an interactive drag.
 
 The discussion WebKit navigation policy callback now matches the SDK so WebKit can invoke it. All 11 app-hosted tests (including the selector check), discussion suite, Debug build and warning ratchet passed; complete checking reports no warnings in `DiscussionThreadView.swift`. The first hosted attempt stopped silently in the unrelated Cockpit packaging phase while another build was running; the CI-mode retry uses the project’s separately tested Cockpit runtime and passed.

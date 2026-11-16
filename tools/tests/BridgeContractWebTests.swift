@@ -38,7 +38,7 @@ final class Loaded: NSObject, WKNavigationDelegate {
 }
 
 /// A hidden window around a web view; the page is `file` of the editor folder.
-final class Page {
+@MainActor final class Page {
     let web: WKWebView
     let window: NSWindow
     let loaded = Loaded()

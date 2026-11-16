@@ -186,7 +186,7 @@ struct BridgeContract: Sendable {
     }
 
     /// The script that gives a page the contract before any of its own scripts run (`mvBridge.send` reads `window.mvBridgeContract`).
-    var userScript: WKUserScript {
+    @MainActor var userScript: WKUserScript {
         WKUserScript(source: "window.mvBridgeContract = \(text);", injectionTime: .atDocumentStart, forMainFrameOnly: true)
     }
 
