@@ -10,7 +10,9 @@ import UniformTypeIdentifiers
 /// WebKit returns values on the main actor; the continuation and its consumer remain on that actor.
 // unchecked Sendable: the wrapped WebKit value is never accessed outside the main actor.
 private struct BookPDFWebValue: @unchecked Sendable {
-    let value: Any
+    @MainActor let value: Any
+
+    @MainActor init(value: Any) { self.value = value }
 }
 
 /// Owns one isolated renderer per export, including its navigation lifetime. JavaScript

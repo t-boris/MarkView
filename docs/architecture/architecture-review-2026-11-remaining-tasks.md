@@ -146,6 +146,10 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+Book PDF’s private WebKit value wrapper now enforces main-actor access in its type. Both PDF gui suites, Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `BookPDFRenderer.swift`.
+
+UI Studio WebKit results are being wrapped with main-actor-only access across cancellation-aware continuations; verification is in progress.
+
 The semantic database connection has a private lifetime owner so actor deinitialization does not access a non-Sendable pointer. All four changed-file pure suites passed, including the previous-release migration fixture; Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `SemanticDatabase.swift` (one before). This justified owner brings the current app/package unsafe annotation count to 41, versus 43 initially.
 
 UI Studio server registry and PATH cache use lock-owned state instead of two unsafe static variables. All three UI Studio GUI suites, Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `UIStudioServer.swift`. Including the newly justified SQLite owner, the app/package unsafe annotation count is 41, versus 43 initially.
