@@ -403,6 +403,8 @@ Status (2026-11-15): done. `BackdropRegistry` discovers the classes that conform
 
 **Assistants (AR-35, M-L):** an `AssistantProvider` (identity, locating and probing, model catalogue, one-shot arguments and event parser or the session-protocol profile, terminal launch arguments, goal phrasing, optional usage source) with one registry; `TerminalProfile` becomes `provider | shell` and the three duplicate enums go. Behavioural, so not data. Worth doing when a sixth assistant is planned, or together with AR-26.
 
+Status (2026-11-15): done by its count. A literal `.claude`, `.codex`, `.cline`, `.copilot` or `.antigravity` outside `Models/AI/Providers/`: 0 (lint `assistant-switch`; about 28 switches in 13 files at 6.26.0); `AssistantProviders.list` holds 5 providers, one file each, and adding an assistant is a provider file plus one line. Not re-counted: the three duplicate assistant enums.
+
 ## 8. Persistence and domain model
 
 ### AR-36 No storage layer and no cross-process coordination (high, L)
