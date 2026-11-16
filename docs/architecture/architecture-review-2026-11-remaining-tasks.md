@@ -146,6 +146,8 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+A fresh clean complete-concurrency Debug build of 6.30.83 succeeded with 12 distinct Swift warnings in four files: five in `QARunModel`, three in `AIOperation`, three in `WindowSessionController` and one in `RemoteCommand`. This compares with 22 in 10 files at 6.30.78 and 232 in 77 initially. Targeted checking is still enabled; the zero-warning acceptance remains open.
+
 A fresh clean complete-concurrency Debug build of 6.30.78 succeeded with 22 distinct Swift warnings in 10 files (36 in 19 at 6.30.66; 232 in 77 initially). Five are in `QARunModel`, three each in `AIOperation` and `ImageAttachments`, two each in `ArchitectureStore`, `UIStudioEnvironmentMapper` and `WindowSessionController`, and one each in `RemoteCommand`, `FeatureAI`, `PrototypeHandoffRun` and `QAViews`. The compiler additionally reports a duplicate location for one window diagnostic. The project still uses targeted checking; the zero-warning acceptance remains open.
 
 The QA graph's event-monitor cleanup is now a main-actor closure, so deinitialization does not read or remove an AppKit token off the main actor. Complete checking compiled `QAViews.swift` without warnings. A new app-hosted lifecycle test passed for detach, reattach and release; its first run crashed the isolated host after the test window was closed with AppKit's default release-on-close behavior. The test now disables that behavior before closing; the installed application remained running. All 22 hosted tests, the targeted Debug build, warning ratchet, SwiftLint ratchet, manifest check and architecture lint passed.
