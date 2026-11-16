@@ -26,8 +26,8 @@ check(ControlAgentTools.names.isDisjoint(with: projectNames) && ControlAgentTool
 let schemas = tools.map(\.json)
 check(schemas.allSatisfy { (($0["inputSchema"] as? [String: Any])?["properties"] as? [String: Any])?["project_folder"] == nil },
       "control tools are addressed by window, not by project_folder")
-check(ProjectAgentTools.tools.first!.json["inputSchema"].flatMap { ($0 as? [String: Any])?["properties"] as? [String: Any] }?["project_folder"] != nil,
-      "project tools still take project_folder")
+check(ProjectAgentTools.tools.first!.json["inputSchema"].flatMap { ($0 as? [String: Any])?["properties"] as? [String: Any] }?["project_folder"] == nil,
+      "project tools do not accept a client-selected folder")
 for name in ["markview_flow_implement", "markview_flow_fix_bug"] {
     check(tools.first { $0.name == name }!.required.contains("by_user"), "\(name) needs the person's word")
 }
@@ -218,8 +218,8 @@ check(withLines.count == 2 && toolCount(withLines[0]) == 18, "with the app runni
 check(withLines.last?.contains("reply to markview_open_project") == true, "a tool call reaches the app and its reply comes back", withApp.out)
 let seen = app.requests()
 check(seen.count == 1 && seen[0]["tool"] as? String == "markview_open_project" && (seen[0]["arguments"] as? [String: Any])?["path"] as? String == "/tmp/p"
-      && (seen[0]["pids"] as? [Int])?.first == Int(getpid()) && (seen[0]["cwd"] as? String)?.isEmpty == false,
-      "the request carries the tool, its arguments, the agent's processes and folder", "\(seen)")
+      && seen[0]["pids"] == nil && seen[0]["cwd"] == nil,
+      "the request carries the tool and arguments without client-supplied process identity", "\(seen)")
 app.stop()
 
 // MARK: Real processes: two running MarkViews

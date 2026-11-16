@@ -27,7 +27,7 @@ enum RemoteWorkspaceTools {
     The browser_* tools control the tabs in the WORK computer's connected MarkView window, including
     existing signed-in pages and localhost development servers. Start with browser_tabs, then
     browser_snapshot for page text and element refs. browser_screenshot returns a page image. Respect
-    tabs stopped by the user; do not retry them. The window is fixed; project_folder is unnecessary.
+    tabs stopped by the user; do not retry them. The window is fixed by the remote connection.
     """
 
     private static func tool(_ name: String, _ description: String, _ properties: [String: RemoteJSON], required: [String] = []) -> RemoteJSON {
@@ -38,10 +38,8 @@ enum RemoteWorkspaceTools {
     private static func field(_ type: String, _ description: String) -> RemoteJSON {
         .object(["type": .string(type), "description": .string(description)])
     }
-    /// Reuse the shipping browser schemas, without the local MCP server's folder-routing argument.
+    /// Reuse the shipping browser schemas for the fixed remote window.
     static let browserTools: [RemoteJSON] = BrowserAgentTools.tools.map { definition in
-        var definition = definition
-        definition.addsFolder = false
         let data = try! JSONSerialization.data(withJSONObject: definition.json)
         return try! JSONDecoder().decode(RemoteJSON.self, from: data)
     }

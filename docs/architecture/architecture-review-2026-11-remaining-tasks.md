@@ -120,15 +120,13 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 ## Group D: security, tests, data (D5, D8, D9). Size M each
 
 **D1. AR-40 the local control socket trusts what the client says.**
+- Status 2026-11-16: the server is being changed to use only the authenticated peer PID, kernel ancestry and process working directory; client folder, ancestry and trust fields are no longer authoritative. The control, project, browser and remote-browser suites passed, including forged-folder and forged-ancestry requests. The Debug build and warning ratchet passed with 0 warnings; the changed-file suites passed (7 suites), and the four focused control, project, browser and remote-browser suites passed after the routing change. CI and release verification are outstanding. DEC-012 retains the binding token-only policy without a separate confirmation gate.
 - Now: the browser-control, Cockpit and Remote sockets already use `PrivateSocket` (256-bit token in a mode-0600 file, constant-time
   compare, kernel peer credentials). Not done: `cwd`, `folderDeclared` and `cwdTrusted` (defaults to true) still come from the request, and
   `by_user` is a boolean the agent supplies (`ControlToolRunner+Flow.swift`, `ControlAgentTools`); no native confirmation exists.
-- Do (after D5): derive the working folder from the peer's pid ancestry in the server; drop `cwdTrusted` from the request schema; for the
-  actions marked `by_user` (answer, approve requirements, file issues, start unattended implementation) raise a native confirmation in
-  the window the agent belongs to and ignore the boolean.
-- Acceptance: `git grep -c cwdTrusted -- MarkView` = 0; a test that sends `by_user: true` without the confirmation is refused; a test that
-  sends a `cwd` outside the window's folder is ignored. Hidden probe: the confirmation sheet appears and Cancel leaves no change.
-- Risk: agents that work today with a declared `cwd` stop working until launched by the app; wording of the dialog is yours.
+- Do (DEC-012): derive the working folder from the peer’s PID ancestry in the server; drop `cwdTrusted` from the request schema and ignore client-supplied ancestry and folder fields. Preserve the `by_user` flow and do not add a separate confirmation gate, as required by DEC-009 and DEC-011.
+- Acceptance: `git grep -c cwdTrusted -- MarkView` = 0; socket tests show a forged folder and ancestry cannot select a window, and a `cwd` outside a pinned window is ignored. The `by_user` gate remains as recorded in DEC-009 and DEC-011; a native confirmation is not part of this decision.
+- Risk: agents that relied on a declared folder from a shared daemon may stop routing until launched in the project or by the app.
 
 **D2. AR-42 main-thread blocking, by measurement.**
 - Now: only by reading; nothing was profiled. Done: all SQL off the main thread, `hasMarkdownFiles` a stored flag, directory walks in

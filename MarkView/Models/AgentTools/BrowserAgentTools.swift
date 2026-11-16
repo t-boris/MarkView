@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 #if canImport(MarkViewCore)
 import MarkViewCore
 #endif
@@ -25,7 +26,7 @@ enum BrowserAgentTools {
     which tab to use, pass it as `tab`; browser_tabs lists them, browser_open_tab opens a new one. \
     Start with browser_snapshot (or browser_navigate) to see the page and the element refs that \
     browser_click and browser_type take. If a tool says the user stopped a tab, do not retry it. \
-    Pass project_folder (the absolute path of the folder you work in) with every call.
+    The app determines the project window from the verified process and its working folder.
     """
 
     /// Outside a MarkView terminal: no tools, and this note.
@@ -36,62 +37,25 @@ enum BrowserAgentTools {
         let description: String
         let properties: [String: [String: Any]]
         let required: [String]
-        /// The folder argument names the window of the project tools; control tools address a window by `window`.
-        var addsFolder = true
-
         var json: [String: Any] {
-            let all = addsFolder ? properties.merging([folderArgument: ["type": "string", "description": folderDescription]]) { $1 } : properties
             return ["name": name, "description": description,
-                    "inputSchema": ["type": "object", "properties": all, "required": required] as [String: Any]]
+                    "inputSchema": ["type": "object", "properties": properties, "required": required] as [String: Any]]
         }
     }
 
-    /// Every tool takes the folder the agent works in. Cline runs all its sessions' tool servers from one shared
-    /// background process started in one project's folder, so the server's own folder says nothing about which
-    /// project is asking: the agent says it.
-    static let folderArgument = "project_folder"
-    static let folderDescription = "Absolute path of the project folder you are working in (your current working directory). Always pass it: MarkView uses it to pick the right project window."
-
-    /// A process whose command line says it is a shared background daemon (Cline's `--cline-hub-daemon`):
-    /// the folder of the servers it starts is the daemon's, not the asking agent's.
-    static func isSharedDaemon(command: String) -> Bool {
-        command.lowercased().contains("daemon")
-    }
-
-    /// The folder a request is about: the one the agent declared, else this server's own.
-    static func requestFolder(declared: Any?, fallback: String) -> (folder: String, declared: Bool) {
-        if let text = (declared as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
-            return ((text as NSString).expandingTildeInPath, true)
+    /// Working directory reported by the kernel for the peer or one of its ancestors. Failure is not a trusted folder.
+    static func workingDirectory(forPIDs pids: [Int32]) -> String? {
+        for pid in pids where pid > 0 {
+            var info = proc_vnodepathinfo()
+            let size = MemoryLayout.size(ofValue: info)
+            guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, Int32(size)) == size else { continue }
+            let path = withUnsafeBytes(of: &info.pvi_cdir.vip_path) {
+                String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
+            }
+            if path.hasPrefix("/") { return path }
         }
-        return (fallback, false)
+        return nil
     }
-
-    /// Whether the app must ask the agent for its folder instead of guessing a window: the server's folder is not
-    /// trustworthy (a shared daemon started it), the agent gave none, and more than one window could be meant.
-    static func needsFolder(declared: Bool, cwdTrusted: Bool, windowCount: Int) -> Bool {
-        !declared && !cwdTrusted && windowCount > 1
-    }
-
-    /// Whether `folder`, the one an agent says it works in, is the project `root` of a window or lies inside it.
-    /// Symlinked spellings of the same place (`/tmp` and `/private/tmp`) count as equal.
-    static func folder(_ folder: String, isInProject root: String) -> Bool {
-        func resolved(_ path: String) -> String {
-            URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.resolvingSymlinksInPath().path
-        }
-        let path = resolved(folder), project = resolved(root)
-        guard !project.isEmpty else { return false }
-        return path == project || path.hasPrefix(project + "/")
-    }
-
-    /// The reply of a project tool whose window is fixed but whose `project_folder` names another project. The
-    /// window's project is the only one the tool may write to, so it refuses rather than write there unnoticed.
-    static func wrongProject(declared: String, root: String) -> String {
-        "project_folder is \(declared), but this window's project is \(root). Nothing was done. "
-        + "The project tools only work on the project of the window the agent runs in: open \(declared) in a window of its own "
-        + "(markview_open_project) and call the tool from an agent there, or edit the files in that folder directly."
-    }
-
-    static let folderRequired = "MarkView cannot tell which project this agent works in: its tools run in a shared background process, not in the project's folder. Call this tool again with project_folder set to the absolute path of the folder you are working in."
 
     /// What an MCP server of this binary offers: the browser tools, or the project tools (`ProjectAgentTools`).
     /// `rechecksApp`: look for the app again with every message, so that quitting MarkView takes the tools away.
@@ -261,8 +225,6 @@ enum BrowserAgentTools {
         var ancestors: [Int32]
         var viaAncestors: Bool
         var window: String
-        /// The server was started by a shared background daemon: its working folder is the daemon's.
-        var sharedDaemon = false
     }
 
     static func locateApp(arguments: [String]) -> AppLocation {
@@ -272,25 +234,12 @@ enum BrowserAgentTools {
         let ancestors = ancestorPIDs()
         let alive = { (path: String) in appIsAlive(socket: path) }
         let fromAncestors = ancestors.lazy.map(socketPath(forApp:)).first { FileManager.default.fileExists(atPath: $0) && alive($0) }
-        // BUG-027: an agent that runs its tools in a background process (Cline's hub daemon) has no
-        // MarkView among its ancestors; then any running MarkView is used and the window is chosen
-        // by the folder the agent works in (`cwd` in each request).
+        // External agents find running instances by socket; the app selects a window using the verified peer.
         let given = value("--socket").flatMap { alive($0) ? $0 : nil }
         let fallbacks = given == nil && fromAncestors == nil ? runningAppSockets() : []
         let socket = given ?? fromAncestors ?? fallbacks.first ?? ""
         return AppLocation(socket: socket, fallbacks: fallbacks, ancestors: ancestors,
-                           viaAncestors: fromAncestors != nil || given != nil, window: value("--window") ?? "",
-                           sharedDaemon: parentCommand().map(isSharedDaemon) ?? false)
-    }
-
-    /// The command line of this process's parent (what started the server).
-    static func parentCommand() -> String? {
-        // This server has no UI and no async context: it blocks its own thread on the shared runner.
-        let result = Subprocess.runBlocking(SubprocessSpec(
-            executable: "/bin/ps", arguments: ["-o", "command=", "-p", String(getppid())],
-            timeout: 5, stderrRouting: .discard))
-        guard result.succeeded else { return nil }
-        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                           viaAncestors: fromAncestors != nil || given != nil, window: value("--window") ?? "")
     }
 
     /// The MarkView process a control socket belongs to (`mv-browser-<pid>.sock`) still runs.
@@ -304,11 +253,9 @@ enum BrowserAgentTools {
     /// One tool call to the app that `location` names; with several running MarkViews, each is asked until one has the agent's folder open.
     static func forward(_ tool: String, _ args: [String: Any], to location: AppLocation) -> Reply {
         var args = args
-        let (folder, declared) = requestFolder(declared: args.removeValue(forKey: folderArgument),
-                                               fallback: FileManager.default.currentDirectoryPath)
-        let payload: [String: Any] = ["window": location.window, "pids": location.ancestors.map(Int.init),
-                                      "cwd": folder, "folderDeclared": declared, "cwdTrusted": !location.sharedDaemon,
-                                      "tool": tool, "arguments": args]
+        // Ignore the legacy client-declared folder; the app obtains the peer’s folder from the kernel.
+        args.removeValue(forKey: "project_folder")
+        let payload: [String: Any] = ["window": location.window, "tool": tool, "arguments": args]
         // Each running MarkView knows only its own windows: a list is the sum of what every one of them says.
         if fanOutTools.contains(tool), location.fallbacks.count > 1 {
             let replies = location.fallbacks.map { request(socket: $0, payload: payload) }
@@ -349,7 +296,7 @@ enum BrowserAgentTools {
         }
         print(viaAncestors ? "✓ MarkView found among the parent processes: \(socket)"
                            : "✓ MarkView found by its socket (the agent runs its tools in a background process): \(socket)")
-        let reply = request(socket: socket, payload: ["window": window, "pids": ancestors.map(Int.init), "cwd": cwd, "tool": probe, "arguments": [String: Any]()], timeout: 10)
+        let reply = request(socket: socket, payload: ["window": window, "tool": probe, "arguments": [String: Any]()], timeout: 10)
         print(reply.isError ? "✗ " + reply.text : "✓ The window answered:\n" + reply.text)
         exit(reply.isError ? 1 : 0)
     }
@@ -392,10 +339,11 @@ enum BrowserAgentTools {
     /// The window whose project folder holds `cwd` (the deepest one), else the only window.
     /// `strict`: only a window whose project holds the folder counts (the project tools write files).
     static func windowIndex(forFolder cwd: String, roots: [String?], strict: Bool = false) -> Int? {
-        let path = (cwd as NSString).standardizingPath
+        let path = cwd.isEmpty ? "" : URL(fileURLWithPath: cwd).standardizedFileURL.resolvingSymlinksInPath().path
         let matches = roots.enumerated().compactMap { index, root -> (Int, Int)? in
-            guard let root = root.map({ ($0 as NSString).standardizingPath }), !root.isEmpty else { return nil }
-            return path == root || path.hasPrefix(root + "/") ? (index, root.count) : nil
+            guard let root, !root.isEmpty, !path.isEmpty else { return nil }
+            let normalizedRoot = URL(fileURLWithPath: root).standardizedFileURL.resolvingSymlinksInPath().path
+            return path == normalizedRoot || path.hasPrefix(normalizedRoot + "/") ? (index, normalizedRoot.count) : nil
         }
         if let best = matches.max(by: { $0.1 < $1.1 }) { return best.0 }
         return roots.count == 1 && !strict ? 0 : nil

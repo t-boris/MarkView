@@ -225,8 +225,8 @@ let callWithApp = run(["--project-call", "markview_get_feature", "{\"feature\":\
 check(callWithApp.status == 0 && callWithApp.out.contains("reply to markview_get_feature"), "--project-call reaches the app", callWithApp.out)
 let seen = app.requests()
 check(seen.count == 2 && seen.last?["tool"] as? String == "markview_get_feature" && (seen.last?["arguments"] as? [String: Any])?["feature"] as? String == "orders"
-      && (seen.last?["pids"] as? [Int])?.first == Int(getpid()) && (seen.last?["cwd"] as? String)?.isEmpty == false,
-      "the request carries the tool, its arguments, the agent's processes and folder", "\(seen)")
+      && seen.last?["pids"] == nil && seen.last?["cwd"] == nil,
+      "the request carries the tool and its arguments without client-supplied process identity", "\(seen)")
 
 // MARK: Real process: the app quits while the server runs
 

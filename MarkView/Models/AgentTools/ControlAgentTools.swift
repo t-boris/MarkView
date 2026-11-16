@@ -49,7 +49,7 @@ enum ControlAgentTools {
 
     private static func tool(_ name: String, _ description: String, _ properties: [String: [String: Any]] = [:],
                              required: [String] = []) -> BrowserAgentTools.Tool {
-        BrowserAgentTools.Tool(name: name, description: description, properties: properties, required: required, addsFolder: false)
+        BrowserAgentTools.Tool(name: name, description: description, properties: properties, required: required)
     }
 
     static var answerItem: [String: Any] { [
@@ -329,7 +329,7 @@ enum ControlAgentTools {
     the feature flow, step by step. Each AI step takes 20 s to several minutes: it is started, and \
     markview_flow_status (wait_s) tells when it is done.
     The `markview` server (markview_get_feature, markview_add_requirement…) reads and edits the specification itself; \
-    pass project_folder there. Topics: \(guideTopics.filter { $0 != "overview" }.joined(separator: ", ")).
+    it chooses its window from the authenticated process. Topics: \(guideTopics.filter { $0 != "overview" }.joined(separator: ", ")).
     """
 
     static let windowsGuide = """

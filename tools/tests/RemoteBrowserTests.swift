@@ -168,6 +168,15 @@ private func rawControlReply(_ path: String, _ request: [String: Any]) -> Browse
               && !(controlReplies.prefix(3).contains { $0?.text.contains("WorkTab") == true }),
               "A control request without the token, with a wrong one or an empty one is refused and runs no tool")
         check(controlReplies[3]?.isError == false && controlReplies[3]?.text.contains("WorkTab") == true, "A control request with the token is served")
+        let spoofed: [String: Any] = ["tool": "browser_tabs", "token": controlToken, "cwd": root.path,
+                                      "folderDeclared": true, "cwdTrusted": true, "pids": [Int(getpid())], "arguments": [String: Any]()]
+        let spoofedReply = await Task.detached { rawControlReply(controlSocket, spoofed) }.value
+        check(spoofedReply?.isError == true && !(spoofedReply?.text.contains("WorkTab") ?? false),
+              "A forged folder and process ancestry cannot select a window")
+        let pinned = tabsRequest.merging(["token": controlToken, "cwd": "/outside-the-window"]) { $1 }
+        let pinnedReply = await Task.detached { rawControlReply(controlSocket, pinned) }.value
+        check(pinnedReply?.isError == false && pinnedReply?.text.contains("WorkTab") == true,
+              "A forged outside folder is ignored for a window-bound request")
         let viaClient = await Task.detached { BrowserAgentTools.request(socket: controlSocket, payload: tabsRequest, timeout: 5) }.value
         check(viaClient.text.contains("WorkTab"), "The MCP client finds the token file by itself and is served")
         session.agentStopped = true

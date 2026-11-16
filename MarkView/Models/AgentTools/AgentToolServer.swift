@@ -114,7 +114,7 @@ enum AgentToolServer {
         var noSigPipe: Int32 = 1
         setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         let peer = PrivateSocket.peer(of: client)
-        guard peer.isCurrentUser else {
+        guard peer.isCurrentUser, let peerPID = peer.pid else {
             close(client)
             return
         }
@@ -130,25 +130,15 @@ enum AgentToolServer {
             return
         }
         let window = (request["window"] as? String).flatMap(UUID.init(uuidString:))
-        let clientReportedPIDs = (request["pids"] as? [Int] ?? []).map(Int32.init)
-        // Prefer kernel-verified peer PID ancestry (`LOCAL_PEERPID`, AR-40) over unverified client-supplied PIDs.
-        let pids: [Int32]
-        if let peerPID = peer.pid {
-            let kernelAncestors = BrowserAgentTools.ancestorPIDs(startingAt: peerPID)
-            pids = kernelAncestors.isEmpty ? clientReportedPIDs : kernelAncestors
-        } else {
-            pids = clientReportedPIDs
-        }
-        let cwd = request["cwd"] as? String ?? ""
-        let declared = request["folderDeclared"] as? Bool ?? false
-        // Older servers do not say; their folder counts.
-        let trusted = request["cwdTrusted"] as? Bool ?? true
+        // Both ancestry and working folder come from the authenticated socket peer, never from request fields.
+        let pids = BrowserAgentTools.ancestorPIDs(startingAt: peerPID)
+        let cwd = BrowserAgentTools.workingDirectory(forPIDs: pids) ?? ""
         let tool = request["tool"] as? String ?? ""
         // unchecked Sendable: a `let` dictionary decoded from the request JSON, never mutated, and read only by the one task below.
         nonisolated(unsafe) let arguments = request["arguments"] as? [String: Any] ?? [:]
         // task: answers one request of an agent's socket and closes it; the agent's call has no owner here to cancel it
         Task { @MainActor in
-            let reply = await perform(tool, arguments, window: window, pids: pids, cwd: cwd, declared: declared, cwdTrusted: trusted)
+            let reply = await perform(tool, arguments, window: window, pids: pids, cwd: cwd)
             let data = (try? JSONSerialization.data(withJSONObject: reply.json)) ?? Data()
             DispatchQueue.global(qos: .userInitiated).async {
                 _ = BrowserAgentTools.writeAll(client, data + Data("\n".utf8))
@@ -187,31 +177,20 @@ enum AgentToolServer {
         return nil
     }
 
-    private static func perform(_ tool: String, _ args: [String: Any], window id: UUID?, pids: [Int32], cwd: String,
-                                 declared: Bool = false, cwdTrusted: Bool = true) async -> BrowserAgentTools.Reply {
+    private static func perform(_ tool: String, _ args: [String: Any], window id: UUID?, pids: [Int32], cwd: String) async -> BrowserAgentTools.Reply {
         // The agent of a Cockpit step gets only the tools its controls allow, whichever family a tool belongs to.
         if let refusal = cockpitRefusal(tool, args, pids: pids) { return .error(refusal) }
         // The control tools name their window themselves (`window`), or take the caller's folder when it says one.
         if ControlAgentTools.names.contains(tool) {
-            return await ControlToolRunner.run(tool, args, caller: .init(pids: pids, folder: declared || cwdTrusted ? cwd : ""))
+            return await ControlToolRunner.run(tool, args, caller: .init(pids: pids, folder: cwd))
         }
         let isProjectTool = ProjectAgentTools.toolNames.contains(tool)
         guard isProjectTool || TerminalBrowserBridge.isEnabled else {
             return .error("MarkView's browser for terminals is turned off (globe menu → Open Terminal Links in MarkView).")
         }
         let known = id.flatMap { windows[$0] != nil ? $0 : nil } ?? TerminalBrowserBridge.windowID(forAncestors: pids)
-        // A shared background daemon's folder says nothing about the asking agent: without the folder the agent
-        // gave, with several windows open, ask for it rather than pick one (the project tools would write to it).
-        if known == nil, BrowserAgentTools.needsFolder(declared: declared, cwdTrusted: cwdTrusted, windowCount: windows.values.filter { $0.root() != nil }.count) {
-            return .error(BrowserAgentTools.folderRequired)
-        }
-        // The project tools write files, and a window that is already fixed (the agent runs in it) takes no other
-        // project: a folder the agent names that is not this window's project is refused, not silently ignored.
-        if isProjectTool, declared, let known, let root = windows[known]?.root()?.path,
-           !BrowserAgentTools.folder(cwd, isInProject: root) {
-            return .error(BrowserAgentTools.wrongProject(declared: cwd, root: root))
-        }
-        let windowID = known ?? windowForFolder(cwd, strict: isProjectTool)
+        let windowID: UUID?
+        if let known { windowID = known } else { windowID = await windowForFolder(cwd) }
         guard let windowID, let window = windows[windowID] else {
             let open = windows.values.compactMap { $0.root()?.path }.sorted()
             return .error(BrowserAgentTools.noWindowPrefix + " this agent works in (\(cwd.isEmpty ? "unknown" : cwd)) open."
@@ -235,11 +214,16 @@ enum AgentToolServer {
         return await window.browser(tool, args)
     }
 
-    /// BUG-027: an agent running its tools outside the terminal (Cline's background hub): the window
-    /// whose project holds the agent's folder, else the only window.
-    private static func windowForFolder(_ cwd: String, strict: Bool = false) -> UUID? {
-        let entries = Array(windows)
-        guard let index = BrowserAgentTools.windowIndex(forFolder: cwd, roots: entries.map { $0.value.root()?.path }, strict: strict) else { return nil }
-        return entries[index].key
+    /// Resolve filesystem aliases away from the main actor; a changed or closed window is never selected afterward.
+    private static func windowForFolder(_ cwd: String) async -> UUID? {
+        let entries = windows.map { (id: $0.key, root: $0.value.root()?.path) }
+        let roots = entries.map(\.root)
+        // task: the request awaits this filesystem lookup and verifies the selected window before dispatch.
+        let index = await Task.detached {
+            BrowserAgentTools.windowIndex(forFolder: cwd, roots: roots, strict: true)
+        }.value
+        guard let index, entries.indices.contains(index), let window = windows[entries[index].id],
+              window.root()?.path == entries[index].root else { return nil }
+        return entries[index].id
     }
 }

@@ -104,13 +104,13 @@ final class CockpitAgentAttempt {
                     when filing bugs is disabled, describe problems in your report instead. A refused call is not a puzzle to get around: report it as a blocker.
                     You cannot start or drive other agents through MarkView during a step.
                     \(CockpitControls(storedJSON: task.controls).narrowed(by: liveCuts()).supervisor
-                        ? "When you need a decision you cannot make from the assignment and the controls, call markview_cockpit_ask with project_folder \(root.path), ticket \(ticket.uuidString) and your question: the supervisor answers at once. Nobody else will be asked and nothing waits for a person, so do not print a question into the terminal and wait for it. If the answer says the matter is outside the plan, do not act on it: record it as a blocker."
+                        ? "When you need a decision you cannot make from the assignment and the controls, call markview_cockpit_ask with ticket \(ticket.uuidString) and your question: the supervisor answers at once. Nobody else will be asked and nothing waits for a person, so do not print a question into the terminal and wait for it. If the answer says the matter is outside the plan, do not act on it: record it as a blocker."
                         : "There is no supervisor in this run and nobody to ask: decide conservatively inside the controls, say what you decided in your step report, or record a blocker.")
                     When building is disabled, do not claim checks against a newly built version were performed. Build and checks are instructions only: MarkView cannot check them.
                     If this assignment names qaScenarioID, MarkView will run that exact reviewed QA scenario after your report; do not run it separately.
                     If isFinalStep is true, explicitly evaluate each success criterion against evidence, report unmet criteria as blockers, and report passed only if the criteria are met.
                     Use the available MarkView project and browser tools as appropriate. Once you have finished this step, call markview_cockpit_complete_step
-                    with project_folder \(root.path), ticket \(ticket.uuidString), passed, detail (evidence and blockers), and build (the build identifier or an empty string).
+                    with ticket \(ticket.uuidString), passed, detail (evidence and blockers), and build (the build identifier or an empty string).
                     While working, call markview_cockpit_report_progress with the same ticket to report the pass number, activity, scenario coverage, bugs, confirmed fixes, latest change, blockers, and build log path where known. On the final step include criteriaResults for every stated success criterion, with exact criterion text, met or unmet, and supporting evidence.
                     Report whether the completion condition was actually met. Your terminal session ends after your report; do not start subsequent steps.
                     \(CockpitCuratorNote.block(liveNotes()).map { "\n" + $0 + "\n" } ?? "")

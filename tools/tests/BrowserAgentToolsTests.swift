@@ -47,38 +47,20 @@ check(BrowserAgentTools.windowIndex(forFolder: "/tmp/x", roots: ["/w/garden"], s
       && BrowserAgentTools.windowIndex(forFolder: "/w/garden/src", roots: ["/w/other", "/w/garden"], strict: true) == 1, "strict: the only window is not enough, a project holding the folder is")
 check(BrowserAgentTools.windowIndex(forFolder: "/w/gardening", roots: ["/w/garden", "/w/b"]) == nil, "a name prefix is not a parent folder")
 
-// The folder an agent works in: declared by the agent, since a shared background daemon's own folder is not its.
-check(BrowserAgentTools.isSharedDaemon(command: "/x/.cline --cline-hub-daemon --cwd /w/a --port 1"), "Cline's hub is a shared daemon")
-check(!BrowserAgentTools.isSharedDaemon(command: "/x/bin/claude --model opus"), "an agent is not a daemon")
-check(BrowserAgentTools.requestFolder(declared: "/w/sealine", fallback: "/w/hub") == ("/w/sealine", true), "the declared folder wins")
-check(BrowserAgentTools.requestFolder(declared: "  ", fallback: "/w/hub") == ("/w/hub", false), "a blank folder is none")
-check(BrowserAgentTools.requestFolder(declared: nil, fallback: "/w/hub") == ("/w/hub", false), "no folder: the server's own")
-check(BrowserAgentTools.requestFolder(declared: "~/p", fallback: "/").folder == NSHomeDirectory() + "/p", "a home folder is expanded")
-// A window that is already fixed takes no other project (BUG-042): a folder is accepted only inside the window's project.
-check(BrowserAgentTools.folder("/w/garden", isInProject: "/w/garden"), "the window's own project folder matches")
-check(BrowserAgentTools.folder("/w/garden/docs/", isInProject: "/w/garden"), "a folder inside the project matches")
-check(!BrowserAgentTools.folder("/w/other", isInProject: "/w/garden"), "another project does not match")
-check(!BrowserAgentTools.folder("/w/gardening", isInProject: "/w/garden"), "a name prefix is not the project")
-check(!BrowserAgentTools.folder("/w", isInProject: "/w/garden"), "a parent of the project does not match")
-check(!BrowserAgentTools.folder("/w/garden", isInProject: ""), "a window without a project matches nothing")
-// A real folder spelled through its symlink (/var is /private/var): both spellings are the same project.
-let projectOnDisk = (NSTemporaryDirectory() as NSString).appendingPathComponent("mv-project-\(UUID().uuidString)")
-try? FileManager.default.createDirectory(atPath: projectOnDisk + "/sub", withIntermediateDirectories: true)
-let otherSpelling = projectOnDisk.hasPrefix("/private") ? String(projectOnDisk.dropFirst("/private".count)) : "/private" + projectOnDisk
-check(BrowserAgentTools.folder(otherSpelling + "/sub", isInProject: projectOnDisk), "a symlinked spelling of the project's folder matches")
-try? FileManager.default.removeItem(atPath: projectOnDisk)
-check(BrowserAgentTools.folder("~/p/sub", isInProject: NSHomeDirectory() + "/p"), "a home folder is expanded")
-let refusal = BrowserAgentTools.wrongProject(declared: "/w/MarkView", root: "/w/Butler")
-check(refusal.contains("/w/MarkView") && refusal.contains("/w/Butler") && refusal.contains("Nothing was done"),
-      "the refusal names both projects and says nothing was done")
-check(!BrowserAgentTools.isNoWindow(refusal), "the refusal is final: no other MarkView is asked")
-check(BrowserAgentTools.needsFolder(declared: false, cwdTrusted: false, windowCount: 3), "daemon, no folder, several windows: ask")
-check(!BrowserAgentTools.needsFolder(declared: true, cwdTrusted: false, windowCount: 3), "a declared folder needs no asking")
-check(!BrowserAgentTools.needsFolder(declared: false, cwdTrusted: true, windowCount: 3), "an agent's own folder is trusted")
-check(!BrowserAgentTools.needsFolder(declared: false, cwdTrusted: false, windowCount: 1), "one window is not ambiguous")
+// The server derives the caller’s working folder from kernel process information.
+let ownFolder = BrowserAgentTools.workingDirectory(forPIDs: [getpid()])
+check(ownFolder == FileManager.default.currentDirectoryPath, "the kernel reports this process’s working directory")
+check(BrowserAgentTools.workingDirectory(forPIDs: [-1, 0]) == nil, "invalid process identifiers do not produce a folder")
+let routingRoot = FileManager.default.temporaryDirectory.appendingPathComponent("mv-route-" + UUID().uuidString)
+let routingAlias = routingRoot.appendingPathExtension("alias")
+try! FileManager.default.createDirectory(at: routingRoot, withIntermediateDirectories: true)
+try! FileManager.default.createSymbolicLink(at: routingAlias, withDestinationURL: routingRoot)
+check(BrowserAgentTools.windowIndex(forFolder: routingAlias.path, roots: [routingRoot.path], strict: true) == 0,
+      "a symlinked peer folder selects the same project")
+try? FileManager.default.removeItem(at: routingAlias)
+try? FileManager.default.removeItem(at: routingRoot)
 let schema = BrowserAgentTools.tools[0].json["inputSchema"] as? [String: Any]
-check((schema?["properties"] as? [String: Any])?["project_folder"] != nil, "every tool takes project_folder")
-check(!((schema?["required"] as? [String]) ?? []).contains("project_folder"), "project_folder is not required")
+check((schema?["properties"] as? [String: Any])?["project_folder"] == nil, "the tool schema does not advertise client-selected project folders")
 check(BrowserAgentTools.reportsPolicyBlock("\u{1b}[31m✗ MCP server was blocked by policy: \"markview-browser\"\u{1b}[0m"),
       "Copilot's policy block is recognised")
 check(!BrowserAgentTools.reportsPolicyBlock("MCP server was blocked by policy: \"github\"") && !BrowserAgentTools.reportsPolicyBlock("markview-browser ready"),
@@ -143,11 +125,11 @@ process.waitUntilExit()
 _ = served.wait(timeout: .now() + 5)
 let lines = out.split(separator: "\n").map(String.init)
 check(lines.count == 2, "two answers for two requests (the notification gets none)", out)
-check(received["tool"] as? String == "browser_navigate" && (received["pids"] as? [Int])?.first == Int(getpid())
+check(received["tool"] as? String == "browser_navigate"
       && (received["arguments"] as? [String: Any])?["url"] as? String == "localhost:5173",
-      "found through its parent process, the call reached the app with its ancestors", "\(received)")
+      "found through its parent process, the call reached the app", "\(received)")
 check(lines.last?.contains("Garden") == true, "the app's reply came back as the tool result", out)
-check((received["cwd"] as? String)?.isEmpty == false, "the request names the agent's folder")
+check(received["cwd"] == nil && received["pids"] == nil, "the request carries no client-supplied folder or ancestry")
 let unreachable = BrowserAgentTools.request(socket: socketPath + ".missing", payload: [:], timeout: 1)
 check(unreachable.isError && unreachable.text.contains("not reachable"), "a closed app is reported, not hung on")
 unlink(socketPath)
