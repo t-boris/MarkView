@@ -120,7 +120,8 @@ final class PrototypeHandoffRun: ObservableObject {
                 await takeShots(of: unit, renderer: renderer, versionSite: versionSite, liveSite: liveSite)
                 guard index < Self.maxDescribed, !Task.isCancelled else { continue }
                 if running >= Self.parallelDescriptions { await group.next(); running -= 1 }
-                group.addTask { @MainActor [self] in await describe(unit.id, versionSite: versionSite, liveSite: liveSite) }
+                let unitID = unit.id
+                group.addTask { [self] in await describe(unitID, versionSite: versionSite, liveSite: liveSite) }
                 running += 1
             }
         }

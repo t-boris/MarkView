@@ -1453,8 +1453,9 @@ final class FeatureAssistant: ObservableObject {
             let outcomes = await withTaskGroup(of: (String, Bool).self) { group in
                 for requirement in batch {
                     let ids = targets[requirement.id] ?? []
-                    group.addTask { @MainActor in
-                        (requirement.id, await self.rewriteRequirement(requirement, with: decisions.filter { ids.contains($0.id) }, in: feature))
+                    let selected = decisions.filter { ids.contains($0.id) }
+                    group.addTask {
+                        (requirement.id, await self.rewriteRequirement(requirement, with: selected, in: feature))
                     }
                 }
                 var out: [(String, Bool)] = []

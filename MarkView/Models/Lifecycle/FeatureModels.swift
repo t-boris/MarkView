@@ -61,7 +61,7 @@ enum FeatureObjectKind: String, CaseIterable, Codable, Sendable {
 }
 
 /// One object file (REQ, Q, DEC, F, R, SRC).
-struct FeatureObject: Identifiable, Hashable {
+struct FeatureObject: Identifiable, Hashable, Sendable {
     let kind: FeatureObjectKind
     let id: String
     var url: URL
@@ -237,7 +237,7 @@ struct PlannedIssue: Identifiable, Hashable {
 }
 
 /// A feature: its folder, overview and objects.
-struct Feature: Identifiable {
+struct Feature: Identifiable, Sendable {
     var id: String { slug }
     let slug: String
     let folder: URL
