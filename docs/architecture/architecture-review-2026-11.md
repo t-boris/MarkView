@@ -318,6 +318,8 @@ Status (2026-11-15): done. `Resources/Editor/js/bridge-contract.json` declares 3
 
 Fix: `tools/web-vendor` already runs esbuild. Add an entry file that imports the existing files in today's order and emits one bundle (no behaviour change); then convert file by file to `import`/`export`, replace the wrap chains with a view registry (`views.register({ enter, leave })`), and add `tsc --checkJs` and ESLint to CI. Also move the 19,351 first-party lines out of `vendor/js`, which is a misleading home.
 
+Status (2026-11-15): partial. JS files over 2,800 lines 3 -> 0 (the largest is 1,322 lines); the 46 first-party scripts (20,185 lines) live in `Resources/Editor/js/`, not `vendor/js/`. Not done: no module system or bundle (63 `<script>` tags in `index.html`, 54 at 6.26.2; the load order is unchanged), `window.x =` 111 (108), no `tsc --checkJs` or ESLint in CI (0 matches in `ci.yml`), and `index.html` still holds 1,295 lines of inline CSS.
+
 ### AR-30 `EditorWeb/` is dead weight (low, S)
 
 One commit ever (the initial release, 2026-03-31) out of 1,247. About 1,700 lines of TypeScript on a different engine (Milkdown) with an interface incompatible with the shipping globals, covering roughly 9% of what ships. `EDITOR_IMPLEMENTATION.md` is from the same commit and describes sandbox paths and a CDN design that no longer exist. `CLAUDE.md` still spends a paragraph and a verification recipe on it.
