@@ -10,7 +10,8 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 bundle_id=com.markview.tests.operations-store
-trap 'rm -rf "$out"; rm -f "$HOME/Library/Preferences/$bundle_id.plist"' EXIT
+# `defaults delete` goes through the preferences daemon, which would otherwise write the file back after it is removed.
+trap 'rm -rf "$out"; defaults delete "$bundle_id" >/dev/null 2>&1 || true; rm -f "$HOME/Library/Preferences/$bundle_id.plist"' EXIT
 target="$(uname -m)-apple-macos13.0"
 swiftc -parse-as-library -wmo -target "$target" -module-name MarkViewCore -emit-module -emit-module-path "$out/MarkViewCore.swiftmodule" \
     -c Packages/MarkViewCore/Sources/MarkViewCore/*.swift -o "$out/MarkViewCore.o"
