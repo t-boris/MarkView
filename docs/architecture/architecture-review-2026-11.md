@@ -367,6 +367,8 @@ enum ToolRegistry { static let all: [ToolDescriptor] = [.git, .deployments, .wor
 
 Risk: touches `ContentView` and the session format, which must keep decoding old archives.
 
+Status (2026-11-15): partial. Places to edit for a new tool: about 7 at 6.26.2 -> 2 (the `ToolID` and its `ToolDescriptor` in `ToolRegistry.swift`, and the view in `ToolTabViews.builders`; a `ToolTabsRouter.opener(for:)` case only for a tool that needs window wiring); the target is 1. `ToolRegistry` now generates the toolbar buttons (`toolbarTools`), the View menu items (`menuTools`), the Welcome tiles (`WelcomeActions`), the tab icon and title (`DocumentState`) and session restore (`isRestorable`); FU-29 is closed (the surfaces are read). Not checked: that the toolbar and tab icons of Workflow and QA now agree, and whether Cockpit has a tile and a menu item.
+
 **2. Themes as data (AR-32, M).** One JSON file per theme in `Resources/Themes/`, read by Swift, which passes the web tokens to the page (the first-paint injection point already exists in `EditorView`). `AppTheme` becomes a value with a string id. User themes go in `~/Library/Application Support/MarkView/Themes/*.json`, validated like workflow templates: an unusable file is listed with the reason and never rewritten. A stored id that no longer exists already falls back to Classic Dark.
 
 ```json
