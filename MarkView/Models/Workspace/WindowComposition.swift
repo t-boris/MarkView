@@ -145,6 +145,8 @@ final class WindowComposition {
         browser.close()
         // The answers and records the tools started (Discussions, UI Studio) stop too.
         toolTabs.close()
+        // So do the looks and the operations of the Git client.
+        gitClient.close()
         // What the window's own commands started (the folder's setup, wikilinks, translations) ends with it.
         taskBag.cancelAll()
         connections.removeAll()

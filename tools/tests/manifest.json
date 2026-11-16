@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 211,
+  "suiteCount": 212,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1301,6 +1301,24 @@
         "MarkView/Models/Git/GitStatusModel.swift",
         "tools/tests/GitStatusTests.swift",
         "tools/tests/git-status-tests.sh"
+      ]
+    },
+    {
+      "name": "git-task-ownership-tests",
+      "script": "tools/tests/git-task-ownership-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Git/GitClient.swift",
+        "MarkView/Models/Git/GitHubStore.swift",
+        "MarkView/Models/Git/GitHubClient.swift",
+        "MarkView/Models/Git/GitStatusModel.swift",
+        "tools/tests/CLIToolLocatorStub.swift",
+        "tools/tests/GitStoreStubs.swift",
+        "tools/tests/GitTaskOwnershipTests.swift",
+        "tools/tests/git-task-ownership-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift"
       ]
     },
     {

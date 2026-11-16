@@ -26,7 +26,7 @@ class GitClient: ObservableObject {
     /// The Git tab lists the ignored paths on request; the file tree always knows them (a big ignored
     /// tree such as node_modules is a single entry).
     @Published var showIgnored = false
-    @Published var showTracked = false { didSet { if showTracked != oldValue { Task { await refresh() } } } }
+    @Published var showTracked = false { didSet { if showTracked != oldValue { startRefresh() } } }
     @Published var commitLog: [GitCommit] = []
     @Published private(set) var hasMoreCommits = false
     @Published private(set) var loadingHistory = false
@@ -36,9 +36,24 @@ class GitClient: ObservableObject {
     @Published var activity: String?
     @Published var lastError: String?
 
+    /// Why the last branch operation of the Git tab failed; nil when it went through or has been read.
+    @Published private(set) var branchFailure: String?
+    /// The last commit the Git tab's commit bar made: the bar clears its draft when it sees its own message come back.
+    @Published private(set) var lastCommit: CommitReceipt?
+
     var workingDirectory: URL?
     /// The current branch, sent after every refresh (the GitHub store of the window follows it).
     let branchReports = PassthroughSubject<String, Never>()
+    /// What the client started for itself or for the Git tab (`AR-19`): the looks at the repository and the operations the person
+    /// started. `close` cancels them with the window, and so does a change of folder.
+    private let tasks = TaskBag()
+    /// Operations are keyed one by one: a second `git add` must not end the first, so none replaces another.
+    private var operationSerial = 0
+
+    struct CommitReceipt: Equatable {
+        let id = UUID()
+        let message: String
+    }
 
     struct GitFileStatus: Identifiable {
         let id = UUID()
@@ -93,11 +108,13 @@ class GitClient: ObservableObject {
 
     func setup(at url: URL) {
         workingDirectory = url
-        Task { await refresh() }
+        startRefresh()
     }
 
-    /// Forget the repository, e.g. when the workspace folder is closed.
+    /// Forget the repository, e.g. when the workspace folder is closed. What was started for it stops: an answer about the old folder
+    /// never lands.
     func reset() {
+        tasks.cancelAll()
         workingDirectory = nil
         isGitRepo = false
         branch = ""
@@ -115,10 +132,77 @@ class GitClient: ObservableObject {
         lastError = nil
     }
 
+    /// The window closes: the looks and the operations the client started end with it.
+    func close() { tasks.cancelAll() }
+
+    // MARK: - Starting work (`AR-19`)
+
+    /// Looks at the repository again. A look that is still running is replaced by this one.
+    func startRefresh() {
+        tasks.store(Task { await refresh() }, for: "refresh")
+    }
+
+    /// Lists more of the history. A request that is still running is replaced by this one.
+    func startLoadMoreHistory() {
+        tasks.store(Task { await loadMoreHistory() }, for: "history")
+    }
+
+    /// `git init` in the folder, then a look.
+    func startInit() { start { await self.initRepo() } }
+
+    func startPull() { startTransfer { _ = await self.pull() } }
+
+    func startPush() { startTransfer { _ = await self.push() } }
+
+    /// Commits what is staged (or `paths` only), then pushes when asked and the commit went through; the receipt tells the commit bar to
+    /// clear its message.
+    func startCommit(message: String, paths: [String]? = nil, thenPush: Bool = false) {
+        start {
+            let committed: Bool
+            if let paths { committed = await self.commit(paths: paths, message: message) }
+            else { committed = await self.commit(message: message) }
+            guard committed, !Task.isCancelled else { return }
+            self.lastCommit = CommitReceipt(message: message)
+            if thenPush { _ = await self.push() }
+        }
+    }
+
+    /// A branch operation (create or switch) the Git tab started: `work` returns what to tell the person when it went wrong.
+    func startBranchOperation(_ work: @escaping () async -> String?) {
+        start {
+            let failure = await work()
+            guard !Task.isCancelled else { return }
+            self.branchFailure = failure
+        }
+    }
+
+    /// The person has read why the last branch operation failed.
+    func dismissBranchFailure() { branchFailure = nil }
+
+    /// Takes one side of a conflicted file, then stages it.
+    func startResolve(_ path: String, taking side: String) { start { await self.resolve(path, taking: side) } }
+
+    /// Adds `path` to the repository's `.gitignore`.
+    func startIgnore(_ path: String, isDirectory: Bool) { start { await self.ignore(path, isDirectory: isDirectory) } }
+
+    /// Runs `work` as an operation of its own: the person asked for it, so no later request replaces it; only the close of the window
+    /// (or the folder) ends it.
+    private func start(_ work: @escaping () async -> Void) {
+        operationSerial += 1
+        tasks.store(Task { await work() }, for: "operation-\(operationSerial)")
+    }
+
+    /// A push or a pull: a second one asked for while one is running is dropped, and never replaces it, since ending a transfer
+    /// half way is worse than waiting for it.
+    private func startTransfer(_ work: @escaping () async -> Void) {
+        guard !tasks.contains(key: "transfer") else { return }
+        tasks.store(Task { await work() }, for: "transfer")
+    }
+
     // MARK: - Refresh
 
     func refresh() async {
-        guard let dir = workingDirectory else { return }
+        guard let dir = workingDirectory, !Task.isCancelled else { return }
 
         // Check if git repo
         let gitDir = dir.appendingPathComponent(".git")
@@ -137,7 +221,10 @@ class GitClient: ObservableObject {
         guard isGitRepo else { return }
 
         // Branch
-        branch = (await run("git", "rev-parse", "--abbrev-ref", "HEAD", in: dir) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let current = (await run("git", "rev-parse", "--abbrev-ref", "HEAD", in: dir) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // The window closed or the folder changed while git was asked: the answer is of no one now.
+        guard !Task.isCancelled else { return }
+        branch = current
         branchReports.send(branch)
         await loadBranches(in: dir)
         await loadWorktrees(in: dir)
@@ -159,6 +246,7 @@ class GitClient: ObservableObject {
         defer { loadingHistory = false }
         let limit = historyLimit, branchAtStart = branch
         let logOutput = await run("git", "log", "--all", "HEAD", "--topo-order", "--format=%H%x1f%s%x1f%an%x1f%ar%x1f%P%x1f%D%x1e", "-\(limit + 1)", in: dir) ?? ""
+        guard !Task.isCancelled else { return }
         let commits: [GitCommit] = logOutput.components(separatedBy: "\u{1e}").compactMap { record in
             let parts = record.trimmingCharacters(in: .newlines).components(separatedBy: "\u{1f}")
             guard parts.count == 6, !parts[0].isEmpty else { return nil }
@@ -176,6 +264,7 @@ class GitClient: ObservableObject {
         // Status — porcelain v2 with every untracked file and the ignored paths.
         let statusArgs = ["git", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all", "--ignored=matching"]
         let parsed = GitRepoStatus.parse(await run(statusArgs, in: dir) ?? "")
+        guard !Task.isCancelled else { return }
         let changed = parsed != repoStatus
         // The branch moved under us (an agent or a terminal switched it): the header, the branch lists and
         // the log follow, not just the file rows.
@@ -187,15 +276,17 @@ class GitClient: ObservableObject {
         if branchMoved {
             branch = parsed.head == "(detached)" ? "HEAD" : parsed.head
             branchReports.send(branch)
-            Task { await refresh() }
+            tasks.store(Task { await refresh() }, for: "branch-moved")
         }
         let current = Self.operation(in: dir)
         if current != operationInProgress { operationInProgress = current }
         let stashes = (await run(["git", "stash", "list"], in: dir) ?? "").split(separator: "\n").count
+        guard !Task.isCancelled else { return }
         if stashes != stashCount { stashCount = stashes }
         if showTracked {
-            cleanTracked = GitRepoStatus.cleanTracked(lsFiles: await run(["git", "ls-files", "-z"], in: dir) ?? "",
-                                                      changed: parsed.changedPaths)
+            let listing = await run(["git", "ls-files", "-z"], in: dir) ?? ""
+            guard !Task.isCancelled else { return }
+            cleanTracked = GitRepoStatus.cleanTracked(lsFiles: listing, changed: parsed.changedPaths)
         } else if !cleanTracked.isEmpty {
             cleanTracked = []
         }
@@ -230,14 +321,14 @@ class GitClient: ObservableObject {
         guard let dir = workingDirectory else { return }
         lastError = nil
         activity = label
-        Task {
-            defer { activity = nil }
-            let result = await execute(["git"] + args, in: dir)
-            if result.status != 0 { lastError = Self.explain(result) }
+        start {
+            defer { self.activity = nil }
+            let result = await self.execute(["git"] + args, in: dir)
+            if result.status != 0, !Task.isCancelled { self.lastError = Self.explain(result) }
             // The state of the files first (one quick call): the rows and tree icons follow at once;
             // branches and the log, which these commands do not change, can wait.
-            await refreshStatus()
-            await refresh()
+            await self.refreshStatus()
+            await self.refresh()
         }
     }
 
@@ -258,6 +349,7 @@ class GitClient: ObservableObject {
         await refresh()
         guard result.status == 0 else {
             // A hook that rejects the commit, a missing identity, nothing staged: say why and keep the message.
+            guard !Task.isCancelled else { return false }
             lastError = result.output.contains("nothing to commit") ? "Nothing to commit" : Self.explain(result)
             return false
         }
@@ -283,7 +375,7 @@ class GitClient: ObservableObject {
         isOperating = false
         activity = nil
         guard result.status == 0 else {
-            lastError = Self.explain(result)
+            if !Task.isCancelled { lastError = Self.explain(result) }
             await refresh()
             return false
         }
@@ -339,7 +431,7 @@ class GitClient: ObservableObject {
         defer { activity = nil }
         var result = await execute(["git", "checkout", "--\(side)", "--", path], in: dir)
         if result.status == 0 { result = await execute(["git", "add", "--", path], in: dir) }
-        if result.status != 0 { lastError = Self.explain(result) }
+        if result.status != 0, !Task.isCancelled { lastError = Self.explain(result) }
         await refreshStatus()
         await refresh()
     }
@@ -355,7 +447,7 @@ class GitClient: ObservableObject {
         isOperating = false
         activity = nil
         await refresh()
-        if result.status != 0 { lastError = Self.explain(result) }
+        if result.status != 0, !Task.isCancelled { lastError = Self.explain(result) }
         return result.status == 0
     }
 
@@ -363,6 +455,8 @@ class GitClient: ObservableObject {
     func ignore(_ path: String, isDirectory: Bool) async {
         guard let dir = workingDirectory else { return }
         let top = await run("git", "rev-parse", "--show-toplevel", in: dir)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // The window closed while git was asked: nothing is written for it now.
+        guard !Task.isCancelled else { return }
         let repo = URL(fileURLWithPath: top.isEmpty ? dir.path : top)
         var clean = path
         while clean.hasSuffix("/") { clean.removeLast() }
@@ -391,17 +485,20 @@ class GitClient: ObservableObject {
     /// listing, so the list stays empty then.
     private func loadWorktrees(in dir: URL) async {
         var list = GitWorktree.parse(await run("git", "worktree", "list", "--porcelain", in: dir) ?? "")
+        guard !Task.isCancelled else { return }
         guard list.count > 1 else { worktrees = []; return }
         for index in list.indices where !list[index].isBare {
             let status = await run("git", "status", "--porcelain", "--untracked-files=normal", in: URL(fileURLWithPath: list[index].path))
             list[index].changes = status?.split(separator: "\n").count
         }
+        guard !Task.isCancelled else { return }
         worktrees = list
     }
 
     private func loadBranches(in dir: URL) async {
         let output = await run("git", "for-each-ref", "--sort=-committerdate", "--format=%(refname)",
                                "refs/heads", "refs/remotes", in: dir) ?? ""
+        guard !Task.isCancelled else { return }
         var local: [String] = [], remote: [String] = []
         for ref in output.components(separatedBy: "\n") {
             if ref.hasPrefix("refs/heads/") {

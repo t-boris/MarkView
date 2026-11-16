@@ -197,9 +197,13 @@ struct ContentView: View {
 
 extension View {
     /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, folder tree, Git,
-    /// the translation in progress): `@EnvironmentObject` for each.
+    /// the translation in progress) and the parts they call (the open project, the feature flow, the code analysis):
+    /// `@EnvironmentObject` for each.
     func observingParts(of workspace: WorkspaceManager) -> some View {
-        environmentObject(workspace.tabs)
+        environmentObject(workspace.project)
+            .environmentObject(workspace.flow)
+            .environmentObject(workspace.codeXRay)
+            .environmentObject(workspace.tabs)
             .environmentObject(workspace.layout)
             .environmentObject(workspace.chrome)
             .environmentObject(workspace.requests)
