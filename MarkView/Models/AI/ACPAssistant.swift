@@ -30,10 +30,9 @@ enum ACPAssistant {
         let profile = profile(tool, effort: request.effort)
         let root = request.readableFolder?.standardizedFileURL
         let roots = [root].compactMap { $0 } + request.extraReadableFolders.map(\.standardizedFileURL)
-        let connection = ACPConnection(tool: tool, executable: toolPath, arguments: profile.arguments, workDir: workDir)
         // Reads inside the project (and the further readable folders) and searches; nothing when
         // the request may not see files.
-        connection.permit = { kind, input in
+        let permit: (String, [String: Any]) -> Bool = { kind, input in
             guard let root else { return false }
             switch kind {
             case "search":
@@ -53,7 +52,8 @@ enum ACPAssistant {
             }
         }
         let state = RunState(onDelta: onDelta, onActivity: onActivity, noticePrefix: profile.noticePrefix)
-        connection.onUpdate = { update in state.receive(update) }
+        let connection = ACPConnection(tool: tool, executable: toolPath, arguments: profile.arguments, workDir: workDir,
+                                       permit: permit, onUpdate: { update in state.receive(update) })
 
         return try await withTaskCancellationHandler {
             try await connection.start()
@@ -386,8 +386,10 @@ enum ACPAssistant {
 
     /// Start the assistant, open a session (no prompt, no tokens) and remember its model list.
     static func refreshModels(_ tool: CLITool, toolPath: String) async throws -> [AIModelOption] {
+        // Listing models runs no tool and needs no updates.
         let connection = ACPConnection(tool: tool, executable: toolPath, arguments: profile(tool, effort: nil).arguments,
-                                       workDir: FileManager.default.temporaryDirectory)
+                                       workDir: FileManager.default.temporaryDirectory,
+                                       permit: { _, _ in false }, onUpdate: { _ in })
         try await connection.start()
         defer { connection.close() }
         _ = try await connection.request("initialize", [
@@ -477,12 +479,12 @@ enum ACPAssistant {
 // MARK: - JSON-RPC connection
 
 /// One `<cli> --acp` process and its JSON-RPC traffic. All state lives on `queue`.
-// unchecked Sendable: all state is touched only on `queue`, a serial queue, except `permit` and `onUpdate`, which the owner sets before `start()`.
+// unchecked Sendable: all state is touched only on `queue`, a serial queue; `permit` and `onUpdate` are fixed at construction.
 private final class ACPConnection: @unchecked Sendable {
     /// Whether a tool call of `kind` with `input` may run.
-    var permit: ((String, [String: Any]) -> Bool)?
+    let permit: (String, [String: Any]) -> Bool
     /// `session/update` notifications (the `update` object).
-    var onUpdate: (([String: Any]) -> Void)?
+    let onUpdate: ([String: Any]) -> Void
     var sessionId: String?
 
     private let tool: CLITool
@@ -495,8 +497,11 @@ private final class ACPConnection: @unchecked Sendable {
     private var stderrTail = ""
     private var failure: Error?
 
-    init(tool: CLITool, executable: String, arguments: [String], workDir: URL) {
+    init(tool: CLITool, executable: String, arguments: [String], workDir: URL,
+         permit: @escaping (String, [String: Any]) -> Bool, onUpdate: @escaping ([String: Any]) -> Void) {
         self.tool = tool
+        self.permit = permit
+        self.onUpdate = onUpdate
         // Standard input stays open for the JSON-RPC requests; a stop ends the child's whole group two seconds after the request.
         self.spec = SubprocessSpec(
             executable: executable, arguments: arguments, cwd: workDir,
@@ -624,7 +629,7 @@ private final class ACPConnection: @unchecked Sendable {
             if method == "session/request_permission" {
                 let call = params["toolCall"] as? [String: Any] ?? [:]
                 let kind = call["kind"] as? String ?? "other"
-                let allowed = permit?(kind, call["rawInput"] as? [String: Any] ?? [:]) ?? false
+                let allowed = permit(kind, call["rawInput"] as? [String: Any] ?? [:])
                 let options = params["options"] as? [[String: Any]] ?? []
                 let wanted = allowed ? ["allow_once", "allow_always"] : ["reject_once", "reject_always"]
                 if let option = options.first(where: { wanted.contains($0["kind"] as? String ?? "") }),
@@ -639,7 +644,7 @@ private final class ACPConnection: @unchecked Sendable {
             return
         }
         if method == "session/update", let update = params["update"] as? [String: Any] {
-            onUpdate?(update)
+            onUpdate(update)
         }
     }
 
