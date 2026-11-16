@@ -152,7 +152,7 @@ enum StudioDataFix {
     Answer only with the JSON of the schema.
     """
 
-    static let schema: [String: Any] = [
+    static var schema: [String: Any] { [
         "type": "object", "additionalProperties": false,
         "required": ["kind", "summary", "codePointer", "changes"],
         "properties": [
@@ -171,7 +171,7 @@ enum StudioDataFix {
                 ],
             ]],
         ],
-    ]
+    ] }
 
     /// The assistant's answer as a plan; nil when it is not an answer of `schema`. A `data` answer without a usable
     /// correction is a `not_data` answer: there is nothing to apply.

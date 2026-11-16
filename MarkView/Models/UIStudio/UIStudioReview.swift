@@ -46,7 +46,7 @@ enum StudioReview {
     static var system: String { StudioPrompts.preparationSystem + "\n" + task }
 
     /// The preparation schema with what a review also answers. All three are required so that "nothing to correct" is an explicit answer.
-    static let schema: [String: Any] = {
+    static var schema: [String: Any] {
         var schema = StudioPrompts.preparationSchema
         var properties = schema["properties"] as? [String: Any] ?? [:]
         properties["replaces"] = ["type": "array", "items": ["type": "string"], "description": "Ids of registered rules the new rules replace"]
@@ -58,7 +58,7 @@ enum StudioReview {
         schema["properties"] = properties
         schema["required"] = ((schema["required"] as? [String]) ?? []) + ["envelopes", "replaces", "links", "notes"]
         return schema
-    }()
+    }
 
     /// What the assistant is shown: the registered rules (a fixed answer with the start of its body), the entities and the channels.
     static func prompt(spec: StudioEnvironmentSpec, appFolder: String) -> String {

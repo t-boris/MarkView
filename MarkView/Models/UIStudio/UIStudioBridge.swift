@@ -335,7 +335,7 @@ enum StudioBridge {
     }
 
     /// Let the request go to its address (a local resource or an explicitly allowed one).
-    static let passThrough: [String: Any] = ["action": "pass"]
+    static var passThrough: [String: Any] { ["action": "pass"] }
 
     /// A pass-through whose request gets `headers` added (or replaced) on its way to the server.
     static func passThrough(adding headers: [String: String]) -> [String: Any] {

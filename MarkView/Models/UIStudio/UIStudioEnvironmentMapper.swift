@@ -126,7 +126,7 @@ enum StudioMapPrompts {
         return lines.joined(separator: "\n\n")
     }
 
-    static let inventorySchema: [String: Any] = {
+    static var inventorySchema: [String: Any] {
         let service: [String: Any] = ["type": "object", "additionalProperties": false, "properties": [
             "name": ["type": "string"], "baseURL": ["type": "string"], "variable": ["type": "string"],
             "side": ["type": "string", "enum": StudioMapService.Side.allCases.map(\.rawValue)]],
@@ -148,7 +148,7 @@ enum StudioMapPrompts {
             "notes": ["type": "array", "items": ["type": "string"]],
             "userRoles": roles],
             "required": ["services", "endpoints", "notes", "userRoles"]]
-    }()
+    }
 
     /// The prompt of one group: its service and endpoints with the rule path each must get, the entities already registered
     /// with their records' ids (so groups share entities and point at each other's records), and the coherence rules.
@@ -260,9 +260,9 @@ enum StudioMapPrompts {
         return lines.joined(separator: "\n\n")
     }
 
-    static let refillSchema: [String: Any] = ["type": "object", "additionalProperties": false, "properties": [
+    static var refillSchema: [String: Any] { ["type": "object", "additionalProperties": false, "properties": [
         "json": ["type": "string", "description": "JSON array of the entity's records"],
-        "assumptions": ["type": "array", "items": ["type": "string"]]], "required": ["json", "assumptions"]]
+        "assumptions": ["type": "array", "items": ["type": "string"]]], "required": ["json", "assumptions"]] }
 
     /// The records in an answer of `refillSchema`; nil when `json` is not a JSON array.
     static func refill(from structured: Any?) -> StudioMapRefill? {
