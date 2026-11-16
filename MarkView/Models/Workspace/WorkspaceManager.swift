@@ -131,7 +131,7 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
     }
 
     func openFolder(_ url: URL, completion: (() -> Void)? = nil) {
-        projectOperations = ProjectOperationsStore.forRoot(url)
+        projectOperations = ProjectOperationsStore.forRoot(url, prompts: prompts)
         project.beginOpening(url)
         // Agents working in this folder can reach its browser tabs (BUG-027) and its project tools even from
         // outside its terminals; the browser tools check the terminal-links setting themselves.

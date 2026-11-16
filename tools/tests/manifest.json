@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 223,
+  "suiteCount": 224,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -4973,6 +4973,26 @@
         "tools/tests/ProjectOperationAnyCodableStub.swift",
         "tools/tests/ProjectOperationWritesTests.swift",
         "tools/tests/project-operation-writes-tests.sh"
+      ]
+    },
+    {
+      "name": "project-operations-store-tests",
+      "script": "tools/tests/project-operations-store-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ProjectOps/ProjectOperationsStore.swift",
+        "MarkView/Models/ProjectOps/ProjectOperation.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationDiscovery.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationDiscoveryService.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationHistory.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationWrites.swift",
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "MarkView/Models/AI/OutputLanguage.swift",
+        "tools/tests/ProjectOperationAnyCodableStub.swift",
+        "tools/tests/ProjectOperationsStoreStubs.swift",
+        "tools/tests/ScriptedPrompts.swift",
+        "tools/tests/ProjectOperationsStoreTests.swift",
+        "tools/tests/project-operations-store-tests.sh"
       ]
     },
     {

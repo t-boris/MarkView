@@ -70,7 +70,7 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // task: the quit itself: it answers `.terminateLater` and replies when the stores have saved; nothing may cancel it
         Task { @MainActor in
-            guard await ProjectOperationsStore.stopAllBeforeQuit() else {
+            guard await ProjectOperationsStore.stopAllBeforeQuit(prompts: AlertPrompts()) else {
                 sender.reply(toApplicationShouldTerminate: false)
                 return
             }

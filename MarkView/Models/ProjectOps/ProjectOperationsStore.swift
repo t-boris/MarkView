@@ -85,10 +85,11 @@ protocol ProjectOperationsPresenter: AnyObject {
 @MainActor
 final class ProjectOperationsStore: ObservableObject {
     private static var stores: [String: ProjectOperationsStore] = [:]
-    static func forRoot(_ root: URL) -> ProjectOperationsStore {
+    /// The store of a project folder; the first window that asks makes it, and its questions go through that window's `prompts`.
+    static func forRoot(_ root: URL, prompts: any UserPrompts) -> ProjectOperationsStore {
         let canonical = ProjectOperationDiscovery.canonical(root)
         if let existing = stores[canonical.path] { return existing }
-        let store = ProjectOperationsStore(root: canonical)
+        let store = ProjectOperationsStore(root: canonical, prompts: prompts)
         stores[canonical.path] = store
         return store
     }
@@ -97,16 +98,14 @@ final class ProjectOperationsStore: ObservableObject {
         stores[ProjectOperationDiscovery.canonical(URL(fileURLWithPath: rootPath)).path]
     }
 
-    static func stopAllBeforeQuit() async -> Bool {
+    static func stopAllBeforeQuit(prompts: any UserPrompts) async -> Bool {
         let active = stores.values.flatMap { $0.runs.values }.filter(\.isActive)
         guard !active.isEmpty else { await finishWritesBeforeQuit(); return true }
-        let alert = NSAlert()
-        alert.messageText = "Stop running project operations before quitting?"
-        alert.informativeText = active.map { $0.snapshot.label + ($0.snapshot.environment.map { " (\($0))" } ?? "") }
-            .joined(separator: "\n")
-        alert.addButton(withTitle: "Keep working")
-        alert.addButton(withTitle: "Stop operations and quit")
-        guard alert.runModal() == .alertSecondButtonReturn else { return false }
+        let stop = UserPrompt(
+            title: "Stop running project operations before quitting?",
+            detail: active.map { $0.snapshot.label + ($0.snapshot.environment.map { " (\($0))" } ?? "") }.joined(separator: "\n"),
+            buttons: ["Keep working", "Stop operations and quit"])
+        guard prompts.confirm(stop, proceedingWith: 1) else { return false }
         for store in stores.values { store.cancelForClose() }
         while stores.values.contains(where: { $0.runs.values.contains(where: \.isActive) }) {
             try? await Task.sleep(nanoseconds: 250_000_000)
@@ -126,6 +125,8 @@ final class ProjectOperationsStore: ObservableObject {
     }
 
     let root: URL
+    /// How the store asks the person before it runs, adopts, accepts, rejects or cancels something (`AR-22`).
+    private let prompts: any UserPrompts
     /// The window that last started something here; `WorkspaceManager.operations()` sets it.
     weak var presenter: (any ProjectOperationsPresenter)?
     @Published private(set) var document = ProjectOperationsDocument()
@@ -152,8 +153,9 @@ final class ProjectOperationsStore: ObservableObject {
     private var stalenessInFlight = false
     private var suppressNotifications = false
 
-    private init(root: URL) {
+    private init(root: URL, prompts: any UserPrompts) {
         self.root = root
+        self.prompts = prompts
         writes = ProjectOperationWrites(root: root)
         if UNUserNotificationCenter.current().delegate == nil {
             UNUserNotificationCenter.current().delegate = ProjectOperationNotificationRouter.shared
@@ -406,13 +408,11 @@ final class ProjectOperationsStore: ObservableObject {
     func acceptProposal(index: Int) {
         guard var report = discoveryReport, report.proposals.indices.contains(index) else { return }
         let operation = report.proposals[index]
-        let alert = NSAlert()
-        alert.messageText = "Add externally sourced operation?"
-        alert.informativeText = operation.label + "\n\n" + operation.command + "\n\nSource: "
-            + operation.provenance.map(\.location).joined(separator: ", ")
-        alert.addButton(withTitle: "Keep as proposal")
-        alert.addButton(withTitle: "Accept operation")
-        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        let accept = UserPrompt(
+            title: "Add externally sourced operation?",
+            detail: operation.label + "\n\n" + operation.command + "\n\nSource: " + operation.provenance.map(\.location).joined(separator: ", "),
+            buttons: ["Keep as proposal", "Accept operation"])
+        guard prompts.confirm(accept, proceedingWith: 1) else { return }
         change { document in
             if let index = document.operations.firstIndex(where: { $0.id == operation.id }) {
                 document.operations[index] = ProjectOperation.merged(
@@ -428,13 +428,11 @@ final class ProjectOperationsStore: ObservableObject {
 
     func rejectProposal(index: Int) {
         guard var report = discoveryReport, report.proposals.indices.contains(index) else { return }
-        let alert = NSAlert()
-        alert.messageText = "Reject this proposed command?"
-        alert.informativeText = report.proposals[index].command
-            + "\n\nThe same command will not be proposed again on this machine."
-        alert.addButton(withTitle: "Keep proposal")
-        alert.addButton(withTitle: "Reject")
-        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        let reject = UserPrompt(
+            title: "Reject this proposed command?",
+            detail: report.proposals[index].command + "\n\nThe same command will not be proposed again on this machine.",
+            buttons: ["Keep proposal", "Reject"])
+        guard prompts.confirm(reject, proceedingWith: 1) else { return }
         let operation = report.proposals.remove(at: index)
         var rejected = Set(Settings.standard.value(rejectedKey))
         rejected.insert(String(ContentHash.of(operation.command)))
@@ -466,12 +464,11 @@ final class ProjectOperationsStore: ObservableObject {
 
     func adoptDiscovered(id: String) {
         guard let operation = operations.first(where: { $0.id == id }), let discovered = operation.discovered else { return }
-        let alert = NSAlert()
-        alert.messageText = "Adopt the discovered command?"
-        alert.informativeText = "Command:\n\(discovered.command)\n\nWorking directory:\n\(discovered.cwd)"
-        alert.addButton(withTitle: "Keep current")
-        alert.addButton(withTitle: "Adopt discovered")
-        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        let adopt = UserPrompt(
+            title: "Adopt the discovered command?",
+            detail: "Command:\n\(discovered.command)\n\nWorking directory:\n\(discovered.cwd)",
+            buttons: ["Keep current", "Adopt discovered"])
+        guard prompts.confirm(adopt, proceedingWith: 1) else { return }
         change { document in
             guard let index = document.operations.firstIndex(where: { $0.id == id }),
                   let discovered = document.operations[index].discovered else { return }
@@ -511,12 +508,11 @@ final class ProjectOperationsStore: ObservableObject {
         }
         guard runs[id]?.isActive != true else { openPanel(id: id); return }
         let previous = lastRuns[id]
-        let alert = NSAlert()
-        alert.messageText = "Run \(snapshot.label)?"
-        alert.informativeText = Self.confirmationDetails(snapshot: snapshot, cwd: cwd, previous: previous)
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Run")
-        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        let start = UserPrompt(
+            title: "Run \(snapshot.label)?",
+            detail: Self.confirmationDetails(snapshot: snapshot, cwd: cwd, previous: previous),
+            buttons: ["Cancel", "Run"])
+        guard prompts.confirm(start, proceedingWith: 1) else { return }
         guard runs[id]?.isActive != true else { openPanel(id: id); return }
         let run = ProjectOperationRun(snapshot: snapshot, directory: cwd)
         suppressNotifications = false
@@ -614,12 +610,11 @@ final class ProjectOperationsStore: ObservableObject {
     func cancel(id: String, confirm: Bool = true) {
         guard let run = runs[id], run.state == "running" else { return }
         if confirm {
-            let alert = NSAlert()
-            alert.messageText = "Cancel \(run.snapshot.label)?"
-            alert.informativeText = "The target environment may be left partially changed."
-            alert.addButton(withTitle: "Keep running")
-            alert.addButton(withTitle: "Cancel operation")
-            guard alert.runModal() == .alertSecondButtonReturn else { return }
+            let stopRun = UserPrompt(
+                title: "Cancel \(run.snapshot.label)?",
+                detail: "The target environment may be left partially changed.",
+                buttons: ["Keep running", "Cancel operation"])
+            guard prompts.confirm(stopRun, proceedingWith: 1) else { return }
         }
         run.cancel()
         revision += 1
