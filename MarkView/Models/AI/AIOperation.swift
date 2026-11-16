@@ -104,14 +104,21 @@ enum AIJSONSalvage {
 }
 
 /// Decodes an arbitrary JSON object into a Foundation dictionary for schema-validated CLI outputs (`AR-26`).
-// unchecked Sendable: the dictionary holds JSON values only (String, Int, Double, Bool, NSNull, Array, Dictionary), is a `let`, and is never mutated.
-struct AIRawJSONObject: Decodable, @unchecked Sendable {
-    let dictionary: [String: Any]
+struct AIRawJSONObject: Decodable, Sendable {
+    private let json: Data
+    var dictionary: [String: Any] {
+        (try? JSONSerialization.jsonObject(with: json)) as? [String: Any] ?? [:]
+    }
 
     /// A dictionary that is JSON already (an answer read back from the cache, or one that was decoded earlier).
-    init(_ dictionary: [String: Any]) { self.dictionary = dictionary }
+    init(_ dictionary: [String: Any]) throws {
+        guard JSONSerialization.isValidJSONObject(dictionary) else {
+            throw AIOperationError.decodingFailed(operation: "AI JSON object", detail: "Invalid JSON value")
+        }
+        json = try JSONSerialization.data(withJSONObject: dictionary)
+    }
 
-    private enum JSONValue: Decodable {
+    private enum JSONValue: Decodable, Sendable {
         case object([String: JSONValue])
         case array([JSONValue])
         case string(String)
@@ -157,7 +164,7 @@ struct AIRawJSONObject: Decodable, @unchecked Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let rawObject = try container.decode([String: JSONValue].self)
-        self.dictionary = rawObject.mapValues(\.foundationValue)
+        self.json = try JSONSerialization.data(withJSONObject: rawObject.mapValues(\.foundationValue))
     }
 }
 

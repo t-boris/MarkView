@@ -114,6 +114,12 @@ final class EditorHostTests: XCTestCase {
         let fragment = try CLICompletion.Result(text: "", structured: "value", inputTokens: 0, outputTokens: 0, costUSD: nil)
         XCTAssertEqual(fragment.structured as? String, "value")
         XCTAssertThrowsError(try CLICompletion.Result(text: "", structured: Date(), inputTokens: 0, outputTokens: 0, costUSD: nil))
+        let raw = try AIRawJSONObject(["nested": original, "count": 7, "large": UInt64.max])
+        original["label"] = "changed again"
+        XCTAssertEqual((raw.dictionary["nested"] as? [String: Any])?["label"] as? String, "changed")
+        XCTAssertEqual(raw.dictionary["count"] as? Int, 7)
+        XCTAssertEqual((raw.dictionary["large"] as? NSNumber)?.uint64Value, UInt64.max)
+        XCTAssertThrowsError(try AIRawJSONObject(["invalid": Date()]))
     }
 
     func testProjectBootstrapPersistsEachStage() async throws {

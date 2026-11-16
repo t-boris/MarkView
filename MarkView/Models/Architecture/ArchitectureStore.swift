@@ -752,7 +752,7 @@ final class ArchitectureStore: ObservableObject {
                 group.addTask { @MainActor in
                     var request = CLICompletion.Request(project: self.project, prompt: prompt, systemPrompt: system, jsonSchema: schema)
                     request.timeout = 240
-                    return AIRawJSONObject(try await self.xrayCall(request, root: root, db: db, call: index))
+                    return try AIRawJSONObject(await self.xrayCall(request, root: root, db: db, call: index))
                 }
             }
             for try await answered in group {
@@ -1799,7 +1799,7 @@ final class ArchitectureStore: ObservableObject {
                     do {
                         let answer = try await self.xrayCall(request, root: root, db: db, call: 100 + i,
                                                              accept: { BookAnnotator.isUsable($0, job: job) })
-                        return (i, BookAnnotator.isUsable(answer, job: job) ? AIRawJSONObject(answer) : nil, lines)
+                        return (i, try BookAnnotator.isUsable(answer, job: job) ? AIRawJSONObject(answer) : nil, lines)
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
