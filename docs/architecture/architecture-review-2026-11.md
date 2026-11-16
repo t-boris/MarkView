@@ -65,6 +65,10 @@ These are not architecture work. They are small, concrete and several are securi
 | AR-12 | medium | S | Web Inspector is enabled in Release builds through private KVC (S12). The app polls and trusts `/tmp/markview_open_path.txt` (S6). The SSH control path is in `/tmp`. | `EditorView.swift:22`, `UIStudioSession.swift:311`, `MarkViewApp.swift:417`, `DeploymentExecutor.swift:167` | Gate the inspector on `DEBUG`; use the per-user temporary folder with mode `0600`. |
 | AR-13 | medium | S | Silent failure where the person is told the opposite: undo-conflict markers are written to a source file with `try?`, then the UI says the markers are in the files and drops the conflict. A failed document save is only logged (R6). The bug report rewrite after an issue is filed is `try?`, so the issue link can be lost. | `UIStudioSession.swift:3089-3092`, `WorkspaceManager.swift:3628`, `FeatureIntake.swift:332` | Surface these three through the existing notice channels now; the general fix is AR-24. |
 
+Status of AR-01 to AR-13 on 2026-11-15 (the table above is the review as written; measured on the merge of `feat/architecture-review-finish` at `ac3001ba`; "by reading" means the code was read and not run):
+
+- AR-01 Status (2026-11-15): done for the editor page, partial for exported Insight HTML. `mvKit.sanitizeHtml` (vendored DOMPurify, fail-closed) has 4 callers outside `mv-kit.js` in 4 files and `mvKit.sanitizeMermaidSvg` 5; Mermaid's `<style>` is kept only after `sanitizeScopedStylesheet` rebuilds it rule by rule; `index.html`, `book.html`, `discussion.html` and `terminal.html` carry `script-src 'self'` (the editor adds `'wasm-unsafe-eval'` and a per-load nonce for the Insight frame). The cached and exported Insight HTML still has `'unsafe-inline'` in its CSP (`InsightHTMLTemplate.swift:137`, FU-25). By reading and by the structural tests; never tried with a hostile document in the running app.
+
 ## 3. Application shell and state
 
 ### AR-14 `WorkspaceManager` is a god object and still growing (critical, L)
