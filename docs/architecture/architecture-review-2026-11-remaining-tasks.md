@@ -146,6 +146,8 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+A fresh clean complete-checking build on 6.30.58 succeeded with 75 distinct Swift warning lines in 32 files, down from 99 in 42 in the preceding clean audit and 232 in 77 initially. The zero-warning acceptance remains open.
+
 The parallel architecture scanner uses lock-owned Sendable document and complexity results instead of unsafe buffers. An app-hosted test scanned 32 source files and 32 documents and checked every result; all 13 hosted tests, all three changed-file suites, Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `ArchitectureScanner.swift` (four before).
 
 Parallel X-Ray search scoring uses lock-owned Sendable results rather than an unsafe mutable buffer. The app-hosted check verified 64 files and a missing file; all 12 hosted tests, X-Ray ownership suite, Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `FilterSearch.swift` (two before).
