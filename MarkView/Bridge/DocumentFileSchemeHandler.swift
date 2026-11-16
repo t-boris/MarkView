@@ -13,31 +13,31 @@ final class DocumentFileSchemeHandler: NSObject, WKURLSchemeHandler {
     var allowedRoots: () -> [URL] = { [] }
 
     /// Only touched on the main thread, where WebKit starts and stops tasks.
-    private var wanted = Set<ObjectIdentifier>()
+    private var wanted: [ObjectIdentifier: WKURLSchemeTask] = [:]
 
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
         guard let requestURL = task.request.url else { return task.didFailWithError(URLError(.badURL)) }
         let key = ObjectIdentifier(task as AnyObject)
-        wanted.insert(key)
+        wanted[key] = task
         switch DocumentFiles.resolve(requestURL, roots: allowedRoots()) {
         case .forbidden:
-            respond(task, key: key, url: requestURL, status: 403, contentType: "text/plain", data: Data())
+            respond(key: key, url: requestURL, status: 403, contentType: "text/plain", data: Data())
         case .file(let file, let contentType):
             DispatchQueue.global(qos: .userInitiated).async {
                 let data = try? Data(contentsOf: file, options: .mappedIfSafe)
                 DispatchQueue.main.async {
-                    self.respond(task, key: key, url: requestURL, status: data == nil ? 404 : 200, contentType: contentType, data: data ?? Data())
+                    self.respond(key: key, url: requestURL, status: data == nil ? 404 : 200, contentType: contentType, data: data ?? Data())
                 }
             }
         }
     }
 
     func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {
-        wanted.remove(ObjectIdentifier(task as AnyObject))
+        wanted.removeValue(forKey: ObjectIdentifier(task as AnyObject))
     }
 
-    private func respond(_ task: WKURLSchemeTask, key: ObjectIdentifier, url: URL, status: Int, contentType: String, data: Data) {
-        guard wanted.remove(key) != nil else { return }
+    private func respond(key: ObjectIdentifier, url: URL, status: Int, contentType: String, data: Data) {
+        guard let task = wanted.removeValue(forKey: key) else { return }
         let headers = ["Content-Type": contentType, "Content-Length": String(data.count), "Cache-Control": "no-store"]
         guard let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers) else {
             return task.didFailWithError(URLError(.badServerResponse))

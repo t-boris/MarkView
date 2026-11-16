@@ -155,11 +155,13 @@ extension QAWebFaultTests {
 private final class SchemeTaskProbe: NSObject, WKURLSchemeTask {
     let request: URLRequest
     private(set) var callbacks = 0
+    private(set) var status: Int?
+    private(set) var body = Data()
     var finished: (() -> Void)?
 
     init(url: URL) { request = URLRequest(url: url) }
-    func didReceive(_ response: URLResponse) { callbacks += 1 }
-    func didReceive(_ data: Data) { callbacks += 1 }
+    func didReceive(_ response: URLResponse) { callbacks += 1; status = (response as? HTTPURLResponse)?.statusCode }
+    func didReceive(_ data: Data) { callbacks += 1; body.append(data) }
     func didFinish() { callbacks += 1; finished?() }
     func didFailWithError(_ error: Error) { callbacks += 1; finished?() }
 }
@@ -180,6 +182,8 @@ extension QAWebFaultTests {
         handler.webView(webView, start: live)
         await fulfillment(of: [completed], timeout: 5)
         XCTAssertGreaterThan(live.callbacks, 0)
+        XCTAssertEqual(live.status, 200)
+        XCTAssertEqual(live.body, Data("hello".utf8))
         let stopped = SchemeTaskProbe(url: url)
         handler.webView(webView, start: stopped)
         handler.webView(webView, stop: stopped)
@@ -207,10 +211,44 @@ extension QAWebFaultTests {
         handler.webView(webView, start: live)
         await fulfillment(of: [completed], timeout: 5)
         XCTAssertGreaterThan(live.callbacks, 0)
+        XCTAssertEqual(live.status, 200)
+        XCTAssertEqual(live.body, Data("a,b\n1,2\n".utf8))
         let stopped = SchemeTaskProbe(url: url)
         handler.webView(webView, start: stopped)
         handler.webView(webView, stop: stopped)
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertEqual(stopped.callbacks, 0, "WebKit must not be answered after it stops a data task")
+    }
+}
+
+
+extension QAWebFaultTests {
+    @MainActor
+    func testStoppedDocumentSchemeTaskIsNotAnswered() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-document-cancel-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("picture.png")
+        try Data([1, 2, 3]).write(to: file)
+        let handler = DocumentFileSchemeHandler()
+        handler.allowedRoots = { [root] }
+        let webView = WKWebView()
+        var components = URLComponents()
+        components.scheme = DocumentFiles.scheme
+        components.path = file.path
+        let url = try XCTUnwrap(components.url)
+        let completed = expectation(description: "a live document task is answered")
+        let live = SchemeTaskProbe(url: url)
+        live.finished = { completed.fulfill() }
+        handler.webView(webView, start: live)
+        await fulfillment(of: [completed], timeout: 5)
+        XCTAssertGreaterThan(live.callbacks, 0)
+        XCTAssertEqual(live.status, 200)
+        XCTAssertEqual(live.body, Data([1, 2, 3]))
+        let stopped = SchemeTaskProbe(url: url)
+        handler.webView(webView, start: stopped)
+        handler.webView(webView, stop: stopped)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(stopped.callbacks, 0, "WebKit must not be answered after it stops a document task")
     }
 }
