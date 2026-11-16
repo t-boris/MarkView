@@ -36,8 +36,10 @@ One step per line, run on the main queue (`#` starts a comment). Output goes to 
 | `menuchoose <item>` | chooses an item of a toolbar `Menu` of the picked window without opening it (`menuchoose Review`); the menu's delegate fills the menu, the item's action runs, no pop-up is shown. Do not `click` a menu button: its tracking loop shows a menu on the screen and blocks the probe |
 | `move x y` / `click x y` | real mouse events through `sendEvent:` |
 | `clicklabel <label>` | clicks the first element whose accessibility label or title is `<label>` (independent of the layout) |
+| `clickcontains <text>` | the same, for the first element whose accessibility label or title contains `<text>` (a list row whose label is its texts put together) |
 | `drag x1 y1 x2 y2` | mouse down, five drags, mouse up (content coordinates, top-left origin) |
 | `cmdkey <char>` | presses ⌘<char> in the picked window (menu and `.keyboardShortcut` equivalents) |
+| `sheet on` / `sheet off` | with `on`, the steps that follow (`snap`, `ax`, `clicklabel`, `click`) act on the sheet attached to the window they would act on, so a SwiftUI `.sheet` can be looked at and dismissed with its own button; `off` returns to the window |
 | `windows` | every window: class, title, visibility, sheets, modal window |
 | `quit` | exit |
 

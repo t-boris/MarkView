@@ -42,7 +42,14 @@ static id hookInitB(id self, SEL cmd, NSRect r, NSWindowStyleMask m, NSBackingSt
 
 static int Pick = -1;
 static NSString *PickTitle = nil;
+/// `sheet on`: the steps act on the sheet attached to the window they would act on (a SwiftUI `.sheet` is a window of its own).
+static BOOL OnSheet = NO;
+static NSWindow *WindowBeforeSheet(void);
 static NSWindow *MainWindow(void) {
+    NSWindow *base = WindowBeforeSheet();
+    return OnSheet && base.attachedSheet ? base.attachedSheet : base;
+}
+static NSWindow *WindowBeforeSheet(void) {
     if (PickTitle.length) {
         for (NSWindow *w in NSApp.windows) {
             if (w.isVisible && w.contentView && [w.title containsString:PickTitle]) return w;
@@ -115,7 +122,7 @@ static NSArray<NSValue *> *Positions(CALayer *root) {
 }
 
 /// The centre (window content coordinates, top-left origin) of the first accessibility element whose label or title is `name`; NO when there is none.
-static BOOL FindAX(id el, NSWindow *w, NSString *name, int depth, int *count, CGPoint *centre) {
+static BOOL FindAX(id el, NSWindow *w, NSString *name, BOOL contains, int depth, int *count, CGPoint *centre) {
     if (depth > 14 || *count > 1500) return NO;
     NSArray *kids = [el respondsToSelector:@selector(accessibilityChildren)] ? [el accessibilityChildren] : nil;
     for (id k in kids) {
@@ -125,12 +132,14 @@ static BOOL FindAX(id el, NSWindow *w, NSString *name, int depth, int *count, CG
         id title = [k respondsToSelector:@selector(accessibilityTitle)] ? [k accessibilityTitle] : nil;
         if ([label isKindOfClass:NSAttributedString.class]) label = [label string];
         if ([title isKindOfClass:NSAttributedString.class]) title = [title string];
-        if ([label isEqual:name] || [title isEqual:name]) {
+        BOOL hit = contains ? ([label isKindOfClass:NSString.class] && [(NSString *)label containsString:name]) || ([title isKindOfClass:NSString.class] && [(NSString *)title containsString:name])
+                            : [label isEqual:name] || [title isEqual:name];
+        if (hit) {
             NSRect wf = [w convertRectFromScreen:[k accessibilityFrame]];
             *centre = CGPointMake(NSMidX(wf), w.contentView.bounds.size.height - NSMidY(wf));
             return YES;
         }
-        if (FindAX(k, w, name, depth + 1, count, centre)) return YES;
+        if (FindAX(k, w, name, contains, depth + 1, count, centre)) return YES;
     }
     return NO;
 }
@@ -158,14 +167,16 @@ static void MoveTo(NSWindow *w, CGFloat x, CGFloat yTop) {
 }
 
 static void DumpAX(id el, NSWindow *w, int depth, int *count) {
-    if (depth > 14 || *count > 400) return;
+    if (depth > 14 || *count > 1500) return;
     NSArray *kids = nil;
     if ([el respondsToSelector:@selector(accessibilityChildren)]) kids = [el accessibilityChildren];
     for (id k in kids) {
         (*count)++;
         NSString *role = [k respondsToSelector:@selector(accessibilityRole)] ? [k accessibilityRole] : @"?";
-        NSString *label = [k respondsToSelector:@selector(accessibilityLabel)] ? [k accessibilityLabel] : nil;
-        NSString *title = [k respondsToSelector:@selector(accessibilityTitle)] ? [k accessibilityTitle] : nil;
+        id label = [k respondsToSelector:@selector(accessibilityLabel)] ? [k accessibilityLabel] : nil;
+        id title = [k respondsToSelector:@selector(accessibilityTitle)] ? [k accessibilityTitle] : nil;
+        if ([label isKindOfClass:NSAttributedString.class]) label = [label string];
+        if ([title isKindOfClass:NSAttributedString.class]) title = [title string];
         NSRect f = [k respondsToSelector:@selector(accessibilityFrame)] ? [k accessibilityFrame] : NSZeroRect;
         NSRect wf = [w convertRectFromScreen:f];
         CGFloat h = w.contentView.bounds.size.height;
@@ -173,7 +184,7 @@ static void DumpAX(id el, NSWindow *w, int depth, int *count) {
         // A toolbar button that is the current one says so in its value ("current", "open").
         id value = [k respondsToSelector:@selector(accessibilityValue)] ? [k accessibilityValue] : nil;
         if ([value isKindOfClass:NSAttributedString.class]) value = [value string];
-        if (label.length || title.length || [role isEqualToString:@"AXButton"])
+        if ([label length] || [title length] || [role isEqualToString:@"AXButton"])
             L(@"ax %*s%@ label=%@ title=%@ x=%.0f y=%.0f w=%.0f h=%.0f enabled=%d value=%@", depth, "", role, label, title, wf.origin.x, h - wf.origin.y - wf.size.height, wf.size.width, wf.size.height, enabled, [value isKindOfClass:NSString.class] ? value : @"");
         DumpAX(k, w, depth + 1, count);
     }
@@ -238,7 +249,7 @@ static void Later(NSTimeInterval s) {
 /// exception in the probed app is a crash with a system dialog on the screen of whoever runs the probe.
 static NSDictionary<NSString *, NSNumber *> *StepArguments(void) {
     return @{ @"wait": @1, @"pick": @1, @"picktitle": @1, @"size": @2, @"snap": @1, @"frame": @1, @"motion": @1, @"menuchoose": @1,
-             @"move": @2, @"click": @2, @"hit": @2, @"clicklabel": @1, @"cmdkey": @1, @"drag": @4, @"openurl": @1 };
+             @"move": @2, @"click": @2, @"hit": @2, @"clicklabel": @1, @"clickcontains": @1, @"cmdkey": @1, @"drag": @4, @"openurl": @1, @"sheet": @1 };
 }
 
 static void RunNext(void) {
@@ -263,6 +274,10 @@ static void RunNext(void) {
     } else if ([cmd isEqualToString:@"picktitle"]) {
         PickTitle = [[line substringFromIndex:10] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
         L(@"picktitle %@", PickTitle);
+    } else if ([cmd isEqualToString:@"sheet"]) {
+        // `sheet on` / `sheet off`: the steps that follow act on the picked window's attached sheet (snap, ax, clicklabel to dismiss it) or on the window again.
+        OnSheet = [p[1] isEqualToString:@"on"];
+        L(@"sheet %@: %@", p[1], w.attachedSheet ? NSStringFromClass([w.attachedSheet class]) : @"no sheet attached");
     } else if ([cmd isEqualToString:@"key"]) {
         if (w) { [w makeKeyWindow]; L(@"key: keyWindow=%d NSApp.keyWindow=%@ main=%d", w.isKeyWindow, NSApp.keyWindow ? @"set" : @"nil", w.isMainWindow); }
     } else if ([cmd isEqualToString:@"size"]) {
@@ -322,13 +337,15 @@ static void RunNext(void) {
             for (NSView *x = v; x && chain.count < 8; x = x.superview) [chain addObject:NSStringFromClass([x class])];
             L(@"hit %@,%@ -> %@", p[1], p[2], [chain componentsJoinedByString:@" < "]);
         }
-    } else if ([cmd isEqualToString:@"clicklabel"]) {
+    } else if ([cmd isEqualToString:@"clicklabel"] || [cmd isEqualToString:@"clickcontains"]) {
         // `clicklabel End-to-End QA`: clicks the first element with that accessibility label or title, wherever the layout put it.
-        NSString *name = [[line substringFromIndex:11] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        // `clickcontains BUG-124`: the same for the first element whose label or title contains the text (a row whose label is its texts put together).
+        BOOL contains = [cmd isEqualToString:@"clickcontains"];
+        NSString *name = [[line substringFromIndex:cmd.length + 1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
         if (w) {
             [NSApp accessibilitySetValue:@YES forAttribute:@"AXEnhancedUserInterface"];
             int n = 0; CGPoint c = CGPointZero;
-            if (FindAX(w.contentView, w, name, 0, &n, &c)) {
+            if (FindAX(w.contentView, w, name, contains, 0, &n, &c)) {
                 L(@"clicklabel %@ at %.0f,%.0f", name, c.x, c.y);
                 MoveTo(w, c.x, c.y);
                 ClickAt(w, c.x, c.y, YES);
