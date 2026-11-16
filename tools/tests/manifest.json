@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 220,
+  "suiteCount": 219,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -3116,7 +3116,20 @@
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "MarkViewHostedTests/TerminalLayoutHostTests.swift",
         "MarkView/Resources/Editor/index.html",
-        "MarkViewHostedTests/TerminalLinkHostTests.swift"
+        "MarkViewHostedTests/TerminalLinkHostTests.swift",
+        "MarkView/Models/Browser/BrowserDownloads.swift",
+        "MarkView/Models/Browser/BrowserElementPick.swift",
+        "MarkView/Models/Browser/BrowserPagePDF.swift",
+        "MarkView/Models/Browser/BrowserPasswordScript.swift",
+        "MarkView/Models/Browser/BrowserPasswords.swift",
+        "MarkView/Models/Browser/WebPreview.swift",
+        "MarkView/Models/Shared/FrontMatter.swift",
+        "MarkView/Models/Research/ResearchDocument.swift",
+        "MarkView/Models/Browser/WebAppPreview.swift",
+        "MarkView/Models/Workspace/WebClip.swift",
+        "MarkView/Views/Browser/BrowserPopup.swift",
+        "MarkViewHostedTests/WebPreviewHostTests.swift",
+        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {
@@ -4121,36 +4134,6 @@
         "MarkView/Models/Architecture/UnderstandingAnswer.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/UnderstandingAnswerTests.swift"
-      ]
-    },
-    {
-      "name": "web-preview-tests",
-      "script": "tools/tests/web-preview-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Browser/BrowserDownloads.swift",
-        "MarkView/Models/Browser/BrowserElementPick.swift",
-        "MarkView/Models/Browser/BrowserPagePDF.swift",
-        "MarkView/Models/Browser/BrowserPasswordScript.swift",
-        "MarkView/Models/Browser/BrowserPasswords.swift",
-        "MarkView/Models/Browser/BrowserAddress.swift",
-        "MarkView/Models/Browser/BrowserSession.swift",
-        "MarkView/Models/Browser/WebPreview.swift",
-        "MarkView/Models/Shared/FrontMatter.swift",
-        "MarkView/Models/Research/ResearchDocument.swift",
-        "MarkView/Models/Terminal/TerminalBrowserBridge.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Browser/WebAppPreview.swift",
-        "MarkView/Models/Workspace/WebClip.swift",
-        "MarkView/Views/Browser/BrowserPopup.swift",
-        "tools/tests/WebPreviewTests.swift",
-        "tools/tests/web-preview-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
-        "MarkView/Models/Shared/UserPrompts.swift",
-        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {

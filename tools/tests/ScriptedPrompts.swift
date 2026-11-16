@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkView)
+@testable import MarkView
+#endif
 
 /// The person, as a script, for the checks of the models that ask a question (`AR-22`): a stand-in `UserPrompts` that records every
 /// prompt it is given and answers from a list. The shipping models run unchanged; nothing is shown and nothing can block.

@@ -1,38 +1,21 @@
-// Checks the browser tab's pure rules (MarkView/Models/Browser/WebAppPreview.swift, WebClip.swift,
-// BrowserAddress in BrowserSession.swift) and runs the page-to-Markdown converter
-// (Resources/Editor/js/markview-page-markdown.js) in a real WKWebView.
 import AppKit
 import Foundation
 import WebKit
+import XCTest
+import MarkViewCore
+@testable import MarkView
 
-/// Stand-in for the app's terminal (the bridge only needs its id and handler).
-@MainActor protocol TerminalLinkTarget: AnyObject {
-    func openFile(_ url: URL, line: Int?, endLine: Int?)
-    func openInAppBrowser(_ url: URL)
-}
-
-@MainActor final class TerminalSession {
-    let id = UUID()
-    var links: (any TerminalLinkTarget)?
-    var shellPID: pid_t = 0
-    var browserWindowID: UUID?
-}
-
-/// Stand-in for the app's file types (DocumentState.swift needs the whole app): what the editor
-/// and image viewer open.
-enum FileType {
-    static func isOpenable(_ url: URL) -> Bool { ["md", "json", "png"].contains(url.pathExtension.lowercased()) }
-}
-
-var failures = 0
-func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
-    if condition { print("ok  \(name)") } else {
-        failures += 1
-        let more = detail()
-        print("FAIL \(name)" + (more.isEmpty ? "" : "\n     \(more)"))
-    }
-}
-
+final class WebPreviewHostTests: XCTestCase {
+    @MainActor func testWebPreview() throws {
+        var failures = 0
+        var checks = 0
+        let oldCapture = BrowserSession.captureScriptURL
+        let oldLauncher = WebAppPreview.webOnlyLauncher
+        defer { BrowserSession.captureScriptURL = oldCapture; WebAppPreview.webOnlyLauncher = oldLauncher }
+        func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
+            checks += 1
+            if !condition { failures += 1; print("FAIL \(name): \(detail())") }
+        }
 // MARK: Dev server output
 
 let vite = "\u{1B}[32m\u{1B}[1mVITE\u{1B}[22m v5.0.0\u{1B}[39m  ready in 312 ms\n\n  \u{1B}[32m➜\u{1B}[39m  \u{1B}[1mLocal\u{1B}[22m:   \u{1B}[36mhttp://localhost:\u{1B}[1m5173\u{1B}[22m/\u{1B}[39m\n"
@@ -263,7 +246,9 @@ for name in ["page.html", "notes.md", "data.json", "photo.png", "book.pdf", "too
 check("HTML opens in the browser tab", TerminalBrowserBridge.destination(of: routes.appendingPathComponent("page.html")) == .browserTab)
 check("documents open in the editor", ["notes.md", "data.json", "photo.png"].allSatisfy {
     TerminalBrowserBridge.destination(of: routes.appendingPathComponent($0)) == .editor })
-check("other files, folders and missing paths go to macOS", ["book.pdf", "tool.bin", "missing.md", ""].allSatisfy {
+check("PDF and unknown regular files open in the editor", ["book.pdf", "tool.bin"].allSatisfy {
+    TerminalBrowserBridge.destination(of: routes.appendingPathComponent($0)) == .editor })
+check("folders and missing paths go to macOS", ["missing.md", ""].allSatisfy {
     TerminalBrowserBridge.destination(of: routes.appendingPathComponent($0)) == .system })
 try? fm.removeItem(at: routes)
 
@@ -411,7 +396,7 @@ print(a)</code></pre>
 """
 
 MainActor.assumeIsolated {
-    BrowserSession.captureScriptURL = URL(fileURLWithPath: "MarkView/Resources/Editor/js/markview-page-markdown.js")
+    BrowserSession.captureScriptURL = Bundle.main.url(forResource: "markview-page-markdown", withExtension: "js", subdirectory: "Editor/js")
     let prompts = ScriptedPrompts()
     let session = BrowserSession(url: nil, prompts: prompts)
     _ = session.webView.perform(NSSelectorFromString("saveSelection"))
@@ -422,11 +407,13 @@ MainActor.assumeIsolated {
     session.saveRequest = nil
     session.saveFormat = .markdown
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    defer { session.close(); window.close() }
     window.contentView = session.webView
     session.webView.loadHTMLString(html, baseURL: URL(string: "https://example.com/post/")!)
     spin(until: { !session.webView.isLoading && session.title == "Sample Page" })
 
-    func capture(_ mode: PageCapture.Mode) -> PageCapture? {
+    @MainActor func capture(_ mode: PageCapture.Mode) -> PageCapture? {
         var result: PageCapture?
         var done = false
         Task { @MainActor in
@@ -493,5 +480,8 @@ MainActor.assumeIsolated {
     check("page alert: a notice nobody answers does not hold the page", pageAnswer("alert('Again'); 2") as? Int == 2)
 }
 
-if failures > 0 { print("\(failures) failure(s)"); exit(1) }
-print("all passed")
+
+        print("Web preview hosted checks: \(checks)")
+        XCTAssertEqual(failures, 0)
+    }
+}

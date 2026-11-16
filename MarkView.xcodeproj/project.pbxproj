@@ -590,6 +590,8 @@
 		DD01AB9E5E2B4E5E94B72D74 /* PDFExportHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */; };
 		EEB7F8AF131F41798AFA12A7 /* TerminalLayoutHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2E18BE1BFB4077B0C32A30 /* TerminalLayoutHostTests.swift */; };
 		5C53CF7160F54D2990F02F4C /* TerminalLinkHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B17A8D76684B4F9592BD54 /* TerminalLinkHostTests.swift */; };
+		15E69A3439704D159483786A /* WebPreviewHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 089D02CC77D14928969DB172 /* WebPreviewHostTests.swift */; };
+		F3B533C46B3340638A87E67A /* ScriptedPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19E67C3453746FB95A47661 /* ScriptedPrompts.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1295,6 +1297,8 @@
 		B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExportHostTests.swift; sourceTree = "<group>"; };
 		9C2E18BE1BFB4077B0C32A30 /* TerminalLayoutHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLayoutHostTests.swift; sourceTree = "<group>"; };
 		75B17A8D76684B4F9592BD54 /* TerminalLinkHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkHostTests.swift; sourceTree = "<group>"; };
+		089D02CC77D14928969DB172 /* WebPreviewHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebPreviewHostTests.swift; sourceTree = "<group>"; };
+		B19E67C3453746FB95A47661 /* ScriptedPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScriptedPrompts.swift; path = ../tools/tests/ScriptedPrompts.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2513,6 +2517,8 @@
 				B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */,
 				9C2E18BE1BFB4077B0C32A30 /* TerminalLayoutHostTests.swift */,
 				75B17A8D76684B4F9592BD54 /* TerminalLinkHostTests.swift */,
+				089D02CC77D14928969DB172 /* WebPreviewHostTests.swift */,
+				B19E67C3453746FB95A47661 /* ScriptedPrompts.swift */,
 			);
 			name = MarkViewHostedTests;
 			path = MarkViewHostedTests;
@@ -3363,6 +3369,8 @@
 				DD01AB9E5E2B4E5E94B72D74 /* PDFExportHostTests.swift in Sources */,
 				EEB7F8AF131F41798AFA12A7 /* TerminalLayoutHostTests.swift in Sources */,
 				5C53CF7160F54D2990F02F4C /* TerminalLinkHostTests.swift in Sources */,
+				15E69A3439704D159483786A /* WebPreviewHostTests.swift in Sources */,
+				F3B533C46B3340638A87E67A /* ScriptedPrompts.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
