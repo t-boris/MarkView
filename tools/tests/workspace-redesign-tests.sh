@@ -24,6 +24,6 @@ swiftc -parse-as-library -o "$out/workspace-redesign-tests" Packages/MarkViewCor
     MarkView/Models/Shared/LinkedFolders.swift MarkView/Models/Shared/LinkedFolderStore.swift \
     MarkView/Models/Appearance/ProjectColor.swift \
     "$out/Stubs.swift" \
-    MarkView/Models/Architecture/ProjectChangeReview.swift \
+    MarkView/Models/Architecture/ProjectChangeReview.swift MarkView/Models/Shared/ProjectChangeMonitor.swift \
     tools/tests/WorkspaceRedesignTests.swift
 "$out/workspace-redesign-tests"

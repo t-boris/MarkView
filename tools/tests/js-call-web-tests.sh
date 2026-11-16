@@ -28,7 +28,7 @@ out = pathlib.Path(sys.argv[1])
 PY
 swiftc -O -module-cache-path /private/tmp/markview-swift-cache -o "$out/js-call-terminal-web-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Bridge/TypedWebBridge.swift MarkView/Bridge/PageMessages.swift MarkView/Models/Appearance/AppFontScale.swift \
-    MarkView/Views/Appearance/AppFontScaleView.swift MarkView/Models/Terminal/TerminalLink.swift MarkView/Models/Remote/RemoteConnectionState.swift \
+    MarkView/Views/Appearance/AppFontScaleView.swift MarkView/Models/Terminal/TerminalLink.swift MarkView/Models/Terminal/RemoteConnectionState.swift \
     MarkView/Models/Terminal/TerminalSession.swift MarkView/Models/Appearance/WebThemeArguments.swift MarkView/Models/Terminal/TerminalProfile.swift MarkView/Models/AI/Providers/*.swift MarkView/Models/Terminal/TerminalChildProcess.swift \
     MarkView/Models/Terminal/TerminalBrowserBridge.swift MarkView/Models/Terminal/PTYWriter.swift MarkView/Models/Shared/FileType.swift \
     MarkView/Models/Shared/ArchiveSupport.swift "$out/main.swift"

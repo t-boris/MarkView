@@ -346,7 +346,7 @@ struct QARunsList: View {
         busy = true
         problem = nil
         Task {
-            let plan = await QARunCleanup.plan(deleting: ids, root: root, filer: archive.bugFiler)
+            let plan = await QARunCleanup.plan(deleting: ids, root: root, filer: archive.bugFiler, links: archive.runLinks)
             question = DeleteQuestion(title: title, action: action, plan: plan)
             busy = false
         }
@@ -356,7 +356,7 @@ struct QARunsList: View {
         guard let root = archive.root, !busy else { return }
         busy = true
         Task {
-            let result = await QARunCleanup.delete(asked.plan, root: root)
+            let result = await QARunCleanup.delete(asked.plan, root: root, links: archive.runLinks)
             archive.reload(scenarioID: scenarioID)
             if result.failed > 0 {
                 problem = "\(result.failed) of \(asked.plan.runIDs.count) \(asked.plan.runIDs.count == 1 ? "run" : "runs") could not be deleted. " + (result.firstFailure ?? "")

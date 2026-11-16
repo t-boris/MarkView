@@ -413,6 +413,7 @@
 		D395B2E4D6CAC52E1B0FD3B1 /* QALanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B805455800D605FF49948BEF /* QALanguage.swift */; };
 		D3B9E35C99623877CD79BE13 /* IssueReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226F0597A71AE84E53BAA337 /* IssueReconciler.swift */; };
 		D40D607EDA753D4E0873C3A8 /* ProjectChangeReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85C85E2BEE8759104FBAE2CE /* ProjectChangeReview.swift */; };
+		BD04F6F46AEBFBE1A38B2112 /* ProjectChangeMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 064E0FBEFAABA29DA109731F /* ProjectChangeMonitor.swift */; };
 		D473D076B8CDB69362293780 /* QAModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3323DFCCDF2491C10061C8C /* QAModel.swift */; };
 		D4F3C35D9679DCE67FDD55E2 /* AIAssistantPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45DC630D21D2720ADBA52066 /* AIAssistantPickerView.swift */; };
 		D56B85D51681C3986887D30B /* ProjectBackdropLayers.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9DF671C11798DAD675BD4A1 /* ProjectBackdropLayers.swift */; };
@@ -899,6 +900,7 @@
 		847DBF92043DDF1F0644B95D /* DeploymentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentStore.swift; sourceTree = "<group>"; };
 		85A5D63235ACB47FEA0FF70C /* PanelLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLayout.swift; sourceTree = "<group>"; };
 		85C85E2BEE8759104FBAE2CE /* ProjectChangeReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectChangeReview.swift; sourceTree = "<group>"; };
+		064E0FBEFAABA29DA109731F /* ProjectChangeMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectChangeMonitor.swift; sourceTree = "<group>"; };
 		8617D6996AEA0B711F366A7C /* CLICompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletion.swift; sourceTree = "<group>"; };
 		8713CD727E78F36BD7A6CBBF /* UIStudioGraphQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioGraphQL.swift; sourceTree = "<group>"; };
 		872961C48C130402739DD233 /* UIStudioServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioServer.swift; sourceTree = "<group>"; };
@@ -1379,6 +1381,8 @@
 				B6B0748CACE05B758D369F89 /* ArchitectureModel.swift */,
 				9BD5813E43B8EA8DD4CE8C0F /* ArchitectureScanner.swift */,
 				9A4D926B6E77144DA360543F /* ArchitectureStore.swift */,
+				D001177FB31E944E039375B0 /* BookAnnotator.swift */,
+				1024FF456031B1D1BC834778 /* BookBuilder.swift */,
 				4A903B7EB574BDD8969788FE /* FilterSearch.swift */,
 				5B3E1F0C54027CD3A8565C4C /* TextDiff.swift */,
 				C00CC5262ACFE91F4EE22174 /* XRayFilterStore.swift */,
@@ -1416,8 +1420,6 @@
 		3A5E7F93546B93D5B491B936 /* Book */ = {
 			isa = PBXGroup;
 			children = (
-				D001177FB31E944E039375B0 /* BookAnnotator.swift */,
-				1024FF456031B1D1BC834778 /* BookBuilder.swift */,
 				BED228E05C82D2EF282BC91F /* BookPDFAssistant.swift */,
 				58204F3C068030E1598BED42 /* BookPDFExportModel.swift */,
 				35B1419B5CA931083661B6F3 /* BookPDFSource.swift */,
@@ -1714,12 +1716,12 @@
 			isa = PBXGroup;
 			children = (
 				C0E8670B2DD2EE667B3BDF94 /* PTYWriter.swift */,
+				A29090EAC22CD958E5209927 /* RemoteConnectionState.swift */,
 				5FA9A072A34C2A6381C48622 /* TerminalBrowserBridge.swift */,
 				8D10759E6114CC3E831EE66D /* TerminalChildProcess.swift */,
 				A440251497E5756568B77B87 /* TerminalLink.swift */,
 				E5547BF6AD940A3322F4D1A0 /* TerminalSession.swift */,
 				04A68BEAB6A7E9B3F0ACAAE4 /* AssistantProviding.swift */,
-				1257F7721DD8501CDE88B79D /* AITerminalsController.swift */,
 				61FB7EE1BB94329885567434 /* TerminalProfile.swift */,
 				11C21E5BBAD478CDEDD9BEC6 /* AgentActivityMonitor.swift */,
 			);
@@ -1783,6 +1785,7 @@
 		9D4B115B6E4E7A50B41A3404 /* Workspace */ = {
 			isa = PBXGroup;
 			children = (
+				1257F7721DD8501CDE88B79D /* AITerminalsController.swift */,
 				0A3310051674EC51CC691EB0 /* BrowserHost.swift */,
 				5ED50FEDD6B6073D0783735F /* CockpitHost.swift */,
 				659CD2D529EC42B2A426EAAC /* DocumentFiles.swift */,
@@ -2183,7 +2186,6 @@
 				5C41B9BB6F1B879525F97C0A /* RemoteCommand.swift */,
 				9A7D6D41319CC3068C3A8F1A /* RemoteConnectionsStore.swift */,
 				434FDBCE5925B9F12050FB1E /* RemoteAssistantHost.swift */,
-				A29090EAC22CD958E5209927 /* RemoteConnectionState.swift */,
 				F60C9C4C8059F94B3523B916 /* RemoteFraming.swift */,
 				14124D16ECA72DA14417C7DB /* RemoteHostController.swift */,
 				D3F6450186269BACA35C1C25 /* RemoteProtocol.swift */,
@@ -2369,6 +2371,7 @@
 				17A43E6F411BFA9317576340 /* ImageAttachments.swift */,
 				AAA5D1BB0D677AB3259D0471 /* LinkedFolders.swift */,
 				C45064930C8A1B6E9C790215 /* LinkedFolderStore.swift */,
+				064E0FBEFAABA29DA109731F /* ProjectChangeMonitor.swift */,
 				C2120E0AD6C28CDB3CA63969 /* ProjectNaming.swift */,
 				1775BF3B6B167B38CB69E93E /* ProjectProviding.swift */,
 				CED0D034A0CE43C03208CB68 /* ProjectSearch.swift */,
@@ -2834,6 +2837,7 @@
 				0A01A9259E2AC7E186833B71 /* DevBackdropLayers.swift in Sources */,
 				A24B49057B4B87E4278B429F /* ProjectBootstrap.swift in Sources */,
 				D40D607EDA753D4E0873C3A8 /* ProjectChangeReview.swift in Sources */,
+				BD04F6F46AEBFBE1A38B2112 /* ProjectChangeMonitor.swift in Sources */,
 				ABAF5DAC540027464649560A /* ProjectChangeReviewModel.swift in Sources */,
 				415531DA77449F4A0EFBA98F /* ProjectChangeReviewView.swift in Sources */,
 				F282D1E659F36523BCB0F220 /* ProjectChangeWatcher.swift in Sources */,

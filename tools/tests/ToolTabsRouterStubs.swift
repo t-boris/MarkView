@@ -97,8 +97,11 @@ protocol QABugSink {}
 struct QAFeatureStoreBugSink: QABugSink { init(store: FeatureStore) {} }
 final class QABugFiler { init(sink: any QABugSink) {} }
 
+protocol QARunLinks: Sendable {}
+struct CockpitRunLinks: QARunLinks {}
+
 @MainActor
-final class QARunSlot { var bugFiler: QABugFiler? }
+final class QARunSlot { var bugFiler: QABugFiler?; var runLinks: (any QARunLinks)? }
 
 @MainActor
 final class QAModel {

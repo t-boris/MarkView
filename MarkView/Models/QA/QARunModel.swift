@@ -125,6 +125,8 @@ final class QARunModel: ObservableObject {
 
     /// Where the bugs of a run are filed (REQ-007). Set by the window that owns the project's bug reports; without it nothing is filed.
     var bugFiler: QABugFiler?
+    /// The runs that results outside QA link to; set by the window that owns them. Without it no run is pruned.
+    var runLinks: (any QARunLinks)?
 
     // The review of the screens.
     private var jobs: AsyncStream<ReviewJob>.Continuation?
@@ -215,8 +217,8 @@ final class QARunModel: ObservableObject {
         let runID = QAStore.newRunID(at: Date())
         self.runID = runID
         // The older runs of this scenario that the retention rule gives up are deleted in the background (Q-010); the new run is never one.
-        Task.detached(priority: .utility) { [filer = self.bugFiler, scenarioID = scenario.id] in
-            await QARunCleanup.prune(root: root, scenarioID: scenarioID, runInProgress: runID, filer: filer)
+        Task.detached(priority: .utility) { [filer = self.bugFiler, links = self.runLinks, scenarioID = scenario.id] in
+            await QARunCleanup.prune(root: root, scenarioID: scenarioID, runInProgress: runID, filer: filer, links: links)
         }
         let (events, continuation) = AsyncStream.makeStream(of: QARunEvent.self)
         let sink = QAEventSink(continuation)

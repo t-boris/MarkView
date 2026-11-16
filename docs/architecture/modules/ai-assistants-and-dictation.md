@@ -174,7 +174,7 @@ Owns a private `WhisperClient`; `Phase` = `idle | starting | recording(since:) |
 | `DocumentTranslator.translate(markdown:targetLang:)` + chunk translation (`Models/Workspace/DocumentTranslator.swift`) | `AIAssistantPreferences.backend/model`, `CLIToolLocator.resolve`, `CLICompletion.run` | Engine fixed per document, 240 s |
 | Recursive Insight start (`InsightCoordinator.start`, `Models/Insight/InsightCoordinator.swift`) | `CLIToolLocator.resolve` | Pre-flight check |
 | `CodeAndXRayCoordinator.handleCodeAction` / `handleNavigation` | `CodeExplainStore.explain/rate/freshness`, `CodeNavigationStore.*` | From bridge `codeAction` messages (`EditorView.swift`) |
-| `AITerminalsController.startupCommand` (`Models/Terminal/AITerminalsController.swift`) | `CLIToolLocator.resolve`, `CLITool.modelArgs`, `AIAssistantPreferences.model` | Interactive terminals |
+| `AITerminalsController.startupCommand` (`Models/Workspace/AITerminalsController.swift`) | `CLIToolLocator.resolve`, `CLITool.modelArgs`, `AIAssistantPreferences.model` | Interactive terminals |
 | `WorkspaceManager.runAITool` (`runCritic`, `runAudit`, `runCodemap` in `WorkspaceManager+AIToolRuns.swift`) | `CLICompletion.Request` through the window's `aiJobs` | AI Tools menu; each run is an AI job shown in the jobs banner |
 | `ArchitectureStore` (12 requests, e.g. `ArchitectureStore.swift`) | `CLICompletion.Request/run`, `xrayModel` | X-Ray; see [architecture-and-xray](architecture-and-xray.md) |
 | `XRaySearch` (`XRaySearch.swift`) | `CodeNavigator.find/rank/sortUsages`, `CLICompletion.Request` | Symbol hints for ⚡ search, 900 s |

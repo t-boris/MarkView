@@ -6,17 +6,14 @@ actor SemanticDatabase {
     func addUsage(inputTokens: Int, outputTokens: Int, costCents: Double) {}
     nonisolated static func documentId(for fileURL: URL, root: URL) -> String { fileURL.path.replacingOccurrences(of: root.path + "/", with: "") }
 }
-enum ProjectAgentTools {
-    static func requirementBody(statement: String, criteria: [String]) -> String {
-        "## Statement\n\n\(statement)\n\n## Acceptance Criteria\n\n" + criteria.map { "- [ ] \($0)" }.joined(separator: "\n") + "\n"
-    }
-}
-
 enum FeatureObjectKind: String { case source, requirement }
 
 struct FeatureObject {
     let id: String
     let url: URL
+    static func requirementBody(statement: String, criteria: [String]) -> String {
+        "## Statement\n\n\(statement)\n\n## Acceptance Criteria\n\n" + criteria.map { "- [ ] \($0)" }.joined(separator: "\n") + "\n"
+    }
 }
 
 /// Records features and objects in memory; source files get a real folder so pictures can be copied next to them.

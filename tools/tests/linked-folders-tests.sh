@@ -1,5 +1,5 @@
 #!/bin/bash
-# Checks linked folders (MarkView/Models/Shared/LinkedFolderStore.swift and Workspace/LinkedFolders.swift, Task 59) and the project search
+# Checks linked folders (MarkView/Models/Shared/LinkedFolderStore.swift and Shared/LinkedFolders.swift, Task 59) and the project search
 # index over them (MarkView/Models/Shared/ProjectSearch.swift). The app has no XCTest target: the
 # modules are compiled on their own with a test main and run.
 #   tools/tests/linked-folders-tests.sh

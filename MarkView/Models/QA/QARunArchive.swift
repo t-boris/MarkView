@@ -14,6 +14,8 @@ final class QARunArchive: ObservableObject {
     var root: URL?
     /// Where the bug reports of the findings are; set by the window that owns them.
     var bugFiler: QABugFiler?
+    /// The runs that results outside QA link to; set by the window that owns them. Without it no run is deleted.
+    var runLinks: (any QARunLinks)?
 
     private var loading: Task<Void, Never>?
     private var triageTail: Task<Void, Never>?

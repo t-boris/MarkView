@@ -103,8 +103,6 @@ check(tools.first { $0.name == "markview_list_prototypes" }!.description.contain
 
 // MARK: Bodies
 
-let body = ProjectAgentTools.requirementBody(statement: "The system shall list tickets.", criteria: ["Shows 20 per page", "Sorted by SLA"])
-check(body == "## Statement\n\nThe system shall list tickets.\n\n## Acceptance Criteria\n\n- [ ] Shows 20 per page\n- [ ] Sorted by SLA\n", "requirement body", body)
 let decision = ProjectAgentTools.decisionBody(context: "c", alternatives: ["a", "b"], decision: "d", reason: "r", consequences: "q")
 check(decision.contains("## Alternatives\n\n1. a\n2. b") && decision.contains("## Decision\n\nd") && decision.contains("## Consequences\n\nq"), "decision body")
 let question = ProjectAgentTools.questionBody(question: "Who approves?", why: "Permissions", options: [("A", "Manager"), ("B", "Anyone")], recommended: "A")

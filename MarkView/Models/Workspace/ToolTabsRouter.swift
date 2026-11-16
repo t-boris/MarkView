@@ -69,6 +69,9 @@ final class ToolTabsRouter: ToolOpening {
                 qa.attach(root: root)
                 if qa.run.bugFiler == nil { qa.run.bugFiler = QABugFiler(sink: QAFeatureStoreBugSink(store: features)) }
                 qa.archive.bugFiler = qa.run.bugFiler
+                // A run that a Cockpit result links is never deleted.
+                qa.run.runLinks = CockpitRunLinks()
+                qa.archive.runLinks = qa.run.runLinks
             })
         case .uiStudio: return uiStudio.opener
         case .cockpit: return cockpit.opener

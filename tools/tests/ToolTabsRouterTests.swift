@@ -142,6 +142,7 @@ enum ToolTabsRouterChecks {
         check(router.discussions.store.root == root, "the Discussions store reads the project")
         check(router.qa.attachedRoot == root, "the QA model is attached to the project")
         check(router.qa.run.bugFiler != nil && router.qa.run.bugFiler === router.qa.archive.bugFiler, "QA files its bugs through one filer")
+        check(router.qa.run.runLinks is CockpitRunLinks && router.qa.archive.runLinks is CockpitRunLinks, "QA cleanup is given the Cockpit's links to runs")
 
         guard case .uiStudio(let studio)? = rig.tabs(of: .uiStudio).first?.kind else { return check(false, "UI Studio tab carries a session") }
         check(studio.started && studio.root == root, "the UI Studio session of the tab was started on the project")

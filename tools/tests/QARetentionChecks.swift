@@ -285,7 +285,7 @@ func cleanupChecks() async throws {
         try Data(repeating: 1, count: 500).write(to: starting.appendingPathComponent("frames/1.png"))
 
         let filer = QABugFiler(sink: KeysSink([QABugDrafts.key(run: runName(1), branch: "n1>n2"), QABugDrafts.key(run: runName(2), finding: "f1"), "garbage", ""]))
-        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: filer)
+        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: filer, links: CockpitRunLinks())
         check("prune: keeps the runs bugs name, and the newest 4 beside the run that is starting",
               ids(root).filter { names(Array(1...8)).contains($0) } == names([1, 2, 5, 6, 7, 8]).sorted())
         check("prune: another scenario's runs are not touched", names(Array(11...18)).allSatisfy { ids(root).contains($0) })
@@ -295,7 +295,7 @@ func cleanupChecks() async throws {
               [3, 4].allSatisfy { !exists(QAStore.runFolder(root, runID: runName($0))) })
 
         // The same again deletes nothing more, and a second pass in a crowd of runs is quiet.
-        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: filer)
+        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: filer, links: CockpitRunLinks())
         check("prune: pruning again changes nothing", ids(root).count == 6 + 8)
     }
 
@@ -306,11 +306,11 @@ func cleanupChecks() async throws {
         for n in 1...8 { try makeRun(root, n) }
         let blind = KeysSink([])
         await blind.setFailing(true)
-        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: QABugFiler(sink: blind))
+        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: QABugFiler(sink: blind), links: CockpitRunLinks())
         check("prune: bug reports that cannot be read: nothing is deleted", ids(root).count == 8)
-        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: nil)
+        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: nil, links: CockpitRunLinks())
         check("prune: no way to read the bug reports at all: nothing is deleted", ids(root).count == 8)
-        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: QABugFiler(sink: KeysSink([])))
+        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: QABugFiler(sink: KeysSink([])), links: CockpitRunLinks())
         check("prune: bug reports read and none name a run: the older runs go", ids(root) == names([5, 6, 7, 8]).sorted())
     }
 
@@ -320,7 +320,7 @@ func cleanupChecks() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         try makeRun(root, 1, finished: false)
         for n in 2...9 { try makeRun(root, n) }
-        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: QABugFiler(sink: KeysSink([])))
+        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: QABugFiler(sink: KeysSink([])), links: CockpitRunLinks())
         check("prune: a run that has not ended stays", ids(root).contains(runName(1)) && ids(root) == names([1, 6, 7, 8, 9]).sorted())
     }
 
@@ -328,13 +328,13 @@ func cleanupChecks() async throws {
     do {
         let root = tempProject()
         defer { try? FileManager.default.removeItem(at: root) }
-        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: QABugFiler(sink: KeysSink([])))
+        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: QABugFiler(sink: KeysSink([])), links: CockpitRunLinks())
         check("prune: a project with no runs is fine", !exists(QAStore.runsFolder(root)))
         for n in 1...7 { try makeRun(root, n) }
         let broken = QAStore.runFolder(root, runID: runName(50))
         try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
         try "{ not json".write(to: broken.appendingPathComponent("run.json"), atomically: true, encoding: .utf8)
-        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: QABugFiler(sink: KeysSink([])))
+        await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: current, filer: QABugFiler(sink: KeysSink([])), links: CockpitRunLinks())
         check("prune: a run file that cannot be read is left alone", exists(broken) && ids(root) == names([4, 5, 6, 7]).sorted())
     }
 
@@ -344,19 +344,19 @@ func cleanupChecks() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let sizes = try (1...3).map { try makeRun(root, $0, video: 1000 * $0) }
         let filer = QABugFiler(sink: KeysSink([QABugDrafts.key(run: runName(2), branch: "n1"), QABugDrafts.key(run: runName(2), finding: "f1")]))
-        let plan = await QARunCleanup.plan(deleting: names([1, 2, 3]), root: root, filer: filer)
+        let plan = await QARunCleanup.plan(deleting: names([1, 2, 3]), root: root, filer: filer, links: CockpitRunLinks())
         check("plan: how many runs, how many bytes, which runs a bug names", plan.runIDs == names([1, 2, 3]) && plan.bytes == sizes.reduce(0, +)
                   && plan.namedByBugs == [runName(2)] && plan.bugsChecked)
         let blind = KeysSink([])
         await blind.setFailing(true)
-        let unknown = await QARunCleanup.plan(deleting: names([1]), root: root, filer: QABugFiler(sink: blind))
+        let unknown = await QARunCleanup.plan(deleting: names([1]), root: root, filer: QABugFiler(sink: blind), links: CockpitRunLinks())
         check("plan: when the bug reports cannot be read, the plan says it is not known", unknown.namedByBugs.isEmpty && !unknown.bugsChecked && unknown.bytes == sizes[0])
-        let noFiler = await QARunCleanup.plan(deleting: names([1]), root: root, filer: nil)
+        let noFiler = await QARunCleanup.plan(deleting: names([1]), root: root, filer: nil, links: CockpitRunLinks())
         check("plan: with no bug filer it is not known either", !noFiler.bugsChecked)
 
-        let result = await QARunCleanup.delete(plan, root: root)
+        let result = await QARunCleanup.delete(plan, root: root, links: CockpitRunLinks())
         check("plan: deleting a plan deletes the runs of the plan, named ones too", result.deleted == 3 && result.failed == 0 && ids(root).isEmpty)
-        let afterwards = await QARunCleanup.delete(plan, root: root)
+        let afterwards = await QARunCleanup.delete(plan, root: root, links: CockpitRunLinks())
         check("plan: deleting it again is not an error", afterwards == QARunDeletion())
     }
 }
@@ -403,12 +403,12 @@ func indexChecks() async throws {
     defer { try? FileManager.default.removeItem(at: root) }
     for n in 1...8 { try makeRun(root, n) }
     let filer = QABugFiler(sink: DiskBugs(folder: bugs))
-    await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: filer)
+    await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: filer, links: CockpitRunLinks())
     check("whole path: the runs two bug files name stay, the newest 4 stay, the rest go", ids(root) == names([1, 2, 5, 6, 7, 8]).sorted())
     check("whole path: the runs the bug files do not name are gone from the disk", [3, 4].allSatisfy { !exists(QAStore.runFolder(root, runID: runName($0))) })
 
     let before = ids(root)
-    await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: QABugFiler(sink: DiskBugs(folder: bugs.appendingPathComponent("BUG-001-qa-failed.md"))))
+    await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: QABugFiler(sink: DiskBugs(folder: bugs.appendingPathComponent("BUG-001-qa-failed.md"))), links: CockpitRunLinks())
     check("whole path: a bug folder that cannot be read: nothing is deleted", ids(root) == before)
 }
 
@@ -434,24 +434,32 @@ func cockpitChecks() async throws {
     let listedBefore = try CockpitResults.loadAll(root: root)
     check("cockpit: linked evidence is listed while details exist", listedBefore.first?.detailsDeleted == false)
     let filer = QABugFiler(sink: KeysSink([]))
-    await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: filer)
+    await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: filer, links: CockpitRunLinks())
     check("cockpit: automatic cleanup retains a linked old run", exists(QAStore.runURL(root, runID: runName(1))))
-    let deletion = await QARunCleanup.plan(deleting: [runName(1)], root: root, filer: filer)
+    let deletion = await QARunCleanup.plan(deleting: [runName(1)], root: root, filer: filer, links: CockpitRunLinks())
     check("cockpit: manual deletion identifies the link for the warning", deletion.cockpitChecked && deletion.namedByCockpit == [runName(1)])
-    let deleted = await QARunCleanup.delete(deletion, root: root)
+    let deleted = await QARunCleanup.delete(deletion, root: root, links: CockpitRunLinks())
     let savedURL = root.appendingPathComponent(".dde/cockpit/results/\(result.id.uuidString).json")
     let retained = try JSONDecoder().decode(VersionedEnvelope<CockpitResult>.self, from: Data(contentsOf: savedURL)).data
     check("cockpit: manual deletion keeps the plan, build and outcome while details are gone", deleted.deleted == 1 && retained == result && !exists(QAStore.runURL(root, runID: runName(1))))
     let shown = try CockpitResults.loadAll(root: root).first
     check("cockpit: listed evidence indicates deletion and retains plan, build and outcome", shown?.detailsDeleted == true && shown?.result.plan == plan && shown?.result.build == "build-1" && shown?.result.outcome == "passed")
 
-    let beforeLink = await QARunCleanup.plan(deleting: [runName(5)], root: root, filer: filer)
+    let beforeLink = await QARunCleanup.plan(deleting: [runName(5)], root: root, filer: filer, links: CockpitRunLinks())
     try CockpitResults.save(CockpitResult(plan: plan, build: "build-2", outcome: "passed", qaRunID: runName(5)), root: root)
-    let refused = await QARunCleanup.delete(beforeLink, root: root)
+    let refused = await QARunCleanup.delete(beforeLink, root: root, links: CockpitRunLinks())
     check("cockpit: a link added after the warning blocks deletion until reviewed", refused.failed == 1 && exists(QAStore.runURL(root, runID: runName(5))))
+    // The window that owns the results supplies the links; without them no run is known to be unlinked, so none is deleted.
+    let unlinked = ids(root)
+    await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: filer, links: nil)
+    check("cockpit: without the results' links automatic cleanup deletes nothing", ids(root) == unlinked)
+    let unchecked = await QARunCleanup.plan(deleting: [runName(5)], root: root, filer: filer, links: nil)
+    check("cockpit: without the results' links the plan says they were not checked", !unchecked.cockpitChecked)
+    let notDeleted = await QARunCleanup.delete(unchecked, root: root, links: nil)
+    check("cockpit: without the results' links manual deletion refuses", notDeleted.deleted == 0 && notDeleted.failed == 1 && exists(QAStore.runURL(root, runID: runName(5))))
     try Data("bad json".utf8).write(to: savedURL)
     let before = ids(root)
-    await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: filer)
+    await QARunCleanup.prune(root: root, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: filer, links: CockpitRunLinks())
     check("cockpit: unreadable result references prevent automatic deletion", ids(root) == before)
 
     // The result file is a schema-versioned store (AR-36). A file written before the envelope is the bare result, encoded with a
@@ -464,7 +472,7 @@ func cockpitChecks() async throws {
     try FileManager.default.createDirectory(at: legacyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
     try JSONEncoder().encode(legacy).write(to: legacyURL)
     check("cockpit legacy: a result written before the envelope loads intact", try CockpitResults.loadAll(root: legacyRoot).first?.result == legacy)
-    await QARunCleanup.prune(root: legacyRoot, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: filer)
+    await QARunCleanup.prune(root: legacyRoot, scenarioID: "checkout", runInProgress: runName(40, suffix: "new1"), filer: filer, links: CockpitRunLinks())
     check("cockpit legacy: its link still protects the run from cleanup", exists(QAStore.runURL(legacyRoot, runID: runName(2))))
     check("cockpit legacy: loading left the file as written", StoreFixture.envelope(legacyURL) == nil && StoreFixture.backups(of: legacyURL).isEmpty)
     try CockpitResults.save(legacy, root: legacyRoot)

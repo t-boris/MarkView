@@ -45,7 +45,7 @@ enum StudioFeatureWriter {
         for operation in operations {
             let criteria = operation.checks.map { "\($0.name)" + ($0.passed ? "" : " (failed when exported)") }
             let statement = redactor.redact(text: operation.summary.isEmpty ? operation.request : operation.summary)
-            let body = ProjectAgentTools.requirementBody(statement: statement,
+            let body = FeatureObject.requirementBody(statement: statement,
                                                          criteria: ["Request: " + redactor.redact(text: operation.request)] + criteria)
                 + (operation.patch.isEmpty ? "" : "\n## Code changes\n\n```diff\n" + redactor.redact(text: operation.patch) + "```\n")
             _ = store.create(.requirement, in: slug, title: String(operation.request.prefix(80)),
