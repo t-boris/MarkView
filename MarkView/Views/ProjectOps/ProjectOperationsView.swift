@@ -146,7 +146,8 @@ private struct OperationRunPanel: View {
     @Environment(\.palette) private var palette
     @ObservedObject var store: ProjectOperationsStore
     @ObservedObject var run: ProjectOperationRun
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    /// The console is shown by one window: the run it selects, and whether it is open, are that window's own.
+    @EnvironmentObject var requests: WindowRequests
 
     var body: some View {
         VStack(spacing: 0) {
@@ -161,7 +162,12 @@ private struct OperationRunPanel: View {
                 Spacer()
                 if run.state == "running" { Button("Cancel") { store.cancel(id: run.id) } }
                 if run.state == "cancelling" { Button("Force stop") { store.forceStop(id: run.id) } }
-                if !run.isActive { Button("Dismiss") { workspaceManager.dismissOperationRun(id: run.id) } }
+                if !run.isActive {
+                    Button("Dismiss") {
+                        store.dismiss(id: run.id)
+                        requests.operationRunDismissed(run.id, remaining: store.runs.keys.sorted())
+                    }
+                }
             }
             .padding(10)
             if let notice = run.definitionNotice {

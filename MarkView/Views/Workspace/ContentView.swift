@@ -384,7 +384,7 @@ private struct WorkspaceWindow: View {
         }
         .sheet(isPresented: $requests.operationConsoleVisible) {
             if let store = workspaceManager.projectOperations {
-                ProjectOperationConsole(store: store).environmentObject(workspaceManager)
+                ProjectOperationConsole(store: store)
             }
         }
         .sheet(item: $requests.operationEditRequest) { request in
@@ -694,8 +694,7 @@ private struct WorkspaceWindow: View {
 
     private var rightPane: some View {
         VStack(spacing: 0) {
-            TOCView(layout: layout)
-                .environmentObject(workspaceManager)
+            TOCView(layout: layout, terminals: workspaceManager.terminals)
             if fileTree.rootNode != nil {
                 Divider()
                 ProjectChangeReviewBar(review: changeReview)

@@ -1,8 +1,4 @@
 # `@EnvironmentObject ... WorkspaceManager` declarations: views that take the whole manager (AR-14). `<count> <path>`; a ratchet
 # that only falls. Run tools/lint/architecture-lint.sh --tighten after narrowing a view's dependency.
-1 MarkView/Views/Deployments/DeploymentsView.swift
-1 MarkView/Views/ProjectOps/ProjectOperationsView.swift
-1 MarkView/Views/Workspace/EditorView.swift
-1 MarkView/Views/Workspace/FileTreeView.swift
-1 MarkView/Views/Workspace/SharedSearchView.swift
-1 MarkView/Views/Workspace/TOCView.swift
+1 MarkView/Views/Workspace/EditorView.swift  # the editor page's bridge handlers (its coordinator is made by SwiftUI) route the page's messages to eight parts of the window: openFile/openWikiLink/openCanvasFileReference, setNotesView, codeXRay.handleCodeAction and handleArchitectureAction, research.handleAction and attachImage, flow.runFeatureAction, translator.translate, insight.didRequest*, project.saveBlocks, windowUI.set, taskBag.store; a router that takes those parts instead of the manager is its own step, and EditorView is being edited by another slice
+1 MarkView/Views/Workspace/FileTreeView.swift  # the tree's menus and toolbar issue file operations (fileOperations.trash/transfer/rename/createFile/createFolder/drop/startExtract/startCompress), project.chooseFoldersToLink/unlinkFolder/excludeFolder/includeFolder/containerRoot, codeXRay.openXRay/openArchitecture, insight.start, toolTabs.discussions.discuss, flow.startResearch/startIntake/implementWithAI, browser.openHTML, presentPDFBook, presentGraphCreator, openFile and closeFolder: about a dozen window commands over seven parts; Git push, pull and refresh already go through the git client

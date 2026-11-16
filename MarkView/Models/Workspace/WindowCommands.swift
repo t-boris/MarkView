@@ -18,6 +18,12 @@ protocol WindowCommands: AnyObject {
     func revealStructure(_ url: URL, item: StructureOutline.Item)
     /// Open the tab of a tool of `ToolRegistry`, or return to it.
     func openTool(_ id: ToolID)
+    /// Open `url` as this window's project (another working copy, a folder to browse as the project).
+    func openFolder(_ url: URL)
+    /// Open a terminal in `folder` as a tab of this window.
+    func openTerminal(in folder: URL)
+    /// Show the settings window for this window's project.
+    func showSettings()
     /// Delete this folder's metadata after confirmation; with `recreate`, index the folder again.
     func removeMetadata(recreate: Bool)
 }

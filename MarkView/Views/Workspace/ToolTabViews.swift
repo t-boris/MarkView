@@ -13,8 +13,15 @@ enum ToolTabViews {
     }
 
     private static let builders: [ToolID: (Context) -> AnyView] = [
-        .git: { AnyView(GitView(git: $0.workspace.gitClient, workspaceManager: $0.workspace)) },
-        .deployments: { AnyView(DeploymentsView(host: $0.workspace.toolTabs.deployments, store: $0.workspace.toolTabs.deployments.store)) },
+        .git: { context in
+            let workspace = context.workspace
+            return AnyView(GitView(git: workspace.gitClient, flow: workspace.flow, codeXRay: workspace.codeXRay, requests: workspace.requests,
+                                   layout: workspace.layout, window: workspace))
+        },
+        .deployments: { context in
+            let deployments = context.workspace.toolTabs.deployments
+            return AnyView(DeploymentsView(host: deployments, store: deployments.store, operations: context.workspace.projectOperations))
+        },
         .workflow: { AnyView(WorkflowTabView(store: $0.workspace.flow.features, editor: $0.workspace.toolTabs.workflowEditor)) },
         .qa: { AnyView(QATabView(model: $0.workspace.toolTabs.qa)) },
         .discussions: { AnyView(DiscussionsView(host: $0.workspace.toolTabs.discussions, store: $0.workspace.toolTabs.discussions.store)) },
@@ -36,6 +43,6 @@ enum ToolTabViews {
             assertionFailure("No view is mapped for the tool \(id.rawValue); add it to ToolTabViews")
             return AnyView(Text("No view is mapped for the tool \(id.rawValue).").padding())
         }
-        return AnyView(build(context).environmentObject(context.workspace))
+        return build(context)
     }
 }

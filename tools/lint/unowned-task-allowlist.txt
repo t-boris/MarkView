@@ -10,5 +10,3 @@
 3 MarkView/Models/Architecture/CodeExplainer.swift
 2 MarkView/Models/Architecture/CodeNavigation.swift
 7 MarkView/Models/Architecture/XRayFilterStore.swift
-3 MarkView/Views/Workspace/FileTreeView.swift
-2 MarkView/Views/Workspace/SharedSearchView.swift

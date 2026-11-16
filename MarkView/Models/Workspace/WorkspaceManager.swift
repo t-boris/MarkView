@@ -69,15 +69,6 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
         return projectOperations
     }
 
-    /// Dismisses a finished run of the store, and moves this window's selection and console on when it was the one shown.
-    func dismissOperationRun(id: String) {
-        guard let store = projectOperations else { return }
-        store.dismiss(id: id)
-        if requests.operationSelectedRunID == id { requests.operationSelectedRunID = store.runs.keys.sorted().first }
-        if store.runs.isEmpty { requests.operationConsoleVisible = false }
-    }
-
-
     /// Files opened from outside the app on their own (Finder, Quick Action): the documents, nothing around them.
     func openDocumentsOnly(_ urls: [URL]) {
         for url in urls { openFile(url) }
@@ -606,7 +597,13 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
 extension WorkspaceManager: FileOperationsHost {}
 
 /// The commands a view of this window asks of the window as a whole (`AR-14`): the window puts itself in its views' environment.
-extension WorkspaceManager: WindowCommands {}
+extension WorkspaceManager: WindowCommands {
+    func openFolder(_ url: URL) { openFolder(url, completion: nil) }
+
+    func openTerminal(in folder: URL) { openTerminal(in: folder, startupCommand: nil, title: nil, activate: true) }
+
+    func showSettings() { DDESettingsWindow.show(workspace: self) }
+}
 
 extension WorkspaceManager: AITerminalsHost {
     var browserControlID: UUID { browser.controlID }
