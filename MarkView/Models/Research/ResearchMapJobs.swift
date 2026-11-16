@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 #if canImport(MarkViewCore)
 import MarkViewCore
 #endif
@@ -314,6 +315,7 @@ final class MapRunDriver {
     private weak var maps: ResearchMapController?
     private var scheduled = false
     private var flushTask: Task<Void, Never>?
+    private var readySubscription: AnyCancellable?
     private var sentQueries: [String] = []
     private var pendingEvents: [ResearchMapRun.Event] = []
     private var pendingQueries: [String] = []
@@ -326,7 +328,7 @@ final class MapRunDriver {
         self.maps = maps
         self.applier = ResearchMapRun(mode: mode)
         self.stream = ResearchMapStream(mode: mode)
-        stream.onReady = { [weak self] in
+        readySubscription = stream.ready.sink { [weak self] in
             Task { @MainActor in self?.poke() }
         }
     }
@@ -383,14 +385,14 @@ final class MapRunDriver {
 
 /// The thread-safe half of a map run: parses the agent's text into node events and collects them
 /// until the driver takes them.
-// unchecked Sendable: `lock` guards every field except `onReady`, which the owner assigns once in its init before any callback can run.
+// unchecked Sendable: `lock` guards the parser and pending batches; Combine serializes delivery to subscribers.
 final class ResearchMapStream: @unchecked Sendable {
     private let lock = NSLock()
     private var parser: ResearchMapRun
     private var events: [ResearchMapRun.Event] = []
     private var queries: [String] = []
     private var notified = false
-    var onReady: (() -> Void)?
+    let ready = PassthroughSubject<Void, Never>()
 
     init(mode: ResearchMapRun.Mode) {
         parser = ResearchMapRun(mode: mode)
@@ -403,7 +405,7 @@ final class ResearchMapStream: @unchecked Sendable {
         let notify = !ready.isEmpty && !notified
         if notify { notified = true }
         lock.unlock()
-        if notify { onReady?() }
+        if notify { self.ready.send(()) }
     }
 
     func query(_ query: String) {
@@ -412,7 +414,7 @@ final class ResearchMapStream: @unchecked Sendable {
         let notify = !notified
         if notify { notified = true }
         lock.unlock()
-        if notify { onReady?() }
+        if notify { self.ready.send(()) }
     }
 
     func take() -> (events: [ResearchMapRun.Event], queries: [String]) {
