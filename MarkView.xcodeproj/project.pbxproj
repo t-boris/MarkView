@@ -36,6 +36,7 @@
 		4618C98597316124EAB34D9F /* FinderOpenRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */; };
 		C041BCC7EAEF6931AECB3CE1 /* WindowSessionSnapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */; };
 		C8154BE60D692E4B2E5DEA64 /* WindowRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */; };
+		B5A49B91F2C5A5EF94791EAF /* WindowCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F67DCD2653716CDAC32B5F /* WindowCommands.swift */; };
 		D1B5AF536376371B8D63C2F7 /* WindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 371B8D63C2F7DBE224FF185A /* WindowChrome.swift */; };
 		B27D1E2F3A4B5C6D7E8F9A01 /* WindowComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0D1E2F3A4B5C6D7E8F90 /* WindowComposition.swift */; };
 		12372A07C54BD6115EFB9D95 /* WorkspaceFileTreeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */; };
@@ -971,6 +972,7 @@
 		6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderOpenRequests.swift; sourceTree = "<group>"; };
 		6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSessionSnapshotter.swift; sourceTree = "<group>"; };
 		2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRequests.swift; sourceTree = "<group>"; };
+		E5F67DCD2653716CDAC32B5F /* WindowCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowCommands.swift; sourceTree = "<group>"; };
 		371B8D63C2F7DBE224FF185A /* WindowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChrome.swift; sourceTree = "<group>"; };
 		A17C0D1E2F3A4B5C6D7E8F90 /* WindowComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowComposition.swift; sourceTree = "<group>"; };
 		BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFileTreeStore.swift; sourceTree = "<group>"; };
@@ -1808,6 +1810,7 @@
 				6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */,
 				6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */,
 				2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */,
+				E5F67DCD2653716CDAC32B5F /* WindowCommands.swift */,
 				371B8D63C2F7DBE224FF185A /* WindowChrome.swift */,
 				A17C0D1E2F3A4B5C6D7E8F90 /* WindowComposition.swift */,
 				BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */,
@@ -2525,6 +2528,7 @@
 				4618C98597316124EAB34D9F /* FinderOpenRequests.swift in Sources */,
 				C041BCC7EAEF6931AECB3CE1 /* WindowSessionSnapshotter.swift in Sources */,
 				C8154BE60D692E4B2E5DEA64 /* WindowRequests.swift in Sources */,
+				B5A49B91F2C5A5EF94791EAF /* WindowCommands.swift in Sources */,
 				D1B5AF536376371B8D63C2F7 /* WindowChrome.swift in Sources */,
 				B27D1E2F3A4B5C6D7E8F9A01 /* WindowComposition.swift in Sources */,
 				12372A07C54BD6115EFB9D95 /* WorkspaceFileTreeStore.swift in Sources */,
