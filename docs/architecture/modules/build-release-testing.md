@@ -174,7 +174,7 @@ as an unsigned pre-release that is never marked Latest — only a signed, notari
 **CI** (five workflows in `.github/workflows/`):
 
 - `ci.yml` (`CI`): on pull requests and pushes to `main` that change more than documentation; a newer run on the same ref cancels
-  the older one. Job `pure-tests` runs `./tools/lint/architecture-lint.sh` and `./tools/tests/run.sh --tier pure`. Job `build`
+  the older one. Three `pure-tests` jobs run the architecture lint, SwiftLint ratchet and manifest-selected pure suites. `tools/ci/pure-test-shards.py` balances suites by the measured seconds in `tools/ci/pure-suite-seconds.json` (run 43887926164); new suites use the median, and the measurements can be refreshed from a completed run. Job `build`
   runs `swift test --package-path Packages/MarkViewCore`, compiles the app with a shared DerivedData cache
   (`tools/ci/build-cache-mtimes.py`) and feeds both logs to `tools/lint/build-warnings.sh`.
 - `build-release.yml` (`Build & Release`): on pushes to `main` that change more than documentation. It compiles the Release

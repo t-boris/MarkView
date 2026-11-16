@@ -55,7 +55,7 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
         run: |
-          suites=$(./tools/tests/run.sh --tier pure --list | awk -F "\t" -v shard="$SHARD" '(NR - 1) % 3 == shard { print $1 }')
+          suites=$(python3 tools/ci/pure-test-shards.py "$SHARD")
           test -n "$suites"
           ./tools/tests/run.sh --tier pure $suites
 
