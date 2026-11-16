@@ -38,6 +38,8 @@ Answer by the id; "A, B" is a complete answer. My recommendation is in brackets.
 ## Group A: cleanup (D1, D2, D3). Size S-M, low risk
 
 **A1. AR-48 dead files in git.**
+
+Automated verification update 2026-11-16: the full `gui` tier passed 73/73 while the remaining WebKit driver fixes were being made; all affected driver suites also passed on focused reruns. The first current `pure` run passed 146/148 and exposed two driver compilation failures; both passed on focused retry and the full pure rerun passed 148/148. Live suites remain manual per DEC-013.
 - Status 2026-11-16: removed 11 tracked `TestFiles/` files and both presentation files. `git ls-files TestFiles` and `git ls-files "*.pdf"` each report 0 after staging. `EmbeddingClient` remains in 2 files (its definition and `DDESettingsView` calls to the key helpers). DEC-013 replaces the all-tier run with automated pure and gui tiers. The pure tier passed 149 suites with 0 failures, and the repeated gui tier passed 73 suites with 0 failures before the subsequent operations-window and app-hosted test changes; repeat them on the final code.
 - Now: `TestFiles/` 11 tracked files (measured), `MarkView-Presentation.pdf` 3,653,172 bytes and `MarkView-Presentation.html` 54,317 bytes
   (measured). `EmbeddingClient` is still constructed; two files use its key helpers, `DDESettingsView` among them *(recorded 2026-11-15)*.
