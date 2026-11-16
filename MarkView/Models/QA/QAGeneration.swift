@@ -385,7 +385,7 @@ enum QASummary {
         guard scenario.summarySource == source(scenario), let summary = scenario.summary, !summary.isEmpty else { return nil }
         return summary
     }
-    static let schema: [String: Any] = ["type": "object", "properties": ["summary": ["type": "string"]]]
+    static var schema: [String: Any] { ["type": "object", "properties": ["summary": ["type": "string"]]] }
     static func prompt(_ scenario: QAScenario) -> String {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         var input = scenario

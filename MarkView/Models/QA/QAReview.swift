@@ -44,7 +44,7 @@ enum QAReview {
 
     /// The answer's JSON Schema. Strict, as Claude's `--json-schema` and Codex both take it: every property is required and no object is
     /// open. No findings is an empty list.
-    static let schema: [String: Any] = [
+    static var schema: [String: Any] { [
         "type": "object",
         "properties": [
             "findings": [
@@ -66,7 +66,7 @@ enum QAReview {
         ],
         "required": ["findings"],
         "additionalProperties": false,
-    ]
+    ] }
 
     // MARK: Prompt
 
