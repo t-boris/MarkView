@@ -1,5 +1,7 @@
 # Welcome backgrounds
 
+Status (2026-11-15): every path and symbol in this doc was looked up mechanically in the code at `ac3001ba`; line citations were removed (they drift). Written for 6.x; the narrative was not re-read in this edit.
+
 The welcome tab offers thirteen vector animations: Matrix Rain, Aurora, Bug Swarm,
 Network, Orbit, Device Lab, Circuit Flow, Code Garden, Launch, Git Flow,
 Typewriter, Deep Sea and Warp. Shuffle picks one on appearance. Off removes the backdrop. By Project derives a scene from

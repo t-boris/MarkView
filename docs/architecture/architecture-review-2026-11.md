@@ -3,6 +3,8 @@
 Reviewed: `main` at `df78a47` (MarkView 6.25.0), 2026-11-15.
 Scope: the whole repository: 439 Swift files (150,710 lines), the bundled web editor (about 19,400 lines of first-party JavaScript plus `index.html`), tests, CI, build and release scripts, and the docs.
 
+**Status (2026-11-15):** the finding text below is the review as written at 6.25.0 and stays a historical record. Each finding ends with a `Status (2026-11-15):` line (AR-01 to AR-13, which are table rows, have theirs in the list under the table in section 2): a result (done, partial, not done), the measured count, and what was not checked. The counts were taken on the merge of `feat/architecture-review-finish` (tip `ac3001ba`) with `tools/lint/architecture-lint.sh`, `tools/lint/task-ownership.sh`, `tools/lint/domain-dependencies.py` and `git grep`, against 6.26.2 (`6facd9f`) as the base; nothing was built or run in that pass, and "by reading" says so. The check is recorded in [`architecture-review-2026-11-followup.md`](architecture-review-2026-11-followup.md) section 13. Nothing here is `verified`: that status stays with the owner.
+
 This document is a backlog source. Every finding has an id (`AR-nn`), a severity, an effort estimate (S = up to a day, M = several days, L = weeks, done in steps) and enough evidence to turn it into a task. Section 12 gives the order to work in; section 13 lists the decisions that are the owner's.
 
 ## How this was done, and its limits
@@ -65,6 +67,22 @@ These are not architecture work. They are small, concrete and several are securi
 | AR-12 | medium | S | Web Inspector is enabled in Release builds through private KVC (S12). The app polls and trusts `/tmp/markview_open_path.txt` (S6). The SSH control path is in `/tmp`. | `EditorView.swift:22`, `UIStudioSession.swift:311`, `MarkViewApp.swift:417`, `DeploymentExecutor.swift:167` | Gate the inspector on `DEBUG`; use the per-user temporary folder with mode `0600`. |
 | AR-13 | medium | S | Silent failure where the person is told the opposite: undo-conflict markers are written to a source file with `try?`, then the UI says the markers are in the files and drops the conflict. A failed document save is only logged (R6). The bug report rewrite after an issue is filed is `try?`, so the issue link can be lost. | `UIStudioSession.swift:3089-3092`, `WorkspaceManager.swift:3628`, `FeatureIntake.swift:332` | Surface these three through the existing notice channels now; the general fix is AR-24. |
 
+Status of AR-01 to AR-13 on 2026-11-15 (the table above is the review as written; measured on the merge of `feat/architecture-review-finish` at `ac3001ba`; "by reading" means the code was read and not run):
+
+- AR-01 Status (2026-11-15): done for the editor page, partial for exported Insight HTML. `mvKit.sanitizeHtml` (vendored DOMPurify, fail-closed) has 4 callers outside `mv-kit.js` in 4 files and `mvKit.sanitizeMermaidSvg` 5; Mermaid's `<style>` is kept only after `sanitizeScopedStylesheet` rebuilds it rule by rule; `index.html`, `book.html`, `discussion.html` and `terminal.html` carry `script-src 'self'` (the editor adds `'wasm-unsafe-eval'` and a per-load nonce for the Insight frame). The cached and exported Insight HTML still has `'unsafe-inline'` in its CSP (`InsightHTMLTemplate.swift:137`, FU-25). By reading and by the structural tests; never tried with a hostile document in the running app.
+- AR-02 Status (2026-11-15): done in code, never run live (FU-10). `allow-same-origin` appears 0 times outside comments and vendored bundles; the Insight frame is `sandbox="allow-scripts"` (`markview-insight-handlers.js`), and the nonce reaches the page through `EditorPage` (a miss is logged, with a test in `tools/tests/EditorPageCSPTests.swift`).
+- AR-03 Status (2026-11-15): done. References to `cdn.jsdelivr.net`, `unpkg` and `cdnjs` in the editor HTML and first-party scripts: 0 (`git grep`); Turndown and its GFM plugin are vendored.
+- AR-04 Status (2026-11-15): partial. The defect class is closed by the lint `js-interpolation` (no `evaluateJavaScript` or `callAsyncJavaScript` takes a script built by string interpolation; 0 violations). `JS.call`/`JS.sequence` 6 -> 39 sites; `evaluateJavaScript` 57 -> 27 sites in 7 files (6.26.2 -> now); the rest are constant scripts or `JS.call` that the lint accepts, not rewritten to `JS.call`.
+- AR-05 Status (2026-11-15): done. `markview-init.js` defines `init` and calls it (`init();` at line 137; `ready` is sent from line 68); `markview-d3-mermaid.js` no longer calls it (one comment is left).
+- AR-06 Status (2026-11-15): done by reading. `ArchitectureStore` no longer runs `git show`: `ChangeReviewStore.prFileURL` is a synchronous cache lookup, and `ChangeSource.materialize` runs `git show` through `Subprocess.run` off the calling actor with a 15 s timeout and a 2 MiB cap.
+- AR-07 Status (2026-11-15): done by reading. `InsightArchiveExporter` runs `zip -r -q` through `Subprocess`, which drains stdout and stderr concurrently.
+- AR-08 Status (2026-11-15): done by reading. A timed-out child is stopped by `Subprocess` (SIGTERM, then SIGKILL after `terminationGrace`); `CLICompletion.Invocation` runs through `Subprocess.start`. Not run against a CLI that ignores SIGTERM.
+- AR-09 Status (2026-11-15): done. `WhisperClient` logs character counts only (`Recognized N characters`, `Transcribed N characters`); `WebViewBridge.logInsightDiag` writes nothing and deletes an old `/tmp/markview-insight-diag.log` (the only remaining mention of that path in Swift); one stale comment in `markview-bridge.js:32` still says the diagnostic goes to that file.
+- AR-10 Status (2026-11-15): done by reading. `WhisperClient` stores the key with `SecItemUpdate` then `SecItemAdd` and migrates and removes the legacy `UserDefaults` value (`Setting.legacyOpenAIKey`). The Keychain was not read.
+- AR-11 Status (2026-11-15): done. `NSAppleScript` call sites: 0 (the one match is a comment in `AIAssistants.swift` saying it is avoided); the file tree's "Open in Terminal.app" goes through `openTerminal(at:)` and `NSWorkspace`. `SystemProbe.swift:160` (`sh -c`) was not re-checked.
+- AR-12 Status (2026-11-15): done by reading, with FU-09 open. The Web Inspector is `#if DEBUG` in `WebHost` (`developerExtrasEnabled`, `isInspectable`); `FinderOpenRequests` opens the open-path file with `O_NOFOLLOW` in the per-user temporary folder and in `/tmp`; the SSH control sockets use `/tmp/mvssh-<uid>` (mode 0700, checked by `ensureSecureSocketDirectory`, a short path because of the 104-byte socket limit) and not the per-user temporary folder. No writer of the open-path file exists in the repository; the Quick Action handoff was not tried.
+- AR-13 Status (2026-11-15): done by reading. `TabsController.lastSaveError` (6 references) feeds the window banner and saving goes through `AtomicFile.write`; the undo-conflict and bug-report rewrites named in the finding were not re-read.
+
 ## 3. Application shell and state
 
 ### AR-14 `WorkspaceManager` is a god object and still growing (critical, L)
@@ -93,11 +111,15 @@ Proposed decomposition, in this order (each step ships on its own):
 
 Steps 1-3 share no state and are safe first. Step 5 removes the hot path of AR-15. Steps 4 and 8 introduce the protocols that make 9-11 testable.
 
+Status (2026-11-15): partial. All 11 steps of the decomposition table exist as types (`DocumentTranslator`, `InsightCoordinator`, `ResearchMapController`, `AITerminalsController`, `TabsController`, `WindowChrome`, `WindowSessionSnapshotter`, `ProjectContext`, `FeatureFlowCoordinator`, `ToolTabsRouter`, `CodeAndXRayCoordinator`: 11 of 11 files present) under `WindowComposition`. `WorkspaceManager.swift` 730 lines (5,747 at 6.26.2; plus 267 in `WorkspaceManager+AIToolRuns.swift`); the roadmap target under 1,000 is met, the table's under 400 (wiring only) is not. Not done: views that take the whole manager 56 `@EnvironmentObject` sites (62 at 6.26.2; target 0; the `workspace-manager` lint reports 56 in 34 files and stops it rising); 4 back-references in 4 files and 33 closure hooks in 12 files remain (`window-wiring` lint).
+
 ### AR-15 Window-wide re-render through `objectWillChange` forwarding (high, M)
 
 `WorkspaceManager` forwards the change signals of `fileTreeStore`, `tabsStore`, `layout` and `gitClient` (18 more `@Published`) into its own (`:692-712`). `updateTabContent` (every editor content message) and `updateActiveTabScrollPosition` (called unthrottled from `EditorView.swift:909-911`) rewrite `openTabs`, an array that carries each document's full text. Each such event invalidates all 69 observing declarations including `ContentView`, and triggers the session archive rebuild (debounced 400 ms). Whether the JS side throttles scroll events, and the frame cost, are not measured.
 
 Fix: stop forwarding; expose tabs, file tree and git as separate observable objects; move scroll position and active heading out of `OpenTab` into a non-published side table.
+
+Status (2026-11-15): partial, by reading. `WorkspaceManager` forwards one signal (`composition.changes`, the merge of `project` and `codeXRay`) where it forwarded `fileTreeStore`, `tabsStore`, `layout` and `gitClient` (6.26.2: 18 `objectWillChange` mentions); tabs, layout, chrome, theme and window UI are separate observable objects the views observe directly, and `sessionChanges` feeds only the session archive; scroll position lives in `DocumentScrollSideTable`; the `tabs-direct` lint keeps views from reading tabs through the manager. Not measured: how often a content message still rewrites `openTabs`, and no render profile was taken.
 
 ### AR-16 Other oversized multi-responsibility types (high, M each)
 
@@ -106,11 +128,15 @@ Fix: stop forwarding; expose tabs, file tree and git as separate observable obje
 - `PrototypeAI.swift` 2,160, `InsightSession.swift` 2,072, `FeatureAI.swift` 1,848: each mixes prompts, parsing, file writing and state; the first two embed HTML.
 - Views above 1,300 lines: `FeaturePanelView` 2,084, `UIStudioView` 1,997, `GitHubViews` 1,808, `QAViews` 1,657, `FileTreeView` 1,409, `ContentView` 1,319.
 
+Status (2026-11-15): partial. `ArchitectureStore.swift` 1,889 lines (4,512 at 6.26.2; `Models/Architecture` has 30 files), `UIStudioSession.swift` 1,958 (3,766; `Models/UIStudio` 48 files), `PrototypeAI.swift` 1,067 (2,160), `InsightSession.swift` 1,449 (2,072), `FeatureAI.swift` 1,852 (1,848: not split). `FeaturePanelView.swift` (2,072 at 6.26.2) is split into 8 `FeaturePanel*Views.swift` files, the largest 374 lines. Views still above 1,300 lines: `UIStudioView` 2,000, `GitHubViews` 1,801, `QAViews` 1,666, `FileTreeView` 1,386, `ContentView` 1,365 (unchanged, within 1.5 percent). The `file-size` lint (limit 2,000 lines) reports 0 files over.
+
 ### AR-17 No composition root; collaborators are wired four different ways (high for testability, M-L)
 
 `ContentView.swift:188` creates `WorkspaceManager()`, whose initializers build everything. Wiring is done by closures set in `init` (`qa.assistantSelection`, `agentActivity.terminals`, `fileTreeStore.onTimer`), by back-references (`research.workspace = self`), by views writing hooks into the model (`EditorView.swift:476`, `:595`), and by 61 closure-typed stored properties across Models. The 15 existing protocols are feature-local; none covers the shell, tabs, file system, git or the assistant terminal. The QA model bug fixed in 6.24.2 came straight out of one of these closures.
 
 Fix: a `WindowComposition` that builds the stores and hands each feature narrow protocols (`ProjectContext`, `TabsProviding`, `AssistantProviding`). `PanelLayout`, `WindowUIState` and `WindowTheme` already take injected storage and show the pattern.
+
+Status (2026-11-15): partial. `WindowComposition` is the composition root (`WorkspaceManager.init` calls `composition.connect()`); protocols declared in `Models/` 15 -> 49; views that write hooks into a model 0 (`window-wiring` views ratchet); closure hooks 33 in 12 files and back-references 4 in 4 files remain, kept from growing by the ratchets. The narrow protocols the finding names (`TabsProviding`, `AssistantProviding`) were not created under those names (`ProjectProviding` exists).
 
 ### AR-18 Hidden global state (medium, S-M)
 
@@ -120,11 +146,15 @@ Fix: a `WindowComposition` that builds the stores and hands each feature narrow 
 
 Fix: a typed settings observable for the assistant choice, seeds written at window close, one `ProjectRegistry` keyed by root for per-project services, knobs as init parameters, a `DefaultsKey<T>` registry.
 
+Status (2026-11-15): partial. Direct `UserDefaults.standard` expressions 82 -> 0 and `didChangeNotification` observers 4 -> 0 outside `Settings.swift` (lints `settings-literal` and `settings-observer` pass); 70 `Setting` keys in `Packages/MarkViewCore` are read through `Settings`, `@AppStorage(key)` or `@WindowStorage`; 10 types still take a `UserDefaults` parameter that defaults to `.standard`. Not re-counted: the mutable statics, per-project registries and test knobs in production types (a rough count of stored `static var` gives 45 -> 43).
+
 ### AR-19 Tasks and timers are not owned (medium, S-M)
 
 `WorkspaceManager` has about 60 task sites (12 detached) and two stored handles; app-wide there are 356 statement-level `Task { }` against 80 stored task properties, and 238 `Task.detached`. Most work cannot be cancelled when a folder or window closes. Nine timers and many sleep loops never pause: there is no observer for app deactivation or window occlusion anywhere. `MarkViewApp.swift:244` starts a 1 s timer on every window appearance and never invalidates it (recorded, still true); a 2 s timer stats every open tab (`WorkspaceManager.swift:5455`).
 
 Fix: a per-window task bag cancelled on close; one visibility-aware scheduler for polling; move the Quick Action poll to the app delegate.
+
+Status (2026-11-15): partial, measured with `tools/lint/task-ownership.sh`. Unowned `Task {}` and `Task.detached` sites 263 in 70 files (391 in 87 at 6.26.2): `Task {}` 556 sites of which 250 unowned, `Task.detached` 225 of which 13 unowned. `Timer` 0 (the review: 9). `asyncAfter` 21 sites, each with a `// task:` reason (35 at 6.26.2). `TaskBag` is created in 18 places (1 use at 6.26.0) and `PollingScheduler` in `Packages/MarkViewCore` runs the polls, including the app-wide Quick Action poll. What remains unowned, by area: `Views/` 162 (Lifecycle 55, Workspace 43, Git 29, Deployments 14, Browser 5, the rest 16), X-Ray stores 37, UI Studio 19, Cockpit 8, project operations 8, the other 29.
 
 ## 4. Layering and module structure
 
@@ -161,6 +191,8 @@ Domains by size:
 
 Moving files is mechanical but wide: 211 test scripts hard-code paths to 238 distinct model files, and the architecture docs carry more than a thousand `file:line` citations. Each move must update the scripts in the same change (which is one more reason for AR-33).
 
+Status (2026-11-15): partial. Folders: `Models/` has 21 domain folders and 0 top-level files, `Views/` 19 folders (the review: 323 of 338 `Models/` files at one level), and `Packages/MarkViewCore` is the shared layer (12 source files). The folders are still peers in one module: `tools/lint/domain-dependencies.py` reports for `Models/` 22 domain pairs in cycles (168 type edges, 91 of them in the back-edges) and 19 of 21 domains in one strongly connected group; the `domain-cycles` lint holds 104 type references in 29 pairs (Models and Views) from rising. Not done: the Platform/Features layers of the target structure and a layer rule (`Features -> Platform -> Core`); the lint is a ratchet, not a layer rule.
+
 ### AR-21 Dependency cycles between domains (high, M-L)
 
 Measured by type-name references across domain files (generic names may inflate a few edges):
@@ -172,6 +204,8 @@ Measured by type-name references across domain files (generic names may inflate 
 
 Cleanly separable today: Dictation, Theme/Backdrop, the git client, and the value-type cores of cycle time, QA scenario/run, UI Studio GraphQL/simulation and the Remote protocol. Large but low fan-in leaves: UI Studio, QA, Prototype.
 
+Status (2026-11-15): partial. Done: Features, Issues and Workflow are one `Lifecycle` folder; the tool runners live in `AgentToolServer` (`Models/AgentTools/`); `AI` depends on 1 domain (1 type) while 18 domains use it (the review: it depended upward on four types). Remaining cycles, measured by the same script as in followup section 12 (28 mutual pairs at 6.26.2): 22 pairs now, led by Lifecycle -> Workspace (10 types back), UIStudio -> Workspace (12), Prototype -> Workspace (10), Browser -> Workspace (9), Cockpit -> Workspace (9). Features still reach `Workspace` types directly, not through protocols.
+
 ### AR-22 Layer leaks (medium, S-M)
 
 - View code in Models: `AIToolRuns.swift:71` (a `View`), `AppFontScale.swift:77, 88` (view modifiers), `QAWebWindow.swift:7` (a window subclass). Models depend on a view type: `PanelLayout.swift:47` and `WorkspaceManager.swift:1257` use `TOCView.Tab`.
@@ -179,11 +213,15 @@ Cleanly separable today: Dictation, Theme/Backdrop, the git client, and the valu
 - Models reach into `Bridge/` for rendering services (`PrototypeScreenshots`, `BookPDFRenderer`) and for a log helper (`InsightSession.swift:1121`).
 - Views do file work: 31 `FileManager` uses in 16 view files, with create and trash in `FileTreeView.swift:1098, 1250, 1384`, and a network call in `DDESettingsView.swift:518`. Four view models are declared inside view files.
 
+Status (2026-11-15): partial. `TOCView.Tab` in `Models/` 0 (replaced by `NavigatorTab` before 6.26.2). `NSAlert` references in `Models/` 31 in 6 files -> 25 in 11 files (fewer references, more files: the dialogs moved between files and did not leave `Models/`). `FileManager` in `Views/` 31 uses in 16 files -> 25 in 15 files; directory walks (`enumerator`, `contentsOfDirectory`, `subpathsOfDirectory`) in `Views/` 2 -> 0. `import SwiftUI` in `Models/` 11 files, unchanged; the view types named in the finding (`AIToolRuns`, `AppFontScale`, `QAWebWindow`) were not re-audited.
+
 ### AR-23 Names do not signal role (medium, M, incremental)
 
 "Model" names both observable view models (`QAModel`, `QARunModel`) and plain value bags (`ArchitectureModel`, `FeatureModels`). Observable classes use 13 `Store`, 11 `Model`, 6 `Session`, 4 `Controller` and about 20 with no suffix. "Client" is an observable class, a struct and an enum namespace in three places. Grab-bag files hold 21-27 types each (`UIStudioModels`, `SemanticModels`, `GitHubClient`, `QAScenario`, `ProjectWorkflow`).
 
 Convention to adopt: `*Store` = persistence, `*ViewModel` = observable UI state, `*Client` = stateless I/O, `*Coordinator` = cross-feature flow, plain nouns = values.
+
+Status (2026-11-15): partial. The three grab-bag files named in REQ-008 (`WorkspaceControllers.swift`, `AILayer.swift`, `StorageAndSecurity.swift`) are split; the others the finding lists (`UIStudioModels`, `SemanticModels`, `GitHubClient`, `QAScenario`) were not re-counted. Observable classes in `Models/` by suffix (a regex count, 60 -> 78 classes): `*Store` 12 -> 11, `*Model` 8 -> 8, `*Session` 6 -> 6, `*Controller` 3 -> 5, `*Coordinator` 0 -> 2, `*ViewModel` 0 -> 0. The proposed `*ViewModel` convention was not adopted.
 
 ### Target structure
 
@@ -223,11 +261,15 @@ Dependency rule: `Features -> Platform -> Core`; `Workspace` depends on `Platfor
 
 Fix: `Core/Files` (`ProjectPaths`, `contains(_:root:)` that resolves symlinks, a throwing `AtomicFile.write` with optional lock and permissions, one JSON codec, one debounced watcher, `JSONLinesFile` with rotation, generalised from `IssueTransitionLog.swift:129`) and `Core/Logging` (one facade over `os.Logger` with categories and privacy markers).
 
+Status (2026-11-15): partial, against 6.26.2. Done: `write(to:` 112 -> 35 (lint `atomic-write`: 35 sites in 26 files, all allow-listed), `NSLog` 124 -> 0 (lint `app-log`, `AppLog` over `os.Logger`), `".dde"` literals 57 -> 0 (lint `project-paths`), `AtomicFile.write` uses 3 -> 71, `ProjectPaths.` uses 4 -> 98. Open: `FileManager.default` 471 -> 454, `try?` in `Models/` 1,129 -> 1,087, `JSONEncoder()` 84 -> 71 and `JSONDecoder()` 83 -> 72, `slug` functions 14 -> 14, FSEvents in 3 files and 2 dispatch-source watchers unchanged; `MarkViewCore` has no shared watcher, JSON codec or rotating JSON-lines file. FU-23 is addressed in `AtomicFile` by reading (it follows symlinks, copies extended attributes, keeps its temporary file outside the target folder) and was not run.
+
 ### AR-25 About 12 separate "run a process" implementations (high, M)
 
 `Process()` is created in 17 files. One-shot runners with different guarantees: `CLIToolLocator.run` (timeout, sleep poll), `ArchitectureScanner.runTool` (synchronous, no timeout, stderr dropped, 22 call sites), three variants in `GitClient` (no timeout), `StudioProcess.run` (unbounded wait that hangs if a killed child leaves a grandchild holding the pipe), `ProcessRunner` in `DeploymentExecutor` (timeout, output cap, bounded drain; a `timedOut` flag written without the lock), `GitHubClient` (52 call sites), and five more without timeouts. Streaming ones: `CLICompletion`, `ACPAssistant`, `CockpitChild`, `RemoteCommand`, the indexer. The project rule about draining pipes and never waiting on the main thread is enforced only by each author remembering it; AR-06 and AR-07 are the two places it slipped.
 
 Fix: one `Subprocess.run(executable, arguments, cwd, environment, stdin, timeout, outputCap) async` with concurrent drain, TERM then KILL, a bounded drain wait and task cancellation; `ProcessRunner` is the closest base. Port the 11 one-shot sites; mark the synchronous runner unavailable from the main actor.
+
+Status (2026-11-15): done by its count. `Process()` outside `Subprocess` 17 in 15 files -> 0 (lint `process`: 0 in 0 files, allow-list empty); `waitUntilExit` 11 sites -> 0. FU-22: `SubprocessChild` spawns with `POSIX_SPAWN_SETPGROUP`, so the group kill has a group to signal (by reading; not run).
 
 ### AR-26 Every feature re-implements the assistant call pipeline (high, L)
 
@@ -252,11 +294,15 @@ struct AIOperation<Input, Output: Decodable> {
 
 Migrate feature by feature, starting with `PrototypeAI` and `FeatureAI`. It deletes the retry loops, the salvage parsers, the activity translators and most cast chains.
 
+Status (2026-11-15): done by its acceptance count (`CLICompletion.run` outside `AIOperation`: 55 calls in 28 files -> 0, lint `clicompletion`); `AIOperation` is referenced from 37 files (1 call site at 6.26.2) and `AIJSONSalvage` from 10 places (3). Not re-measured: the validate-and-ask-again loops (12 files at 6.26.0), the activity-to-stage translators and whether usage is recorded at every call site; a rough grep for hand-written outermost-brace JSON salvage finds 5 sites (7 at 6.26.2).
+
 ### AR-27 Web-side copies (medium, M)
 
 Seven HTML escape functions under five names (the one in `markview-data.js:72` does not escape the apostrophe), 97 `innerHTML` sinks in 17 files, six wheel pan/zoom implementations, no shared debounce (14 ad-hoc timers), three private DOM builders beside 215 raw `createElement` calls in `markview-architecture.js`, four different wrappers for posting to native, 56 empty `catch {}` blocks. On the Swift side there are ten `WKWebView` hosts with seven navigation-policy and eight message-handler implementations; a weak handler proxy exists in two of them while the editor registers its bridge strongly.
 
 Fix: one `mv-kit` module (escape, `h()`, debounce, a pan/zoom controller, `native.post`) and one Swift `WebHost` factory (configuration, weak handler, first-paint theme script, navigation policy, the JS call helper of AR-04).
+
+Status (2026-11-15): partial. Swift half done: `WKWebViewConfiguration(` creations 10 -> 0 (lint `webview-configuration`: every host uses `WebHost.makeConfiguration` and `makeWebView`, with weak handlers). Web half partial: `mvKit` holds `escapeHtml`, `h`, `debounce`, `attachPanZoom` and the sanitisers, and `mvBridge.send` is the one post wrapper; `innerHTML =` sinks 82 -> 80, empty `catch {}` blocks 57 -> 57, `window.x =` assignments 108 -> 111. The other escape functions, pan/zoom copies and debounce timers were not re-counted.
 
 ## 6. Web editor and bridge
 
@@ -266,17 +312,23 @@ JS to Swift: 29 message types handled in one switch (`WebViewBridge.swift:120-35
 
 Fix: one `bridge/messages.json` (type, direction, payload schema, action enums) that generates Swift `Codable` types with a single decoder used in the message handler, and a JS `native.post` with constants and JSDoc types. Unknown or invalid messages are rejected and logged in one place. Migrate type by type, `arch` first. `UIStudioBridge.swift` (`parseRequest`/`parseEvent` returning a rejection) is the in-house model.
 
+Status (2026-11-15): done. `Resources/Editor/js/bridge-contract.json` declares 37 messages in 3 channels (`bridge` 28, `discussion` 3, `terminal` 6) with the action enums of `arch`, `code` and `researchMap`; `TypedWebBridge.receive` refuses unknown, malformed and (for the `mainFrameOnly` messages: `researchMap` and 9 Insight messages) non-top-frame messages and logs only the type name; string `case` labels in `WebViewBridge.swift` 29 -> 0; `mvBridge.send` validates on the JS side; lint `bridge-no-bypass`; `tools/tests/bridge-contract-tests.sh` runs a sample of every message through the types (not run by this pass).
+
 ### AR-29 No module system; behaviour depends on script order and monkey-patching (high, L incremental)
 
 59 script tags; the first-party files are classic scripts sharing one global scope with 85 `window.x =` assignments. Entry points are wrapped by later files: `setContent` is reassigned in four files, `setTheme` in three. `index.html` carries 1,294 lines of inline CSS. No lint, no types, no bundling for the shipping JS. The three largest files are single closures: `markview-architecture.js` (3,628 lines, 147 functions, 22 hard-coded colours, no theme variables), `markview-research-map.js` (2,845; its layout is already split out and tested, which is the model), `markview-ui-studio.js` (2,998; a runtime injected into the user's page that mixes network simulation, third-party stand-ins and the selection overlay).
 
 Fix: `tools/web-vendor` already runs esbuild. Add an entry file that imports the existing files in today's order and emits one bundle (no behaviour change); then convert file by file to `import`/`export`, replace the wrap chains with a view registry (`views.register({ enter, leave })`), and add `tsc --checkJs` and ESLint to CI. Also move the 19,351 first-party lines out of `vendor/js`, which is a misleading home.
 
+Status (2026-11-15): partial. JS files over 2,800 lines 3 -> 0 (the largest is 1,322 lines); the 46 first-party scripts (20,185 lines) live in `Resources/Editor/js/`, not `vendor/js/`. Not done: no module system or bundle (63 `<script>` tags in `index.html`, 54 at 6.26.2; the load order is unchanged), `window.x =` 111 (108), no `tsc --checkJs` or ESLint in CI (0 matches in `ci.yml`), and `index.html` still holds 1,295 lines of inline CSS.
+
 ### AR-30 `EditorWeb/` is dead weight (low, S)
 
 One commit ever (the initial release, 2026-03-31) out of 1,247. About 1,700 lines of TypeScript on a different engine (Milkdown) with an interface incompatible with the shipping globals, covering roughly 9% of what ships. `EDITOR_IMPLEMENTATION.md` is from the same commit and describes sandbox paths and a CDN design that no longer exist. `CLAUDE.md` still spends a paragraph and a verification recipe on it.
 
 Recommendation: delete `EditorWeb/` and `EDITOR_IMPLEMENTATION.md` and the `CLAUDE.md` text about them. Adopting it would mean rewriting the editor; AR-29 modernises the code that actually ships.
+
+Status (2026-11-15): done. `EditorWeb/`, `EDITOR_IMPLEMENTATION.md` and `QUICKSTART.md` are absent (0 of 3 present); `CLAUDE.md` mentions `EditorWeb` 0 times.
 
 ## 7. Extensibility: registries, data files, and whether to build plugins
 
@@ -317,6 +369,8 @@ enum ToolRegistry { static let all: [ToolDescriptor] = [.git, .deployments, .wor
 
 Risk: touches `ContentView` and the session format, which must keep decoding old archives.
 
+Status (2026-11-15): partial. Places to edit for a new tool: about 7 at 6.26.2 -> 2 (the `ToolID` and its `ToolDescriptor` in `ToolRegistry.swift`, and the view in `ToolTabViews.builders`; a `ToolTabsRouter.opener(for:)` case only for a tool that needs window wiring); the target is 1. `ToolRegistry` now generates the toolbar buttons (`toolbarTools`), the View menu items (`menuTools`), the Welcome tiles (`WelcomeActions`), the tab icon and title (`DocumentState`) and session restore (`isRestorable`); FU-29 is closed (the surfaces are read). Not checked: that the toolbar and tab icons of Workflow and QA now agree, and whether Cockpit has a tile and a menu item.
+
 **2. Themes as data (AR-32, M).** One JSON file per theme in `Resources/Themes/`, read by Swift, which passes the web tokens to the page (the first-paint injection point already exists in `EditorView`). `AppTheme` becomes a value with a string id. User themes go in `~/Library/Application Support/MarkView/Themes/*.json`, validated like workflow templates: an unusable file is listed with the reason and never rewritten. A stored id that no longer exists already falls back to Classic Dark.
 
 ```json
@@ -326,6 +380,8 @@ Risk: touches `ContentView` and the session format, which must keep decoding old
 ```
 
 `isDark` is computed from the background's luminance. For user themes `web` could be optional with tokens derived from `native`; that derivation is a proposal and has not been compared with the hand-tuned values. Risks: first-paint flash, three test files to rewrite, persisted ids must not change.
+
+Status (2026-11-15): done. 11 JSON themes in `Resources/Themes/` (keys `schema`, `id`, `name`, `summary`, `order`, `picker`, `native`, `web`) are read by `ThemeCatalog`, which also reads a person's own themes from `~/Library/Application Support/MarkView/themes/`; `ThemePickerView` is the picker; a new built-in theme is 1 file. Not checked: the web-token derivation for a user theme that gives only native colours (`DEC-003`).
 
 **3. Layout presets (AR-33, M, after the registry).**
 
@@ -341,9 +397,15 @@ struct LayoutPreset: Codable, Identifiable {
 
 Bundled defaults plus `.dde/layouts/*.json` per project. Ship manual switching first: automatic triggers fight the rule that a window keeps its own state.
 
+Status (2026-11-15): done for manual switching. 4 JSON presets in `Resources/Layouts/` (`10-writing`, `20-review`, `30-qa`, `40-cockpit`), ordered by file name, are read by `LayoutCatalog` (which also reads `~/Library/Application Support/MarkView/layouts/`) and shown in the app's menu; there are no automatic triggers (`DEC-002`); the per-project `.dde/layouts/` folder of the proposal was not built.
+
 **Backdrops (AR-34, S):** split the mode (`off`, `shuffle`, `byProject`, `scene(id)`) from the scene and give each scene one file behind a small protocol (`id`, `title`, `symbol`, `build(context) -> [CALayer]`). Do not make scenes declarative or user-authored: each is 100-400 lines of bespoke Core Animation, and a data language for that would be a second animation engine.
 
+Status (2026-11-15): done. `BackdropRegistry` discovers the classes that conform to `BackdropRegistration` (17 descriptors) and Shuffle and By Project read it; a new backdrop is 1 place. The scenes live in 4 layer files (`Atmosphere`, `Dev`, `Project`, `BackdropLayerBuilders`), not one file each.
+
 **Assistants (AR-35, M-L):** an `AssistantProvider` (identity, locating and probing, model catalogue, one-shot arguments and event parser or the session-protocol profile, terminal launch arguments, goal phrasing, optional usage source) with one registry; `TerminalProfile` becomes `provider | shell` and the three duplicate enums go. Behavioural, so not data. Worth doing when a sixth assistant is planned, or together with AR-26.
+
+Status (2026-11-15): done by its count. A literal `.claude`, `.codex`, `.cline`, `.copilot` or `.antigravity` outside `Models/AI/Providers/`: 0 (lint `assistant-switch`; about 28 switches in 13 files at 6.26.0); `AssistantProviders.list` holds 5 providers, one file each, and adding an assistant is a provider file plus one line. Not re-counted: the three duplicate assistant enums.
 
 ## 8. Persistence and domain model
 
@@ -353,11 +415,15 @@ Several windows, agent command line tools and MCP helper processes write the sam
 
 Fix: typed repositories per feature returning `.ok / .damaged(reason) / .unsupported(schema)` exactly as `ProjectWorkflowStore` does, built on the `AtomicFile` helper of AR-24, and a `schema:` key in front matter.
 
+Status (2026-11-15): partial. `SchemaVersionedStore` users 1 -> 14 files (17 sites); `try? decode` 98 -> 93 sites (a regex count). File locking is still in exactly one file (`CockpitResults.swift`: `flock` and `NSFileCoordinator` sites 2 -> 2), so there is still no cross-process coordination of `docs/` and `.dde/`. `FeatureStore.update` and the other read-modify-write paths were not re-read.
+
 ### AR-37 SQLite runs entirely on the main actor (high, M; recorded, still true)
 
 `SemanticDatabase` is `@MainActor` with 53 methods and 35 tables. Open, pragmas and DDL run on main; `busy_timeout = 5000` means the main thread can wait up to five seconds on the indexer process; `saveArchitecture` deletes and reinserts five tables; full-text search is called from a view (`TOCView.swift:188`). Only one read path is off the main thread.
 
 Fix: make it an `actor` with one serial connection; callers already tolerate async.
+
+Status (2026-11-15): done by reading. `SemanticDatabase` is an `actor` (lint `semantic-database-actor` passes) and the file is opened and migrated off the caller's thread; `busy_timeout` stays at 5000 ms. Not checked: three other files call `sqlite3_` (`AgentActivity`, `ProjectOperationsStore`, `ProjectSearch`) and their isolation was not re-read; no `sample` trace was taken.
 
 ### AR-38 The migration strategy is "delete the database" (medium, M)
 
@@ -365,9 +431,13 @@ Fix: make it an `actor` with one serial connection; callers already tolerate asy
 
 Fix: an ordered migration list keyed by `user_version`; key the fallback by a hash of the path.
 
+Status (2026-11-15): done by reading. `SemanticSchema.migrations` is an ordered list (version 1 `docId scheme`, version 2 `table set of release 6.26`) applied by `SQLiteSchema.open` against `PRAGMA user_version`; a newer or failed schema is left untouched and the session uses an in-memory database; the unused `applied_migrations` table is dropped; the read-only fallback location uses `projectCacheIdentifier`, not the folder's last path component. `Packages/MarkViewCore` has `SQLiteSchemaTests.swift` (not run by this pass).
+
 ### AR-39 Domain model quality varies; copy the best (medium, L)
 
 Best: `ProjectWorkflow` + `ProjectWorkflowStore`, then `QAStore` and `CockpitRunStore`. Middle: `FeatureStore` (pure parsing, a lossless-rewrite guard, but synchronous I/O and git on main). Worst: `ArchitectureStore`. New feature work should follow the first three: pure values and rules, a small store with typed results, the observable object last.
+
+Status (2026-11-15): partial (guidance; the finding has no count of its own). The pattern the review names as best is now the one in use: `SchemaVersionedStore` is used by 14 files, among them `ProjectWorkflowStore`, `QAStore`, `CockpitRunStore`, `DeploymentStore` and `UIStudioStore`; `ArchitectureStore`, the one named worst, went from 4,512 to 1,889 lines. `FeatureStore`'s synchronous I/O was not re-checked.
 
 ## 9. Security boundaries
 
@@ -379,9 +449,13 @@ Beyond section 2:
 
 Fix: derive the peer pid in the server, issue a per-window token to the agents the app launches, and require a native confirmation for `by_user` actions.
 
+Status (2026-11-15): partial. The browser control, Cockpit and Remote sockets all use `PrivateSocket`: a 256-bit token in a mode-0600 file next to a mode-0600 socket, compared in constant time, plus the kernel's peer credentials (`LOCAL_PEERPID`, `LOCAL_PEERCRED`); `AgentToolServer` prefers the kernel's pid ancestry. Not done: `cwd`, `folderDeclared` and `cwdTrusted` (defaults to true) still come from the request, and `by_user` is still a boolean the agent supplies (`ControlAgentTools`); no native confirmation exists (`DEC-009` records that none is wanted).
+
 ### AR-41 Platform posture (medium, S-M)
 
 Sandbox off (by design). Hardened runtime is applied only by `release.sh`, not in `project.yml`. App Transport Security allows arbitrary loads (`Info.plist:212`); scope it to web content. Approved deployment and remote commands run as one string through a shell (`DeploymentExecutor.swift:153`, `RemoteCommand.swift:28`): this is the documented exception, and its safety rests on the approval UI and on regex blocklists that cannot be complete. Full-permission flags are passed to all five agents (`AIAssistants.swift:72-76`; S4). Other editor settings: `img-src` allows any `https:` image (remote tracking), and navigation policy allows every `.other` navigation.
+
+Status (2026-11-15): partial. `NSAllowsArbitraryLoads` is `false` in `Info.plist` (done; `NSAllowsArbitraryLoadsInWebContent` remains). Not done: the hardened runtime is still applied only by `release.sh` (`codesign --options runtime`), and `ENABLE_HARDENED_RUNTIME` appears 0 times in `project.pbxproj`. Not re-checked: the shell-string deployment and remote commands (`DeploymentExecutor`, `RemoteCommand`, the documented exception), the navigation policy, and `img-src` (the editor CSP allows `https:` images).
 
 ## 10. Concurrency and performance
 
@@ -389,11 +463,15 @@ Sandbox off (by design). Hardened runtime is applied only by `release.sh`, not i
 
 Worst paths by reading, not profiled: all SQL (AR-37); the 2 s timer that stats every open tab and re-reads changed files in full (`WorkspaceManager.swift:5455-5483`); `hasMarkdownFiles` walking the tree during menu rendering (`:931`, from `ContentView.swift:1181`); a full workspace enumeration inside `ForEach` in a view body (`GraphCreatorSheet.swift:49, 125-129`); a full-tree enumeration as a lookup fallback (`TOCView.swift:209`); `FeatureStore.reloadSync` falling back to a full load after writes (`:277-286`); `excludeFolder` deleting per file in SQL (`WorkspaceManager.swift:965`); single-file indexing on main (`:2218-2248`, `:3833`); whole-file reads in the main-actor `GraphRAG` (`:160, 251, 589`); `debugLog` opening and closing a file on every call (`:726-736`, 41 call sites).
 
+Status (2026-11-15): partial, by reading; nothing was profiled. Done: all SQL is off the main thread (AR-37); `hasMarkdownFiles` is a stored flag set by a background walk (`WorkspaceFileTreeStore`); directory walks in `Views/` 2 -> 0; `waitUntilExit` 11 -> 0; the 2 s open-files poll is a `PollingScheduler` job reading through `BackgroundFileScans`. Not re-checked: how much of that poll still runs on the main thread, and the `ForEach` enumeration and lookup fallback named in `GraphCreatorSheet` and `TOCView`.
+
 ### AR-43 Concurrency checking is at the language default (medium, L)
 
 `SWIFT_VERSION` is 5.9 with no `SWIFT_STRICT_CONCURRENCY`, so checking is minimal. Counts: 32 `@unchecked Sendable` classes guarded by about 35 lock or queue sites, 4 `nonisolated(unsafe)` (on mutable statics in `DeploymentExecutor.swift:161`, `UIStudioServer.swift:156, 250`), about 30 mutable statics, 10 actors. Three observable objects lack `@MainActor` (`FileNode.swift:17`, `WindowUIState.swift:68`, `TabBarView.swift:267`). `DeploymentExecutor.swift:101` writes a flag from another thread without its lock. Three sleep polls block worker threads.
 
 Path: set `targeted` per module as each becomes a package and fix warnings there; convert lock-plus-unchecked services to actors (AR-25 and AR-26 remove most of them); then `complete`.
+
+Status (2026-11-15): partial. `SWIFT_STRICT_CONCURRENCY = targeted` is set in both app configurations (0 before) and `Packages/MarkViewCore` is built with the `StrictConcurrency` feature. `@unchecked Sendable` 33 -> 34 and `nonisolated(unsafe)` 8 -> 6 sites, 40 in all, each with a one-line justification (lint `unchecked-sendable`: exit 0). The build-warning ratchet `tools/lint/build-warnings.sh` runs in CI against an empty allow-list; the branch's commit messages say app-target warnings fell from 105 to 0, but no build was run in this pass, so the warning count is unverified (189 distinct at 6.26.2). Not done: `complete` checking for the app target.
 
 ## 11. Tests, CI, build, repository
 
@@ -413,17 +491,23 @@ Path that keeps everything running meanwhile:
 3. Port each script's main to a test case in its package and delete the script. One `TestSupport` target with one fake per protocol replaces the stubs.
 4. An app-hosted test target for the GUI and WebKit suites. Live assistant scripts stay manual.
 
+Status (2026-11-15): partial. Step 1 done: `tools/tests/manifest.json` lists 211 suites (136 `pure`, 70 `gui`, 5 `live`) and `tools/tests/run.sh` has `--tier`, `--changed`, `--all` and `--list`, with per-suite time limits and group kill (FU-27); CI runs `--tier pure`. Step 2 started: `Packages/MarkViewCore` has 1 test target (7 files, 83 test functions) and 12 source files. Not done: steps 3 and 4 (no app-hosted test target: the project has 1 product type, the application), and the stubs, the per-file `check(...)` helpers and the coverage gap were not re-counted. FU-28: the 500-line `tasks/todo.md` check and the 21 + 19 folder-name pins are no longer in `Phase7WebCITests.swift` and `Phase1CleanupTests.swift` (0 matches).
+
 ### AR-45 CI repeats cold builds and never cancels (high, M)
 
 Three suite workflows trigger on any `MarkView/**` change; six end with their own uncached Debug build; only `build-release.yml` uses a cache and it does not run on pull requests. One commit triggered up to 10 workflows. No workflow has a concurrency group (0 of 14), so superseded pushes keep running. Suites are duplicated between workflows (`window-session-tests`, `bug-validity-tests`).
 
 Fix: one `ci.yml`: a job that selects suites from the manifest of AR-44, one cached build, one macOS job running the selected suites, the Go and relay jobs kept separate, and `concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }`. At most three jobs per push.
 
+Status (2026-11-15): partial. 5 workflows (the review: 14), each with a `concurrency:` group (0 of 14); `ci.yml` has 2 jobs, runs `./tools/tests/run.sh --tier pure`, restores a DerivedData cache, feeds the build-warnings ratchet, and cancels superseded runs (`cancel-in-progress: true`). Not measured: jobs per push (4 of the 5 workflows also trigger on pull requests, 3 of them behind path filters), against the target of at most 3.
+
 ### AR-46 `project.yml` is declared the source of truth but the project file is edited by hand (high, M)
 
 `CLAUDE.md` and `setup.sh` (`xcodegen generate`) say one thing; `tasks/lessons.md` says not to run XcodeGen here because it rewrote every identifier, and records a hand edit that corrupted the file. New files are added to `project.pbxproj` in four places by hand (as 6.25.0 did). Both currently agree on sources.
 
 Decide one way: generate the project in CI and `release.sh` and stop committing it, or drop XcodeGen and delete `setup.sh`. Packages shrink the problem either way.
+
+Status (2026-11-15): done. `project.yml` and `setup.sh` are absent (0 of 2); `project.yml` is named by no script or workflow (the remaining text matches are file names that scanners recognise and records of its removal); `MarkView.xcodeproj` is authoritative per `CLAUDE.md`; `bump-version.sh` fails when its edit does not match both configurations. New Swift files still need hand-made `project.pbxproj` entries; the `target-membership` lint checks them.
 
 ### AR-47 Build phases and scripts (medium, S-M)
 
@@ -433,9 +517,13 @@ Decide one way: generate the project in CI and `release.sh` and stop committing 
 - No compiler or lint policy: no warnings-as-errors, no SwiftLint or SwiftFormat, no `.editorconfig`.
 - `vendor/MANIFEST.txt` lists none of the newer bundles and still says `html: false`. The DMG bundles PostgreSQL 16, the Temporal server and embedded-postgres with no third-party notices file.
 
+Status (2026-11-15): partial. Done: `install.sh`, `setup.sh` and `tools/importance-check.sh` are absent (0 of 3); `bump-version.sh` verifies its edits; `THIRD_PARTY_NOTICES.md` exists and `vendor/MANIFEST.txt` now says that markdown-it runs with `html: true` and that the rendered HTML is sanitised (it no longer says `html: false`); `.editorconfig` exists; the Cockpit runtime build phase declares input paths. Not done: no SwiftLint or SwiftFormat (0 files) and no warnings-as-errors (`SWIFT_TREAT_WARNINGS_AS_ERRORS` 0 matches; the warning ratchet replaces it). Not verified without a build: that the editor assets ship once and that the Cockpit phase is skipped when its inputs are unchanged.
+
 ### AR-48 Dead code and clutter (low, S)
 
 `EmbeddingClient` is still constructed (`WorkspaceManager.swift:462`); `IncrementalCompiler`, `DependencyGraphScheduler` and a two-line `SemanticModel.swift` remain; the dead bridge code of AR-28. At the top level: `QUICKSTART.md` and `EDITOR_IMPLEMENTATION.md` (stale), `EditorWeb/`, a 3.5 MB presentation PDF, `work/` (123 tracked spec files), ad-hoc `TestFiles/`, an empty `lsd/`. Locally: 3.4 GB in `build/` with 12 old installers, 13 worktrees, 48 local and 35 remote branches almost all merged.
+
+Status (2026-11-15): partial. Absent: `EditorWeb/`, `QUICKSTART.md`, `EDITOR_IMPLEMENTATION.md`, `work/`, `lsd/`, `IncrementalCompiler`, `SemanticModel` and `DependencyGraphScheduler` (0 references in `MarkView/`). Remaining: `EmbeddingClient` (2 files use its key helpers, `DDESettingsView` among them), `TestFiles/` (11 tracked files) and `MarkView-Presentation.pdf` (3.65 MB) with `MarkView-Presentation.html`. The local `build/` folder, worktrees and branches are not part of the repository and were not counted.
 
 ### AR-49 Documentation drift (medium, M)
 
@@ -443,29 +531,31 @@ Decide one way: generate the project in CI and `release.sh` and stop committing 
 
 Fix: cite symbols, not lines; stamp each architecture document with the commit it was checked against; rotate `todo.md` by month into `tasks/archive/`; distil lessons into a short rule list by topic; reconcile `CLAUDE.md` with practice.
 
+Status (2026-11-15): partial. Done: `CLAUDE.md` is reconciled with the code (Repository Map, the `Packages/MarkViewCore` list including `TaskBag` and `PollingScheduler`, a How to Add section, no XcodeGen or `EditorWeb`); the 21 files of `docs/architecture/` were rewritten against `ac3001ba` and each says which commit it was checked against, with no line numbers in its citations (stale-reference counts in `architecture-review-2026-11-followup.md` section 13); `tasks/todo.md` is 250 lines (5,961) with the month in `tasks/archive/todo-archive-2026-11.md`. Not done: `tasks/lessons.md` is 2,036 lines (2,024) and was not distilled; the agent memory that contradicts `CLAUDE.md` is outside the repository and was not checked.
+
 ## 12. Roadmap
 
 Each phase leaves the app shippable. Phases 0 and 1 are low risk and mostly independent; the later ones change architecture and need approval per the project rules.
 
-The status line of each phase was corrected on 2026-11-15 to match the code at 6.26.2 (see section 14). A phase is called done only when the counts of its findings reached their targets.
+The status line of each phase was corrected on 2026-11-15 to match the code at 6.26.2 and again, after Step E, to match the merge of `feat/architecture-review-finish` at `ac3001ba` (see section 14 and each finding's `Status` line). A phase is called done only when the counts of its findings reached their targets; none of the eight phases is called done below.
 
-**Phase 0: safety and correctness (days) — [Partial: 10 of 13 findings fixed; AR-01, AR-02, AR-04 open].** Fixed and checked by behaviour tests (`tools/tests/phase0-safety-tests.sh`): AR-03 and AR-05..AR-13 (6.26.1 and 6.26.2; AR-12 with FU-09 still unchecked against the real Quick Action). Open, in progress (feat/architecture-review-finish): AR-01 (the sanitiser shipped, but FU-20: Mermaid diagrams lose their stylesheet, plus FU-24 and FU-25), AR-02 (sandbox and nonce shipped; FU-10 never run live, FU-26), AR-04 (`JS.call` has 6 call sites, 57 `evaluateJavaScript` calls in 8 files remain).
+**Phase 0: safety and correctness (days) — [Partial: 12 of 13 findings done, AR-04 partial; FU-09 and FU-10 not checked live].** Done: AR-01 (editor page and Mermaid; the exported Insight HTML keeps `'unsafe-inline'`, FU-25), AR-02 (`allow-same-origin` 0 times outside comments and vendored code; never run live, FU-10), AR-03 and AR-05..AR-13 (6.26.1 and 6.26.2, `tools/tests/phase0-safety-tests.sh`; AR-12 with FU-09 still unchecked against the real Quick Action). Partial: AR-04 (`JS.call`/`JS.sequence` 6 -> 39 sites, `evaluateJavaScript` 57 -> 27; the `js-interpolation` lint bans string-built scripts and passes). FU-20 (Mermaid stylesheet) is rebuilt by `sanitizeScopedStylesheet` in the code; not rendered in this pass.
 
-**Phase 1: remove what misleads (days) — [Partial: AR-30 and AR-46 fixed; AR-22, AR-44, AR-47, AR-48 partial].** Fixed: `EditorWeb/` deleted (AR-30), `project.yml`/`setup.sh` removed and `publish-release.yml`/`README.md` fixed (AR-46), the test runner and manifest (AR-44 step 1, 105 pure suites passed at 6.26.2). Partial: AR-22 (`TOCView.Tab` replaced; 31 `NSAlert` references remain in 6 `Models/` files), AR-44 (no pure code moved to a tested package; FU-28: two phase suites are structural rules, not behaviour), AR-47 (20 `.go` inputs declared; no lint, no warnings-as-errors), AR-48 (`work/` removed; `TestFiles/` and `MarkView-Presentation.pdf` still tracked). Open parts: in progress (feat/architecture-review-finish).
+**Phase 1: remove what misleads (days) — [Partial: AR-30 and AR-46 done; AR-22, AR-44, AR-47, AR-48 partial].** Done: `EditorWeb/` and its documents deleted (AR-30); `project.yml`, `setup.sh` and `install.sh` removed, `publish-release.yml` and `README.md` fixed (AR-46). Partial: AR-22 (`NSAlert` references in `Models/` 31 in 6 files -> 25 in 11 files; `FileManager` in `Views/` 31 -> 25), AR-44 (211 suites in the manifest, `run.sh` with tiers and `--changed`; no app-hosted test target, stubs and coverage gap not re-counted), AR-47 (no SwiftLint or warnings-as-errors; the warning ratchet exists), AR-48 (`TestFiles/` 11 files, `MarkView-Presentation.pdf` and `EmbeddingClient` remain).
 
-**Phase 2: shared infrastructure, `Core` (2-3 weeks) — [Partial: package linked, helpers have one caller each; AR-18, AR-24, AR-25, AR-27 open].** `Packages/MarkViewCore` (`Subprocess`, `AtomicFile`, `ProjectPaths`, `WeakScriptMessageHandler`) is linked into `MarkView` and the duplicate `MarkView/Core/` is removed (AR-44 step 2, `DEC-006`, `FU-04`). Counts: `Process()` outside `Subprocess` 17 in 15 files (`Subprocess.run` has 1 caller; FU-22: its process-group kill never runs); `AtomicFile.write` 3 uses; `WKWebViewConfiguration()` 10 creations; the `UserDefaults` key registry (AR-18) was deleted unused. Status of the open call-site migrations (AR-18, AR-24, AR-25, AR-27): in progress (feat/architecture-review-finish).
+**Phase 2: shared infrastructure, `Core` (2-3 weeks) — [Partial: AR-25 done; AR-18, AR-24, AR-27 partial].** `Packages/MarkViewCore` (12 source files: `AppLog`, `JS`, `PollingScheduler`, `PrivateSocket`, `Settings`, `SQLiteSchema`, `Subprocess`, `TaskBag`, `WebHost`, `CoreFiles`) is linked into `MarkView`. Counts against 6.26.2: `Process()` outside `Subprocess` 17 in 15 files -> 0 (AR-25 done); `WKWebViewConfiguration(` 10 -> 0 (the Swift half of AR-27); `.write(to:` 112 -> 35, `NSLog` 124 -> 0, `".dde"` literals 57 -> 0 (AR-24); direct `UserDefaults.standard` 82 -> 0 (AR-18). Open: AR-24 (`FileManager.default` 454, `try?` in `Models/` 1,087, no shared watcher or JSON codec), AR-27 (web half: `innerHTML =` 80, empty `catch {}` 57), AR-18 (statics and test knobs not re-counted).
 
-**Phase 3: extension points (2-3 weeks) — [Partial: AR-31 first step only; AR-32, AR-33, AR-34 not delivered].** `ToolRegistry` was rebuilt from the app's exact values (`FU-02`) and drives only the primary toolbar buttons and the 8 sentinel tab URLs; about 7 lists must still be edited to add a tool (target 1). The unused `ThemeRegistry`, `LayoutPreset`, `BackdropRegistry`, `MCPToolRegistry` and `FileTypeRegistry` scaffolding was deleted (`FU-01`, `FU-08`, `FU-12`); themes as data, layout presets with UI and the backdrop registry do not exist. Status of AR-31 to AR-34: in progress (feat/architecture-review-finish).
+**Phase 3: extension points (2-3 weeks) — [Partial: AR-32, AR-33, AR-34 done; AR-31 partial].** Themes are 11 JSON files read by `ThemeCatalog` with a user folder (AR-32); layout presets are 4 JSON files read by `LayoutCatalog`, switched manually (AR-33); backdrops register through `BackdropRegistry` (17 descriptors, AR-34). `ToolRegistry` generates the toolbar, View menu, Welcome tiles, tab titles and session restore: places to edit for a new tool about 7 -> 2 (target 1; AR-31 partial).
 
-**Phase 4: shell decomposition (4-6 weeks, incremental) — [Partial: AR-14 step 1 only; the coordinators were deleted].** Real code: `MarkdownDocumentChunker` (AR-14 step 1), `TaskBag` (1 use) and `DocumentScrollSideTable` (with `FU-11`). The `WorkspaceModalCoordinator`, `WorkspaceSemanticCoordinator`, `WorkspaceChromeCoordinator`, `WindowDependencies`, `WindowTaskScheduler` and the three provider protocols were deleted in 6.26.1 because nothing called them, so AR-14 steps 2–11, AR-17 and AR-19 have no code. `WorkspaceManager.swift` is 5747 lines (review: 5851; target under 1000), 62 views take the whole manager (target 0). AR-15 partial; AR-16 not started (`ArchitectureStore.swift` 4512 lines, `UIStudioSession.swift` 3766). Status of AR-14, AR-16, AR-17, AR-19: in progress (feat/architecture-review-finish).
+**Phase 4: shell decomposition (4-6 weeks, incremental) — [Partial: AR-14, AR-15, AR-16, AR-17, AR-19 partial].** All 11 decomposition types of AR-14 exist; `WorkspaceManager.swift` is 730 lines (5,747 at 6.26.2; target under 1,000: met) and 56 views still take the whole manager (62; target 0). AR-15: one forwarded signal instead of four sources, not profiled. AR-16: `ArchitectureStore.swift` 4,512 -> 1,889 lines, `UIStudioSession.swift` 3,766 -> 1,958; `FeatureAI.swift` 1,852 and five views above 1,300 lines unchanged. AR-17: `WindowComposition` exists; 33 closure hooks and 4 back-references remain behind ratchets. AR-19: unowned tasks 263 in 70 files (391 in 87), `Timer` 0, `asyncAfter` 21 all justified (`tools/lint/task-ownership.sh`).
 
-**Phase 5: AI layer (3-4 weeks, feature by feature) — [Partial: one `AIOperation` call site; AR-35 first step only].** `AIOperation` has 1 call site, `ArchitectureStore.xrayCall` (X-Ray and the book annotation requests built by `BookAnnotator` run through it; `BookAnnotator` itself is not a caller, and `BookPDFAssistant` and `BookPDFExportModel` call `CLICompletion.run` directly). `CLICompletion.run` outside `AIOperation`: 55 calls in 28 files (target 0). `AssistantProviderRegistry` drives 9 `CLITool` properties; about 28 assistant switches in 13 files remain (counts at 6.26.0). Status of AR-26 and AR-35: in progress (feat/architecture-review-finish).
+**Phase 5: AI layer (3-4 weeks, feature by feature) — [Counts reached: AR-26 and AR-35].** `CLICompletion.run` outside `AIOperation`: 55 calls in 28 files -> 0 (lint `clicompletion`); `AIOperation` is referenced from 37 files; assistant switches over a literal provider outside `Models/AI/Providers/`: about 28 in 13 files -> 0 (lint `assistant-switch`), with 5 providers in `AssistantProviders.list`. Not re-measured: the validate-and-ask-again loops and salvage parsers the finding says to delete (a rough grep finds 5 hand-written salvage sites, 7 at 6.26.2), and usage recording at every call site.
 
-**Phase 6: storage and concurrency (3-4 weeks) — [Partial: `SchemaVersionedStore` has 1 user; AR-37, AR-38 not started; AR-40 browser socket only].** `SchemaVersionedStore` (`FU-04` fixed) is used by `WindowSessionStorage` only (AR-36, AR-39: 23 files still hand-roll JSON stores). The browser control socket has a per-socket token and a kernel peer check (`AR-40`, `FU-03`, `DEC-009`); the Cockpit and Remote sockets have neither. `SWIFT_STRICT_CONCURRENCY = targeted` is on (`AR-43`, `DEC-010`; the 6.26.2 build had 189 distinct warnings). The unused `SemanticDatabaseExecutor` was deleted (`FU-01`); `SemanticDatabase` is still `@MainActor` (AR-37) and still deletes the database on a schema mismatch (AR-38). Status of the open parts: in progress (feat/architecture-review-finish).
+**Phase 6: storage and concurrency (3-4 weeks) — [Partial: AR-37 and AR-38 done; AR-36, AR-39, AR-40, AR-42, AR-43 partial].** `SemanticDatabase` is an `actor` with an ordered migration list (AR-37, AR-38; by reading). `SchemaVersionedStore` users 1 -> 14 files (AR-36, AR-39 partial; file locking is still in one file). The browser control, Cockpit and Remote sockets all use `PrivateSocket` (token plus kernel peer check); `by_user`, `cwd` and `cwdTrusted` still come from the request (AR-40 partial). `SWIFT_STRICT_CONCURRENCY = targeted` is on, 40 `@unchecked Sendable` and `nonisolated(unsafe)` sites are each justified (lint `unchecked-sendable`: exit 0), and the build-warning ratchet runs in CI against an empty allow-list; the warning count was not measured in this pass (189 distinct at 6.26.2) (AR-43 partial; `complete` checking is not on for the app target).
 
-**Phase 7: web modernisation (4-6 weeks, incremental) — [Partial: sanitisers and strict CSP shipped with one regression; AR-28 and AR-29 not delivered].** `mv-kit.js` (`mvKit.sanitizeHtml`, `mvKit.sanitizeMermaidSvg`, called from 7 scripts) and a fail-closed DOMPurify path, plus the external `terminal.html` script with a nonce and strict CSP, shipped in 6.26.0 to 6.26.2 (`tools/tests/phase0-safety-tests.sh`, `tools/tests/phase7-web-ci-tests.sh`). FU-20: `mvKit.sanitizeMermaidSvg` strips Mermaid's `<style>`, so diagrams lose their stylesheet. AR-28: there is no typed bridge; Swift still switches on string types and only `markview-bridge.js` uses `mvBridge`. AR-29: no file was split (3628, 2998 and 2845 lines) and there is no module bundling. Status of FU-20 and of AR-28 and AR-29: in progress (feat/architecture-review-finish).
+**Phase 7: web modernisation (4-6 weeks, incremental) — [Partial: AR-28 done; AR-29 partial].** AR-28: `bridge-contract.json` declares 37 messages in 3 channels, `TypedWebBridge` refuses unknown, malformed and non-top-frame messages, and string `case` labels in `WebViewBridge` went 29 -> 0. AR-29: JS files over 2,800 lines 3 -> 0 (largest 1,322), but no module system or bundle (63 `<script>` tags), no `tsc --checkJs` or ESLint in CI. The sanitisers and strict CSP of 6.26.0 to 6.26.2 stand; FU-20 is addressed in `mv-kit.js` by reading.
 
-**Continuous — [Partial: CI, todo rotation, folder move and grab-bag splits done; AR-20 layers, AR-21, AR-29 and AR-49 open].** Done: CI consolidated into `.github/workflows/ci.yml` running `./tools/tests/run.sh --tier pure` with DerivedData caching (`FU-05`, `AR-45`, `DEC-008`; two `gui` suites are still hard-coded); `tasks/todo.md` rotated into `tasks/archive/todo-archive-2026-11.md`; Architecture & Refactoring Rules in `CLAUDE.md`; the three grab-bag files split (`AR-23`); `MarkView/Models/` (21 folders) and `MarkView/Views/` (19 folders) with no loose files and the first-party scripts moved from `vendor/js/` to `Resources/Editor/js/` (folders only: no layer or dependency boundary, 28 mutual pairs between `Models/` folders; this is not AR-20 and not AR-29); stale `work/` removed (`AR-48`); 20 `.go` inputs declared in the Cockpit runtime build phase (`AR-47`). Open: AR-20 layers and a dependency lint, AR-21 cross-domain decoupling, AR-49 (path references in the documents were corrected on 2026-11-15, but the architecture documents still cite `file:line` and are not stamped with the commit they were checked against). Status of the open parts: in progress (feat/architecture-review-finish).
+**Continuous — [Partial: CI, todo rotation, folder move, grab-bag splits and the architecture lint done; AR-20 layers, AR-21, AR-23, AR-44, AR-49 partial].** Done: CI in `.github/workflows/ci.yml` runs `./tools/tests/run.sh --tier pure` and `tools/lint/architecture-lint.sh` with a cancelling concurrency group and a DerivedData cache (`FU-05`, `AR-45`, `DEC-008`); `tasks/todo.md` rotated into `tasks/archive/todo-archive-2026-11.md` (250 lines now); Architecture & Refactoring Rules and a How to Add section in `CLAUDE.md`; the three grab-bag files split (`AR-23`); `MarkView/Models/` (21 folders) and `MarkView/Views/` (19 folders) with no loose files and the first-party scripts in `Resources/Editor/js/`. Open: AR-20 (22 `Models/` domain pairs still in cycles, the `domain-cycles` ratchet holds 104 type references in 29 pairs; no layer rule), AR-21, AR-49 (`tasks/lessons.md` 2,036 lines, not distilled).
 
 The ten changes with the best return for their cost:
 
@@ -484,7 +574,7 @@ The ten changes with the best return for their cost:
 
 All owner decisions were recorded in `docs/features/architecture-review-2026-11/decisions/DEC-001..DEC-011.md`:
 
-- **Scope:** the first implementation of Phases 0–7 and Continuous shipped in 6.26.0; follow-up Steps A–D (`architecture-review-2026-11-followup.md`) were delivered in 6.26.1 and 6.26.2 per `DEC-011`. The multi-caller Step E migrations are in progress (feat/architecture-review-finish); by an owner decision of 2026-11-15 they ship as one pull request with one commit per finding (`REQ-001`..`REQ-008`, GitHub issue `#414`).
+- **Scope:** the first implementation of Phases 0–7 and Continuous shipped in 6.26.0; follow-up Steps A–D (`architecture-review-2026-11-followup.md`) were delivered in 6.26.1 and 6.26.2 per `DEC-011`. The multi-caller Step E migrations were carried out on the branch `feat/architecture-review-finish` (151 commits after 6.26.2, merges included; 105 of them have an `AR-` or `FU-` id in the subject), by an owner decision of 2026-11-15 as one pull request with one commit per finding step (`REQ-001`..`REQ-008`, GitHub issue `#414`). Their measured result is in each finding's `Status` line and in section 14; whether the branch is merged into `main` is not recorded here.
 1. **Plugins (`DEC-001`, Accepted):** Accept "registries and data files, no loadable plugins" (section 7).
 2. **Layout presets (`DEC-002`, Accepted):** Ship `Writing`, `Review`, `QA`, and `Cockpit` layout presets triggered only by explicit user choice, with no automatic triggers (preserving per-window layout state).
 3. **User themes (`DEC-003`, Accepted):** Allow user theme JSON files in `~/Library/Application Support/MarkView/themes/` and derive web CSS tokens automatically when a theme specifies only native colours.
@@ -495,7 +585,7 @@ All owner decisions were recorded in `docs/features/architecture-review-2026-11/
 8. **CI (`DEC-008`, Accepted):** Consolidate CI checks into a unified `ci.yml` workflow with build caching, `./tools/tests/run.sh --tier pure`, and `concurrency: { group: ..., cancel-in-progress: true }` (AR-45).
 9. **Control socket (`DEC-009`, Accepted/Updated):** Require per-instance/per-window cryptographic token authentication (mode `0600`) plus kernel peer UID/PID checks on the control socket without a separate socket-level `by_user` confirmation gate (AR-40, `DEC-011`).
 10. **Strict concurrency and lint (`DEC-010`, Accepted):** Adopt `targeted` strict concurrency checking and formatting configuration per package/target (AR-43, AR-47).
-11. **Follow-up Scope, `MarkViewCore` Linking & Unused Code (`DEC-011`, Accepted):** Complete Steps A–D from `architecture-review-2026-11-followup.md` (link `Packages/MarkViewCore`, delete duplicate `MarkView/Core/`, adopt fixed `Subprocess`/`AIOperation`/`SchemaVersionedStore`/`ToolRegistry` in first callers, close security/CI/doc follow-ups `FU-01`..`FU-13`, add Section 6 rules to `CLAUDE.md`) and execute the remaining Step E multi-caller migrations. Step E is in progress (feat/architecture-review-finish); for that work the owner replaced the separate per-finding pull requests by one pull request with one commit per finding (2026-11-15).
+11. **Follow-up Scope, `MarkViewCore` Linking & Unused Code (`DEC-011`, Accepted):** Complete Steps A–D from `architecture-review-2026-11-followup.md` (link `Packages/MarkViewCore`, delete duplicate `MarkView/Core/`, adopt fixed `Subprocess`/`AIOperation`/`SchemaVersionedStore`/`ToolRegistry` in first callers, close security/CI/doc follow-ups `FU-01`..`FU-13`, add Section 6 rules to `CLAUDE.md`) and execute the remaining Step E multi-caller migrations. Step E was carried out on `feat/architecture-review-finish` with the counts in section 14; for that work the owner replaced the separate per-finding pull requests by one pull request with one commit per finding step (2026-11-15). The decision stays Accepted; its criteria are ticked in `REQ-001`..`REQ-008` only where a count or a lint proves them.
 
 ## 14. Status after the follow-up rounds
 
@@ -507,4 +597,4 @@ Dated 2026-11-15. The findings above are the review as written at 6.25.0; only t
 
 In short: the edges were cleaned and the files were put in folders, and none of the roadmap counts (`Process()` outside `Subprocess`, `CLICompletion.run` outside `AIOperation`, `WorkspaceManager.swift` lines, views taking the whole manager, `SchemaVersionedStore` users, SQLite on the main actor, lists to edit for a new tool, JS files over 2800 lines) had reached its target at 6.26.2. The phase status lines in section 12, `REQ-001`..`REQ-008`, `DEC-011` and the feature overview were corrected to say so.
 
-Step E is in progress on the branch feat/architecture-review-finish. Rules for the status lines from here on: a finding is marked done only by whoever ran its count, with the count (Rule 5 in `CLAUDE.md`); `verified` stays with the owner (Rule 6).
+Step E was carried out on the branch feat/architecture-review-finish. Its result, measured on 2026-11-15 at the merge tip `ac3001ba` (base 6.26.2, `6facd9f`): `Process()` outside `Subprocess` 17 -> 0; `CLICompletion.run` outside `AIOperation` 55 -> 0; `WorkspaceManager.swift` 5,747 -> 730 lines; views taking the whole manager 62 -> 56; `SchemaVersionedStore` users 1 -> 14 files; SQLite on the main actor: `SemanticDatabase` is now an `actor`; places to edit for a new tool about 7 -> 2; JS files over 2,800 lines 3 -> 0; unowned tasks 391 in 87 files -> 263 in 70; `NSLog` 124 -> 0; `.write(to:` 112 -> 35. Not at target: views taking the whole manager (56), places to edit for a new tool (2, target 1), the dependency cycles between `Models/` folders (22 pairs), the unowned tasks (263), the `.write(to:` sites (35), `evaluateJavaScript` sites (27), and several findings with open parts (see the `Status` lines of AR-04, AR-14 to AR-24, AR-27, AR-29, AR-36, AR-39 to AR-45, AR-47 to AR-49). The full table and the recommended order are in [`architecture-review-2026-11-followup.md`](architecture-review-2026-11-followup.md) section 13. Rules for the status lines from here on: a finding is marked done only by whoever ran its count, with the count (Rule 5 in `CLAUDE.md`); `verified` stays with the owner (Rule 6).

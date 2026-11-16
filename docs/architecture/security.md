@@ -1,6 +1,8 @@
 # Security Model
 
-MarkView runs **without the App Sandbox**, with ATS arbitrary loads allowed. It can read any file
+Status (2026-11-15): every path and symbol in this doc was looked up mechanically in the code at `ac3001ba`; line citations were removed (they drift). The ATS statement and the editor and Insight rows were checked against the code and `Info.plist`; the other rows keep the text of the 6.26.x review and were not re-read.
+
+MarkView runs **without the App Sandbox**. App Transport Security is on for the native process (`NSAllowsArbitraryLoads` is false); only web content and local networking are exempt (AR-41). It can read any file
 the user can read and can launch any binary. Its protections come from validation at each trust
 boundary. This page lists those boundaries, what is enforced, and the known gaps. Severity
 ordering and fix status are in [risks-and-tech-debt](./risks-and-tech-debt.md).
