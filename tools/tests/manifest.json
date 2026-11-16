@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 224,
+  "suiteCount": 223,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -345,18 +345,6 @@
         "MarkView/Models/Browser/BrowserElementPick.swift",
         "tools/tests/BrowserElementPickTests.swift",
         "tools/tests/browser-element-pick-tests.sh"
-      ]
-    },
-    {
-      "name": "browser-frame-tests",
-      "script": "tools/tests/browser-frame-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Browser/BrowserAddress.swift",
-        "MarkView/Models/Browser/BrowserAgentExecutor.swift",
-        "MarkView/Views/QA/QAWebWindow.swift",
-        "tools/tests/BrowserFrameChecks.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift"
       ]
     },
     {
@@ -3102,7 +3090,8 @@
         "MarkView/Models/Workspace/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
         "MarkView/Views/Book/PDFReaderView.swift",
-        "MarkViewHostedTests/PDFReaderHostTests.swift"
+        "MarkViewHostedTests/PDFReaderHostTests.swift",
+        "MarkViewHostedTests/BrowserFrameHostTests.swift"
       ]
     },
     {

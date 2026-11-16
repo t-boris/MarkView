@@ -1,42 +1,11 @@
 import AppKit
-import WebKit
 import Network
+import WebKit
+import XCTest
+import MarkViewCore
+@testable import MarkView
 
-// Only the workspace host is replaced. The shipping executor, frame registry,
-// scripts, WebKit, native mouse events and native text input are exercised.
-enum BrowserAgentTools {
-    struct Reply {
-        var text: String
-        var isError = false
-        var pngBase64: String?
-        static func error(_ text: String) -> Reply { Reply(text: text, isError: true) }
-    }
-}
-@MainActor final class BrowserSession: NSObject, WKNavigationDelegate {
-    let agentFrames = BrowserAgentExecutor.Frames()
-    var agentControlled = false
-    var agentDialogs: [String] = []
-    var agentName = "Fixture"
-    var loadError: String?
-    let webView: WKWebView
-    let window: NSWindow
-    var url: URL? { webView.url }
-    override init() {
-        let config = WebHost.makeConfiguration(dataStore: .nonPersistent, handlers: [agentFrames.webHostHandler], userScripts: [agentFrames.webHostScript])
-        webView = WebHost.makeWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800), configuration: config)
-        window = QAWebWindow(contentRect: NSRect(x: -30000, y: -30000, width: 1280, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
-        super.init()
-        webView.navigationDelegate = self
-        window.isReleasedWhenClosed = false
-        window.contentView = webView
-        window.orderBack(nil)
-    }
-    func load(_ url: URL) { webView.load(URLRequest(url: url)) }
-    func reload() { webView.reload() }
-    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) { agentFrames.reset() }
-    func close() { webView.stopLoading(); window.contentView = nil; window.close() }
-}
-final class FrameServer: @unchecked Sendable {
+private final class FrameServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "frame-fixture")
     private let lock = NSLock()
     private var listener: NWListener?
@@ -65,13 +34,11 @@ final class FrameServer: @unchecked Sendable {
         }
     }
 }
-@main enum BrowserFrameChecks {
-    @MainActor static func main() async throws {
-        _ = NSApplication.shared
-        NSApplication.shared.setActivationPolicy(.accessory)
-        setvbuf(stdout, nil, _IONBF, 0)
+final class BrowserFrameHostTests: XCTestCase {
+    @MainActor func testCrossOriginFrames() async throws {
         var failures = 0
-        func check(_ passed: Bool, _ name: String) { print(passed ? "PASS" : "FAIL", name); if !passed { failures += 1 } }
+        var checks = 0
+        func check(_ passed: Bool, _ name: String) { checks += 1; XCTAssertTrue(passed, name); if !passed { failures += 1 } }
         let root = FrameServer(), child = FrameServer(), nested = FrameServer()
         try root.start(); try child.start(); try nested.start()
         defer { root.stop(); child.stop(); nested.stop() }
@@ -95,8 +62,12 @@ final class FrameServer: @unchecked Sendable {
         <iframe title="Hidden tracker" style="display:none" src="http://127.0.0.1:\(child.port)/hidden"></iframe>
         \(intro)<h2>Late finance evidence</h2><p>Deposit 100 percent. Remaining balance zero.</p><button>Late action</button>
         """)
-        let session = BrowserSession()
-        defer { session.close() }
+        let session = BrowserSession(url: nil, dataStore: .nonPersistent(), prompts: NoPrompts())
+        let window = QAWebWindow(contentRect: NSRect(x: -30000, y: -30000, width: 1280, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = session.webView
+        window.orderBack(nil)
+        defer { session.close(); window.close() }
         session.load(URL(string: "http://127.0.0.1:\(root.port)/page")!)
         var snapshot = ""
         for _ in 0..<100 {
@@ -113,7 +84,7 @@ final class FrameServer: @unchecked Sendable {
             return String(line[line.index(after: line.startIndex)..<end])
         }
         guard let card = ref("Card number"), let cvc = ref("Security code"), let button = ref("Confirm payment fixture"), let entry = session.agentFrames.entry(for: card) else {
-            print("FAIL frame controls are missing"); exit(1)
+            XCTFail("frame controls are missing"); return
         }
         check(card.hasPrefix("f") && BrowserAgentExecutor.Frames.validRef(card), "child controls have bounded frame-scoped references")
         check(!BrowserAgentExecutor.Frames.validRef("f1:e1'];alert(1)//"), "references cannot become selector script")
@@ -145,7 +116,7 @@ final class FrameServer: @unchecked Sendable {
         _ = await BrowserAgentExecutor.run("browser_snapshot", [:], in: session)
         let stale = await BrowserAgentExecutor.run("browser_type", ["ref": card, "value": "must not reach another page"], in: session)
         check(stale.isError, "removed frame references are rejected rather than retargeted")
-        print("\(failures) failure(s)")
-        exit(failures == 0 ? 0 : 1)
+        XCTAssertEqual(failures, 0)
+        print("Browser frame hosted checks: \(checks)")
     }
 }
