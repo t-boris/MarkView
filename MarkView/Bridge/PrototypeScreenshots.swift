@@ -5,6 +5,39 @@ import WebKit
 import MarkViewCore
 #endif
 
+/// A single WebKit result with a bounded, cancellation-aware wait on the main actor.
+@MainActor
+final class PrototypeWaiter<Value: Sendable> {
+    private var continuation: CheckedContinuation<Value, Error>?
+    private var result: Result<Value, Error>?
+    private var timeout: Task<Void, Never>?
+
+    func wait(within limit: TimeInterval, timeoutMessage: String) async throws -> Value {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
+                if let result { continuation.resume(with: result); return }
+                self.continuation = continuation
+                timeout = Task { [weak self] in
+                    do { try await Task.sleep(nanoseconds: UInt64(limit * 1_000_000_000)) } catch { return }
+                    self?.finish(.failure(PrototypeScreenshots.Failure.timedOut(timeoutMessage)))
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.finish(.failure(CancellationError())) }
+        }
+    }
+
+    func finish(_ result: Result<Value, Error>) {
+        guard self.result == nil else { return }
+        self.result = result
+        timeout?.cancel()
+        timeout = nil
+        continuation?.resume(with: result)
+        continuation = nil
+    }
+}
+
 /// One screen of one saved version of a prototype from code, rendered offscreen and returned as a PNG (feature "Prototype and code stay
 /// in step", REQ-017).
 ///
@@ -149,38 +182,18 @@ final class PrototypeScreenshots {
 
     /// Answers once the page finished loading, failed, or the limit passed.
     private final class Loader: NSObject, WKNavigationDelegate {
-        private var continuation: CheckedContinuation<Void, Error>?
-        private var result: Result<Void, Error>?
+        private let waiter = PrototypeWaiter<Void>()
 
         func finished(within limit: TimeInterval) async throws {
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask { @MainActor in
-                    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                        if let result = self.result { continuation.resume(with: result) } else { self.continuation = continuation }
-                    }
-                }
-                group.addTask {
-                    try await Task.sleep(nanoseconds: UInt64(limit * 1_000_000_000))
-                    throw Failure.timedOut("the page did not finish loading")
-                }
-                defer { group.cancelAll() }
-                _ = try await group.next()
-            }
+            try await waiter.wait(within: limit, timeoutMessage: "the page did not finish loading")
         }
 
-        private func finish(_ result: Result<Void, Error>) {
-            guard self.result == nil else { return }
-            self.result = result
-            continuation?.resume(with: result)
-            continuation = nil
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finish(.success(())) }
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { waiter.finish(.success(())) }
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            finish(.failure(Failure.loadFailed(error.localizedDescription)))
+            waiter.finish(.failure(Failure.loadFailed(error.localizedDescription)))
         }
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            finish(.failure(Failure.loadFailed(error.localizedDescription)))
+            waiter.finish(.failure(Failure.loadFailed(error.localizedDescription)))
         }
     }
 }
@@ -190,18 +203,16 @@ private extension WKWebView {
     /// becomes a `Failure`.
     @MainActor
     func evaluate(_ body: String, arguments: [String: Any] = [:], limit: TimeInterval = 10) async throws -> String? {
-        try await withThrowingTaskGroup(of: String?.self) { group in
-            group.addTask { @MainActor in
-                do { return try await self.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page) as? String }
-                catch { throw PrototypeScreenshots.Failure.loadFailed(((error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String) ?? error.localizedDescription) }
+        try Task.checkCancellation()
+        let waiter = PrototypeWaiter<String?>()
+        callAsyncJavaScript(body, arguments: arguments, in: nil, in: .page) { result in
+            switch result {
+            case .success(let value): waiter.finish(.success(value as? String))
+            case .failure(let error):
+                waiter.finish(.failure(PrototypeScreenshots.Failure.loadFailed(
+                    ((error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String) ?? error.localizedDescription)))
             }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(limit * 1_000_000_000))
-                throw PrototypeScreenshots.Failure.timedOut("the page did not answer")
-            }
-            defer { group.cancelAll() }
-            guard let first = try await group.next() else { return nil }
-            return first
         }
+        return try await waiter.wait(within: limit, timeoutMessage: "the page did not answer")
     }
 }

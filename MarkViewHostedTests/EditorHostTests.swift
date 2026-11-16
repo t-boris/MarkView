@@ -15,6 +15,44 @@ private actor DraftCheckpointRecorder {
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
     @MainActor
+    func testPrototypeWaiterTimesOutAndCancels() async throws {
+        let timed = PrototypeWaiter<String?>()
+        do {
+            _ = try await timed.wait(within: 0.03, timeoutMessage: "test timeout")
+            XCTFail("An unanswered call must time out")
+        } catch let error as PrototypeScreenshots.Failure {
+            XCTAssertEqual(error, .timedOut("test timeout"))
+        }
+        timed.finish(.success("late"))
+        do {
+            _ = try await timed.wait(within: 1, timeoutMessage: "unused")
+            XCTFail("A late result must not replace the timeout")
+        } catch let error as PrototypeScreenshots.Failure {
+            XCTAssertEqual(error, .timedOut("test timeout"))
+        }
+
+        let cancelled = PrototypeWaiter<Void>()
+        let task = Task { @MainActor in try await cancelled.wait(within: 10, timeoutMessage: "unused") }
+        await Task.yield()
+        task.cancel()
+        do {
+            try await task.value
+            XCTFail("A cancelled call must stop waiting")
+        } catch is CancellationError {}
+        cancelled.finish(.success(()))
+    }
+
+    @MainActor
+    func testPrototypeScreenshotRendersLocalPage() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-screenshot-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try "<html><body><h1>Prototype</h1></body></html>".write(to: folder.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        let png = try await PrototypeScreenshots().capture(.init(site: folder, screen: nil, page: nil))
+        XCTAssertNotNil(NSImage(data: png))
+    }
+
+    @MainActor
     func testStudioPageCallCompletesOrCancelsOnce() async throws {
         let completed = StudioPageCall()
         let answer: StudioPageValue = try await withCheckedThrowingContinuation { continuation in
