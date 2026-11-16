@@ -462,6 +462,7 @@
 		EB315F16B4603811DE1E360A /* UIStudioStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4290F1912EB67F6DD7EB9033 /* UIStudioStore.swift */; };
 		EB58444FAD0EC3A066EA5D96 /* BugBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C501ACCB7ED2B026E7B473E /* BugBatch.swift */; };
 		3B9FDCCEF80CBBF1C86F4AA9 /* FeatureFlowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 696888538866AF51CA1996D3 /* FeatureFlowCoordinator.swift */; };
+		6F694A9A231D7D276A16B123 /* FeatureJobs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B4D4F594B2C36405F89A880 /* FeatureJobs.swift */; };
 		EBBC3870E229854BEDFFFEAB /* ResearchMapJobs.swift in Sources */ = {isa = PBXBuildFile; fileRef = B487E652BEE66C9746620C91 /* ResearchMapJobs.swift */; };
 		29E867D20A88583C99BDBB20 /* ResearchMapController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FE12382779BEA3E066F70AC /* ResearchMapController.swift */; };
 		EBC18992AE03BE7A9FF77909 /* WorkflowTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 713A7BA330E95450C16AA739 /* WorkflowTemplate.swift */; };
@@ -946,6 +947,7 @@
 		9C2274FA0138402D44C1B4ED /* NewProject.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProject.swift; sourceTree = "<group>"; };
 		9C501ACCB7ED2B026E7B473E /* BugBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugBatch.swift; sourceTree = "<group>"; };
 		696888538866AF51CA1996D3 /* FeatureFlowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlowCoordinator.swift; sourceTree = "<group>"; };
+		6B4D4F594B2C36405F89A880 /* FeatureJobs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureJobs.swift; sourceTree = "<group>"; };
 		9D0228F8BD26A840109C0420 /* UIStudioSession+Screens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIStudioSession+Screens.swift"; sourceTree = "<group>"; };
 		9DFB18E00AEC2AEE73280110 /* markview-mdext.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-mdext.js"; sourceTree = "<group>"; };
 		9E66DDC9C3E486A4C1201D62 /* prism-typescript.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-typescript.min.js"; sourceTree = "<group>"; };
@@ -1534,6 +1536,7 @@
 				208F3A1A41768480AD365DC2 /* BugBasket.swift */,
 				9C501ACCB7ED2B026E7B473E /* BugBatch.swift */,
 				696888538866AF51CA1996D3 /* FeatureFlowCoordinator.swift */,
+				6B4D4F594B2C36405F89A880 /* FeatureJobs.swift */,
 				4B9B7C71F9506E1F39D08A0F /* BugReportWriter.swift */,
 				FD9CDC3A061835FA482444D4 /* BugValidity.swift */,
 				386B925AB44F77CD7331E15E /* CycleTime.swift */,
@@ -2592,6 +2595,7 @@
 				FDEC1C9110BC9238829B7A22 /* BugBasketView.swift in Sources */,
 				EB58444FAD0EC3A066EA5D96 /* BugBatch.swift in Sources */,
 				3B9FDCCEF80CBBF1C86F4AA9 /* FeatureFlowCoordinator.swift in Sources */,
+				6F694A9A231D7D276A16B123 /* FeatureJobs.swift in Sources */,
 				5CAE8E69834D69CFCD886C56 /* BugReportWriter.swift in Sources */,
 				DC55330FB0996F5C23062435 /* BugValidity.swift in Sources */,
 				83B0C087FC9FE19D379FA53E /* CLICompletion.swift in Sources */,

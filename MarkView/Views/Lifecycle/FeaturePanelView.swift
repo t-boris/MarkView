@@ -7,7 +7,6 @@ struct FeaturePanelView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var store: FeatureStore
     @ObservedObject var assistant: FeatureAssistant
-    @EnvironmentObject var workspaceManager: WorkspaceManager
     @EnvironmentObject private var tabs: TabsController
     @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
     /// This window's stage (BUG-004: not shared between windows).
@@ -147,7 +146,7 @@ struct FeaturePanelView: View {
                     FlowButtons {
                         SmallButton(title: "Re-explore", icon: "sparkles", prominent: true) {
                             stage = .explore
-                            Task { await assistant.reexplore(feature.slug) }
+                            assistant.start("explore:" + feature.slug) { await $0.reexplore(feature.slug) }
                         }
                         .help("A question round about what the removed requirements and decisions settled")
                         SmallButton(title: "Dismiss") {
@@ -188,7 +187,7 @@ struct FeaturePanelView: View {
                 Button("Start over from the overview", role: .destructive) {
                     guard store.restartFeature(feature.slug) else { return }
                     stage = .explore
-                    Task { await assistant.exploreNext(feature.slug) }
+                    assistant.start("explore:" + feature.slug) { await $0.exploreNext(feature.slug) }
                 }
             } message: {
                 Text("Requirements, questions, decisions, findings, research, the plan and the discussion go to the Trash. The idea (overview) and the attached sources stay; discovery starts again.")

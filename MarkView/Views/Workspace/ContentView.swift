@@ -197,7 +197,7 @@ struct ContentView: View {
 
 extension View {
     /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, folder tree, Git,
-    /// the translation in progress): `@EnvironmentObject` for each.
+    /// the translation in progress, the feature flow): `@EnvironmentObject` for each.
     func observingParts(of workspace: WorkspaceManager) -> some View {
         environmentObject(workspace.tabs)
             .environmentObject(workspace.layout)
@@ -206,6 +206,7 @@ extension View {
             .environmentObject(workspace.project.fileTree)
             .environmentObject(workspace.gitClient)
             .environmentObject(workspace.translator)
+            .environmentObject(workspace.flow)
     }
 }
 
@@ -391,7 +392,7 @@ private struct WorkspaceWindow: View {
             }
         }
         .sheet(item: $requests.intake) { request in
-            IntakeSheet(request: request, workspaceManager: workspaceManager)
+            IntakeSheet(request: request, flow: workspaceManager.flow, research: workspaceManager.research, codeXRay: workspaceManager.codeXRay)
         }
         .sheet(item: $requests.newProject) { request in
             NewProjectSheet(request: request, workspaceManager: workspaceManager)

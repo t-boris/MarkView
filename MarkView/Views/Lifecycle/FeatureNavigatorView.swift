@@ -3,10 +3,11 @@ import SwiftUI
 /// Left panel: the file tree, or — when the project has docs/features or docs/bugs — its issues:
 /// features and bugs, each with its GitHub issue.
 struct LeftPanelView: View {
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
+    @EnvironmentObject private var layout: PanelLayout
 
     var body: some View {
-        LeftPanelContent(store: workspaceManager.flow.features, layout: workspaceManager.layout)
+        LeftPanelContent(store: flow.features, layout: layout)
     }
 }
 
@@ -15,7 +16,7 @@ private struct LeftPanelContent: View {
     @ObservedObject var store: FeatureStore
     /// This window's Files/Issues choice and open feature (BUG-004: not shared between windows).
     @ObservedObject var layout: PanelLayout
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
     private var mode: String {
         get { layout.leftPanel }
         nonmutating set { layout.leftPanel = newValue }
@@ -41,17 +42,17 @@ private struct LeftPanelContent: View {
                 if let slug = openFeature, store.feature(slug) != nil {
                     FeatureNavigatorView(store: store, onBack: { openFeature = nil })
                 } else {
-                    IssuesListView(store: store, batch: workspaceManager.flow.bugBatch) { slug in
+                    IssuesListView(store: store, batch: flow.bugBatch) { slug in
                         store.activeSlug = slug
                         openFeature = slug
-                        workspaceManager.flow.showFeatureContext(slug)
+                        flow.showFeatureContext(slug)
                         if let feature = store.feature(slug) {
-                            workspaceManager.openFile(feature.overviewURL)
+                            flow.open(feature.overviewURL)
                         }
                     }
                 }
                 // The basket stays in view while features are opened and closed (REQ-001).
-                BugBasketView(batch: workspaceManager.flow.bugBatch, assistant: store.assistant)
+                BugBasketView(batch: flow.bugBatch, assistant: store.assistant)
             } else {
                 FileTreeView()
             }
@@ -82,7 +83,8 @@ struct IssuesListView: View {
     /// The window's bug basket: open bugs can be put in it from their rows (issue #31).
     @ObservedObject var batch: BugBatch
     let open: (String) -> Void
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
+    @EnvironmentObject private var requests: WindowRequests
     @State private var filter = ""
     @State private var showFeatures = true
     @State private var showBugs = true
@@ -178,8 +180,8 @@ struct IssuesListView: View {
 
     private func bugButton(_ bug: BugReport) -> some View {
         Button(action: {
-            workspaceManager.flow.showFeatureContext(nil)
-            workspaceManager.openFile(bug.url)
+            flow.showFeatureContext(nil)
+            flow.open(bug.url)
         }) {
             HStack(spacing: 5) {
                 Image(systemName: "ladybug").uiFont(size: 9)
@@ -298,7 +300,7 @@ struct IssuesListView: View {
                 }
             }.buttonStyle(.plain)
             Spacer()
-            Button(action: { workspaceManager.requests.intake = IntakeRequest(kind: kind) }) {
+            Button(action: { requests.intake = IntakeRequest(kind: kind) }) {
                 Image(systemName: "plus").uiFont(size: 9).foregroundColor(palette.textDim)
             }.buttonStyle(.plain).help(kind.title)
         }
@@ -341,13 +343,13 @@ struct IssueStatusBadge: View {
 struct IssueLinks: View {
     @Environment(\.palette) private var palette
     let numbers: [Int]
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
 
     var body: some View {
         // Every linked issue, not the first few: the title gives way (it truncates), the numbers do not.
         HStack(spacing: 3) {
             ForEach(numbers, id: \.self) { number in
-                Button("#\(number)") { workspaceManager.flow.openGitHubIssue(number) }
+                Button("#\(number)") { flow.openGitHubIssue(number) }
                     .buttonStyle(.plain)
                     .uiFont(size: 9, weight: .medium, design: .monospaced)
                     .foregroundColor(palette.blue)
@@ -364,7 +366,7 @@ struct FeatureNavigatorView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var store: FeatureStore
     var onBack: (() -> Void)? = nil
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
     @EnvironmentObject private var tabs: TabsController
     @State private var expanded: Set<String> = ["requirement", "question", "decision", "documents"]
     @State private var history: [String] = []
@@ -442,7 +444,7 @@ struct FeatureNavigatorView: View {
     }
 
     private func delete(_ ids: [String], in feature: Feature) {
-        guard FeatureObjectDeletion.confirmAndDelete(ids, in: feature, store: store, workspace: workspaceManager) else { return }
+        guard FeatureObjectDeletion.confirmAndDelete(ids, in: feature, store: store, tabs: tabs) else { return }
         selection.clear()
     }
 
@@ -562,10 +564,7 @@ struct FeatureNavigatorView: View {
 
     @ViewBuilder
     private func historySection(_ feature: Feature) -> some View {
-        Button(action: {
-            showHistory.toggle()
-            if showHistory { Task { history = await store.history(of: feature.folder, limit: 25) } }
-        }) {
+        Button(action: { showHistory.toggle() }) {
             HStack(spacing: 5) {
                 Image(systemName: showHistory ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(palette.textDim).frame(width: 10)
                 Image(systemName: "clock.arrow.circlepath").uiFont(size: 10).foregroundColor(palette.blue).frame(width: 14)
@@ -576,6 +575,11 @@ struct FeatureNavigatorView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // Read while the section is open, and again for another feature; the read ends with the view (AR-19).
+        .task(id: showHistory ? feature.folder.path : "") {
+            guard showHistory else { return }
+            history = await store.history(of: feature.folder, limit: 25)
+        }
         if showHistory {
             if history.isEmpty {
                 Text("No commits yet").uiFont(size: 10).foregroundColor(palette.textDim).padding(.leading, 28)
@@ -592,7 +596,7 @@ struct FeatureNavigatorView: View {
         tabs.activeTab?.url.standardizedFileURL == url.standardizedFileURL
     }
 
-    private func open(_ url: URL) { workspaceManager.openFile(url) }
+    private func open(_ url: URL) { flow.open(url) }
 }
 
 struct FeatureStatusMenu: View {
@@ -603,7 +607,7 @@ struct FeatureStatusMenu: View {
         Menu {
             ForEach(store.lifecycle.workflow.feature.statuses) { status in
                 Button((status.id == IssueStatus.normalize(feature.status) ? "✓ " : "") + status.title) {
-                    Task { await LifecycleStatusChange.perform(store: store, kind: .feature, issue: feature.slug, to: status.id) }
+                    LifecycleStatusChange.start(store: store, kind: .feature, issue: feature.slug, to: status.id)
                 }
             }
         } label: {
@@ -661,8 +665,11 @@ struct IntakeSheet: View {
     @Environment(\.palette) private var palette
     let request: IntakeRequest
     private var kind: IntakeKind { request.kind }
-    @ObservedObject var workspaceManager: WorkspaceManager
-    @ObservedObject var assistant: FeatureAssistant
+    /// The window's feature flow: it makes the feature or bug and shows it; the folder's GitHub feeds the issue picker.
+    let flow: FeatureFlowCoordinator
+    @ObservedObject var gitHub: GitHubStore
+    let research: ResearchMapController
+    let codeXRay: CodeAndXRayCoordinator
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var attachments: [URL] = []
@@ -673,6 +680,8 @@ struct IntakeSheet: View {
     @State private var linkedIssue: Int?
     @State private var commentOnIssue = false
     @State private var picking = false
+    /// The issue chosen in the picker, until its text is read into the editor.
+    @State private var pickedIssue: Int?
     @State private var issueFilter = ""
     @State private var loadingSource = false
     /// New Research: documents to analyse first, the output path and whether the user edited it.
@@ -682,16 +691,18 @@ struct IntakeSheet: View {
     /// Voice input for the text; lives as long as the sheet — closing it discards a recording.
     @State private var editorFocused = false
 
-    init(request: IntakeRequest, workspaceManager: WorkspaceManager) {
+    init(request: IntakeRequest, flow: FeatureFlowCoordinator, research: ResearchMapController, codeXRay: CodeAndXRayCoordinator) {
         self.request = request
-        self.workspaceManager = workspaceManager
-        self.assistant = workspaceManager.flow.features.assistant
+        self.flow = flow
+        self.gitHub = flow.gitHub
+        self.research = research
+        self.codeXRay = codeXRay
         _text = State(initialValue: request.text)
         _attachments = State(initialValue: request.attachments)
         _linkedIssue = State(initialValue: request.linkedIssue)
         if request.kind == .research {
-            _targets = State(initialValue: request.targets ?? workspaceManager.flow.researchDefaultTargets)
-            _outputPath = State(initialValue: Self.suggestedPath(for: request.text, root: workspaceManager.rootNode?.url))
+            _targets = State(initialValue: request.targets ?? flow.researchDefaultTargets)
+            _outputPath = State(initialValue: Self.suggestedPath(for: request.text, root: flow.projectRoot))
         }
     }
 
@@ -726,14 +737,14 @@ struct IntakeSheet: View {
                     return true
                 }
             voice.status
-            if kind == .research, let root = workspaceManager.rootNode?.url {
+            if kind == .research, let root = flow.projectRoot {
                 ResearchIntakeOptions(root: root, targets: $targets, outputPath: $outputPath, outputPathEdited: $outputPathEdited)
             }
-            if kind == .feature || kind == .quickFeature || kind == .bug, workspaceManager.flow.gitHub.isAvailable {
+            if kind == .feature || kind == .quickFeature || kind == .bug, gitHub.isAvailable {
                 HStack(spacing: 8) {
                     Button("From GitHub Issue…") {
                         picking = true
-                        if workspaceManager.flow.gitHub.issues.isEmpty { workspaceManager.flow.gitHub.refreshIssues() }
+                        if gitHub.issues.isEmpty { gitHub.refreshIssues() }
                     }
                     .popover(isPresented: $picking) { issuePicker }
                     if let linkedIssue {
@@ -747,7 +758,7 @@ struct IntakeSheet: View {
                     Spacer()
                 }
             }
-            IntakeAttachmentBar(attachments: $attachments, projectRoot: workspaceManager.rootNode?.url)
+            IntakeAttachmentBar(attachments: $attachments, projectRoot: flow.projectRoot)
             Text(footnote).uiFont(.caption2).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
             if let failed { Text(failed).uiFont(.caption).foregroundColor(.red).textSelection(.enabled) }
             HStack {
@@ -774,10 +785,15 @@ struct IntakeSheet: View {
         }
         .padding(16)
         .task { await loadRequestedSource() }
+        .task(id: pickedIssue) {
+            guard let number = pickedIssue else { return }
+            await loadPicked(number)
+            pickedIssue = nil
+        }
         .onChange(of: text) { newText in
             // The path follows the question until the user edits it (DEC-006).
             if kind == .research, !outputPathEdited {
-                outputPath = Self.suggestedPath(for: newText, root: workspaceManager.rootNode?.url)
+                outputPath = Self.suggestedPath(for: newText, root: flow.projectRoot)
             }
         }
         }
@@ -790,7 +806,7 @@ struct IntakeSheet: View {
 
     /// The issue or pull request the sheet was opened from: its text becomes the material.
     private func loadRequestedSource() async {
-        guard let client = workspaceManager.flow.gitHub.client else { return }
+        guard let client = gitHub.client else { return }
         if let number = request.loadIssue {
             loadingSource = true
             defer { loadingSource = false }
@@ -815,11 +831,11 @@ struct IntakeSheet: View {
     private var issuePicker: some View {
         VStack(alignment: .leading, spacing: 6) {
             TextField("Filter issues", text: $issueFilter).textFieldStyle(.roundedBorder)
-            let issues = workspaceManager.flow.gitHub.issues.filter {
+            let issues = gitHub.issues.filter {
                 issueFilter.isEmpty || "#\($0.number) \($0.title)".localizedCaseInsensitiveContains(issueFilter)
             }
             if issues.isEmpty {
-                Text(workspaceManager.flow.gitHub.loadingIssues ? "Loading…" : "No open issues").uiFont(.caption).foregroundColor(palette.textDim)
+                Text(gitHub.loadingIssues ? "Loading…" : "No open issues").uiFont(.caption).foregroundColor(palette.textDim)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -840,23 +856,26 @@ struct IntakeSheet: View {
         .padding(10)
     }
 
-    /// The issue's text and comments become the material; the result links to the issue.
+    /// The picker's choice: the issue is read by the sheet's own task (`pickedIssue`), which ends with the sheet.
     private func load(_ number: Int) {
         picking = false
-        guard let client = workspaceManager.flow.gitHub.client else { return }
-        Task {
-            do {
-                let issue = try await client.issue(number)
-                var material = "GitHub issue #\(number): \(issue.title)\n\n\(issue.body ?? "")"
-                let comments = issue.comments ?? []
-                if !comments.isEmpty {
-                    material += "\n\nComments:\n\n" + comments.map { "\($0.author?.login ?? "someone"): \($0.body)" }.joined(separator: "\n\n")
-                }
-                text = material + (text.isEmpty ? "" : "\n\n---\n\n" + text)
-                linkedIssue = number
-            } catch {
-                failed = "Could not read #\(number): \(error.localizedDescription)"
+        pickedIssue = number
+    }
+
+    /// The issue's text and comments become the material; the result links to the issue.
+    private func loadPicked(_ number: Int) async {
+        guard let client = gitHub.client else { return }
+        do {
+            let issue = try await client.issue(number)
+            var material = "GitHub issue #\(number): \(issue.title)\n\n\(issue.body ?? "")"
+            let comments = issue.comments ?? []
+            if !comments.isEmpty {
+                material += "\n\nComments:\n\n" + comments.map { "\($0.author?.login ?? "someone"): \($0.body)" }.joined(separator: "\n\n")
             }
+            text = material + (text.isEmpty ? "" : "\n\n---\n\n" + text)
+            linkedIssue = number
+        } catch {
+            failed = "Could not read #\(number): \(error.localizedDescription)"
         }
     }
 
@@ -871,7 +890,7 @@ struct IntakeSheet: View {
     }
 
     private var footnote: String {
-        let github = workspaceManager.flow.gitHub.isAvailable
+        let github = gitHub.isAvailable
         switch kind {
         case .feature: return "Creates docs/features/<name>/ (overview, first requirements and questions, your text as a source)" + (github ? " and a GitHub issue." : ". Turn on the GitHub integration to also file an issue.")
         case .quickFeature: return "Creates a one-page feature specification with analysis and discussion, without question rounds" + (github ? " and a GitHub issue." : ".")
@@ -901,38 +920,26 @@ struct IntakeSheet: View {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if kind == .understand {
             dismiss()
-            workspaceManager.codeXRay.understandInXRay(input, attachments: attachments)
+            codeXRay.understandInXRay(input, attachments: attachments)
             return
         }
         if kind == .research {
-            guard let root = workspaceManager.rootNode?.url else { return }
+            guard let root = flow.projectRoot else { return }
             if let problem = Self.pathProblem(outputPath, root: root) {
                 failed = problem
                 return
             }
             dismiss()
-            workspaceManager.research.jobs.start(question: input, relativePath: outputPath.trimmingCharacters(in: .whitespaces),
-                                            targets: targets, attachments: attachments)
+            research.jobs.start(question: input, relativePath: outputPath.trimmingCharacters(in: .whitespaces),
+                                 targets: targets, attachments: attachments)
             return
         }
         working = true
         failed = nil
-        Task {
-            let outcome: FeatureAssistant.IntakeOutcome?
-            switch kind {
-            case .feature: outcome = await assistant.newFeature(from: input, attachments: attachments, linkedIssue: linkedIssue)
-            case .quickFeature: outcome = await assistant.newQuickFeature(from: input, attachments: attachments, linkedIssue: linkedIssue)
-            case .bug: outcome = await assistant.newBug(from: input, attachments: attachments, linkedIssue: linkedIssue,
-                                                        commentOnIssue: commentOnIssue)
-            case .understand, .research: outcome = nil
-            }
+        // The flow makes it in the background and, when it is made, closes the sheet and shows it; the sheet hears only that it failed.
+        flow.submitIntake(kind, from: input, attachments: attachments, linkedIssue: linkedIssue, commentOnIssue: commentOnIssue) { problem in
             working = false
-            guard let outcome else {
-                failed = assistant.error ?? "The assistant did not answer."
-                return
-            }
-            dismiss()
-            workspaceManager.flow.intakeFinished(kind, outcome: outcome)
+            failed = problem
         }
     }
 }
@@ -942,7 +949,7 @@ struct IntakeSheet: View {
 enum FeatureObjectDeletion {
     @MainActor
     @discardableResult
-    static func confirmAndDelete(_ ids: [String], in feature: Feature, store: FeatureStore, workspace: WorkspaceManager) -> Bool {
+    static func confirmAndDelete(_ ids: [String], in feature: Feature, store: FeatureStore, tabs: TabsController) -> Bool {
         let objects = ids.compactMap { feature.object($0) }
         guard !objects.isEmpty else { return false }
         let alert = NSAlert()
@@ -958,7 +965,7 @@ enum FeatureObjectDeletion {
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return false }
-        for object in objects { workspace.tabs.closeTabs(under: object.url) }
+        for object in objects { tabs.closeTabs(under: object.url) }
         return store.deleteObjects(feature.slug, ids: Set(objects.map(\.id))) > 0
     }
 }

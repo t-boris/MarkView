@@ -42,15 +42,6 @@
 8 MarkView/Views/Deployments/DeploymentsView.swift
 11 MarkView/Views/Git/GitHubViews.swift
 18 MarkView/Views/Git/GitView.swift
-1 MarkView/Views/Lifecycle/BugBasketView.swift
-4 MarkView/Views/Lifecycle/FeatureNavigatorView.swift
-4 MarkView/Views/Lifecycle/FeaturePanelBugViews.swift
-3 MarkView/Views/Lifecycle/FeaturePanelBuildViews.swift
-8 MarkView/Views/Lifecycle/FeaturePanelExploreViews.swift
-5 MarkView/Views/Lifecycle/FeaturePanelObjectViews.swift
-8 MarkView/Views/Lifecycle/FeaturePanelReviewViews.swift
-5 MarkView/Views/Lifecycle/FeaturePanelSourceViews.swift
-2 MarkView/Views/Lifecycle/FeaturePanelView.swift
 4 MarkView/Views/Lifecycle/HandoffViews.swift
 4 MarkView/Views/Lifecycle/IssueLifecycleSection.swift
 1 MarkView/Views/Lifecycle/IssueSyncViews.swift

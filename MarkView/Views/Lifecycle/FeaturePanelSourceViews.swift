@@ -10,7 +10,6 @@ struct SourcesSection: View {
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
-    @EnvironmentObject var workspaceManager: WorkspaceManager
     @ObservedObject private var whisper: WhisperClient
     @State private var prompt: SourcePrompt?
 
@@ -42,14 +41,14 @@ struct SourcesSection: View {
             for provider in providers {
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
                     guard let url else { return }
-                    Task { @MainActor in await assistant.ingest(.file(url), into: feature.slug) }
+                    Task { @MainActor in addFile(url) }
                 }
             }
             return true
         }
         .sheet(item: $prompt) { kind in
             SourceInputSheet(kind: kind) { title, value in
-                Task {
+                assistant.start("ingest:" + UUID().uuidString) { assistant in
                     switch kind {
                     case .url:
                         if let url = URL(string: value.trimmingCharacters(in: .whitespaces)) { await assistant.ingest(.url(url), into: feature.slug) }
@@ -73,7 +72,7 @@ struct SourcesSection: View {
             Divider()
             if whisper.isRecording {
                 Button("Stop Voice Note") {
-                    Task {
+                    assistant.start("ingest:" + UUID().uuidString) { assistant in
                         if let text = await whisper.stopRecording(), !text.isEmpty {
                             await assistant.ingest(.voice(text: text), into: feature.slug)
                         }
@@ -97,7 +96,11 @@ struct SourcesSection: View {
         panel.canChooseDirectories = false
         panel.message = "Add sources to \(feature.title)"
         guard panel.runModal() == .OK else { return }
-        for url in panel.urls { Task { await assistant.ingest(.file(url), into: feature.slug) } }
+        for url in panel.urls { addFile(url) }
+    }
+
+    private func addFile(_ url: URL) {
+        assistant.start("ingest:" + url.path) { await $0.ingest(.file(url), into: feature.slug) }
     }
 }
 
@@ -137,7 +140,7 @@ struct SourceCard: View {
     @ObservedObject var store: FeatureStore
     let feature: Feature
     let source: FeatureObject
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
     @State private var editing: Int?
     @State private var draft = ""
 
@@ -149,7 +152,7 @@ struct SourceCard: View {
                 Spacer()
                 let role = source.front.string("role")
                 if !role.isEmpty { Text(FeatureVocabulary.label(role)).uiFont(size: 8).foregroundColor(palette.cyan) }
-                Button(action: { workspaceManager.openFile(source.url) }) {
+                Button(action: { flow.open(source.url) }) {
                     Image(systemName: "doc.text").uiFont(size: 9).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain)
             }
@@ -184,7 +187,9 @@ struct SourceCard: View {
                             SmallButton(title: "Reject") { assistant.setFact(feature.slug, source: source.id, index: index, status: "rejected") }
                             SmallButton(title: "Edit") { draft = text; editing = index }
                             SmallButton(title: "Discuss") {
-                                Task { await assistant.chat(feature.slug, message: "About this fact from \(source.id): \"\(text)\" — is it right, and what does it mean for the feature?") }
+                                assistant.start("chat:" + feature.slug) {
+                                    await $0.chat(feature.slug, message: "About this fact from \(source.id): \"\(text)\" — is it right, and what does it mean for the feature?")
+                                }
                             }
                         }
                         .padding(.leading, 14)

@@ -6,6 +6,32 @@ import AppKit
 /// conditions (Q-002 B, DEC-011). Only a person can do this: it exists only here, in the window.
 @MainActor
 enum LifecycleStatusChange {
+    /// Asks for `status` of the item and returns at once (`AR-19`). The request is a job of the store, one at a time per item (each may
+    /// ask the person something), so a second click while it waits is ignored and closing the folder ends it; `done` runs when the
+    /// status is now the requested one.
+    static func start(store: FeatureStore, kind: IssueKind, issue: String, to status: String, then done: @escaping @MainActor () -> Void = {}) {
+        store.jobs.start(jobKey(kind, issue)) {
+            if await perform(store: store, kind: kind, issue: issue, to: status) { done() }
+        }
+    }
+
+    /// Reopens a completed item as a job of the store, like `start`.
+    static func startReopen(store: FeatureStore, kind: IssueKind, issue: String, to status: String, then done: @escaping @MainActor () -> Void = {}) {
+        store.jobs.start(jobKey(kind, issue)) {
+            if await reopen(store: store, kind: kind, issue: issue, to: status) { done() }
+        }
+    }
+
+    /// Confirms the delivery event as a job of the store, like `start`.
+    static func startConfirmDelivery(store: FeatureStore, kind: IssueKind, issue: String, event: String,
+                                     then done: @escaping @MainActor () -> Void = {}) {
+        store.jobs.start(jobKey(kind, issue)) {
+            if await confirmDelivery(store: store, kind: kind, issue: issue, event: event) { done() }
+        }
+    }
+
+    private static func jobKey(_ kind: IssueKind, _ issue: String) -> String { "status:\(kind.rawValue):\(issue)" }
+
     /// Asks for `status` of the item. Returns true when the status is now the requested one.
     @discardableResult
     static func perform(store: FeatureStore, kind: IssueKind, issue: String, to status: String) async -> Bool {

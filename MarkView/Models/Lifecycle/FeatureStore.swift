@@ -60,6 +60,8 @@ final class FeatureStore: ObservableObject {
     private var changeDebounce: Task<Void, Never>?
     /// The reads and the lifecycle syncs that are running, keyed so that a new one replaces the old; a reset cancels them (`AR-19`).
     private let tasks = TaskBag()
+    /// What the person started from the panels (an AI step, a status change, a source); a reset ends it (`AR-19`).
+    let jobs = FeatureJobs()
     private var fingerprint = ""
     /// Bumped by every write and reset: a background reload that started earlier is dropped.
     private var generation = 0
@@ -135,6 +137,7 @@ final class FeatureStore: ObservableObject {
     func reset() {
         generation += 1
         tasks.cancelAll()
+        jobs.cancelAll()
         if let project = lifecycleProject { LifecycleLog.shared.release(project, by: self) }
         lastLifecycleSync = nil
         polling.stop(key: pollKey)

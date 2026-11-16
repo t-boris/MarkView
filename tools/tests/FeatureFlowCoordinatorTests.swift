@@ -140,6 +140,67 @@ func intake() {
     check(rig.flow.researchDefaultTargets.isEmpty, "a tab with no file is not a default target")
 }
 
+/// The sheet's "Create": the flow makes the feature or bug in the background, shows it and closes the sheet; one at a time; the window
+/// closing ends it without a write.
+@MainActor
+func intakeSubmission() async {
+    print("-- the intake sheet's Create")
+    let rig = Rig()
+    let assistant = rig.flow.features.assistant
+    let overview = rig.folder.appendingPathComponent("docs/features/a/overview.md")
+    check(rig.flow.projectRoot == rig.folder && Rig(open: false).flow.projectRoot == nil, "the sheet suggests paths in the open folder, and in none while no folder is open")
+
+    rig.flow.open(overview)
+    check(rig.tabs.opened == [overview], "a row of the navigator opens its file in a tab of the window")
+    rig.tabs.opened = []
+
+    var results: [String?] = []
+    assistant.intakeOutcome = FeatureAssistant.IntakeOutcome(file: overview, feature: "a", issue: nil)
+    rig.requests.intake = IntakeRequest(kind: .quickFeature)
+    rig.flow.submitIntake(.quickFeature, from: "make it", attachments: [overview], linkedIssue: 5, commentOnIssue: false) { results.append($0) }
+    check(await waitUntil { !results.isEmpty }, "the flow answers the sheet when the assistant is done")
+    check(results == [nil] && assistant.intakes.count == 1 && assistant.intakes[0].kind == .quickFeature && assistant.intakes[0].input == "make it"
+          && assistant.intakes[0].attachments == [overview] && assistant.intakes[0].linkedIssue == 5,
+          "the assistant got the text, the attachments and the issue the sheet had")
+    check(rig.requests.intake == nil && rig.tabs.opened == [overview] && rig.project.treeRefreshes >= 1 && rig.layout.featureStage == .build,
+          "what was made opens, the tree is refreshed and the sheet closes")
+
+    // Nothing made: the sheet stays and hears why.
+    results = []
+    rig.tabs.opened = []
+    assistant.intakeOutcome = nil
+    assistant.error = "no answer from the assistant"
+    rig.requests.intake = IntakeRequest(kind: .bug)
+    await settle(0.1)
+    rig.flow.submitIntake(.bug, from: "it breaks", attachments: [], linkedIssue: nil, commentOnIssue: true) { results.append($0) }
+    check(await waitUntil { !results.isEmpty } && results == ["no answer from the assistant"], "a failure is told to the sheet with the assistant's reason")
+    check(rig.requests.intake?.kind == .bug && rig.tabs.opened.isEmpty && assistant.intakes.last?.commentOnIssue == true,
+          "and nothing opens and the sheet stays")
+
+    // A second Create while one is under way is refused and does not reach the assistant.
+    await settle(0.1)
+    results = []
+    assistant.intakeDelay = 400_000_000
+    assistant.intakeOutcome = FeatureAssistant.IntakeOutcome(file: overview, feature: nil, issue: nil)
+    let started = assistant.intakes.count
+    rig.flow.submitIntake(.feature, from: "one", attachments: [], linkedIssue: nil, commentOnIssue: false) { results.append($0) }
+    rig.flow.submitIntake(.feature, from: "two", attachments: [], linkedIssue: nil, commentOnIssue: false) { results.append($0) }
+    check(results.count == 1 && results[0] != nil, "a second Create is refused at once, with a reason")
+    check(await waitUntil { results.count == 2 } && results[1] == nil && assistant.intakes.count == started + 1 && assistant.intakes.last?.input == "one",
+          "the first one finishes and is the only one the assistant saw")
+
+    // Closing the window ends the job: no tab opens afterwards.
+    await settle(0.1)
+    results = []
+    rig.tabs.opened = []
+    rig.requests.intake = IntakeRequest(kind: .feature)
+    assistant.intakeDelay = 3_000_000_000
+    rig.flow.submitIntake(.feature, from: "late", attachments: [], linkedIssue: nil, commentOnIssue: false) { results.append($0) }
+    rig.flow.close()
+    check(await waitUntil { !results.isEmpty } && results == [nil], "closing the window ends the job and the sheet is told")
+    check(rig.tabs.opened.isEmpty && rig.requests.intake != nil, "and nothing is written after the window closed")
+}
+
 // MARK: Showing a feature
 
 @MainActor
@@ -599,6 +660,7 @@ func activation() async {
 enum FeatureFlowCoordinatorChecks {
     static func main() async {
         intake()
+        await intakeSubmission()
         showing()
         await selectionActions()
         implementation()
