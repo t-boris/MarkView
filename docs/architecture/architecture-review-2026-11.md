@@ -134,6 +134,8 @@ Status (2026-11-15): partial. `ArchitectureStore.swift` 1,889 lines (4,512 at 6.
 
 Fix: a `WindowComposition` that builds the stores and hands each feature narrow protocols (`ProjectContext`, `TabsProviding`, `AssistantProviding`). `PanelLayout`, `WindowUIState` and `WindowTheme` already take injected storage and show the pattern.
 
+Status (2026-11-15): partial. `WindowComposition` is the composition root (`WorkspaceManager.init` calls `composition.connect()`); protocols declared in `Models/` 15 -> 49; views that write hooks into a model 0 (`window-wiring` views ratchet); closure hooks 33 in 12 files and back-references 4 in 4 files remain, kept from growing by the ratchets. The narrow protocols the finding names (`TabsProviding`, `AssistantProviding`) were not created under those names (`ProjectProviding` exists).
+
 ### AR-18 Hidden global state (medium, S-M)
 
 - Four observers react to **any** UserDefaults write (`ContentView.swift:1119`, `AIAssistantPickerView.swift:76`, `TerminalView.swift:237`, `WorkspaceManager.swift:4731`), while `PanelLayout.remember` and `WindowUIState.set` write a seed on every change including divider drags. Per-window UI state therefore wakes the assistant menu and the terminal model check in every window. The block observer in `WorkspaceManager` is never removed.
