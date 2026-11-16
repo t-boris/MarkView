@@ -310,7 +310,7 @@ final class StudioEnvironmentMapper: ObservableObject {
     var hooks: Hooks?
     /// Reads the application's own route handlers from its folders (BUG-090): the list the assistant's inventory is completed with,
     /// and the whole inventory when the assistant does not finish in time.
-    var routeScanner: (@MainActor () async -> [StudioRouteHandler])?
+    let routeScanner: (@MainActor () async -> [StudioRouteHandler])?
     weak var queue: StudioPreparationQueue?
     var assistant: StudioMapAssistant?
 
@@ -322,6 +322,10 @@ final class StudioEnvironmentMapper: ObservableObject {
     private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var stopRequested = false
     private var closing = false
+
+    init(routeScanner: (@MainActor () async -> [StudioRouteHandler])? = nil) {
+        self.routeScanner = routeScanner
+    }
 
     var isRunning: Bool { task != nil }
 

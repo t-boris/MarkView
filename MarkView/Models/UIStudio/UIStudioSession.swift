@@ -82,7 +82,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     let webView: WKWebView
     let preparation = StudioPreparationQueue(limits: StudioSession.preparationLimits)
     /// The application's map (REQ-014): its API surface, prepared in the background once per application.
-    let mapping = StudioEnvironmentMapper()
+    private(set) lazy var mapping = StudioEnvironmentMapper(routeScanner: { [weak self] in
+        await self?.requestPath.routeHandlers() ?? []
+    })
     /// What the session did and saw, redacted (REQ-011): the log drawer and `.dde/studio/session.log`.
     let sessionLog: StudioLog
 
@@ -1852,7 +1854,6 @@ extension StudioSession {
     func wireMapping() {
         mapping.queue = preparation
         mapping.load(spec.map)
-        mapping.routeScanner = { [weak self] in await self?.requestPath.routeHandlers() ?? [] }
         mapping.hooks = StudioEnvironmentMapper.Hooks(
             spec: { [weak self] in self?.simulator.spec ?? StudioEnvironmentSpec() },
             state: { [weak self] in self?.simulator.state ?? [:] },

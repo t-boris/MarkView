@@ -18,6 +18,8 @@ final class WhisperClient { func stopRecording() async -> String? { nil } }
     var messages: [[String: Any]] = []
     var opened: [(URL, Int?)] = []
     var external: [URL] = []
+    var dispatchExternal = false
+    var didDispatchExternal = false
     /// The window the session belongs to: files open in its editor, web addresses in its browser (recorded here as `external`).
     let linkWindow = LinkWindow()
     var checks = 0
@@ -160,8 +162,7 @@ final class WhisperClient { func stopRecording() async -> String? { nil } }
             try await hover(); try await click()
             check(opened.count == 1 && opened.first?.0 == root.appendingPathComponent("archive.iso") && external.isEmpty, "a file of any type opens in the app")
             // A terminal that belongs to no window (a project operation's) hands the file to the default app.
-            let loose = TerminalSession(directory: root)
-            loose.openExternalURL = { [weak self] url in self?.external.append(url) }
+            let loose = TerminalSession(directory: root, openExternalURL: { [weak self] url in self?.external.append(url) })
             external.removeAll(); opened.removeAll()
             loose.activateLink("archive.iso")
             await pause(400)
@@ -189,11 +190,10 @@ final class WhisperClient { func stopRecording() async -> String? { nil } }
             try await display("child.swift:7\r\n"); try await hover(); try await click()
             check(opened.count == 1 && opened.first?.0 == root.appendingPathComponent("sub/child.swift") && opened.first?.1 == 7, "relative click follows live shell cd")
             if CommandLine.arguments.contains("--open-browser") {
-                var dispatched = false
-                session.openExternalURL = { url in dispatched = NSWorkspace.shared.open(url) }
-                linkWindow.onWeb = { url in dispatched = NSWorkspace.shared.open(url) }
+                dispatchExternal = true
+                linkWindow.onWeb = { [weak self] url in self?.didDispatchExternal = NSWorkspace.shared.open(url) }
                 try await display(osc); try await hover(); try await click()
-                check(dispatched && links.count == 1, "real default browser launch from OSC 8 Cmd click")
+                check(didDispatchExternal && links.count == 1, "real default browser launch from OSC 8 Cmd click")
                 print("Default browser: \(NSWorkspace.shared.urlForApplication(toOpen: github)?.lastPathComponent ?? "unknown")")
             }
             print("Terminal link checks: \(checks), failures: \(failures)")
@@ -206,8 +206,11 @@ final class WhisperClient { func stopRecording() async -> String? { nil } }
         BridgeContract.bundledURL = TerminalSession.pageURL!.deletingLastPathComponent().appendingPathComponent("js/bridge-contract.json")
         linkWindow.onFile = { [weak self] url, line in self?.opened.append((url, line)) }
         linkWindow.onWeb = { [weak self] url in self?.external.append(url) }
-        session = TerminalSession(directory: root, links: linkWindow)
-        session.openExternalURL = { [weak self] url in self?.external.append(url) }
+        session = TerminalSession(directory: root, links: linkWindow, openExternalURL: { [weak self] url in
+            guard let self else { return }
+            if self.dispatchExternal { self.didDispatchExternal = NSWorkspace.shared.open(url) }
+            else { self.external.append(url) }
+        })
         let web = session.webView
         web.configuration.userContentController.removeScriptMessageHandler(forName: "terminal")
         web.configuration.userContentController.add(self, name: "terminal")

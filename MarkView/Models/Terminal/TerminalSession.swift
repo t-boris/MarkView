@@ -73,7 +73,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// addresses in its browser tab (links clicked here, and pages programs in it open: `TerminalBrowserBridge`). Nil, as for a project
     /// operation, keeps the default apps.
     private(set) weak var links: (any TerminalLinkTarget)?
-    var openExternalURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    let openExternalURL: (URL) -> Void
 
     @Published private(set) var isRunning = false
     @Published private(set) var exitCode: Int32?
@@ -126,8 +126,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     init(directory: URL, profile: TerminalProfile = .shell, startupCommand: String? = nil,
          resumeCommand: String? = nil, title: String? = nil, model: String? = nil,
-         operationCommand: String? = nil, links: (any TerminalLinkTarget)? = nil) {
+         operationCommand: String? = nil, links: (any TerminalLinkTarget)? = nil,
+         openExternalURL: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }) {
         self.links = links
+        self.openExternalURL = openExternalURL
         self.directory = directory
         self.profile = profile
         self.startupCommand = startupCommand
