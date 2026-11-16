@@ -41,7 +41,7 @@ implementation.
 - `MarkView/Bridge/`: Swift-to-JavaScript bridge: `WebViewBridge`, `TypedWebBridge` (validates every page message against
   `Resources/Editor/js/bridge-contract.json`), `PageMessages.swift` (the payload types), the scheme handlers and PDF export
 - `MarkView/Resources/Editor/`: bundled HTML (`index.html`, `terminal.html`, `discussion.html`, `book.html`), first-party JavaScript under `js/` (`mv-kit.js`, `markview-*.js`), and third-party vendor bundles under `vendor/` (`dompurify.min.js`, `turndown.min.js`, etc.). `MarkView/Resources/Themes/` and `Layouts/` hold the theme and layout-preset JSON
-- `Tests/Fixtures/` and `TestFiles/`: manual and fixture data. `tools/tests/` holds the automated suites (`run.sh`, `manifest.json`);
+- `Tests/Fixtures/`: test fixture data. `tools/tests/` holds the automated suites (`run.sh`, `manifest.json`);
   `tools/lint/architecture-lint.sh` holds the structural rules and their allow-lists, and `tools/lint/domain-dependencies.py` measures
   the dependencies between domain folders (`--why A B` names the types of an edge)
 - `MarkView.xcodeproj`: canonical Xcode project (XcodeGen and `project.yml` have been retired)
@@ -184,6 +184,8 @@ Standalone verification suites live under `tools/tests/` and are cataloged in
 the suites of the files you changed with `--changed [ref]` (it exits 3 when files changed but no suite covers them), or one
 suite with `./tools/tests/run.sh <name>`; `--list` and `--dry-run` show what would run. Use the relevant fixtures and perform
 a focused check for behavior that compilation does not cover.
+
+Install SwiftLint with `brew install swiftlint` and run `./tools/lint/swiftlint-ratchet.py`; its warning baseline may only shrink.
 
 The structural rules are `./tools/lint/architecture-lint.sh` (CI runs it in the pure job): zero-count rules such as
 `process` and `clicompletion`, and ratchets whose allow-lists in `tools/lint/*.txt` may only shrink (`--tighten` rewrites them to

@@ -1,0 +1,14 @@
+# Maximum diagnostics by path and rule; counts may only shrink.
+2 MarkView/Models/AI/DiagramAI.swift force_try
+1 MarkView/Models/AI/Providers/CodexProvider.swift force_try
+19 MarkView/Models/Architecture/ArchitectureScanner.swift force_try
+9 MarkView/Models/Architecture/BookBuilder.swift force_try
+1 MarkView/Models/Architecture/CodeArchitecture.swift force_try
+5 MarkView/Models/Architecture/CodeNavigation.swift force_try
+3 MarkView/Models/Architecture/XRayContent.swift force_try
+1 MarkView/Models/Architecture/XRayDigest.swift force_try
+2 MarkView/Models/Lifecycle/IssueSync.swift force_try
+2 MarkView/Models/Prototype/PrototypeThemes.swift force_try
+2 MarkView/Models/Remote/RemoteWorkspaceTools.swift force_try
+1 MarkView/Models/Research/ResearchMapJobs.swift unused_closure_parameter
+2 MarkView/Models/UIStudio/UIStudioRepairing.swift unused_closure_parameter

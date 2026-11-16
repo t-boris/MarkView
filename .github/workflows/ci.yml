@@ -41,6 +41,12 @@ jobs:
       - name: Architecture lint
         run: ./tools/lint/architecture-lint.sh
 
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Run SwiftLint ratchet
+        run: ./tools/lint/swiftlint-ratchet.py
+
       - name: Run pure regression test suite
         run: ./tools/tests/run.sh --tier pure
 

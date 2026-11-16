@@ -1,0 +1,12 @@
+only_rules:
+  - force_try
+  - force_cast
+  - unused_closure_parameter
+analyzer_rules:
+  - unused_import
+included:
+  - MarkView
+  - Packages/MarkViewCore/Sources
+force_try: warning
+force_cast: warning
+unused_closure_parameter: warning
