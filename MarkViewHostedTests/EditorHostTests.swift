@@ -6,8 +6,36 @@ import WebKit
 import XCTest
 @testable import MarkView
 
+private actor DraftCheckpointRecorder {
+    private var drafts: [ProjectDraft] = []
+    func append(_ draft: ProjectDraft) { drafts.append(draft) }
+    func snapshot() -> [ProjectDraft] { drafts }
+}
+
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
+    func testProjectBootstrapPersistsEachStage() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-bootstrap-" + UUID().uuidString)
+        let specification = folder.appendingPathComponent("specification")
+        try FileManager.default.createDirectory(at: specification, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try "# Requirements\n".write(to: specification.appendingPathComponent("requirements.md"), atomically: true, encoding: .utf8)
+        var draft = ProjectDraft(idea: "Test project")
+        draft.parentPath = folder.path
+        draft.folderName = "created-project"
+        let recorder = DraftCheckpointRecorder()
+        let result = try await ProjectBootstrap.run(&draft, specification: specification, slug: "test-feature", readme: "# Test\n") { saved in
+            await recorder.append(saved)
+        }
+        let checkpoints = await recorder.snapshot()
+        XCTAssertEqual(checkpoints.count, 3)
+        XCTAssertEqual(checkpoints.map(\.filesWritten), [false, true, true])
+        XCTAssertEqual(checkpoints.map(\.gitInitialized), [false, false, true])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.appendingPathComponent(".git").path))
+        XCTAssertEqual(try String(contentsOf: result.appendingPathComponent("docs/features/test-feature/requirements.md"), encoding: .utf8),
+                       "# Requirements\n")
+    }
+
     func testNotificationRouterExposesResponseCallback() {
         let router = ProjectOperationNotificationRouter()
         let selector = NSSelectorFromString("userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:")
