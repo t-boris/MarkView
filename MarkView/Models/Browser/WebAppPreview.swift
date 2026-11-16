@@ -1,4 +1,5 @@
 import Foundation
+import os
 #if canImport(MarkViewCore)
 import MarkViewCore
 #endif
@@ -348,8 +349,13 @@ enum WebAppPreview {
     }
 
     /// MarkView's renderer launcher (`js/markview-web-only.mjs`; overridable for tests).
-    static var webOnlyLauncher = Bundle.main.url(forResource: "markview-web-only", withExtension: "mjs",
-                                                 subdirectory: "Editor/js")
+    private static let webOnlyLauncherStorage = OSAllocatedUnfairLock(
+        initialState: Bundle.main.url(forResource: "markview-web-only", withExtension: "mjs", subdirectory: "Editor/js")
+    )
+    static var webOnlyLauncher: URL? {
+        get { webOnlyLauncherStorage.withLock { $0 } }
+        set { webOnlyLauncherStorage.withLock { $0 = newValue } }
+    }
 
     // MARK: - Commands
 
