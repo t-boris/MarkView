@@ -148,7 +148,7 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 The semantic database connection has a private lifetime owner so actor deinitialization does not access a non-Sendable pointer. All four changed-file pure suites passed, including the previous-release migration fixture; Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `SemanticDatabase.swift` (one before). This justified owner brings the current app/package unsafe annotation count to 41, versus 43 initially.
 
-UI Studio server registry and PATH cache are being moved from unsafe static variables into lock-owned state; verification is in progress.
+UI Studio server registry and PATH cache use lock-owned state instead of two unsafe static variables. All three UI Studio GUI suites, Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `UIStudioServer.swift`. Including the newly justified SQLite owner, the app/package unsafe annotation count is 41, versus 43 initially.
 
 The book PDF renderer follows WebKit’s main-actor completion contract. A file-private unchecked wrapper documents that an arbitrary WebKit value stays on the main actor through its continuation. All three affected gui suites passed, including PDF cancellation and 17 hosted tests; Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `BookPDFRenderer.swift` (one before). The justified wrapper raises the app/package unsafe annotation count to 42, below the initial 43.
 

@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 
 /// The development server a UI Studio session started itself (REQ-006, AC-18). It runs in a process group of its own, so
 /// closing the session stops the server and everything it started — and nothing else. A server that was already running
@@ -153,24 +154,22 @@ final class StudioDevServer: @unchecked Sendable {
         return lock.withLock { exited != nil }
     }
 
-    private static let registry = NSLock()
-    // unchecked Sendable: every access is inside `registry.withLock`.
-    nonisolated(unsafe) private static var running: [ObjectIdentifier: StudioDevServer] = [:]
+    private static let registry = OSAllocatedUnfairLock(initialState: [ObjectIdentifier: StudioDevServer]())
 
     /// Servers sessions started, so that quitting MarkView ends them too.
     static func track(_ server: StudioDevServer) {
-        registry.withLock { running[ObjectIdentifier(server)] = server }
+        registry.withLock { $0[ObjectIdentifier(server)] = server }
     }
 
     static func untrack(_ server: StudioDevServer) {
-        registry.withLock { running[ObjectIdentifier(server)] = nil }
+        registry.withLock { $0[ObjectIdentifier(server)] = nil }
     }
 
     /// Ends every tracked server synchronously (MarkView is quitting): SIGTERM, then SIGKILL for what is left after 1.5 s.
     static func stopAllNow() {
-        let servers = registry.withLock { () -> [StudioDevServer] in
+        let servers = registry.withLock { running -> [StudioDevServer] in
             let list = Array(running.values)
-            running = [:]
+            running.removeAll()
             return list
         }
         let groups = servers.compactMap { server -> pid_t? in
@@ -248,9 +247,7 @@ enum StudioServerClock {
 }
 
 enum StudioLaunchEnvironment {
-    private static let cache = NSLock()
-    // unchecked Sendable: every access is inside `cache.withLock`.
-    nonisolated(unsafe) private static var cachedPath: String?
+    private static let cache = OSAllocatedUnfairLock(initialState: Optional<String>.none)
 
     /// Names a session may never set for the server: they decide which programs and files it uses.
     static let protectedNames: Set<String> = ["PATH", "HOME", "SHELL", "USER", "LOGNAME", "TMPDIR", "NODE_OPTIONS", "DYLD_INSERT_LIBRARIES",
@@ -292,7 +289,7 @@ enum StudioLaunchEnvironment {
 
     /// `PATH` as the user's interactive login shell sets it; read once per launch of MarkView.
     static func loginPath(fallback: String?) async -> String {
-        if let cached = cache.withLock({ cachedPath }) { return cached }
+        if let cached = cache.withLock({ $0 }) { return cached }
         let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
         let output = await StudioProcess.run(shell, ["-l", "-i", "-c", #"printf '__MV_PATH__%s__MV_END__' "$PATH""#], timeout: 10)
         var path = ""
@@ -303,7 +300,7 @@ enum StudioLaunchEnvironment {
         var parts = (path.isEmpty ? (fallback ?? "") : path).split(separator: ":").map(String.init)
         for extra in extras where !parts.contains(extra) { parts.append(extra) }
         let result = parts.joined(separator: ":")
-        cache.withLock { cachedPath = result }
+        cache.withLock { $0 = result }
         return result
     }
 }
