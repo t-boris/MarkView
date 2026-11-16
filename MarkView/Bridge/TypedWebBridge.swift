@@ -1,4 +1,5 @@
 import Foundation
+import os
 import WebKit
 #if canImport(MarkViewCore)
 import MarkViewCore
@@ -11,7 +12,7 @@ import MarkViewCore
 /// Both sides read the same file. Swift (`TypedWebBridge`) validates every message against it before a handler sees it, and
 /// hands the file's text to the page (`userScript`), where `mvBridge.send` validates before it posts. A message whose channel,
 /// type or fields do not match is refused and logged by type and field name, never by value.
-struct BridgeContract {
+struct BridgeContract: Sendable {
     enum LoadError: Error, CustomStringConvertible {
         case unreadable(String)
         case malformed(String)
@@ -23,12 +24,12 @@ struct BridgeContract {
         }
     }
 
-    enum Kind: String {
+    enum Kind: String, Sendable {
         case string, int, number, boolean, object, array, any
     }
 
     /// One payload, field or array element. A reference class: a spec for `object` and `array` holds further specs.
-    final class Spec {
+    final class Spec: Sendable {
         let kind: Kind
         let optional: Bool
         let nonEmpty: Bool
@@ -55,7 +56,7 @@ struct BridgeContract {
         }
     }
 
-    struct Message {
+    struct Message: Sendable {
         /// An object spec (`fields`) or an array spec (`items`).
         let payload: Spec
         let mainFrameOnly: Bool
@@ -69,7 +70,13 @@ struct BridgeContract {
     static let empty = BridgeContract(channels: [:], text: "{\"contract\":1,\"channels\":{}}")
 
     /// The contract file in the app bundle (overridable for tests that run outside the app bundle).
-    static var bundledURL = Bundle.main.url(forResource: "bridge-contract", withExtension: "json", subdirectory: "Editor/js")
+    private static let bundledURLStorage = OSAllocatedUnfairLock(
+        initialState: Bundle.main.url(forResource: "bridge-contract", withExtension: "json", subdirectory: "Editor/js")
+    )
+    static var bundledURL: URL? {
+        get { bundledURLStorage.withLock { $0 } }
+        set { bundledURLStorage.withLock { $0 = newValue } }
+    }
 
     /// The app's own copy of the contract. A copy that cannot be read is an empty contract: every page message is refused and logged.
     static let bundled: BridgeContract = {
