@@ -94,10 +94,11 @@ private actor Latch {
               saved[0].results.first?.progress?.passNumber == 2, saved[0].results.first?.progress?.bugs == ["BUG-1"],
               CockpitOutcome.evaluate(criteria: ["Done"], progress: saved[0].results.first?.progress) == .success else { fatalError("execution history or progress was not persisted") }
         let closingEvents = Events()
+        let closingExit = Latch()
         let closing = CockpitExecution(root: root, service: service) { task in
             await closingEvents.add(task)
             do { try await Task.sleep(nanoseconds: 120_000_000_000) }
-            catch { await closingEvents.cancelled() }
+            catch { await closingEvents.cancelled(); await closingExit.wait() }
             return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "Interrupted", build: ""), error: "closed")
         }
         try await closing.start(plan: original, approval: approval, step: 0)
@@ -124,6 +125,18 @@ private actor Latch {
         closing.shutdown()
         for _ in 0..<100 where await closingEvents.cancellations == 0 { try await Task.sleep(nanoseconds: 100_000_000) }
         guard await closingEvents.cancellations == 1 else { fatalError("closing the project left its host task running") }
+        // Cancellation reaches the host before its step-end accounting finishes. Let the host
+        // return and wait for that already-started accounting before comparing the late call.
+        await closingExit.release()
+        var accounted = false
+        for _ in 0..<100 {
+            let runs = try CockpitRunStore.loadAll(root: root)
+            if runs.contains(where: { $0.notes?.first?.text == "check the build log first" && $0.activeSeconds != nil }) {
+                accounted = true; break
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        guard accounted else { fatalError("closing execution did not persist step usage") }
         // Nothing is written for a closed execution: a gate call that arrives late saves no refusal.
         let beforeLate = try CockpitRunStore.loadAll(root: root)
         closing.noteGate(tool: "markview_deployments_run", refusal: "arrived after the project closed")
