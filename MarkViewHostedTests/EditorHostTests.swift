@@ -24,6 +24,24 @@ final class EditorHostTests: XCTestCase {
         }
     }
 
+    func testScannerRetainsParallelDocumentAndCodeResults() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-scan-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        for index in 0..<32 {
+            try "func check\(index)(_ n: Int) -> Int { if n > 0 { return n }; return 0 }\n"
+                .write(to: folder.appendingPathComponent("source\(index).swift"), atomically: true, encoding: .utf8)
+            try "# Chapter \(index)\n\nSee source\(index).swift.\n"
+                .write(to: folder.appendingPathComponent("chapter\(index).md"), atomically: true, encoding: .utf8)
+        }
+        let result = ArchitectureScanner(root: folder).run()
+        XCTAssertEqual(result.sourceFileCount, 32)
+        for index in 0..<32 {
+            XCTAssertNotNil(result.metrics["m:source\(index).swift"], "source \(index)")
+            XCTAssertTrue(result.docs.nodes.contains { $0.path == "chapter\(index).md" }, "chapter \(index)")
+        }
+    }
+
     @MainActor
     func testEditorLoadsDocumentWithScopedWindowParts() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-hosted-editor-" + UUID().uuidString)

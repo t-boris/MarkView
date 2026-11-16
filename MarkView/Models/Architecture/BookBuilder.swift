@@ -11,7 +11,7 @@ enum BookBuilder {
 
     // MARK: - Text documents
 
-    enum Format: String {
+    enum Format: String, Sendable {
         case markdown, asciidoc, rst, org, plain
     }
 
@@ -217,7 +217,7 @@ enum BookBuilder {
     /// Most section nodes a chapter gets; deeper levels are dropped first beyond it.
     static let maxSections = 300
 
-    struct Section: Equatable {
+    struct Section: Equatable, Sendable {
         var id: String
         var parent: String
         var title: String
@@ -233,7 +233,7 @@ enum BookBuilder {
         var loc: Int { max(1, end - start + 1) }
     }
 
-    struct Chapter {
+    struct Chapter: Sendable {
         var id: String
         var path: String
         var title: String
@@ -390,7 +390,7 @@ enum BookBuilder {
 
     // MARK: - Links
 
-    struct Link: Equatable {
+    struct Link: Equatable, Sendable {
         /// 1-based line the link is on.
         var line: Int
         /// Path as written (percent-decoded), "" for a link within the same document.

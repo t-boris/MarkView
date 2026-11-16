@@ -514,16 +514,16 @@ struct ArchitectureScanner {
         var refs: [String: Set<String>] = [:]   // doc path → referenced source files/dirs ("f:" / "d:" prefixed)
 
         // Reading each document is independent: do it on every core, assemble in order.
-        struct DocFacts { var chapter: BookBuilder.Chapter?; var tokens: [String] = [] }
+        struct DocFacts: Sendable { var chapter: BookBuilder.Chapter?; var tokens: [String] = [] }
         let sortedDocs = docs.sorted()
-        var facts = [DocFacts](repeating: DocFacts(), count: sortedDocs.count)
-        facts.withUnsafeMutableBufferPointer { results in
-            DispatchQueue.concurrentPerform(iterations: sortedDocs.count) { i in
-                let text = contents[sortedDocs[i]] ?? read(sortedDocs[i])
-                results[i] = DocFacts(chapter: BookBuilder.chapter(path: sortedDocs[i], text: text),
-                                      tokens: sourcePaths.isEmpty ? [] : Self.matches(pathToken, in: text, group: 0))
-            }
+        let results = OSAllocatedUnfairLock(initialState: [DocFacts](repeating: DocFacts(), count: sortedDocs.count))
+        DispatchQueue.concurrentPerform(iterations: sortedDocs.count) { i in
+            let text = contents[sortedDocs[i]] ?? read(sortedDocs[i])
+            let fact = DocFacts(chapter: BookBuilder.chapter(path: sortedDocs[i], text: text),
+                                tokens: sourcePaths.isEmpty ? [] : Self.matches(pathToken, in: text, group: 0))
+            results.withLock { $0[i] = fact }
         }
+        let facts = results.withLock { $0 }
         // The book: parts, chapters, nested sections and the links between them.
         let book = BookBuilder.build(chapters: facts.compactMap(\.chapter), rootName: root.lastPathComponent)
 
@@ -771,15 +771,15 @@ struct ArchitectureScanner {
 
         // The regex work dominates the scan; files are independent, so use every core.
         typealias Complexity = (count: Int, max: Int, maxName: String?, over10: Int, decisions: Int)
-        var complexity = [Complexity](repeating: (0, 0, nil, 0, 0), count: sources.count)
+        let results = OSAllocatedUnfairLock(initialState: [Complexity](repeating: (0, 0, nil, 0, 0), count: sources.count))
         let finished = ProgressCounter()
-        complexity.withUnsafeMutableBufferPointer { results in
-            DispatchQueue.concurrentPerform(iterations: sources.count) { i in
-                results[i] = Self.functionComplexity(contents[sources[i].path] ?? "", language: sources[i].language)
-                let done = finished.increment()
-                if done % 50 == 0 { onProgress?("Measuring complexity", done, sources.count) }
-            }
+        DispatchQueue.concurrentPerform(iterations: sources.count) { i in
+            let value = Self.functionComplexity(contents[sources[i].path] ?? "", language: sources[i].language)
+            results.withLock { $0[i] = value }
+            let done = finished.increment()
+            if done % 50 == 0 { onProgress?("Measuring complexity", done, sources.count) }
         }
+        let complexity = results.withLock { $0 }
 
         var metrics: [String: FileMetrics] = [:]
         for (index, (path, _)) in sources.enumerated() {
