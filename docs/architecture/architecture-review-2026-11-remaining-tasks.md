@@ -146,6 +146,8 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+The transition log timestamp formatter is lock-owned for Sendable encoder and decoder callbacks, preserving the existing ISO 8601 format and millisecond behavior. All seven affected pure/gui suites, Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `IssueTransitionLog.swift` (three before). This justified private unchecked owner brings the app/package annotation count to 41, versus 43 initially.
+
 CI run 43929215840 failed `code-architecture-tests`, `xray-comparison-web-tests` and `xray-layout-web-tests` because their standalone WebKit drivers had not adopted the main-actor script contract. All three passed locally after the driver fixes; CI run 43930584296 passed all jobs.
 
 The UI Studio server reaper now captures the spawned process ID by value. The UI Studio and lifetime suites, Debug build and warning ratchet passed; complete checking reports no warnings in `UIStudioServer.swift` (two captured-variable warnings before).
@@ -166,6 +168,8 @@ The discussion WebKit navigation policy callback now matches the SDK so WebKit c
   unchecked count at a stated lower number.
 
 **D4. AR-44 steps 3-4 and the stubs.**
+
+CI run 43931877780 and Release build 43931877803 passed after the linked-folder migration.
 
 Project search and change tests now compile the shipping linked-folder model and prefix. Two `LinkedFolder` class/struct stand-ins and two enum stand-ins were removed; a real-model path check was added. All 11 changed-file suites, Debug build, warning ratchet and architecture lint passed; the suite count remains 226.
 - Status 2026-11-16: moved the PrivateSocket real-socket and phase2 core checks to `MarkViewCoreTests` and removed their standalone script and manifest entry. The PrivateSocket package test passed (1 test, 0 failures); the migrated phase2 checks passed (2 tests, 0 failures); the settings-key compatibility table was moved into `MarkViewCoreTests` and its standalone script and manifest entry removed. All 90 compatibility rows and 89 registry names passed in the package test. CI run 43917519311 exposed a stale manifest suiteCount (227 versus 226 entries); it has been corrected and `phase1-cleanup-tests` passed (15/15). Five suites now compile the shipping `Archive` implementation instead of the shared stand-in; all five passed. The shared `Archive` stand-in and the browser and tool-tab test-support definitions were removed (3 → 0); all seven affected suites passed with the shipping implementation. This enum is outside the original class/struct-only count. The existing `BrowserAddress` parser was extracted byte for byte and four enum stand-ins removed (4 → 0). All six affected browser-host, preview, upload, password, frame and remote-browser suites passed, as did the Debug build, warning ratchet and architecture lint. These enums are outside the original class/struct-only count. The window-composition suite now uses the shipping `FileNode` and archive types; all 31 checks passed. The layout suite also uses the shipping `FileNode` and passed; `FileNode` class/struct stand-in definitions in `tools/tests/*.swift` fell from 2 to 0. The other script mains and application stubs are not yet migrated. Port script mains to `swift test` cases in `Packages/MarkViewCore` and delete the scripts; one

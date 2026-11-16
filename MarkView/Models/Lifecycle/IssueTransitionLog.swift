@@ -3,6 +3,19 @@ import Foundation
 import MarkViewCore
 #endif
 
+// unchecked Sendable: the formatter is private and every use is serialized by the lock.
+private final class TransitionTimestampFormatter: @unchecked Sendable {
+    private let lock = NSLock()
+    private let formatter: ISO8601DateFormatter = {
+        let value = ISO8601DateFormatter()
+        value.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return value
+    }()
+
+    func string(from date: Date) -> String { lock.withLock { formatter.string(from: date) } }
+    func date(from text: String) -> Date? { lock.withLock { formatter.date(from: text) } }
+}
+
 // The durable side of the lifecycle (issue-lifecycle-management, plan I-2): the transition history and operation journal
 // of a project (DEC-014) and the one service that applies a decided transition around the stored status. Foundation only
 // (with IssueLifecycle.swift), so tools/tests/issue-lifecycle-tests.sh compiles it on its own.
@@ -155,10 +168,8 @@ final class FileTransitionStorage: TransitionStorage {
     }
 
     /// Times are kept to the millisecond, so what is read back orders against an observation made a moment before it.
-    private static func timeFormatter() -> ISO8601DateFormatter {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
+    private static func timeFormatter() -> TransitionTimestampFormatter {
+        TransitionTimestampFormatter()
     }
 
     private static func encoder() -> JSONEncoder {
