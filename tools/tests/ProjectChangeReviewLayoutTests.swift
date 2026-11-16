@@ -33,9 +33,8 @@ struct ProjectChange: Identifiable {
     func acknowledge() async {}
     func explain(_ change: ProjectChange, hunks: [DiffHunk]) {}
 }
-final class FileNode { let url = URL(fileURLWithPath: "/tmp/project") }
 @MainActor final class WorkspaceFileTreeStore: ObservableObject {
-    @Published var rootNode: FileNode? = FileNode()
+    @Published var rootNode: FileNode? = FileNode(url: URL(fileURLWithPath: "/tmp/project"), isDirectory: true)
 }
 /// The window's commands the view reads from the environment (MarkView/Models/Workspace/WindowCommands.swift).
 @MainActor protocol WindowCommands: AnyObject {
