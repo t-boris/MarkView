@@ -14,6 +14,38 @@ private actor DraftCheckpointRecorder {
 
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
+    @MainActor
+    func testStudioPageCallCompletesOrCancelsOnce() async throws {
+        let completed = StudioPageCall()
+        let answer: StudioPageValue = try await withCheckedThrowingContinuation { continuation in
+            XCTAssertTrue(completed.begin(continuation))
+            completed.finish(.success("answer"))
+            completed.cancel()
+        }
+        XCTAssertEqual(answer.value as? String, "answer")
+
+        let cancelled = StudioPageCall()
+        do {
+            let _: StudioPageValue = try await withCheckedThrowingContinuation { continuation in
+                XCTAssertTrue(cancelled.begin(continuation))
+                cancelled.cancel()
+                cancelled.finish(.success("too late"))
+            }
+            XCTFail("Cancellation must finish the call")
+        } catch is CancellationError {
+            // Expected: a late WebKit reply cannot resume the continuation a second time.
+        }
+
+        let cancelledBeforeStart = StudioPageCall()
+        cancelledBeforeStart.cancel()
+        do {
+            let _: StudioPageValue = try await withCheckedThrowingContinuation { continuation in
+                XCTAssertFalse(cancelledBeforeStart.begin(continuation))
+            }
+            XCTFail("Cancellation before start must finish the call")
+        } catch is CancellationError {}
+    }
+
     func testAssistantJSONSearchPlacesAcrossTask() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-places-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

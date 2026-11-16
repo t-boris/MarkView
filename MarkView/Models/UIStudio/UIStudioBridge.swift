@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// The page runtime: the classic scripts `Editor/js/markview-ui-studio-<part>.js`, in this order. They share the object
 /// `window.__markviewStudioParts` (the last one deletes it) and are injected as one user script, so a part that throws stops the
@@ -22,18 +23,35 @@ enum StudioRuntime {
 /// for ever, and keep what it holds (the session, by the lifetime rule of its tasks) alive. The call is retired the moment its task is
 /// cancelled: the continuation is resumed with `CancellationError` exactly once, by whichever of the page's answer and the
 /// cancellation comes first.
-// unchecked Sendable: `lock` guards every field.
-final class StudioPageCall: @unchecked Sendable {
-    private let lock = NSLock()
-    private var waiting: CheckedContinuation<Any?, Error>?
-    private var cancelled = false
-    private var ended = false
+/// A WebKit value may cross the continuation but can only be constructed and read on the main actor.
+// unchecked Sendable: the wrapped non-Sendable value stays isolated to the main actor.
+struct StudioPageValue: @unchecked Sendable {
+    @MainActor let value: Any?
+
+    @MainActor init(_ value: Any?) { self.value = value }
+}
+
+final class StudioPageCall: Sendable {
+    private struct State: Sendable {
+        var waiting: CheckedContinuation<StudioPageValue, Error>?
+        var cancelled = false
+        var ended = false
+
+        mutating func retire() -> CheckedContinuation<StudioPageValue, Error>? {
+            guard !ended, let continuation = waiting else { return nil }
+            ended = true
+            waiting = nil
+            return continuation
+        }
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     /// Starts waiting. False when the task was cancelled before the call began: nothing is waiting any more and the call must not be made.
-    func begin(_ continuation: CheckedContinuation<Any?, Error>) -> Bool {
-        let refused = lock.withLock { () -> Bool in
-            if cancelled { ended = true; return true }
-            waiting = continuation
+    func begin(_ continuation: CheckedContinuation<StudioPageValue, Error>) -> Bool {
+        let refused = state.withLock { state -> Bool in
+            if state.cancelled { state.ended = true; return true }
+            state.waiting = continuation
             return false
         }
         if refused { continuation.resume(throwing: CancellationError()) }
@@ -42,27 +60,18 @@ final class StudioPageCall: @unchecked Sendable {
 
     /// The page answered, or its call failed. A script that returns nothing answers with a nil boxed in `Any`, which every caller reads
     /// through a cast (`as? [String: Any]`, `as? Bool`, `is NSNull`).
-    func finish(_ result: Result<Any, Error>) {
-        guard let continuation = retire() else { return }
-        continuation.resume(with: result.map { $0 as Any? })
+    @MainActor func finish(_ result: Result<Any, Error>) {
+        guard let continuation = state.withLock({ $0.retire() }) else { return }
+        continuation.resume(with: result.map { StudioPageValue($0) })
     }
 
     /// The task was cancelled: whoever waits stops waiting, whether or not the page ever answers.
     func cancel() {
-        let continuation = lock.withLock { () -> CheckedContinuation<Any?, Error>? in
-            cancelled = true
-            return retireLocked()
+        let continuation = state.withLock { state -> CheckedContinuation<StudioPageValue, Error>? in
+            state.cancelled = true
+            return state.retire()
         }
         continuation?.resume(throwing: CancellationError())
-    }
-
-    private func retire() -> CheckedContinuation<Any?, Error>? { lock.withLock { retireLocked() } }
-
-    private func retireLocked() -> CheckedContinuation<Any?, Error>? {
-        guard !ended, let continuation = waiting else { return nil }
-        ended = true
-        waiting = nil
-        return continuation
     }
 }
 

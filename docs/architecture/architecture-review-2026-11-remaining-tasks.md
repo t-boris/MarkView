@@ -148,7 +148,7 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 Book PDF’s private WebKit value wrapper now enforces main-actor access in its type. Both PDF gui suites, Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `BookPDFRenderer.swift`.
 
-UI Studio WebKit results are being wrapped with main-actor-only access across cancellation-aware continuations; verification is in progress.
+UI Studio WebKit results cross cancellation-aware continuations in a wrapper whose contents can only be accessed on the main actor; the continuation state itself is lock-owned and no longer needs an unchecked annotation. All eight affected gui suites, including the full UI Studio session, passed; an app-hosted test checked reply-before-cancel, cancel-before-reply and cancel-before-start, with all 18 hosted tests passing. Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `UIStudioBridge.swift` (one before). The new value wrapper replaces the old unchecked continuation owner, so the app/package annotation count remains 41 versus 43 initially.
 
 The semantic database connection has a private lifetime owner so actor deinitialization does not access a non-Sendable pointer. All four changed-file pure suites passed, including the previous-release migration fixture; Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `SemanticDatabase.swift` (one before). This justified owner brings the current app/package unsafe annotation count to 41, versus 43 initially.
 

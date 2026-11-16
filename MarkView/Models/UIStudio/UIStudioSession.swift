@@ -895,12 +895,13 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @discardableResult
     func call(_ script: String, _ arguments: [String: Any] = [:]) async throws -> Any? {
         let pending = StudioPageCall()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any?, Error>) in
+        let result = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<StudioPageValue, Error>) in
                 guard pending.begin(continuation) else { return }
                 webView.callAsyncJavaScript(script, arguments: arguments, in: nil, in: .page) { pending.finish($0) }
             }
         } onCancel: { pending.cancel() }
+        return result.value
     }
 
     /// Back to the scenario's baseline (SIM-04, AC-04): a new generation (late answers of the old one are dropped), empty
