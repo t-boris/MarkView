@@ -53,6 +53,12 @@
 #   project-paths        a string literal that starts with `.dde` or `.markview-` outside ProjectPaths (CoreFiles.swift)
 #                        tools/lint/project-paths-allowlist.txt
 #   app-log              `NSLog(` and `Logger(subsystem:` outside AppLog (Packages/MarkViewCore AppLog.swift)  tools/lint/app-log-allowlist.txt
+#   silent-decode        (AR-36) a line with `try?` and `decode(` (not StoredJSON.decode, JSONLinesFile.decode or PreferenceRecord.decode, which
+#                        log what they cannot read): a decode whose failure reads as "nothing". Data the app stored itself is read
+#                        through SchemaVersionedStore, PlainJSONFile, PreferenceRecord, StoredJSON or JSONLinesFile (a failure is logged, a file is
+#                        copied before it is replaced), so what stays is a tolerant parse of what other programs send (an assistant's answer,
+#                        a process's output, a page's message) and the union idiom of a decoder; each entry says which, after `#`
+#                        tools/lint/silent-decode-allowlist.txt
 #   unowned-task         (AR-19) a `Task { }`, `Task.detached`, `Timer`, or `.asyncAfter` that is not stored (TaskBag or a task property), not
 #                        awaited in place and not justified by a `// task: <why it needs no owner>` comment: work that nothing cancels
 #                        when its window, folder or tool tab closes. Classified by tools/lint/task-ownership.sh  tools/lint/unowned-task-allowlist.txt
@@ -327,6 +333,16 @@ ratchet("app-log", "app-log-allowlist.txt", "NSLog or Logger site(s)",
         "# `NSLog(` and `Logger(subsystem:` outside AppLog (AR-24). `<count> <path>`; a ratchet that only falls. Every message goes through a\n"
         "# category of AppLog (Packages/MarkViewCore, AppLog.swift), which keeps interpolated strings private. Add a category there instead of a\n"
         "# new Logger, and never log file contents, tokens, prompts or request headers.")
+
+ratchet("silent-decode", "silent-decode-allowlist.txt", "silent decode site(s)",
+        count_sites(app_swift + package_swift, re.compile(r"try\? .*(?<!StoredJSON\.)(?<!JSONLinesFile\.)(?<!PreferenceRecord\.)decode\("),
+                    exclude=lambda p: "/Tests/" in rel(p) or "/.build/" in rel(p)),
+        "# `try? ... decode(` (AR-36): a decode whose failure reads as \"nothing\". `<count> <path>  # why it stays`; a ratchet that only falls.\n"
+        "# Data the app stored itself is never read this way: a document is a SchemaVersionedStore or a PlainJSONFile, a record in the\n"
+        "# preferences is a PreferenceRecord, a cache or a column is read through StoredJSON.decode (a failure is logged) and a log is read\n"
+        "# through JSONLinesFile. What may stay is a tolerant parse of data that other programs produce, with a fallback that the caller\n"
+        "# chose: an assistant's answer, a process's output, a socket or a page's message, a union decoder that tries one case after the\n"
+        "# other, and a probe whose failure the decode that follows reports. Each entry says which, after `#`.")
 
 ownership = subprocess.run([str(lint_dir / "task-ownership.sh"), "--root", str(root), "--counts"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 if ownership.returncode != 0:
@@ -718,7 +734,7 @@ if manager_file.is_file():
             violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
 
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable", "studio-part-tasks"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "silent-decode", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable", "studio-part-tasks"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

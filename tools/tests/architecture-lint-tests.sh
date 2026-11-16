@@ -102,6 +102,7 @@ def fixture():
     write(root, "tools/lint/file-size-allowlist.txt", "# no file is over the limit\n")
     write(root, "tools/lint/project-paths-allowlist.txt", "# none outside ProjectPaths\n")
     write(root, "tools/lint/app-log-allowlist.txt", "# none outside AppLog\n")
+    write(root, "tools/lint/silent-decode-allowlist.txt", "# no stored data is read with try? decode\n")
     write(root, "tools/lint/unowned-task-allowlist.txt", "# no task is without an owner\n")
     write(root, "tools/lint/domain-cycles-allowlist.txt", "# no cycle between domain folders\n")
     write(root, "tools/lint/window-wiring-hooks.txt", "# no model has a hook that another object assigns\n")
@@ -309,6 +310,46 @@ try:
     check(code == 1 and "[app-log] MarkView/Models/Workspace/Noisy.swift: 2 NSLog or Logger site(s), 0 allowed (new sites)" in out,
           "a new NSLog or Logger(subsystem:) fails and is named, comments are not counted")
     check("AppLog.swift" not in out, "AppLog's own file is the allowed home, not counted")
+    # --- silent-decode ratchet (AR-36)
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Store.swift",
+          "func load(_ data: Data) -> Item? { try? JSONDecoder().decode(Item.self, from: data) }\n"
+          "// try? decoder.decode(Item.self, from: data) in a comment does not count\n"
+          "func ok(_ data: Data) throws -> Item { try JSONDecoder().decode(Item.self, from: data) }\n"
+          "func other(_ c: Container) -> Int? { try? c.decodeIfPresent(Int.self, forKey: .n) }\n"
+          "func write(_ item: Item) -> Data? { try? JSONEncoder().encode(item) }\n"
+          "func cached(_ url: URL) -> Item? { (try? Data(contentsOf: url)).flatMap { StoredJSON.decode(Item.self, from: $0, owner: \"cache\") } }\n"
+          "func pref(_ url: URL) -> Item? { guard let d = try? Data(contentsOf: url), let i = PreferenceRecord.decode(Item.self, from: d, name: \"x\") else { return nil }; return i }\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[silent-decode] MarkView/Models/Workspace/Store.swift: 1 silent decode site(s), 0 allowed (new sites)" in out,
+          "a new try? decode fails and is named; a throwing decode, a comment, decodeIfPresent, try? encode and a try? read followed by StoredJSON.decode or PreferenceRecord.decode are not counted")
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Tolerant.swift", "func f(_ c: SingleValueDecodingContainer) -> Bool? { try? c.decode(Bool.self) }\n")
+    write(root, "tools/lint/silent-decode-allowlist.txt", "1 MarkView/Models/Workspace/Tolerant.swift  # union decoder: tries each case in turn\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0 and "silent-decode: 1 in 1 file(s), 1 allowed" in out, "a listed tolerant parse passes while it does not grow")
+    write(root, "MarkView/Models/Workspace/Tolerant.swift", "struct Tolerant {}\n")
+    code, out = run(root)
+    check(code == 1 and "[silent-decode] MarkView/Models/Workspace/Tolerant.swift: 0 silent decode site(s), 1 allowed; the count fell" in out,
+          "a converted site fails until the allowance is lowered")
+    code, out = run(root, "--tighten")
+    check(code == 0, "--tighten lowers the allowance")
+    allowed = (root / "tools/lint/silent-decode-allowlist.txt").read_text()
+    check("Tolerant.swift" not in allowed, "the lowered list no longer names the file")
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Tolerant.swift", "func f(_ c: C) -> Bool? { try? c.decode(Bool.self) }\nfunc g(_ c: C) -> Int? { try? c.decode(Int.self) }\n")
+    write(root, "tools/lint/silent-decode-allowlist.txt", "1 MarkView/Models/Workspace/Tolerant.swift  # union decoder\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[silent-decode] MarkView/Models/Workspace/Tolerant.swift: 2 silent decode site(s), 1 allowed (more sites)" in out,
+          "a second try? decode in a listed file fails")
+    root = fresh()
+    write(root, "Packages/MarkViewCore/Tests/MarkViewCoreTests/SomeTests.swift", "func t() { _ = try? JSONDecoder().decode(Item.self, from: data) }\n")
+    code, out = run(root)
+    check(code == 0, "a test file is not counted")
+
     # --- unowned-task ratchet (AR-19)
     OWNED = (
         "final class Owner {\n"
