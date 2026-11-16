@@ -13,7 +13,6 @@ struct BrowserSession {
     var url: URL?
     func close() {}
 }
-enum Archive { static func isArchive(_ url: URL) -> Bool { false } }
 
 @MainActor
 final class PrototypeSession {
