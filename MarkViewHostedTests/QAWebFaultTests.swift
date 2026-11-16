@@ -150,3 +150,40 @@ extension QAWebFaultTests {
         XCTAssertEqual(saved?.kind, .check)
     }
 }
+
+@MainActor
+private final class PrototypeSchemeProbe: NSObject, WKURLSchemeTask {
+    let request: URLRequest
+    private(set) var callbacks = 0
+    var finished: (() -> Void)?
+
+    init(url: URL) { request = URLRequest(url: url) }
+    func didReceive(_ response: URLResponse) { callbacks += 1 }
+    func didReceive(_ data: Data) { callbacks += 1 }
+    func didFinish() { callbacks += 1; finished?() }
+    func didFailWithError(_ error: Error) { callbacks += 1; finished?() }
+}
+
+extension QAWebFaultTests {
+    @MainActor
+    func testStoppedPrototypeSchemeTaskIsNotAnswered() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-scheme-cancel-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "hello".write(to: root.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        let handler = PrototypeSchemeHandler(root: root)
+        let webView = WKWebView()
+        let url = try XCTUnwrap(PrototypeSchemeHandler.address(of: "index.html"))
+        let completed = expectation(description: "a live task is answered")
+        let live = PrototypeSchemeProbe(url: url)
+        live.finished = { completed.fulfill() }
+        handler.webView(webView, start: live)
+        await fulfillment(of: [completed], timeout: 5)
+        XCTAssertGreaterThan(live.callbacks, 0)
+        let stopped = PrototypeSchemeProbe(url: url)
+        handler.webView(webView, start: stopped)
+        handler.webView(webView, stop: stopped)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(stopped.callbacks, 0, "WebKit must never be answered after it stops a task")
+    }
+}

@@ -21,7 +21,7 @@ final class PrototypeSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// Tasks that were started and not yet answered or stopped (main thread only): WebKit raises an
     /// exception when a stopped task is answered.
-    private var open = Set<ObjectIdentifier>()
+    private var open: [ObjectIdentifier: WKURLSchemeTask] = [:]
 
     init(root: URL) {
         self.root = root.standardizedFileURL
@@ -37,7 +37,7 @@ final class PrototypeSchemeHandler: NSObject, WKURLSchemeHandler {
         return components.url
     }
 
-    enum Lookup: Equatable {
+    enum Lookup: Equatable, Sendable {
         case file(URL)
         case forbidden
         case missing
@@ -45,7 +45,7 @@ final class PrototypeSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// The file that the request path names under `root`: a directory means its `index.html`. A path
     /// that leaves `root`, by `..` or by a symbolic link, is forbidden.
-    static func lookup(path requestPath: String, in root: URL) -> Lookup {
+    nonisolated static func lookup(path requestPath: String, in root: URL) -> Lookup {
         let decoded = requestPath.removingPercentEncoding ?? requestPath
         if decoded.contains("\0") { return .forbidden }
         let parts = decoded.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
@@ -66,7 +66,7 @@ final class PrototypeSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     /// The Content-Type of a served file. Text types name their encoding: generated files are UTF-8.
-    static func contentType(of file: URL) -> String {
+    nonisolated static func contentType(of file: URL) -> String {
         switch file.pathExtension.lowercased() {
         case "html", "htm": return "text/html; charset=utf-8"
         case "js", "mjs": return "text/javascript; charset=utf-8"
@@ -85,18 +85,21 @@ final class PrototypeSchemeHandler: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
         guard let requestURL = task.request.url else { return task.didFailWithError(URLError(.badURL)) }
         let id = ObjectIdentifier(task as AnyObject)
-        open.insert(id)
+        open[id] = task
         let root = self.root
         DispatchQueue.global(qos: .userInitiated).async {
             let outcome = Self.lookup(path: requestURL.path, in: root)
-            var data: Data?
-            var type = "text/plain; charset=utf-8"
+            let data: Data?
+            let type: String
             if case .file(let file) = outcome {
                 data = try? Data(contentsOf: file, options: .mappedIfSafe)
                 type = Self.contentType(of: file)
+            } else {
+                data = nil
+                type = "text/plain; charset=utf-8"
             }
             DispatchQueue.main.async {
-                guard self.open.remove(id) != nil else { return }
+                guard let task = self.open.removeValue(forKey: id) else { return }
                 switch outcome {
                 case .file where data != nil: self.respond(task, url: requestURL, status: 200, type: type, data: data ?? Data())
                 case .forbidden: self.respond(task, url: requestURL, status: 403, type: type, data: Data())
@@ -107,7 +110,7 @@ final class PrototypeSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {
-        open.remove(ObjectIdentifier(task as AnyObject))
+        open.removeValue(forKey: ObjectIdentifier(task as AnyObject))
     }
 
     private func respond(_ task: WKURLSchemeTask, url: URL, status: Int, type: String, data: Data) {
