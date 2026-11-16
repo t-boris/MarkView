@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 220,
+  "suiteCount": 221,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -4903,6 +4903,22 @@
         "tools/tests/ProjectOperationAnyCodableStub.swift",
         "tools/tests/ProjectOperationWritesTests.swift",
         "tools/tests/project-operation-writes-tests.sh"
+      ]
+    },
+    {
+      "name": "new-project-close-tests",
+      "script": "tools/tests/new-project-close-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Workspace/NewProjectFlow.swift",
+        "MarkView/Models/Workspace/ProjectDraftStore.swift",
+        "MarkView/Models/Lifecycle/FeatureStore.swift",
+        "MarkView/Models/Lifecycle/FeatureAI.swift",
+        "MarkView/Models/Lifecycle/FeatureJobs.swift",
+        "MarkView/Models/Lifecycle/FeatureIntake.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
+        "tools/tests/NewProjectCloseChecks.swift",
+        "tools/tests/new-project-close-tests.sh"
       ]
     }
   ]

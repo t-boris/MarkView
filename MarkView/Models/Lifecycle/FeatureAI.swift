@@ -123,7 +123,13 @@ final class FeatureAssistant: ObservableObject {
     /// ("explore:<slug>", "review:<slug>") so that the step's own key and the job agree on what is running.
     @discardableResult
     func start(_ key: String, _ work: @escaping @MainActor (FeatureAssistant) async -> Void) -> Bool {
-        guard store.jobs.start(key, { [self] in await work(self) }) else {
+        // The job holds the store as well as the assistant, which holds it `unowned`: a step that was cancelled by the store's reset (the
+        // sheet of a new project closes) runs on to its next check and reads the store once more, and the store may have no other owner.
+        let pinned = store
+        guard store.jobs.start(key, { [self] in
+            await work(self)
+            withExtendedLifetime(pinned) {}
+        }) else {
             error = "That is already running — wait for it to finish."
             return false
         }
