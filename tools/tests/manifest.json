@@ -1107,6 +1107,7 @@
       "script": "tools/tests/document-translator-tests.sh",
       "tier": "pure",
       "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/AI/ACPAssistant.swift",
         "MarkView/Models/AI/AIOperation.swift",
         "MarkView/Models/AI/AgentProcesses.swift",
@@ -1230,6 +1231,7 @@
       "script": "tools/tests/browser-host-tests.sh",
       "tier": "pure",
       "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
         "MarkView/Models/Appearance/AppTheme.swift",
@@ -1386,6 +1388,7 @@
       "script": "tools/tests/file-operations-tests.sh",
       "tier": "pure",
       "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/Book/PDFReader.swift",
         "MarkView/Models/Workspace/BackgroundFileScans.swift",
@@ -1863,6 +1866,7 @@
       "script": "tools/tests/pdf-reader-tests.sh",
       "tier": "gui",
       "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/Appearance/AppTheme.swift",
         "MarkView/Models/Appearance/ThemeCatalog.swift",
@@ -3085,6 +3089,7 @@
       "script": "tools/tests/qa-web-fault-tests.sh",
       "tier": "gui",
       "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/QA/QAAPI.swift",
         "MarkView/Models/QA/QAActions.swift",
         "MarkView/Models/QA/QATestImage.swift",
@@ -3654,6 +3659,7 @@
       "script": "tools/tests/tabs-controller-tests.sh",
       "tier": "pure",
       "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/Book/PDFReader.swift",
         "MarkView/Models/Workspace/BackgroundFileScans.swift",
@@ -4343,6 +4349,7 @@
       "script": "tools/tests/window-session-snapshotter-tests.sh",
       "tier": "pure",
       "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/Appearance/AppTheme.swift",
         "MarkView/Models/Appearance/BackdropRegistry.swift",
@@ -5038,6 +5045,7 @@
       "script": "tools/tests/tool-tabs-router-tests.sh",
       "tier": "pure",
       "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/AI/AIOperation.swift",
         "MarkView/Models/AI/CommandPolicy.swift",
         "MarkView/Models/AI/OutputLanguage.swift",

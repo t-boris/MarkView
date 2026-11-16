@@ -1,5 +1,6 @@
 import AppKit
 import os
+import MarkViewCore
 import SwiftUI
 import WebKit
 import XCTest
@@ -67,13 +68,17 @@ final class EditorHostTests: XCTestCase {
         let center = NotificationCenter()
         let name = Notification.Name("EditorObserverLifetime-" + UUID().uuidString)
         let calls = OSAllocatedUnfairLock(initialState: 0)
-        var observers: EditorNotificationObservers? = EditorNotificationObservers()
+        var observers: NotificationObservers? = NotificationObservers()
         observers?.observe(name, center: center) { _ in calls.withLock { $0 += 1 } }
         center.post(name: name, object: nil)
         XCTAssertEqual(calls.withLock { $0 }, 1)
+        observers?.removeAll()
+        center.post(name: name, object: nil)
+        XCTAssertEqual(calls.withLock { $0 }, 1, "Removed observers must not receive future notifications")
+        observers?.observe(name, center: center) { _ in calls.withLock { $0 += 1 } }
         observers = nil
         center.post(name: name, object: nil)
-        XCTAssertEqual(calls.withLock { $0 }, 1, "Released editor observers must not receive future notifications")
+        XCTAssertEqual(calls.withLock { $0 }, 1, "Released observers must not receive future notifications")
     }
 
     @MainActor

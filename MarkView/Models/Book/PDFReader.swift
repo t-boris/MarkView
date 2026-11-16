@@ -43,12 +43,14 @@ enum PDFReaderLinks {
 }
 
 enum PDFReaderLoading {
-    struct Result {
+    // Keep this transfer type and its loader private to this file.
+    // unchecked Sendable: the detached loader relinquishes the PDFKit objects once; no worker accesses them after return.
+    fileprivate struct Result: @unchecked Sendable {
         let document: PDFDocument
         let outline: [PDFReaderOutline]
     }
 
-    static func load(_ url: URL, password: String? = nil) throws -> Result {
+    fileprivate static func load(_ url: URL, password: String? = nil) throws -> Result {
         guard url.isFileURL,
               (try url.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile == true else {
             throw ReaderError.invalidFile
@@ -103,7 +105,7 @@ final class PDFReaderController: NSObject, ObservableObject, @preconcurrency PDF
     private var loadGeneration = UUID()
     /// The load the toolbar or the password field started (`AR-19`): a new one replaces the one before it, and the reader going away ends it.
     private let tasks = TaskBag()
-    private var observers: [NSObjectProtocol] = []
+    private let observers = NotificationObservers()
     private var fitMode: PDFReaderPDFView.FitMode = .page
     private weak var view: PDFReaderPDFView?
     private var query = ""
@@ -111,10 +113,6 @@ final class PDFReaderController: NSObject, ObservableObject, @preconcurrency PDF
 
     var pageCount: Int { document?.pageCount ?? 0 }
     var canCopy: Bool { document?.allowsCopying == true && !locked }
-
-    deinit {
-        for observer in observers { NotificationCenter.default.removeObserver(observer) }
-    }
 
     /// Starts `load` for Retry and the password field.
     func startLoad(_ url: URL, password: String? = nil) {
@@ -162,17 +160,16 @@ final class PDFReaderController: NSObject, ObservableObject, @preconcurrency PDF
 
     func attach(_ view: PDFReaderPDFView) {
         if self.view === view { return }
-        for observer in observers { NotificationCenter.default.removeObserver(observer) }
-        observers = []
+        observers.removeAll()
         self.view = view
         view.delegate = self
         view.findDelegate = self
         view.fitMode = fitMode
         if let page = document?.page(at: pageNumber - 1) { view.go(to: page) }
         for name in [Notification.Name.PDFViewPageChanged, .PDFViewScaleChanged] {
-            observers.append(NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) { [weak self] _ in
+            observers.observe(name, object: view) { [weak self] _ in
                 MainActor.assumeIsolated { self?.updatePosition() }
-            })
+            }
         }
         view.applyFit()
         updatePosition()

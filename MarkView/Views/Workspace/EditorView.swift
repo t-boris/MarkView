@@ -5,24 +5,6 @@ import Combine
 import MarkViewCore
 #endif
 
-// unchecked Sendable: the lock protects registrations; NotificationCenter supports removal from any thread.
-final class EditorNotificationObservers: @unchecked Sendable {
-    private let lock = NSLock()
-    private var registrations: [(NotificationCenter, NSObjectProtocol)] = []
-
-    func observe(_ name: Notification.Name, center: NotificationCenter = .default,
-                 handler: @escaping @Sendable (Notification) -> Void) {
-        let token = center.addObserver(forName: name, object: nil, queue: .main, using: handler)
-        lock.lock()
-        registrations.append((center, token))
-        lock.unlock()
-    }
-
-    deinit {
-        for (center, token) in registrations { center.removeObserver(token) }
-    }
-}
-
 /// NSViewRepresentable wrapper for WKWebView markdown editor
 struct EditorView: NSViewRepresentable {
     @Environment(\.windowCommands) private var window
@@ -132,7 +114,7 @@ struct EditorView: NSViewRepresentable {
         /// `webView(_:didFinish:)` (the second `loadContentIfNeeded` call site) so it
         /// can route by `tab.kind` instead of falling back to the file-only path.
         var pendingTab: OpenTab?
-        private let notificationObservers = EditorNotificationObservers()
+        private let notificationObservers = NotificationObservers()
 
         // MARK: Insight subscription state (Recursive Insight v2, Task 7)
 
