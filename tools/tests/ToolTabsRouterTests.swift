@@ -201,6 +201,9 @@ enum ToolTabsRouterChecks {
             rig.tabs.updateTabContent("# Edited\n", documentID: tab.id)
         }
         check(session.editorBuffers() == ["note.md": "# Edited\n"], "the unsaved text of the project's files reaches the session by project path (\(session.editorBuffers()))")
+        rig.project.root = outside
+        check(session.editorBuffers() == ["note.md": "# Edited\n"], "a session keeps its original project root if the window changes projects")
+        rig.project.root = root
 
         session.recordUsage(10, 20, 0.5)
         session.recordUsage(1, 2, 0.25)
@@ -215,7 +218,7 @@ enum ToolTabsRouterChecks {
 
         session.openFile(note)
         check(rig.window.openedFiles == [note], "a file the session shows opens in the window")
-        session.featureExportDelegate?.studioDidExportFeature("feature-one")
+        session.windowServices?.studioDidExportFeature("feature-one")
         check(rig.window.shownFeatures == ["feature-one"], "an exported feature is shown beside the document")
         check(session.featureStore() === rig.features, "the session reads the window's features")
     }

@@ -40,17 +40,23 @@ enum PrototypeAI {
     struct CodeScope: Sendable, Equatable { var apps: [String] = [] }
 }
 
-@MainActor protocol StudioFeatureExportDelegate: AnyObject { func studioDidExportFeature(_ slug: String) }
+@MainActor protocol StudioWindowServices: AnyObject, Sendable {
+    func studioEditorBuffers(root: URL) -> [String: String]
+    func studioRecordUsage(_ input: Int, _ output: Int, _ cost: Double)
+    func studioOpenFile(_ url: URL)
+    func studioFeatureStore() -> FeatureStore?
+    func studioDidExportFeature(_ slug: String)
+}
 
 @MainActor
 final class StudioSession {
     let id = UUID()
     let root: URL
-    var editorBuffers: () -> [String: String] = { [:] }
-    var recordUsage: (Int, Int, Double) -> Void = { _, _, _ in }
-    var openFile: (URL) -> Void = { _ in }
-    var featureStore: () -> FeatureStore? = { nil }
-    weak var featureExportDelegate: (any StudioFeatureExportDelegate)?
+    weak var windowServices: (any StudioWindowServices)?
+    func editorBuffers() -> [String: String] { windowServices?.studioEditorBuffers(root: root) ?? [:] }
+    func recordUsage(_ input: Int, _ output: Int, _ cost: Double) { windowServices?.studioRecordUsage(input, output, cost) }
+    func openFile(_ url: URL) { windowServices?.studioOpenFile(url) }
+    func featureStore() -> FeatureStore? { windowServices?.studioFeatureStore() }
     private(set) var started = false
     init(root: URL) { self.root = root }
     func start() { started = true }

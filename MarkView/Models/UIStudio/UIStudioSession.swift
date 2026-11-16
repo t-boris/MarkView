@@ -7,8 +7,20 @@ import MarkViewCore
 #endif
 
 @MainActor
-protocol StudioFeatureExportDelegate: AnyObject {
+protocol StudioWindowServices: AnyObject, Sendable {
+    func studioEditorBuffers(root: URL) -> [String: String]
+    func studioRecordUsage(_ input: Int, _ output: Int, _ cost: Double)
+    func studioOpenFile(_ url: URL)
+    func studioFeatureStore() -> FeatureStore?
     func studioDidExportFeature(_ slug: String)
+}
+
+extension StudioWindowServices {
+    func studioEditorBuffers(root: URL) -> [String: String] { [:] }
+    func studioRecordUsage(_ input: Int, _ output: Int, _ cost: Double) {}
+    func studioOpenFile(_ url: URL) {}
+    func studioFeatureStore() -> FeatureStore? { nil }
+    func studioDidExportFeature(_ slug: String) {}
 }
 
 /// One UI Studio session (feature "MarkView UI Studio"): the project's real web interface running from its development
@@ -145,13 +157,13 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @Published var recordedSteps: [StudioStep] = []
     @Published private(set) var route = "/"
     @Published private(set) var rejectedMessages = 0
+    weak var windowServices: (any StudioWindowServices)?
     /// Unsaved editor buffers of files in the project (path relative to the root → text).
-    var editorBuffers: () -> [String: String] = { [:] }
+    func editorBuffers() -> [String: String] { windowServices?.studioEditorBuffers(root: root) ?? [:] }
     /// Counts an assistant run in the workspace's usage.
-    var recordUsage: @MainActor @Sendable (Int, Int, Double) -> Void = { _, _, _ in }
-    var openFile: (URL) -> Void = { _ in }
-    var featureStore: () -> FeatureStore? = { nil }
-    weak var featureExportDelegate: (any StudioFeatureExportDelegate)?
+    func recordUsage(_ input: Int, _ output: Int, _ cost: Double) { windowServices?.studioRecordUsage(input, output, cost) }
+    func openFile(_ url: URL) { windowServices?.studioOpenFile(url) }
+    func featureStore() -> FeatureStore? { windowServices?.studioFeatureStore() }
 
     var simulator: StudioSimulator
     var server: StudioDevServer?
@@ -1910,9 +1922,9 @@ extension StudioSession {
     }
 
     private func makeMapAssistant() -> StudioCLIMapAssistant {
-        let usage = recordUsage
-        return StudioCLIMapAssistant(project: root) { input, output, cost in
-            Task { @MainActor in usage(input, output, cost) }
+        let services = windowServices
+        return StudioCLIMapAssistant(project: root) { [weak services] input, output, cost in
+            Task { @MainActor in services?.studioRecordUsage(input, output, cost) }
         }
     }
 

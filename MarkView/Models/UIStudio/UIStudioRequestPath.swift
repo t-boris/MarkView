@@ -499,10 +499,10 @@ final class StudioRequestPath: ObservableObject {
     /// The project's assistant, read-only, preparing rules against the environment as it is now.
     func makePreparer() -> StudioCLIPreparer {
         let relative = session.appFolder.standardizedFileURL.path.dropFirst(session.root.path.count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let usage = session.recordUsage
-        return StudioCLIPreparer(project: session.root, appFolder: relative, spec: session.simulator.spec) { input, output, cost in
-            // task: a hop onto the main actor from the preparer's callback; it never suspends and touches only the usage closure it holds
-            Task { @MainActor in usage(input, output, cost) }
+        let services = session.windowServices
+        return StudioCLIPreparer(project: session.root, appFolder: relative, spec: session.simulator.spec) { [weak services] input, output, cost in
+            // task: a hop onto the main actor from the preparer's callback; it never suspends
+            Task { @MainActor in services?.studioRecordUsage(input, output, cost) }
         }
     }
 

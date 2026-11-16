@@ -7,6 +7,12 @@
 import AppKit
 import WebKit
 
+@MainActor private final class SessionTestWindowServices: StudioWindowServices {
+    let store: FeatureStore
+    init(store: FeatureStore) { self.store = store }
+    func studioFeatureStore() -> FeatureStore? { store }
+}
+
 // CI runners give no clue when a windowed WebKit test hangs: print every line at once and stop with the last step reached.
 setvbuf(stdout, nil, _IONBF, 0)
 final class Watchdog: @unchecked Sendable {
@@ -288,7 +294,9 @@ func run() async {
     try? StudioStore.saveHistory([earlier], root: root)
 
     let session = StudioSession(root: root)
-    session.featureStore = { store }
+    let windowServices = SessionTestWindowServices(store: store)
+    session.windowServices = windowServices
+    defer { withExtendedLifetime(windowServices) {} }
     let window = NSWindow(contentRect: CGRect(x: 60, y: 60, width: 1100, height: 860), styleMask: [.titled, .resizable],
                           backing: .buffered, defer: false)
     let host = StudioPreviewScrollView(webView: session.webView)

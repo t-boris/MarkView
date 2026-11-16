@@ -9,6 +9,15 @@ final class LiveTotals: @unchecked Sendable {
     var cost = 0.0
 }
 
+@MainActor private final class LiveWindowServices: StudioWindowServices {
+    let totals: LiveTotals
+    init(totals: LiveTotals) { self.totals = totals }
+    func studioRecordUsage(_ input: Int, _ output: Int, _ cost: Double) {
+        totals.calls += 1
+        totals.cost += cost
+    }
+}
+
 @MainActor
 func liveRun() async {
     let args = CommandLine.arguments
@@ -42,10 +51,8 @@ func liveRun() async {
     window.alphaValue = 0
     window.ignoresMouseEvents = true
     window.orderFrontRegardless()
-    session.recordUsage = { _, _, cost in
-        totals.calls += 1
-        totals.cost += cost
-    }
+    let windowServices = LiveWindowServices(totals: totals)
+    session.windowServices = windowServices
     session.start(target)
     _ = await waitUntil(600) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
     print("[\(elapsed())] opened: \(session.state) \(session.stateDetail)")
@@ -168,6 +175,7 @@ func liveRun() async {
     }
     print("[\(elapsed())] assistant calls: \(totals.calls), cost $\(String(format: "%.2f", totals.cost))")
     await session.close()
+    withExtendedLifetime(windowServices) {}
     exit(0)
 }
 

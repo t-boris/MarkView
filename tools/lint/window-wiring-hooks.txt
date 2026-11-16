@@ -6,4 +6,3 @@
 7 MarkView/Models/Terminal/TerminalSession.swift
 1 MarkView/Models/UIStudio/UIStudioEnvironmentMapper.swift
 2 MarkView/Models/UIStudio/UIStudioServer.swift
-4 MarkView/Models/UIStudio/UIStudioSession.swift
