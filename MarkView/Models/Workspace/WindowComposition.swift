@@ -61,7 +61,7 @@ final class WindowComposition {
     /// Translates documents into another language and opens the result in a new tab.
     private(set) lazy var translator = DocumentTranslator(tabs: tabs, project: project, tasks: taskBag)
     /// The browser of the window: its tabs, what agents drive of them, Preview Web App and the picked page element.
-    private(set) lazy var browser = BrowserHost(tabs: tabs, layout: layout, chrome: chrome, project: project, terminals: terminals, window: host)
+    private(set) lazy var browser = BrowserHost(tabs: tabs, layout: layout, chrome: chrome, project: project, terminals: terminals, window: host, prompts: prompts)
     /// Code explanations, code navigation, the X-Ray tabs and the AI actions on selected text.
     private(set) lazy var codeXRay = CodeAndXRayCoordinator(project: project, host: host)
     /// Recursive Insight of the window: its graph engine runs over the project's database.

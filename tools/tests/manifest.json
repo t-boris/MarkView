@@ -1190,7 +1190,8 @@
         "tools/tests/BrowserHostTests.swift",
         "tools/tests/browser-host-tests.sh",
         "MarkView/Models/AgentTools/AgentToolWindow.swift",
-        "MarkView/Models/Shared/UserPrompts.swift"
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {
@@ -3006,6 +3007,7 @@
         "MarkView/Models/QA/QAWebActor.swift",
         "MarkView/Views/QA/QAWebWindow.swift",
         "MarkView/Models/AI/AIOperation.swift",
+        "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/AIOperationStub.swift",
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/QANativeKeychainStub.swift",
@@ -4103,7 +4105,9 @@
         "tools/tests/web-preview-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {

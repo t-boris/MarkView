@@ -141,9 +141,10 @@ enum TabsEvent {
 @MainActor final class BrowserHost {
     let terminals: AITerminalsController
     let tabs: TabsController
+    let prompts: any UserPrompts
     init(tabs: TabsController, layout: PanelLayout, chrome: WindowChrome, project: ProjectContext, terminals: AITerminalsController,
-         window: any BrowserHostWindow) {
-        self.tabs = tabs; self.terminals = terminals
+         window: any BrowserHostWindow, prompts: any UserPrompts) {
+        self.tabs = tabs; self.terminals = terminals; self.prompts = prompts
         Journal.built.append("browser")
     }
     func close() { Journal.shutdown.append("browser") }
