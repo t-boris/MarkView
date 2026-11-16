@@ -138,6 +138,7 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
   fix those. Acceptance: a stated main-thread stall (ms) before and after on the same project and the same action; no claim without it.
 
 **D3. AR-43 concurrency checking.**
+- Measurement 2026-11-16: a clean Debug build with `SWIFT_STRICT_CONCURRENCY=complete SWIFT_TREAT_WARNINGS_AS_ERRORS=NO` failed on `StudioMessageHandler` WebKit protocol conformance and emitted 221 distinct warning lines in 63 files before termination (Xcode 27.2). Targeted checking remains in the project; these diagnostics must be resolved before switching the setting.
 - Now: `SWIFT_STRICT_CONCURRENCY = targeted` in both app configurations; `MarkViewCore` is built with complete checking. 43 sites of
   `@unchecked Sendable` or `nonisolated(unsafe)` in `MarkView` and `Packages` (measured with `git grep -cE`), each justified (lint
   `unchecked-sendable`, exit 0).
