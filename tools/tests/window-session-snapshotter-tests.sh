@@ -14,6 +14,6 @@ swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library -o "$out/window-s
     MarkView/Models/Workspace/DocumentScrollSideTable.swift MarkView/Models/Workspace/TabsController.swift MarkView/Models/Shared/UserPrompts.swift \
     MarkView/Models/Workspace/PanelLayout.swift MarkView/Models/Shared/SchemaVersionedStore.swift MarkView/Models/Workspace/WindowSession.swift \
     MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Workspace/WindowChrome.swift MarkView/Models/Workspace/WindowSessionSnapshotter.swift \
-    MarkView/Models/Book/PDFReader.swift MarkView/Models/AI/OutputLanguage.swift tools/tests/TabsControllerStubs.swift tools/tests/ArchiveStub.swift tools/tests/WindowSessionSnapshotterTests.swift
+    MarkView/Models/Book/PDFReader.swift MarkView/Models/AI/OutputLanguage.swift tools/tests/TabsControllerStubs.swift MarkView/Models/Shared/ArchiveSupport.swift tools/tests/WindowSessionSnapshotterTests.swift
 cp -R MarkView/Resources/Themes "$out/Themes"
 "$out/window-session-snapshotter-tests"
