@@ -354,6 +354,12 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
             ["url": url, "line": line, "endLine": endLine ?? line])
     }
 
+    /// Open the PDF at `url` at `page`.
+    func openPDF(_ url: URL, page: Int) {
+        openFile(url)
+        if case .pdf(let reader)? = tabs.activeTab?.kind { reader.openPageWhenReady(page) }
+    }
+
     /// Show a key of a JSON / YAML file picked in the Contents panel: the file's tab comes forward and
     /// its tree viewer scrolls to the node (a source view to the line).
     func revealStructure(_ url: URL, item: StructureOutline.Item) {

@@ -120,7 +120,7 @@ enum TabsEvent {
 
 @MainActor final class FileOperationsController {
     let tabs: TabsController
-    init(host: any FileOperationsHost, tabs: TabsController, project: ProjectContext) {
+    init(host: any FileOperationsHost, tabs: TabsController, project: ProjectContext, tasks: TaskBag) {
         self.tabs = tabs
         Journal.built.append("fileOperations")
     }

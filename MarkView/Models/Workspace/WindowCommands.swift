@@ -10,10 +10,20 @@ import SwiftUI
 protocol WindowCommands: AnyObject {
     /// Show `url` in a tab, or return to its tab.
     func openFile(_ url: URL)
+    /// Show `url` and, for code, reveal `line`…`endLine` in the code viewer.
+    func openFile(_ url: URL, line: Int?, endLine: Int?)
+    /// Show the PDF at `url` open at `page` (the reader scrolls there once the document is loaded).
+    func openPDF(_ url: URL, page: Int)
+    /// Show a key of a JSON / YAML file picked in the Contents panel: its tab comes forward and the viewer scrolls to the node.
+    func revealStructure(_ url: URL, item: StructureOutline.Item)
     /// Open the tab of a tool of `ToolRegistry`, or return to it.
     func openTool(_ id: ToolID)
     /// Delete this folder's metadata after confirmation; with `recreate`, index the folder again.
     func removeMetadata(recreate: Bool)
+}
+
+extension WindowCommands {
+    func openFile(_ url: URL, line: Int?) { openFile(url, line: line, endLine: nil) }
 }
 
 private struct WindowCommandsKey: EnvironmentKey {

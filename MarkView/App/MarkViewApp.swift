@@ -527,7 +527,7 @@ enum DDESettingsWindow {
 extension NotificationCenter {
     /// Posts a notification that is for one window only: every window's observers hear it, and the ones of other windows ignore it
     /// (`Notification.isFor`). A scroll, a reveal or an export started in one window must not move another window.
-    func post(_ name: Notification.Name, for workspace: WorkspaceManager, object: Any? = nil, userInfo: [AnyHashable: Any] = [:]) {
+    func post(_ name: Notification.Name, for workspace: any WindowCommands, object: Any? = nil, userInfo: [AnyHashable: Any] = [:]) {
         var info = userInfo
         info[Notification.workspaceKey] = ObjectIdentifier(workspace)
         post(name: name, object: object, userInfo: info)
@@ -538,7 +538,7 @@ extension Notification {
     static let workspaceKey = "workspace"
 
     /// True when this notification was posted for `workspace`'s window. One posted for no window is for none.
-    func isFor(_ workspace: WorkspaceManager) -> Bool {
+    func isFor(_ workspace: any WindowCommands) -> Bool {
         (userInfo?[Self.workspaceKey] as? ObjectIdentifier) == ObjectIdentifier(workspace)
     }
 }

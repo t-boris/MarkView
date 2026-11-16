@@ -55,7 +55,7 @@ final class WindowComposition {
     private(set) lazy var flow = FeatureFlowCoordinator(project: project, assistants: terminals, tabs: host, requests: requests,
                                                         layout: layout, chrome: chrome, gitClient: gitClient, research: research)
     /// Creates, renames, moves, copies and trashes the files of the project, with the tabs that follow or close.
-    private(set) lazy var fileOperations = FileOperationsController(host: host, tabs: tabs, project: project)
+    private(set) lazy var fileOperations = FileOperationsController(host: host, tabs: tabs, project: project, tasks: taskBag)
     /// Translates documents into another language and opens the result in a new tab.
     private(set) lazy var translator = DocumentTranslator(tabs: tabs, project: project, tasks: taskBag)
     /// The browser of the window: its tabs, what agents drive of them, Preview Web App and the picked page element.

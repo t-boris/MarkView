@@ -63,10 +63,7 @@
 5 MarkView/Views/Remote/RemoteConnectionsView.swift
 1 MarkView/Views/Terminal/TerminalView.swift
 3 MarkView/Views/Workspace/ContentView.swift
-2 MarkView/Views/Workspace/ContentsPanelView.swift
 3 MarkView/Views/Workspace/EditorView.swift
-6 MarkView/Views/Workspace/FileTreeView.swift
+3 MarkView/Views/Workspace/FileTreeView.swift
 15 MarkView/Views/Workspace/NewProjectSheet.swift
-3 MarkView/Views/Workspace/SearchPanelView.swift
-4 MarkView/Views/Workspace/SharedSearchView.swift
-2 MarkView/Views/Workspace/TOCView.swift
+2 MarkView/Views/Workspace/SharedSearchView.swift

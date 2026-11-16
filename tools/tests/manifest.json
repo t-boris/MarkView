@@ -1049,6 +1049,7 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "tools/tests/CLICompletionTestSupport.swift",
         "tools/tests/DocumentTranslatorTests.swift",
+        "tools/tests/ArchiveStub.swift",
         "tools/tests/TabsControllerStubs.swift",
         "tools/tests/document-translator-tests.sh"
       ]
@@ -1264,6 +1265,7 @@
         "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
         "MarkView/Models/Workspace/DocumentState.swift",
         "MarkView/Models/Workspace/EditorDocumentRouting.swift",
+        "MarkView/Models/Workspace/ArchiveSupport.swift",
         "MarkView/Models/Workspace/FileOperationsController.swift",
         "MarkView/Models/Workspace/FileTransfer.swift",
         "MarkView/Models/Workspace/ProjectProviding.swift",
@@ -1713,6 +1715,7 @@
         "tools/tests/PDFReaderTests.swift",
         "tools/tests/PDFReaderViewTests.swift",
         "tools/tests/TabClosingStoreTests.swift",
+        "tools/tests/ArchiveStub.swift",
         "tools/tests/TabsControllerStubs.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
         "MarkView/Models/Appearance/WebThemeArguments.swift",
@@ -3303,6 +3306,7 @@
         "MarkView/Models/Workspace/TabsController.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/ArchiveStub.swift",
         "tools/tests/TabsControllerStubs.swift",
         "tools/tests/TabsControllerTests.swift",
         "tools/tests/tabs-controller-tests.sh"
@@ -3913,6 +3917,7 @@
         "MarkView/Models/Workspace/WindowSessionSnapshotter.swift",
         "MarkView/Models/Workspace/WindowUIState.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/ArchiveStub.swift",
         "tools/tests/TabsControllerStubs.swift",
         "tools/tests/WindowSessionSnapshotterTests.swift",
         "tools/tests/window-session-snapshotter-tests.sh"
