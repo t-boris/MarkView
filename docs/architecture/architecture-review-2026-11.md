@@ -505,6 +505,8 @@ Status (2026-11-15): partial. 5 workflows (the review: 14), each with a `concurr
 
 Decide one way: generate the project in CI and `release.sh` and stop committing it, or drop XcodeGen and delete `setup.sh`. Packages shrink the problem either way.
 
+Status (2026-11-15): done. `project.yml` and `setup.sh` are absent (0 of 2); `project.yml` is named by no script or workflow (the remaining text matches are file names that scanners recognise and records of its removal); `MarkView.xcodeproj` is authoritative per `CLAUDE.md`; `bump-version.sh` fails when its edit does not match both configurations. New Swift files still need hand-made `project.pbxproj` entries; the `target-membership` lint checks them.
+
 ### AR-47 Build phases and scripts (medium, S-M)
 
 - The Cockpit runtime phase runs on every build: it needs Go, downloads a pinned PostgreSQL image on first run, then mounts it and runs six `go build` commands each time. The verification build in `CLAUDE.md` therefore needs Go and the network, undocumented. Declare inputs and outputs so Xcode skips it.
