@@ -294,7 +294,7 @@ final class ProjectOperationsStore: ObservableObject {
     /// Applies one UI action to the operations file. The edits are written one at a time in the order they were asked for, each on
     /// top of the file as the one before it left it (`ProjectOperationWrites`), so none is dropped by another; it reloads first, so a
     /// hand edit or git update is not lost either.
-    func change(_ edit: @escaping (inout ProjectOperationsDocument) throws -> Void) {
+    func change(_ edit: @escaping @Sendable (inout ProjectOperationsDocument) throws -> Void) {
         writes.edit(edit) { [self] result in
             switch result {
             case .success(let next):

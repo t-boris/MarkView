@@ -22,7 +22,7 @@ final class ProjectOperationWrites {
 
     /// Applies `edit` to the operations file once every edit asked for before it has been written (a hand edit or a git update that landed
     /// while it was prepared is applied again on top, `ProjectOperationsFile.mutate`), then tells `finished` what came of it.
-    func edit(_ edit: @escaping (inout ProjectOperationsDocument) throws -> Void,
+    func edit(_ edit: @escaping @Sendable (inout ProjectOperationsDocument) throws -> Void,
               finished: @escaping @MainActor (Result<ProjectOperationsDocument, Error>) -> Void) {
         let root = self.root
         edits.enqueue {
