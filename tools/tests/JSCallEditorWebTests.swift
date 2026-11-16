@@ -8,6 +8,7 @@ import WebKit
 //   - Every other command: the page functions are replaced by recorders, the bridge command is called, and the recorded arguments
 //     are compared in the page with what Swift sent. `window.__evil` counts any code that ran from a value.
 // Run through tools/tests/js-call-web-tests.sh (argument 1: the bundled editor folder).
+MainActor.assumeIsolated {
 setvbuf(stdout, nil, _IONBF, 0)
 let editor = CommandLine.arguments[1]
 var failures = 0
@@ -191,3 +192,5 @@ check(compare([["name": "releaseInsightBlobs", "args": [] as [Any]], ["name": "m
 
 print("\(failures) failures")
 exit(failures == 0 ? 0 : 1)
+
+}
