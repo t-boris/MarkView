@@ -117,6 +117,8 @@ Status (2026-11-15): partial. All 11 steps of the decomposition table exist as t
 
 Fix: stop forwarding; expose tabs, file tree and git as separate observable objects; move scroll position and active heading out of `OpenTab` into a non-published side table.
 
+Status (2026-11-15): partial, by reading. `WorkspaceManager` forwards one signal (`composition.changes`, the merge of `project` and `codeXRay`) where it forwarded `fileTreeStore`, `tabsStore`, `layout` and `gitClient` (6.26.2: 18 `objectWillChange` mentions); tabs, layout, chrome, theme and window UI are separate observable objects the views observe directly, and `sessionChanges` feeds only the session archive; scroll position lives in `DocumentScrollSideTable`; the `tabs-direct` lint keeps views from reading tabs through the manager. Not measured: how often a content message still rewrites `openTabs`, and no render profile was taken.
+
 ### AR-16 Other oversized multi-responsibility types (high, M each)
 
 - `ArchitectureStore.swift`: 4,467 lines in one main-actor type (3,136 when recorded, +42%): scan, cluster naming, importance, descriptions, change review, book, SQL, JSON caches, 41 assistant call references. Split along its marks into Scan / Clustering / ChangeReview / Book.
