@@ -2238,6 +2238,8 @@
       "script": "tools/tests/project-change-tests.sh",
       "tier": "pure",
       "sources": [
+        "MarkView/Models/Appearance/ProjectColor.swift",
+        "MarkView/Models/Shared/LinkedFolderStore.swift",
         "MarkView/Models/Shared/ArchiveSupport.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Architecture/ProjectChangeReview.swift",
@@ -2299,6 +2301,8 @@
       "script": "tools/tests/project-search-tests.sh",
       "tier": "pure",
       "sources": [
+        "MarkView/Models/Appearance/ProjectColor.swift",
+        "MarkView/Models/Shared/LinkedFolderStore.swift",
         "MarkView/Models/Shared/ArchiveSupport.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Shared/ProjectSearch.swift",

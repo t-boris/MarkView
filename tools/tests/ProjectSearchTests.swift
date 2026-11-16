@@ -1,9 +1,5 @@
 import Foundation
 
-// ProjectSearch.swift names these two; the real ones pull in half the app.
-struct LinkedFolder { let name: String; let url: URL }
-enum LinkedFolders { static let documentIdPrefix = "@linked/" }
-
 var failures = 0
 func check(_ condition: Bool, _ message: String, line: Int = #line) {
     if condition { print("ok   \(message)") } else { failures += 1; print("FAIL \(message) (line \(line))") }
@@ -40,6 +36,9 @@ try p.run(); p.waitUntilExit()
 try FileManager.default.removeItem(at: root.appendingPathComponent("pack"))
 
 let index = ProjectSearchIndex()
+let linked = LinkedFolder(path: root.appendingPathComponent("docs").path, name: "manuals", added: Date(timeIntervalSince1970: 0))
+let linkedRoot = ProjectSearchRoot.linked(linked)
+check(linkedRoot.prefix == "@linked/manuals/" && linkedRoot.url == linked.url, "linked search roots use the shipping folder model and document prefix")
 try await index.rebuild(roots: [.project(root)]) { _ in }
 let hits = await index.search("needle")
 let content = hits.filter { $0.scope == .content }

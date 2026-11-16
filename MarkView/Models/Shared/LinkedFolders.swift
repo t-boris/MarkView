@@ -4,9 +4,6 @@ import MarkViewCore
 #endif
 
 extension LinkedFolders {
-    /// Document ids of files in linked folders start with this: never a path inside the project.
-    static let documentIdPrefix = "@linked/"
-
     // MARK: Linking
 
     /// Why `folder` cannot be linked to `project`, or nil when it can. Only existing folders;

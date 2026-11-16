@@ -22,6 +22,9 @@ struct LinkedFolder: Codable, Equatable, Identifiable {
 /// the AI layer, because an assistant run reads them (`CLICompletion`); the rules for linking, and the document ids of their
 /// files, are `LinkedFolders` extensions in the Workspace domain.
 enum LinkedFolders {
+    /// Document ids of files in linked folders start with this: never a path inside the project.
+    static let documentIdPrefix = "@linked/"
+
     /// Posted when a project's linked folders change; `object` is the project key.
     static let didChange = Notification.Name("LinkedFoldersDidChange")
 

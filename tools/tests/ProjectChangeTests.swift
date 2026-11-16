@@ -5,10 +5,6 @@ import Foundation
 // are not walked, binary and large files are compared by size, date and identity instead of being read, text changes keep
 // both texts, and a walk over many files does not hold their bytes until it ends.
 
-// Stand-ins for the linked-folder types ProjectSearch.swift names; the scanner does not use them.
-struct LinkedFolder { var name: String; var url: URL }
-enum LinkedFolders { static let documentIdPrefix = "linked:" }
-
 var failures = 0
 func check(_ condition: Bool, _ message: String, line: Int = #line) {
     if condition { print("ok   \(message)") } else { failures += 1; print("FAIL \(message) (line \(line))") }
