@@ -2,6 +2,7 @@
 // bounded preparation, redaction, bridge validation, the change manager with selective undo, code revision identity,
 // scenarios and their compatibility, image comparison and feature packages. Run by tools/tests/ui-studio-tests.sh.
 import CoreGraphics
+import Combine
 import Foundation
 
 var failures = 0
@@ -1939,7 +1940,7 @@ func logChecks() async {
     // The preparation queue reports the start and the end of each preparation, without being polled.
     let reported = StudioPreparationQueue(limits: StudioPreparationLimits(deadline: 0.2, maxAttempts: 1, maxConcurrent: 2, maxContracts: 40))
     var records: [StudioPreparationQueue.Record] = []
-    reported.onRecord = { records.append($0) }
+    let recordSubscription = reported.recordEvents.sink { records.append($0) }
     let outcome = await reported.resolve(context("GET /api/slow-log"), generation: 1, preparer: StubPreparer(delay: 1_000_000_000, make: labels),
                                          currentGeneration: { 1 }, commit: { _ in [] })
     check("REQ-011 a preparation reports its start and its end", outcome == .timedOut && records.count == 2
@@ -1951,6 +1952,7 @@ func logChecks() async {
     _ = await reported.prepareAhead(aheadLogContext, services: [], preparer: StubPreparer(make: labels), commit: { _ in [] })
     check("REQ-011 a preparation ahead of a page is reported too", records.map(\.contract) == ["Page /log: server requests", "Page /log: server requests"]
           && records.last?.status == .registered, "\(records.map { "\($0.contract) \($0.status)" })")
+    withExtendedLifetime(recordSubscription) {}
 }
 
 // MARK: - Change tracking (REQ-012)

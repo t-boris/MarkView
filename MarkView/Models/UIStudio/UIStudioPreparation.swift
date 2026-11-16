@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 /// The bounds of automatic preparation (§12): a deadline per attempt, at most two attempts, a few at a time, and a budget
 /// per session, after which the problem is shown instead of asking the model again.
@@ -109,9 +110,8 @@ final class StudioPreparationQueue: ObservableObject {
     private var slotWaiters: [CheckedContinuation<Void, Never>] = []
     /// Model calls made, for the "0 calls for registered rules" check (§12).
     private(set) var modelCalls = 0
-    /// Called when a preparation starts (a new record, `finished` nil) and when it ends (`finished` set), for the session's
-    /// log (REQ-011).
-    var onRecord: (@MainActor (Record) -> Void)?
+    /// Records emitted when a preparation starts and ends, for the session log (REQ-011).
+    let recordEvents = PassthroughSubject<Record, Never>()
 
     init(limits: StudioPreparationLimits = StudioPreparationLimits()) {
         self.limits = limits
@@ -318,7 +318,7 @@ final class StudioPreparationQueue: ObservableObject {
     }
 
     private func report(_ contract: String) {
-        if let record = records[contract] { onRecord?(record) }
+        if let record = records[contract] { recordEvents.send(record) }
     }
 
     // MARK: Concurrency and deadline

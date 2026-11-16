@@ -235,7 +235,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         webView = WebHost.makeWebView(frame: CGRect(x: 0, y: 0, width: first.viewport.width, height: first.viewport.height),
                                       configuration: configuration)
         super.init()
-        preparation.onRecord = { [weak self] record in self?.logPreparation(record) }
+        preparation.recordEvents.sink { [weak self] record in self?.logPreparation(record) }.store(in: &partChanges)
         wireMapping()
         handler.session = self
         webView.navigationDelegate = self
