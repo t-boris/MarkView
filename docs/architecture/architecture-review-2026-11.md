@@ -300,6 +300,8 @@ Seven HTML escape functions under five names (the one in `markview-data.js:72` d
 
 Fix: one `mv-kit` module (escape, `h()`, debounce, a pan/zoom controller, `native.post`) and one Swift `WebHost` factory (configuration, weak handler, first-paint theme script, navigation policy, the JS call helper of AR-04).
 
+Status (2026-11-15): partial. Swift half done: `WKWebViewConfiguration(` creations 10 -> 0 (lint `webview-configuration`: every host uses `WebHost.makeConfiguration` and `makeWebView`, with weak handlers). Web half partial: `mvKit` holds `escapeHtml`, `h`, `debounce`, `attachPanZoom` and the sanitisers, and `mvBridge.send` is the one post wrapper; `innerHTML =` sinks 82 -> 80, empty `catch {}` blocks 57 -> 57, `window.x =` assignments 108 -> 111. The other escape functions, pan/zoom copies and debounce timers were not re-counted.
+
 ## 6. Web editor and bridge
 
 ### AR-28 The bridge contract is stringly typed and mirrored by hand (high, L)
